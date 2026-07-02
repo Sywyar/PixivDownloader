@@ -90,8 +90,17 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             addSectionNotices(content, section);
             addSectionHeader(content, section);
             addPresetCombo(content, section, null);
-            if (section.layout() == GuiConfigSectionLayout.CARD_SWITCHER && hasCards(section)) {
-                addCardSwitcher(content, section, rendered);
+            if (section.layout() == GuiConfigSectionLayout.CARD_SWITCHER) {
+                Map<String, List<GuiConfigFieldLayoutSpec>> layoutsByCard = layoutsByCard(section);
+                if (layoutsByCard.size() > 1) {
+                    addCardSwitcher(content, section, rendered, layoutsByCard);
+                } else if (layoutsByCard.size() == 1) {
+                    Map.Entry<String, List<GuiConfigFieldLayoutSpec>> card =
+                            layoutsByCard.entrySet().iterator().next();
+                    addCardContent(content, section, card.getValue(), card.getKey(), rendered);
+                } else {
+                    addFields(content, fieldsFor(section, rendered));
+                }
             } else if (section.layout() == GuiConfigSectionLayout.COMPACT_GRID) {
                 addCompactGrid(content, section, rendered);
             } else {
@@ -128,8 +137,8 @@ final class DeclaredGuiConfigSection implements ConfigSection {
     public void afterEnabledStates() {
         for (PresetState state : presetStates) {
             Object selected = state.combo().getSelectedItem();
-            if (selected instanceof GuiConfigPresetSpec preset && !preset.values().isEmpty()) {
-                preset.values().keySet().forEach(ctx::lockField);
+            if (selected instanceof GuiConfigPresetSpec preset) {
+                preset.lockedFieldKeys().forEach(ctx::lockField);
             }
         }
     }
@@ -143,11 +152,29 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             if (preset.matchFieldKey() == null) {
                 continue;
             }
-            if (ctx.currentFieldValue(preset.matchFieldKey()).equalsIgnoreCase(preset.matchValue())) {
+            if (matchesPresetValue(ctx.currentFieldValue(preset.matchFieldKey()), preset)) {
                 return preset;
             }
         }
         return fallback;
+    }
+
+    private static boolean matchesPresetValue(String actual, GuiConfigPresetSpec preset) {
+        String safeActual = actual == null ? "" : actual;
+        String safeExpected = preset.matchValue() == null ? "" : preset.matchValue();
+        return switch (preset.matchMode()) {
+            case EQUALS_IGNORE_CASE -> safeActual.equalsIgnoreCase(safeExpected);
+            case TRIMMED_TRAILING_SLASH_IGNORE_CASE ->
+                    trimTrailingSlashes(safeActual).equalsIgnoreCase(trimTrailingSlashes(safeExpected));
+        };
+    }
+
+    private static String trimTrailingSlashes(String value) {
+        String trimmed = value == null ? "" : value.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     private void addSectionNotices(JPanel content, GuiConfigSectionSpec section) {
@@ -228,14 +255,8 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         addPanel(content, panel);
     }
 
-    private void addCardSwitcher(JPanel content, GuiConfigSectionSpec section, Set<String> rendered) {
-        Map<String, List<GuiConfigFieldLayoutSpec>> byCard = new LinkedHashMap<>();
-        for (GuiConfigFieldLayoutSpec layout : section.fieldLayouts()) {
-            if (layout.cardId() == null) {
-                continue;
-            }
-            byCard.computeIfAbsent(layout.cardId(), ignored -> new ArrayList<>()).add(layout);
-        }
+    private void addCardSwitcher(JPanel content, GuiConfigSectionSpec section, Set<String> rendered,
+                                 Map<String, List<GuiConfigFieldLayoutSpec>> byCard) {
         List<String> cardIds = new ArrayList<>(byCard.keySet());
         JComboBox<String> cardCombo = new JComboBox<>(cardIds.toArray(new String[0]));
         cardCombo.setRenderer(new DefaultListCellRenderer() {
@@ -258,9 +279,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         Map<String, JComponent> cards = new LinkedHashMap<>();
         for (String cardId : cardIds) {
             JPanel card = ctx.newContentPanel();
-            addPresetCombo(card, section, cardId);
-            addFields(card, fieldsByLayout(byCard.get(cardId), rendered));
-            addActions(card, section, cardId);
+            addCardContent(card, section, byCard.get(cardId), cardId, rendered);
             cards.put(cardId, card);
         }
         JPanel cardHost = manualSwapHost();
@@ -273,6 +292,14 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             GuiThemeRefresh.showCard(cardHost, cards.get(cardIds.get(0)));
         }
         content.add(cardHost);
+    }
+
+    private void addCardContent(JPanel content, GuiConfigSectionSpec section,
+                                List<GuiConfigFieldLayoutSpec> layouts,
+                                String cardId, Set<String> rendered) {
+        addPresetCombo(content, section, cardId);
+        addFields(content, fieldsByLayout(layouts, rendered));
+        addActions(content, section, cardId);
     }
 
     private void addCompactGrid(JPanel content, GuiConfigSectionSpec section, Set<String> rendered) {
@@ -328,8 +355,15 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         return cardId;
     }
 
-    private boolean hasCards(GuiConfigSectionSpec section) {
-        return section.fieldLayouts().stream().anyMatch(layout -> layout.cardId() != null);
+    private Map<String, List<GuiConfigFieldLayoutSpec>> layoutsByCard(GuiConfigSectionSpec section) {
+        Map<String, List<GuiConfigFieldLayoutSpec>> byCard = new LinkedHashMap<>();
+        for (GuiConfigFieldLayoutSpec layout : section.fieldLayouts()) {
+            if (layout.cardId() == null) {
+                continue;
+            }
+            byCard.computeIfAbsent(layout.cardId(), ignored -> new ArrayList<>()).add(layout);
+        }
+        return byCard;
     }
 
     private List<ConfigFieldSpec> fieldsFor(GuiConfigSectionSpec section, Set<String> rendered) {
@@ -534,6 +568,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             boolean reachable,
             boolean http2xx,
             int status,
+            String rawBody,
             JsonNode body,
             String summary
     ) {
@@ -548,7 +583,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                     parsed = null;
                 }
             }
-            return new ActionResult(response.reachable(), response.is2xx(), response.status(), parsed,
+            return new ActionResult(response.reachable(), response.is2xx(), response.status(), body, parsed,
                     buildSummary(parsed, summarySpec));
         }
 
@@ -557,7 +592,9 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 case REACHABLE -> Boolean.toString(reachable);
                 case HTTP_2XX -> Boolean.toString(http2xx);
                 case HTTP_STATUS -> Integer.toString(status);
+                case HTTP_STATUS_TEXT -> status <= 0 ? "" : "HTTP " + status;
                 case JSON -> jsonText(path);
+                case RAW_BODY -> rawBody == null ? "" : rawBody;
                 case SUMMARY -> summary == null ? "" : summary;
             };
         }

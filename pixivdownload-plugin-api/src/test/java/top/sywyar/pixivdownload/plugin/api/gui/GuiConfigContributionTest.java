@@ -41,6 +41,7 @@ class GuiConfigContributionTest {
         assertThat(field.i18nNamespace()).isNull();
         assertThat(field.defaultValue()).isEmpty();
         assertThat(field.enumValues()).isEmpty();
+        assertThat(field.enumValueLabelKeys()).isEmpty();
         assertThat(field.enabledWhen()).isEmpty();
         assertThat(field.visibleWhen()).isEmpty();
         assertThat(field.contributesGroupVisibility()).isTrue();
@@ -74,6 +75,7 @@ class GuiConfigContributionTest {
         assertThat(field.sensitive()).isTrue();
         assertThat(field.requiresRestart()).isFalse();
         assertThat(field.enumValues()).containsExactly("auto", "manual");
+        assertThat(field.enumValueLabelKeys()).isEmpty();
         assertThat(field.enabledWhen()).containsExactly(
                 new GuiConfigCondition("demo.enabled", GuiConfigConditionOperator.TRUE, null));
         assertThat(field.visibleWhen()).containsExactly(
@@ -149,6 +151,8 @@ class GuiConfigContributionTest {
         assertThat(action.resultRules()).isEmpty();
         assertThat(action.resultSummary()).isNull();
         assertThat(preset.values()).containsEntry("demo.endpoint", "https://example.test");
+        assertThat(preset.lockedFieldKeys()).containsExactly("demo.endpoint");
+        assertThat(preset.matchMode()).isEqualTo(GuiConfigPresetMatchMode.EQUALS_IGNORE_CASE);
         assertThat(preset.cardId()).isNull();
         assertThat(section.sectionId()).isEqualTo("demo.main");
         assertThat(section.groupId()).isEqualTo(GuiConfigGroups.PLUGINS);

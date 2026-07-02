@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
@@ -102,6 +103,37 @@ class GuiConfigContributionAggregatorTest {
     }
 
     @Test
+    @DisplayName("插件 enum 字段可贡献 value 显示文案")
+    void enumFieldValueLabelsAreResolvedIntoSnapshot() {
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(new GuiConfigFieldContribution(
+                        "fixture.mode",
+                        GuiConfigGroups.PLUGINS,
+                        "fixture.mode.label",
+                        "fixture.mode.help",
+                        null,
+                        GuiConfigFieldType.ENUM,
+                        "auto",
+                        10,
+                        false,
+                        false,
+                        List.of("auto", "manual"),
+                        List.of(),
+                        List.of(),
+                        null,
+                        null,
+                        true,
+                        Map.of("auto", "fixture.mode.auto"))))));
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+
+        assertThat(field(snapshot, "fixture.mode").enumValueLabels())
+                .containsEntry("auto", "fixture.mode.auto");
+        assertThat(snapshot.diagnostics()).isEmpty();
+    }
+
+    @Test
     @DisplayName("section contribution 按分组和 section 顺序聚合并保留 action 与 preset")
     void sectionContributionsAreSortedAndCarried() {
         GuiConfigSectionContribution lateSection = new GuiConfigSectionContribution(
@@ -164,6 +196,54 @@ class GuiConfigContributionAggregatorTest {
                 .containsExactly("enabled");
         assertThat(late.presets()).extracting(GuiConfigPresetSpec::presetId)
                 .containsExactly("late.default");
+        assertThat(late.presets().get(0).lockedFieldKeys()).containsExactly("late.enabled");
+        assertThat(late.presets().get(0).matchMode()).isEqualTo(GuiConfigPresetMatchMode.EQUALS_IGNORE_CASE);
+        assertThat(contributions.diagnostics()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("preset contribution 保留显式锁定字段和匹配模式")
+    void presetContributionCarriesExplicitLocksAndMatchMode() {
+        GuiConfigSectionContribution section = new GuiConfigSectionContribution(
+                "fixture.section",
+                GuiConfigGroups.PLUGINS,
+                "",
+                "",
+                null,
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(new GuiConfigFieldLayoutContribution("fixture.endpoint", 10)),
+                List.of(),
+                List.of(new GuiConfigPresetContribution(
+                        "fixture.default",
+                        "fixture.preset.label",
+                        "",
+                        null,
+                        null,
+                        20,
+                        "fixture.endpoint",
+                        "https://api.example.test",
+                        Map.of(
+                                "fixture.endpoint", "https://api.example.test",
+                                "fixture.model", "fixture-model"),
+                        List.of("fixture.endpoint"),
+                        GuiConfigPresetMatchMode.TRIMMED_TRAILING_SLASH_IGNORE_CASE)));
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("fixture.endpoint", GuiConfigGroups.PLUGINS,
+                        "fixture.endpoint.label", GuiConfigFieldType.STRING)),
+                List.of(section))));
+
+        GuiConfigContributionSnapshot contributions =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+
+        assertThat(contributions.sections()).singleElement().satisfies(resolved -> {
+            GuiConfigPresetSpec preset = ((GuiConfigSectionSpec) resolved).presets().get(0);
+            assertThat(preset.values()).containsEntry("fixture.model", "fixture-model");
+            assertThat(preset.lockedFieldKeys()).containsExactly("fixture.endpoint");
+            assertThat(preset.matchMode()).isEqualTo(
+                    GuiConfigPresetMatchMode.TRIMMED_TRAILING_SLASH_IGNORE_CASE);
+        });
         assertThat(contributions.diagnostics()).isEmpty();
     }
 

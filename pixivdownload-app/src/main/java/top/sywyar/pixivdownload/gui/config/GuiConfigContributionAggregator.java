@@ -266,6 +266,12 @@ public final class GuiConfigContributionAggregator {
                 .contributesGroupVisibility(field.contributesGroupVisibility());
         if (field.type() == GuiConfigFieldType.ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));
+            Map<String, String> enumValueLabels = enumValueLabels(
+                    registered, textResolver, key, field, diagnostics);
+            if (enumValueLabels == null) {
+                return null;
+            }
+            builder.enumValueLabels(enumValueLabels);
         }
         if (!field.requiresRestart()) {
             builder.hotReloadable();
@@ -273,6 +279,39 @@ public final class GuiConfigContributionAggregator {
         int groupOrder = ConfigFieldRegistry.groupOrder(groupId)
                 .orElseGet(() -> customGroups.get(groupId).spec().order());
         return new AcceptedField(registered.id(), key, builder.build(), groupOrder, field.order());
+    }
+
+    private static Map<String, String> enumValueLabels(PluginRegistry.RegisteredPlugin registered,
+                                                       PluginTextResolver textResolver,
+                                                       String fieldKey,
+                                                       GuiConfigFieldContribution field,
+                                                       List<GuiConfigContributionDiagnostic> diagnostics) {
+        if (field.enumValueLabelKeys().isEmpty()) {
+            return Map.of();
+        }
+        Set<String> allowedValues = new HashSet<>(field.enumValues());
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : field.enumValueLabelKeys().entrySet()) {
+            String value = normalize(entry.getKey());
+            String labelKey = normalize(entry.getValue());
+            if (value == null || labelKey == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), fieldKey,
+                        "GUI config enum value label contains blank value or label key"));
+                continue;
+            }
+            if (!allowedValues.contains(value)) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), fieldKey,
+                        "GUI config enum value label references unknown value '" + value + "'"));
+                continue;
+            }
+            String label = textResolver.fieldText(fieldKey, field.i18nNamespace(), labelKey,
+                    "enum value label", diagnostics);
+            if (label == null) {
+                return null;
+            }
+            labels.put(value, label);
+        }
+        return Map.copyOf(labels);
     }
 
     private static List<GuiConfigSectionSpec> collectSections(List<PluginContributions> contributions,
@@ -763,7 +802,8 @@ public final class GuiConfigContributionAggregator {
                 continue;
             }
             accepted.add(new GuiConfigPresetSpec(presetId, label, help, normalize(preset.cardId()), preset.order(),
-                    normalize(preset.matchFieldKey()), preset.matchValue(), preset.values()));
+                    normalize(preset.matchFieldKey()), preset.matchValue(), preset.values(), preset.lockedFieldKeys(),
+                    preset.matchMode()));
         }
         return accepted.stream()
                 .sorted(Comparator

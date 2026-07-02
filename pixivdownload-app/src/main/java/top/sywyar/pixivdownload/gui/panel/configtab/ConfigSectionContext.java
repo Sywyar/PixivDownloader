@@ -27,7 +27,7 @@ public interface ConfigSectionContext {
     /** 注册一个已渲染字段（纳入加载 / 保存 / 校验 / 可见性重算，并挂上变更监听）。 */
     void registerField(ConfigFieldSpec spec, FieldRenderer.RenderedField rf);
 
-    /** 依次渲染并注册一组字段到容器（左对齐 + 间距，与普通分组渲染一致）。 */
+    /** 依次渲染并注册一组字段到容器（左对齐 + 跟随间距，与普通分组渲染一致）。 */
     void addFields(JPanel content, List<ConfigFieldSpec> specs);
 
     /** 取某字段当前控件值；不存在返回空串。 */

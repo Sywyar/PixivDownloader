@@ -119,6 +119,18 @@ public final class FieldRenderer {
 
     private static RenderedField renderEnum(ConfigFieldSpec spec) {
         JComboBox<String> cb = new JComboBox<>(spec.enumValues().toArray(new String[0]));
+        cb.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(
+                        list, value, index, isSelected, cellHasFocus);
+                if (value instanceof String id) {
+                    label.setText(spec.enumValueLabels().getOrDefault(id, id));
+                }
+                return label;
+            }
+        });
         cb.setSelectedItem(spec.defaultValue());
         RenderedPanel p = renderFieldPanel(spec, cb);
         return new RenderedField(p.panel(),

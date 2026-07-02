@@ -3,8 +3,11 @@ package top.sywyar.pixivdownload.tts;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -13,10 +16,14 @@ import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.List;
+import java.util.Map;
 
 public class TtsPlugin implements PixivFeaturePlugin {
 
     public static final String ID = "tts";
+    public static final String GUI_SECTION_ID = "ai.modalities";
+    private static final String TTS_CARD_ID = "tts";
+    private static final String ENGINE_KEY = "narration-tts.engine";
 
     @Override
     public String id() {
@@ -74,8 +81,8 @@ public class TtsPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {
-        return List.of(new GuiConfigContribution(List.of(
-                enumeration("narration-tts.engine", "voxcpm", 100,
+        List<GuiConfigFieldContribution> fields = List.of(
+                engineEnumeration("voxcpm", 100,
                         List.of("voxcpm", "mimo", "cosyvoice", "fish", "minimax", "elevenlabs", "qwen", "doubao")),
 
                 string("narration-tts.voxcpm.base-url", "", 110, engine("voxcpm")),
@@ -152,12 +159,45 @@ public class TtsPlugin implements PixivFeaturePlugin {
                 enumeration("narration-tts.doubao.encoding", "mp3", 255,
                         List.of("mp3", "wav", "pcm", "ogg_opus"), engine("doubao")),
                 string("narration-tts.doubao.emotion", "", 256, engine("doubao")),
-                bool("narration-tts.doubao.use-proxy", "false", 257, engine("doubao"))
-        )));
+                bool("narration-tts.doubao.use-proxy", "false", 257, engine("doubao")));
+        return List.of(new GuiConfigContribution(
+                List.of(),
+                fields,
+                List.of(ttsSection(fields))));
+    }
+
+    private static GuiConfigSectionContribution ttsSection(List<GuiConfigFieldContribution> fields) {
+        return new GuiConfigSectionContribution(
+                GUI_SECTION_ID,
+                GuiConfigGroups.AI,
+                "",
+                "",
+                ID,
+                "gui.config.tts.modality.label",
+                "gui.config.tts.modality.help",
+                "",
+                "",
+                List.of(),
+                GuiConfigSectionLayout.CARD_SWITCHER,
+                1200,
+                fields.stream()
+                        .map(field -> new GuiConfigFieldLayoutContribution(
+                                field.key(), TTS_CARD_ID, "gui.config.tts.modality.tts", ID, field.order()))
+                        .toList(),
+                List.of(),
+                List.of(),
+                true,
+                true);
     }
 
     private static GuiConfigCondition engine(String id) {
-        return GuiConfigCondition.equalsTo("narration-tts.engine", id);
+        return GuiConfigCondition.equalsTo(ENGINE_KEY, id);
+    }
+
+    private static GuiConfigFieldContribution engineEnumeration(String defaultValue, int order,
+                                                                List<String> enumValues) {
+        return field(ENGINE_KEY, GuiConfigFieldType.ENUM, defaultValue, order, enumValues,
+                null, null, engineValueLabelKeys(enumValues));
     }
 
     private static GuiConfigFieldContribution bool(String key, String defaultValue, int order,
@@ -190,9 +230,32 @@ public class TtsPlugin implements PixivFeaturePlugin {
     private static GuiConfigFieldContribution field(String key, GuiConfigFieldType type, String defaultValue,
                                                     int order, List<String> enumValues, Integer minValue,
                                                     Integer maxValue, GuiConfigCondition... enabledWhen) {
+        return field(key, type, defaultValue, order, enumValues, minValue, maxValue, Map.of(), enabledWhen);
+    }
+
+    private static GuiConfigFieldContribution field(String key, GuiConfigFieldType type, String defaultValue,
+                                                    int order, List<String> enumValues, Integer minValue,
+                                                    Integer maxValue, Map<String, String> enumValueLabelKeys,
+                                                    GuiConfigCondition... enabledWhen) {
         String prefix = "gui.config.field." + key;
+        List<GuiConfigCondition> enabledConditions = List.of(enabledWhen);
         return new GuiConfigFieldContribution(key, GuiConfigGroups.NARRATION_TTS, prefix + ".label", prefix + ".help",
                 ID, type, defaultValue, order, false, false, enumValues,
-                List.of(enabledWhen), List.of(), minValue, maxValue);
+                enabledConditions, visibleWhenEngine(enabledConditions), minValue, maxValue,
+                true, enumValueLabelKeys);
+    }
+
+    private static List<GuiConfigCondition> visibleWhenEngine(List<GuiConfigCondition> enabledConditions) {
+        return enabledConditions.stream()
+                .filter(condition -> ENGINE_KEY.equals(condition.key()))
+                .toList();
+    }
+
+    private static Map<String, String> engineValueLabelKeys(List<String> enumValues) {
+        java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<>();
+        for (String value : enumValues) {
+            labels.put(value, "gui.config.field.narration-tts.engine.value." + value);
+        }
+        return Map.copyOf(labels);
     }
 }

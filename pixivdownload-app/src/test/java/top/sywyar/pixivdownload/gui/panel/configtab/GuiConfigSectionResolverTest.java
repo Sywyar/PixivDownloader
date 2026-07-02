@@ -3,28 +3,38 @@ package top.sywyar.pixivdownload.gui.panel.configtab;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.gui.config.ConfigFieldSnapshot;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
+import top.sywyar.pixivdownload.gui.config.ConfigSnapshot;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.config.FieldType;
 import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
+import top.sywyar.pixivdownload.gui.config.GuiConfigPresetSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionNoticeSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
+import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JComponent;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Font;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +49,7 @@ class GuiConfigSectionResolverTest {
     Path tempDir;
 
     @Test
-    @DisplayName("没有声明式 section 时只为未迁移分组保留过渡 adapter")
+    @DisplayName("没有声明式 section 时不再为 AI 分组创建过渡 adapter")
     void transitionAdaptersRemainPlainSectionsWithoutDeclaredSections() {
         List<String> groups = List.of(
                 ConfigFieldRegistry.groupAi(),
@@ -53,8 +63,8 @@ class GuiConfigSectionResolverTest {
                 tempDir.resolve("config.yaml"),
                 path -> "http://localhost:6999" + path);
 
-        assertThat(sections).hasSize(2);
-        assertThat(section(sections, ConfigFieldRegistry.groupAi())).isInstanceOf(AiConfigSection.class);
+        assertThat(sections).hasSize(1);
+        assertThat(sections).noneMatch(section -> ConfigFieldRegistry.groupAi().equals(section.group()));
         assertThat(sections).noneMatch(section -> ConfigFieldRegistry.groupNotification().equals(section.group()));
         assertThat(section(sections, ConfigFieldRegistry.groupPlugins()))
                 .isInstanceOf(PluginMarketConfigSection.class);
@@ -258,6 +268,103 @@ class GuiConfigSectionResolverTest {
         assertThat(ctx.registrationCount("fixture.claimed")).isZero();
     }
 
+    @Test
+    @DisplayName("单卡片声明式 section 不渲染额外卡片切换器")
+    void singleCardSectionDoesNotRenderCardSwitcher() {
+        String group = "Fixture Group";
+        RecordingContext ctx = new RecordingContext(List.of(field("fixture.enabled", group)));
+        GuiConfigSectionSpec declared = cardSection(
+                "fixture", "fixture.single-card", "fixture.group", group, 10,
+                List.of(new GuiConfigFieldLayoutSpec("fixture.enabled", "only", "Only", 10)));
+
+        ConfigSection resolved = singleSection(ctx, group, List.of(declared));
+        JComponent built = resolved.build();
+        JPanel content = (JPanel) ((JScrollPane) built).getViewport().getView();
+
+        assertThat(countComponents(content, JComboBox.class)).isZero();
+        assertThat(ctx.registrationOrder()).containsExactly("fixture.enabled");
+    }
+
+    @Test
+    @DisplayName("声明式字段 visibleWhen 隐藏时同步隐藏字段后间距")
+    void declaredVisibleWhenHidesFieldRowSpacing() {
+        String group = "Fixture Group";
+        List<ConfigFieldSpec> fields = switchingFields(group);
+        RecordingContext ctx = new RecordingContext(fields);
+        GuiConfigSectionSpec declared = section(
+                "fixture", "fixture.visible", "fixture.group", group, 10,
+                "fixture.engine", "fixture.first", "fixture.second");
+
+        ConfigSection resolved = singleSection(ctx, group, List.of(declared));
+        JComponent built = resolved.build();
+        JPanel content = (JPanel) ((JScrollPane) built).getViewport().getView();
+
+        ctx.setFieldValue("fixture.engine", "second");
+        ctx.updateEnabledStates();
+
+        assertThat(ctx.renderedField("fixture.first").panel().isVisible()).isFalse();
+        assertThat(ctx.renderedField("fixture.second").panel().isVisible()).isTrue();
+        assertThat(visibleFieldRows(content))
+                .containsExactly("fixture.engine", "fixture.second");
+        assertThat(visibleFieldRowSpacingCount(content)).isEqualTo(2);
+        assertThat(visibleDirectFixedStruts(content)).isZero();
+
+        ctx.setFieldValue("fixture.engine", "first");
+        ctx.updateEnabledStates();
+
+        assertThat(ctx.renderedField("fixture.first").panel().isVisible()).isTrue();
+        assertThat(ctx.renderedField("fixture.second").panel().isVisible()).isFalse();
+        assertThat(visibleFieldRows(content))
+                .containsExactly("fixture.engine", "fixture.first");
+        assertThat(visibleFieldRowSpacingCount(content)).isEqualTo(2);
+        assertThat(visibleDirectFixedStruts(content)).isZero();
+    }
+
+    @Test
+    @DisplayName("普通分组字段 visibleWhen 隐藏时不保留独立间距")
+    void plainGroupVisibleWhenHidesFieldRowSpacing() {
+        String group = "Fixture Group";
+        ConfigFieldSnapshot snapshot = new ConfigFieldSnapshot(
+                List.of("Server Group", group), switchingFields(group), List.of(), List.of());
+        ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
+                path -> path, snapshot);
+        JPanel content = configTabContent(panel, group);
+
+        panel.setFieldValue("fixture.engine", "second");
+        panel.updateEnabledStates();
+
+        assertThat(visibleFieldRows(content))
+                .containsExactly("fixture.engine", "fixture.second");
+        assertThat(visibleFieldRowSpacingCount(content)).isEqualTo(2);
+        assertThat(visibleDirectFixedStruts(content)).isZero();
+
+        panel.setFieldValue("fixture.engine", "first");
+        panel.updateEnabledStates();
+
+        assertThat(visibleFieldRows(content))
+                .containsExactly("fixture.engine", "fixture.first");
+        assertThat(visibleFieldRowSpacingCount(content)).isEqualTo(2);
+        assertThat(visibleDirectFixedStruts(content)).isZero();
+    }
+
+    @Test
+    @DisplayName("声明式 preset 可只锁定贡献方声明的字段")
+    void presetLocksDeclaredKeysOnly() {
+        String group = "Fixture Group";
+        RecordingContext ctx = new RecordingContext(List.of(
+                field("fixture.endpoint", group),
+                field("fixture.model", group)));
+        GuiConfigSectionSpec declared = presetSection(group);
+
+        ConfigSection resolved = singleSection(ctx, group, List.of(declared));
+        resolved.build();
+        ctx.setFieldValue("fixture.endpoint", "https://api.example.test/");
+        resolved.onValuesLoaded();
+        resolved.afterEnabledStates();
+
+        assertThat(ctx.lockedFields()).containsExactly("fixture.endpoint");
+    }
+
     private ConfigSection singleSection(String group, List<GuiConfigSectionSpec> declaredSections) {
         return singleSection(new RecordingContext(List.of()), group, declaredSections);
     }
@@ -314,10 +421,162 @@ class GuiConfigSectionResolverTest {
                 true);
     }
 
+    private static GuiConfigSectionSpec cardSection(String pluginId, String sectionId, String groupId,
+                                                    String group, int order,
+                                                    List<GuiConfigFieldLayoutSpec> layouts) {
+        return new GuiConfigSectionSpec(
+                pluginId,
+                sectionId,
+                groupId,
+                group,
+                0,
+                "",
+                "",
+                "Card",
+                "Choose card",
+                "",
+                "",
+                List.of(),
+                GuiConfigSectionLayout.CARD_SWITCHER,
+                order,
+                layouts,
+                List.of(),
+                List.of(),
+                false,
+                true);
+    }
+
+    private static GuiConfigSectionSpec presetSection(String group) {
+        return new GuiConfigSectionSpec(
+                "fixture",
+                "fixture.preset",
+                "fixture.group",
+                group,
+                0,
+                "",
+                "",
+                "",
+                "",
+                "Preset",
+                "",
+                List.of(),
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(
+                        new GuiConfigFieldLayoutSpec("fixture.endpoint", null, "", 10),
+                        new GuiConfigFieldLayoutSpec("fixture.model", null, "", 20)),
+                List.of(),
+                List.of(new GuiConfigPresetSpec(
+                        "default",
+                        "Default",
+                        "",
+                        null,
+                        0,
+                        "fixture.endpoint",
+                        "https://api.example.test",
+                        Map.of(
+                                "fixture.endpoint", "https://api.example.test",
+                                "fixture.model", "fixture-model"),
+                        List.of("fixture.endpoint"),
+                        GuiConfigPresetMatchMode.TRIMMED_TRAILING_SLASH_IGNORE_CASE)),
+                false,
+                true);
+    }
+
     private static ConfigFieldSpec field(String key, String group) {
         return ConfigFieldSpec.builder(key, key, FieldType.STRING, group)
                 .defaultValue("")
                 .build();
+    }
+
+    private static List<ConfigFieldSpec> switchingFields(String group) {
+        ConfigFieldSpec engine = ConfigFieldSpec.builder("fixture.engine", "Engine", FieldType.ENUM, group)
+                .defaultValue("first")
+                .enumValues("first", "second")
+                .build();
+        ConfigFieldSpec first = ConfigFieldSpec.builder("fixture.first", "First", FieldType.STRING, group)
+                .visibleWhen(snap -> snap.equals("fixture.engine", "first"))
+                .build();
+        ConfigFieldSpec second = ConfigFieldSpec.builder("fixture.second", "Second", FieldType.STRING, group)
+                .visibleWhen(snap -> snap.equals("fixture.engine", "second"))
+                .build();
+        return List.of(engine, first, second);
+    }
+
+    private static JPanel configTabContent(ConfigPanel panel, String group) {
+        for (Component component : panel.getComponents()) {
+            if (component instanceof JTabbedPane tabs) {
+                for (int i = 0; i < tabs.getTabCount(); i++) {
+                    if (!group.equals(tabs.getTitleAt(i))) {
+                        continue;
+                    }
+                    Component tab = tabs.getComponentAt(i);
+                    if (tab instanceof JScrollPane scrollPane
+                            && scrollPane.getViewport().getView() instanceof JPanel content) {
+                        return content;
+                    }
+                }
+            }
+        }
+        throw new AssertionError("ConfigPanel tab content not found: " + group);
+    }
+
+    private static List<String> visibleFieldRows(JPanel content) {
+        return Arrays.stream(content.getComponents())
+                .filter(Component::isVisible)
+                .filter(JComponent.class::isInstance)
+                .map(JComponent.class::cast)
+                .map(component -> component.getClientProperty(ConfigFieldRows.FIELD_KEY_PROPERTY))
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .toList();
+    }
+
+    private static int visibleFieldRowSpacingCount(JPanel content) {
+        int count = 0;
+        for (Component component : content.getComponents()) {
+            if (!component.isVisible()
+                    || !(component instanceof JComponent row)
+                    || row.getClientProperty(ConfigFieldRows.FIELD_KEY_PROPERTY) == null) {
+                continue;
+            }
+            Container container = row;
+            for (Component child : container.getComponents()) {
+                if (child.isVisible()
+                        && child instanceof JComponent childComponent
+                        && Boolean.TRUE.equals(childComponent.getClientProperty(
+                        ConfigFieldRows.TRAILING_SPACING_PROPERTY))) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int visibleDirectFixedStruts(JPanel content) {
+        int count = 0;
+        for (Component component : content.getComponents()) {
+            if (component.isVisible() && isFixedVerticalStrut(component)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static boolean isFixedVerticalStrut(Component component) {
+        return component instanceof Box.Filler filler
+                && filler.getPreferredSize().height == 2
+                && filler.getMaximumSize().height == 2;
+    }
+
+    private static int countComponents(Component root, Class<?> type) {
+        int count = type.isInstance(root) ? 1 : 0;
+        if (root instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                count += countComponents(child, type);
+            }
+        }
+        return count;
     }
 
     private static final class EmptyConfigSection implements ConfigSection {
@@ -343,6 +602,7 @@ class GuiConfigSectionResolverTest {
         private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
         private final Map<String, Integer> registrations = new LinkedHashMap<>();
         private final List<String> registrationOrder = new ArrayList<>();
+        private final List<String> lockedFields = new ArrayList<>();
 
         private RecordingContext(List<ConfigFieldSpec> fields) {
             this.fields = fields == null ? List.of() : List.copyOf(fields);
@@ -371,7 +631,7 @@ class GuiConfigSectionResolverTest {
         @Override
         public void addFields(JPanel content, List<ConfigFieldSpec> specs) {
             for (ConfigFieldSpec spec : specs) {
-                FieldRenderer.RenderedField rf = FieldRenderer.render(spec);
+                FieldRenderer.RenderedField rf = ConfigFieldRows.render(spec);
                 registerField(spec, rf);
                 content.add(rf.panel());
             }
@@ -393,6 +653,7 @@ class GuiConfigSectionResolverTest {
 
         @Override
         public void lockField(String key) {
+            lockedFields.add(key);
         }
 
         @Override
@@ -422,6 +683,16 @@ class GuiConfigSectionResolverTest {
 
         @Override
         public void updateEnabledStates() {
+            Map<String, String> values = new LinkedHashMap<>();
+            renderedFields.forEach((key, renderedField) ->
+                    values.put(key, renderedField.getValue().get()));
+            ConfigSnapshot snapshot = new ConfigSnapshot(values);
+            for (ConfigFieldSpec field : fields) {
+                FieldRenderer.RenderedField renderedField = renderedFields.get(field.key());
+                if (renderedField != null) {
+                    renderedField.panel().setVisible(field.visibleWhen().test(snapshot));
+                }
+            }
         }
 
         @Override
@@ -439,6 +710,10 @@ class GuiConfigSectionResolverTest {
 
         private FieldRenderer.RenderedField renderedField(String key) {
             return renderedFields.get(key);
+        }
+
+        private List<String> lockedFields() {
+            return List.copyOf(lockedFields);
         }
     }
 }

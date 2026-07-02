@@ -21,7 +21,6 @@ import java.util.function.Function;
 public final class GuiConfigSectionResolver {
 
     static final String TRANSITION_OWNER = "app-transition";
-    static final String AI_TRANSITION_SECTION = "transition.ai-config";
     static final String PLUGIN_MARKET_SECTION = "core.plugin-market-config";
 
     private GuiConfigSectionResolver() {
@@ -33,12 +32,7 @@ public final class GuiConfigSectionResolver {
                                                      Path configPath,
                                                      Function<String, String> webUrlProvider) {
         List<GuiConfigSectionSpec> safePluginSections = pluginSections == null ? List.of() : pluginSections;
-        Set<String> declaredGroups = safePluginSections.stream()
-                .filter(spec -> spec != null)
-                .filter(spec -> visibleGroups == null || visibleGroups.contains(spec.group()))
-                .map(GuiConfigSectionSpec::group)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        List<GuiConfigSectionSpec> transitionSpecs = transitionAdapterSpecs(visibleGroups, declaredGroups);
+        List<GuiConfigSectionSpec> transitionSpecs = transitionAdapterSpecs(visibleGroups);
         Map<String, List<ConfigSectionBlock>> blocksByGroup = new LinkedHashMap<>();
         Set<String> exclusiveGroups = new LinkedHashSet<>();
 
@@ -77,14 +71,9 @@ public final class GuiConfigSectionResolver {
         return List.copyOf(sections);
     }
 
-    private static List<GuiConfigSectionSpec> transitionAdapterSpecs(List<String> visibleGroups,
-                                                                     Set<String> declaredGroups) {
+    private static List<GuiConfigSectionSpec> transitionAdapterSpecs(List<String> visibleGroups) {
         List<GuiConfigSectionSpec> specs = new ArrayList<>();
         String pluginsGroup = ConfigFieldRegistry.groupPlugins();
-        String aiGroup = ConfigFieldRegistry.groupAi();
-        if (contains(visibleGroups, aiGroup) && !declaredGroups.contains(aiGroup)) {
-            specs.add(transitionSpec(AI_TRANSITION_SECTION, GuiConfigGroups.AI, aiGroup, 1200));
-        }
         if (contains(visibleGroups, pluginsGroup)) {
             specs.add(transitionSpec(PLUGIN_MARKET_SECTION, GuiConfigGroups.PLUGINS, pluginsGroup, 300));
         }
@@ -102,7 +91,6 @@ public final class GuiConfigSectionResolver {
                                                       Path configPath,
                                                       Function<String, String> webUrlProvider) {
         Function<ConfigSectionContext, ConfigSection> factory = switch (spec.sectionId()) {
-            case AI_TRANSITION_SECTION -> AiConfigSection::new;
             case PLUGIN_MARKET_SECTION -> sectionContext ->
                     new PluginMarketConfigSection(sectionContext, configPath, webUrlProvider);
             default -> null;

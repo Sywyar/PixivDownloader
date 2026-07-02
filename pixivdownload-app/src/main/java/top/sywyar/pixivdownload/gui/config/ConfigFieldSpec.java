@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
 
 /**
@@ -15,6 +16,7 @@ public record ConfigFieldSpec(
         String defaultValue,
         Validator validator,
         List<String> enumValues,
+        Map<String, String> enumValueLabels,
         Predicate<ConfigSnapshot> enabledWhen,
         Predicate<ConfigSnapshot> visibleWhen,
         boolean requiresRestart,
@@ -41,6 +43,7 @@ public record ConfigFieldSpec(
         private String defaultValue = "";
         private Validator validator = v -> null;
         private List<String> enumValues = List.of();
+        private Map<String, String> enumValueLabels = Map.of();
         private Predicate<ConfigSnapshot> enabledWhen = snap -> true;
         private Predicate<ConfigSnapshot> visibleWhen = snap -> true;
         private boolean requiresRestart = true;
@@ -73,6 +76,11 @@ public record ConfigFieldSpec(
             return this;
         }
 
+        public Builder enumValueLabels(Map<String, String> labels) {
+            this.enumValueLabels = labels == null ? Map.of() : Map.copyOf(labels);
+            return this;
+        }
+
         public Builder enabledWhen(Predicate<ConfigSnapshot> pred) {
             this.enabledWhen = pred;
             return this;
@@ -95,7 +103,7 @@ public record ConfigFieldSpec(
 
         public ConfigFieldSpec build() {
             return new ConfigFieldSpec(key, label, type, group, helpText, defaultValue,
-                    validator, enumValues, enabledWhen, visibleWhen, requiresRestart,
+                    validator, enumValues, enumValueLabels, enabledWhen, visibleWhen, requiresRestart,
                     contributesGroupVisibility);
         }
     }

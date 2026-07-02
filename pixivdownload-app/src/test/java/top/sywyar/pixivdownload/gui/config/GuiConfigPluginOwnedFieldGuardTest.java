@@ -19,14 +19,21 @@ class GuiConfigPluginOwnedFieldGuardTest {
 
     private static final List<Pattern> FORBIDDEN_PLUGIN_OWNED_TOKENS = List.of(
             Pattern.compile("NotificationConfigSection"),
+            Pattern.compile("AiConfigSection"),
             Pattern.compile("notification\\.scenario"),
             Pattern.compile("\\bmail\\."),
             Pattern.compile("\\bpush\\."),
+            Pattern.compile("\\bai\\."),
+            Pattern.compile("\\bnarration-tts\\."),
             Pattern.compile("mail-test"),
-            Pattern.compile("push-test"));
+            Pattern.compile("push-test"),
+            Pattern.compile("ai-test"),
+            Pattern.compile("tts-test"),
+            Pattern.compile("ai\\.preset\\.name"),
+            Pattern.compile("gui\\.config\\.ai\\.preset"));
 
     @Test
-    @DisplayName("宿主 GUI 配置核心不硬编码 notification/mail/push 字段或测试端点")
+    @DisplayName("宿主 GUI 配置核心不硬编码插件 owned 字段或测试端点")
     void hostGuiConfigCoreDoesNotHardcodeNotificationPluginFields() throws IOException {
         List<Path> roots = List.of(
                 appRoot().resolve("src/main/java/top/sywyar/pixivdownload/gui/config"),
@@ -52,7 +59,7 @@ class GuiConfigPluginOwnedFieldGuardTest {
         }
 
         assertThat(violations)
-                .as("通知、邮件、推送字段和测试端点只能由各插件 GUI contribution 声明")
+                .as("插件 owned 字段、preset 和测试端点只能由各插件 GUI contribution 声明")
                 .isEmpty();
     }
 

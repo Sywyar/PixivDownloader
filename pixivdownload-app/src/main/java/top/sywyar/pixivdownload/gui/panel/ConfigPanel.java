@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.gui.config.*;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSectionContext;
+import top.sywyar.pixivdownload.gui.panel.configtab.ConfigFieldRows;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigSectionResolver;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -185,11 +186,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             if (maintenanceGroup.equals(group) && isMaintenanceDayEnabledKey(spec.key())) {
                 continue;
             }
-            FieldRenderer.RenderedField rf = FieldRenderer.render(spec);
+            FieldRenderer.RenderedField rf = ConfigFieldRows.render(spec);
             registerField(spec, rf);
-            rf.panel().setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(rf.panel());
-            content.add(Box.createVerticalStrut(2));
             if (maintenanceGroup.equals(group) && "maintenance.enabled".equals(spec.key())) {
                 JPanel weekdaysPanel = buildMaintenanceWeekdayPanel(fields);
                 weekdaysPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -932,11 +931,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     @Override
     public void addFields(JPanel content, List<ConfigFieldSpec> specs) {
         for (ConfigFieldSpec spec : specs) {
-            FieldRenderer.RenderedField rf = FieldRenderer.render(spec);
+            FieldRenderer.RenderedField rf = ConfigFieldRows.render(spec);
             registerField(spec, rf);
-            rf.panel().setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(rf.panel());
-            content.add(Box.createVerticalStrut(2));
         }
     }
 
