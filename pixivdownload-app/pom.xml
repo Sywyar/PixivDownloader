@@ -168,6 +168,7 @@
                 <configuration>
                     <systemPropertyVariables>
                         <stats.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-stats/target/classes</stats.plugin.classes>
+                        <notification.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-notification/target/classes</notification.plugin.classes>
                         <push.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-push/target/classes</push.plugin.classes>
                         <mail.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-mail/target/classes</mail.plugin.classes>
                         <tts.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-tts/target/classes</tts.plugin.classes>

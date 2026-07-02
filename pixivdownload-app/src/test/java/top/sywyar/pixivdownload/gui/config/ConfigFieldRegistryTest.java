@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.gui.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 
 import java.util.List;
@@ -91,8 +91,22 @@ class ConfigFieldRegistryTest {
 
         assertThat(ConfigFieldRegistry.groups()).doesNotContain(notificationGroup);
         assertThat(ConfigFieldRegistry.allFields())
-                .as("通知类型开关仍是核心配置字段，但不应单独撑出通知标签页")
-                .anyMatch(spec -> spec.key().startsWith(NotificationConfig.KEY_SCENARIO_PREFIX));
+                .as("notification.scenario.* 字段由 notification 基础插件贡献，不再属于 app 核心字段")
+                .noneMatch(spec -> spec.key().startsWith(NotificationConfigKeys.SCENARIO_PREFIX));
+    }
+
+    @Test
+    @DisplayName("仅 notification 基础插件贡献场景字段时仍不显示通知分组")
+    void notificationGroupHiddenWithOnlyScenarioOwnerFields() {
+        String notificationGroup = GuiMessages.get("gui.config.group.notification");
+        ConfigFieldSpec scenarioField = scenarioPluginField("run-summary");
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(scenarioField), List.of()));
+
+        assertThat(snapshot.groups())
+                .as("保持既有行为：没有邮件或推送介质字段时，不因为基础场景字段单独出现通知页")
+                .doesNotContain(notificationGroup);
     }
 
     @Test
@@ -100,7 +114,8 @@ class ConfigFieldRegistryTest {
     void notificationGroupVisibleWithMailPluginFields() {
         String notificationGroup = GuiMessages.get("gui.config.group.notification");
 
-        ConfigFieldSnapshot snapshot = snapshotWithNotificationPluginField("mail.enabled");
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(notificationPluginField("mail.enabled")), List.of()));
 
         assertThat(snapshot.groups()).contains(notificationGroup);
     }
@@ -110,7 +125,34 @@ class ConfigFieldRegistryTest {
     void notificationGroupVisibleWithPushPluginFields() {
         String notificationGroup = GuiMessages.get("gui.config.group.notification");
 
-        ConfigFieldSnapshot snapshot = snapshotWithNotificationPluginField("push.enabled");
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(notificationPluginField("push.enabled")), List.of()));
+
+        assertThat(snapshot.groups()).contains(notificationGroup);
+    }
+
+    @Test
+    @DisplayName("notification 基础插件 + 邮件插件字段贡献时显示通知分组")
+    void notificationGroupVisibleWithScenarioOwnerAndMailPluginFields() {
+        String notificationGroup = GuiMessages.get("gui.config.group.notification");
+        ConfigFieldSpec scenarioField = scenarioPluginField("run-summary");
+        ConfigFieldSpec mailField = notificationPluginField("mail.enabled");
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(scenarioField, mailField), List.of()));
+
+        assertThat(snapshot.groups()).contains(notificationGroup);
+    }
+
+    @Test
+    @DisplayName("notification 基础插件 + 推送插件字段贡献时显示通知分组")
+    void notificationGroupVisibleWithScenarioOwnerAndPushPluginFields() {
+        String notificationGroup = GuiMessages.get("gui.config.group.notification");
+        ConfigFieldSpec scenarioField = scenarioPluginField("run-summary");
+        ConfigFieldSpec pushField = notificationPluginField("push.enabled");
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(scenarioField, pushField), List.of()));
 
         assertThat(snapshot.groups()).contains(notificationGroup);
     }
@@ -195,15 +237,21 @@ class ConfigFieldRegistryTest {
         assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
     }
 
-    private static ConfigFieldSnapshot snapshotWithNotificationPluginField(String key) {
-        return ConfigFieldRegistry.snapshot(
-                new GuiConfigContributionSnapshot(List.of(), List.of(notificationPluginField(key)), List.of()));
-    }
-
     private static ConfigFieldSpec notificationPluginField(String key) {
         return ConfigFieldSpec.builder(
                         key, "Fixture", FieldType.BOOL, GuiMessages.get("gui.config.group.notification"))
                 .defaultValue("false")
+                .hotReloadable()
+                .build();
+    }
+
+    private static ConfigFieldSpec scenarioPluginField(String id) {
+        return ConfigFieldSpec.builder(
+                        NotificationConfigKeys.scenarioEnabledKey(id),
+                        "Scenario",
+                        FieldType.BOOL,
+                        GuiMessages.get("gui.config.group.notification"))
+                .defaultValue("true")
                 .hotReloadable()
                 .build();
     }

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushDispatcher;
+import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
 import top.sywyar.pixivdownload.push.PushResult;
@@ -71,7 +72,8 @@ public class NotificationPushTestController {
         // 遍历全部场景 → 每个场景一条推送；自动覆盖未来新增场景（无需在此枚举类型）。
         List<PushResult> all = new ArrayList<>();
         for (NotificationScenario scenario : NotificationScenario.values()) {
-            PushMessage message = messageFactory.render(scenario.id(), scenario.level(), locale, sample);
+            PushMessage message = messageFactory.render(
+                    scenario.id(), PushLevel.from(scenario.level()), locale, sample);
             all.addAll(pushService.test(settings, message));
         }
         return ResponseEntity.ok(PushTestResponse.from(all));

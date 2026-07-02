@@ -23,10 +23,12 @@ import java.util.concurrent.ConcurrentHashMap;
 @ConfigurationProperties(prefix = "notification")
 public class NotificationConfig {
 
-    /** config.yaml 中场景开关的 key 前缀（首次安装 / 模板生成 / 测试代码复用）。 */
-    public static final String KEY_SCENARIO_PREFIX = "notification.scenario.";
-    /** 场景开关 key 的后缀。 */
-    public static final String KEY_SCENARIO_ENABLED_SUFFIX = ".enabled";
+    /** @deprecated 过渡兼容门面；新代码使用 {@link NotificationConfigKeys#SCENARIO_PREFIX}。 */
+    @Deprecated
+    public static final String KEY_SCENARIO_PREFIX = NotificationConfigKeys.SCENARIO_PREFIX;
+    /** @deprecated 过渡兼容门面；新代码使用 {@link NotificationConfigKeys#SCENARIO_ENABLED_SUFFIX}。 */
+    @Deprecated
+    public static final String KEY_SCENARIO_ENABLED_SUFFIX = NotificationConfigKeys.SCENARIO_ENABLED_SUFFIX;
 
     /** 各通知场景的开关。key = {@link NotificationScenario#id()}；缺省（未配置）默认启用。 */
     private final Map<String, ScenarioToggle> scenario = new ConcurrentHashMap<>();
@@ -42,9 +44,10 @@ public class NotificationConfig {
         scenario.computeIfAbsent(id, k -> new ScenarioToggle()).setEnabled(enabled);
     }
 
-    /** 某场景在 config.yaml 中对应的开关 key，例如 {@code notification.scenario.run-summary.enabled}。 */
+    /** @deprecated 过渡兼容门面；新代码使用 {@link NotificationConfigKeys#scenarioEnabledKey(String)}。 */
+    @Deprecated
     public static String scenarioEnabledKey(String id) {
-        return KEY_SCENARIO_PREFIX + id + KEY_SCENARIO_ENABLED_SUFFIX;
+        return NotificationConfigKeys.scenarioEnabledKey(id);
     }
 
     /** 单个场景的开关条目。 */

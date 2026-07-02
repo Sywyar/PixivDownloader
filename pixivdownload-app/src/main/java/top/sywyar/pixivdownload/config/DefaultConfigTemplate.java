@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.config;
 
-import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -181,7 +181,7 @@ public final class DefaultConfigTemplate {
         appendSection(config, messages, "config.template.section.notification");
         for (NotificationScenario scenario : NotificationScenario.values()) {
             appendSetting(config, messages,
-                    NotificationConfig.scenarioEnabledKey(scenario.id()) + ": true",
+                    NotificationConfigKeys.scenarioEnabledKey(scenario.id()) + ": true",
                     "config.template.notification.scenario.enabled.comment");
         }
 

@@ -72,6 +72,18 @@ function Get-RequiredCoreApi([string]$requires) {
     return $requires
 }
 
+function Get-PluginDependencies([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return @() }
+    $dependencies = @()
+    foreach ($token in ($value -split ",")) {
+        $dependency = $token.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($dependency)) {
+            $dependencies += $dependency
+        }
+    }
+    return @($dependencies)
+}
+
 # Parse a module's source plugin.properties (root descriptor) into a hashtable.
 function Read-SourceDescriptor([string]$module) {
     $path = Join-Path $ProjectRoot "$module/src/main/resources/plugin.properties"
@@ -126,6 +138,7 @@ try {
         $id = $d["plugin.id"]
         $version = $d["plugin.version"]
         $requires = $d["plugin.requires"]
+        $dependencies = @(Get-PluginDependencies $d["plugin.dependencies"])
         if ($id -ne $plugin.Id) {
             throw "plugin.id '$id' in module $($plugin.Module) does not match expected '$($plugin.Id)'."
         }
@@ -217,7 +230,7 @@ try {
             signature         = $signature
             signatureUrl      = "$packageUrl.sig"
             requiredCoreApi   = (Get-RequiredCoreApi $requires)
-            dependencies      = @()
+            dependencies      = @($dependencies)
             releasedTime      = $releasedTime
             changeNotes       = $changeNotes
             channel           = "stable"

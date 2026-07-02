@@ -58,6 +58,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DistributionPackagingBoundaryTest {
 
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
+    private static final String NOTIFICATION_CLASSES_PROPERTY = "notification.plugin.classes";
     private static final String PUSH_CLASSES_PROPERTY = "push.plugin.classes";
     private static final String MAIL_CLASSES_PROPERTY = "mail.plugin.classes";
     private static final String TTS_CLASSES_PROPERTY = "tts.plugin.classes";
@@ -88,6 +89,8 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin"))
                 .as("外置 gui-theme 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.notificationbase.NotificationPf4jPlugin"))
+                .as("外置 notification 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.push.PushPf4jPlugin"))
                 .as("外置 push 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.mail.MailPf4jPlugin"))
@@ -112,6 +115,8 @@ class DistributionPackagingBoundaryTest {
                 .as("stats i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/gui-theme.properties"))
                 .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/notification.properties"))
+                .as("notification i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-tts/pixiv-tts.css"))
                 .as("tts 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-ai/pixiv-translate.js"))
@@ -135,6 +140,13 @@ class DistributionPackagingBoundaryTest {
     void statsPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(STATS_CLASSES_PROPERTY, "pixivdownload-plugin-stats",
                 "top/sywyar/pixivdownload/stats/StatsPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("notification 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void notificationPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(NOTIFICATION_CLASSES_PROPERTY, "pixivdownload-plugin-notification",
+                "top/sywyar/pixivdownload/notificationbase/NotificationPf4jPlugin.class");
     }
 
     @Test

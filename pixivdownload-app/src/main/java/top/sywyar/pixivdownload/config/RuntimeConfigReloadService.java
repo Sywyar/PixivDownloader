@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
@@ -297,7 +298,7 @@ public class RuntimeConfigReloadService {
             boolean current = notificationConfig.isScenarioEnabled(id);
             boolean nextEnabled = next.isScenarioEnabled(id);
             applyIfChanged(applied,
-                    NotificationConfig.scenarioEnabledKey(id),
+                    NotificationConfigKeys.scenarioEnabledKey(id),
                     current,
                     nextEnabled,
                     () -> notificationConfig.setScenarioEnabled(id, nextEnabled));

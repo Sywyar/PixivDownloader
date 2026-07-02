@@ -29,8 +29,8 @@ class NotificationConfigTest {
     @DisplayName("kebab-case 场景 id 的 .enabled 键能正确绑定到 Map，未列出的场景仍默认启用")
     void bindsKebabCaseScenarioKeys() {
         Map<String, Object> props = new LinkedHashMap<>();
-        props.put(NotificationConfig.scenarioEnabledKey("run-summary"), "false");
-        props.put(NotificationConfig.scenarioEnabledKey("overuse-paused"), "true");
+        props.put(NotificationConfigKeys.scenarioEnabledKey("run-summary"), "false");
+        props.put(NotificationConfigKeys.scenarioEnabledKey("overuse-paused"), "true");
 
         Binder binder = new Binder(new MapConfigurationPropertySource(props));
         NotificationConfig config = binder.bind("notification", Bindable.of(NotificationConfig.class))

@@ -1,11 +1,25 @@
 package top.sywyar.pixivdownload.push;
 
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
+
 /**
- * 推送消息的严重级别。属于<b>与通道无关</b>的语义信息：由各 {@link PushChannel} 在渲染时自行映射到通道自身的
- * 表现形式（如颜色、Bark 的 level、是否加 emoji 等）。核心模型只保留级别本身，不烤进任何展示文案。
+ * 推送消息的介质内严重级别。共享通知场景使用 {@link NotificationSeverity}；本枚举保留在 push 边界内，
+ * 作为过渡适配与各 {@link PushChannel} 映射颜色、Bark level 等表现形式。
  */
 public enum PushLevel {
     INFO,
     WARNING,
-    ERROR
+    ERROR;
+
+    /** 将中性通知严重程度映射为 push 介质内部级别。 */
+    public static PushLevel from(NotificationSeverity severity) {
+        if (severity == null) {
+            return INFO;
+        }
+        return switch (severity) {
+            case INFO -> INFO;
+            case WARNING -> WARNING;
+            case ERROR -> ERROR;
+        };
+    }
 }

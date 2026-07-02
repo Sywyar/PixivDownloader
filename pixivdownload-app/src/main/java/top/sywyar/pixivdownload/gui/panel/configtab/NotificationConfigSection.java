@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeRefresh;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -227,7 +227,7 @@ public final class NotificationConfigSection implements ConfigSection {
     }
 
     private JPanel buildNotificationScenarioPanel() {
-        List<ConfigFieldSpec> specs = fieldsByPrefix(NotificationConfig.KEY_SCENARIO_PREFIX);
+        List<ConfigFieldSpec> specs = fieldsByPrefix(NotificationConfigKeys.SCENARIO_PREFIX);
         if (specs.isEmpty()) {
             return null;
         }
@@ -730,7 +730,7 @@ public final class NotificationConfigSection implements ConfigSection {
     private List<ConfigFieldSpec> residualNotificationFields() {
         return ctx.allFields().stream()
                 .filter(field -> notificationGroup.equals(field.group()))
-                .filter(field -> !field.key().startsWith(NotificationConfig.KEY_SCENARIO_PREFIX))
+                .filter(field -> !field.key().startsWith(NotificationConfigKeys.SCENARIO_PREFIX))
                 .filter(field -> !"push.enabled".equals(field.key()))
                 .filter(field -> !field.key().startsWith("mail."))
                 .filter(field -> notificationServices().stream()

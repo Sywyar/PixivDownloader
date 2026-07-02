@@ -5,6 +5,8 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -64,6 +66,24 @@ class CoreApiDependencyGuardTest {
                         + "（StatsAggregates）：Spring / 日志门面 / JDBC / MyBatis 与 mapper/repository 实现"
                         + "（core.stats.db.StatsQueryStoreImpl）全部留在 app 实现层，core-api 不得反向依赖它们")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("notification 场景模型不得依赖 push 包")
+    void notificationScenarioDoesNotDependOnPushPackage() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.notification..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.push..")
+                .because("通知场景与严重程度由 notification 中性命名空间拥有，push 只能在自身边界做介质映射")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("NotificationScenario.level 返回中性 NotificationSeverity")
+    void notificationScenarioLevelReturnsNeutralSeverity() throws NoSuchMethodException {
+        assertThat(NotificationScenario.class.getMethod("level").getReturnType())
+                .isEqualTo(NotificationSeverity.class);
     }
 
     @Test

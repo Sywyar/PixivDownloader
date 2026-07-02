@@ -2,8 +2,7 @@ package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
-import top.sywyar.pixivdownload.notification.NotificationConfig;
-import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -125,7 +124,8 @@ public final class ConfigFieldRegistry {
         Set<String> groupsWithFields = fields.stream()
                 .map(ConfigFieldSpec::group)
                 .collect(java.util.stream.Collectors.toSet());
-        Set<String> contributedGroupsWithFields = contributions.fields().stream()
+        List<ConfigFieldSpec> contributedFields = contributions.fields();
+        Set<String> contributedGroupsWithFields = contributedFields.stream()
                 .map(ConfigFieldSpec::group)
                 .collect(java.util.stream.Collectors.toSet());
         List<GuiConfigSectionSpec> sections = contributions.sections();
@@ -135,7 +135,7 @@ public final class ConfigFieldRegistry {
         List<String> groupLabels = mergedGroups.stream()
                 .filter(ConfigGroupSpec::visibleInTabs)
                 .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithFields,
-                        contributedGroupsWithSections))
+                        contributedGroupsWithSections, contributedFields))
                 .sorted(Comparator.comparingInt(ConfigGroupSpec::order))
                 .map(ConfigGroupSpec::label)
                 .toList();
@@ -144,17 +144,24 @@ public final class ConfigFieldRegistry {
 
     private static boolean shouldShowGroup(ConfigGroupSpec group, Set<String> groupsWithFields,
                                            Set<String> contributedGroupsWithFields,
-                                           Set<String> contributedGroupsWithSections) {
+                                           Set<String> contributedGroupsWithSections,
+                                           List<ConfigFieldSpec> contributedFields) {
         if (GuiConfigGroups.AI.equals(group.id())) {
             return contributedGroupsWithFields.contains(group.label())
                     || contributedGroupsWithFields.contains(message("gui.config.group.narration-tts"))
                     || contributedGroupsWithSections.contains(group.label());
         }
         if (GuiConfigGroups.NOTIFICATION.equals(group.id())) {
-            return contributedGroupsWithFields.contains(group.label())
+            return hasNonScenarioNotificationField(group.label(), contributedFields)
                     || contributedGroupsWithSections.contains(group.label());
         }
         return groupsWithFields.contains(group.label()) || contributedGroupsWithSections.contains(group.label());
+    }
+
+    private static boolean hasNonScenarioNotificationField(String groupLabel, List<ConfigFieldSpec> fields) {
+        return fields.stream()
+                .anyMatch(field -> groupLabel.equals(field.group())
+                        && !field.key().startsWith(NotificationConfigKeys.SCENARIO_PREFIX));
     }
 
     static boolean hasGroupId(String groupId) {
@@ -200,7 +207,6 @@ public final class ConfigFieldRegistry {
         String groupHttps = message("gui.config.group.https");
         String groupUpdate = message("gui.config.group.update");
         String groupSchedule = message("gui.config.group.schedule");
-        String groupNotification = message("gui.config.group.notification");
 
         List<ConfigFieldSpec> baseFields = List.of(
 
@@ -811,21 +817,7 @@ public final class ConfigFieldRegistry {
                         .build()
         );
 
-        List<ConfigFieldSpec> fields = new ArrayList<>(baseFields);
-
-        // 通知类型开关：每个 NotificationScenario 一项（默认开启），关闭后该类型的邮件与推送都不再发送
-        // （由 NotificationService.notify 统一裁剪）。从枚举派生，避免与场景单一事实源漂移。
-        for (NotificationScenario scenario : NotificationScenario.values()) {
-            fields.add(ConfigFieldSpec.builder(
-                            NotificationConfig.scenarioEnabledKey(scenario.id()),
-                            message("gui.config.field.notification.scenario." + scenario.id() + ".label"),
-                            BOOL, groupNotification)
-                    .defaultValue("true")
-                    .help(message("gui.config.field.notification.scenario." + scenario.id() + ".help"))
-                    .hotReloadable()
-                    .build());
-        }
-        return List.copyOf(fields);
+        return baseFields;
     }
 
     private static String message(String code, Object... args) {

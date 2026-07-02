@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.push.PushConfig;
 import top.sywyar.pixivdownload.push.PushDispatcher;
+import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
 
@@ -14,7 +15,7 @@ import java.util.Map;
 
 /**
  * 推送介质 {@link NotificationSink}：封装「{@link PushMessageFactory 渲染轻量 Markdown} +
- * {@link PushDispatcher 多通道下发}」这套构建链。消息 id / 级别取自场景的
+ * {@link PushDispatcher 多通道下发}」这套构建链。消息 id / 严重程度取自场景的
  * {@link NotificationScenario#id()} / {@link NotificationScenario#level()}。
  *
  * <p>{@link #deliver} best-effort：渲染异常兜底（{@code PushDispatcher.push} 本身也不抛、各通道失败已隔离）；
@@ -44,7 +45,8 @@ public class PushNotificationSink implements NotificationSink {
             return;
         }
         try {
-            PushMessage message = messageFactory.render(scenario.id(), scenario.level(), locale, placeholders);
+            PushMessage message = messageFactory.render(
+                    scenario.id(), PushLevel.from(scenario.level()), locale, placeholders);
             pushService.push(message);
         } catch (RuntimeException e) {
             // PushService.push 已 best-effort 不抛；这里兜住渲染期的意外异常。
@@ -56,8 +58,9 @@ public class PushNotificationSink implements NotificationSink {
     public void verifyRenderable(NotificationScenario scenario) {
         String titleKey = "push.message." + scenario.id() + ".title";
         String bodyKey = "push.message." + scenario.id() + ".body";
+        PushLevel level = PushLevel.from(scenario.level());
         for (Locale locale : VERIFY_LOCALES) {
-            PushMessage message = messageFactory.render(scenario.id(), scenario.level(), locale, Map.of());
+            PushMessage message = messageFactory.render(scenario.id(), level, locale, Map.of());
             if (isMissing(message.title(), titleKey)) {
                 throw new IllegalStateException(
                         "push title i18n missing: " + titleKey + " @ " + locale);

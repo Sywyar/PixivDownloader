@@ -128,6 +128,7 @@ function Assert-BootJarBoundary {
     $forbidden = @(
         "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/push/channel/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
@@ -153,6 +154,7 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/static/pixiv-ai",
         "BOOT-INF/classes/i18n/web/stats",
         "BOOT-INF/classes/i18n/web/gui-theme",
+        "BOOT-INF/classes/i18n/web/notification",
         "BOOT-INF/classes/i18n/web/tts",
         "BOOT-INF/classes/i18n/web/ai",
         "BOOT-INF/classes/i18n/web/translate",

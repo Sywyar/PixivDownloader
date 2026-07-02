@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -7,7 +9,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -43,6 +49,22 @@ class PluginReleaseScriptsTest {
         assertThat(script.indexOf("$manifestSignatureFile = \"$OutputFile.sig\""))
                 .as("manifest detached 签名必须在原始文件写出之后生成")
                 .isGreaterThan(script.indexOf("[System.IO.File]::WriteAllText($OutputFile"));
+    }
+
+    @Test
+    @DisplayName("市场清单生成脚本把插件 descriptor 依赖投影到 package 元数据")
+    void marketManifestScriptProjectsDescriptorDependencies() throws Exception {
+        String script = script("generate-market-manifest.ps1");
+
+        assertThat(script).contains(
+                "function Get-PluginDependencies([string]$value)",
+                "$dependencies = @(Get-PluginDependencies $d[\"plugin.dependencies\"])",
+                "dependencies      = @($dependencies)"
+        );
+        assertThat(script).doesNotContain("dependencies      = @()");
+
+        assertThat(pluginDescriptor("pixivdownload-plugin-mail")).contains("plugin.dependencies=notification@1.0");
+        assertThat(pluginDescriptor("pixivdownload-plugin-push")).contains("plugin.dependencies=notification@1.0");
     }
 
     @Test
@@ -98,6 +120,36 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("市场策展文件覆盖所有官方可选插件的展示字段")
+    void marketCurationCoversOfficialOptionalPlugins() throws Exception {
+        String common = script("plugin-distribution-common.ps1");
+        JsonNode curation = new ObjectMapper().readTree(repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
+        Set<String> officialPluginIds = officialOptionalPluginIds(common);
+
+        assertThat(officialPluginIds).contains("notification");
+        for (String pluginId : officialPluginIds) {
+            JsonNode entry = curation.get(pluginId);
+            assertThat(entry).as("missing market curation for official plugin %s", pluginId).isNotNull();
+            assertTextField(entry, pluginId, "displayNameKey");
+            assertTextField(entry, pluginId, "descriptionKey");
+            assertLocalizedText(entry, pluginId, "displayName");
+            assertLocalizedText(entry, pluginId, "summary");
+            assertLocalizedText(entry, pluginId, "description");
+            assertTextField(entry, pluginId, "author");
+            assertTextField(entry, pluginId, "sourceType");
+            assertTextField(entry, pluginId, "category");
+            assertTextField(entry, pluginId, "homepageUrl");
+            assertTextField(entry, pluginId, "license");
+            assertTextField(entry, pluginId, "iconToken");
+            assertTextField(entry, pluginId, "colorToken");
+            assertThat(entry.path("tags").isArray()).as("%s tags must be an array", pluginId).isTrue();
+            assertThat(entry.path("tags").size()).as("%s tags must not be empty", pluginId).isPositive();
+            assertThat(entry.path("recommended").isBoolean()).as("%s recommended must be boolean", pluginId).isTrue();
+            assertThat(entry.path("officialRequired").isBoolean()).as("%s officialRequired must be boolean", pluginId).isTrue();
+        }
+    }
+
+    @Test
     @DisplayName("离线分发与 Windows 打包脚本同时携带 artifact 签名和 provenance sidecar")
     void offlinePackagingScriptsCarrySignatureAndProvenanceSidecar() throws Exception {
         String common = script("plugin-distribution-common.ps1");
@@ -120,6 +172,17 @@ class PluginReleaseScriptsTest {
                     "signature = $signature"
             );
         }
+    }
+
+    @Test
+    @DisplayName("离线分发 boot jar 边界黑名单覆盖 notification 基础插件")
+    void offlineDistributionBootJarBlacklistCoversNotificationPlugin() throws Exception {
+        String distribution = script("assemble-plugin-distribution.ps1");
+
+        assertThat(distribution).contains(
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/\"",
+                "\"BOOT-INF/classes/i18n/web/notification\""
+        );
     }
 
     @Test
@@ -168,6 +231,37 @@ class PluginReleaseScriptsTest {
     private static String workflow(String name) throws IOException {
         return Files.readString(repoRoot().resolve(".github").resolve("workflows").resolve(name),
                 StandardCharsets.UTF_8);
+    }
+
+    private static String pluginDescriptor(String module) throws IOException {
+        return Files.readString(repoRoot().resolve(module).resolve("src/main/resources/plugin.properties"),
+                StandardCharsets.UTF_8);
+    }
+
+    private static Set<String> officialOptionalPluginIds(String common) {
+        int start = common.indexOf("$plugins = @(");
+        int end = common.indexOf("if ($IncludeSentinel)", start);
+        assertThat(start).as("official plugin list start").isGreaterThanOrEqualTo(0);
+        assertThat(end).as("official plugin list end").isGreaterThan(start);
+
+        Matcher matcher = Pattern.compile("Id\\s*=\\s*\"([^\"]+)\"").matcher(common.substring(start, end));
+        Set<String> ids = new LinkedHashSet<>();
+        while (matcher.find()) {
+            ids.add(matcher.group(1));
+        }
+        assertThat(ids).as("official plugin ids").isNotEmpty();
+        return ids;
+    }
+
+    private static void assertTextField(JsonNode entry, String pluginId, String field) {
+        assertThat(entry.path(field).asText()).as("%s %s must not be blank", pluginId, field).isNotBlank();
+    }
+
+    private static void assertLocalizedText(JsonNode entry, String pluginId, String field) {
+        JsonNode localized = entry.path(field);
+        assertThat(localized.isObject()).as("%s %s must be localized object", pluginId, field).isTrue();
+        assertThat(localized.path("zh").asText()).as("%s %s.zh must not be blank", pluginId, field).isNotBlank();
+        assertThat(localized.path("en").asText()).as("%s %s.en must not be blank", pluginId, field).isNotBlank();
     }
 
     private static Path repoRoot() {

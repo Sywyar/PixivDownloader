@@ -9,6 +9,8 @@ import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
+import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
@@ -125,7 +127,15 @@ class ConfigItemTemplateCoverageGuardTest {
     private static Set<String> templateKeysWithoutGuiField() {
         Set<String> keys = new TreeSet<>(TEMPLATE_KEYS_WITHOUT_GUI_FIELD);
         keys.addAll(pluginToggleKeysWithoutGuiField());
+        keys.addAll(notificationScenarioKeysWithoutCoreGuiField());
         return keys;
+    }
+
+    private static Set<String> notificationScenarioKeysWithoutCoreGuiField() {
+        return java.util.Arrays.stream(NotificationScenario.values())
+                .map(NotificationScenario::id)
+                .map(NotificationConfigKeys::scenarioEnabledKey)
+                .collect(Collectors.toCollection(TreeSet::new));
     }
 
     private static Set<String> pluginToggleKeysWithoutGuiField() {

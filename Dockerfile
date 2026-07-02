@@ -30,6 +30,7 @@ COPY pixivdownload-plugin-signature/pom.xml pixivdownload-plugin-signature/
 COPY pixivdownload-plugin-runtime/pom.xml pixivdownload-plugin-runtime/
 COPY pixivdownload-plugin-gui-theme/pom.xml pixivdownload-plugin-gui-theme/
 COPY pixivdownload-plugin-stats/pom.xml pixivdownload-plugin-stats/
+COPY pixivdownload-plugin-notification/pom.xml pixivdownload-plugin-notification/
 COPY pixivdownload-plugin-push/pom.xml pixivdownload-plugin-push/
 COPY pixivdownload-plugin-mail/pom.xml pixivdownload-plugin-mail/
 COPY pixivdownload-plugin-tts/pom.xml pixivdownload-plugin-tts/

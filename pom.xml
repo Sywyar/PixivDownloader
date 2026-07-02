@@ -42,6 +42,7 @@
         <!-- 统计仪表盘功能插件（stats 整包），依赖上述契约 / 端口 / 运行时模块（均 provided）；打成 thin 外置 PF4J 插件 jar
              （根含 plugin.properties），放入 plugins/ 由运行时加载——不进 boot jar、app 不再依赖；仍在 reactor 内构建 -->
         <module>pixivdownload-plugin-stats</module>
+        <module>pixivdownload-plugin-notification</module>
         <module>pixivdownload-plugin-push</module>
         <module>pixivdownload-plugin-mail</module>
         <module>pixivdownload-plugin-tts</module>

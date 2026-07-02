@@ -36,6 +36,24 @@
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
   },
+  "notification": {
+    "displayNameKey": "notification:plugin.name",
+    "descriptionKey": "notification:plugin.summary",
+    "displayName": { "zh": "通知基础", "en": "Notification Base" },
+    "summary": { "zh": "通知场景与级别的基础配置", "en": "Base configuration for notification scenarios and severity" },
+    "description": { "zh": "提供通知场景开关和中性通知级别文案，不发送邮件或推送；邮件与推送插件依赖它共享通知语义。", "en": "Provides notification scenario toggles and neutral severity labels without sending mail or push messages; mail and push plugins depend on it for shared notification semantics." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "notification",
+    "tags": ["notification", "scenario", "configuration"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "iconToken": "bell",
+    "colorToken": "teal",
+    "recommended": true,
+    "officialRequired": false,
+    "changeNotes": ["首个外置版本"]
+  },
   "push": {
     "displayNameKey": "push:plugin.name",
     "descriptionKey": "push:plugin.summary",

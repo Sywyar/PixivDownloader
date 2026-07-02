@@ -6,12 +6,15 @@ import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushConfig;
 import top.sywyar.pixivdownload.push.PushDispatcher;
+import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.TestMessageResolver;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -35,6 +38,23 @@ class PushNotificationSinkCoverageTest {
         }
     }
 
+    @Test
+    @DisplayName("通知严重程度在 push 边界映射为 PushLevel，供通道继续映射颜色 / 优先级")
+    void notificationSeverityMapsToPushLevelOnDelivery() {
+        PushConfig config = new PushConfig();
+        config.setEnabled(true);
+        CapturingPushDispatcher dispatcher = new CapturingPushDispatcher();
+        PushNotificationSink enabledSink = new PushNotificationSink(
+                config,
+                new PushMessageFactory(TestMessageResolver.INSTANCE),
+                dispatcher);
+
+        enabledSink.deliver(NotificationScenario.CIRCUIT_BREAKER, Locale.SIMPLIFIED_CHINESE, Map.of());
+
+        assertThat(dispatcher.message).isNotNull();
+        assertThat(dispatcher.message.level()).isEqualTo(PushLevel.ERROR);
+    }
+
     private static final class NoopPushDispatcher implements PushDispatcher {
         @Override
         public List<PushResult> push(PushMessage message) {
@@ -49,6 +69,28 @@ class PushNotificationSinkCoverageTest {
         @Override
         public List<PushResult> test(List<PushChannelSettings> settings, PushMessage message) {
             return List.of();
+        }
+    }
+
+    private static final class CapturingPushDispatcher implements PushDispatcher {
+        private PushMessage message;
+
+        @Override
+        public List<PushResult> push(PushMessage message) {
+            this.message = message;
+            return List.of(PushResult.ok(PushChannelType.BARK));
+        }
+
+        @Override
+        public PushResult push(PushChannelType type, PushMessage message) {
+            this.message = message;
+            return PushResult.ok(type);
+        }
+
+        @Override
+        public List<PushResult> test(List<PushChannelSettings> settings, PushMessage message) {
+            this.message = message;
+            return List.of(PushResult.ok(PushChannelType.BARK));
         }
     }
 }
