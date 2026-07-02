@@ -187,7 +187,6 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/download/status/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/download/status", "core", AccessPolicy.LOCAL);
         assertOwnerPolicy("/api/pixiv/artwork/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
-        assertOwnerPolicy("/api/pixiv/novel/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         // 插件管理后端 API：状态查询 + 外置插件运行期生命周期动词，仅管理员（admin-only）。
         assertOwnerPolicy("/api/plugins/**", "core", AccessPolicy.ADMIN);
         assertOwnerPolicy("/js/pixiv-side-modules.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
@@ -224,6 +223,8 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/gallery/novel/**", "novel", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/gallery/novels/**", "novel", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/gallery/novels", "novel", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/pixiv/novel/**", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/pixiv/novel-search**", "novel", AccessPolicy.VISITOR);
         // 小说下载端点归小说插件、新址 + 旧址兼容垫片一律 VISITOR（复刻 /api/download/pixiv 现状）。
         assertOwnerPolicy("/api/novel/download", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/status/**", "novel", AccessPolicy.VISITOR);

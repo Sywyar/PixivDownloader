@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.novel.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardController;
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
+import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
 import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.schedule.ScheduleRunner;
@@ -87,6 +88,7 @@ class NovelPluginDisabledContextTest {
         assertThat(context.getBeanNamesForType(NovelGalleryController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(NovelDownloadController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(NovelDownloadLegacyForwardController.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(NovelPixivProxyController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(NovelGalleryService.class)).isEmpty();
         assertThat(context.getBeanNamesForType(NovelBatchService.class)).isEmpty();
         assertThat(context.getBeanNamesForType(ScheduledNovelDownloadDelegate.class)).isEmpty();
@@ -112,6 +114,8 @@ class NovelPluginDisabledContextTest {
                 .extracting(WebUiSlotRegistry.RegisteredUiSlot::pluginId).doesNotContain("novel");
         assertThat(routeAccessRegistry.isDeclared("/pixiv-novel-gallery.html")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/novel/download")).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/api/pixiv/novel/7/meta")).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/api/pixiv/novel-search")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/download/pixiv/novel")).isFalse();
     }
 

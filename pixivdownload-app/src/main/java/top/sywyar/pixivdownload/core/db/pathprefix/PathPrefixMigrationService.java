@@ -33,7 +33,7 @@ import java.util.UUID;
  * 让既有作品行（编码为 {@code {N}/relative}）解析到新的绝对路径；磁盘上的文件需要使用者自行迁移。
  *
  * <p>下载根目录所对应的那一行由 {@link DownloadConfig#getRootFolder()} 解析出的绝对路径标识
- * （与 {@link top.sywyar.pixivdownload.download.db.PathPrefixStartupMigration} 预置前缀时的算法一致）。改写该行后，调用方应同时同步
+ * （与启动时预置路径前缀的算法一致）。改写该行后，调用方应同时同步
  * {@code config.yaml} 的 {@code download.root-folder}，否则新下载仍会落到旧目录。
  *
  * <p><b>符号根 {@code {0}}</b>（root-folder 为相对路径时启用）以一条虚拟行参与本服务：

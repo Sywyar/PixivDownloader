@@ -88,7 +88,7 @@ class ScheduleExecutorRunTimingTest {
         return new ScheduleExecutor(store,
                 top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.forBuiltInPlugins(),
                 pixivFetchService, pixivDatabase,
-                org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class),
+                org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
                 artworkDownloader, workRunnerRegistry, novelMetadataRepository,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
                 overuseWarningService, notificationService, appMessages, setupService,

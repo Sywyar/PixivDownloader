@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novel.download;
 
 import lombok.Data;
-import top.sywyar.pixivdownload.download.DownloadActionResult;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 
 import java.time.LocalDateTime;
 
@@ -26,8 +26,8 @@ public class NovelDownloadStatus {
     private boolean failed;
     private boolean cancelled;
     private String errorMessage;
-    private DownloadActionResult bookmarkResult;
-    private DownloadActionResult collectionResult;
+    private WorkActionResult bookmarkResult;
+    private WorkActionResult collectionResult;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 

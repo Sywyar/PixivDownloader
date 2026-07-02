@@ -38,8 +38,8 @@ class RegisteredPluginsTest {
             // 本切片不加载它，duplicate 的扫描 / 回填经正向 plugin→core 依赖注入它，故 mock 兜底。
             .withBean(top.sywyar.pixivdownload.core.hash.ArtworkHashService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.hash.ArtworkHashService.class))
-            .withBean(top.sywyar.pixivdownload.download.ArtworkFileLocator.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkFileLocator.class))
+            .withBean(top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator.class))
             .withBean(top.sywyar.pixivdownload.core.db.PixivDatabase.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.db.PixivDatabase.class))
             .withBean(org.springframework.transaction.PlatformTransactionManager.class,
@@ -99,8 +99,12 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.PixivFetchService.class))
             .withBean(top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.class))
-            .withBean(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class))
+            .withBean(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class))
+            .withBean(top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient.class))
+            .withBean(top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard.class))
             .withBean(top.sywyar.pixivdownload.download.ArtworkDownloader.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkDownloader.class))
             // 下载工作台贡献的插画队列操作适配器（IllustQueueOperations）依赖具体下载执行器，本切片 mock 兜底。

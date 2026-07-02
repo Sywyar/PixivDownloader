@@ -110,6 +110,42 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("download 包不得依赖 novel 包：下载工作台外置前不得再有 download→novel 编译依赖")
+    void downloadPackageDoesNotDependOnNovelPackage() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.download..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.novel..")
+                .because("小说 Pixiv 代理端点与响应投影归 novel 自有 controller/DTO，download-workbench "
+                        + "外置前不得再 import novel 包")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("novel 包不得依赖 download 包：小说插件不得注入未来 download-workbench 实现")
+    void novelPackageDoesNotDependOnDownloadPackage() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.novel..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.download..")
+                .because("小说下载的 HTTP 投影、书签动作结果、sidecar 捕获与 Pixiv 共享动作已中性化；"
+                        + "novel 包不得依赖未来 download-workbench 的实现包")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("core 包不得依赖 download 包：Hash 与本地资产定位只经核心资产包")
+    void corePackageDoesNotDependOnDownloadPackage() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.core..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.download..")
+                .because("ArtworkFileLocator / StagedFileDeletion / sidecar 捕获已迁入核心资产与 metadata；"
+                        + "core 层不得依赖将外置的 download-workbench 实现包")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("核心不得反向依赖 stats 插件包（组合根 BuiltInPlugins 除外）")
     void coreDoesNotDependOnStatsPlugin() {
         noClasses()
@@ -161,7 +197,7 @@ class PluginApiDependencyGuardTest {
                         top.sywyar.pixivdownload.download.DownloadedArtworkService.class,
                         top.sywyar.pixivdownload.download.ArtworkMetadataRecoveryService.class,
                         top.sywyar.pixivdownload.core.db.PixivDatabase.class,
-                        top.sywyar.pixivdownload.download.ArtworkFileLocator.class,
+                        top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator.class,
                         top.sywyar.pixivdownload.author.AuthorService.class,
                         top.sywyar.pixivdownload.series.MangaSeriesService.class))
                 .because("画廊已接口化：查询走 WorkQueryService/WorkMetadataRepository、删除走 "
@@ -229,18 +265,22 @@ class PluginApiDependencyGuardTest {
                         top.sywyar.pixivdownload.novel.NovelGalleryService.class,
                         top.sywyar.pixivdownload.novel.NovelBatchService.class))
                 .should().dependOnClassesThat()
-                .resideInAPackage("top.sywyar.pixivdownload.download.meta..")
-                .because("作品 meta sidecar 的归一化 / 落盘 / 文件层读写是核心捕获实现（download.meta）；"
+                .belongToAnyOf(
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta.class)
+                .because("作品 meta sidecar 的归一化 / 落盘 / 文件层读写是核心捕获实现；"
                         + "画廊与小说画廊两侧业务插件取 sidecar 只能经 plugin.api 的 "
                         + "WorkAssetService.findSidecarMeta（产出 JDK-only WorkSidecarMeta），"
-                        + "禁止直依赖 download.meta 实现层或自行解析 {workId}.meta.json")
+                        + "禁止直依赖核心 sidecar 实现层或自行解析 {workId}.meta.json")
                 .check(CLASSES);
     }
 
     @Test
     @DisplayName("业务插件不得直接调用 java.nio.file.Files 读本地文件：作品文件枚举 / 读取只能经 WorkAssetService")
     void businessPluginsMustNotReadFilesDirectly() {
-        // 字节码级补强：上一条只能拦「依赖 download.meta 实现包」，拦不到业务插件手写
+        // 字节码级补强：上一条只能拦「依赖 sidecar 实现类」，拦不到业务插件手写
         // Files.readString(dir.resolve(id + ".meta.json")) 这类直读本地文件名绕过桥的回潮。
         // Spring AOP 拦不到 java.nio.file.Files 的 static 方法、也只覆盖跑过的路径，故用 ArchUnit 静态守卫。
         noClasses()
@@ -508,14 +548,18 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("imageclassifier 包不得依赖 download.meta 包：sidecar 命名经中性 WorkSidecarFiles 判定")
-    void imageClassifierDoesNotDependOnDownloadMetaPackage() {
+    @DisplayName("imageclassifier 包不得依赖 sidecar 实现类：sidecar 命名经中性 WorkSidecarFiles 判定")
+    void imageClassifierDoesNotDependOnSidecarImplementation() {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.imageclassifier..")
                 .should().dependOnClassesThat()
-                .resideInAPackage("top.sywyar.pixivdownload.download.meta..")
+                .belongToAnyOf(
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta.class)
                 .because("ImageClassifier 是独立 Swing 应用，搬移图片时携带 sidecar 经核心中性类 "
-                        + "core.metadata.sidecar.WorkSidecarFiles 判定文件名，不得反向依赖 download.meta 实现包")
+                        + "core.metadata.sidecar.WorkSidecarFiles 判定文件名，不得反向依赖 sidecar 捕获 / 存储实现类")
                 .check(CLASSES);
     }
 

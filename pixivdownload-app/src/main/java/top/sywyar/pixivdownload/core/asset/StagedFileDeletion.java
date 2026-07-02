@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download;
+package top.sywyar.pixivdownload.core.asset;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -99,13 +99,13 @@ public class StagedFileDeletion {
         return true;
     }
 
-    /** 删除单个原文件。包内可见，仅供测试注入删除失败（不要在生产代码中改写其语义）。 */
-    void deleteFile(Path original) throws IOException {
+    /** 删除单个原文件。protected 仅供测试注入删除失败（不要在生产代码中改写其语义）。 */
+    protected void deleteFile(Path original) throws IOException {
         Files.deleteIfExists(original);
     }
 
-    /** 把暂存副本复制回原位（回滚单个原文件）。包内可见，仅供测试注入回滚复制失败（不要在生产代码中改写其语义）。 */
-    void restoreFile(Path staged, Path original) throws IOException {
+    /** 把暂存副本复制回原位（回滚单个原文件）。protected 仅供测试注入回滚复制失败（不要在生产代码中改写其语义）。 */
+    protected void restoreFile(Path staged, Path original) throws IOException {
         Files.copy(staged, original,
                 StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING);
     }

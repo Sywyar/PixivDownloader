@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.meta;
+package top.sywyar.pixivdownload.core.metadata.sidecar;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;

@@ -155,7 +155,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // ── 访客可达、不入 monitor：只读代理 / 下载状态轮询前缀（multi 普通访客 GET 亦可达）──────
                 WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
-                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/**"),
                 // 跨页共享只读静态依赖（访客可读、不入 monitor）。其中 i18n / 语言切换 / 主题三件
                 // 同时也是 PUBLIC（见下），按现状两个清单都登记。
                 WebRouteContribution.visitorAndInvitedGuest("/css/admin-visibility.css"),
@@ -228,10 +227,9 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/api/migration/**"),
                 // 下载进度 SSE 流（跨页消费、与下载状态轮询同归核心）。
                 WebRouteContribution.visitor("/api/sse/**"),
-                // Pixiv 只读代理的其余子面（artwork / novel 已在上面对访客开放；以下保持 VISITOR 现状）。
+                // Pixiv 只读代理的其余子面（artwork 已在上面对访客开放；小说只读代理由 novel 插件声明）。
                 WebRouteContribution.visitor("/api/pixiv/user/**"),
                 WebRouteContribution.visitor("/api/pixiv/search**"),
-                WebRouteContribution.visitor("/api/pixiv/novel-search**"),
                 WebRouteContribution.visitor("/api/pixiv/series/**"),
                 WebRouteContribution.visitor("/api/pixiv/me/**"),
                 WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),

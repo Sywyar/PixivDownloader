@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
 import lombok.Data;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 
 import java.time.LocalDateTime;
 
@@ -20,8 +21,8 @@ public class DownloadStatus {
     private String downloadPath;
     private int successCount;
     private int failedCount;
-    private DownloadActionResult bookmarkResult;
-    private DownloadActionResult collectionResult;
+    private WorkActionResult bookmarkResult;
+    private WorkActionResult collectionResult;
     private UgoiraProgress ugoiraProgress;
     private ImageDownloadProgress imageProgress;
     private LocalDateTime startTime;

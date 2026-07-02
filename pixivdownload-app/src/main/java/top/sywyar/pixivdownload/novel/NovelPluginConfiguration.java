@@ -5,10 +5,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardController;
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
+import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
@@ -125,6 +128,17 @@ public class NovelPluginConfiguration {
                                                           AppMessages messages) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
                 setupService, userQuotaService, multiModeConfig, messages);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
+    public NovelPixivProxyController novelPixivProxyController(ObjectMapper objectMapper,
+                                                              PixivAjaxProxyClient pixivAjaxProxyClient,
+                                                              PixivProxyAccessGuard pixivProxyAccessGuard,
+                                                              GuestAccessGuard guestAccessGuard,
+                                                              AppMessages messages) {
+        return new NovelPixivProxyController(objectMapper, pixivAjaxProxyClient, pixivProxyAccessGuard,
+                guestAccessGuard, messages);
     }
 
     @Bean

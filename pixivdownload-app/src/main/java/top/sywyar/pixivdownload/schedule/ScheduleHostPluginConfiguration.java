@@ -8,11 +8,11 @@ import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
@@ -34,7 +34,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
  * 根包扫描的语义 Store {@code core.schedule.ScheduledTaskStore} 读写——由 Spring 注入这些 {@code @Bean}。
  * <p>
  * <b>依赖方向：</b>调度壳需要 Pixiv 抓取与作品下载等核心下载机器（{@link PixivFetchService} /
- * {@link ArtworkDownloader} / {@link WorkMetaCaptureService}，均住 download 包、根包扫描、属核心机器），以及来源
+ * {@link ArtworkDownloader} / {@link WorkMetaCaptureService}，均由根包扫描装配、属核心机器），以及来源
  * 执行契约（{@code download.schedule.source}，住下载工作台域）；故本装配层依赖 download 包，<b>不</b> import 任何
  * novel 包类型。下载派发统一经核心契约 {@code core.schedule.work.ScheduledWorkRunner} + 注册中心
  * {@link ScheduledWorkRunnerRegistry} 按作品类型解析：插画执行器由下载工作台贡献、小说执行器由小说插件贡献，

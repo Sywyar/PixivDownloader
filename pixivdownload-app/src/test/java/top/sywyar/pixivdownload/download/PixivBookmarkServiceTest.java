@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download;
+package top.sywyar.pixivdownload.core.pixiv;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,9 +48,9 @@ class PixivBookmarkServiceTest {
         @ValueSource(strings = {"   "})
         @DisplayName("cookie 为空/null/空白时应直接返回，不调用 RestTemplate")
         void shouldSkipWhenCookieIsBlank(String cookie) {
-            DownloadActionResult result = service.bookmarkArtwork(12345L, cookie);
+            WorkActionResult result = service.bookmarkArtwork(12345L, cookie);
 
-            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.SKIPPED);
+            assertThat(result.getStatus()).isEqualTo(WorkActionResult.SKIPPED);
             assertThat(result.getMessage()).isEqualTo("未提供 Cookie");
             verifyNoInteractions(restTemplate);
         }
@@ -72,9 +73,9 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok(bookmarkResponse.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
-            DownloadActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
+            WorkActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
 
-            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.SUCCESS);
+            assertThat(result.getStatus()).isEqualTo(WorkActionResult.SUCCESS);
 
             ArgumentCaptor<HttpEntity<String>> postCaptor = ArgumentCaptor.forClass(HttpEntity.class);
             verify(restTemplate).exchange(
@@ -112,8 +113,8 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok("<html>no token here</html>".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
-            DownloadActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
-            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.FAILED);
+            WorkActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
+            assertThat(result.getStatus()).isEqualTo(WorkActionResult.FAILED);
             verify(restTemplate, never()).exchange(
                     eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), any(), any(), eq(byte[].class));
         }
@@ -147,9 +148,9 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
-            DownloadActionResult result = service.bookmarkArtwork(99L, "cookie=val");
+            WorkActionResult result = service.bookmarkArtwork(99L, "cookie=val");
 
-            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.SUCCESS);
+            assertThat(result.getStatus()).isEqualTo(WorkActionResult.SUCCESS);
         }
 
         @Test
@@ -159,9 +160,9 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok("{\"error\":true,\"message\":\"Not logged in\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
-            DownloadActionResult result = service.bookmarkArtwork(99L, "cookie=val");
+            WorkActionResult result = service.bookmarkArtwork(99L, "cookie=val");
 
-            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.FAILED);
+            assertThat(result.getStatus()).isEqualTo(WorkActionResult.FAILED);
             assertThat(result.getMessage()).isEqualTo(TestI18nBeans.appMessages().get("bookmark.result.failed"));
             assertThat(result.getMessage()).doesNotContain("Not logged in");
         }

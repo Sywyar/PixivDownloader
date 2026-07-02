@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
@@ -75,7 +76,7 @@ class StagedFileDeletionTest {
 
         StagedFileDeletion failing = new StagedFileDeletion(TestI18nBeans.appMessages()) {
             @Override
-            void deleteFile(Path original) throws IOException {
+            protected void deleteFile(Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(poison)) {
                     throw new IOException("simulated lock");
                 }
@@ -169,7 +170,7 @@ class StagedFileDeletionTest {
         Path restoreTarget = restorePoison.toAbsolutePath().normalize();
         return new StagedFileDeletion(TestI18nBeans.appMessages()) {
             @Override
-            void deleteFile(Path original) throws IOException {
+            protected void deleteFile(Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(deleteTarget)) {
                     throw new IOException("simulated delete lock on " + original);
                 }
@@ -177,7 +178,7 @@ class StagedFileDeletionTest {
             }
 
             @Override
-            void restoreFile(Path staged, Path original) throws IOException {
+            protected void restoreFile(Path staged, Path original) throws IOException {
                 if (original.toAbsolutePath().normalize().equals(restoreTarget)) {
                     throw new IOException("simulated restore lock on " + original);
                 }

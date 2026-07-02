@@ -1,16 +1,16 @@
-package top.sywyar.pixivdownload.novel.download;
+package top.sywyar.pixivdownload.core.pixiv;
 
 import java.net.URI;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class NovelCoverUrlResolver {
+public final class PixivCoverUrlResolver {
 
     private static final Pattern CACHED_NOVEL_COVER_PATH =
             Pattern.compile("^/c/[^/]+/(novel-cover-(?:master|original)/.+)$");
 
-    private NovelCoverUrlResolver() {
+    private PixivCoverUrlResolver() {
     }
 
     public static String preferHighResolution(String url) {

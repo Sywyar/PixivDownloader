@@ -21,7 +21,9 @@ import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
@@ -266,11 +268,11 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                 try {
                     boolean added = collectionService.addArtwork(other.getCollectionId(), artworkId);
                     status.setCollectionResult(added
-                            ? DownloadActionResult.success(messages.get("collection.result.added"))
-                            : DownloadActionResult.exists(messages.get("collection.result.exists")));
+                            ? WorkActionResult.success(messages.get("collection.result.added"))
+                            : WorkActionResult.exists(messages.get("collection.result.exists")));
                 } catch (Exception e) {
                     log.warn(logMessage("download.log.collection.add.failed", artworkId, other.getCollectionId(), e.getMessage()), e);
-                    status.setCollectionResult(DownloadActionResult.failed(messages.get("collection.result.failed")));
+                    status.setCollectionResult(WorkActionResult.failed(messages.get("collection.result.failed")));
                 }
             }
 

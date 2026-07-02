@@ -94,6 +94,8 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/api/novel/download"),
                 WebRouteContribution.visitor("/api/novel/status/**"),
                 WebRouteContribution.visitor("/api/novel/translate-status/**"),
+                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/**"),
+                WebRouteContribution.visitor("/api/pixiv/novel-search**"),
                 WebRouteContribution.visitor("/api/download/pixiv/novel"),
                 WebRouteContribution.visitor("/api/download/novel/status/**"),
                 WebRouteContribution.visitor("/api/download/novel/translate-status/**"),

@@ -8,7 +8,7 @@ import java.util.List;
 /**
  * 作品批量获取（按页码范围 startPage~endPage 抓取）的聚合响应。
  * items 的运行时元素类型为 {@link SearchResponse.SearchItem} 或
- * {@link top.sywyar.pixivdownload.novel.response.NovelSearchResponse.NovelSearchItem}，
+ * 小说搜索结果项，
  * 由调用的范围端点决定，Jackson 按运行时类型序列化。
  */
 @Getter

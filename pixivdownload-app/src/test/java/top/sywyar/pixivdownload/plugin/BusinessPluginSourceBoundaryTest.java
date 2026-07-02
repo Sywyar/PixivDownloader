@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 业务插件源码边界守卫（<b>文本级</b>），与 {@link PluginApiDependencyGuardTest} 的字节码级 ArchUnit 守卫互补。
  *
- * <p>ArchUnit 只能拦编译期符号——「依赖 {@code download.meta} 实现包」「调用 {@code java.nio.file.Files} 读取方法」，
+ * <p>ArchUnit 只能拦编译期符号——「依赖 sidecar 实现类」「调用 {@code java.nio.file.Files} 读取方法」，
  * 拦不到业务插件把 sidecar 文件名实现细节以<b>字符串 / 自定义符号</b>形式硬编码回潮，例如
  * 自行拼 {@code dir.resolve(id + ".meta.json")}、复制 {@code SIDECAR_SUFFIX} 后缀常量、或绕道
  * {@code WorkSidecarStore} 解析器。本守卫直接扫描业务插件 main 源码文本，命中即失败并报出
@@ -46,7 +46,7 @@ class BusinessPluginSourceBoundaryTest {
     private static final List<String> FORBIDDEN_TOKENS = List.of(
             ".meta.json",       // 自行拼接 sidecar 文件名
             "SIDECAR_SUFFIX",   // 复制 sidecar 后缀常量
-            "WorkSidecarStore"  // 直依赖 download.meta 的 sidecar 解析器（合法的 WorkSidecarMeta 模型不在此列）
+            "WorkSidecarStore"  // 直依赖 sidecar 解析器（合法的 WorkSidecarMeta 模型不在此列）
     );
 
     @Test
@@ -80,7 +80,7 @@ class BusinessPluginSourceBoundaryTest {
         assertThat(violations)
                 .as("业务插件不得硬编码 sidecar 文件名实现细节：sidecar 只能经 WorkAssetService.findSidecarMeta 读，"
                         + "普通作品文件枚举 / 读取也应经 WorkAssetService，不得自行拼 {workId}.meta.json 或依赖 "
-                        + "download.meta 实现层。\n命中清单：\n%s", String.join("\n", violations))
+                        + "sidecar 实现层。\n命中清单：\n%s", String.join("\n", violations))
                 .isEmpty();
     }
 

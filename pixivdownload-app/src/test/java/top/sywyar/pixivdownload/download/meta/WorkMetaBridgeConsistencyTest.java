@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.meta;
+package top.sywyar.pixivdownload.core.metadata.sidecar;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +18,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
@@ -25,10 +27,8 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.ArtworkFileService;
 import top.sywyar.pixivdownload.download.LocalWorkAssetService;
-import top.sywyar.pixivdownload.download.StagedFileDeletion;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;

@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -110,7 +112,7 @@ class ArtworkFileLocatorTest {
         Path normalizedPoison = poison.toAbsolutePath().normalize();
         return new StagedFileDeletion(TestI18nBeans.appMessages()) {
             @Override
-            void deleteFile(Path original) throws java.io.IOException {
+            protected void deleteFile(Path original) throws java.io.IOException {
                 if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
                     throw new java.io.IOException("simulated lock on " + original);
                 }

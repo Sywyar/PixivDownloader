@@ -14,9 +14,11 @@ import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
-import top.sywyar.pixivdownload.download.DownloadActionResult;
-import top.sywyar.pixivdownload.download.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -48,7 +50,6 @@ import java.util.function.LongConsumer;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.export.NovelEpubWriter;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
-import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 
 @Slf4j
 @Service
@@ -262,12 +263,12 @@ public class NovelDownloadService implements NovelDownloader {
                 try {
                     boolean added = collectionService.addNovel(other.getCollectionId(), novelId);
                     status.setCollectionResult(added
-                            ? DownloadActionResult.success(messages.get("collection.result.added"))
-                            : DownloadActionResult.exists(messages.get("collection.result.exists")));
+                            ? WorkActionResult.success(messages.get("collection.result.added"))
+                            : WorkActionResult.exists(messages.get("collection.result.exists")));
                 } catch (Exception e) {
                     log.warn("novel collection add failed: novel={}, collection={}: {}",
                             novelId, other.getCollectionId(), e.getMessage(), e);
-                    status.setCollectionResult(DownloadActionResult.failed(
+                    status.setCollectionResult(WorkActionResult.failed(
                             messages.get("collection.result.failed")));
                 }
             }
@@ -428,7 +429,7 @@ public class NovelDownloadService implements NovelDownloader {
     private String downloadCover(String coverUrl, Path downloadPath, String baseName, String cookie,
                                  NovelDownloadStatus status) {
         if (coverUrl == null || coverUrl.isBlank()) return null;
-        for (String candidateUrl : NovelCoverUrlResolver.downloadCandidates(coverUrl)) {
+        for (String candidateUrl : PixivCoverUrlResolver.downloadCandidates(coverUrl)) {
             ensureNotCancelled(status);
             String ext = downloadCoverCandidate(candidateUrl, downloadPath, baseName, cookie, status);
             if (ext != null) {

@@ -7,10 +7,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.common.UuidUtils;
-import top.sywyar.pixivdownload.download.response.AlreadyDownloadedResponse;
-import top.sywyar.pixivdownload.download.response.DownloadResponse;
-import top.sywyar.pixivdownload.download.response.QuotaExceededResponse;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
+import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
+import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadStatus;
@@ -50,7 +51,7 @@ public class NovelDownloadController {
             @Valid @RequestBody NovelDownloadRequest request,
             HttpServletRequest httpRequest) {
         if (request.getNovelId() == null || request.getNovelId() <= 0) {
-            return ResponseEntity.badRequest().body(DownloadResponse.builder()
+            return ResponseEntity.badRequest().body(NovelDownloadResponse.builder()
                     .success(false)
                     .message(messages.get("pixiv.proxy.novel.id.invalid", String.valueOf(request.getNovelId())))
                     .build());
@@ -65,7 +66,7 @@ public class NovelDownloadController {
             // 软删除的小说文件已不在磁盘，视为未下载放行（是否真正重下由客户端的下载设置决定）
             if (("never-delete".equals(pdMode) || "timed-delete".equals(pdMode))
                     && novelDatabase.hasActiveNovel(request.getNovelId())) {
-                return ResponseEntity.ok(new AlreadyDownloadedResponse(
+                return ResponseEntity.ok(new NovelAlreadyDownloadedResponse(
                         true, true, messages.get("download.already-downloaded")));
             }
         }
@@ -82,7 +83,7 @@ public class NovelDownloadController {
             UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid, 1);
             if (!check.allowed()) {
                 String archiveToken = userQuotaService.triggerArchive(userUuid);
-                return ResponseEntity.status(429).body(new QuotaExceededResponse(
+                return ResponseEntity.status(429).body(new NovelQuotaExceededResponse(
                         true,
                         messages.get("download.quota.exceeded"),
                         archiveToken,
@@ -96,7 +97,7 @@ public class NovelDownloadController {
 
         novelDownloadService.download(request, userUuid);
 
-        return ResponseEntity.ok(DownloadResponse.builder()
+        return ResponseEntity.ok(NovelDownloadResponse.builder()
                 .success(true)
                 .message(messages.get("download.task.started"))
                 .downloadPath(messages.get("download.download-path.pending",
@@ -193,7 +194,7 @@ public class NovelDownloadController {
             int embeddedDone,
             long coverTotalBytes,
             long coverDownloadedBytes,
-            top.sywyar.pixivdownload.download.DownloadActionResult bookmarkResult,
-            top.sywyar.pixivdownload.download.DownloadActionResult collectionResult
+            WorkActionResult bookmarkResult,
+            WorkActionResult collectionResult
     ) {}
 }

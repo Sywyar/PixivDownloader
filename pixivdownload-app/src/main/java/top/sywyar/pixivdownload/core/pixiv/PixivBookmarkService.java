@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download;
+package top.sywyar.pixivdownload.core.pixiv;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,6 +8,7 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.util.List;
@@ -47,19 +48,19 @@ public class PixivBookmarkService {
      * @param artworkId 作品 ID
      * @param cookie    用户的 Pixiv Cookie 字符串
      */
-    public DownloadActionResult bookmarkArtwork(Long artworkId, String cookie) {
+    public WorkActionResult bookmarkArtwork(Long artworkId, String cookie) {
         if (cookie == null || cookie.isBlank()) {
             log.warn(message("bookmark.log.skip.missing-cookie", id(artworkId)));
-            return DownloadActionResult.skipped(messages.get("bookmark.result.skipped.missing-cookie"));
+            return WorkActionResult.skipped(messages.get("bookmark.result.skipped.missing-cookie"));
         }
         try {
             String csrfToken = fetchCsrfToken(cookie);
             postBookmark(artworkId, cookie, csrfToken);
             log.info(message("bookmark.log.success", id(artworkId)));
-            return DownloadActionResult.success(messages.get("bookmark.result.success"));
+            return WorkActionResult.success(messages.get("bookmark.result.success"));
         } catch (Exception e) {
             log.warn(message("bookmark.log.failed", id(artworkId), e.getMessage()), e);
-            return DownloadActionResult.failed(messages.get("bookmark.result.failed"));
+            return WorkActionResult.failed(messages.get("bookmark.result.failed"));
         }
     }
 
@@ -115,19 +116,19 @@ public class PixivBookmarkService {
     /**
      * 收藏小说（best-effort）。失败仅记录日志。
      */
-    public DownloadActionResult bookmarkNovel(Long novelId, String cookie) {
+    public WorkActionResult bookmarkNovel(Long novelId, String cookie) {
         if (cookie == null || cookie.isBlank()) {
             log.warn(message("bookmark.log.skip.missing-cookie", id(novelId)));
-            return DownloadActionResult.skipped(messages.get("bookmark.result.skipped.missing-cookie"));
+            return WorkActionResult.skipped(messages.get("bookmark.result.skipped.missing-cookie"));
         }
         try {
             String csrfToken = fetchCsrfToken(cookie);
             postNovelBookmark(novelId, cookie, csrfToken);
             log.info(message("bookmark.log.success", id(novelId)));
-            return DownloadActionResult.success(messages.get("bookmark.result.success"));
+            return WorkActionResult.success(messages.get("bookmark.result.success"));
         } catch (Exception e) {
             log.warn(message("bookmark.log.failed", id(novelId), e.getMessage()), e);
-            return DownloadActionResult.failed(messages.get("bookmark.result.failed"));
+            return WorkActionResult.failed(messages.get("bookmark.result.failed"));
         }
     }
 

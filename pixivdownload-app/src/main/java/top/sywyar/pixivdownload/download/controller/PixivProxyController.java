@@ -18,12 +18,9 @@ import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
+import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.download.response.*;
-import top.sywyar.pixivdownload.novel.download.NovelCoverUrlResolver;
-import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
-import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
-import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
-import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
@@ -246,28 +243,6 @@ public class PixivProxyController {
         return out;
     }
 
-    private static Integer extractReadingTimeSeconds(JsonNode node) {
-        String[] fieldNames = {"readingTimeSeconds", "readingTime", "readTime", "estimatedReadingTime"};
-        for (String fieldName : fieldNames) {
-            JsonNode value = node.path(fieldName);
-            if (value.isMissingNode() || value.isNull()) continue;
-            if (value.isNumber()) {
-                int seconds = value.asInt(0);
-                return seconds > 0 ? seconds : null;
-            }
-            String raw = value.asText("").trim();
-            if (raw.isEmpty()) continue;
-            String digits = raw.replaceAll("[^0-9]", "");
-            if (digits.isEmpty()) continue;
-            try {
-                int seconds = Integer.parseInt(digits);
-                return seconds > 0 ? seconds : null;
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return null;
-    }
-
     private static String extractNovelCoverUrl(JsonNode node) {
         for (String parent : List.of("imageUrls", "urls")) {
             JsonNode urls = node.path(parent);
@@ -275,7 +250,7 @@ public class PixivProxyController {
                 for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
                     String cover = urls.path(key).asText("");
                     if (!cover.isBlank()) {
-                        return NovelCoverUrlResolver.preferHighResolution(cover);
+                        return PixivCoverUrlResolver.preferHighResolution(cover);
                     }
                 }
             }
@@ -283,18 +258,10 @@ public class PixivProxyController {
         for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
             String cover = node.path(key).asText("");
             if (!cover.isBlank()) {
-                return NovelCoverUrlResolver.preferHighResolution(cover);
+                return PixivCoverUrlResolver.preferHighResolution(cover);
             }
         }
         return "";
-    }
-
-    private static Long extractUploadTimestamp(JsonNode node) {
-        for (String fieldName : List.of("uploadDate", "createDate", "updateDate")) {
-            Long parsed = parsePixivIsoToEpochMillis(node.path(fieldName).asText(null));
-            if (parsed != null) return parsed;
-        }
-        return null;
     }
 
     @GetMapping("/artwork/{artworkId}/pages")
@@ -418,34 +385,6 @@ public class PixivProxyController {
         return items;
     }
 
-    /**
-     * 把 {@code /ajax/user/{id}/novels?ids[]=...} 的 {@code body} 解析为与小说搜索结果同形的卡片列表，
-     * 同样按 {@code ids} 请求顺序保序、跳过已删除的作品。纯函数。
-     */
-    static List<NovelSearchResponse.NovelSearchItem> parseUserNovelCards(JsonNode body, List<String> ids) {
-        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
-        if (body == null || ids == null) return items;
-        for (String id : ids) {
-            JsonNode item = body.path(id);
-            if (item.isMissingNode() || item.isNull() || !item.isObject()) continue;
-            items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(id),
-                    item.path("title").asText(""),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("bookmarkCount").asInt(-1),
-                    item.path("wordCount").asInt(0),
-                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    extractNovelCoverUrl(item),
-                    item.path("isOriginal").asBoolean(false),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return items;
-    }
-
     private SearchResponse fetchSearchPage(
             String word,
             String order,
@@ -489,52 +428,6 @@ public class PixivProxyController {
             ));
         }
         return new SearchResponse(items, total, safePage);
-    }
-
-    private NovelSearchResponse fetchNovelSearchPage(
-            String word,
-            String order,
-            String mode,
-            String sMode,
-            int page,
-            String cookie) throws IOException {
-        int safePage = Math.max(page, 1);
-        URI searchUri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/search/novels/{word}")
-                .queryParam("word", "{word}")
-                .queryParam("order", order)
-                .queryParam("mode", mode)
-                .queryParam("s_mode", sMode)
-                .queryParam("p", safePage)
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("word", word))
-                .encode()
-                .toUri();
-        String body = proxyGetUri(searchUri, cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            throw new IllegalArgumentException(root.path("message").asText(messages.get("pixiv.proxy.search.failed")));
-        }
-        JsonNode novel = root.path("body").path("novel");
-        int total = novel.path("total").asInt(0);
-        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
-        for (JsonNode item : novel.path("data")) {
-            items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("bookmarkCount").asInt(-1),
-                    item.path("wordCount").asInt(0),
-                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    item.path("url").asText(""),
-                    item.path("isOriginal").asBoolean(false),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return new NovelSearchResponse(items, total, safePage);
     }
 
     @GetMapping("/search")
@@ -638,38 +531,6 @@ public class PixivProxyController {
                 SearchResponse r = fetchSearchPage(word, order, mode, sMode, p, cookie);
                 return new RangePage(r.getItems(), r.getTotal(),
                         o -> ((SearchResponse.SearchItem) o).getId());
-            }));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
-        }
-    }
-
-    @GetMapping("/novel-search/range")
-    public ResponseEntity<?> rangeSearchNovels(
-            @RequestParam String word,
-            @RequestParam(defaultValue = "date_d") String order,
-            @RequestParam(defaultValue = "all") String mode,
-            @RequestParam(defaultValue = "s_tag") String sMode,
-            @RequestParam(defaultValue = "1") int startPage,
-            @RequestParam(defaultValue = "1") int endPage,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        String validationError = validateSearchParams(order, mode, sMode);
-        if (validationError != null) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(validationError));
-        }
-        if (startPage < 1 || endPage < 1) {
-            return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
-        }
-        try {
-            int limitPage = resolveSearchFillLimitPage(request);
-            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, limitPage, p -> {
-                NovelSearchResponse r = fetchNovelSearchPage(word, order, mode, sMode, p, cookie);
-                return new RangePage(r.getItems(), r.getTotal(),
-                        o -> ((NovelSearchResponse.NovelSearchItem) o).getId());
             }));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
@@ -808,276 +669,6 @@ public class PixivProxyController {
         return parsed == null ? fallback : parsed;
     }
 
-    // ── Novel endpoints ─────────────────────────────────────────────────────────
-
-    /**
-     * 若请求来自访客邀请会话，校验小说是否在可见范围；越界 403。
-     */
-    private void guardNovelForGuest(HttpServletRequest request, String novelId) {
-        if (novelId == null || novelId.isBlank()) return;
-        try {
-            long id = Long.parseLong(novelId.trim());
-            guestAccessGuard.requireNovelVisible(request, id);
-        } catch (NumberFormatException ignored) {
-        }
-    }
-
-    @GetMapping("/novel/{novelId}/meta")
-    public ResponseEntity<?> getNovelMeta(
-            @PathVariable String novelId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        guardNovelForGuest(request, novelId);
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        long parsedId;
-        try {
-            parsedId = Long.parseLong(novelId);
-        } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
-        }
-        URI uri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("id", parsedId))
-                .encode()
-                .toUri();
-        String body = proxyGetUri(uri, cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
-        }
-        JsonNode b = root.path("body");
-        Long seriesId = null;
-        Long seriesOrder = null;
-        String seriesTitle = null;
-        JsonNode nav = b.path("seriesNavData");
-        if (nav.isObject()) {
-            long sid = nav.path("seriesId").asLong(0);
-            if (sid > 0) {
-                seriesId = sid;
-                seriesOrder = nav.path("order").asLong(0);
-                seriesTitle = nav.path("title").asText("");
-            }
-        }
-        Integer wordCount = b.has("wordCount") ? b.path("wordCount").asInt(0) : null;
-        Integer textLength = b.has("characterCount") ? b.path("characterCount").asInt(0) : null;
-        Integer readingTimeSeconds = extractReadingTimeSeconds(b);
-        String content = b.path("content").asText("");
-        Integer pageCount = countPages(content);
-        Long uploadTimestamp = extractUploadTimestamp(b);
-        return ResponseEntity.ok(new NovelMetaResponse(
-                parsedId,
-                b.path("title").asText(""),
-                b.path("xRestrict").asInt(0),
-                b.path("aiType").asInt(0) >= 2,
-                b.path("bookmarkCount").asInt(-1),
-                parsePositiveLong(b.path("userId").asText(null)),
-                b.path("userName").asText(""),
-                PixivDescriptionHtml.normalizeLinks(b.path("description").asText("")),
-                extractTags(b),
-                seriesId,
-                seriesOrder,
-                seriesTitle,
-                content,
-                wordCount,
-                textLength,
-                readingTimeSeconds,
-                pageCount,
-                b.path("isOriginal").asBoolean(false),
-                b.path("language").asText(""),
-                extractNovelCoverUrl(b),
-                uploadTimestamp,
-                extractTextEmbeddedImages(b)
-        ));
-    }
-
-    @GetMapping("/novel/{novelId}/bookmark-count")
-    public ResponseEntity<?> getNovelBookmarkCount(
-            @PathVariable String novelId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        guardNovelForGuest(request, novelId);
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        long parsedId;
-        try {
-            parsedId = Long.parseLong(novelId);
-        } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
-        }
-        URI uri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("id", parsedId))
-                .encode()
-                .toUri();
-        String body = proxyGetUri(uri, cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
-        }
-        int bookmarkCount = root.path("body").path("bookmarkCount").asInt(-1);
-        return ResponseEntity.ok(new NovelBookmarkCountResponse(bookmarkCount));
-    }
-
-    /**
-     * 抽取 Pixiv 小说 AJAX 响应中的 {@code body.textEmbeddedImages}。
-     * 结构示例：{@code "1234": { "novelImageId": "1234", "urls": { "original": "https://i.pximg.net/.../1234.jpg" } }}。
-     * 仅保留 {@code original} URL，且只接受 pximg.net 主机。
-     */
-    private static Map<String, String> extractTextEmbeddedImages(JsonNode body) {
-        JsonNode node = body.path("textEmbeddedImages");
-        if (!node.isObject() || node.isEmpty()) return Map.of();
-        Map<String, String> out = new LinkedHashMap<>();
-        node.fields().forEachRemaining(e -> {
-            String url = e.getValue().path("urls").path("original").asText("");
-            if (url.isBlank()) return;
-            try {
-                URI uri = URI.create(url);
-                String host = uri.getHost();
-                if (host == null || !host.endsWith(".pximg.net")) return;
-            } catch (IllegalArgumentException ignored) {
-                return;
-            }
-            out.put(e.getKey(), url);
-        });
-        return out;
-    }
-
-    @GetMapping("/novel/series/{seriesId}")
-    public ResponseEntity<?> getNovelSeries(
-            @PathVariable String seriesId,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        long parsedId;
-        try {
-            parsedId = Long.parseLong(seriesId);
-        } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.novel.series.id.invalid", seriesId)));
-        }
-        // 1) Series meta
-        URI metaUri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/novel/series/{id}")
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("id", parsedId))
-                .encode()
-                .toUri();
-        String metaBody = proxyGetUri(metaUri, cookie);
-        JsonNode metaRoot = objectMapper.readTree(metaBody);
-        if (metaRoot.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(metaRoot.path("message").asText()));
-        }
-        JsonNode mb = metaRoot.path("body");
-        long sid = parsePositiveOrDefault(mb.path("id").asText(null), parsedId);
-        String title = mb.path("title").asText("");
-        Long authorId = parsePositiveLong(mb.path("userId").asText(null));
-        String authorName = mb.path("userName").asText("");
-        int total = mb.path("publishedContentCount").asInt(mb.path("total").asInt(0));
-        String language = mb.path("language").asText("");
-        boolean isOriginal = mb.path("isOriginal").asBoolean(false);
-        int totalCharCount = mb.path("publishedTotalCharacterCount").asInt(0);
-        int totalWordCount = mb.path("publishedTotalWordCount").asInt(0);
-        String caption = mb.path("caption").asText("");
-        String coverUrl = extractSeriesCoverUrl(mb);
-        List<TagDto> seriesTags = extractTags(mb);
-
-        // 2) Series content (paginated 30/page)
-        int safePage = Math.max(1, page);
-        int limit = 30;
-        URI contentUri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/novel/series_content/{id}")
-                .queryParam("limit", limit)
-                .queryParam("last_order", (safePage - 1) * limit)
-                .queryParam("order_by", "asc")
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("id", parsedId))
-                .encode()
-                .toUri();
-        String contentBody = proxyGetUri(contentUri, cookie);
-        JsonNode contentRoot = objectMapper.readTree(contentBody);
-        List<NovelSeriesResponse.NovelSeriesItem> items = new ArrayList<>();
-        if (!contentRoot.path("error").asBoolean(false)) {
-            JsonNode arr = contentRoot.path("body").path("page").path("seriesContents");
-            if (!arr.isArray() || arr.isEmpty()) {
-                arr = contentRoot.path("body").path("seriesContents");
-            }
-            if (arr.isArray()) {
-                for (JsonNode it : arr) {
-                    items.add(new NovelSeriesResponse.NovelSeriesItem(
-                            it.path("id").asText(""),
-                            it.path("title").asText(""),
-                            it.path("xRestrict").asInt(0),
-                            it.path("aiType").asInt(0),
-                            it.path("wordCount").asInt(0),
-                            it.path("textLength").asInt(it.path("characterCount").asInt(0)),
-                            extractReadingTimeSeconds(it),
-                            it.path("userId").asText(String.valueOf(authorId == null ? "" : authorId)),
-                            it.path("userName").asText(authorName),
-                            it.path("seriesOrder").asInt(it.path("order").asInt(0)),
-                            extractNovelCoverUrl(it),
-                            extractUploadTimestamp(it),
-                            extractTags(it)
-                    ));
-                }
-            }
-        }
-        boolean isLastPage = items.size() < limit || (total > 0 && safePage * limit >= total);
-        return ResponseEntity.ok(new NovelSeriesResponse(
-                new NovelSeriesResponse.NovelSeriesMeta(sid, title, authorId, authorName, total,
-                        language, isOriginal, totalCharCount, totalWordCount,
-                        caption, coverUrl, seriesTags),
-                items,
-                safePage,
-                isLastPage
-        ));
-    }
-
-    @GetMapping("/novel-search")
-    public ResponseEntity<?> searchNovels(
-            @RequestParam String word,
-            @RequestParam(defaultValue = "date_d") String order,
-            @RequestParam(defaultValue = "all") String mode,
-            @RequestParam(defaultValue = "s_tag") String sMode,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        String validationError = validateSearchParams(order, mode, sMode);
-        if (validationError != null) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(validationError));
-        }
-        try {
-            return ResponseEntity.ok(fetchNovelSearchPage(word, order, mode, sMode, page, cookie));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
-        }
-    }
-
-    @GetMapping("/user/{userId}/novels")
-    public ResponseEntity<?> getUserNovels(
-            @PathVariable String userId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        String body = proxyGet(
-                "https://www.pixiv.net/ajax/user/" + userId + "/profile/all", cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
-        }
-        JsonNode b = root.path("body");
-        List<String> ids = new ArrayList<>();
-        b.path("novels").fieldNames().forEachRemaining(ids::add);
-        ids.sort((a, c2) -> Long.compare(Long.parseLong(c2), Long.parseLong(a)));
-        return ResponseEntity.ok(new UserArtworksResponse(ids));
-    }
-
     /**
      * 批量获取画师插画/漫画的卡片元数据（供 User 模式预览渲染与客户端附加筛选）。
      * 经 {@code /ajax/user/{id}/illusts?ids[]=...} 拉取，返回与搜索结果同形的 {@link SearchResponse}，
@@ -1111,62 +702,6 @@ public class PixivProxyController {
         }
         List<SearchResponse.SearchItem> items = parseUserIllustCards(root.path("body"), ids);
         return ResponseEntity.ok(new SearchResponse(items, items.size(), 1));
-    }
-
-    /**
-     * 批量获取画师小说的卡片元数据（供 User 模式小说预览渲染与客户端附加筛选）。
-     * 经 {@code /ajax/user/{id}/novels?ids[]=...} 拉取，返回与小说搜索结果同形的 {@link NovelSearchResponse}，
-     * 并按请求传入的 ids 顺序保序。
-     */
-    @GetMapping("/user/{userId}/novel-cards")
-    public ResponseEntity<?> getUserNovelCards(
-            @PathVariable String userId,
-            @RequestParam List<String> ids,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        if (ids == null || ids.isEmpty()) {
-            return ResponseEntity.ok(new NovelSearchResponse(List.of(), 0, 1));
-        }
-        UriComponentsBuilder builder = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/user/{userId}/novels");
-        for (String id : ids) {
-            builder.queryParam("ids[]", id);
-        }
-        URI uri = builder
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("userId", userId))
-                .encode()
-                .toUri();
-        String body = proxyGetUri(uri, cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
-        }
-        List<NovelSearchResponse.NovelSearchItem> items = parseUserNovelCards(root.path("body"), ids);
-        return ResponseEntity.ok(new NovelSearchResponse(items, items.size(), 1));
-    }
-
-    private static Integer countPages(String content) {
-        if (content == null || content.isEmpty()) return 1;
-        int pages = 1;
-        int idx = 0;
-        while ((idx = content.indexOf("[newpage]", idx)) >= 0) {
-            pages++;
-            idx += "[newpage]".length();
-        }
-        return pages;
-    }
-
-    private static Long parsePixivIsoToEpochMillis(String iso) {
-        if (iso == null || iso.isBlank()) return null;
-        try {
-            return java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli();
-        } catch (Exception e) {
-            log.debug("Failed to parse Pixiv ISO date: {}", iso, e);
-            return null;
-        }
     }
 
     @GetMapping("/thumbnail-proxy")
@@ -1209,17 +744,7 @@ public class PixivProxyController {
      * cookie 缺失或不含合法 PHPSESSID（未登录 / 已过期 / 拼装错误）。
      */
     static String extractUidFromCookie(String cookie) {
-        if (cookie == null) return null;
-        for (String part : cookie.split(";")) {
-            String trimmed = part.trim();
-            if (!trimmed.regionMatches(true, 0, "PHPSESSID=", 0, "PHPSESSID=".length())) continue;
-            String value = trimmed.substring("PHPSESSID=".length());
-            int us = value.indexOf('_');
-            if (us <= 0) continue;
-            String uid = value.substring(0, us);
-            if (!uid.isEmpty() && uid.chars().allMatch(Character::isDigit)) return uid;
-        }
-        return null;
+        return PixivCookieUserResolver.extractUidFromCookie(cookie);
     }
 
     @GetMapping("/me/uid")
@@ -1288,62 +813,6 @@ public class PixivProxyController {
             ));
         }
         return ResponseEntity.ok(new SearchResponse(items, total, safeOffset / safeLimit + 1));
-    }
-
-    @GetMapping("/me/novel-bookmarks")
-    public ResponseEntity<?> getMyNovelBookmarks(
-            @RequestParam(defaultValue = "show") String rest,
-            @RequestParam(required = false) String tag,
-            @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "24") int limit,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        if (!VALID_REST.contains(rest)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.me.rest.invalid", rest)));
-        }
-        int safeOffset = Math.max(0, offset);
-        int safeLimit = Math.max(1, Math.min(100, limit));
-        String uid = extractUidFromCookie(cookie);
-        if (uid == null) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
-        }
-        URI uri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/user/{uid}/novels/bookmarks")
-                .queryParam("tag", tag == null ? "" : tag)
-                .queryParam("offset", safeOffset)
-                .queryParam("limit", safeLimit)
-                .queryParam("rest", rest)
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("uid", uid))
-                .encode()
-                .toUri();
-        String body = proxyGetUri(uri, cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
-        }
-        JsonNode b = root.path("body");
-        int total = b.path("total").asInt(0);
-        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
-        for (JsonNode item : b.path("works")) {
-            items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("bookmarkCount").asInt(-1),
-                    item.path("wordCount").asInt(0),
-                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    extractNovelCoverUrl(item),
-                    item.path("isOriginal").asBoolean(false),
-                    parseStringTags(item.path("tags"))
-            ));
-        }
-        return ResponseEntity.ok(new NovelSearchResponse(items, total, safeOffset / safeLimit + 1));
     }
 
     @GetMapping("/me/following")

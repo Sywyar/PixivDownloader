@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.meta;
+package top.sywyar.pixivdownload.core.metadata.sidecar;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 

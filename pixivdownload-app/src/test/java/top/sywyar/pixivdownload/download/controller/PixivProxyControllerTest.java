@@ -214,65 +214,6 @@ class PixivProxyControllerTest {
         }
     }
 
-    // ========== GET /api/pixiv/novel-search ==========
-
-    @Nested
-    @DisplayName("GET /api/pixiv/novel-search")
-    class NovelSearchTests {
-
-        @BeforeEach
-        void setUpSoloMode() {
-            when(setupService.getMode()).thenReturn("solo");
-        }
-
-        private static final String PIXIV_NOVEL_SEARCH_RESPONSE = """
-                {
-                  "error": false,
-                  "body": {
-                    "novel": {
-                      "data": [
-                        {
-                          "id": "789012",
-                          "title": "Test Novel",
-                          "xRestrict": 1,
-                          "aiType": 0,
-                          "bookmarkCount": 987,
-                          "wordCount": 1200,
-                          "characterCount": 3600,
-                          "userId": "8888",
-                          "userName": "TestWriter",
-                          "url": "https://i.pximg.net/c/250x250_80_a2/novel-cover-master/img/2024/01/01/789012.jpg",
-                          "isOriginal": true,
-                          "tags": ["小説", "テスト"]
-                        }
-                      ],
-                      "total": 123
-                    }
-                  }
-                }
-                """;
-
-        @Test
-        @DisplayName("小说搜索结果应透传 bookmarkCount")
-        void shouldReturnNovelSearchBookmarkCount() throws Exception {
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_NOVEL_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-
-            mockMvc.perform(get("/api/pixiv/novel-search")
-                            .param("word", "初音ミク"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.total").value(123))
-                    .andExpect(jsonPath("$.page").value(1))
-                    .andExpect(jsonPath("$.items", hasSize(1)))
-                    .andExpect(jsonPath("$.items[0].id").value("789012"))
-                    .andExpect(jsonPath("$.items[0].title").value("Test Novel"))
-                    .andExpect(jsonPath("$.items[0].bookmarkCount").value(987))
-                    .andExpect(jsonPath("$.items[0].wordCount").value(1200))
-                    .andExpect(jsonPath("$.items[0].textLength").value(3600))
-                    .andExpect(jsonPath("$.items[0].isOriginal").value(true));
-        }
-    }
-
     // ========== GET /api/pixiv/thumbnail-proxy ==========
 
     @Nested
@@ -520,40 +461,6 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.error").isNotEmpty());
 
             verifyNoInteractions(restTemplate);
-        }
-    }
-
-    // ========== GET /api/pixiv/novel/{id}/bookmark-count ==========
-
-    @Nested
-    @DisplayName("GET /api/pixiv/novel/{id}/bookmark-count")
-    class NovelBookmarkCountTests {
-
-        @BeforeEach
-        void setUpSoloMode() {
-            when(setupService.getMode()).thenReturn("solo");
-        }
-
-        @Test
-        @DisplayName("应只返回小说收藏数")
-        void shouldReturnNovelBookmarkCountOnly() throws Exception {
-            String body = """
-                    {
-                      "error": false,
-                      "body": {
-                        "title": "Novel",
-                        "bookmarkCount": 4567,
-                        "content": "large novel body"
-                      }
-                    }
-                    """;
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(body.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-
-            mockMvc.perform(get("/api/pixiv/novel/789012/bookmark-count"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.bookmarkCount").value(4567))
-                    .andExpect(jsonPath("$.content").doesNotExist());
         }
     }
 
