@@ -8,12 +8,10 @@ import top.sywyar.pixivdownload.gui.DebugUnlockState;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.config.*;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.gui.panel.configtab.AiConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSectionContext;
+import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigSectionResolver;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
-import top.sywyar.pixivdownload.gui.panel.configtab.NotificationConfigSection;
-import top.sywyar.pixivdownload.gui.panel.configtab.PluginMarketConfigSection;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.*;
@@ -58,6 +56,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
+    private final List<GuiConfigSectionSpec> sectionContributions;
     private final List<String> groups;
     private final String serverGroup;
     private final String multiModeGroup;
@@ -96,6 +95,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         this.currentMode = resolveCurrentMode();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
         this.allFields = snapshot.fields();
+        this.sectionContributions = snapshot.sections();
         this.groups = snapshot.groups();
         this.serverGroup = groups.isEmpty() ? "" : groups.get(0);
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
@@ -149,11 +149,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private void buildUi() {
         setLayout(new BorderLayout(0, 0));
 
-        // 特殊分组（自带控件 / 异步测试 / 预设联动 / 列表编辑器）的可插拔实现；普通分组仍走 buildGroupPanel 声明式渲染。
-        sections = List.of(
-                new AiConfigSection(this),
-                new NotificationConfigSection(this),
-                new PluginMarketConfigSection(this, configPath, webUrlProvider));
+        // 特殊分组（自带控件 / 异步测试 / 预设联动 / 列表编辑器）统一经 section contribution resolver 接入；
+        // 普通分组仍走 buildGroupPanel 声明式渲染。
+        sections = GuiConfigSectionResolver.createSections(
+                this, groups, sectionContributions, configPath, webUrlProvider);
         sectionsByGroup = new LinkedHashMap<>();
         for (ConfigSection section : sections) {
             sectionsByGroup.put(section.group(), section);

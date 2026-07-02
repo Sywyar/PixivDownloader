@@ -34,6 +34,11 @@ import java.util.concurrent.ExecutionException;
 
 /**
  * 「AI 模型」分组标签页：文本模型与 TTS 模型合并，用模态下拉切换当前编辑的字段卡片。
+ * <p>
+ * 兼容迁移过渡层：入口由 {@link GuiConfigSectionResolver} 生成的 section contribution adapter 接入，
+ * 用于保持既有 AI/TTS 富布局不发生用户可见变化。新的插件字段、preset 或测试动作应通过
+ * {@code plugin.api.gui} 的声明式 section/action/preset contribution 表达，而不是继续扩展本类的
+ * 字段前缀或供应商列表。
  */
 @Slf4j
 public final class AiConfigSection implements ConfigSection {

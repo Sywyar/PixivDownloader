@@ -3,15 +3,21 @@ package top.sywyar.pixivdownload.gui.config;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigConditionOperator;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -83,8 +89,9 @@ public final class GuiConfigContributionAggregator {
         }
 
         List<AcceptedField> accepted = collectFields(contributions, customGroups, diagnostics);
+        List<GuiConfigSectionSpec> sections = collectSections(contributions, customGroups, diagnostics);
         List<ConfigFieldSpec> fields = accepted.stream()
-                .sorted(java.util.Comparator
+                .sorted(Comparator
                         .comparingInt(AcceptedField::groupOrder)
                         .thenComparingInt(AcceptedField::fieldOrder)
                         .thenComparing(AcceptedField::pluginId)
@@ -95,7 +102,7 @@ public final class GuiConfigContributionAggregator {
         List<ConfigGroupSpec> groups = customGroups.values().stream()
                 .map(GroupEntry::spec)
                 .toList();
-        return new GuiConfigContributionSnapshot(groups, fields, diagnostics);
+        return new GuiConfigContributionSnapshot(groups, fields, sections, diagnostics);
     }
 
     private static void registerGroups(PluginRegistry.RegisteredPlugin registered,
@@ -263,6 +270,289 @@ public final class GuiConfigContributionAggregator {
         return new AcceptedField(registered.id(), key, builder.build(), groupOrder, field.order());
     }
 
+    private static List<GuiConfigSectionSpec> collectSections(List<PluginContributions> contributions,
+                                                              Map<String, GroupEntry> customGroups,
+                                                              List<GuiConfigContributionDiagnostic> diagnostics) {
+        Map<String, String> ownerBySectionId = new LinkedHashMap<>();
+        List<GuiConfigSectionSpec> accepted = new ArrayList<>();
+        for (PluginContributions pluginContributions : contributions) {
+            PluginRegistry.RegisteredPlugin registered = pluginContributions.registered();
+            PluginTextResolver textResolver = pluginContributions.textResolver();
+            for (GuiConfigContribution contribution : pluginContributions.contributions()) {
+                for (GuiConfigSectionContribution section : contribution.sections()) {
+                    GuiConfigSectionSpec spec = toSection(registered, textResolver, section, customGroups, diagnostics);
+                    if (spec == null) {
+                        continue;
+                    }
+                    String existingOwner = ownerBySectionId.get(spec.sectionId());
+                    if (existingOwner != null) {
+                        diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), spec.sectionId(),
+                                "duplicate GUI config section id '" + spec.sectionId() + "' from plugin '"
+                                        + registered.id() + "' conflicts with plugin '" + existingOwner + "'"));
+                        accepted.removeIf(item -> item.sectionId().equals(spec.sectionId()));
+                        continue;
+                    }
+                    ownerBySectionId.put(spec.sectionId(), registered.id());
+                    accepted.add(spec);
+                }
+            }
+        }
+        return accepted.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigSectionSpec::groupOrder)
+                        .thenComparingInt(GuiConfigSectionSpec::order)
+                        .thenComparing(GuiConfigSectionSpec::pluginId)
+                        .thenComparing(GuiConfigSectionSpec::sectionId))
+                .toList();
+    }
+
+    private static GuiConfigSectionSpec toSection(PluginRegistry.RegisteredPlugin registered,
+                                                  PluginTextResolver textResolver,
+                                                  GuiConfigSectionContribution section,
+                                                  Map<String, GroupEntry> customGroups,
+                                                  List<GuiConfigContributionDiagnostic> diagnostics) {
+        if (section == null) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), null,
+                    "null GUI config section contribution"));
+            return null;
+        }
+        String sectionId = normalize(section.sectionId());
+        if (sectionId == null) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), null,
+                    "GUI config section id is blank"));
+            return null;
+        }
+        String groupId = normalize(section.groupId());
+        if (groupId == null) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                    "GUI config section group id is blank"));
+            return null;
+        }
+        if (!ConfigFieldRegistry.hasGroupId(groupId) && !customGroups.containsKey(groupId)) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                    "GUI config section references unknown group id '" + groupId + "'"));
+            return null;
+        }
+        if (section.layout() == null) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                    "GUI config section layout is null"));
+            return null;
+        }
+
+        String title = optionalText(registered, textResolver, sectionId, "section", "title",
+                section.i18nNamespace(), section.titleKey(), diagnostics);
+        if (title == null) {
+            return null;
+        }
+        String help = optionalText(registered, textResolver, sectionId, "section", "help",
+                section.i18nNamespace(), section.helpKey(), diagnostics);
+        if (help == null) {
+            return null;
+        }
+        List<GuiConfigFieldLayoutSpec> fieldLayouts = fieldLayoutSpecs(
+                registered, textResolver, sectionId, section.fieldLayouts(), diagnostics);
+        List<GuiConfigActionSpec> actions = actionSpecs(
+                registered, textResolver, sectionId, section.actions(), diagnostics);
+        List<GuiConfigPresetSpec> presets = presetSpecs(
+                registered, textResolver, sectionId, section.presets(), diagnostics);
+
+        String groupLabel = ConfigFieldRegistry.groupLabel(groupId)
+                .orElseGet(() -> customGroups.get(groupId).spec().label());
+        int groupOrder = ConfigFieldRegistry.groupOrder(groupId)
+                .orElseGet(() -> customGroups.get(groupId).spec().order());
+        return new GuiConfigSectionSpec(registered.id(), sectionId, groupId, groupLabel,
+                groupOrder, title, help, section.layout(), section.order(), fieldLayouts, actions, presets);
+    }
+
+    private static List<GuiConfigFieldLayoutSpec> fieldLayoutSpecs(PluginRegistry.RegisteredPlugin registered,
+                                                                   PluginTextResolver textResolver,
+                                                                   String sectionId,
+                                                                   List<GuiConfigFieldLayoutContribution> layouts,
+                                                                   List<GuiConfigContributionDiagnostic> diagnostics) {
+        List<GuiConfigFieldLayoutSpec> accepted = new ArrayList<>();
+        for (GuiConfigFieldLayoutContribution layout : layouts) {
+            if (layout == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "null GUI config field layout contribution"));
+                continue;
+            }
+            String fieldKey = normalize(layout.fieldKey());
+            if (fieldKey == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config field layout field key is blank"));
+                continue;
+            }
+            String cardLabel = optionalText(registered, textResolver, sectionId, "field layout",
+                    "card label", layout.i18nNamespace(), layout.cardLabelKey(), diagnostics);
+            if (cardLabel == null) {
+                continue;
+            }
+            accepted.add(new GuiConfigFieldLayoutSpec(fieldKey, normalize(layout.cardId()), cardLabel, layout.order()));
+        }
+        return accepted.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigFieldLayoutSpec::order)
+                        .thenComparing(GuiConfigFieldLayoutSpec::fieldKey))
+                .toList();
+    }
+
+    private static List<GuiConfigActionSpec> actionSpecs(PluginRegistry.RegisteredPlugin registered,
+                                                         PluginTextResolver textResolver,
+                                                         String sectionId,
+                                                         List<GuiConfigActionContribution> actions,
+                                                         List<GuiConfigContributionDiagnostic> diagnostics) {
+        Map<String, String> ownerByActionId = new LinkedHashMap<>();
+        List<GuiConfigActionSpec> accepted = new ArrayList<>();
+        for (GuiConfigActionContribution action : actions) {
+            if (action == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "null GUI config action contribution"));
+                continue;
+            }
+            String actionId = normalize(action.actionId());
+            if (actionId == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action id is blank"));
+                continue;
+            }
+            String labelKey = normalize(action.labelKey());
+            if (labelKey == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action label key is blank: " + actionId));
+                continue;
+            }
+            String endpoint = normalize(action.endpoint());
+            if (endpoint == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action endpoint is blank: " + actionId));
+                continue;
+            }
+            if (!validGuiEndpoint(endpoint)) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action endpoint must be a relative /api/gui/ path segment: " + actionId));
+                continue;
+            }
+            String label = textResolver.actionText(sectionId, action.i18nNamespace(), labelKey,
+                    "label", diagnostics);
+            if (label == null) {
+                continue;
+            }
+            String help = optionalText(registered, textResolver, sectionId, "action", "help",
+                    action.i18nNamespace(), action.helpKey(), diagnostics);
+            if (help == null) {
+                continue;
+            }
+            if (ownerByActionId.putIfAbsent(actionId, registered.id()) != null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "duplicate GUI config action id '" + actionId + "' in section '" + sectionId + "'"));
+                accepted.removeIf(item -> item.actionId().equals(actionId));
+                continue;
+            }
+            accepted.add(new GuiConfigActionSpec(actionId, label, help, endpoint,
+                    action.readTimeoutMillis() <= 0 ? 30_000 : action.readTimeoutMillis(),
+                    action.order(), validPayloadFields(registered, sectionId, action.payloadFields(), diagnostics)));
+        }
+        return accepted.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigActionSpec::order)
+                        .thenComparing(GuiConfigActionSpec::actionId))
+                .toList();
+    }
+
+    private static List<GuiConfigActionPayloadField> validPayloadFields(PluginRegistry.RegisteredPlugin registered,
+                                                                        String sectionId,
+                                                                        List<GuiConfigActionPayloadField> payloadFields,
+                                                                        List<GuiConfigContributionDiagnostic> diagnostics) {
+        List<GuiConfigActionPayloadField> accepted = new ArrayList<>();
+        for (GuiConfigActionPayloadField field : payloadFields) {
+            if (field == null || normalize(field.payloadPath()) == null || normalize(field.fieldKey()) == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action payload field contains blank path or field key"));
+                continue;
+            }
+            accepted.add(field);
+        }
+        return List.copyOf(accepted);
+    }
+
+    private static boolean validGuiEndpoint(String endpoint) {
+        return endpoint != null
+                && !endpoint.isBlank()
+                && !endpoint.startsWith("/")
+                && !endpoint.contains("://")
+                && !endpoint.contains("?")
+                && !endpoint.contains("#")
+                && !endpoint.contains("\\")
+                && java.util.Arrays.stream(endpoint.split("/"))
+                .allMatch(part -> !part.isBlank() && !".".equals(part) && !"..".equals(part));
+    }
+
+    private static List<GuiConfigPresetSpec> presetSpecs(PluginRegistry.RegisteredPlugin registered,
+                                                         PluginTextResolver textResolver,
+                                                         String sectionId,
+                                                         List<GuiConfigPresetContribution> presets,
+                                                         List<GuiConfigContributionDiagnostic> diagnostics) {
+        Map<String, String> ownerByPresetId = new LinkedHashMap<>();
+        List<GuiConfigPresetSpec> accepted = new ArrayList<>();
+        for (GuiConfigPresetContribution preset : presets) {
+            if (preset == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "null GUI config preset contribution"));
+                continue;
+            }
+            String presetId = normalize(preset.presetId());
+            if (presetId == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config preset id is blank"));
+                continue;
+            }
+            String labelKey = normalize(preset.labelKey());
+            if (labelKey == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config preset label key is blank: " + presetId));
+                continue;
+            }
+            String label = textResolver.presetText(sectionId, preset.i18nNamespace(), labelKey,
+                    "label", diagnostics);
+            if (label == null) {
+                continue;
+            }
+            String help = optionalText(registered, textResolver, sectionId, "preset", "help",
+                    preset.i18nNamespace(), preset.helpKey(), diagnostics);
+            if (help == null) {
+                continue;
+            }
+            if (ownerByPresetId.putIfAbsent(presetId, registered.id()) != null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "duplicate GUI config preset id '" + presetId + "' in section '" + sectionId + "'"));
+                accepted.removeIf(item -> item.presetId().equals(presetId));
+                continue;
+            }
+            accepted.add(new GuiConfigPresetSpec(presetId, label, help, preset.order(),
+                    normalize(preset.matchFieldKey()), preset.matchValue(), preset.values()));
+        }
+        return accepted.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigPresetSpec::order)
+                        .thenComparing(GuiConfigPresetSpec::presetId))
+                .toList();
+    }
+
+    private static String optionalText(PluginRegistry.RegisteredPlugin registered,
+                                       PluginTextResolver textResolver,
+                                       String diagnosticKey,
+                                       String ownerType,
+                                       String role,
+                                       String namespace,
+                                       String key,
+                                       List<GuiConfigContributionDiagnostic> diagnostics) {
+        String normalized = normalize(key);
+        if (normalized == null) {
+            return "";
+        }
+        return textResolver.text(diagnosticKey, ownerType, role, namespace, normalized, diagnostics);
+    }
+
     private static String duplicateMessage(String key, String pluginId, String existingOwner) {
         if (existingOwner == null) {
             return "duplicate GUI config key '" + key + "' from plugin '" + pluginId
@@ -426,6 +716,16 @@ public final class GuiConfigContributionAggregator {
         String fieldText(String fieldKey, String explicitNamespace, String key, String role,
                          List<GuiConfigContributionDiagnostic> diagnostics) {
             return text(fieldKey, "field", role, explicitNamespace, key, diagnostics);
+        }
+
+        String actionText(String sectionId, String explicitNamespace, String key, String role,
+                          List<GuiConfigContributionDiagnostic> diagnostics) {
+            return text(sectionId, "action", role, explicitNamespace, key, diagnostics);
+        }
+
+        String presetText(String sectionId, String explicitNamespace, String key, String role,
+                          List<GuiConfigContributionDiagnostic> diagnostics) {
+            return text(sectionId, "preset", role, explicitNamespace, key, diagnostics);
         }
 
         private String text(String diagnosticKey, String ownerType, String role,

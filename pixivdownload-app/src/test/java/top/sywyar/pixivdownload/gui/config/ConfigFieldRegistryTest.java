@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -115,6 +116,43 @@ class ConfigFieldRegistryTest {
     }
 
     @Test
+    @DisplayName("邮件和推送插件字段同时贡献时显示通知分组")
+    void notificationGroupVisibleWithMailAndPushPluginFields() {
+        String notificationGroup = GuiMessages.get("gui.config.group.notification");
+        ConfigFieldSpec mailField = notificationPluginField("mail.enabled");
+        ConfigFieldSpec pushField = notificationPluginField("push.enabled");
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(mailField, pushField), List.of()));
+
+        assertThat(snapshot.groups()).contains(notificationGroup);
+    }
+
+    @Test
+    @DisplayName("仅 section contribution 存在时也显示目标分组")
+    void groupVisibleWithSectionContributionOnly() {
+        ConfigGroupSpec group = new ConfigGroupSpec("fixture-group", "Fixture Group", 50, true);
+        GuiConfigSectionSpec section = new GuiConfigSectionSpec(
+                "fixture",
+                "fixture.section",
+                "fixture-group",
+                "Fixture Group",
+                50,
+                "",
+                "",
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(),
+                List.of(),
+                List.of());
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(group), List.of(), List.of(section), List.of()));
+
+        assertThat(snapshot.groups()).contains("Fixture Group");
+    }
+
+    @Test
     @DisplayName("仅 TTS 插件字段贡献时并入 AI 分组，不单独显示朗读分组")
     void aiGroupVisibleWithTtsPluginFields() {
         String aiGroup = GuiMessages.get("gui.config.group.ai");
@@ -133,13 +171,40 @@ class ConfigFieldRegistryTest {
         assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
     }
 
+    @Test
+    @DisplayName("AI 和 TTS 插件字段同时贡献时显示组合后的 AI 分组")
+    void aiGroupVisibleWithAiAndTtsPluginFields() {
+        String aiGroup = GuiMessages.get("gui.config.group.ai");
+        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
+        ConfigFieldSpec aiField = ConfigFieldSpec.builder(
+                        "ai.enabled", "AI", FieldType.BOOL, aiGroup)
+                .defaultValue("false")
+                .hotReloadable()
+                .build();
+        ConfigFieldSpec ttsField = ConfigFieldSpec.builder(
+                        "narration-tts.engine", "Engine", FieldType.ENUM, narrationTtsGroup)
+                .defaultValue("voxcpm")
+                .enumValues("voxcpm")
+                .hotReloadable()
+                .build();
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(aiField, ttsField), List.of()));
+
+        assertThat(snapshot.groups()).contains(aiGroup);
+        assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
+    }
+
     private static ConfigFieldSnapshot snapshotWithNotificationPluginField(String key) {
-        ConfigFieldSpec pluginField = ConfigFieldSpec.builder(
+        return ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(notificationPluginField(key)), List.of()));
+    }
+
+    private static ConfigFieldSpec notificationPluginField(String key) {
+        return ConfigFieldSpec.builder(
                         key, "Fixture", FieldType.BOOL, GuiMessages.get("gui.config.group.notification"))
                 .defaultValue("false")
                 .hotReloadable()
                 .build();
-        return ConfigFieldRegistry.snapshot(
-                new GuiConfigContributionSnapshot(List.of(), List.of(pluginField), List.of()));
     }
 }

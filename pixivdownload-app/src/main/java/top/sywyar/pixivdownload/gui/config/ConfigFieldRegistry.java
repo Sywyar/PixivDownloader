@@ -128,25 +128,33 @@ public final class ConfigFieldRegistry {
         Set<String> contributedGroupsWithFields = contributions.fields().stream()
                 .map(ConfigFieldSpec::group)
                 .collect(java.util.stream.Collectors.toSet());
+        List<GuiConfigSectionSpec> sections = contributions.sections();
+        Set<String> contributedGroupsWithSections = sections.stream()
+                .map(GuiConfigSectionSpec::group)
+                .collect(java.util.stream.Collectors.toSet());
         List<String> groupLabels = mergedGroups.stream()
                 .filter(ConfigGroupSpec::visibleInTabs)
-                .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithFields))
+                .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithFields,
+                        contributedGroupsWithSections))
                 .sorted(Comparator.comparingInt(ConfigGroupSpec::order))
                 .map(ConfigGroupSpec::label)
                 .toList();
-        return new ConfigFieldSnapshot(groupLabels, fields, contributions.diagnostics());
+        return new ConfigFieldSnapshot(groupLabels, fields, sections, contributions.diagnostics());
     }
 
     private static boolean shouldShowGroup(ConfigGroupSpec group, Set<String> groupsWithFields,
-                                           Set<String> contributedGroupsWithFields) {
+                                           Set<String> contributedGroupsWithFields,
+                                           Set<String> contributedGroupsWithSections) {
         if (GuiConfigGroups.AI.equals(group.id())) {
             return contributedGroupsWithFields.contains(group.label())
-                    || contributedGroupsWithFields.contains(message("gui.config.group.narration-tts"));
+                    || contributedGroupsWithFields.contains(message("gui.config.group.narration-tts"))
+                    || contributedGroupsWithSections.contains(group.label());
         }
         if (GuiConfigGroups.NOTIFICATION.equals(group.id())) {
-            return contributedGroupsWithFields.contains(group.label());
+            return contributedGroupsWithFields.contains(group.label())
+                    || contributedGroupsWithSections.contains(group.label());
         }
-        return groupsWithFields.contains(group.label());
+        return groupsWithFields.contains(group.label()) || contributedGroupsWithSections.contains(group.label());
     }
 
     static boolean hasGroupId(String groupId) {

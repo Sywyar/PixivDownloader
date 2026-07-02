@@ -5,12 +5,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -48,6 +55,7 @@ class GuiConfigContributionAggregatorTest {
                 .containsExactlyElementsOf(ConfigFieldRegistry.allFields().stream()
                         .map(ConfigFieldSpec::key)
                         .toList());
+        assertThat(snapshot.sections()).isEmpty();
         assertThat(snapshot.diagnostics()).isEmpty();
     }
 
@@ -88,6 +96,134 @@ class GuiConfigContributionAggregatorTest {
         assertThat(secret.enabledWhen().test(new ConfigSnapshot(Map.of("fixture.enabled", "true")))).isTrue();
         assertThat(secret.enabledWhen().test(new ConfigSnapshot(Map.of("fixture.enabled", "false")))).isFalse();
         assertThat(snapshot.diagnostics()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("section contribution 按分组和 section 顺序聚合并保留 action 与 preset")
+    void sectionContributionsAreSortedAndCarried() {
+        GuiConfigSectionContribution lateSection = new GuiConfigSectionContribution(
+                "late.section",
+                GuiConfigGroups.NOTIFICATION,
+                "late.section.title",
+                "late.section.help",
+                null,
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(new GuiConfigFieldLayoutContribution("late.enabled", 20)),
+                List.of(new GuiConfigActionContribution(
+                        "late.test",
+                        "late.test.label",
+                        "late.test.help",
+                        null,
+                        "late-test",
+                        15_000,
+                        30,
+                        List.of(new GuiConfigActionPayloadField(
+                                "enabled", "late.enabled", GuiConfigActionPayloadType.BOOLEAN)))),
+                List.of(new GuiConfigPresetContribution(
+                        "late.default",
+                        "late.default.label",
+                        "late.default.help",
+                        null,
+                        40,
+                        "late.enabled",
+                        "true",
+                        Map.of("late.enabled", "true"))));
+        GuiConfigSectionContribution earlySection = new GuiConfigSectionContribution(
+                "early.section", GuiConfigGroups.PLUGINS,
+                GuiConfigSectionLayout.FIELD_LIST, 20);
+
+        PixivFeaturePlugin lateGroup = plugin("late-group", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("late.enabled", GuiConfigGroups.NOTIFICATION,
+                        "late.enabled.label", GuiConfigFieldType.BOOL)),
+                List.of(lateSection))));
+        PixivFeaturePlugin earlyGroup = plugin("early-group", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("early.enabled", GuiConfigGroups.PLUGINS,
+                        "early.enabled.label", GuiConfigFieldType.BOOL)),
+                List.of(earlySection))));
+
+        GuiConfigContributionSnapshot contributions =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(lateGroup, earlyGroup)));
+
+        assertThat(contributions.sections()).extracting(GuiConfigSectionSpec::sectionId)
+                .containsExactly("early.section", "late.section");
+        GuiConfigSectionSpec late = contributions.sections().stream()
+                .filter(section -> "late.section".equals(section.sectionId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(late.fieldLayouts()).extracting(GuiConfigFieldLayoutSpec::fieldKey)
+                .containsExactly("late.enabled");
+        assertThat(late.actions()).extracting(GuiConfigActionSpec::actionId)
+                .containsExactly("late.test");
+        assertThat(late.actions().get(0).payloadFields()).extracting(GuiConfigActionPayloadField::payloadPath)
+                .containsExactly("enabled");
+        assertThat(late.presets()).extracting(GuiConfigPresetSpec::presetId)
+                .containsExactly("late.default");
+        assertThat(contributions.diagnostics()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("section 引用未知分组时只跳过该 section 并保留其它贡献")
+    void sectionWithUnknownGroupIsDiagnosedWithoutDroppingFields() {
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("fixture.visible", GuiConfigGroups.PLUGINS,
+                        "fixture.visible.label", GuiConfigFieldType.BOOL)),
+                List.of(new GuiConfigSectionContribution(
+                        "fixture.section", "missing-group", GuiConfigSectionLayout.FIELD_LIST, 10)))));
+
+        GuiConfigContributionSnapshot contributions =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(contributions);
+
+        assertThat(snapshot.fields()).extracting(ConfigFieldSpec::key).contains("fixture.visible");
+        assertThat(snapshot.sections()).isEmpty();
+        assertThat(snapshot.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.pluginId()).isEqualTo("fixture");
+            assertThat(diagnostic.key()).isEqualTo("fixture.section");
+            assertThat(diagnostic.message()).contains("unknown group id");
+        });
+    }
+
+    @Test
+    @DisplayName("section action endpoint 只能声明为 api/gui 相对路径段")
+    void sectionActionEndpointMustBeRelativeGuiPath() {
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("fixture.enabled", GuiConfigGroups.PLUGINS,
+                        "fixture.enabled.label", GuiConfigFieldType.BOOL)),
+                List.of(new GuiConfigSectionContribution(
+                        "fixture.section",
+                        GuiConfigGroups.PLUGINS,
+                        "",
+                        "",
+                        null,
+                        GuiConfigSectionLayout.FIELD_LIST,
+                        10,
+                        List.of(),
+                        List.of(
+                                new GuiConfigActionContribution(
+                                        "ok", "fixture.ok.label", "plugins/status", 10, List.of()),
+                                new GuiConfigActionContribution(
+                                        "bad", "fixture.bad.label", "../plugins/status", 20, List.of())),
+                        List.of())))));
+
+        GuiConfigContributionSnapshot contributions =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+        GuiConfigSectionSpec section = contributions.sections().stream()
+                .filter(spec -> "fixture.section".equals(spec.sectionId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(section.actions()).extracting(GuiConfigActionSpec::actionId)
+                .containsExactly("ok");
+        assertThat(contributions.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.pluginId()).isEqualTo("fixture");
+            assertThat(diagnostic.key()).isEqualTo("fixture.section");
+            assertThat(diagnostic.message()).contains("relative /api/gui/ path");
+        });
     }
 
     @Test

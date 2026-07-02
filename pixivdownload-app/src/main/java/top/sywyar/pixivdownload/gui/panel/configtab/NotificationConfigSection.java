@@ -39,6 +39,11 @@ import java.util.concurrent.ExecutionException;
 
 /**
  * 「通知」分组标签页：邮件 / SMTP 与推送插件字段合并到旧式服务切换布局，通知场景开关保持紧凑复选框网格。
+ * <p>
+ * 兼容迁移过渡层：入口由 {@link GuiConfigSectionResolver} 生成的 section contribution adapter 接入，
+ * 用于保持既有 mail/push 富布局不发生用户可见变化。新的通知介质、渠道、preset 或测试动作应通过
+ * {@code plugin.api.gui} 的声明式 section/action/preset contribution 表达，而不是继续扩展本类的
+ * 字段前缀、渠道 id 或 endpoint 列表。
  */
 @Slf4j
 public final class NotificationConfigSection implements ConfigSection {

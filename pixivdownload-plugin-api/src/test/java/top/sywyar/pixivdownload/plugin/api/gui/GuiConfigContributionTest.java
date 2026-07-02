@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,7 +14,7 @@ class GuiConfigContributionTest {
     @Test
     @DisplayName("空列表与可选文本按纯数据模型安全归一化")
     void nullListsAndOptionalTextAreNormalized() {
-        GuiConfigContribution contribution = new GuiConfigContribution(null, null);
+        GuiConfigContribution contribution = new GuiConfigContribution(null, null, null);
         GuiConfigGroupContribution group = new GuiConfigGroupContribution("demo", "group.label", "  ", 10, true);
         GuiConfigFieldContribution field = new GuiConfigFieldContribution(
                 "demo.token",
@@ -34,6 +35,7 @@ class GuiConfigContributionTest {
 
         assertThat(contribution.groups()).isEmpty();
         assertThat(contribution.fields()).isEmpty();
+        assertThat(contribution.sections()).isEmpty();
         assertThat(group.i18nNamespace()).isNull();
         assertThat(field.helpKey()).isEmpty();
         assertThat(field.i18nNamespace()).isNull();
@@ -90,5 +92,54 @@ class GuiConfigContributionTest {
                 .isEqualTo(new GuiConfigCondition("c", GuiConfigConditionOperator.NOT_EQUALS, "y"));
         assertThat(GuiConfigCondition.blank("d"))
                 .isEqualTo(new GuiConfigCondition("d", GuiConfigConditionOperator.BLANK, null));
+    }
+
+    @Test
+    @DisplayName("section/action/preset/layout 元数据保持纯数据形态")
+    void sectionActionPresetLayoutMetadataIsCarriedAsPureData() {
+        GuiConfigFieldLayoutContribution layout = new GuiConfigFieldLayoutContribution(
+                "demo.token", "main", "card.main", "  ", 20);
+        GuiConfigActionPayloadField payload = new GuiConfigActionPayloadField(
+                "settings.enabled", "demo.enabled", GuiConfigActionPayloadType.BOOLEAN);
+        GuiConfigActionContribution action = new GuiConfigActionContribution(
+                "test",
+                "action.test.label",
+                "action.test.help",
+                "demo",
+                "demo-test",
+                45_000,
+                30,
+                List.of(payload));
+        GuiConfigPresetContribution preset = new GuiConfigPresetContribution(
+                "default",
+                "preset.default.label",
+                "preset.default.help",
+                "demo",
+                40,
+                "demo.endpoint",
+                "https://example.test",
+                Map.of("demo.endpoint", "https://example.test"));
+        GuiConfigSectionContribution section = new GuiConfigSectionContribution(
+                "demo.main",
+                GuiConfigGroups.PLUGINS,
+                "section.title",
+                "section.help",
+                "demo",
+                GuiConfigSectionLayout.CARD_SWITCHER,
+                50,
+                List.of(layout),
+                List.of(action),
+                List.of(preset));
+
+        assertThat(layout.i18nNamespace()).isNull();
+        assertThat(payload.valueType()).isEqualTo(GuiConfigActionPayloadType.BOOLEAN);
+        assertThat(action.payloadFields()).containsExactly(payload);
+        assertThat(preset.values()).containsEntry("demo.endpoint", "https://example.test");
+        assertThat(section.sectionId()).isEqualTo("demo.main");
+        assertThat(section.groupId()).isEqualTo(GuiConfigGroups.PLUGINS);
+        assertThat(section.layout()).isEqualTo(GuiConfigSectionLayout.CARD_SWITCHER);
+        assertThat(section.fieldLayouts()).containsExactly(layout);
+        assertThat(section.actions()).containsExactly(action);
+        assertThat(section.presets()).containsExactly(preset);
     }
 }
