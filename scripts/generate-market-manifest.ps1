@@ -13,7 +13,9 @@
       - sha256 / expectedSizeBytes   : computed from the DOWNLOADED published plugin artifact (the real bytes).
       - downloadCount / releasedTime : read from the GitHub Releases API (asset download_count / publishedAt).
       - packageUrl                   : the GitHub Release asset link (github.com/.../releases/download/...).
-      - display fields               : from the curation file, keyed by pluginId.
+      - identity display fields      : read from the module's source pixiv.* descriptor keys.
+      - displayName / summary        : resolved from the module's i18n bundle using those descriptor keys.
+      - market-only fields           : from the curation file, keyed by pluginId.
 
     The matching release MUST already exist (publish it first); a missing release is a hard error. Output is
     STRICT JSON (no comments), UTF-8 (no BOM), camelCase, asserted <= 1MB; `rating`/`ratingCount`
@@ -23,7 +25,7 @@
     owner/repo of the plugin distribution repository. Default Sywyar/PixivDownloader-plugins.
 
 .PARAMETER CurationFile
-    Display-field curation source, keyed by pluginId. Default scripts/market-curation.json.
+    Market-only curation source, keyed by pluginId. Default scripts/market-curation.json.
 
 .PARAMETER OutputFile
     Where to write the generated manifest.json. Default build/manifest.json.
@@ -92,12 +94,52 @@ function Read-SourceDescriptor([string]$module) {
     $props = @{}
     foreach ($line in (Get-Content -LiteralPath $path -Encoding UTF8)) {
         $trimmed = $line.Trim()
+        $trimmed = $trimmed.TrimStart([char]0xFEFF)
         if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
         $idx = $trimmed.IndexOf("=")
         if ($idx -lt 1) { continue }
         $props[$trimmed.Substring(0, $idx).Trim()] = $trimmed.Substring($idx + 1).Trim()
     }
     return $props
+}
+
+function Require-DescriptorValue($descriptor, [string]$key, [string]$module) {
+    if (-not $descriptor.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$descriptor[$key])) {
+        throw "Missing required descriptor key '$key' in module $module."
+    }
+    return [string]$descriptor[$key]
+}
+
+function Read-PropertiesFile([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { throw "Missing i18n bundle: $path" }
+    $props = @{}
+    foreach ($line in (Get-Content -LiteralPath $path -Encoding UTF8)) {
+        $trimmed = $line.Trim()
+        $trimmed = $trimmed.TrimStart([char]0xFEFF)
+        if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
+        $idx = $trimmed.IndexOf("=")
+        if ($idx -lt 1) { continue }
+        $props[$trimmed.Substring(0, $idx).Trim()] = $trimmed.Substring($idx + 1).Trim()
+    }
+    return $props
+}
+
+function Resolve-I18nText([string]$module, [string]$namespace, [string]$key, [string]$locale) {
+    $suffix = ""
+    if ($locale -ne "zh") { $suffix = "_$locale" }
+    $path = Join-Path $ProjectRoot "$module/src/main/resources/i18n/web/$namespace$suffix.properties"
+    $props = Read-PropertiesFile $path
+    if (-not $props.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$props[$key])) {
+        throw "Missing i18n key '$key' in $path."
+    }
+    return [string]$props[$key]
+}
+
+function Resolve-LocalizedTextMap([string]$module, [string]$namespace, [string]$key) {
+    return [ordered]@{
+        zh = Resolve-I18nText $module $namespace $key "zh"
+        en = Resolve-I18nText $module $namespace $key "en"
+    }
 }
 
 $curation = Read-Json $CurationFile
@@ -143,6 +185,17 @@ try {
         if ($id -ne $plugin.Id) {
             throw "plugin.id '$id' in module $($plugin.Module) does not match expected '$($plugin.Id)'."
         }
+        if (-not (Has-Property $curation $id)) {
+            throw "No curation entry for plugin '$id' in $CurationFile (market metadata is required)."
+        }
+        $c = $curation.$id
+        $displayNamespace = Require-DescriptorValue $d "pixiv.display-namespace" $plugin.Module
+        $displayNameKey = Require-DescriptorValue $d "pixiv.display-name-key" $plugin.Module
+        $descriptionKey = Require-DescriptorValue $d "pixiv.description-key" $plugin.Module
+        $iconToken = Require-DescriptorValue $d "pixiv.icon-key" $plugin.Module
+        $colorToken = Require-DescriptorValue $d "pixiv.color-token" $plugin.Module
+        $displayName = Resolve-LocalizedTextMap $plugin.Module $displayNamespace $displayNameKey
+        $summary = Resolve-LocalizedTextMap $plugin.Module $displayNamespace $descriptionKey
         $tag = "$id-v$version"
         $assetName = Get-OfficialPluginArtifactName $plugin $version
 
@@ -196,16 +249,12 @@ try {
         )
         $signature = Read-Json $signaturePath
 
-        if (-not (Has-Property $curation $id)) {
-            throw "No curation entry for plugin '$id' in $CurationFile (display fields are required)."
-        }
-        $c = $curation.$id
         $changeNotes = @()
         if (Has-Property $c "changeNotes") { $changeNotes = @($c.changeNotes) }
 
         $market = [ordered]@{
-            displayName      = $c.displayName
-            summary          = $c.summary
+            displayName      = $displayName
+            summary          = $summary
             description      = $c.description
             author           = $c.author
             sourceType       = $c.sourceType
@@ -218,8 +267,8 @@ try {
             totalDownloadCount = $totalDownloadCount
             latestVersion     = $version
             updatedTime       = $releasedTime
-            iconToken        = $c.iconToken
-            colorToken       = $c.colorToken
+            iconToken        = $iconToken
+            colorToken       = $colorToken
             recommended      = [bool]$c.recommended
             officialRequired = [bool]$c.officialRequired
         }
@@ -240,11 +289,12 @@ try {
         }
 
         $entries += [ordered]@{
-            pluginId       = $id
-            displayNameKey = $c.displayNameKey
-            descriptionKey = $c.descriptionKey
-            market         = $market
-            packages       = @($package)
+            pluginId         = $id
+            displayNamespace = $displayNamespace
+            displayNameKey   = $displayNameKey
+            descriptionKey   = $descriptionKey
+            market           = $market
+            packages         = @($package)
         }
         Write-Host "  + $id $version  ($sizeBytes bytes, sha256 $($sha256.Substring(0,12))..., downloads $downloadCount + $previousDownloadCount = $totalDownloadCount)"
     }

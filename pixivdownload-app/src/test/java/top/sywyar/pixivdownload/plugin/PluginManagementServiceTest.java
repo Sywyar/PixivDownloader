@@ -119,6 +119,39 @@ class PluginManagementServiceTest {
     }
 
     @Test
+    @DisplayName("官方外置插件展示元数据：管理 DTO 对八个官方 descriptor 原样投影 canonical key/token")
+    void listProjectsOfficialCanonicalDisplayMetadata() {
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        List<PluginDescriptor> descriptors = List.of(
+                official("download-workbench", "batch", "download", "pixiv"),
+                official("gui-theme", "gui-theme", "palette", "blue"),
+                official("stats", "stats", "chart-line", "green"),
+                official("notification", "notification", "bell", "teal"),
+                official("push", "push", "bell", "blue"),
+                official("mail", "mail", "mail", "green"),
+                official("tts", "tts", "audio-lines", "amber"),
+                official("ai", "ai", "sparkles", "teal"));
+        when(status.report()).thenReturn(new PluginStatusReport(descriptors.stream()
+                .map(d -> new PluginDiagnostic(d.id(), PluginStatus.INSTALLED, d, false, List.of()))
+                .toList()));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of());
+
+        PluginManagementService.PluginManagementReport report =
+                service(status, lifecycle, RequiredPluginPolicy.empty(), recovery).list();
+
+        for (PluginDescriptor descriptor : descriptors) {
+            PluginManagementService.PluginManagementEntry entry = entry(report, descriptor.id());
+            assertThat(entry.displayNamespace()).isEqualTo(descriptor.displayNamespace());
+            assertThat(entry.displayNameKey()).isEqualTo("plugin.name");
+            assertThat(entry.descriptionKey()).isEqualTo("plugin.summary");
+            assertThat(entry.iconKey()).isEqualTo(descriptor.iconKey());
+            assertThat(entry.colorToken()).isEqualTo(descriptor.colorToken());
+        }
+    }
+
+    @Test
     @DisplayName("list() 暴露描述符的 API 要求与插件依赖：requires 投影 specified/satisfied/required，dependencies 逐项映射")
     void listExposesApiRequirementAndDependencies() {
         PluginStatusService status = mock(PluginStatusService.class);
@@ -319,6 +352,12 @@ class PluginManagementServiceTest {
     private static PluginManagementService.PluginManagementEntry entry(
             PluginManagementService.PluginManagementReport report, String id) {
         return report.plugins().stream().filter(e -> e.id().equals(id)).findFirst().orElseThrow();
+    }
+
+    private static PluginDescriptor official(String id, String namespace, String icon, String color) {
+        return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.unspecified(),
+                List.of(), id + ".Plugin", namespace, "plugin.name", "plugin.summary", icon, color,
+                PluginKind.FEATURE);
     }
 
     /**

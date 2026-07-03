@@ -29,11 +29,11 @@ import java.util.regex.Pattern;
  * @param requires       所需核心 API 版本要求（解析自 {@code requires}，未声明则 {@link PluginApiRequirement#unspecified()}）
  * @param dependencies   对其它插件的依赖声明（中性载体）
  * @param pluginClass      插件主类全限定名（外置=PF4J {@code Plugin-Class}；内置=插件实现类名；可空）
- * @param displayNamespace 展示名称 / 简介所在的 i18n namespace（来自 {@link PixivFeaturePlugin#displayNamespace()}；可空）
- * @param displayName      展示名称 i18n key（纯 key，来自 {@link PixivFeaturePlugin#displayName()}）
- * @param description      简介 i18n key（纯 key，来自 {@link PixivFeaturePlugin#description()}；在 {@link #displayNamespace} 内解析；无功能插件实例的包级描述符为 {@code null}）
- * @param iconKey          展示图标的受控 token（来自 {@link PixivFeaturePlugin#iconKey()}；包级描述符为 {@code null}，由消费端回退默认）
- * @param colorToken       卡片强调色的受控 token（来自 {@link PixivFeaturePlugin#colorToken()}；包级描述符为 {@code null}，由消费端回退默认）
+ * @param displayNamespace 展示名称 / 简介所在的 i18n namespace（来自 {@link PixivFeaturePlugin#displayNamespace()} 或包描述符 {@code pixiv.display-namespace}；可空）
+ * @param displayName      展示名称 i18n key（纯 key，来自 {@link PixivFeaturePlugin#displayName()} 或包描述符 {@code pixiv.display-name-key}；旧包可回退为字面描述）
+ * @param description      简介 i18n key（纯 key，来自 {@link PixivFeaturePlugin#description()} 或包描述符 {@code pixiv.description-key}；在 {@link #displayNamespace} 内解析；可空）
+ * @param iconKey          展示图标的受控 token（来自 {@link PixivFeaturePlugin#iconKey()} 或包描述符 {@code pixiv.icon-key}；可空，由消费端回退默认）
+ * @param colorToken       卡片强调色的受控 token（来自 {@link PixivFeaturePlugin#colorToken()} 或包描述符 {@code pixiv.color-token}；可空，由消费端回退默认）
  * @param kind             插件类别
  */
 public record PluginDescriptor(

@@ -9,8 +9,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -124,34 +127,77 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场策展文件覆盖所有官方 required/optional 插件的展示字段")
-    void marketCurationCoversOfficialDistributionPlugins() throws Exception {
+    @DisplayName("市场清单身份字段从官方 descriptor/i18n 派生，curation 只保留市场专属字段")
+    void marketIdentityMetadataIsCanonicalDescriptorDerived() throws Exception {
         String common = script("plugin-distribution-common.ps1");
+        String generator = script("generate-market-manifest.ps1");
         JsonNode curation = new ObjectMapper().readTree(repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
+        List<OfficialPlugin> officialPlugins = officialDistributionPlugins(common);
         Set<String> officialPluginIds = officialDistributionPluginIds(common);
 
         assertThat(officialPluginIds).contains("download-workbench");
         assertThat(officialPluginIds).contains("notification");
-        for (String pluginId : officialPluginIds) {
+        assertThat(generator).contains(
+                "pixiv.display-namespace",
+                "pixiv.display-name-key",
+                "pixiv.description-key",
+                "pixiv.icon-key",
+                "pixiv.color-token",
+                "Resolve-LocalizedTextMap",
+                "displayNamespace = $displayNamespace",
+                "displayName      = $displayName",
+                "summary          = $summary",
+                "iconToken        = $iconToken",
+                "colorToken       = $colorToken");
+        assertThat(generator).doesNotContain(
+                "$c.displayName",
+                "$c.summary",
+                "$c.iconToken",
+                "$c.colorToken",
+                "$c.displayNameKey",
+                "$c.descriptionKey");
+
+        for (OfficialPlugin plugin : officialPlugins) {
+            String pluginId = plugin.id();
             JsonNode entry = curation.get(pluginId);
             assertThat(entry).as("missing market curation for official plugin %s", pluginId).isNotNull();
-            assertTextField(entry, pluginId, "displayNameKey");
-            assertTextField(entry, pluginId, "descriptionKey");
-            assertLocalizedText(entry, pluginId, "displayName");
-            assertLocalizedText(entry, pluginId, "summary");
+            assertThat(entry.has("displayNameKey")).as("%s displayNameKey belongs to descriptor", pluginId).isFalse();
+            assertThat(entry.has("descriptionKey")).as("%s descriptionKey belongs to descriptor", pluginId).isFalse();
+            assertThat(entry.has("displayName")).as("%s displayName is derived from i18n", pluginId).isFalse();
+            assertThat(entry.has("summary")).as("%s summary is derived from i18n", pluginId).isFalse();
+            assertThat(entry.has("iconToken")).as("%s iconToken belongs to descriptor", pluginId).isFalse();
+            assertThat(entry.has("colorToken")).as("%s colorToken belongs to descriptor", pluginId).isFalse();
             assertLocalizedText(entry, pluginId, "description");
             assertTextField(entry, pluginId, "author");
             assertTextField(entry, pluginId, "sourceType");
             assertTextField(entry, pluginId, "category");
             assertTextField(entry, pluginId, "homepageUrl");
             assertTextField(entry, pluginId, "license");
-            assertTextField(entry, pluginId, "iconToken");
-            assertTextField(entry, pluginId, "colorToken");
             assertThat(entry.path("tags").isArray()).as("%s tags must be an array", pluginId).isTrue();
             assertThat(entry.path("tags").size()).as("%s tags must not be empty", pluginId).isPositive();
             assertThat(entry.path("recommended").isBoolean()).as("%s recommended must be boolean", pluginId).isTrue();
             assertThat(entry.path("officialRequired").isBoolean()).as("%s officialRequired must be boolean", pluginId).isTrue();
+            assertThat(entry.path("officialRequired").asBoolean())
+                    .as("%s officialRequired should mirror required plugin policy, not replace it", pluginId)
+                    .isEqualTo("download-workbench".equals(pluginId));
+
+            Map<String, String> descriptor = readProperties(repoRoot().resolve(plugin.module())
+                    .resolve("src/main/resources/plugin.properties"));
+            assertThat(descriptor.get("plugin.id")).isEqualTo(pluginId);
+            assertDescriptorField(descriptor, pluginId, "pixiv.display-namespace");
+            assertThat(descriptor.get("pixiv.display-name-key")).as("%s identity name key", pluginId)
+                    .isEqualTo("plugin.name");
+            assertThat(descriptor.get("pixiv.description-key")).as("%s identity summary key", pluginId)
+                    .isEqualTo("plugin.summary");
+            assertDescriptorField(descriptor, pluginId, "pixiv.icon-key");
+            assertDescriptorField(descriptor, pluginId, "pixiv.color-token");
+            assertI18nKey(plugin.module(), descriptor.get("pixiv.display-namespace"),
+                    descriptor.get("pixiv.display-name-key"));
+            assertI18nKey(plugin.module(), descriptor.get("pixiv.display-namespace"),
+                    descriptor.get("pixiv.description-key"));
         }
+        assertI18nValue("pixivdownload-plugin-ai", "ai", "plugin.name", "AI 翻译", "AI Translation");
+        assertI18nValue("pixivdownload-plugin-tts", "tts", "plugin.name", "TTS 朗读", "TTS Narration");
     }
 
     @Test
@@ -339,17 +385,76 @@ class PluginReleaseScriptsTest {
                 StandardCharsets.UTF_8);
     }
 
-    private static Set<String> officialDistributionPluginIds(String common) {
-        Matcher matcher = Pattern.compile("Id\\s*=\\s*\"([^\"]+)\"").matcher(common);
-        Set<String> ids = new LinkedHashSet<>();
+    private static List<OfficialPlugin> officialDistributionPlugins(String common) {
+        Matcher matcher = Pattern.compile("\\[pscustomobject\\]@\\{(?<body>.*?)\\}", Pattern.DOTALL)
+                .matcher(common);
+        List<OfficialPlugin> plugins = new ArrayList<>();
         while (matcher.find()) {
-            String id = matcher.group(1);
-            if (!"recovery-sentinel".equals(id)) {
-                ids.add(id);
+            String body = matcher.group("body");
+            String id = pscustomObjectStringField(body, "Id");
+            String module = pscustomObjectStringField(body, "Module");
+            if (id != null && module != null && !"recovery-sentinel".equals(id)) {
+                plugins.add(new OfficialPlugin(id, module));
             }
+        }
+        assertThat(plugins).as("official plugins").isNotEmpty();
+        return plugins;
+    }
+
+    private static Set<String> officialDistributionPluginIds(String common) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (OfficialPlugin plugin : officialDistributionPlugins(common)) {
+            ids.add(plugin.id());
         }
         assertThat(ids).as("official plugin ids").isNotEmpty();
         return ids;
+    }
+
+    private static String pscustomObjectStringField(String body, String field) {
+        Matcher matcher = Pattern.compile("\\b" + field + "\\s*=\\s*\"([^\"]+)\"").matcher(body);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private static Map<String, String> readProperties(Path path) throws IOException {
+        Map<String, String> props = new LinkedHashMap<>();
+        for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty() && trimmed.charAt(0) == '\uFEFF') {
+                trimmed = trimmed.substring(1).trim();
+            }
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
+            int idx = trimmed.indexOf('=');
+            if (idx < 1) {
+                continue;
+            }
+            props.put(trimmed.substring(0, idx).trim(), trimmed.substring(idx + 1).trim());
+        }
+        return props;
+    }
+
+    private static void assertDescriptorField(Map<String, String> descriptor, String pluginId, String field) {
+        assertThat(descriptor.get(field)).as("%s %s must not be blank", pluginId, field).isNotBlank();
+    }
+
+    private static void assertI18nKey(String module, String namespace, String key) throws IOException {
+        Path bundle = repoRoot().resolve(module).resolve("src/main/resources/i18n/web")
+                .resolve(namespace + ".properties");
+        Path enBundle = repoRoot().resolve(module).resolve("src/main/resources/i18n/web")
+                .resolve(namespace + "_en.properties");
+        assertThat(readProperties(bundle).get(key)).as("%s must contain %s", bundle, key).isNotBlank();
+        assertThat(readProperties(enBundle).get(key)).as("%s must contain %s", enBundle, key).isNotBlank();
+    }
+
+    private static void assertI18nValue(String module, String namespace, String key, String zh, String en)
+            throws IOException {
+        Path bundle = repoRoot().resolve(module).resolve("src/main/resources/i18n/web")
+                .resolve(namespace + ".properties");
+        Path enBundle = repoRoot().resolve(module).resolve("src/main/resources/i18n/web")
+                .resolve(namespace + "_en.properties");
+        assertThat(readProperties(bundle).get(key)).as("%s %s", module, key).isEqualTo(zh);
+        assertThat(readProperties(enBundle).get(key)).as("%s %s", module, key).isEqualTo(en);
     }
 
     private static void assertTextField(JsonNode entry, String pluginId, String field) {
@@ -373,5 +478,8 @@ class PluginReleaseScriptsTest {
             current = current.getParent();
         }
         throw new IllegalStateException("无法定位仓库根目录");
+    }
+
+    private record OfficialPlugin(String id, String module) {
     }
 }

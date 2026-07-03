@@ -51,7 +51,7 @@ class PluginMarketInstallStatusTest {
     }
 
     private static PluginCatalogEntry entry(String id, PluginCatalogPackage... packages) {
-        return new PluginCatalogEntry(id, id + ":name", null, null, List.of(packages));
+        return new PluginCatalogEntry(id, id, "plugin.name", null, null, List.of(packages));
     }
 
     private static PluginCatalogPackage pkg(String version, String requiredCoreApi) {

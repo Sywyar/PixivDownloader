@@ -28,10 +28,10 @@ public class StatsPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（stats）：名称复用已有的导航标签 nav.label，简介用专用 key。
+    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（stats）。
     @Override
     public String displayName() {
-        return "nav.label";
+        return "plugin.name";
     }
 
     @Override
@@ -42,12 +42,12 @@ public class StatsPlugin implements PixivFeaturePlugin {
     // 卡片展示用受控 token（非 URL / CSS / 远程资源；由插件管理页本地白名单映射）：统计仪表盘。
     @Override
     public String iconKey() {
-        return "chart";
+        return "chart-line";
     }
 
     @Override
     public String colorToken() {
-        return "purple";
+        return "green";
     }
 
     @Override

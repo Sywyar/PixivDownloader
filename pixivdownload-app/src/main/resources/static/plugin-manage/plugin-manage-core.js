@@ -8,7 +8,7 @@
  *     version, kind, apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
  *     allowDisable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
- * （非 URL / CSS / 远程资源），在本模块经本地白名单映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
+ * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
  * 提供的字段（更新机制 / 体积 / 下载量 / 作者）在此处优雅留空（见各 vm.hasUpdate 等占位字段），待后端补齐后再点亮。
  */
 (function (global) {
@@ -140,36 +140,12 @@
         return VERIFICATION_META[status] || { key: 'verification.unverified-local', tone: 'idle' };
     }
 
-    // 图标受控 token（后端 iconKey）→ FontAwesome class 的<b>本地白名单</b>：后端只给受控 token（绝非 URL / SVG /
-    // HTML），前端在此固定映射；白名单外的未知 token 一律回退到默认 puzzle，原始 token 绝不被当作类名直接渲染。
-    var ICON_CLASSES = {
-        puzzle:    'fa-solid fa-puzzle-piece',
-        gear:      'fa-solid fa-gear',
-        download:  'fa-solid fa-download',
-        clock:     'fa-solid fa-clock',
-        gallery:   'fa-solid fa-images',
-        book:      'fa-solid fa-book',
-        duplicate: 'fa-solid fa-clone',
-        chart:     'fa-solid fa-chart-line',
-        shield:    'fa-solid fa-shield-halved',
-        cube:      'fa-solid fa-cube'
-    };
-    var DEFAULT_ICON = 'puzzle';
-
     function iconClass(iconKey) {
-        return ICON_CLASSES[iconKey] || ICON_CLASSES[DEFAULT_ICON];
+        return global.PixivPluginPresentationTokens.iconClass(iconKey);
     }
 
-    // 强调色受控 token（后端 colorToken）→ 稳定 CSS class 后缀的<b>本地白名单</b>（颜色只用于卡片可扫描性、非主题
-    // 系统）：白名单外的未知 token 回退到默认 neutral；渲染层据此拼出固定的 pm-card-icon--<token> class，绝不接触
-    // 任意颜色值。
-    var COLOR_TOKENS = {
-        neutral: 1, pixiv: 1, blue: 1, teal: 1, amber: 1, purple: 1, orange: 1, red: 1, green: 1
-    };
-    var DEFAULT_COLOR = 'neutral';
-
     function colorTokenOf(token) {
-        return Object.prototype.hasOwnProperty.call(COLOR_TOKENS, token) ? token : DEFAULT_COLOR;
+        return global.PixivPluginPresentationTokens.colorToken(token);
     }
 
     // 按来源的通用简介（descriptionKey 缺失时的回退文案）。

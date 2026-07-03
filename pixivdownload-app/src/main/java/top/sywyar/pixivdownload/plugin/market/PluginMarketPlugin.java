@@ -33,11 +33,10 @@ public class PluginMarketPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（plugin-market）：
-    // 导航标签即「插件市场」，名称复用 nav.label，简介用专用 key。
+    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（plugin-market）。
     @Override
     public String displayName() {
-        return "nav.label";
+        return "plugin.name";
     }
 
     @Override

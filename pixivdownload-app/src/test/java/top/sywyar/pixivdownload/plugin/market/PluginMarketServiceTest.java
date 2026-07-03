@@ -115,11 +115,11 @@ class PluginMarketServiceTest {
                 Map.of(), Map.of(), Map.of(), null, null, "translate", List.of(),
                 null, null, null, null, null, null, null, null, null, null, null, false, false);
         PluginCatalogManifest manifest = new PluginCatalogManifest("1", null, List.of(
-                new PluginCatalogEntry("a", "a:name", null, unsafe, List.of(
+                new PluginCatalogEntry("a", "a", "plugin.name", null, unsafe, List.of(
                         new PluginCatalogPackage("1.0.0", "https://x/a.jar", 100L, "ab", null, null,
                                 "1.0", List.of(), null, List.of(), "stable", false))),
-                new PluginCatalogEntry("b", "b:name", null, translateMeta, List.of()),
-                new PluginCatalogEntry("c", "c:name", null, null, List.of()))); // null market → utility 回退
+                new PluginCatalogEntry("b", "b", "plugin.name", null, translateMeta, List.of()),
+                new PluginCatalogEntry("c", "c", "plugin.name", null, null, List.of()))); // null market → utility 回退
         when(catalogService.load(PluginRepository.OFFICIAL_ID)).thenReturn(manifest);
 
         PluginCatalogProperties props = new PluginCatalogProperties();

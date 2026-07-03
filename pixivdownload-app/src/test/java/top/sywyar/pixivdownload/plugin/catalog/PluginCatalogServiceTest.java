@@ -70,8 +70,9 @@ class PluginCatalogServiceTest {
                   "entries": [
                     {
                       "pluginId": "stats",
-                      "displayNameKey": "stats:nav.label",
-                      "descriptionKey": "stats:plugin.summary",
+                      "displayNamespace": "stats",
+                      "displayNameKey": "plugin.name",
+                      "descriptionKey": "plugin.summary",
                       "tags": ["ignored"],
                       "downloadCount": 999,
                       "packages": [
@@ -101,7 +102,9 @@ class PluginCatalogServiceTest {
         assertThat(manifest.entries()).hasSize(1);
         PluginCatalogEntry entry = manifest.entries().get(0);
         assertThat(entry.pluginId()).isEqualTo("stats");
-        assertThat(entry.displayNameKey()).isEqualTo("stats:nav.label");
+        assertThat(entry.displayNamespace()).isEqualTo("stats");
+        assertThat(entry.displayNameKey()).isEqualTo("plugin.name");
+        assertThat(entry.descriptionKey()).isEqualTo("plugin.summary");
         assertThat(entry.market()).as("无 market 块时市场元数据为 null").isNull();
         assertThat(entry.packages()).hasSize(1);
         PluginCatalogPackage pkg = entry.packages().get(0);

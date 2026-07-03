@@ -38,7 +38,7 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
     // 是「疑似重复」、与插件名「重复检测」不同，故名称用专用 key（不复用 nav.label），简介用专用 key。
     @Override
     public String displayName() {
-        return "plugin.label";
+        return "plugin.name";
     }
 
     @Override

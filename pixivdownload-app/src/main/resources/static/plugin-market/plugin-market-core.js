@@ -1,12 +1,12 @@
 'use strict';
 /*
  * 插件市场页核心模块（最先加载）：命名空间 PixivPluginMarket、共享状态、i18n 解析助手、HTML 转义、受控展示 token
- * 白名单（图标 / 颜色）、分类 / 排序 / 安装状态元数据、以及展示格式化（下载量 / 体积 / 时间 / 评分星级）。
+ * 映射委托、分类 / 排序 / 安装状态元数据、以及展示格式化（下载量 / 体积 / 时间 / 评分星级）。
  * 纯定义、无任何顶层副作用（启动逻辑收拢在 plugin-market-init.js）。
  *
  * 安全约束：后端给出的图标 / 颜色都是受控 token（已在 DTO 边界净化为 [a-z][a-z0-9-]{0,39}，绝非 URL / SVG / HTML /
- * CSS）；本模块再经<b>本地白名单</b>映射为固定的 FontAwesome class / CSS class 后缀，白名单外回退默认——原始 token
- * 绝不被当作任意类名 / 样式直接渲染，杜绝注入面。所有文本一律经 escapeHtml 后才进 innerHTML。
+ * CSS）；本模块再经共享 PixivPluginPresentationTokens 映射为固定的 FontAwesome class / CSS class 后缀，白名单外回退默认——
+ * 原始 token 绝不被当作任意类名 / 样式直接渲染，杜绝注入面。所有文本一律经 escapeHtml 后才进 innerHTML。
  */
 (function (global) {
     var PMK = global.PixivPluginMarket = global.PixivPluginMarket || {};
@@ -61,34 +61,12 @@
         return keys.length ? map[keys[0]] : (fallback || '');
     };
 
-    // —— 受控图标 token → FontAwesome class 的本地白名单 ——
-    // 后端只给受控 token（[a-z][a-z0-9-]{0,39}）；这里固定映射为 fa-solid fa-<token>，白名单外的未知 token 回退到默认
-    // puzzle-piece（稳定回退），原始 token 绝不被当作任意类名直接拼接。
-    var ICON_WHITELIST = {
-        'store': 1, 'puzzle-piece': 1, 'language': 1, 'bolt': 1, 'rotate': 1, 'bell': 1, 'cloud': 1,
-        'shield-halved': 1, 'palette': 1, 'screwdriver-wrench': 1, 'grip': 1, 'hashtag': 1, 'paper-plane': 1,
-        'film': 1, 'book': 1, 'clone': 1, 'file-signature': 1, 'heart': 1, 'download': 1, 'upload': 1, 'users': 1,
-        'globe': 1, 'gear': 1, 'image': 1, 'images': 1, 'chart-line': 1, 'layer-group': 1, 'cloud-arrow-down': 1,
-        'cloud-arrow-up': 1, 'cube': 1, 'wand-magic-sparkles': 1, 'robot': 1, 'music': 1, 'microphone': 1, 'lock': 1,
-        'key': 1, 'tag': 1, 'tags': 1, 'folder': 1, 'box': 1, 'plug': 1, 'code': 1, 'scroll': 1, 'filter': 1,
-        'wrench': 1, 'gauge': 1, 'magnifying-glass': 1, 'star': 1, 'fire': 1, 'bookmark': 1, 'comments': 1,
-        'envelope': 1, 'database': 1, 'wifi': 1, 'compass': 1, 'feather': 1, 'pen': 1, 'brush': 1, 'eye': 1
-    };
-    var DEFAULT_ICON = 'puzzle-piece';
-
     PMK.iconClass = function (token) {
-        var name = Object.prototype.hasOwnProperty.call(ICON_WHITELIST, token) ? token : DEFAULT_ICON;
-        return 'fa-solid fa-' + name;
+        return global.PixivPluginPresentationTokens.iconClass(token);
     };
-
-    // —— 受控颜色 token → 稳定 CSS class 后缀的本地白名单（颜色只用于卡片可扫描性、非任意样式）——
-    var COLOR_TOKENS = {
-        neutral: 1, gray: 1, pixiv: 1, blue: 1, teal: 1, amber: 1, purple: 1, orange: 1, red: 1, green: 1
-    };
-    var DEFAULT_COLOR = 'neutral';
 
     PMK.colorClass = function (token) {
-        return 'pmk-accent--' + (Object.prototype.hasOwnProperty.call(COLOR_TOKENS, token) ? token : DEFAULT_COLOR);
+        return global.PixivPluginPresentationTokens.colorClass('pmk-accent--', token);
     };
 
     // —— 分类词表（与后端 PluginCatalogCategory 对齐；图标为本地白名单内的受控 token）——

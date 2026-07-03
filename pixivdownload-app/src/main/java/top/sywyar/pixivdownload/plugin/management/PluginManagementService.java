@@ -427,7 +427,7 @@ public class PluginManagementService {
     /**
      * 单个插件管理条目（对外）。{@code displayNameKey} / {@code descriptionKey} 是<b>纯</b> i18n key、
      * {@code displayNamespace} 是其所在 namespace（前端在该 namespace 按当前语言解析、不在后端 bake 文案）；
-     * {@code iconKey} / {@code colorToken} 是<b>受控展示 token</b>（不是 URL / CSS / 远程资源，前端按本地白名单映射、
+     * {@code iconKey} / {@code colorToken} 是<b>受控展示 token</b>（不是 URL / CSS / 远程资源，前端按共享 token 映射、
      * 未知值回退默认），仅供本地卡片展示、非插件市场字段；{@code messages} 是评估器给出的诊断说明（自由文本、供管理诊断）。
      *
      * @param id               插件 id

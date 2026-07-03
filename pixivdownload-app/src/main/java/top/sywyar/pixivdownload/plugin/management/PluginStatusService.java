@@ -50,9 +50,16 @@ public class PluginStatusService {
 
     public PluginStatusService(PluginRegistry pluginRegistry, PluginInventory pluginInventory,
                                RequiredPluginPolicy requiredPluginPolicy) {
+        this(pluginRegistry, () -> pluginInventory, List::of, requiredPluginPolicy);
+    }
+
+    public PluginStatusService(PluginRegistry pluginRegistry,
+                               Supplier<PluginInventory> pluginInventory,
+                               Supplier<List<InstalledPlugin>> installedArtifacts,
+                               RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
-        this.pluginInventory = () -> pluginInventory;
-        this.installedArtifacts = List::of;
+        this.pluginInventory = pluginInventory;
+        this.installedArtifacts = installedArtifacts;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 

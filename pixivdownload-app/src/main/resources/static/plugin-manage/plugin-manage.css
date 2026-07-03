@@ -615,6 +615,7 @@ body {
 
 /* colorToken 受控白名单 → 固定强调色（与 core 的 COLOR_TOKENS 一一对应；未知 token 由前端回退到 neutral）。 */
 .pm-card-icon--neutral { --pm-accent: var(--accent-gray); }
+.pm-card-icon--gray    { --pm-accent: var(--accent-gray); }
 .pm-card-icon--pixiv   { --pm-accent: var(--accent-pixiv); }
 .pm-card-icon--blue    { --pm-accent: var(--accent-blue); }
 .pm-card-icon--teal    { --pm-accent: var(--accent-teal); }

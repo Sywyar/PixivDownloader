@@ -13,6 +13,7 @@ public final class PluginContributionText {
 
     private static final ResourceBundle.Control PLUGIN_BUNDLE_CONTROL =
             ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES);
+    private static final char BOM = '\uFEFF';
 
     private PluginContributionText() {
     }
@@ -35,12 +36,32 @@ public final class PluginContributionText {
             try {
                 ResourceBundle bundle = ResourceBundle.getBundle(
                         ns.baseName(), GuiMessages.currentLocale(), effectiveClassLoader, PLUGIN_BUNDLE_CONTROL);
-                if (bundle.containsKey(key)) {
-                    return bundle.getString(key);
+                String resolved = getString(bundle, key);
+                if (resolved != null) {
+                    return resolved;
                 }
             } catch (MissingResourceException ignored) {
                 // Missing locale bundle falls back to the raw key below.
             }
+        }
+        return key;
+    }
+
+    private static String getString(ResourceBundle bundle, String key) {
+        if (bundle.containsKey(key)) {
+            return bundle.getString(key);
+        }
+        for (String bundleKey : bundle.keySet()) {
+            if (key.equals(normalizeKey(bundleKey))) {
+                return bundle.getString(bundleKey);
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeKey(String key) {
+        if (key != null && !key.isEmpty() && key.charAt(0) == BOM) {
+            return key.substring(1);
         }
         return key;
     }

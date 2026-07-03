@@ -13,8 +13,9 @@
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="/plugin-market/plugin-market.css">
-    <!-- 页面模块按依赖顺序加载：core（命名空间 / 状态 / i18n / token 白名单 / 格式化）→ data（纯数据变换）→
+    <!-- 页面模块按依赖顺序加载：shared token → core（命名空间 / 状态 / i18n / 格式化）→ data（纯数据变换）→
          api（后端调用）→ vue（reactive 主渲染）→ fallback（命令式回退）→ init（启动 + 顶层事件）。 -->
+    <script src="/js/pixiv-plugin-presentation-tokens.js"></script>
     <script src="/plugin-market/plugin-market-core.js"></script>
     <script src="/plugin-market/plugin-market-data.js"></script>
     <script src="/plugin-market/plugin-market-api.js"></script>

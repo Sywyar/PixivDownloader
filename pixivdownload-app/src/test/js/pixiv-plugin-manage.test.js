@@ -21,7 +21,9 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'plugin-manage');
+const STATIC_ROOT = path.join(__dirname, '..', '..', 'main', 'resources', 'static');
+const STATIC = path.join(STATIC_ROOT, 'plugin-manage');
+const TOKENS_SRC = fs.readFileSync(path.join(STATIC_ROOT, 'js', 'pixiv-plugin-presentation-tokens.js'), 'utf8');
 const CORE_SRC = fs.readFileSync(path.join(STATIC, 'plugin-manage-core.js'), 'utf8');
 const API_SRC = fs.readFileSync(path.join(STATIC, 'plugin-manage-api.js'), 'utf8');
 const VIEWS_SRC = fs.readFileSync(path.join(STATIC, 'plugin-manage-views.js'), 'utf8');
@@ -55,6 +57,7 @@ sandbox.fetch = function (url, opts) {
     });
 };
 vm.createContext(sandbox);
+vm.runInContext(TOKENS_SRC, sandbox);
 vm.runInContext(CORE_SRC, sandbox);
 vm.runInContext(API_SRC, sandbox);
 vm.runInContext(VIEWS_SRC, sandbox);
@@ -92,7 +95,7 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 // —— 1) descriptionKey 命中：经 tns(displayNamespace, descriptionKey, fallback) 解析 ——
 (function () {
     const vmm = vmOf({ id: 'gallery', source: 'built-in', status: 'STARTED',
-        displayNamespace: 'gallery', displayNameKey: 'nav.label', descriptionKey: 'plugin.summary',
+        displayNamespace: 'gallery', displayNameKey: 'plugin.name', descriptionKey: 'plugin.summary',
         iconKey: 'gallery', colorToken: 'green' });
     eq('descriptionKey 命中 → 卡片简介取 tns(namespace,key) 的解析值', vmm.desc, 'NS[gallery/plugin.summary]');
 })();
@@ -112,7 +115,7 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 // —— 3) descriptionKey 命中 namespace 但 bundle 缺该 key → tns 回退通用简介（不裸露 key）——
 (function () {
     const vmm = vmOf({ id: 'novel', source: 'built-in', status: 'STARTED',
-        displayNamespace: 'novel', displayNameKey: 'nav.label', descriptionKey: 'plugin.summary' });
+        displayNamespace: 'novel', displayNameKey: 'plugin.name', descriptionKey: 'plugin.summary' });
     eq('descriptionKey 存在但 bundle 缺 key → 回退通用简介', vmm.desc, DESC_BUILT_IN);
     ok('回退结果不是裸 key', vmm.desc.indexOf('plugin.summary') === -1);
 })();
@@ -130,6 +133,12 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
         'fa-solid fa-download');
     eq('iconKey 已知 chart → fa-chart-line', vmOf({ id: 'b', source: 'external', iconKey: 'chart' }).icon,
         'fa-solid fa-chart-line');
+    eq('iconKey 已知 mail → fa-envelope', vmOf({ id: 'mail', source: 'external', iconKey: 'mail' }).icon,
+        'fa-solid fa-envelope');
+    eq('iconKey 已知 audio-lines → fa-wave-square', vmOf({ id: 'tts', source: 'external', iconKey: 'audio-lines' }).icon,
+        'fa-solid fa-wave-square');
+    eq('iconKey 已知 sparkles → fa-wand-magic-sparkles', vmOf({ id: 'ai', source: 'external', iconKey: 'sparkles' }).icon,
+        'fa-solid fa-wand-magic-sparkles');
     eq('iconKey 未知 → 回退 puzzle', vmOf({ id: 'c', source: 'built-in', iconKey: 'definitely-unknown' }).icon,
         'fa-solid fa-puzzle-piece');
     eq('iconKey 缺失 → 回退 puzzle', vmOf({ id: 'd', source: 'built-in' }).icon, 'fa-solid fa-puzzle-piece');
@@ -144,6 +153,10 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
         'purple');
     eq('colorToken 已知 pixiv → pixiv', vmOf({ id: 'b', source: 'built-in', colorToken: 'pixiv' }).colorToken,
         'pixiv');
+    eq('colorToken 已知 amber → amber', vmOf({ id: 'tts', source: 'external', colorToken: 'amber' }).colorToken,
+        'amber');
+    eq('colorToken 已知 teal → teal', vmOf({ id: 'ai', source: 'external', colorToken: 'teal' }).colorToken,
+        'teal');
     eq('colorToken 未知 → 回退 neutral', vmOf({ id: 'c', source: 'built-in', colorToken: 'rgb(1,2,3)' }).colorToken,
         'neutral');
     eq('colorToken 缺失 → 回退 neutral', vmOf({ id: 'd', source: 'built-in' }).colorToken, 'neutral');

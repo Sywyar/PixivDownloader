@@ -29,6 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -226,9 +227,7 @@ class StatsExternalPluginBootContextTest {
                         && s.contribution().publicPathPrefix().equals("/pixiv-stats.html")))
                 .isTrue();
 
-        WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("stats");
-        assertThat(bundle).isNotNull();
-        assertThat(bundle.classLoader()).isSameAs(externalCl);
+        assertActiveStatsI18nBundle(externalCl);
 
         // classloader-aware 实证：stats 资源只能经外置 loader 解析到，核心壳应用 loader 解析不到。
         assertThat(externalCl.getResource("static/pixiv-stats/pixiv-stats.css")).isNotNull();
@@ -285,7 +284,7 @@ class StatsExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("外置 stats web 贡献注销后 route/static/i18n/navigation 不再暴露（URL 未声明即 AuthFilter 404）、可逆")
+    @DisplayName("外置 stats web 贡献注销后 route/static/navigation 不再暴露，i18n 切到安装包 fallback，可逆")
     void externalStatsWebContributionsAreRevocable() {
         PluginRegistry.RegisteredPlugin stats = pluginRegistry.registeredPlugins().stream()
                 .filter(rp -> rp.id().equals("stats")).findFirst().orElseThrow();
@@ -296,19 +295,20 @@ class StatsExternalPluginBootContextTest {
 
         pluginWebContributionRegistrar.unregister(stats);
 
-        // 注销后：route/static/i18n/navigation 快照不再含 stats，其 URL「未声明」→ AuthFilter「未声明即 404」、资源不可达。
+        // 注销后：route/static/navigation 快照不再含 stats，其 URL「未声明」→ AuthFilter「未声明即 404」、资源不可达。
+        // i18n 仍按安装态只读 fallback 可解析插件身份展示文案，避免未启动包在管理 / GUI 状态中回退 id。
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/pixiv-stats/pixiv-stats.css", HttpMethod.GET)).isFalse();
         assertThat(routeAccessRegistry.routes()).noneMatch(r -> r.pluginId().equals("stats"));
         assertThat(staticResourceRegistry.resources()).noneMatch(s -> s.pluginId().equals("stats"));
-        assertThat(webI18nBundleRegistry.resolve("stats")).isNull();
+        assertInstalledStatsI18nFallback();
         assertThat(navigationRegistry.navigation()).noneMatch(n -> n.pluginId().equals("stats"));
 
         // 可逆：重新接入恢复（也还原本类其它用例 / AfterAll 依赖的已注册状态）。
         pluginWebContributionRegistrar.register(stats);
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
-        assertThat(webI18nBundleRegistry.resolve("stats")).isNotNull();
+        assertActiveStatsI18nBundle(stats.classLoader());
         assertThat(navigationRegistry.navigation()).anyMatch(n -> n.pluginId().equals("stats"));
     }
 
@@ -336,7 +336,7 @@ class StatsExternalPluginBootContextTest {
         assertThat(statsDashboardHandlerBean()).isNull();
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isFalse();
         assertThat(staticResourceRegistry.resources()).noneMatch(s -> s.pluginId().equals("stats"));
-        assertThat(webI18nBundleRegistry.resolve("stats")).isNull();
+        assertInstalledStatsI18nFallback();
         assertThat(externalPluginContextManager.contextFor("stats")).isEmpty();
         assertThat(beforeStop.isActive()).isFalse();
         mockMvc.perform(get("/pixiv-stats.html"))
@@ -348,7 +348,7 @@ class StatsExternalPluginBootContextTest {
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(pluginControllerRegistrar.registeredPluginIds()).contains("stats");
         assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
-        assertThat(webI18nBundleRegistry.resolve("stats")).isNotNull();
+        assertActiveStatsI18nBundle(externalStatsClassLoader());
         ConfigurableApplicationContext afterStart = externalPluginContextManager.contextFor("stats").orElseThrow();
         assertThat(afterStart.isActive()).isTrue();
         assertThat(statsDashboardHandlerBean()).isNotNull();
@@ -387,10 +387,10 @@ class StatsExternalPluginBootContextTest {
                 .isFalse();
         assertThat(externalPluginContextManager.contextFor("stats")).isEmpty(); // lifecycle 不再持有子 context
         assertThat(beforeStop.isActive()).isFalse();                            // 子 context 已关闭
-        // 下游 web 注册中心快照不再暴露 stats（route/static/i18n/navigation 一并清退）。
+        // 下游 web 注册中心快照不再暴露 stats 的活动服务足迹；i18n 保留安装包 fallback 用于插件身份展示。
         assertThat(routeAccessRegistry.routes()).noneMatch(r -> r.pluginId().equals("stats"));
         assertThat(staticResourceRegistry.resources()).noneMatch(s -> s.pluginId().equals("stats"));
-        assertThat(webI18nBundleRegistry.resolve("stats")).isNull();
+        assertInstalledStatsI18nFallback();
         assertThat(navigationRegistry.navigation()).noneMatch(n -> n.pluginId().equals("stats"));
 
         // start：恢复服务足迹（也还原本类其它用例 / AfterAll 依赖的已启动状态）。
@@ -399,6 +399,7 @@ class StatsExternalPluginBootContextTest {
         assertThat(statsDashboardHandlerBean()).isNotNull();
         assertThat(anyHandlerLoadedBy(afterReload.getClassLoader())).isTrue();
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
+        assertActiveStatsI18nBundle(afterReload.getClassLoader());
     }
 
     /** 请求分发表中是否存在<b>任何</b>由给定 classloader 加载的 handler Bean（classloader 级泄漏判据）。 */
@@ -420,6 +421,22 @@ class StatsExternalPluginBootContextTest {
     private ClassLoader externalStatsClassLoader() {
         return pluginRegistry.registeredPlugins().stream()
                 .filter(rp -> rp.id().equals("stats")).findFirst().orElseThrow().classLoader();
+    }
+
+    private void assertActiveStatsI18nBundle(ClassLoader expectedClassLoader) {
+        WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("stats");
+        assertThat(bundle).isNotNull();
+        assertThat(bundle.pluginId()).isEqualTo("stats");
+        assertThat(bundle.classLoader()).isSameAs(expectedClassLoader);
+        assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "统计");
+    }
+
+    private void assertInstalledStatsI18nFallback() {
+        WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("stats");
+        assertThat(bundle).isNotNull();
+        assertThat(bundle.pluginId()).isEqualTo("stats");
+        assertThat(bundle.classLoader()).isSameAs(WebI18nBundleRegistry.class.getClassLoader());
+        assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "统计");
     }
 
     // --- helpers ---

@@ -70,6 +70,11 @@ public final class PluginPackageReader {
     static final String KEY_DESCRIPTION = "plugin.description";
     static final String KEY_REQUIRES = "plugin.requires";
     static final String KEY_DEPENDENCIES = "plugin.dependencies";
+    static final String KEY_PIXIV_DISPLAY_NAMESPACE = "pixiv.display-namespace";
+    static final String KEY_PIXIV_DISPLAY_NAME_KEY = "pixiv.display-name-key";
+    static final String KEY_PIXIV_DESCRIPTION_KEY = "pixiv.description-key";
+    static final String KEY_PIXIV_ICON_KEY = "pixiv.icon-key";
+    static final String KEY_PIXIV_COLOR_TOKEN = "pixiv.color-token";
 
     private PluginPackageReader() {
     }
@@ -291,18 +296,26 @@ public final class PluginPackageReader {
      * 把 PF4J {@value #PLUGIN_PROPERTIES} 映射为包级 {@link PluginDescriptor}（{@code id == sourcePluginId}、
      * {@code kind = FEATURE}）。缺失 / 空字段保留为 {@code null} 交由
      * {@link PluginDescriptor#externalValidationErrors()} 判定，本方法不在此处兜底校验。安装期尚未加载功能插件实例，
-     * 故简介 i18n key 与展示 token（{@code description} / {@code iconKey} / {@code colorToken}）一律为 {@code null}。
+     * 故展示身份优先取包描述符里声明的 {@code pixiv.*} canonical 元数据；旧第三方插件缺这些字段时，展示名 key 仍回退到
+     * PF4J {@code plugin.description} 或 id。
      */
     private static PluginDescriptor toDescriptor(Properties properties) {
         String id = trimToNull(properties.getProperty(KEY_ID));
         String version = trimToNull(properties.getProperty(KEY_VERSION));
         String pluginClass = trimToNull(properties.getProperty(KEY_CLASS));
-        String description = trimToNull(properties.getProperty(KEY_DESCRIPTION));
+        String pf4jDescription = trimToNull(properties.getProperty(KEY_DESCRIPTION));
         PluginApiRequirement requires = PluginApiRequirement.parse(properties.getProperty(KEY_REQUIRES));
         List<PluginDependencyRef> dependencies = parseDependencies(properties.getProperty(KEY_DEPENDENCIES));
-        String displayName = (description != null) ? description : id;
-        return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, null, displayName,
-                null, null, null, PluginKind.FEATURE);
+        String displayNamespace = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAMESPACE));
+        String displayName = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAME_KEY));
+        String description = trimToNull(properties.getProperty(KEY_PIXIV_DESCRIPTION_KEY));
+        String iconKey = trimToNull(properties.getProperty(KEY_PIXIV_ICON_KEY));
+        String colorToken = trimToNull(properties.getProperty(KEY_PIXIV_COLOR_TOKEN));
+        if (displayName == null) {
+            displayName = (pf4jDescription != null) ? pf4jDescription : id;
+        }
+        return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
+                displayName, description, iconKey, colorToken, PluginKind.FEATURE);
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {

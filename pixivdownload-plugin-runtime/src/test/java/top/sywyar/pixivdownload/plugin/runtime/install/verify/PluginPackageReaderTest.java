@@ -120,6 +120,56 @@ class PluginPackageReaderTest {
     }
 
     @Test
+    @DisplayName("展示元数据：pixiv.* canonical 字段映射为包级描述符，供已安装未启动状态使用")
+    void mapsCanonicalDisplayMetadata() {
+        String properties = PluginPackageReader.KEY_ID + "=mail\n"
+                + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
+                + PluginPackageReader.KEY_CLASS + "=com.example.MailPlugin\n"
+                + PluginPackageReader.KEY_PIXIV_DISPLAY_NAMESPACE + "=mail\n"
+                + PluginPackageReader.KEY_PIXIV_DISPLAY_NAME_KEY + "=plugin.name\n"
+                + PluginPackageReader.KEY_PIXIV_DESCRIPTION_KEY + "=plugin.summary\n"
+                + PluginPackageReader.KEY_PIXIV_ICON_KEY + "=mail\n"
+                + PluginPackageReader.KEY_PIXIV_COLOR_TOKEN + "=green\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("mail.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        PluginDescriptor descriptor = PluginPackageReader.inspect(zip).descriptor();
+
+        assertThat(descriptor.displayNamespace()).isEqualTo("mail");
+        assertThat(descriptor.displayName()).isEqualTo("plugin.name");
+        assertThat(descriptor.description()).isEqualTo("plugin.summary");
+        assertThat(descriptor.iconKey()).isEqualTo("mail");
+        assertThat(descriptor.colorToken()).isEqualTo("green");
+        assertThat(descriptor.externalValidationErrors()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("旧第三方插件缺 pixiv.* 字段时：展示名沿用 plugin.description/id fallback，仍可安装列出")
+    void legacyDescriptorFallsBackWithoutCanonicalDisplayMetadata() {
+        String properties = PluginPackageReader.KEY_ID + "=legacy\n"
+                + PluginPackageReader.KEY_VERSION + "=1.0.0\n"
+                + PluginPackageReader.KEY_CLASS + "=com.example.LegacyPlugin\n"
+                + PluginPackageReader.KEY_DESCRIPTION + "=Legacy Plugin\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("legacy.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        PluginDescriptor descriptor = PluginPackageReader.inspect(zip).descriptor();
+
+        assertThat(descriptor.displayNamespace()).isNull();
+        assertThat(descriptor.displayName()).isEqualTo("Legacy Plugin");
+        assertThat(descriptor.description()).isNull();
+        assertThat(descriptor.iconKey()).isNull();
+        assertThat(descriptor.colorToken()).isNull();
+        assertThat(descriptor.externalValidationErrors()).isEmpty();
+    }
+
+    @Test
     @DisplayName("lib/ 下的 jar 不算根插件候选：仍识别为解压目录形态")
     void libJarsAreNotRootCandidates() {
         Map<String, byte[]> entries = new LinkedHashMap<>();

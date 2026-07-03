@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
@@ -17,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
 import java.util.List;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
@@ -93,13 +95,53 @@ class PluginStatusServiceTest {
         assertThat(report.withStatus(PluginStatus.STARTED)).hasSize(2);
     }
 
+    @Test
+    @DisplayName("已安装但未启动的官方外置插件：状态报告保留 canonical 展示元数据，避免回退显示 id")
+    void installedOnlyOfficialPluginsKeepCanonicalDisplayMetadata() {
+        PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties());
+        PluginDescriptor mail = installedOfficial("mail", "mail", "mail", "green");
+        PluginDescriptor ai = installedOfficial("ai", "ai", "sparkles", "teal");
+        PluginDescriptor tts = installedOfficial("tts", "tts", "audio-lines", "amber");
+
+        PluginStatusReport report = new PluginStatusService(
+                registry,
+                PluginInventory::empty,
+                () -> List.of(
+                        new InstalledPlugin(mail, Path.of("mail.jar")),
+                        new InstalledPlugin(ai, Path.of("ai.jar")),
+                        new InstalledPlugin(tts, Path.of("tts.jar"))),
+                RequiredPluginPolicy.empty()).report();
+
+        assertInstalledDisplayMetadata(report, "mail", "mail", "mail", "green");
+        assertInstalledDisplayMetadata(report, "ai", "ai", "sparkles", "teal");
+        assertInstalledDisplayMetadata(report, "tts", "tts", "audio-lines", "amber");
+    }
+
     private static PluginStatus statusOf(PluginStatusReport report, String id) {
         return report.byId(id).orElseThrow().status();
+    }
+
+    private static void assertInstalledDisplayMetadata(PluginStatusReport report, String id,
+                                                       String namespace, String icon, String color) {
+        PluginDiagnostic diagnostic = report.byId(id).orElseThrow();
+        assertThat(diagnostic.status()).isEqualTo(PluginStatus.INSTALLED);
+        PluginDescriptor descriptor = diagnostic.descriptor();
+        assertThat(descriptor.displayNamespace()).isEqualTo(namespace);
+        assertThat(descriptor.displayName()).isEqualTo("plugin.name");
+        assertThat(descriptor.description()).isEqualTo("plugin.summary");
+        assertThat(descriptor.iconKey()).isEqualTo(icon);
+        assertThat(descriptor.colorToken()).isEqualTo(color);
     }
 
     private static PluginDescriptor external(String id, String version, PluginApiRequirement requires) {
         return new PluginDescriptor(id, id + "-pack", version, requires, List.of(),
                 "com.example." + id.replace("-", "_"), null, id + ".label", null, null, null, PluginKind.FEATURE);
+    }
+
+    private static PluginDescriptor installedOfficial(String id, String namespace, String icon, String color) {
+        return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                List.of(), "com.example." + id.replace("-", "_"), namespace, "plugin.name",
+                "plugin.summary", icon, color, PluginKind.FEATURE);
     }
 
     private static final class TestPlugin implements PixivFeaturePlugin {

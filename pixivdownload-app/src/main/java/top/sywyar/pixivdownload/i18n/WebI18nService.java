@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
-import java.util.TreeSet;
 
 @Service
 @RequiredArgsConstructor
@@ -21,8 +20,9 @@ public class WebI18nService {
      * 用 {@link java.util.ResourceBundle.Control#getNoFallbackControl} 禁止这一步，
      * 让请求 locale 找不到对应文件时直接落到根 bundle。
      */
-    private static final ResourceBundle.Control NO_FALLBACK_CONTROL =
+    static final ResourceBundle.Control NO_FALLBACK_CONTROL =
             ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES);
+    private static final char BOM = '\uFEFF';
 
     private final WebI18nBundleRegistry bundleRegistry;
 
@@ -37,16 +37,7 @@ public class WebI18nService {
         }
 
         Locale effectiveLocale = AppLocale.normalize(locale);
-        // bundle 解析经声明方插件的 ClassLoader：现阶段内置插件共用应用 ClassLoader，
-        // 解析结果与退役前的静态 map 一致；物理拆分后各插件 properties 经各自 ClassLoader 解析。
-        ResourceBundle bundle = ResourceBundle.getBundle(
-                registered.contribution().baseName(), effectiveLocale,
-                registered.classLoader(), NO_FALLBACK_CONTROL);
-
-        Map<String, String> messages = new LinkedHashMap<>();
-        for (String key : new TreeSet<>(bundle.keySet())) {
-            messages.put(key, bundle.getString(key));
-        }
+        Map<String, String> messages = new LinkedHashMap<>(registered.load(effectiveLocale));
 
         return new I18nBundleResponse(
                 namespace,
@@ -54,5 +45,12 @@ public class WebI18nService {
                 AppLocale.DEFAULT_LOCALE.toLanguageTag(),
                 messages
         );
+    }
+
+    static String normalizeKey(String key) {
+        if (key != null && !key.isEmpty() && key.charAt(0) == BOM) {
+            return key.substring(1);
+        }
+        return key;
     }
 }

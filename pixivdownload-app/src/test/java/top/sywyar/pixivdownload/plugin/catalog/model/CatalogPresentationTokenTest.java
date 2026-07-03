@@ -17,6 +17,9 @@ class CatalogPresentationTokenTest {
     void validIcon() {
         assertThat(CatalogPresentationToken.sanitizeIcon("chart-line")).isEqualTo("chart-line");
         assertThat(CatalogPresentationToken.sanitizeIcon("  Cloud-Arrow-Down ")).isEqualTo("cloud-arrow-down");
+        assertThat(CatalogPresentationToken.sanitizeIcon("mail")).isEqualTo("mail");
+        assertThat(CatalogPresentationToken.sanitizeIcon("audio-lines")).isEqualTo("audio-lines");
+        assertThat(CatalogPresentationToken.sanitizeIcon("sparkles")).isEqualTo("sparkles");
     }
 
     @Test
@@ -24,6 +27,8 @@ class CatalogPresentationTokenTest {
     void validColor() {
         assertThat(CatalogPresentationToken.sanitizeColor("green")).isEqualTo("green");
         assertThat(CatalogPresentationToken.sanitizeColor("pixiv")).isEqualTo("pixiv");
+        assertThat(CatalogPresentationToken.sanitizeColor("amber")).isEqualTo("amber");
+        assertThat(CatalogPresentationToken.sanitizeColor("teal")).isEqualTo("teal");
     }
 
     @Test
@@ -56,5 +61,14 @@ class CatalogPresentationTokenTest {
         assertThat(CatalogPresentationToken.isSafe("chart-line")).isTrue();
         assertThat(CatalogPresentationToken.isSafe("<svg>")).isFalse();
         assertThat(CatalogPresentationToken.isSafe(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("格式合法但不在共享 token 集：图标 / 颜色均回退默认")
+    void unknownKnownShapeFallsBack() {
+        assertThat(CatalogPresentationToken.sanitizeIcon("definitely-unknown"))
+                .isEqualTo(CatalogPresentationToken.DEFAULT_ICON);
+        assertThat(CatalogPresentationToken.sanitizeColor("pink"))
+                .isEqualTo(CatalogPresentationToken.DEFAULT_COLOR);
     }
 }

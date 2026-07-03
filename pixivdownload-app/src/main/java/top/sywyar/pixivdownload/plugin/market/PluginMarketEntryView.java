@@ -7,9 +7,10 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import java.util.List;
 
 /**
- * 市场视图中一个插件条目的对外投影（卡片摘要 + 详情共用）。{@code displayNameKey} / {@code descriptionKey} 是 i18n key
- * （前端在对应 namespace 解析；插件已安装时其 i18n 包才解析得出，未安装浏览用 {@link PluginMarketMetaView} 的字面文本兜底）。
- * {@code market} 为净化后的市场展示元数据（可空），{@code packages} 为可安装版本列表（含版本历史 / 兼容标记）。
+ * 市场视图中一个插件条目的对外投影（卡片摘要 + 详情共用）。{@code displayNamespace} / {@code displayNameKey} /
+ * {@code descriptionKey} 是插件身份展示 canonical 元数据；插件已安装时前端可在对应 namespace 解析，未安装浏览用
+ * {@link PluginMarketMetaView} 的字面文本兜底。{@code market} 为净化后的市场展示元数据（可空），{@code packages}
+ * 为可安装版本列表（含版本历史 / 兼容标记）。
  *
  * <p><b>安装状态投影</b>（{@code installStatus} / {@code installedVersion} / {@code updateAvailable} / {@code compatible}
  * / {@code compatibilityReason}）由后端把本条目与<b>真实运行时安装状态</b>交叉引用推导，供市场页直接渲染未安装 / 已安装 /
@@ -18,8 +19,9 @@ import java.util.List;
  * 通过统一事务编排器落盘并即时激活。
  *
  * @param pluginId             插件 id
- * @param displayNameKey       展示名 i18n key（可空）
- * @param descriptionKey       简介 i18n key（可空）
+ * @param displayNamespace     展示名 / 简介 i18n namespace（可空）
+ * @param displayNameKey       展示名 i18n key（纯 key，可空）
+ * @param descriptionKey       简介 i18n key（纯 key，可空）
  * @param latestVersion        最新可用版本（取市场元数据声明、否则取首个版本制品；可空）
  * @param market               净化后的市场展示元数据（可空）
  * @param packages             可安装版本制品列表
@@ -31,6 +33,7 @@ import java.util.List;
  */
 public record PluginMarketEntryView(
         String pluginId,
+        String displayNamespace,
         String displayNameKey,
         String descriptionKey,
         String latestVersion,
@@ -72,6 +75,7 @@ public record PluginMarketEntryView(
         MarketInstallStatus status = MarketInstallStatus.resolve(installed, installable, updateAvailable, compatible);
         return new PluginMarketEntryView(
                 entry.pluginId(),
+                entry.displayNamespace(),
                 entry.displayNameKey(),
                 entry.descriptionKey(),
                 latestVersion,

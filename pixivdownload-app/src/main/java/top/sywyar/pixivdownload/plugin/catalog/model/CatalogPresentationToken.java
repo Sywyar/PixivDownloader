@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog.model;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -13,26 +14,39 @@ import java.util.regex.Pattern;
  */
 public final class CatalogPresentationToken {
 
-    /** 图标缺省 / 非法时的回退字形（与设计的通用插件字形一致）。 */
-    public static final String DEFAULT_ICON = "puzzle-piece";
+    /** 图标缺省 / 非法 / 未知时的回退 token（与 {@code PixivFeaturePlugin.DEFAULT_ICON_KEY} 对齐）。 */
+    public static final String DEFAULT_ICON = "puzzle";
 
-    /** 颜色缺省 / 非法时的回退色名。 */
-    public static final String DEFAULT_COLOR = "gray";
+    /** 颜色缺省 / 非法 / 未知时的回退 token（与 {@code PixivFeaturePlugin.DEFAULT_COLOR_TOKEN} 对齐）。 */
+    public static final String DEFAULT_COLOR = "neutral";
 
     /** 安全 token：小写字母开头，其后为小写字母 / 数字 / 连字符，长度 1..40。 */
     private static final Pattern SAFE_TOKEN = Pattern.compile("[a-z][a-z0-9-]{0,39}");
 
+    private static final Set<String> ICON_TOKENS = Set.of(
+            "puzzle", "puzzle-piece", "store", "language", "bolt", "rotate", "bell", "bell-ring", "cloud",
+            "shield", "shield-halved", "palette", "screwdriver-wrench", "grip", "hashtag", "paper-plane",
+            "film", "book", "duplicate", "clone", "file-signature", "heart", "download", "upload", "users",
+            "globe", "gear", "image", "images", "gallery", "chart", "chart-line", "layer-group",
+            "cloud-arrow-down", "cloud-arrow-up", "cube", "wand-magic-sparkles", "sparkles", "robot", "music",
+            "microphone", "audio-lines", "mail", "envelope", "lock", "key", "tag", "tags", "folder", "box",
+            "plug", "code", "scroll", "filter", "wrench", "gauge", "magnifying-glass", "star", "fire",
+            "bookmark", "comments", "database", "wifi", "compass", "feather", "pen", "brush", "eye", "clock");
+
+    private static final Set<String> COLOR_TOKENS = Set.of(
+            "neutral", "gray", "pixiv", "blue", "teal", "amber", "purple", "orange", "red", "green");
+
     private CatalogPresentationToken() {
     }
 
-    /** 净化图标 token，非法 / 空 → {@link #DEFAULT_ICON}。 */
+    /** 净化图标 token，非法 / 空 / 未知 → {@link #DEFAULT_ICON}。 */
     public static String sanitizeIcon(String raw) {
-        return sanitize(raw, DEFAULT_ICON);
+        return sanitize(raw, ICON_TOKENS, DEFAULT_ICON);
     }
 
-    /** 净化颜色 token，非法 / 空 → {@link #DEFAULT_COLOR}。 */
+    /** 净化颜色 token，非法 / 空 / 未知 → {@link #DEFAULT_COLOR}。 */
     public static String sanitizeColor(String raw) {
-        return sanitize(raw, DEFAULT_COLOR);
+        return sanitize(raw, COLOR_TOKENS, DEFAULT_COLOR);
     }
 
     /** 给定原始 token 是否为合法的受控 token（不区分大小写前先 trim+lowercase）。 */
@@ -40,11 +54,11 @@ public final class CatalogPresentationToken {
         return raw != null && SAFE_TOKEN.matcher(raw.trim().toLowerCase(Locale.ROOT)).matches();
     }
 
-    private static String sanitize(String raw, String fallback) {
+    private static String sanitize(String raw, Set<String> knownTokens, String fallback) {
         if (raw == null) {
             return fallback;
         }
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        return SAFE_TOKEN.matcher(normalized).matches() ? normalized : fallback;
+        return SAFE_TOKEN.matcher(normalized).matches() && knownTokens.contains(normalized) ? normalized : fallback;
     }
 }

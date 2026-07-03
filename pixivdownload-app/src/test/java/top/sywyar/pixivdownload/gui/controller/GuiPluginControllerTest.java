@@ -3,10 +3,13 @@ package top.sywyar.pixivdownload.gui.controller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.I18nBundleResponse;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginApiRequirementView;
@@ -14,12 +17,19 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService.Plugin
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementReport;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,6 +53,8 @@ class GuiPluginControllerTest {
     private PluginManagementService managementService;
     private WebI18nService webI18nService;
     private MockMvc mockMvc;
+    @TempDir
+    private Path tempDir;
 
     @BeforeEach
     void setUp() {
@@ -59,7 +71,7 @@ class GuiPluginControllerTest {
                                                PluginStatus status, PluginRuntimePhase phase, boolean managed,
                                                boolean required, String version) {
         return new PluginManagementEntry(
-                id, namespace, nameKey, nameKey, "puzzle", "slate", version, PluginKind.FEATURE,
+                id, namespace, nameKey, nameKey, "puzzle", "neutral", version, PluginKind.FEATURE,
                 new PluginApiRequirementView(false, true, "(unspecified)"), List.of(),
                 source, status, phase, managed, required, !required, List.of(), List.of());
     }
@@ -68,14 +80,14 @@ class GuiPluginControllerTest {
     @DisplayName("成功：把状态报告投影为 GUI 视图，服务端解析展示名称，字段稳定（内置 + 外置 stats）")
     void statusProjectsReport() throws Exception {
         when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
-                entry("gallery", "gallery", "nav.label", "built-in",
+                entry("gallery", "gallery", "plugin.name", "built-in",
                         PluginStatus.STARTED, null, false, false, "0.0.1"),
-                entry("stats", "stats", "nav.label", "external",
+                entry("stats", "stats", "plugin.name", "external",
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "1.0.0"))));
         when(webI18nService.loadBundle(eq("gallery"), any()))
-                .thenReturn(new I18nBundleResponse("gallery", "en", "zh-CN", Map.of("nav.label", "Gallery")));
+                .thenReturn(new I18nBundleResponse("gallery", "en", "zh-CN", Map.of("plugin.name", "Gallery")));
         when(webI18nService.loadBundle(eq("stats"), any()))
-                .thenReturn(new I18nBundleResponse("stats", "en", "zh-CN", Map.of("nav.label", "Statistics")));
+                .thenReturn(new I18nBundleResponse("stats", "en", "zh-CN", Map.of("plugin.name", "Statistics")));
 
         mockMvc.perform(get("/api/gui/plugins/status"))
                 .andExpect(status().isOk())
@@ -99,6 +111,64 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.plugins[1].version").value("1.0.0"))
                 .andExpect(jsonPath("$.plugins[1].verification.status")
                         .value(PluginVerificationProjector.UNVERIFIED_LOCAL));
+    }
+
+    @Test
+    @DisplayName("官方外置插件安装态：mail/ai/tts 使用 plugin.name 解析，GUI 不回退显示 id")
+    void officialExternalInstalledNamesResolveFromCanonicalMetadata() throws Exception {
+        when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+                entry("mail", "mail", "plugin.name", "external",
+                        PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"),
+                entry("ai", "ai", "plugin.name", "external",
+                        PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"),
+                entry("tts", "tts", "plugin.name", "external",
+                        PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"))));
+        when(webI18nService.loadBundle(eq("mail"), any()))
+                .thenReturn(new I18nBundleResponse("mail", "en", "zh-CN",
+                        Map.of("plugin.name", "Mail Notifications")));
+        when(webI18nService.loadBundle(eq("ai"), any()))
+                .thenReturn(new I18nBundleResponse("ai", "en", "zh-CN",
+                        Map.of("plugin.name", "AI Translation")));
+        when(webI18nService.loadBundle(eq("tts"), any()))
+                .thenReturn(new I18nBundleResponse("tts", "en", "zh-CN",
+                        Map.of("plugin.name", "TTS Narration")));
+
+        mockMvc.perform(get("/api/gui/plugins/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plugins[0].id").value("mail"))
+                .andExpect(jsonPath("$.plugins[0].name").value("Mail Notifications"))
+                .andExpect(jsonPath("$.plugins[1].id").value("ai"))
+                .andExpect(jsonPath("$.plugins[1].name").value("AI Translation"))
+                .andExpect(jsonPath("$.plugins[2].id").value("tts"))
+                .andExpect(jsonPath("$.plugins[2].name").value("TTS Narration"));
+    }
+
+    @Test
+    @DisplayName("官方外置插件安装态：GUI 经真实 WebI18nService 解析未启动包 bundle，不回退 id")
+    void installedOnlyOfficialNameResolvesThroughRealWebI18nService() throws Exception {
+        Path plugins = tempDir.resolve("plugins");
+        Files.createDirectories(plugins);
+        writeInstalledPluginJar(
+                plugins.resolve("mail-1.0.0.jar"),
+                "mail",
+                "邮件通知",
+                "Mail Notifications");
+        ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
+        WebI18nService realI18n = new WebI18nService(new WebI18nBundleRegistry(
+                new PluginRegistry(List.of()), provider(installer)));
+        AppLocaleResolver localeResolver = mock(AppLocaleResolver.class);
+        when(localeResolver.resolveLocale(any())).thenReturn(Locale.ENGLISH);
+        MockMvc mvc = MockMvcBuilders
+                .standaloneSetup(new GuiPluginController(managementService, realI18n, localeResolver))
+                .build();
+        when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+                entry("mail", "mail", "plugin.name", "external",
+                        PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"))));
+
+        mvc.perform(get("/api/gui/plugins/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plugins[0].id").value("mail"))
+                .andExpect(jsonPath("$.plugins[0].name").value("Mail Notifications"));
     }
 
     @Test
@@ -155,5 +225,51 @@ class GuiPluginControllerTest {
                 .andExpect(status().isForbidden());
 
         verify(managementService, never()).list();
+    }
+
+    private static ObjectProvider<ExternalPluginInstaller> provider(ExternalPluginInstaller installer) {
+        return new ObjectProvider<>() {
+            @Override
+            public ExternalPluginInstaller getObject(Object... args) {
+                return installer;
+            }
+
+            @Override
+            public ExternalPluginInstaller getIfAvailable() {
+                return installer;
+            }
+
+            @Override
+            public ExternalPluginInstaller getObject() {
+                return installer;
+            }
+        };
+    }
+
+    private static void writeInstalledPluginJar(Path path, String pluginId, String zhName, String enName)
+            throws Exception {
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(path))) {
+            writeEntry(jar, "plugin.properties", """
+                    plugin.id=%s
+                    plugin.version=1.0.0
+                    plugin.class=com.example.%sPlugin
+                    plugin.requires=1.0
+                    pixiv.display-namespace=%s
+                    pixiv.display-name-key=plugin.name
+                    pixiv.description-key=plugin.summary
+                    pixiv.icon-key=mail
+                    pixiv.color-token=green
+                    """.formatted(pluginId, pluginId, pluginId));
+            writeEntry(jar, "i18n/web/%s.properties".formatted(pluginId),
+                    "plugin.name=%s\nplugin.summary=中文简介\n".formatted(zhName));
+            writeEntry(jar, "i18n/web/%s_en.properties".formatted(pluginId),
+                    "plugin.name=%s\nplugin.summary=English summary\n".formatted(enName));
+        }
+    }
+
+    private static void writeEntry(JarOutputStream jar, String name, String content) throws Exception {
+        jar.putNextEntry(new JarEntry(name));
+        jar.write(content.getBytes(StandardCharsets.UTF_8));
+        jar.closeEntry();
     }
 }

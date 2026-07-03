@@ -43,8 +43,8 @@ public interface PixivFeaturePlugin {
      * 提供（与导航 {@code NavigationContribution} 的「namespace 与 key 分离」模型一致）。<b>必须由插件显式声明</b>、
      * 无默认实现。消费端（Web 插件管理页 / GUI 配置面板）按当前语言，在 {@link #displayNamespace()} 指定的 namespace
      * （{@link #i18n()} 贡献的 bundle，如 {@code i18n/web/<namespace>.properties}）中解析为本地化文案——文案归插件
-     * 所有、不落在核心 GUI bundle 里。<b>具体 key 由插件自行决定</b>：可复用已有 key（如导航标签 {@code nav.label}），
-     * 也可另立专用 key。
+     * 所有、不落在核心 GUI bundle 里。推荐使用专用身份 key（官方插件统一为 {@code plugin.name}）；导航标签
+     * {@code nav.label}、页面标题和表单字段标签属于各自上下文文案，不应作为插件身份的 canonical source。
      */
     String displayName();
 
@@ -73,9 +73,9 @@ public interface PixivFeaturePlugin {
 
     /**
      * 展示图标的<b>受控 token</b>（如 {@code download} / {@code book}）：仅一个稳定标识符，<b>不是</b> URL / SVG / HTML /
-     * 远程资源，由消费端（Web 插件管理页）在<b>本地白名单</b>内映射为图标。白名单外的未知 token 一律回退到
+     * 远程资源，由消费端（Web 插件管理页 / 插件市场）在共享白名单内映射为图标。白名单外的未知 token 一律回退到
      * {@value #DEFAULT_ICON_KEY}，原始 token 绝不被当作图标类名 / 标记直接渲染。默认 {@value #DEFAULT_ICON_KEY}；
-     * 插件可覆写为白名单内的其它 token。此 token 仅用于本地展示的可扫描性，<b>不是</b>插件市场 / catalog 字段。
+     * 插件可覆写为白名单内的其它 token。
      */
     default String iconKey() {
         return DEFAULT_ICON_KEY;
@@ -84,7 +84,7 @@ public interface PixivFeaturePlugin {
     /**
      * 卡片强调色的<b>受控 token</b>（如 {@code blue} / {@code green}）：仅一个稳定标识符，<b>不是</b>任意 CSS 颜色，
      * 由消费端映射为固定的 CSS class / data 属性。白名单外的未知 token 一律回退到 {@value #DEFAULT_COLOR_TOKEN}。
-     * 默认 {@value #DEFAULT_COLOR_TOKEN}。颜色仅用于卡片的可扫描性，<b>不</b>构成主题系统，也<b>不是</b>插件市场字段。
+     * 默认 {@value #DEFAULT_COLOR_TOKEN}。颜色仅用于卡片的可扫描性，<b>不</b>构成主题系统。
      */
     default String colorToken() {
         return DEFAULT_COLOR_TOKEN;

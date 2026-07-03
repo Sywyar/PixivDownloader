@@ -23,7 +23,7 @@ public class GuiThemePlugin implements PixivFeaturePlugin {
 
     @Override
     public String displayName() {
-        return "plugin.label";
+        return "plugin.name";
     }
 
     @Override

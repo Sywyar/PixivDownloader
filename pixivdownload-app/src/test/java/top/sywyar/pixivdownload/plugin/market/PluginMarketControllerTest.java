@@ -80,7 +80,7 @@ class PluginMarketControllerTest {
     void getCatalogDefault() throws Exception {
         when(marketService.catalog(isNull())).thenReturn(new PluginMarketView("official", true, "1.0.0", 1,
                 List.of(new PluginMarketCategoryCount("all", 1)),
-                List.of(new PluginMarketEntryView("stats", "stats:nav.label", "stats:plugin.summary", "1.2.3", null,
+                List.of(new PluginMarketEntryView("stats", "stats", "plugin.name", "plugin.summary", "1.2.3", null,
                         List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
                                 true, false, List.of(), null, List.of(), null, false, verification())),
                         MarketInstallStatus.UPDATE_AVAILABLE, "1.2.0", true, true, null))));
@@ -92,6 +92,8 @@ class PluginMarketControllerTest {
                 .andExpect(jsonPath("$.installedCount").value(1))
                 .andExpect(jsonPath("$.categories[0].category").value("all"))
                 .andExpect(jsonPath("$.entries[0].pluginId").value("stats"))
+                .andExpect(jsonPath("$.entries[0].displayNamespace").value("stats"))
+                .andExpect(jsonPath("$.entries[0].displayNameKey").value("plugin.name"))
                 .andExpect(jsonPath("$.entries[0].latestVersion").value("1.2.3"))
                 .andExpect(jsonPath("$.entries[0].installStatus").value("UPDATE_AVAILABLE"))
                 .andExpect(jsonPath("$.entries[0].installedVersion").value("1.2.0"))
@@ -139,7 +141,7 @@ class PluginMarketControllerTest {
     @DisplayName("GET /api/plugin-market/plugins/{repositoryId}/{pluginId}：条目详情 + 版本历史")
     void getPluginDetail() throws Exception {
         when(marketService.pluginDetail("official", "stats")).thenReturn(new PluginMarketEntryView(
-                "stats", "stats:nav.label", "stats:plugin.summary", "1.2.3", null,
+                "stats", "stats", "plugin.name", "plugin.summary", "1.2.3", null,
                 List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
                         true, true, List.of(), "2026-06-01", List.of("first release"), "stable", false,
                         verification())),

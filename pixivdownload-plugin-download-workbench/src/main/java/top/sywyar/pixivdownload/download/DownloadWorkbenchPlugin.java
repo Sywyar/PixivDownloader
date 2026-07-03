@@ -51,7 +51,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     // 不在配置页「插件」分组呈现（GUI 只列可禁用功能插件），但 Web 插件管理页会展示并解析它，故 key 须真实存在于 batch。
     @Override
     public String displayName() {
-        return "plugin.label";
+        return "plugin.name";
     }
 
     @Override
