@@ -161,6 +161,7 @@ jobs:
           cp pixivdownload-plugin-download-workbench/target/pixivdownload-plugin-download-workbench-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-stats/target/pixivdownload-plugin-stats-*.jar build/plugin-inputs/
+          cp pixivdownload-plugin-gallery/target/pixivdownload-plugin-gallery-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-notification/target/pixivdownload-plugin-notification-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-push/target/pixivdownload-plugin-push-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-mail/target/pixivdownload-plugin-mail-*.jar build/plugin-inputs/

@@ -26,7 +26,7 @@ class WebI18nBundleRegistryTest {
     private static final ClassLoader LOADER = WebI18nBundleRegistryTest.class.getClassLoader();
 
     /**
-     * namespace → baseName 基线：内置共 16 条（download-workbench/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
+     * namespace → baseName 基线：内置共 12 条（download-workbench/gallery/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
      * 保证「所有页面 i18n 行为不变」。新增 namespace 时同步本基线。
      */
     private static final Map<String, String> LEGACY_NAMESPACE_BASENAMES = legacyBaseNames();
@@ -37,10 +37,6 @@ class WebI18nBundleRegistryTest {
         map.put("setup", "i18n.web.setup");
         map.put("login", "i18n.web.login");
         map.put("intro", "i18n.web.intro");
-        map.put("gallery", "i18n.web.gallery");
-        map.put("artwork", "i18n.web.artwork");
-        map.put("showcase", "i18n.web.showcase");
-        map.put("series", "i18n.web.series");
         map.put("novel", "i18n.web.novel");
         map.put("narration", "i18n.web.narration");
         map.put("monitor", "i18n.web.monitor");
@@ -65,7 +61,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（16 条；download-workbench/stats/duplicate/translate 已外置）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（12 条；download-workbench/gallery/stats/duplicate/translate 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 
@@ -87,8 +83,8 @@ class WebI18nBundleRegistryTest {
         WebI18nBundleRegistry registry = builtInRegistry();
         assertThat(ownerOf(registry, "common")).isEqualTo("core");
         assertThat(ownerOf(registry, "maintenance")).isEqualTo("core");
-        assertThat(ownerOf(registry, "gallery")).isEqualTo("gallery");
-        assertThat(ownerOf(registry, "artwork")).isEqualTo("gallery");
+        assertThat(registry.resolve("gallery")).isNull();
+        assertThat(registry.resolve("artwork")).isNull();
         assertThat(ownerOf(registry, "novel")).isEqualTo("novel");
         assertThat(ownerOf(registry, "narration")).isEqualTo("novel");
     }
@@ -97,10 +93,10 @@ class WebI18nBundleRegistryTest {
     @DisplayName("resolve 携带声明方插件的 ClassLoader（bundle 解析用）")
     void resolveCarriesDeclaringClassLoader() {
         WebI18nBundleRegistry registry = builtInRegistry();
-        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("gallery");
+        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("novel");
         assertThat(bundle).isNotNull();
         assertThat(bundle.classLoader())
-                .isSameAs(top.sywyar.pixivdownload.gallery.GalleryPlugin.class.getClassLoader());
+                .isSameAs(top.sywyar.pixivdownload.novel.NovelPlugin.class.getClassLoader());
     }
 
     @Test
@@ -250,6 +246,27 @@ class WebI18nBundleRegistryTest {
                     assertThat(bundle.pluginId()).isEqualTo("duplicate");
                     assertThat(bundle.contribution().baseName()).isEqualTo("i18n.web.duplicates");
                 });
+    }
+
+    @Test
+    @DisplayName("gallery/artwork/showcase/series namespace 可由外置 gallery 插件注册，不属于内置快照")
+    void galleryNamespacesCanBeProvidedByExternalPlugin() {
+        WebI18nBundleRegistry registry = builtInRegistry();
+        assertThat(registry.resolve("gallery")).isNull();
+        assertThat(registry.resolve("artwork")).isNull();
+        assertThat(registry.resolve("showcase")).isNull();
+        assertThat(registry.resolve("series")).isNull();
+
+        registry.register("gallery", LOADER, List.of(
+                new I18nContribution("gallery", "i18n.web.gallery", 6),
+                new I18nContribution("artwork", "i18n.web.artwork", 9),
+                new I18nContribution("showcase", "i18n.web.showcase", 10),
+                new I18nContribution("series", "i18n.web.series", 11)));
+
+        assertThat(ownerOf(registry, "gallery")).isEqualTo("gallery");
+        assertThat(ownerOf(registry, "artwork")).isEqualTo("gallery");
+        assertThat(ownerOf(registry, "showcase")).isEqualTo("gallery");
+        assertThat(ownerOf(registry, "series")).isEqualTo("gallery");
     }
 
     @Test

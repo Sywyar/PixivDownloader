@@ -48,6 +48,18 @@
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
   },
+  "gallery": {
+    "description": { "zh": "提供本地画廊、作品详情、精选集与系列页面，基于核心下载事实和 Pixiv 元数据展示历史作品。", "en": "Provides the local gallery, artwork detail, showcase, and series pages backed by core download facts and Pixiv metadata." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "gallery",
+    "tags": ["gallery", "artwork", "metadata", "collections"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "recommended": true,
+    "officialRequired": false,
+    "changeNotes": ["首个外置版本"]
+  },
   "notification": {
     "description": { "zh": "提供通知场景开关和中性通知级别文案，不发送邮件或推送；邮件与推送插件依赖它共享通知语义。", "en": "Provides notification scenario toggles and neutral severity labels without sending mail or push messages; mail and push plugins depend on it for shared notification semantics." },
     "author": "Sywyar",

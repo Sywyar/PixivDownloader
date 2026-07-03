@@ -77,11 +77,11 @@ class GuiPluginControllerTest {
     }
 
     @Test
-    @DisplayName("成功：把状态报告投影为 GUI 视图，服务端解析展示名称，字段稳定（内置 + 外置 stats）")
+    @DisplayName("成功：把状态报告投影为 GUI 视图，服务端解析展示名称，字段稳定（外置 gallery + 外置 stats）")
     void statusProjectsReport() throws Exception {
         when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
-                entry("gallery", "gallery", "plugin.name", "built-in",
-                        PluginStatus.STARTED, null, false, false, "0.0.1"),
+                entry("gallery", "gallery", "plugin.name", "external",
+                        PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "1.0.0"),
                 entry("stats", "stats", "plugin.name", "external",
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "1.0.0"))));
         when(webI18nService.loadBundle(eq("gallery"), any()))
@@ -94,12 +94,12 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.recoveryMode").value(false))
                 .andExpect(jsonPath("$.plugins[0].id").value("gallery"))
                 .andExpect(jsonPath("$.plugins[0].name").value("Gallery"))
-                .andExpect(jsonPath("$.plugins[0].source").value("built-in"))
+                .andExpect(jsonPath("$.plugins[0].source").value("external"))
                 .andExpect(jsonPath("$.plugins[0].status").value("STARTED"))
-                .andExpect(jsonPath("$.plugins[0].runtimePhase").value(nullValue()))
-                .andExpect(jsonPath("$.plugins[0].managed").value(false))
+                .andExpect(jsonPath("$.plugins[0].runtimePhase").value("STARTED"))
+                .andExpect(jsonPath("$.plugins[0].managed").value(true))
                 .andExpect(jsonPath("$.plugins[0].required").value(false))
-                .andExpect(jsonPath("$.plugins[0].version").value("0.0.1"))
+                .andExpect(jsonPath("$.plugins[0].version").value("1.0.0"))
                 .andExpect(jsonPath("$.plugins[0].verification.status")
                         .value(PluginVerificationProjector.UNVERIFIED_LOCAL))
                 .andExpect(jsonPath("$.plugins[1].id").value("stats"))

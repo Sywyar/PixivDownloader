@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 模型 {@code WorkSidecarMeta}）读、普通作品文件经 {@code WorkAssetService} 枚举 / 读取。禁用 token 精确到
  * 不会误伤合法的接口名 {@code findSidecarMeta} 与模型名 {@code WorkSidecarMeta}（两者均不含任一禁用 token）。
  *
- * <p>source 范围：{@code gallery..} 整包 + {@code NovelGalleryService} + {@code NovelBatchService}。
+ * <p>source 范围：app 内仍未外置的 {@code NovelGalleryService} + {@code NovelBatchService}。
  * 只扫 main 业务插件代码——测试代码自身（如本类、{@link PluginApiDependencyGuardTest}）允许出现这些 token。
  */
 @DisplayName("业务插件源码边界：不得硬编码 sidecar 文件名实现细节")
@@ -50,7 +50,7 @@ class BusinessPluginSourceBoundaryTest {
     );
 
     @Test
-    @DisplayName("画廊包 + 小说画廊两服务源码不得出现 sidecar 文件名实现细节（.meta.json / SIDECAR_SUFFIX / WorkSidecarStore）")
+    @DisplayName("小说画廊两服务源码不得出现 sidecar 文件名实现细节（.meta.json / SIDECAR_SUFFIX / WorkSidecarStore）")
     void businessPluginSourcesMustNotMentionSidecarImplementationDetails() {
         List<Path> sources = businessPluginSources();
 
@@ -60,7 +60,7 @@ class BusinessPluginSourceBoundaryTest {
                 .as("业务插件 source 文件缺失（多半是测试工作目录不是模块根，或源码已挪位）：%s", missing)
                 .isEmpty();
         assertThat(sources)
-                .as("业务插件 source 扫描清单不应为空（gallery 目录未找到任何 .java）")
+                .as("业务插件 source 扫描清单不应为空")
                 .isNotEmpty();
 
         List<String> violations = new ArrayList<>();
@@ -84,9 +84,9 @@ class BusinessPluginSourceBoundaryTest {
                 .isEmpty();
     }
 
-    /** gallery 整包的全部 .java + 两个小说画廊服务文件。 */
+    /** app 内仍未外置的两个小说画廊服务文件。 */
     private static List<Path> businessPluginSources() {
-        List<Path> sources = new ArrayList<>(collectJavaFiles(SOURCE_ROOT.resolve("gallery")));
+        List<Path> sources = new ArrayList<>();
         sources.add(SOURCE_ROOT.resolve("novel").resolve("NovelGalleryService.java"));
         sources.add(SOURCE_ROOT.resolve("novel").resolve("NovelBatchService.java"));
         return sources;

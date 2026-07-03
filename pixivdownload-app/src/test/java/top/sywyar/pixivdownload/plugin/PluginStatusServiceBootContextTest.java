@@ -46,13 +46,13 @@ class PluginStatusServiceBootContextTest {
     private PluginStatusService pluginStatusService;
 
     @Test
-    @DisplayName("四个 core-only 内置插件 STARTED，download-workbench 缺失 required")
+    @DisplayName("三个 core-only 内置插件 STARTED，download-workbench 缺失 required")
     void builtInPluginsAreAllStartedAndCompatible() {
         PluginStatusReport report = pluginStatusService.report();
 
         assertThat(report.withStatus(PluginStatus.STARTED)).extracting(PluginDiagnostic::id)
                 .containsExactlyInAnyOrder(
-                        "core", "gallery", "novel", "plugin-market");
+                        "core", "novel", "plugin-market");
         assertThat(report.withStatus(PluginStatus.MISSING_REQUIRED)).extracting(PluginDiagnostic::id)
                 .containsExactly("download-workbench");
         assertThat(report.withStatus(PluginStatus.INCOMPATIBLE)).isEmpty();

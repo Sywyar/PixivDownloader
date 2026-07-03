@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ol>
  *   <li><b>boot jar 不含外置插件类与资源</b>——经「运行期类路径不可加载」实证：app 模块测试运行期的类路径即 boot jar
  *       的 {@code BOOT-INF/classes} + {@code BOOT-INF/lib}（去掉 test 作用域），故外置插件 {@code download-workbench} /
- *       {@code stats} / {@code duplicate} / {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言
+ *       {@code gallery} / {@code stats} / {@code duplicate} / {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言
  *       宿主 PF4J 运行时可加载、核心静态资源在位（非空泛断言）；外置插件的静态资源 / i18n 经核心壳 classloader 解析不到。</li>
  *   <li><b>{@code stats} 以 thin 外置插件形态打包</b>——其构建产物根部含 {@code plugin.properties} + 外置主类，
  *       且不泄漏共享契约 / 宿主类；若 Maven 已产出真实插件 jar，再断言 jar 内无 {@code BOOT-INF/}、无打入的
@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       并通过模拟 runtime materialization 后的独立 classloader 真实加载。</li>
  * </ol>
  *
- * <p>插件构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} /
+ * <p>插件构建产物目录经 surefire 系统属性 {@code gallery.plugin.classes} / {@code stats.plugin.classes} /
  * {@code duplicate.plugin.classes} / {@code recovery-sentinel.plugin.classes} / {@code gui-theme.plugin.classes} 传入（指向各插件模块
  * {@code target/classes}，reactor 中先于 app 构建）；未就绪时（如 IDE 未触发 reactor 构建）对应用例
  * {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}，gui-theme 可由
@@ -61,6 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DistributionPackagingBoundaryTest {
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
+    private static final String GALLERY_CLASSES_PROPERTY = "gallery.plugin.classes";
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
     private static final String DUPLICATE_CLASSES_PROPERTY = "duplicate.plugin.classes";
     private static final String NOTIFICATION_CLASSES_PROPERTY = "notification.plugin.classes";
@@ -73,7 +74,7 @@ class DistributionPackagingBoundaryTest {
     private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
 
     @Test
-    @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置 download-workbench / stats / duplicate / recovery-sentinel 的类与资源")
+    @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置 download-workbench / gallery / stats / duplicate / recovery-sentinel 的类与资源")
     void bootJarExcludesExternalPluginClassesAndResources() {
         ClassLoader host = getClass().getClassLoader();
 
@@ -96,6 +97,10 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 duplicate 插件主类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.duplicate.DuplicatePlugin"))
                 .as("外置 duplicate 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.gallery.GalleryPf4jPlugin"))
+                .as("外置 gallery 插件主类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.gallery.GalleryPlugin"))
+                .as("外置 gallery 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.recoverysentinel.RecoverySentinelPf4jPlugin"))
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin"))
@@ -140,6 +145,20 @@ class DistributionPackagingBoundaryTest {
                 .as("duplicate 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/duplicates.properties"))
                 .as("duplicate i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-gallery.html"))
+                .as("gallery 页面不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-gallery/pixiv-gallery.css"))
+                .as("gallery 静态资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-artwork/pixiv-artwork.css"))
+                .as("artwork 静态资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/gallery.properties"))
+                .as("gallery i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/artwork.properties"))
+                .as("artwork i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/showcase.properties"))
+                .as("showcase i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/series.properties"))
+                .as("series i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/gui-theme.properties"))
                 .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/notification.properties"))
@@ -179,6 +198,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/gallery/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
@@ -187,12 +207,20 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/static/userscripts/",
                 "BOOT-INF/classes/static/pixiv-stats/",
                 "BOOT-INF/classes/static/pixiv-duplicates",
+                "BOOT-INF/classes/static/pixiv-gallery",
+                "BOOT-INF/classes/static/pixiv-artwork",
+                "BOOT-INF/classes/static/pixiv-showcase",
+                "BOOT-INF/classes/static/pixiv-series",
                 "BOOT-INF/classes/static/pixiv-tts/",
                 "BOOT-INF/classes/static/pixiv-ai/",
                 "BOOT-INF/classes/i18n/web/batch",
                 "BOOT-INF/classes/i18n/web/userscript",
                 "BOOT-INF/classes/i18n/web/stats",
                 "BOOT-INF/classes/i18n/web/duplicates",
+                "BOOT-INF/classes/i18n/web/gallery",
+                "BOOT-INF/classes/i18n/web/artwork",
+                "BOOT-INF/classes/i18n/web/showcase",
+                "BOOT-INF/classes/i18n/web/series",
                 "BOOT-INF/classes/i18n/web/gui-theme",
                 "BOOT-INF/classes/i18n/web/notification",
                 "BOOT-INF/classes/i18n/web/push",
@@ -208,7 +236,7 @@ class DistributionPackagingBoundaryTest {
         for (String prefix : forbiddenPrefixes) {
             assertThat(entries)
                     .as("boot jar must not contain external plugin payload prefix " + prefix)
-                    .noneMatch(name -> name.startsWith(prefix));
+                    .noneMatch(name -> name.startsWith(prefix) && !name.endsWith("/"));
         }
 
         List<String> forbiddenLibPatterns = List.of(
@@ -246,6 +274,13 @@ class DistributionPackagingBoundaryTest {
     void duplicatePackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(DUPLICATE_CLASSES_PROPERTY, "pixivdownload-plugin-duplicate",
                 "top/sywyar/pixivdownload/duplicate/DuplicatePf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("gallery 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void galleryPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(GALLERY_CLASSES_PROPERTY, "pixivdownload-plugin-gallery",
+                "top/sywyar/pixivdownload/gallery/GalleryPf4jPlugin.class");
     }
 
     @Test

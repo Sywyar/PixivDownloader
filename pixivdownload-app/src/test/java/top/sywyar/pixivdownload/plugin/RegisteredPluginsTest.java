@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
-import top.sywyar.pixivdownload.gallery.GalleryPluginConfiguration;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.market.PluginMarketPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
@@ -23,7 +22,7 @@ class RegisteredPluginsTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages：
             // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）；
-            // Gallery / Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
+            // Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean(top.sywyar.pixivdownload.core.hash.ImageHashMapper.class,
@@ -127,7 +126,6 @@ class RegisteredPluginsTest {
             // 作品类型执行器注册中心用真实 Bean：收集小说插件贡献的小说执行器。
             .withUserConfiguration(
                     CorePluginConfiguration.class,
-                    GalleryPluginConfiguration.class,
                     NovelPluginConfiguration.class,
                     PluginMarketPluginConfiguration.class,
                     PluginRegistry.class,
@@ -135,14 +133,14 @@ class RegisteredPluginsTest {
                     DatabaseSchemaRegistry.class);
 
     @Test
-    @DisplayName("四个内置插件经各自 Configuration 注册进 PluginRegistry（download-workbench/stats/duplicate 已外置、不在内置清单）")
+    @DisplayName("三个内置插件经各自 Configuration 注册进 PluginRegistry（download-workbench/gallery/stats/duplicate 已外置、不在内置清单）")
     void allPluginsRegistered() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins())
                     .extracting(PixivFeaturePlugin::id)
                     .containsExactlyInAnyOrder(
-                            "core", "gallery", "novel", "plugin-market");
+                            "core", "novel", "plugin-market");
         });
     }
 
@@ -159,30 +157,26 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各内置插件 contribution 边界：core 独占 schema，gallery/novel/plugin-market 占各自功能贡献，download-workbench/duplicate 已外置")
+    @DisplayName("各内置插件 contribution 边界：core 独占 schema，novel/plugin-market 占各自功能贡献，gallery/download-workbench/duplicate 已外置")
     void emptyPluginsContributeNothing() {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
         // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
-        // download-workbench 与 schedule 安全壳已在外置必需插件包中，duplicate 也随外置插件包接入。
-        Set<String> routeContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
-        Set<String> i18nContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
-        Set<String> navContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
-        Set<String> staticResourceContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
+        // download-workbench、gallery 与 schedule 安全壳已在外置插件包中，duplicate 也随外置插件包接入。
+        Set<String> routeContributingPlugins = Set.of("core", "novel", "plugin-market");
+        Set<String> i18nContributingPlugins = Set.of("core", "novel", "plugin-market");
+        Set<String> navContributingPlugins = Set.of("core", "novel", "plugin-market");
+        Set<String> staticResourceContributingPlugins = Set.of("core", "novel", "plugin-market");
         Set<String> queueTypeContributingPlugins = Set.of("novel");
         Set<String> downloadTabContributingPlugins = Set.of();
-        // 落点 / 入口（landing）：受邀访客落点唯画廊（priority 20）+ 小说（priority 30）声明，
+        // 落点 / 入口（landing）：内置清单中仅小说声明；gallery 落点随外置插件接入，
         // 锁死契约面——其它插件不得静默声明落点（避免借落点 / 导航 order 间接改变业务落点）。
-        Set<String> landingContributingPlugins = Set.of("gallery", "novel");
-        // 页面区块（page sections）：唯画廊向统计页 placement 贡献「视图 / 收藏夹」借用区块，
-        // 统计页只声明空 section slot——其它插件不贡献区块（宿主不需要知道是哪个插件）。
-        Set<String> pageSectionContributingPlugins = Set.of("gallery");
-        // 语义下钻（drilldowns）：唯画廊向统计页两个语义 placement（stats.top-authors / stats.top-tags）贡献
-        // 下钻模板——统计页只认得语义 placement，其它插件不贡献下钻（宿主不需要知道是哪个插件）。
-        Set<String> drilldownContributingPlugins = Set.of("gallery");
-        // GUI 引导步骤：唯画廊贡献打开本地页面并完成网页操作指引的步骤；宿主只按中性 step contract 渲染。
-        Set<String> onboardingStepContributingPlugins = Set.of("gallery");
-        // coreColumnUsages 仍仅画廊 / 小说；download-workbench 的 schedule 引擎外置后不进内置清单。
-        Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
+        Set<String> landingContributingPlugins = Set.of("novel");
+        // gallery 外置后，页面区块 / 下钻 / GUI 引导步骤均由外置 gallery 插件声明。
+        Set<String> pageSectionContributingPlugins = Set.of();
+        Set<String> drilldownContributingPlugins = Set.of();
+        Set<String> onboardingStepContributingPlugins = Set.of();
+        // coreColumnUsages 内置清单仅保留小说；gallery 的核心列使用在外置模块测试中守护。
+        Set<String> coreColumnUsingPlugins = Set.of("novel");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
@@ -200,7 +194,7 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.coreColumnUsages()).isEmpty();
                 }
-                // i18n namespace 由内置前端插件声明；batch/userscript 归外置 download-workbench。
+                // i18n namespace 由内置前端插件声明；batch/userscript 归外置 download-workbench，gallery 归外置 gallery。
                 if (i18nContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.i18n()).isNotEmpty();
                 } else {
@@ -239,19 +233,19 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.downloadTabs()).isEmpty();
                 }
-                // 落点 / 入口：唯画廊 + 小说声明受邀访客落点；其余插件不得贡献落点
+                // 落点 / 入口：内置清单中仅小说声明受邀访客落点；其余插件不得贡献落点
                 if (landingContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.landings()).isNotEmpty();
                 } else {
                     assertThat(plugin.landings()).isEmpty();
                 }
-                // 页面区块：唯画廊向统计页贡献借用区块；其余插件不贡献
+                // 页面区块：gallery 外置后内置插件不贡献
                 if (pageSectionContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.pageSections()).isNotEmpty();
                 } else {
                     assertThat(plugin.pageSections()).isEmpty();
                 }
-                // 语义下钻：唯画廊向统计页贡献作者 / 标签下钻模板；其余插件不贡献
+                // 语义下钻：gallery 外置后内置插件不贡献
                 if (drilldownContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.drilldowns()).isNotEmpty();
                 } else {

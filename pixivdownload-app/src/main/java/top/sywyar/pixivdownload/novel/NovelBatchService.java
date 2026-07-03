@@ -30,7 +30,7 @@ import java.util.Set;
  * 小说画廊批量操作：按显式 ID 或筛选快照解析小说集合，支持批量收藏与导出打包。
  * 行数据经 {@link WorkMetadataRepository} 批量补全、文件枚举经 {@link WorkAssetService}，
  * 不再直接依赖底层数据库与作者池实现；打包仍走核心 quota 打包能力。
- * 插画侧的对应逻辑在 {@code gallery.GalleryBatchService}，两者互不依赖。
+ * 插画侧批量操作通过独立插件提供，两者互不依赖。
  */
 @Slf4j
 @PluginManagedBean

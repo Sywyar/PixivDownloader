@@ -20,9 +20,9 @@ class StartupRouteRegistryTest {
     }
 
     @Test
-    @DisplayName("内置插件清单注册后：download-workbench 缺席时 multi/solo 均回退到画廊")
+    @DisplayName("gallery 已安装时：download-workbench 缺席时 multi/solo 均回退到画廊")
     void builtInResolvesPreferredPerMode() {
-        StartupRouteRegistry registry = StartupRouteRegistry.forBuiltInPlugins();
+        StartupRouteRegistry registry = registryWithGallery();
 
         assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-gallery.html");
         assertThat(registry.resolvePath(StartupRouteContext.SOLO)).contains("/pixiv-gallery.html");
@@ -45,7 +45,7 @@ class StartupRouteRegistryTest {
     @Test
     @DisplayName("注册再注销下载工作台后默认落点自动落到其他已启用插件（画廊）")
     void fallsBackToGalleryWhenDownloadWorkbenchUnregistered() {
-        StartupRouteRegistry registry = StartupRouteRegistry.forBuiltInPlugins();
+        StartupRouteRegistry registry = registryWithGallery();
         registry.register("download-workbench",
                 List.of(new StartupRouteContribution("download-workbench", "/pixiv-batch.html", 10,
                         java.util.Set.of(StartupRouteContext.MULTI))));
@@ -122,5 +122,12 @@ class StartupRouteRegistryTest {
         // 空来源列表
         assertThatThrownBy(() -> registry.register("download-workbench", List.of()))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    private static StartupRouteRegistry registryWithGallery() {
+        java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins =
+                new java.util.ArrayList<>(BuiltInPlugins.createAll());
+        plugins.add(new TestGalleryPlugin());
+        return new StartupRouteRegistry(new PluginRegistry(plugins));
     }
 }

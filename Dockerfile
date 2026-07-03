@@ -6,7 +6,7 @@
 # The image consumes a signed distribution directory. Do not copy Maven target plugin
 # jars here: required plugins must include .sha256, .sig, provenance, and manifest
 # sidecars so PluginRuntimeManager can verify them before PF4J loads them.
-# Optional plugins, including duplicate in full-offline distributions, are copied
+# Optional plugins, including gallery and duplicate in full-offline distributions, are copied
 # with plugins/ as-is; only required download-workbench is enforced below.
 FROM eclipse-temurin:17-jre
 

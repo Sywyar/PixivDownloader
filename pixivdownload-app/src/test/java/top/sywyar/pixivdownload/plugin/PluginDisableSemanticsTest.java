@@ -32,11 +32,11 @@ class PluginDisableSemanticsTest {
             off.setEnabled(false);
             toggles.put(id, off);
         }
-        return new PluginRegistry(BuiltInPlugins.createAll(), toggles);
+        return new PluginRegistry(withGallery(BuiltInPlugins.createAll()), toggles);
     }
 
     private static PluginRegistry allEnabled() {
-        return new PluginRegistry(BuiltInPlugins.createAll());
+        return new PluginRegistry(withGallery(BuiltInPlugins.createAll()));
     }
 
     private static List<String> routeOwners(PluginRegistry registry) {
@@ -217,5 +217,11 @@ class PluginDisableSemanticsTest {
     @DisplayName("core 始终贡献监控 / 邀请码管理基础入口（不可禁用）")
     void coreAlwaysContributesBaseNavigation() {
         assertThat(navIds(allEnabled())).contains("monitor", "invite-manage");
+    }
+
+    private static List<PixivFeaturePlugin> withGallery(List<PixivFeaturePlugin> plugins) {
+        java.util.ArrayList<PixivFeaturePlugin> out = new java.util.ArrayList<>(plugins);
+        out.add(new TestGalleryPlugin());
+        return out;
     }
 }

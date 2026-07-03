@@ -33,11 +33,19 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 class RouteAccessMirrorTest {
 
     private static final RouteAccessRegistry REGISTRY =
-            new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+            new RouteAccessRegistry(new PluginRegistry(withGallery(BuiltInPlugins.createAll())));
 
     /** AuthFilter 派生口径：monitor 受保护 ← ADMIN 或 INVITED_GUEST。 */
     private static boolean isMonitorPolicy(AccessPolicy policy) {
         return policy == AccessPolicy.ADMIN || policy == AccessPolicy.INVITED_GUEST;
+    }
+
+    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> withGallery(
+            List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins) {
+        java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> out =
+                new java.util.ArrayList<>(plugins);
+        out.add(new TestGalleryPlugin());
+        return out;
     }
 
     /** AuthFilter 派生口径：访客邀请白名单 ← INVITED_GUEST 或 VISITOR_AND_INVITED_GUEST。 */

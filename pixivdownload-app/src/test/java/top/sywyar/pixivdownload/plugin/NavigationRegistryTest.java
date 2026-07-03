@@ -27,9 +27,9 @@ class NavigationRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置插件导航项（主入口 + 类型切换 + 统计页画廊视图 + 图标）")
+    @DisplayName("gallery 已安装时从 PluginRegistry 收集导航项（主入口 + 类型切换 + 统计页画廊视图 + 图标）")
     void collectsNavigationFromBuiltInPlugins() {
-        NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(builtInWithGallery()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
         // 监控 / 邀请码管理 / 插件管理 / 插件市场（基础 + 管理）+ 画廊主入口及其类型切换 / 统计页视图三链
         // + 小说主入口及其类型切换。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 与 duplicate 已外置，
@@ -266,5 +266,12 @@ class NavigationRegistryTest {
         assertThatThrownBy(() -> navigation.add(
                 new NavigationRegistry.RegisteredNavigation("x", nav("x"))))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> builtInWithGallery() {
+        java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins =
+                new java.util.ArrayList<>(BuiltInPlugins.createAll());
+        plugins.add(new TestGalleryPlugin());
+        return plugins;
     }
 }

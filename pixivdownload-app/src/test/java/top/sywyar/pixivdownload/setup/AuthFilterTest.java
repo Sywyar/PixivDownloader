@@ -23,6 +23,12 @@ import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.TestGalleryPlugin;
+import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 
 import java.util.Optional;
 import java.util.Set;
@@ -69,6 +75,15 @@ class AuthFilterTest {
         lenient().when(appMessages.getForLog(anyString(), any(), any())).thenReturn("rate limited");
         lenient().when(maintenanceProvider.getIfAvailable()).thenReturn(null);
         lenient().when(guestInviteService.resolveByCode(any())).thenReturn(Optional.empty());
+    }
+
+    private AuthFilter authFilterWithGallery() {
+        var plugins = new java.util.ArrayList<>(BuiltInPlugins.createAll());
+        plugins.add(new TestGalleryPlugin());
+        PluginRegistry registry = new PluginRegistry(plugins);
+        return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
+                localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider,
+                new RouteAccessRegistry(registry), new StartupRouteRegistry(registry), new LandingRegistry(registry));
     }
 
     // ========== 静态资源 IP 限流 ==========
@@ -147,6 +162,7 @@ class AuthFilterTest {
         @Test
         @DisplayName("邀请访客页面静态资源应按邀请码限流（而非客户端 IP）")
         void shouldCheckStaticResourceRateLimitForInviteGuestStaticResource() throws Exception {
+            authFilter = authFilterWithGallery();
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
@@ -522,6 +538,7 @@ class AuthFilterTest {
         })
         @DisplayName("画廊/收藏夹 API 应按 monitor 权限保护，本地无 session 也应 401")
         void shouldRequireLoginForGalleryAndCollectionApi(String path) throws Exception {
+            authFilter = authFilterWithGallery();
             request.setMethod("GET");
             request.setRequestURI(path);
             request.setRemoteAddr("127.0.0.1");
@@ -543,6 +560,7 @@ class AuthFilterTest {
         })
         @DisplayName("画廊/作品详情页应按 monitor 权限保护，未登录时重定向到 /login.html")
         void shouldRedirectGalleryPagesToLoginWhenNotLoggedIn(String path) throws Exception {
+            authFilter = authFilterWithGallery();
             request.setMethod("GET");
             request.setRequestURI(path);
             request.setRemoteAddr("127.0.0.1");
@@ -556,6 +574,7 @@ class AuthFilterTest {
         @Test
         @DisplayName("璁垮閭€璇蜂細璇濆簲鑳藉姞杞界敾寤婇〉鎷嗗垎璧勬簮")
         void shouldAllowGuestInviteToLoadGallerySplitResource() throws Exception {
+            authFilter = authFilterWithGallery();
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
@@ -1132,7 +1151,7 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("core-only multi 模式下应回退重定向到 pixiv-gallery.html")
+        @DisplayName("core-only multi 模式下无启动落点时回退到 login.html")
         void shouldRedirectToGalleryWhenNotInIntroModeAndDownloadWorkbenchAbsent() throws Exception {
             when(setupService.isIntroMode()).thenReturn(false);
             when(setupService.getMode()).thenReturn("multi");
@@ -1143,11 +1162,11 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-gallery.html");
+            assertThat(response.getRedirectedUrl()).isEqualTo("/login.html");
         }
 
         @Test
-        @DisplayName("core-only multi 模式无 canvas 参数也应回退重定向到 pixiv-gallery.html")
+        @DisplayName("core-only multi 模式无 canvas 参数也回退到 login.html")
         void shouldRedirectToGalleryWithoutCanvasParamAndDownloadWorkbenchAbsent() throws Exception {
             when(setupService.isIntroMode()).thenReturn(false);
             when(setupService.getMode()).thenReturn("multi");
@@ -1157,12 +1176,13 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-gallery.html");
+            assertThat(response.getRedirectedUrl()).isEqualTo("/login.html");
         }
 
         @Test
-        @DisplayName("solo 模式下应重定向到 pixiv-gallery.html")
+        @DisplayName("gallery 插件启用的 solo 模式下应重定向到 pixiv-gallery.html")
         void shouldRedirectToGalleryInSoloMode() throws Exception {
+            authFilter = authFilterWithGallery();
             when(setupService.isIntroMode()).thenReturn(false);
             when(setupService.getMode()).thenReturn("solo");
 

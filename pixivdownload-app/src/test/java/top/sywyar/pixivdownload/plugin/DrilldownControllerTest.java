@@ -44,7 +44,7 @@ class DrilldownControllerTest {
     }
 
     private static DrilldownRegistry builtIn() {
-        return new DrilldownRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        return new DrilldownRegistry(new PluginRegistry(withGallery(BuiltInPlugins.createAll())));
     }
 
     private static DrilldownRegistry disabling(String... ids) {
@@ -54,7 +54,7 @@ class DrilldownControllerTest {
             off.setEnabled(false);
             toggles.put(id, off);
         }
-        return new DrilldownRegistry(new PluginRegistry(BuiltInPlugins.createAll(), toggles));
+        return new DrilldownRegistry(new PluginRegistry(withGallery(BuiltInPlugins.createAll()), toggles));
     }
 
     private static DrilldownRegistry emptyRegistry() {
@@ -146,17 +146,17 @@ class DrilldownControllerTest {
     }
 
     @Test
-    @DisplayName("排序：来源层级（内置先于第三方）→ placement 内 priority → id")
+    @DisplayName("排序：来源层级（内置先于外置）→ placement 内 priority → id")
     void ordering() {
         DrilldownRegistry registry = emptyRegistry();
-        // 同一 placement 下：内置插件 gallery（priority 故意填很大 99）+ 第三方插件多条（priority 1/5/5）。
-        registry.register("gallery", List.of(
-                new DrilldownContribution("gallery", "g-builtin", "X", "/g", AccessPolicy.PUBLIC, 99)));
+        // 同一 placement 下：内置插件 core（priority 故意填很大 99）+ 外置插件多条（priority 1/5/5）。
+        registry.register("core", List.of(
+                new DrilldownContribution("core", "g-builtin", "X", "/g", AccessPolicy.PUBLIC, 99)));
         registry.register("third", List.of(
                 new DrilldownContribution("third", "z-prio1", "X", "/z", AccessPolicy.PUBLIC, 1),
                 new DrilldownContribution("third", "a-prio5", "X", "/a", AccessPolicy.PUBLIC, 5),
                 new DrilldownContribution("third", "b-prio5", "X", "/b", AccessPolicy.PUBLIC, 5)));
-        // 内置（rank 0）恒先于第三方（rank 1），即便其 priority(99) 远大于第三方；第三方内按 priority 升序、
+        // 内置（rank 0）恒先于外置（rank 1），即便其 priority(99) 远大于外置；外置内按 priority 升序、
         // 同 priority 按 id 升序：g-builtin → z-prio1 → a-prio5 → b-prio5。
         assertThat(ids(controllerFor(registry), adminRequest(), "X"))
                 .containsExactly("g-builtin", "z-prio1", "a-prio5", "b-prio5");
@@ -221,5 +221,13 @@ class DrilldownControllerTest {
                 new DrilldownContribution("other", "d", "host.a", "/a", AccessPolicy.ADMIN, 1))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("pluginId mismatch");
+    }
+
+    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> withGallery(
+            List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins) {
+        java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> out =
+                new java.util.ArrayList<>(plugins);
+        out.add(new TestGalleryPlugin());
+        return out;
     }
 }

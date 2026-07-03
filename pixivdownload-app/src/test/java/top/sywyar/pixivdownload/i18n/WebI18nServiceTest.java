@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.TestGalleryPlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
@@ -38,11 +39,21 @@ class WebI18nServiceTest {
     }
 
     @Test
-    @DisplayName("功能插件 namespace gallery 同样解析到真实 properties（页面跟插件走后行为不变）")
-    void loadsFeaturePluginNamespace() {
-        I18nBundleResponse response = service.loadBundle("gallery", Locale.SIMPLIFIED_CHINESE);
+    @DisplayName("gallery 不再由 app 内置 registry 提供，缺席时 namespace 不可解析")
+    void galleryNamespaceAbsentFromBuiltInRegistry() {
+        assertThatThrownBy(() -> service.loadBundle("gallery", Locale.SIMPLIFIED_CHINESE))
+                .isInstanceOf(LocalizedException.class);
+    }
+
+    @Test
+    @DisplayName("gallery 作为外置插件贡献 namespace 时经声明方 ClassLoader 解析")
+    void loadsGalleryNamespaceFromExternalContribution() {
+        WebI18nService galleryService = new WebI18nService(
+                new WebI18nBundleRegistry(new PluginRegistry(List.of(new TestGalleryPlugin()))));
+
+        I18nBundleResponse response = galleryService.loadBundle("gallery", Locale.SIMPLIFIED_CHINESE);
         assertThat(response.getNamespace()).isEqualTo("gallery");
-        assertThat(response.getMessages()).isNotEmpty();
+        assertThat(response.getMessages()).containsEntry("gui.action.open", "本地画廊");
     }
 
     @Test

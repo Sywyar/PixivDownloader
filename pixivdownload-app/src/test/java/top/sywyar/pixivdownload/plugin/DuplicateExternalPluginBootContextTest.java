@@ -124,11 +124,11 @@ class DuplicateExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("双来源 PluginRegistry Bean：四内置 + 外置 duplicate，duplicate 来源 EXTERNAL")
+    @DisplayName("双来源 PluginRegistry Bean：三内置 + 外置 duplicate，duplicate 来源 EXTERNAL")
     void pluginRegistryBeanContainsDuplicateAsExternal() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder(
-                        "core", "gallery", "novel", "plugin-market", "duplicate");
+                        "core", "novel", "plugin-market", "duplicate");
         assertThat(pluginRegistry.source("duplicate")).contains(PluginSource.EXTERNAL);
         assertThat(externalDuplicateClassLoader()).isNotSameAs(getClass().getClassLoader());
     }

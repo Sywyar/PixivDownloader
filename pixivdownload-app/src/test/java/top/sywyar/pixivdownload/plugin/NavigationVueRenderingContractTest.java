@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,6 +33,12 @@ class NavigationVueRenderingContractTest {
     private static final String STATIC_ROOT = "static/";
     private static final String NAV_MODULE = "js/pixiv-navigation.js";
     private static final String VUE_HELPER = "js/pixiv-vue.js";
+    private static final List<Path> STATIC_SOURCE_ROOTS = List.of(
+            Path.of("src/main/resources/static"),
+            Path.of("pixivdownload-app/src/main/resources/static"),
+            Path.of("../pixivdownload-app/src/main/resources/static"),
+            Path.of("pixivdownload-plugin-gallery/src/main/resources/static"),
+            Path.of("../pixivdownload-plugin-gallery/src/main/resources/static"));
 
     /** 加载导航渲染器、需经 Vue 主路径渲染其 nav slot 的 app 模块宿主页。 */
     private static final List<String> NAV_PAGES = List.of(
@@ -38,6 +46,12 @@ class NavigationVueRenderingContractTest {
             "pixiv-novel-gallery.html", "pixiv-series.html");
 
     private static String read(String resource) throws IOException {
+        for (Path root : STATIC_SOURCE_ROOTS) {
+            Path file = root.resolve(resource);
+            if (Files.isRegularFile(file)) {
+                return Files.readString(file, StandardCharsets.UTF_8);
+            }
+        }
         String path = STATIC_ROOT + resource;
         try (InputStream in = NavigationVueRenderingContractTest.class.getClassLoader().getResourceAsStream(path)) {
             if (in == null) {

@@ -7,7 +7,9 @@ import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 页面不得再用 include/exclude/requires 过滤 id，也不得硬编码其它插件的入口 href（否则禁用对应插件后
  * 前端残留点开即 404 的坏入口）。
  * <p>
- * 经 classpath 扫描 app boot jar 内置页面资源（download-workbench / duplicate 页面已外置，其页面守卫随插件模块测试）：
+ * 扫描 app 公共资源与 gallery 外置插件页面资源（download-workbench / duplicate 页面已外置，其页面守卫随插件模块测试）：
  * <ul>
  *   <li>每个已适配页面声明其预期 placement slot（{@code data-nav-slot="<placement>"}）；</li>
  *   <li>已适配页面不再使用 {@code data-nav-include} / {@code data-nav-exclude} / {@code data-nav-requires}；</li>
@@ -39,8 +41,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("前端导航静态守卫：已适配页面只声明空 slot、不硬编码跨插件入口")
 class NavigationMarkupGuardTest {
 
-    /** 已适配页面所在的 classpath 资源前缀（各模块 {@code src/main/resources/static} 在运行期合并于此）。 */
+    /** 已适配页面所在的 classpath 资源前缀（app 公共资源仍从 test runtime classpath 读取）。 */
     private static final String STATIC_CLASSPATH_ROOT = "static/";
+    private static final List<Path> STATIC_SOURCE_ROOTS = List.of(
+            Path.of("src/main/resources/static"),
+            Path.of("pixivdownload-app/src/main/resources/static"),
+            Path.of("../pixivdownload-app/src/main/resources/static"),
+            Path.of("pixivdownload-plugin-gallery/src/main/resources/static"),
+            Path.of("../pixivdownload-plugin-gallery/src/main/resources/static"));
 
     /** 已接入动态导航 slot 的页面 → 其预期声明的 placement slot。 */
     private static final Map<String, List<String>> EXPECTED_SLOTS = Map.of(
@@ -80,6 +88,12 @@ class NavigationMarkupGuardTest {
     private static final Pattern NAV_SLOT = Pattern.compile("data-nav-slot=\"([^\"]+)\"");
 
     private static String read(String page) throws IOException {
+        for (Path root : STATIC_SOURCE_ROOTS) {
+            Path file = root.resolve(page);
+            if (Files.isRegularFile(file)) {
+                return Files.readString(file, StandardCharsets.UTF_8);
+            }
+        }
         String resource = STATIC_CLASSPATH_ROOT + page;
         try (InputStream in = NavigationMarkupGuardTest.class.getClassLoader().getResourceAsStream(resource)) {
             if (in == null) {

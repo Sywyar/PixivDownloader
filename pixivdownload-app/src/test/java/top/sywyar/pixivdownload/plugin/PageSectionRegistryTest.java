@@ -32,9 +32,9 @@ class PageSectionRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集内置区块（画廊向统计页贡献的视图 / 收藏夹两条，均归 gallery 插件）")
+    @DisplayName("gallery 已安装时收集区块（画廊向统计页贡献的视图 / 收藏夹两条，均归 gallery 插件）")
     void collectsSectionsFromBuiltInPlugins() {
-        PageSectionRegistry registry = new PageSectionRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        PageSectionRegistry registry = new PageSectionRegistry(new PluginRegistry(builtInWithGallery()));
         assertThat(registry.sections())
                 .extracting(registered -> registered.section().id())
                 .containsExactlyInAnyOrder("gallery-stats-views", "gallery-stats-collections");
@@ -133,5 +133,12 @@ class PageSectionRegistryTest {
         assertThatThrownBy(() -> snapshot.add(
                 new PageSectionRegistry.RegisteredSection("x", section("x"))))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> builtInWithGallery() {
+        java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins =
+                new java.util.ArrayList<>(BuiltInPlugins.createAll());
+        plugins.add(new TestGalleryPlugin());
+        return plugins;
     }
 }

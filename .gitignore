@@ -68,3 +68,5 @@ build/
 /plugins/
 /pixivdownload-plugin-download-workbench/log/
 /pixivdownload-plugin-tts/log/
+/pixivdownload-plugin-gallery/log/
+/pixivdownload-plugin-duplicate/log/

@@ -56,6 +56,8 @@
         <module>pixivdownload-plugin-download-workbench</module>
         <!-- 官方可选疑似重复检测外置插件。核心 Hash 写入与 schema 留 app，本模块只承载页面/API/扫描/回填入口。 -->
         <module>pixivdownload-plugin-duplicate</module>
+        <!-- 官方可选本地画廊外置插件。核心下载事实 / 元数据 / 资产能力留 app，本模块只承载展示层。 -->
+        <module>pixivdownload-plugin-gallery</module>
     </modules>
     <scm>
         <connection/>

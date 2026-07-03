@@ -32,6 +32,9 @@ class PluginStatusServiceTest {
     void reportReflectsBuiltInExternalAndFailures() {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {
         };
+        PluginInstallation gallery = new PluginInstallation(
+                external("gallery", "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR)),
+                PluginStatus.STARTED, extCl, new TestPlugin("gallery"));
         PluginInstallation compatible = new PluginInstallation(
                 external("ext-foo", "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR)),
                 PluginStatus.STARTED, extCl, new TestPlugin("ext-foo"));
@@ -39,7 +42,7 @@ class PluginStatusServiceTest {
                 external("ext-bad", "1.0.0", PluginApiRequirement.of(PluginApiVersion.MAJOR + 1, 0)),
                 PluginStatus.INCOMPATIBLE, extCl, null);
         PluginInventory inventory = new PluginInventory(
-                List.of(compatible, incompatible),
+                List.of(gallery, compatible, incompatible),
                 List.of(new PluginLoadFailure("broken-pack.jar", "not a valid plugin jar")));
 
         // 注册中心从清点投影出的发现结果接入（与生产装配同路径）：ext-foo 接入、ext-bad 被拒
@@ -47,9 +50,7 @@ class PluginStatusServiceTest {
         PluginToggleProperties.PluginToggle galleryOff = new PluginToggleProperties.PluginToggle();
         galleryOff.setEnabled(false);
         toggles.put("gallery", galleryOff);
-        PluginRegistry registry = new PluginRegistry(
-                List.of(new TestPlugin("gallery")),
-                toggles, inventory.toDiscoveryResult());
+        PluginRegistry registry = new PluginRegistry(List.of(), toggles, inventory.toDiscoveryResult());
 
         PluginStatusReport report = new PluginStatusService(registry, inventory, RequiredPluginPolicy.empty()).report();
 

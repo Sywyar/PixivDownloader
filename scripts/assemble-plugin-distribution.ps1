@@ -150,6 +150,7 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/gallery/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
@@ -180,6 +181,10 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/top/sywyar/pixivdownload/ai/probe/",
         "BOOT-INF/classes/static/pixiv-stats",
         "BOOT-INF/classes/static/pixiv-duplicates",
+        "BOOT-INF/classes/static/pixiv-gallery",
+        "BOOT-INF/classes/static/pixiv-artwork",
+        "BOOT-INF/classes/static/pixiv-showcase",
+        "BOOT-INF/classes/static/pixiv-series",
         "BOOT-INF/classes/static/pixiv-batch.html",
         "BOOT-INF/classes/static/pixiv-batch",
         "BOOT-INF/classes/static/userscripts/",
@@ -187,6 +192,10 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/static/pixiv-ai",
         "BOOT-INF/classes/i18n/web/stats",
         "BOOT-INF/classes/i18n/web/duplicates",
+        "BOOT-INF/classes/i18n/web/gallery",
+        "BOOT-INF/classes/i18n/web/artwork",
+        "BOOT-INF/classes/i18n/web/showcase",
+        "BOOT-INF/classes/i18n/web/series",
         "BOOT-INF/classes/i18n/web/batch",
         "BOOT-INF/classes/i18n/web/userscript",
         "BOOT-INF/classes/i18n/web/gui-theme",
@@ -208,7 +217,7 @@ function Assert-BootJarBoundary {
         "BOOT-INF/lib/spring-context-support-"
     )
     foreach ($prefix in $forbidden) {
-        $leaked = $entries | Where-Object { $_.StartsWith($prefix) }
+        $leaked = $entries | Where-Object { $_.StartsWith($prefix) -and -not $_.EndsWith("/") }
         if ($leaked) {
             throw "Boot jar boundary violated - contains '$prefix' entries: $JarPath"
         }

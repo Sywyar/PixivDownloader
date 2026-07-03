@@ -8,7 +8,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.gallery.GalleryController;
 import top.sywyar.pixivdownload.novel.NovelBatchService;
 import top.sywyar.pixivdownload.novel.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
@@ -28,8 +27,8 @@ import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 /**
  * 禁用语义（真实 Spring 上下文）：{@code plugins.novel.enabled=false} 时，小说插件托管业务 Bean 缺席、
- * 小说作品类型执行器缺席、小说贡献不注册，但插件 descriptor 仍在安装集合、受管 schema 不变，且其它插件
- * （含核心下载链路 Hash 写入）不受影响。
+ * 小说作品类型执行器缺席、小说贡献不注册，但插件 descriptor 仍在安装集合、受管 schema 不变，且其它内置插件
+ * 与核心下载链路 Hash 写入不受影响。
  */
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -108,9 +107,11 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("禁用 novel 不影响其它插件：画廊 Bean 在场，核心 Hash 写入接缝在场")
+    @DisplayName("禁用 novel 不影响其它插件：非 novel 内置插件活动，核心 Hash 写入接缝在场")
     void otherPluginsUnaffected() {
-        assertThat(context.getBeanNamesForType(GalleryController.class)).hasSize(1);
+        assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
+                .contains("core", "plugin-market")
+                .doesNotContain("novel");
         assertThat(context.getBeanNamesForType(ArtworkHashService.class)).hasSize(1);
     }
 

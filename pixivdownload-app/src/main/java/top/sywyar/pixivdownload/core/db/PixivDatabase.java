@@ -260,7 +260,7 @@ public class PixivDatabase {
      * 删除作品及其全部直接关联的 DB 留存数据：感知哈希（{@code artwork_image_hashes}）、
      * 标签关联（{@code artwork_tags}）、收藏夹关联（{@code artwork_collections}），最后删主行。
      * 共享池（{@code tags} / {@code authors} / {@code collections} / {@code manga_series}）与聚合
-     * 统计（{@code statistics}）按设计不在此清理。磁盘文件由调用方（如 {@code GalleryService}）负责删除。
+     * 统计（{@code statistics}）按设计不在此清理。磁盘文件由调用方负责删除。
      */
     public void deleteArtwork(long artworkId) {
         pixivMapper.deleteImageHashesByArtwork(artworkId);

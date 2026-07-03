@@ -39,7 +39,7 @@ class PageSectionControllerTest {
     }
 
     private static PageSectionRegistry builtIn() {
-        return new PageSectionRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        return new PageSectionRegistry(new PluginRegistry(builtInWithGallery()));
     }
 
     private static PageSectionRegistry disabling(String... ids) {
@@ -49,7 +49,7 @@ class PageSectionControllerTest {
             off.setEnabled(false);
             toggles.put(id, off);
         }
-        return new PageSectionRegistry(new PluginRegistry(BuiltInPlugins.createAll(), toggles));
+        return new PageSectionRegistry(new PluginRegistry(builtInWithGallery(), toggles));
     }
 
     private MockHttpServletRequest adminRequest() {
@@ -174,5 +174,12 @@ class PageSectionControllerTest {
                 .doesNotThrowAnyException();
         assertThatCode(() -> emptyRegistry().register("p", List.of(sectionWith(null, null))))
                 .doesNotThrowAnyException();
+    }
+
+    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> builtInWithGallery() {
+        java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins =
+                new java.util.ArrayList<>(BuiltInPlugins.createAll());
+        plugins.add(new TestGalleryPlugin());
+        return plugins;
     }
 }
