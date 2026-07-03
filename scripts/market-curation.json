@@ -36,6 +36,18 @@
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
   },
+  "duplicate": {
+    "description": { "zh": "基于核心图片 Hash 索引查找疑似重复作品，提供管理员专属分组页面、手动扫描与维护回填入口。", "en": "Finds likely duplicate artworks from the core image hash index, with an admin-only grouping page, manual scan, and maintenance backfill entry." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "utility",
+    "tags": ["duplicate", "hash", "image"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "recommended": true,
+    "officialRequired": false,
+    "changeNotes": ["首个外置版本"]
+  },
   "notification": {
     "description": { "zh": "提供通知场景开关和中性通知级别文案，不发送邮件或推送；邮件与推送插件依赖它共享通知语义。", "en": "Provides notification scenario toggles and neutral severity labels without sending mail or push messages; mail and push plugins depend on it for shared notification semantics." },
     "author": "Sywyar",

@@ -33,7 +33,7 @@ class StaticResourceRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置插件静态资源（核心公共库 + 三 web 功能插件页面目录 + 插件市场；download-workbench/stats 已外置）")
+    @DisplayName("构造时从 PluginRegistry 收集全部内置插件静态资源（核心公共库 + gallery/novel 页面目录 + 插件市场；download-workbench/stats/duplicate 已外置）")
     void collectsFromBuiltInPlugins() {
         StaticResourceRegistry registry =
                 new StaticResourceRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
@@ -43,7 +43,7 @@ class StaticResourceRegistryTest {
                         "/js/", "/css/", "/vendor/",
                         "/pixiv-gallery/", "/pixiv-artwork/", "/pixiv-showcase/", "/pixiv-series/",
                         "/pixiv-novel-gallery/", "/pixiv-novel/", "/pixiv-novel-download/",
-                        "/pixiv-duplicates/", "/plugin-market/");
+                        "/plugin-market/");
         assertThat(registry.resources())
                 .filteredOn(registered -> registered.contribution().publicPathPrefix().equals("/js/"))
                 .singleElement()

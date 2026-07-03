@@ -35,7 +35,7 @@ class NavigationVueRenderingContractTest {
     /** 加载导航渲染器、需经 Vue 主路径渲染其 nav slot 的 app 模块宿主页。 */
     private static final List<String> NAV_PAGES = List.of(
             "monitor.html", "pixiv-gallery.html",
-            "pixiv-novel-gallery.html", "pixiv-series.html", "pixiv-duplicates.html");
+            "pixiv-novel-gallery.html", "pixiv-series.html");
 
     private static String read(String resource) throws IOException {
         String path = STATIC_ROOT + resource;

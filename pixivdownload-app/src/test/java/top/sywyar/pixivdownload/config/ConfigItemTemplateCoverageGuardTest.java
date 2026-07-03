@@ -58,7 +58,7 @@ class ConfigItemTemplateCoverageGuardTest {
      * 插件启停键仍写入模板并由启动 / Web 插件前端消费，但桌面 GUI 配置页不呈现这些开关。
      */
     private static final Set<String> OFFICIAL_EXTERNAL_PLUGIN_TOGGLE_KEYS = Set.of(
-            "plugins.stats.enabled", "plugins.gui-theme.enabled");
+            "plugins.duplicate.enabled", "plugins.stats.enabled", "plugins.gui-theme.enabled");
 
     /**
      * App 侧仅保留调用门面 / 运行期选择状态，模板与 GUI 字段由外置官方插件贡献的前缀。

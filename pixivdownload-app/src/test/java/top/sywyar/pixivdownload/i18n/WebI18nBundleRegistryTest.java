@@ -26,7 +26,7 @@ class WebI18nBundleRegistryTest {
     private static final ClassLoader LOADER = WebI18nBundleRegistryTest.class.getClassLoader();
 
     /**
-     * namespace → baseName 基线：内置共 17 条（download-workbench/stats/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
+     * namespace → baseName 基线：内置共 16 条（download-workbench/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
      * 保证「所有页面 i18n 行为不变」。新增 namespace 时同步本基线。
      */
     private static final Map<String, String> LEGACY_NAMESPACE_BASENAMES = legacyBaseNames();
@@ -38,7 +38,6 @@ class WebI18nBundleRegistryTest {
         map.put("login", "i18n.web.login");
         map.put("intro", "i18n.web.intro");
         map.put("gallery", "i18n.web.gallery");
-        map.put("duplicates", "i18n.web.duplicates");
         map.put("artwork", "i18n.web.artwork");
         map.put("showcase", "i18n.web.showcase");
         map.put("series", "i18n.web.series");
@@ -66,7 +65,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（17 条；download-workbench/stats/translate 已外置）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（16 条；download-workbench/stats/duplicate/translate 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 
@@ -92,7 +91,6 @@ class WebI18nBundleRegistryTest {
         assertThat(ownerOf(registry, "artwork")).isEqualTo("gallery");
         assertThat(ownerOf(registry, "novel")).isEqualTo("novel");
         assertThat(ownerOf(registry, "narration")).isEqualTo("novel");
-        assertThat(ownerOf(registry, "duplicates")).isEqualTo("duplicate");
     }
 
     @Test
@@ -235,6 +233,23 @@ class WebI18nBundleRegistryTest {
 
         assertThat(ownerOf(registry, "batch")).isEqualTo("download-workbench");
         assertThat(ownerOf(registry, "userscript")).isEqualTo("download-workbench");
+    }
+
+    @Test
+    @DisplayName("duplicates namespace 可由外置 duplicate 插件注册，不属于内置快照")
+    void duplicateNamespaceCanBeProvidedByExternalPlugin() {
+        WebI18nBundleRegistry registry = builtInRegistry();
+        assertThat(registry.resolve("duplicates")).isNull();
+
+        registry.register("duplicate", LOADER,
+                List.of(new I18nContribution("duplicates", "i18n.web.duplicates")));
+
+        assertThat(registry.resolve("duplicates"))
+                .isNotNull()
+                .satisfies(bundle -> {
+                    assertThat(bundle.pluginId()).isEqualTo("duplicate");
+                    assertThat(bundle.contribution().baseName()).isEqualTo("i18n.web.duplicates");
+                });
     }
 
     @Test

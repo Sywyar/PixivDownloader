@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.duplicate;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
 import top.sywyar.pixivdownload.core.hash.ImageHashRow;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.util.List;
 
@@ -17,8 +18,15 @@ import static org.mockito.Mockito.when;
 class DuplicateServiceTest {
 
     private final ImageHashMapper imageHashMapper = mock(ImageHashMapper.class);
-    private final DuplicateService duplicateService =
-            new DuplicateService(imageHashMapper, TestI18nBeans.appMessages());
+    private final AppMessages messages = mock(AppMessages.class);
+    private final DuplicateService duplicateService = new DuplicateService(imageHashMapper, messages);
+
+    @BeforeEach
+    void setUpMessages() {
+        when(messages.get("duplicate.error.threshold.invalid", 32)).thenReturn("dHash threshold must be 0-32");
+        when(messages.get("duplicate.error.ahash-threshold.invalid", 32)).thenReturn("aHash threshold must be 0-32");
+        when(messages.get("duplicate.error.scope.invalid")).thenReturn("invalid scope");
+    }
 
     @Test
     @DisplayName("跨作品范围应聚合同一相似簇内的不同作品")

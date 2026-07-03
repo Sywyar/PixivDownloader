@@ -32,8 +32,8 @@ class NavigationRegistryTest {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
         // 监控 / 邀请码管理 / 插件管理 / 插件市场（基础 + 管理）+ 画廊主入口及其类型切换 / 统计页视图三链
-        // + 小说主入口及其类型切换 + 疑似重复。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 已外置，
-        // download-workbench / stats 导航项经外置插件 contribution 注册、不在内置清单。
+        // + 小说主入口及其类型切换。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 与 duplicate 已外置，
+        // download-workbench / stats / duplicate 导航项经外置插件 contribution 注册、不在内置清单。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
                 .containsExactlyInAnyOrder(
@@ -41,7 +41,7 @@ class NavigationRegistryTest {
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "gallery-gui-open", "gallery-invite-manage-back",
-                        "novel", "novel-type-switch", "duplicate");
+                        "novel", "novel-type-switch");
         // 画廊主入口归 gallery 插件、INVITED_GUEST 可见、进入顶部栏 + 中立主侧栏 + 画廊侧栏 + 疑似重复图标区四个 placement。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("gallery"))

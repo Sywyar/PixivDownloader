@@ -73,8 +73,9 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<StaticResourceContribution> staticResources() {
-        return List.of(new StaticResourceContribution(
-                ID, "classpath:/static/pixiv-duplicates/", "/pixiv-duplicates/"));
+        return List.of(
+                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-duplicates.html", true),
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-duplicates/", "/pixiv-duplicates/"));
     }
 
     @Override

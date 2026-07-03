@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 页面不得再用 include/exclude/requires 过滤 id，也不得硬编码其它插件的入口 href（否则禁用对应插件后
  * 前端残留点开即 404 的坏入口）。
  * <p>
- * 经 classpath 扫描 app boot jar 内置页面资源（download-workbench 页面已外置，其页面守卫随插件模块测试）：
+ * 经 classpath 扫描 app boot jar 内置页面资源（download-workbench / duplicate 页面已外置，其页面守卫随插件模块测试）：
  * <ul>
  *   <li>每个已适配页面声明其预期 placement slot（{@code data-nav-slot="<placement>"}）；</li>
  *   <li>已适配页面不再使用 {@code data-nav-include} / {@code data-nav-exclude} / {@code data-nav-requires}；</li>
@@ -29,8 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>类型切换的对方入口（画廊页的「小说」、小说页的「漫画」）必须是 slot、不得硬编码对方 href。</li>
  * </ul>
  * 同插件内的页面自有链接不在禁止之列：画廊 / 系列页指向画廊视图的链接（{@code /pixiv-gallery.html?view=...}）是
- * 画廊家族页面的内部入口。统计页（pixiv-stats.html）已随 stats 外置迁出本模块 classpath，其「只声明中立 slot、
- * 不含任何画廊插件知识」的页面守卫随静态资源一起迁到 stats 模块的 {@code StatsPageMarkupGuardTest}。
+ * 画廊家族页面的内部入口。统计页（pixiv-stats.html）与疑似重复页（pixiv-duplicates.html）已随对应插件外置，
+ * 其页面守卫随静态资源一起迁到对应插件模块。
  * <p>
  * 另含两条与「跨插件未知」前提配套的渲染器守卫：公共导航渲染器不得为内置插件 id 硬编码默认 query
  * （{@link #navigationRendererHasNoBuiltInDefaultQuery()}）；类型切换跨页交接必须走 PixivNav 渲染生命周期事件、
@@ -49,10 +49,7 @@ class NavigationMarkupGuardTest {
             "plugin-market.html", List.of(NavigationPlacements.APP_TOP),
             "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
             "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.NOVEL_TYPE_SWITCH),
-            "pixiv-series.html", List.of(NavigationPlacements.GALLERY_SIDEBAR),
-            // 统计页（pixiv-stats.html）已随 stats 外置迁出 app classpath，其页面守卫见 stats 模块的
-            // StatsPageMarkupGuardTest（仍校验统计页只声明中立 slot、不硬编码画廊知识）。
-            "pixiv-duplicates.html", List.of(NavigationPlacements.DUPLICATES_HEADER_ICONS));
+            "pixiv-series.html", List.of(NavigationPlacements.GALLERY_SIDEBAR));
 
     /** 全部已知 placement（HTML slot 值必须取自此集合，确保前端 slot 与后端 contribution 名一致）。 */
     private static final Set<String> KNOWN_PLACEMENTS = Set.of(
@@ -65,7 +62,7 @@ class NavigationMarkupGuardTest {
      * 每页禁止再硬编码的「其它插件」入口 href（这些一律由动态 slot 渲染）。按页面身份判定：顶部栏页面（monitor /
      * batch）禁止全部功能页 + 管理入口；画廊 / 小说页禁止对方画廊 href（类型切换已是 slot）与监控 / 统计 / 疑似重复 /
      * 邀请码管理；系列页同画廊家族（允许画廊自身 href）；统计页禁止全部跨插件入口（含画廊——其借用画廊的侧栏区块已改由
-     * {@code /api/page-sections} 贡献，统计页不再硬编码任何画廊 href）；疑似重复页禁止画廊 / 统计图标硬编码（已是 slot）。
+     * {@code /api/page-sections} 贡献，统计页不再硬编码任何画廊 href）；疑似重复页守卫随 duplicate 模块资源迁移。
      * 各页页面自有的画廊视图链接不在此列。
      */
     private static final Map<String, List<String>> FORBIDDEN_HREFS = Map.of(
@@ -78,9 +75,7 @@ class NavigationMarkupGuardTest {
             "pixiv-novel-gallery.html", List.of("/monitor.html", "/pixiv-gallery.html",
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
             "pixiv-series.html", List.of("/monitor.html", "/pixiv-novel-gallery.html",
-                    "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
-            "pixiv-duplicates.html", List.of("/pixiv-gallery.html", "/pixiv-stats.html",
-                    "/monitor.html", "/pixiv-novel-gallery.html", "/pixiv-invite-manage.html"));
+                    "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"));
 
     private static final Pattern NAV_SLOT = Pattern.compile("data-nav-slot=\"([^\"]+)\"");
 

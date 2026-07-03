@@ -3,17 +3,17 @@ param(
     [switch]$Check
 )
 
-# 把 scripts/shared/*.js 里的"共享片段"以正确的缩进同步进每个 .user.js 文件。
-# 每个目标脚本通过下列标记块声明它使用了哪段共享代码：
+# Sync shared snippets from scripts/shared/*.js into every .user.js file.
+# Each target script declares a shared block with these markers:
 #   // >>> SHARED:sse-manager.js
-#   ... 自动覆盖区 ...
+#   ... generated content ...
 #   // <<< SHARED:sse-manager.js
-# 共享文件本身只放原始内容（无 indent，无标记）。同步脚本会按目标文件中 ">>>" 行的
-# 缩进自动给共享内容加前缀，避免破坏外层 IIFE 的缩进。
+# Shared files contain raw content only, without indent or markers. This script
+# prefixes shared content with the indentation from the target marker line.
 #
-# 使用：
-#   ./scripts/sync-shared-snippets.ps1           # 把共享内容写回所有 .user.js
-#   ./scripts/sync-shared-snippets.ps1 -Check    # 若有漂移则以非零退出码失败（CI 用）
+# Usage:
+#   ./scripts/sync-shared-snippets.ps1           # write shared content back
+#   ./scripts/sync-shared-snippets.ps1 -Check    # fail if generated blocks drift
 
 $ErrorActionPreference = "Stop"
 

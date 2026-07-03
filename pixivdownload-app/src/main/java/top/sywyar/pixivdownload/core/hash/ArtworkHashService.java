@@ -19,8 +19,8 @@ import java.util.Optional;
  * {@code artwork_image_hashes}（schema 由核心 {@code ImageHashSchemaContribution} 声明）。本服务由根包扫描装配
  * （{@code @Service}），<b>不随任何 {@code plugins.<id>.enabled} 开关缺席</b>；疑似重复检测插件被禁用时，下载仍照常写 Hash。
  * <p>
- * 疑似重复 UI 的分组缓存按数据库 fingerprint（行数 + 最大 created_time）自失效（见
- * {@code DuplicateService}），故本核心写入服务<b>不依赖</b> duplicate 插件的任何 UI 服务、也不主动失效其缓存——
+ * 疑似重复 UI 的分组缓存由查询侧按数据库 fingerprint（行数 + 最大 created_time）自失效；故本核心写入服务<b>不依赖</b>
+ * duplicate 插件的任何 UI 服务、也不主动失效其缓存——
  * 写 Hash 改变了 fingerprint，下一次查询自然重建。重复检测的批量回填 / 手动重扫沿用本服务做计算（正向 plugin→core 依赖）。
  */
 @Slf4j

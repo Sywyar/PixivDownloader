@@ -145,7 +145,7 @@ class RouteAccessMirrorTest {
                 matchersForPolicies(Set.of(AccessPolicy.INVITED_GUEST, AccessPolicy.VISITOR_AND_INVITED_GUEST));
         Set<String> publicMatchers = matchersForPolicies(Set.of(AccessPolicy.PUBLIC));
         List<WebRouteContribution> adminOnly = byPolicy(AccessPolicy.ADMIN);
-        assertThat(adminOnly).as("应有 ADMIN 路由（duplicate/schedule/tts/监控页等）").isNotEmpty();
+        assertThat(adminOnly).as("应有 ADMIN 路由（插件管理 / 插件市场 / 监控页等）").isNotEmpty();
         adminOnly.forEach(route -> {
             assertThat(isMonitorPolicy(route.accessPolicy()))
                     .as("ADMIN 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
@@ -231,9 +231,11 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/download/pixiv/novel", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/download/novel/status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/pixiv-novel-download/**", "novel", AccessPolicy.VISITOR);
-        // 统计 stats 已外置：/api/stats/** 经外置插件 contribution 声明、不在内置快照（其 ADMIN 策略与
+        // 统计 stats 与 duplicate 已外置：经外置插件 contribution 声明、不在内置快照（其 ADMIN 策略与
         // classloader-aware 接入由外置加载的集成测试覆盖）。
-        assertOwnerPolicy("/api/duplicates/**", "duplicate", AccessPolicy.ADMIN);
+        assertRouteAbsent("/api/duplicates/**");
+        assertRouteAbsent("/pixiv-duplicates.html");
+        assertRouteAbsent("/pixiv-duplicates/**");
         // 插件市场：市场页 + 页面专属静态资源 + 后端市场 API，归 plugin-market 插件、ADMIN（admin-only，绝不入访客 / 公开）。
         assertOwnerPolicy("/plugin-market.html", "plugin-market", AccessPolicy.ADMIN);
         assertOwnerPolicy("/plugin-market/**", "plugin-market", AccessPolicy.ADMIN);
@@ -278,7 +280,7 @@ class RouteAccessMirrorTest {
         assertThat(REGISTRY.routes().stream()
                 .map(registered -> registered.route().pathPattern())
                 .toList())
-                .as("core-only 内置快照不应声明外置下载工作台路由 %s", pattern)
+                .as("core-only 内置快照不应声明外置插件路由 %s", pattern)
                 .doesNotContain(pattern);
     }
 }

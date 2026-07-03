@@ -11,7 +11,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $ProjectRoot "build\generated-userscripts"
 }
 
-# 先同步 scripts/shared 下的共享片段到所有标准 .user.js，保证 bundle 内联的版本是最新的。
+# Sync shared snippets into standard .user.js files before bundling.
 & (Join-Path $PSScriptRoot "sync-shared-snippets.ps1")
 
 $BundleFileName = "Pixiv All-in-One.user.js"
@@ -61,7 +61,7 @@ function Resolve-UserscriptSources {
             $resolved["import-batch"] = $file
             continue
         }
-        # "体验增强" — \u escapes keep the match independent of this script's source encoding.
+        # Enhancement group name uses \u escapes to stay source-encoding independent.
         if ($file.Name -match "\u4f53\u9a8c\u589e\u5f3a") {
             $resolved["experience"] = $file
             continue

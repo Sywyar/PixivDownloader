@@ -89,13 +89,13 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("禁用 gallery / duplicate：受管 schema 不变，其路由不再注册")
-    void disablingGalleryAndDuplicateKeepsSchemaIntact() {
-        PluginRegistry disabled = registryDisabling("gallery", "duplicate");
+    @DisplayName("禁用 gallery / novel：受管 schema 不变，其路由不再注册")
+    void disablingGalleryAndNovelKeepsSchemaIntact() {
+        PluginRegistry disabled = registryDisabling("gallery", "novel");
 
         assertThat(new DatabaseSchemaRegistry(disabled).mergedSchema().tables().keySet())
                 .isEqualTo(new DatabaseSchemaRegistry(allEnabled()).mergedSchema().tables().keySet());
-        assertThat(routeOwners(disabled)).doesNotContain("gallery", "duplicate");
+        assertThat(routeOwners(disabled)).doesNotContain("gallery", "novel");
     }
 
     private static List<String> navIds(PluginRegistry registry) {
@@ -110,7 +110,6 @@ class PluginDisableSemanticsTest {
         assertThat(navIds(registryDisabling("gallery")))
                 .doesNotContain("gallery", "gallery-gui-open", "gallery-invite-manage-back");
         assertThat(navIds(registryDisabling("novel"))).doesNotContain("novel");
-        assertThat(navIds(registryDisabling("duplicate"))).doesNotContain("duplicate");
     }
 
     @Test
@@ -191,15 +190,27 @@ class PluginDisableSemanticsTest {
     @DisplayName("禁用单个功能插件不影响其它插件导航（跨插件独立）")
     void disablingOnePluginKeepsOtherNavigation() {
         List<String> ids = navIds(registryDisabling("gallery"));
-        // 仅 gallery 入口消失；监控 / 小说 / 疑似重复 / 邀请码管理仍在（download-workbench/stats 已外置、不在内置导航）。
+        // 仅 gallery 入口消失；监控 / 小说 / 邀请码管理仍在（download-workbench/stats/duplicate 已外置、不在内置导航）。
         assertThat(ids).contains(
-                "monitor", "novel", "duplicate", "invite-manage");
+                "monitor", "novel", "invite-manage");
     }
 
     @Test
     @DisplayName("download-workbench 已外置：内置插件开关不会注册下载页导航")
     void downloadWorkbenchToggleDoesNotCreateBuiltInNavigation() {
         assertThat(navIds(registryDisabling("download-workbench"))).doesNotContain("download-workbench");
+    }
+
+    @Test
+    @DisplayName("duplicate 已外置：内置插件开关不会把它伪造成 built-in 活动插件")
+    void duplicateIsExternalToBuiltInSnapshot() {
+        PluginRegistry registry = registryDisabling("duplicate");
+
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).doesNotContain("duplicate");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("duplicate");
+        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("duplicate");
+        assertThat(routeOwners(registry)).doesNotContain("duplicate");
+        assertThat(navIds(registry)).doesNotContain("duplicate");
     }
 
     @Test

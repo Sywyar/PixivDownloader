@@ -54,6 +54,8 @@
         <module>pixivdownload-app</module>
         <!-- 官方必需下载工作台外置插件。app 不依赖本模块；默认发行包把该 jar 放入 plugins/ 由 PF4J 加载。 -->
         <module>pixivdownload-plugin-download-workbench</module>
+        <!-- 官方可选疑似重复检测外置插件。核心 Hash 写入与 schema 留 app，本模块只承载页面/API/扫描/回填入口。 -->
+        <module>pixivdownload-plugin-duplicate</module>
     </modules>
     <scm>
         <connection/>

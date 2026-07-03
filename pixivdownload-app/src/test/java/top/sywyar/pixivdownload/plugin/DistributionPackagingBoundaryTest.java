@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ol>
  *   <li><b>boot jar 不含外置插件类与资源</b>——经「运行期类路径不可加载」实证：app 模块测试运行期的类路径即 boot jar
  *       的 {@code BOOT-INF/classes} + {@code BOOT-INF/lib}（去掉 test 作用域），故外置插件 {@code download-workbench} /
- *       {@code stats} / {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言
+ *       {@code stats} / {@code duplicate} / {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言
  *       宿主 PF4J 运行时可加载、核心静态资源在位（非空泛断言）；外置插件的静态资源 / i18n 经核心壳 classloader 解析不到。</li>
  *   <li><b>{@code stats} 以 thin 外置插件形态打包</b>——其构建产物根部含 {@code plugin.properties} + 外置主类，
  *       且不泄漏共享契约 / 宿主类；若 Maven 已产出真实插件 jar，再断言 jar 内无 {@code BOOT-INF/}、无打入的
@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ol>
  *
  * <p>插件构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} /
- * {@code recovery-sentinel.plugin.classes} / {@code gui-theme.plugin.classes} 传入（指向各插件模块
+ * {@code duplicate.plugin.classes} / {@code recovery-sentinel.plugin.classes} / {@code gui-theme.plugin.classes} 传入（指向各插件模块
  * {@code target/classes}，reactor 中先于 app 构建）；未就绪时（如 IDE 未触发 reactor 构建）对应用例
  * {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}，gui-theme 可由
  * {@code gui-theme.plugin.jar} 指定）仅在 {@code package} 阶段后存在——存在即追加更强的 artifact 不变量断言，
@@ -62,6 +62,7 @@ class DistributionPackagingBoundaryTest {
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
+    private static final String DUPLICATE_CLASSES_PROPERTY = "duplicate.plugin.classes";
     private static final String NOTIFICATION_CLASSES_PROPERTY = "notification.plugin.classes";
     private static final String PUSH_CLASSES_PROPERTY = "push.plugin.classes";
     private static final String MAIL_CLASSES_PROPERTY = "mail.plugin.classes";
@@ -72,7 +73,7 @@ class DistributionPackagingBoundaryTest {
     private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
 
     @Test
-    @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置 download-workbench / stats / recovery-sentinel 的类与资源")
+    @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置 download-workbench / stats / duplicate / recovery-sentinel 的类与资源")
     void bootJarExcludesExternalPluginClassesAndResources() {
         ClassLoader host = getClass().getClassLoader();
 
@@ -91,6 +92,10 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 stats 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsPlugin"))
                 .as("外置 stats 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.duplicate.DuplicatePf4jPlugin"))
+                .as("外置 duplicate 插件主类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.duplicate.DuplicatePlugin"))
+                .as("外置 duplicate 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.recoverysentinel.RecoverySentinelPf4jPlugin"))
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin"))
@@ -129,6 +134,12 @@ class DistributionPackagingBoundaryTest {
                 .as("stats 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/stats.properties"))
                 .as("stats i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-duplicates.html"))
+                .as("duplicate 页面不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-duplicates/pixiv-duplicates.css"))
+                .as("duplicate 静态资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/duplicates.properties"))
+                .as("duplicate i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/gui-theme.properties"))
                 .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/notification.properties"))
@@ -167,6 +178,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/top/sywyar/pixivdownload/tts/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
@@ -174,11 +186,13 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/static/pixiv-batch",
                 "BOOT-INF/classes/static/userscripts/",
                 "BOOT-INF/classes/static/pixiv-stats/",
+                "BOOT-INF/classes/static/pixiv-duplicates",
                 "BOOT-INF/classes/static/pixiv-tts/",
                 "BOOT-INF/classes/static/pixiv-ai/",
                 "BOOT-INF/classes/i18n/web/batch",
                 "BOOT-INF/classes/i18n/web/userscript",
                 "BOOT-INF/classes/i18n/web/stats",
+                "BOOT-INF/classes/i18n/web/duplicates",
                 "BOOT-INF/classes/i18n/web/gui-theme",
                 "BOOT-INF/classes/i18n/web/notification",
                 "BOOT-INF/classes/i18n/web/push",
@@ -225,6 +239,13 @@ class DistributionPackagingBoundaryTest {
     void statsPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(STATS_CLASSES_PROPERTY, "pixivdownload-plugin-stats",
                 "top/sywyar/pixivdownload/stats/StatsPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("duplicate 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void duplicatePackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(DUPLICATE_CLASSES_PROPERTY, "pixivdownload-plugin-duplicate",
+                "top/sywyar/pixivdownload/duplicate/DuplicatePf4jPlugin.class");
     }
 
     @Test

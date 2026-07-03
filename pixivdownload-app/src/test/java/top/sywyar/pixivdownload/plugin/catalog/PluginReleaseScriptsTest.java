@@ -230,18 +230,20 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("离线分发 boot jar 边界黑名单覆盖 notification 基础插件")
-    void offlineDistributionBootJarBlacklistCoversNotificationPlugin() throws Exception {
+    @DisplayName("离线分发 boot jar 边界黑名单覆盖可选外置插件")
+    void offlineDistributionBootJarBlacklistCoversOptionalPlugins() throws Exception {
         String distribution = script("assemble-plugin-distribution.ps1");
 
         assertThat(distribution).contains(
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/ai/\"",
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/notification/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/push/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/tts/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/download/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/schedule/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/\"",
+                "\"BOOT-INF/classes/i18n/web/duplicates\"",
                 "\"BOOT-INF/classes/i18n/web/notification\""
         );
     }

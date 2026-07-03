@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
-import top.sywyar.pixivdownload.duplicate.DuplicatePluginConfiguration;
 import top.sywyar.pixivdownload.gallery.GalleryPluginConfiguration;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.market.PluginMarketPluginConfiguration;
@@ -24,13 +23,11 @@ class RegisteredPluginsTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages：
             // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）；
-            // Duplicate / Gallery / Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
+            // Gallery / Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean(top.sywyar.pixivdownload.core.hash.ImageHashMapper.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.hash.ImageHashMapper.class))
-            // 核心 Hash 写入服务现为核心 root 扫描 @Service（不再由 DuplicatePluginConfiguration 装配）：
-            // 本切片不加载它，duplicate 的扫描 / 回填经正向 plugin→core 依赖注入它，故 mock 兜底。
             .withBean(top.sywyar.pixivdownload.core.hash.ArtworkHashService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.hash.ArtworkHashService.class))
             .withBean(top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator.class,
@@ -132,21 +129,20 @@ class RegisteredPluginsTest {
                     CorePluginConfiguration.class,
                     GalleryPluginConfiguration.class,
                     NovelPluginConfiguration.class,
-                    DuplicatePluginConfiguration.class,
                     PluginMarketPluginConfiguration.class,
                     PluginRegistry.class,
                     top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry.class,
                     DatabaseSchemaRegistry.class);
 
     @Test
-    @DisplayName("五个内置插件经各自 Configuration 注册进 PluginRegistry（download-workbench/stats 已外置、不在内置清单）")
+    @DisplayName("四个内置插件经各自 Configuration 注册进 PluginRegistry（download-workbench/stats/duplicate 已外置、不在内置清单）")
     void allPluginsRegistered() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins())
                     .extracting(PixivFeaturePlugin::id)
                     .containsExactlyInAnyOrder(
-                            "core", "gallery", "novel", "duplicate", "plugin-market");
+                            "core", "gallery", "novel", "plugin-market");
         });
     }
 
@@ -163,15 +159,15 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各内置插件 contribution 边界：core 独占 schema，duplicate/gallery/novel/plugin-market 占各自功能贡献，download-workbench 已外置")
+    @DisplayName("各内置插件 contribution 边界：core 独占 schema，gallery/novel/plugin-market 占各自功能贡献，download-workbench/duplicate 已外置")
     void emptyPluginsContributeNothing() {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
         // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
-        // download-workbench 与 schedule 安全壳已在外置必需插件包中，内置清单只覆盖 core 和仍未外置的功能插件。
-        Set<String> routeContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
-        Set<String> i18nContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
-        Set<String> navContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
-        Set<String> staticResourceContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
+        // download-workbench 与 schedule 安全壳已在外置必需插件包中，duplicate 也随外置插件包接入。
+        Set<String> routeContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
+        Set<String> i18nContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
+        Set<String> navContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
+        Set<String> staticResourceContributingPlugins = Set.of("core", "gallery", "novel", "plugin-market");
         Set<String> queueTypeContributingPlugins = Set.of("novel");
         Set<String> downloadTabContributingPlugins = Set.of();
         // 落点 / 入口（landing）：受邀访客落点唯画廊（priority 20）+ 小说（priority 30）声明，

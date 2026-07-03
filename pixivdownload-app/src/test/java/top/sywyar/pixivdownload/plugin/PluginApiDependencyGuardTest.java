@@ -161,18 +161,41 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("核心不得反向依赖 duplicate 插件包（组合根 BuiltInPlugins 除外）")
+    @DisplayName("核心不得反向依赖 duplicate 外置插件包")
     void coreDoesNotDependOnDuplicatePlugin() {
         noClasses()
                 .that().resideOutsideOfPackage("top.sywyar.pixivdownload.duplicate..")
-                .and().doNotHaveFullyQualifiedName(BuiltInPlugins.class.getName())
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.duplicate..")
                 .because("duplicate 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
-                        + "BuiltInPlugins 是既定的组合根例外。『下载后即时算 Hash』已抽成核心服务 "
-                        + "core.hash.ArtworkHashService（ArtworkDownloadExecutor 注入核心服务、不再依赖 duplicate 包），"
+                        + "它已作为外置 PF4J 插件从内置组合根移出。『下载后即时算 Hash』已抽成核心服务 "
+                        + "core.hash.ArtworkHashService（ArtworkDownloadExecutor 注入核心服务、不依赖 duplicate 包），"
                         + "故不再有 ArtworkDownloadExecutor→duplicate 的核心链路例外")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("app 生产代码与 POM 不得依赖 duplicate 外置插件模块")
+    void appDoesNotDependOnDuplicatePluginModule() throws IOException {
+        Path pom = Path.of("pixivdownload-app/pom.xml");
+        if (!Files.exists(pom)) {
+            pom = Path.of("pom.xml");
+        }
+        assertThat(Files.readString(pom, StandardCharsets.UTF_8))
+                .doesNotContain("<artifactId>pixivdownload-plugin-duplicate</artifactId>");
+
+        Path sourceRoot = Path.of("pixivdownload-app/src/main/java");
+        if (!Files.exists(sourceRoot)) {
+            sourceRoot = Path.of("src/main/java");
+        }
+        try (var paths = Files.walk(sourceRoot)) {
+            assertThat(paths
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> contains(path, "top.sywyar.pixivdownload.duplicate"))
+                    .map(Path::toString)
+                    .toList())
+                    .isEmpty();
+        }
     }
 
     @Test

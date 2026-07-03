@@ -176,6 +176,7 @@
                         <ai.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-ai/target/classes</ai.plugin.classes>
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
                         <download-workbench.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-download-workbench/target/classes</download-workbench.plugin.classes>
+                        <duplicate.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-duplicate/target/classes</duplicate.plugin.classes>
                         <gui-theme.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/classes</gui-theme.plugin.classes>
                         <gui-theme.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-${project.version}.jar</gui-theme.plugin.jar>
                     </systemPropertyVariables>
