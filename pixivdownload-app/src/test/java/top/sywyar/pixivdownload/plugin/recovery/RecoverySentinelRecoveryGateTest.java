@@ -48,7 +48,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
  * 这一具体原因能独立触发恢复模式与请求拦截。
  */
 @ExtendWith(MockitoExtension.class)
-@DisplayName("recovery-sentinel 缺失驱动恢复模式：业务 / 下载 / 油猴脚本入口 503，认证 / setup 入口放行")
+@DisplayName("recovery-sentinel 缺失驱动恢复模式：业务 / 下载 / 油猴脚本入口受限，认证 / setup / 市场入口放行")
 class RecoverySentinelRecoveryGateTest {
 
     private static final RequiredPlugin SENTINEL_REQUIRED = new RequiredPlugin(
@@ -96,15 +96,15 @@ class RecoverySentinelRecoveryGateTest {
     }
 
     @Test
-    @DisplayName("下载页 /pixiv-batch.html 被拦截：503 提示页，不进入后续链路")
-    void blocksDownloadPage() throws Exception {
+    @DisplayName("下载页 /pixiv-batch.html 被拦截：重定向到插件市场，不进入后续链路")
+    void redirectsDownloadPageToPluginMarket() throws Exception {
         request.setMethod("GET");
         request.setRequestURI("/pixiv-batch.html");
 
         gate().doFilterInternal(request, response, chain);
 
-        assertThat(response.getStatus()).isEqualTo(503);
-        assertThat(response.getContentType()).contains("text/html");
+        assertThat(response.getStatus()).isEqualTo(302);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/plugin-market.html");
         verify(chain, never()).doFilter(any(), any());
     }
 
@@ -121,17 +121,44 @@ class RecoverySentinelRecoveryGateTest {
         verify(chain, never()).doFilter(any(), any());
     }
 
+    @Test
+    @DisplayName("API 油猴脚本入口 /api/scripts/** 被拦截：503 JSON")
+    void blocksApiUserscriptEntry() throws Exception {
+        request.setMethod("GET");
+        request.setRequestURI("/api/scripts/pixiv-helper.user.js");
+
+        gate().doFilterInternal(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getContentType()).contains("application/json");
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    @DisplayName("静态油猴脚本入口 /userscripts/** 被拦截：重定向到插件市场")
+    void redirectsStaticUserscriptEntry() throws Exception {
+        request.setMethod("GET");
+        request.setRequestURI("/userscripts/pixiv-helper.user.js");
+
+        gate().doFilterInternal(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(302);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/plugin-market.html");
+        verify(chain, never()).doFilter(any(), any());
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"/api/scripts/pixiv-helper.user.js", "/userscripts/pixiv-helper.user.js"})
-    @DisplayName("油猴脚本入口 /api/scripts/** 与 /userscripts/** 被拦截：503")
-    void blocksUserscriptEntries(String path) throws Exception {
+    @ValueSource(strings = {
+            "/plugin-market.html", "/plugin-market/plugin-market.css",
+            "/api/plugin-market/repositories", "/api/navigation"})
+    @DisplayName("插件市场页面 / 静态 / API 与导航端点在恢复模式下放行到后续链路")
+    void allowsPluginMarketEntries(String path) throws Exception {
         request.setMethod("GET");
         request.setRequestURI(path);
 
         gate().doFilterInternal(request, response, chain);
 
-        assertThat(response.getStatus()).isEqualTo(503);
-        verify(chain, never()).doFilter(any(), any());
+        verify(chain).doFilter(request, response);
     }
 
     @ParameterizedTest

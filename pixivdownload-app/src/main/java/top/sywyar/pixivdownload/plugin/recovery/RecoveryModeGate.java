@@ -28,16 +28,19 @@ import java.util.Locale;
  * 任何既有路由 / 鉴权行为（鉴权仍由 {@code AuthFilter} 执行）。仅当必选插件未满足时本过滤器才生效。
  *
  * <p>恢复模式下放行的最小入口：容器健康探针（{@code /actuator/health*}、{@code /actuator/info}）、插件状态 / 安装 /
- * 修复 API（{@code /api/plugins/**}）、本机 GUI（{@code /api/gui/**}，仍受 {@code AuthFilter} 的本地 + 令牌校验）、i18n
+ * 修复 API（{@code /api/plugins/**}）、插件市场页面 / 静态 / API（{@code /plugin-market.html}、{@code /plugin-market/**}、
+ * {@code /api/plugin-market/**}）、本机 GUI（{@code /api/gui/**}，仍受 {@code AuthFilter} 的本地 + 令牌校验）、i18n
  * 文案（{@code /api/i18n/**}）、核心认证与 setup 入口（{@code /api/auth/**}、{@code /api/setup/**} 与 {@code /login.html}、
- * {@code /setup.html} 页面外壳及其同名目录静态资源）以及渲染提示所需的基础静态资源（{@code /js/}、{@code /css/}、
- * {@code /vendor/} 与首页外壳）。核心认证 / setup 入口仅放行到后续 {@code AuthFilter} / controller，本过滤器不重复实现
- * 鉴权——本机校验、登录限流、session 逻辑仍由既有链路负责。其余一律拦截：API 返回 503 JSON，页面返回 503 提示，
- * 避免在缺少下载插件时误开放下载 / 业务功能或油猴脚本入口。
+ * {@code /setup.html} 页面外壳及其同名目录静态资源）以及插件市场渲染所需的基础静态资源（{@code /js/}、{@code /css/}、
+ * {@code /vendor/}）与导航端点（{@code /api/navigation}）。核心认证 / setup / 市场入口仅放行到后续 {@code AuthFilter} /
+ * controller，本过滤器不重复实现鉴权——本机校验、登录限流、session 逻辑与管理员鉴权仍由既有链路负责。其余一律拦截：
+ * API 返回 503 JSON，非 API 请求重定向到插件市场，避免在缺少下载插件时误开放下载 / 业务功能或油猴脚本入口。
  */
 @Component
 @Order(0)
 public class RecoveryModeGate extends OncePerRequestFilter {
+
+    private static final String PLUGIN_MARKET_PATH = "/plugin-market.html";
 
     private final RecoveryModeService recoveryModeService;
     private final AppLocaleResolver localeResolver;
@@ -70,8 +73,10 @@ public class RecoveryModeGate extends OncePerRequestFilter {
     private boolean isAllowedInRecoveryMode(String path) {
         return isHealthProbe(path)
                 || path.startsWith("/api/plugins/")
+                || isPluginMarketEntry(path)
                 || path.startsWith("/api/gui/")
                 || path.startsWith("/api/i18n/")
+                || path.equals("/api/navigation")
                 || isCoreAuthOrSetupApi(path)
                 || isRecoveryStaticResource(path);
     }
@@ -89,6 +94,13 @@ public class RecoveryModeGate extends OncePerRequestFilter {
         return path.equals("/actuator/health")
                 || path.startsWith("/actuator/health/")
                 || path.equals("/actuator/info");
+    }
+
+    private static boolean isPluginMarketEntry(String path) {
+        return path.equals(PLUGIN_MARKET_PATH)
+                || path.startsWith("/plugin-market/")
+                || path.equals("/api/plugin-market")
+                || path.startsWith("/api/plugin-market/");
     }
 
     /**
@@ -110,16 +122,15 @@ public class RecoveryModeGate extends OncePerRequestFilter {
     }
 
     private void block(HttpServletRequest req, HttpServletResponse res, String path) throws IOException {
-        String message = resolveMessage(localeResolver.resolveLocale(req));
-        res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-        res.setHeader(HttpHeaders.RETRY_AFTER, "120");
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
         if (path.startsWith("/api/")) {
+            String message = resolveMessage(localeResolver.resolveLocale(req));
+            res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            res.setHeader(HttpHeaders.RETRY_AFTER, "120");
             res.setContentType(MediaType.APPLICATION_JSON_VALUE);
             res.getWriter().write(objectMapper.writeValueAsString(new ErrorResponse(message)));
         } else {
-            res.setContentType(MediaType.TEXT_HTML_VALUE);
-            res.getWriter().write(recoveryHtml(message));
+            res.sendRedirect(PLUGIN_MARKET_PATH);
         }
     }
 
@@ -130,14 +141,5 @@ public class RecoveryModeGate extends OncePerRequestFilter {
                 .filter(k -> k != null && !k.isBlank())
                 .orElse("plugin.recovery.blocked");
         return messages.getOrDefault(locale, key, "缺少必须的下载插件，请先安装或修复后重试");
-    }
-
-    private static String recoveryHtml(String message) {
-        String safe = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        return "<!DOCTYPE html><html lang=\"zh\"><head><meta charset=\"UTF-8\">"
-                + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-                + "<title>Plugin recovery</title></head><body>"
-                + "<main style=\"max-width:32rem;margin:4rem auto;font-family:sans-serif;line-height:1.6\">"
-                + "<p>" + safe + "</p></main></body></html>";
     }
 }

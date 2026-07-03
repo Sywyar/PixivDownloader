@@ -127,15 +127,15 @@ class RecoveryModeGateTest {
     }
 
     @Test
-    @DisplayName("恢复模式下下载页被拦截：返回 503 提示页、不进入后续过滤链")
-    void blocksDownloadPage() throws Exception {
+    @DisplayName("恢复模式下下载页被拦截：重定向到插件市场、不进入后续过滤链")
+    void redirectsDownloadPageToPluginMarket() throws Exception {
         request.setMethod("GET");
         request.setRequestURI("/pixiv-batch.html");
 
         activeGate().doFilterInternal(request, response, chain);
 
-        assertThat(response.getStatus()).isEqualTo(503);
-        assertThat(response.getContentType()).contains("text/html");
+        assertThat(response.getStatus()).isEqualTo(302);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/plugin-market.html");
         verify(chain, never()).doFilter(any(), any());
     }
 
@@ -152,16 +152,29 @@ class RecoveryModeGateTest {
         verify(chain, never()).doFilter(any(), any());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"/api/scripts/pixiv-helper.user.js", "/userscripts/pixiv-helper.user.js"})
-    @DisplayName("恢复模式下油猴脚本入口被拦截：不误开放")
-    void blocksUserscriptEntries(String path) throws Exception {
+    @Test
+    @DisplayName("恢复模式下 API 油猴脚本入口被拦截：返回 503 JSON")
+    void blocksApiUserscriptEntry() throws Exception {
         request.setMethod("GET");
-        request.setRequestURI(path);
+        request.setRequestURI("/api/scripts/pixiv-helper.user.js");
 
         activeGate().doFilterInternal(request, response, chain);
 
         assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getContentType()).contains("application/json");
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    @DisplayName("恢复模式下静态油猴脚本入口被拦截：重定向到插件市场")
+    void redirectsStaticUserscriptEntry() throws Exception {
+        request.setMethod("GET");
+        request.setRequestURI("/userscripts/pixiv-helper.user.js");
+
+        activeGate().doFilterInternal(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(302);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/plugin-market.html");
         verify(chain, never()).doFilter(any(), any());
     }
 
@@ -169,6 +182,8 @@ class RecoveryModeGateTest {
     @ValueSource(strings = {
             "/actuator/health", "/actuator/health/readiness", "/actuator/info",
             "/api/plugins/status", "/api/gui/plugins", "/api/i18n/web",
+            "/plugin-market.html", "/plugin-market/plugin-market.css", "/api/plugin-market/repositories",
+            "/api/navigation",
             "/js/pixiv-theme.js", "/css/app.css", "/vendor/fonts/fonts.css",
             "/favicon.ico", "/login.html", "/"})
     @DisplayName("恢复模式下诊断 / 修复 / 健康 / 基础静态入口放行")
