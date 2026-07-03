@@ -8,9 +8,12 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -20,8 +23,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * 插件注册中心。按 pluginId 可逆注册（{@link #register} / {@link #unregister}），
@@ -42,8 +43,9 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 一致），{@link #plugins()} 是<b>活动</b>（启用）插件的不可变快照——禁用的插件经
  * {@code plugins.<id>.enabled=false}（{@link PluginToggleProperties}）在构造期<b>不被注册进快照</b>，
  * 故各下游 registry（路由 / 导航 / i18n / 静态资源 / 调度来源 / 队列 / 标签页 / 落点）经 {@link #plugins()}
- * 自动排除禁用插件，其页面 / API / 导航因而不注册。<b>必选插件（{@link PixivFeaturePlugin#required()}：核心插件，
- * 以及覆写返回 {@code true} 的功能插件如下载工作台）永不可禁用</b>——即便开关写成 {@code false} 也照常注册。
+ * 自动排除禁用插件，其页面 / API / 导航因而不注册。<b>内置核心插件与核心策略声明的必选插件永不可禁用</b>——
+ * 即便开关写成 {@code false} 也照常注册。外置插件自己的 {@link PixivFeaturePlugin#required()} 自声明不参与
+ * 活动判定，避免第三方插件自封必选后绕过禁用开关。
  * schema 不随插件禁用而缺失：受管 schema 经 {@link #allPlugins()} 合并（见 {@code DatabaseSchemaRegistry}），
  * 即使插件被禁用其声明的表 / 列仍创建，已有数据保留。
  * <p>
@@ -92,6 +94,7 @@ public class PluginRegistry implements SmartLifecycle {
 
     /** 启用开关：活动成员判定的事实源。构造期与运行期 {@link #register} 都据此决定插件是否进入活动快照。 */
     private final PluginToggleProperties toggles;
+    private final RequiredPluginPolicy requiredPluginPolicy;
 
     /**
      * 全部插件（安装态，内置 + 外置）。构造期建立，运行期 {@link #register} 追加、{@link #unregister} 移除——
@@ -107,30 +110,45 @@ public class PluginRegistry implements SmartLifecycle {
 
     /** Spring 上下文外（{@code BuiltInPlugins.createAll()}、单元测试）构造：全部插件视为启用、无外置插件。 */
     public PluginRegistry(List<PixivFeaturePlugin> plugins) {
-        this(plugins, new PluginToggleProperties(), PluginDiscoveryResult.empty());
+        this(plugins, new PluginToggleProperties(), PluginDiscoveryResult.empty(), RequiredPluginPolicy.empty());
     }
 
     /** 显式开关 + 无外置插件构造（单元测试用）。 */
     public PluginRegistry(List<PixivFeaturePlugin> plugins, PluginToggleProperties toggles) {
-        this(plugins, toggles, PluginDiscoveryResult.empty());
+        this(plugins, toggles, PluginDiscoveryResult.empty(), RequiredPluginPolicy.empty());
     }
 
     /**
      * Spring 构造：内置插件经注入的 {@code List<PixivFeaturePlugin>} 提供，外置插件经发现桥接的
      * {@link PluginDiscoveryResult} 提供（无 {@code plugins/} 目录 / 无外置插件时为空）。按 {@code plugins.<id>.enabled}
-     * 决定哪些功能插件进入活动快照（禁用=不注册），必选插件永不可禁用。无论启用与否，全部插件都保留在
+     * 决定哪些功能插件进入活动快照（禁用=不注册）。内置核心插件与
+     * {@link RequiredPluginPolicy} 声明的必选项永不可禁用。无论启用与否，全部插件都保留在
      * {@link #allPlugins()} 供 schema 合并。
      */
     @Autowired
     public PluginRegistry(List<PixivFeaturePlugin> plugins, PluginToggleProperties toggles,
+                          ObjectProvider<PluginDiscoveryResult> externalDiscovery,
+                          ObjectProvider<RequiredPluginPolicy> requiredPluginPolicy) {
+        this(plugins, toggles, externalDiscovery.getIfAvailable(PluginDiscoveryResult::empty),
+                requiredPluginPolicy.getIfAvailable(RequiredPluginPolicy::empty));
+    }
+
+    public PluginRegistry(List<PixivFeaturePlugin> plugins, PluginToggleProperties toggles,
                           ObjectProvider<PluginDiscoveryResult> externalDiscovery) {
-        this(plugins, toggles, externalDiscovery.getIfAvailable(PluginDiscoveryResult::empty));
+        this(plugins, toggles, externalDiscovery.getIfAvailable(PluginDiscoveryResult::empty),
+                RequiredPluginPolicy.empty());
     }
 
     /** 全量构造（内置 + 外置发现结果）。Spring 经上面的 {@link ObjectProvider} 构造器走到这里；单元测试也可直接构造双来源注册中心。 */
     public PluginRegistry(List<PixivFeaturePlugin> builtInPlugins, PluginToggleProperties toggles,
                           PluginDiscoveryResult external) {
+        this(builtInPlugins, toggles, external, RequiredPluginPolicy.empty());
+    }
+
+    public PluginRegistry(List<PixivFeaturePlugin> builtInPlugins, PluginToggleProperties toggles,
+                          PluginDiscoveryResult external, RequiredPluginPolicy requiredPluginPolicy) {
         this.toggles = toggles;
+        this.requiredPluginPolicy = requiredPluginPolicy != null ? requiredPluginPolicy : RequiredPluginPolicy.empty();
         Map<String, RegisteredPlugin> byId = new LinkedHashMap<>();
         List<RegisteredPlugin> all = new ArrayList<>();
         // 内置插件优先，保持装配顺序
@@ -202,8 +220,8 @@ public class PluginRegistry implements SmartLifecycle {
 
     /**
      * 注册一个带来源与解析用 classloader 的插件（供外置插件接入与可逆性测试使用）。插件先进入安装态
-     * （{@link #allPlugins()}，供 schema 合并 / {@link #disabledPlugins()} 计算），再按启用开关决定是否进入活动
-     * 快照（必选插件恒活动，可选插件按 {@code plugins.<id>.enabled}），使 register -> unregister -> register 可逆。
+     * （{@link #allPlugins()}，供 schema 合并 / {@link #disabledPlugins()} 计算），再按启用开关与核心必选策略决定
+     * 是否进入活动快照，使 register -> unregister -> register 可逆。
      * id 与安装态或活动快照中已有插件重复，或不符合规范，立即抛出。
      */
     public void register(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader) {
@@ -340,9 +358,14 @@ public class PluginRegistry implements SmartLifecycle {
                 .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
     }
 
-    /** 是否应进入活动快照：必选插件恒活动，可选插件按 {@code plugins.<id>.enabled} 启用开关。 */
+    /** 是否应进入活动快照：内置核心与核心策略必选项恒活动，其它插件按启用开关。 */
     private boolean isActive(RegisteredPlugin registered) {
-        return registered.plugin().required() || toggles.isEnabled(registered.id());
+        return isBuiltInCore(registered) || requiredPluginPolicy.isRequired(registered.id())
+                || toggles.isEnabled(registered.id());
+    }
+
+    private static boolean isBuiltInCore(RegisteredPlugin registered) {
+        return registered.source() == PluginSource.BUILT_IN && registered.plugin().kind() == PluginKind.CORE;
     }
 
     private static ClassLoader classLoaderOf(PixivFeaturePlugin plugin) {

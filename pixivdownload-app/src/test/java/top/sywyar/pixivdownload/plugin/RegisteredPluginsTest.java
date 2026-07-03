@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration;
 import top.sywyar.pixivdownload.duplicate.DuplicatePluginConfiguration;
 import top.sywyar.pixivdownload.gallery.GalleryPluginConfiguration;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
@@ -12,17 +11,13 @@ import top.sywyar.pixivdownload.plugin.market.PluginMarketPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.schedule.ScheduleHostPluginConfiguration;
 
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
-import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 
 class RegisteredPluginsTest {
 
@@ -88,28 +83,12 @@ class RegisteredPluginsTest {
             })
             .withBean(top.sywyar.pixivdownload.i18n.AppMessages.class,
                     top.sywyar.pixivdownload.i18n.TestI18nBeans::appMessages)
-            // schedule 引擎 Bean 由计划任务宿主插件配置 ScheduleHostPluginConfiguration 装配：
-            // 其依赖的核心 / 下载机器在本切片里一律 mock 兜底（ScheduleConfig 用默认值实例），
-            // 两个下载池按 bean 名提供 SyncTaskExecutor（ScheduleExecutor 经 @Qualifier 按名解析）。
-            // scheduled_tasks 的读写经核心 owned 语义 Store ScheduledTaskStore（core.schedule 接口，实现 root 扫描，本切片 mock 兜底），
-            // 宿主引擎 Bean 不直接依赖 MyBatis ScheduledTaskMapper。
-            .withBean(top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore.class))
-            .withBean(top.sywyar.pixivdownload.download.PixivFetchService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.PixivFetchService.class))
-            .withBean(top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.class))
             .withBean(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class))
             .withBean(top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient.class))
             .withBean(top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard.class))
-            .withBean(top.sywyar.pixivdownload.download.ArtworkDownloader.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkDownloader.class))
-            // 下载工作台贡献的插画队列操作适配器（IllustQueueOperations）依赖具体下载执行器，本切片 mock 兜底。
-            .withBean(top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class))
             .withBean(top.sywyar.pixivdownload.novel.download.NovelDownloader.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloader.class))
             // 小说下载端点两个 controller 随小说插件启停收编进 NovelPluginConfiguration，其依赖的
@@ -118,16 +97,14 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloadService.class))
             .withBean(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class))
-            .withBean(top.sywyar.pixivdownload.notification.NotificationService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.notification.NotificationService.class))
+            .withBean(top.sywyar.pixivdownload.core.notification.NotificationService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.notification.NotificationService.class))
             .withBean(top.sywyar.pixivdownload.setup.SetupService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.SetupService.class))
             .withBean(top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class,
                     top.sywyar.pixivdownload.core.appconfig.DownloadConfig::new)
             .withBean(top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService.class))
-            .withBean(top.sywyar.pixivdownload.schedule.ScheduleConfig.class,
-                    top.sywyar.pixivdownload.schedule.ScheduleConfig::new)
             .withBean("downloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean("novelDownloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
@@ -150,12 +127,9 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class))
             // 插件启用开关：空实例代表全部启用（本切片不验证禁用语义，只需 PluginRegistry 的 @Autowired 构造可解析）。
             .withBean(PluginToggleProperties.class, PluginToggleProperties::new)
-            // 作品类型执行器注册中心用真实 Bean：收集下载工作台贡献的插画执行器 + 小说插件贡献的小说执行器，
-            // 验证 schedule 引擎经核心注册中心装配、不再注入单一 novel delegate。
+            // 作品类型执行器注册中心用真实 Bean：收集小说插件贡献的小说执行器。
             .withUserConfiguration(
                     CorePluginConfiguration.class,
-                    DownloadWorkbenchPluginConfiguration.class,
-                    ScheduleHostPluginConfiguration.class,
                     GalleryPluginConfiguration.class,
                     NovelPluginConfiguration.class,
                     DuplicatePluginConfiguration.class,
@@ -165,14 +139,14 @@ class RegisteredPluginsTest {
                     DatabaseSchemaRegistry.class);
 
     @Test
-    @DisplayName("七个内置插件经各自 Configuration 注册进 PluginRegistry（stats 已外置、不在内置清单）")
+    @DisplayName("五个内置插件经各自 Configuration 注册进 PluginRegistry（download-workbench/stats 已外置、不在内置清单）")
     void allPluginsRegistered() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins())
                     .extracting(PixivFeaturePlugin::id)
                     .containsExactlyInAnyOrder(
-                            "core", "download-workbench", "schedule", "gallery", "novel", "duplicate", "plugin-market");
+                            "core", "gallery", "novel", "duplicate", "plugin-market");
         });
     }
 
@@ -189,24 +163,17 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各插件 contribution 边界：core 独占 schema、声明共享静态资源与横切 / 共享路由，duplicate/gallery/novel 占功能路由 + 导航 + 页面静态资源、download-workbench 占下载页路由 + 下载页静态资源 + userscript 来源、schedule 宿主占 /api/schedule 路由（无前端贡献）、i18n namespace 由五个有前端的内置插件声明（stats 已外置）")
+    @DisplayName("各内置插件 contribution 边界：core 独占 schema，duplicate/gallery/novel/plugin-market 占各自功能贡献，download-workbench 已外置")
     void emptyPluginsContributeNothing() {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
         // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
-        // download-workbench 声明下载页与提交 / 队列 / 状态 API；计划任务宿主 schedule 声明 /api/schedule/** 路由
-        //（下载页其余 API 是跨插件共享、留核心）。
-        // 导航：四个 web 功能插件 + core（监控 / 邀请码管理基础入口）+ download-workbench（下载页入口，前端导航开槽）。
-        Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "schedule", "duplicate", "gallery", "novel", "plugin-market");
-        // i18n namespace 由有前端页面的五个内置插件声明（页面跟插件走、核心/共享 namespace 留 core）；计划任务宿主
-        // schedule 是无前端的调度宿主（只声明 /api/schedule 路由），不声明 i18n namespace；统计 stats 已外置、其
-        // namespace 经外置插件 contribution 注册，不在内置清单。
-        Set<String> i18nContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel", "plugin-market");
-        Set<String> navContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel", "plugin-market");
-        Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel", "plugin-market");
-        // 下载页扩展点：作品类型由「下载什么」的插件声明（download-workbench=illust，novel=novel）；
-        // 获取方式标签页（怎么找作品）唯下载工作台声明。
-        Set<String> queueTypeContributingPlugins = Set.of("download-workbench", "novel");
-        Set<String> downloadTabContributingPlugins = Set.of("download-workbench");
+        // download-workbench 与 schedule 安全壳已在外置必需插件包中，内置清单只覆盖 core 和仍未外置的功能插件。
+        Set<String> routeContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
+        Set<String> i18nContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
+        Set<String> navContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
+        Set<String> staticResourceContributingPlugins = Set.of("core", "duplicate", "gallery", "novel", "plugin-market");
+        Set<String> queueTypeContributingPlugins = Set.of("novel");
+        Set<String> downloadTabContributingPlugins = Set.of();
         // 落点 / 入口（landing）：受邀访客落点唯画廊（priority 20）+ 小说（priority 30）声明，
         // 锁死契约面——其它插件不得静默声明落点（避免借落点 / 导航 order 间接改变业务落点）。
         Set<String> landingContributingPlugins = Set.of("gallery", "novel");
@@ -218,10 +185,7 @@ class RegisteredPluginsTest {
         Set<String> drilldownContributingPlugins = Set.of("gallery");
         // GUI 引导步骤：唯画廊贡献打开本地页面并完成网页操作指引的步骤；宿主只按中性 step contract 渲染。
         Set<String> onboardingStepContributingPlugins = Set.of("gallery");
-        // coreColumnUsages 仍仅画廊 / 小说：download-workbench 收编的 schedule 引擎对 scheduled_tasks 的访问
-        // 经核心 owned 语义 Store ScheduledTaskStore（core.schedule 接口，其核心实现 ScheduledTaskStoreImpl 再包装
-        // 根包扫描的 MyBatis ScheduledTaskMapper，与 ArtworkDownloadExecutor 同口径属核心机器、不计入），
-        // 收编的引擎 Bean 自身无直接 SQL，故无核心列使用声明。
+        // coreColumnUsages 仍仅画廊 / 小说；download-workbench 的 schedule 引擎外置后不进内置清单。
         Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
@@ -240,41 +204,34 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.coreColumnUsages()).isEmpty();
                 }
-                // i18n namespace 由有前端页面的六个插件声明：页面跟插件走、核心/共享
-                // namespace（common/translate/tour 等）留 core、batch/userscript 归下载工作台；
-                // 无前端的计划任务宿主 schedule 不声明 i18n namespace。
+                // i18n namespace 由内置前端插件声明；batch/userscript 归外置 download-workbench。
                 if (i18nContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.i18n()).isNotEmpty();
                 } else {
                     assertThat(plugin.i18n()).isEmpty();
                 }
-                // 路由：四个 web 功能插件 + core（横切 / 共享路由）+ download-workbench（schedule 路由）声明
+                // 路由：内置 web 功能插件 + core（横切 / 共享路由）声明。
                 if (routeContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.routes()).isNotEmpty();
                 } else {
                     assertThat(plugin.routes()).isEmpty();
                 }
-                // 导航：四个 web 功能插件 + core（监控 / 邀请码管理）+ download-workbench（下载页入口）全员声明，
+                // 导航：内置 web 功能插件 + core（监控 / 邀请码管理）声明，
                 // 由 /api/navigation 按当前身份过滤后供前端跨插件导航 slot 渲染。
                 if (navContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.navigation()).isNotEmpty();
                 } else {
                     assertThat(plugin.navigation()).isEmpty();
                 }
-                // 静态资源：核心声明共享公共库（/js、/css、/vendor），四个 web 功能插件声明各自页面目录，
-                // 下载工作台声明下载页静态资源目录（/pixiv-batch/）
+                // 静态资源：核心声明共享公共库（/js、/css、/vendor），内置 web 功能插件声明各自页面目录。
                 if (staticResourceContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.staticResources()).isNotEmpty();
                 } else {
                     assertThat(plugin.staticResources()).isEmpty();
                 }
-                // 油猴脚本扫描来源唯下载工作台声明
-                if (plugin.id().equals("download-workbench")) {
-                    assertThat(plugin.userscripts()).isNotEmpty();
-                } else {
-                    assertThat(plugin.userscripts()).isEmpty();
-                }
-                // 下载队列作品类型：download-workbench（illust）+ novel（novel）声明
+                // 油猴脚本扫描来源随外置 download-workbench 声明，内置插件均不声明。
+                assertThat(plugin.userscripts()).isEmpty();
+                // 下载队列作品类型：内置清单中仅 novel 声明；illust 随外置 download-workbench 声明。
                 if (queueTypeContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.queueTypes()).isNotEmpty();
                 } else {

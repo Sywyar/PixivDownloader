@@ -52,6 +52,8 @@
              app 测试期已就绪，供恢复模式端到端集成测试组装临时插件 jar 做真实加载验证 -->
         <module>pixivdownload-plugin-recovery-sentinel</module>
         <module>pixivdownload-app</module>
+        <!-- 官方必需下载工作台外置插件。app 不依赖本模块；默认发行包把该 jar 放入 plugins/ 由 PF4J 加载。 -->
+        <module>pixivdownload-plugin-download-workbench</module>
     </modules>
     <scm>
         <connection/>

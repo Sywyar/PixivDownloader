@@ -14,8 +14,8 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
  * 此时不改变任何路由行为；只要有必选插件缺失 / 禁用 / 启动失败 / 版本不兼容即判定进入恢复模式。判定结果由访问控制
  * 消费方 {@link RecoveryModeGate} 据以放行诊断 / 修复入口、拦截正常业务请求。
  *
- * <p>判定结果在首次查询后缓存：内置必选插件随主程序编译、运行期不装卸，外置插件在启动期一次性发现 / 接入，故启动
- * 完成后必选插件的满足情况是固定的，按请求重复评估无意义。
+ * <p>判定结果在首次查询后缓存：required 插件在启动期一次性发现、复验并接入，核心壳启动完成后必选插件的满足情况
+ * 是固定的，按请求重复评估无意义。
  */
 @Service
 public class RecoveryModeService {

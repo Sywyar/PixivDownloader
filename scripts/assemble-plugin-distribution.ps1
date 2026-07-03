@@ -1,36 +1,43 @@
 <#
 .SYNOPSIS
-    Assemble the plugin distribution: core/default-downloader jar + official optional external plugin
-    jars (+ per-package sha256 + aggregate manifest), producing a ready-to-run "full offline" layout.
+    Assemble plugin distribution layouts: core shell only, default downloader, or full offline.
 
 .DESCRIPTION
     One command that consolidates the plugin distribution boundary:
 
-      <OutputDir>/
-        PixivDownload-<Version>.jar              # core shell + built-in plugins (incl. required download
-                                                 #   workbench) = default downloader jar
-        plugins/
-          <plugin>-<version>.jar                 # official optional external plugin
-          <plugin>-<version>.jar.sha256          # per-package sha256 checksum file
-          provenance/
-            <plugin>-<version>.jar.pixiv-plugin-provenance
-        SHA256SUMS                               # aggregate checksum file (sha256sum -c compatible)
-        plugins-manifest.json                    # per external plugin: id / version / requires / file / sha256
+      Core shell only:
+        <OutputDir>/PixivDownload-<Version>.jar
 
-    The "default downloader jar" alone completes the basic download workflow (the download workbench is a
-    built-in required plugin carried in the boot jar). Shipping the whole <OutputDir> together is the
-    "full offline" bundle: run `java -jar PixivDownload-<Version>.jar` from that directory and the runtime
-    loads these external plugins from the working-directory plugins/ folder.
+      Default downloader / full offline:
+        <OutputDir>/
+          PixivDownload-<Version>.jar            # core shell boot jar; no download-workbench implementation
+          plugins/
+            pixivdownload-plugin-download-workbench-<version>.jar
+                                                 # official required plugin; default downloader needs it
+            <plugin>-<version>.jar               # official optional external plugin (full offline)
+            <plugin>-<version>.jar.sha256        # per-package sha256 checksum file
+            provenance/
+              <plugin>-<version>.jar.pixiv-plugin-provenance
+          SHA256SUMS                             # aggregate checksum file (sha256sum -c compatible)
+          plugins-manifest.json                  # per external plugin: id / version / requires / file / sha256
+
+    The boot jar alone is the core-shell package and must enter recovery/repair mode because the required
+    download-workbench plugin is missing. The default downloader is the boot jar plus only the required
+    download-workbench artifact under plugins/. The full-offline bundle adds all official optional plugins:
+    run `java -jar PixivDownload-<Version>.jar` from that directory and the runtime loads external plugins
+    from the working-directory plugins/ folder.
 
     The script self-checks official plugins for their declared form (thin jar or jar with private lib/*.jar)
     and the boot jar for the distribution boundary (no external plugin classes / static / i18n; PF4J only
     nested under BOOT-INF/lib). Any broken invariant aborts with an error.
 
-    Note: the download workbench is still a built-in required plugin compiled into the boot jar (not yet
-    physically externalized into its own plugin jar), so a "core shell only, missing download workbench
-    -> recovery mode" artifact cannot yet be produced as a standalone output. This script produces the
-    "default downloader jar" and the "default downloader + official optional plugins" full-offline layout
-    against the current state.
+.PARAMETER CoreShellOnly
+    Produce only the core-shell boot jar, without staging required or optional plugins.
+    The result is a recovery/repair package, not the normal default downloader.
+
+.PARAMETER DefaultDownloader
+    Stage only official required plugins. Without this switch, the script stages required and optional
+    official plugins as the full-offline distribution.
 
 .PARAMETER Version
     Distribution version, used for the core jar file name. Default 0.0.1-local.
@@ -51,6 +58,8 @@ param(
     [string]$Version = "0.0.1-local",
     [string]$OutputDir,
     [switch]$Build,
+    [switch]$CoreShellOnly,
+    [switch]$DefaultDownloader,
     [switch]$IncludeSentinel,
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
@@ -70,16 +79,24 @@ if (-not $OutputDir) {
 }
 $PluginsOutDir = Join-Path $OutputDir "plugins"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
-if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
+if (-not $CoreShellOnly -and [string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
+if (-not $CoreShellOnly -and ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf))) {
     throw "PrivateKeyFile is required and must point to an Ed25519 PKCS#8 PEM file."
 }
-$SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
+if ($CoreShellOnly -and $DefaultDownloader) {
+    throw "CoreShellOnly and DefaultDownloader cannot be combined."
+}
+if (-not $CoreShellOnly) {
+    $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
+}
 
-# Official optional external plugins (id / Maven module). recovery-sentinel only when -IncludeSentinel.
+# Official external plugins (required + optional). recovery-sentinel only when -IncludeSentinel.
 # Wrap in @() so a single-element result keeps array shape (the function return unwraps it otherwise),
-# preserving $OptionalPlugins.Count for the summary line.
-$OptionalPlugins = @(Get-OfficialOptionalPlugins -IncludeSentinel:$IncludeSentinel)
+# preserving $DistributionPlugins.Count for the summary line.
+$DistributionPlugins = @()
+if (-not $CoreShellOnly) {
+    $DistributionPlugins = @(Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader) -IncludeSentinel:$IncludeSentinel)
+}
 
 function Write-Step {
     param([string]$Message)
@@ -126,8 +143,19 @@ function Assert-BootJarBoundary {
     param([string]$JarPath)
     $entries = Get-ZipEntryNames $JarPath
     $forbidden = @(
+        "BOOT-INF/classes/top/sywyar/pixivdownload/ai/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/notification/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/push/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/tts/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/download/DownloadWorkbenchPf4jPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/download/DownloadWorkbenchPlugin",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/download/controller/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/download/schedule/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/push/channel/",
@@ -150,9 +178,14 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/top/sywyar/pixivdownload/ai/preset/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/ai/probe/",
         "BOOT-INF/classes/static/pixiv-stats",
+        "BOOT-INF/classes/static/pixiv-batch.html",
+        "BOOT-INF/classes/static/pixiv-batch",
+        "BOOT-INF/classes/static/userscripts/",
         "BOOT-INF/classes/static/pixiv-tts",
         "BOOT-INF/classes/static/pixiv-ai",
         "BOOT-INF/classes/i18n/web/stats",
+        "BOOT-INF/classes/i18n/web/batch",
+        "BOOT-INF/classes/i18n/web/userscript",
         "BOOT-INF/classes/i18n/web/gui-theme",
         "BOOT-INF/classes/i18n/web/notification",
         "BOOT-INF/classes/i18n/web/tts",
@@ -188,6 +221,21 @@ function Assert-BootJarBoundary {
     }
 }
 
+function Get-AppBootJar {
+    $rootDir = Join-Path $ProjectRoot "pixivdownload-app/target"
+    $bootJar = Get-ChildItem (Join-Path $rootDir "PixivDownload-*-boot.jar") -File |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if ($bootJar) {
+        return $bootJar
+    }
+
+    return Get-ChildItem (Join-Path $rootDir "PixivDownload-*.jar") -File |
+        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+}
+
 Push-Location $ProjectRoot
 try {
     if ($Build) {
@@ -198,10 +246,7 @@ try {
     }
 
     Write-Step "Locating built artifacts"
-    $bootJar = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app/target/PixivDownload-*.jar") -File |
-        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
+    $bootJar = Get-AppBootJar
     if (-not $bootJar) {
         throw "Could not find boot jar under pixivdownload-app/target/ (run with -Build or 'mvn package' first)."
     }
@@ -213,20 +258,25 @@ try {
     Write-Step "Staging distribution to $OutputDir"
     [void](Assert-SafeRemovableDir $OutputDir $ProjectRoot)
     if (Test-Path $OutputDir) { Remove-Item -Recurse -Force -LiteralPath $OutputDir }
-    New-Item -ItemType Directory -Force -Path $PluginsOutDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+    if (-not $CoreShellOnly) {
+        New-Item -ItemType Directory -Force -Path $PluginsOutDir | Out-Null
+    }
 
     $coreJarName = "PixivDownload-$Version.jar"
     Copy-Item $bootJar.FullName (Join-Path $OutputDir $coreJarName) -Force
 
     $manifest = @()
     $sumLines = @()
-    foreach ($plugin in $OptionalPlugins) {
+    $requiredPluginIds = @(Get-OfficialRequiredPlugins | ForEach-Object { $_.Id })
+    foreach ($plugin in $DistributionPlugins) {
         Write-Step "Staging plugin '$($plugin.Id)'"
         $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
         $pluginVersion = $descriptor["plugin.version"]
         $requires = $descriptor["plugin.requires"]
         $extension = Get-OfficialPluginArtifactExtension $plugin
+        $isRequired = $requiredPluginIds -contains $plugin.Id
 
         $targetName = "$($plugin.Module)-$pluginVersion.$extension"
         $targetArtifact = Join-Path $PluginsOutDir $targetName
@@ -244,6 +294,7 @@ try {
             id       = $plugin.Id
             version  = $pluginVersion
             requires = $requires
+            required = $isRequired
             file     = "plugins/$targetName"
             sha256   = $sha
             signature = $signature
@@ -252,24 +303,39 @@ try {
         Write-Host "    OK: official plugin artifact staged ($targetName, sha256 $sha)." -ForegroundColor Green
     }
 
-    # Include the core jar in the aggregate checksum file too.
-    $coreSha = Get-Sha256Hex (Join-Path $OutputDir $coreJarName)
-    $sumLines = @("$coreSha  $coreJarName") + $sumLines
-    [System.IO.File]::WriteAllText((Join-Path $OutputDir "SHA256SUMS"), (($sumLines -join "`n") + "`n"), $Utf8NoBom)
+    if (-not $CoreShellOnly) {
+        # Include the core jar in the aggregate checksum file too.
+        $coreSha = Get-Sha256Hex (Join-Path $OutputDir $coreJarName)
+        $sumLines = @("$coreSha  $coreJarName") + $sumLines
+        [System.IO.File]::WriteAllText((Join-Path $OutputDir "SHA256SUMS"), (($sumLines -join "`n") + "`n"), $Utf8NoBom)
 
-    # ConvertTo-Json with an explicit @() wrapper preserves the array shape for a single
-    # element on Windows PowerShell 5.1 (the bare-object quirk only affects pipeline input).
-    $manifestJson = ConvertTo-Json @($manifest) -Depth 5
-    [System.IO.File]::WriteAllText((Join-Path $OutputDir "plugins-manifest.json"), $manifestJson + "`n", $Utf8NoBom)
+        # ConvertTo-Json with an explicit @() wrapper preserves the array shape for a single
+        # element on Windows PowerShell 5.1 (the bare-object quirk only affects pipeline input).
+        $manifestJson = ConvertTo-Json @($manifest) -Depth 5
+        [System.IO.File]::WriteAllText((Join-Path $OutputDir "plugins-manifest.json"), $manifestJson + "`n", $Utf8NoBom)
+    }
 
     Write-Step "Done"
     Assert-NoPrivateKeyMaterial $OutputDir
     Write-Host "Distribution : $OutputDir"
-    Write-Host "Core jar     : $coreJarName  (default downloader - built-in download workbench)"
-    Write-Host "Plugins      : $($OptionalPlugins.Count) optional plugin(s) staged under plugins/"
-    Write-Host "Checksums    : SHA256SUMS + per-plugin .sha256 + .sig + provenance sidecar + plugins-manifest.json"
+    if ($CoreShellOnly) {
+        Write-Host "Core jar     : $coreJarName  (core shell only - missing required plugin enters recovery mode)"
+        Write-Host "Plugins      : none staged"
+    } else {
+        $requiredCount = @($DistributionPlugins | Where-Object { $requiredPluginIds -contains $_.Id }).Count
+        $optionalCount = $DistributionPlugins.Count - $requiredCount
+        if ($DefaultDownloader) {
+            Write-Host "Core jar     : $coreJarName  (default downloader; plugins/ carries required plugins)"
+        } else {
+            Write-Host "Core jar     : $coreJarName  (full offline; plugins/ carries required and optional plugins)"
+        }
+        Write-Host "Plugins      : $requiredCount required + $optionalCount optional plugin(s) staged under plugins/"
+    }
+    if (-not $CoreShellOnly) {
+        Write-Host "Checksums    : SHA256SUMS + per-plugin .sha256 + .sig + provenance sidecar + plugins-manifest.json"
+    }
     Write-Host ""
-    Write-Host "Full offline run: cd `"$OutputDir`" && java -jar $coreJarName"
+    Write-Host "Run: cd `"$OutputDir`" && java -jar $coreJarName"
 } finally {
     Pop-Location
 }

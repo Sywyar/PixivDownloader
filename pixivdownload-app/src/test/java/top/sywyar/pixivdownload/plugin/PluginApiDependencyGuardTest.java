@@ -11,6 +11,7 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -33,6 +34,7 @@ class PluginApiDependencyGuardTest {
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
+    private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
 
     /**
      * 业务插件禁止直接调用的 {@code java.nio.file.Files} 读取 / 打开类静态方法。作品文件（含 meta sidecar）的
@@ -117,8 +119,8 @@ class PluginApiDependencyGuardTest {
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.novel..")
                 .because("小说 Pixiv 代理端点与响应投影归 novel 自有 controller/DTO，download-workbench "
-                        + "外置前不得再 import novel 包")
-                .check(CLASSES);
+                        + "外置后仍不得 import novel 包")
+                .check(importDownloadWorkbenchClasses());
     }
 
     @Test
@@ -192,10 +194,9 @@ class PluginApiDependencyGuardTest {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
                 .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
-                        top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class,
-                        top.sywyar.pixivdownload.download.ArtworkFileService.class,
-                        top.sywyar.pixivdownload.download.DownloadedArtworkService.class,
-                        top.sywyar.pixivdownload.download.ArtworkMetadataRecoveryService.class,
+                        top.sywyar.pixivdownload.core.download.ArtworkFileService.class,
+                        top.sywyar.pixivdownload.core.download.DownloadedArtworkService.class,
+                        top.sywyar.pixivdownload.core.download.ArtworkMetadataRecoveryService.class,
                         top.sywyar.pixivdownload.core.db.PixivDatabase.class,
                         top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator.class,
                         top.sywyar.pixivdownload.author.AuthorService.class,
@@ -330,7 +331,7 @@ class PluginApiDependencyGuardTest {
                         + "收口在核心实现层 core.schedule.db。计划任务宿主插件的 schedule 引擎 Bean 只能依赖 "
                         + "core.schedule 语义 Store/API 与行模型，不得直接依赖 core.schedule.db 实现层、ScheduledTaskMapper / "
                         + "DataSource / JdbcTemplate / Connection / MyBatis 自由 SQL 访问核心表")
-                .check(CLASSES);
+                .check(importDownloadWorkbenchClasses());
     }
 
     @Test
@@ -349,7 +350,7 @@ class PluginApiDependencyGuardTest {
                 .because("计划任务的小说下载 / 系列合订 / 翻译状态经核心契约 core.schedule.work.ScheduledWorkRunner"
                         + "（小说插件贡献执行器实现）完成，调度编排层不得 import 任何 novel 包类型；小说插件经 plugin→core 正向"
                         + "依赖实现该契约，发现 / 筛选 / 系列补全 / 共享调度机器仍留调度壳")
-                .check(CLASSES);
+                .check(importDownloadWorkbenchClasses());
     }
 
     @Test
@@ -375,7 +376,7 @@ class PluginApiDependencyGuardTest {
     @DisplayName("下载工作台计划任务来源 / 执行器不得依赖 novel 包：发现与下载只经核心契约 + 中性载体")
     void downloadScheduleSourcesAndRunnerDoNotDependOnNovel() {
         // 计划任务来源（download.schedule.source，怎么找作品）与插画作品类型执行器（download.schedule.work）由下载
-        // 工作台贡献给计划任务宿主。它们随 schedule 能力拆出宿主插件后离开了 schedule.. 包，但「计划任务逻辑对 novel
+        // 工作台贡献给计划任务宿主。它们住在 download.schedule.. 包，但「计划任务逻辑对 novel
         // 保持解耦」的不变量仍须守住：来源经 PixivFetchService + 中性载体发现插画 / 小说作品（不 import 任何 novel
         // 类型），插画执行器只薄包核心窄接缝 ArtworkDownloader；小说下载由小说插件贡献的执行器经核心契约
         // core.schedule.work.ScheduledWorkRunner 按 kind 解析完成。
@@ -385,7 +386,7 @@ class PluginApiDependencyGuardTest {
                 .resideInAPackage("top.sywyar.pixivdownload.novel..")
                 .because("计划任务来源 / 插画执行器经 PixivFetchService + 中性载体 + 核心契约 ScheduledWorkRunner "
                         + "工作，不得 import 任何 novel 包类型；小说下载由小说插件贡献的执行器按 kind 解析完成")
-                .check(CLASSES);
+                .check(importDownloadWorkbenchClasses());
     }
 
     @Test
@@ -461,7 +462,7 @@ class PluginApiDependencyGuardTest {
                 };
         String because = "OnPluginEnabledCondition 已删除 isRequired 短路分支（plugin-runtime 不再回指组合根 "
                 + "BuiltInPlugins）：删除安全的前提是『没有任何必选插件的 Bean 被 @ConditionalOnPluginEnabled "
-                + "门控』。本守卫固化此不变量——必选插件（core / download-workbench / schedule）的业务 Bean 一律"
+                + "门控』。本守卫固化此不变量——内置必选插件的业务 Bean 一律"
                 + "不标本注解（method 级或 class 级都不行）、恒无条件装配；只有可选插件（gallery / novel / stats / "
                 + "duplicate）才用它按开关装配 / 缺席";
         methods()
@@ -491,12 +492,12 @@ class PluginApiDependencyGuardTest {
                 .that().haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
                 .should().dependOnClassesThat()
-                .belongToAnyOf(
-                        top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class,
-                        top.sywyar.pixivdownload.novel.download.NovelDownloadService.class)
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.download..",
+                        "top.sywyar.pixivdownload.novel.download..")
                 .because("下载队列控制器的跨类型取消 / 清空经核心队列宿主注册中心 QueueOperationRegistry "
                         + "+ 中性契约 QueueOperations 多态派发，不得直接 import 插画 / 小说等具体下载实现")
-                .check(CLASSES);
+                .check(importDownloadWorkbenchClasses());
     }
 
     @Test
@@ -569,5 +570,20 @@ class PluginApiDependencyGuardTest {
         } catch (IOException e) {
             throw new IllegalStateException("failed to read " + path, e);
         }
+    }
+
+    private static JavaClasses importDownloadWorkbenchClasses() {
+        String configured = System.getProperty(DOWNLOAD_WORKBENCH_CLASSES_PROPERTY);
+        Path classesDir = configured == null || configured.isBlank()
+                ? Path.of("..", "pixivdownload-plugin-download-workbench", "target", "classes")
+                : Path.of(configured);
+        Assumptions.assumeTrue(Files.isDirectory(classesDir),
+                () -> "download-workbench 外置插件 classes 目录不存在，跳过 app 侧外置类守卫；"
+                        + "外置模块自身 DownloadWorkbenchDependencyGuardTest 会在该模块测试阶段覆盖同等约束。"
+                        + "（系统属性 " + DOWNLOAD_WORKBENCH_CLASSES_PROPERTY + "="
+                        + classesDir.toAbsolutePath().normalize() + "）");
+        return new ClassFileImporter()
+                .withImportOption(new ImportOption.DoNotIncludeTests())
+                .importPath(classesDir);
     }
 }

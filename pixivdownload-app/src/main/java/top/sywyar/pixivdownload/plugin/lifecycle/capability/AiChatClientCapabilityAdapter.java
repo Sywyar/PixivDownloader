@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.lifecycle.capability;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.ai.AiChatClient;
-import top.sywyar.pixivdownload.ai.AiChatClientRegistry;
+import top.sywyar.pixivdownload.core.ai.AiChatClientRegistry;
 
 import java.util.List;
 

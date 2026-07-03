@@ -18,7 +18,6 @@ import top.sywyar.pixivdownload.gallery.GalleryService;
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.schedule.ScheduleRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -32,7 +31,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
  *       下载后即时算 Hash 不随 duplicate 禁用；</li>
  *   <li>duplicate 缺失 Hash 回填维护任务不注入维护协调器（其 Bean 缺席），核心维护任务仍在场；</li>
  *   <li>{@code plugins.core.enabled=false} 被忽略——核心插件不可禁用，核心 Bean 始终在场；</li>
- *   <li>未受影响的 novel / download-workbench 托管 Bean 仍在场。</li>
+ *   <li>未受影响的 novel 托管 Bean 仍在场；外置 download-workbench 不属于 core 壳内置上下文。</li>
  * </ul>
  * （统计 stats 已改为外置 PF4J 插件、不在内置清单内：其缺席语义由外置加载的集成测试覆盖，不在本内置禁用用例。）
  */
@@ -70,7 +69,7 @@ class FeaturePluginsDisabledContextTest {
     @DisplayName("gallery / duplicate 退出活动快照，core 仍在场（core 配置被忽略）")
     void disabledFeaturesLeaveSnapshotCoreStays() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
-                .contains("core", "novel", "download-workbench")
+                .contains("core", "novel")
                 .doesNotContain("gallery", "duplicate");
         assertThat(pluginRegistry.disabledPlugins()).extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder("gallery", "duplicate");
@@ -110,9 +109,8 @@ class FeaturePluginsDisabledContextTest {
     }
 
     @Test
-    @DisplayName("禁用上述插件不影响 novel / 计划任务宿主托管 Bean")
+    @DisplayName("禁用上述插件不影响 novel 托管 Bean")
     void unrelatedPluginsUnaffected() {
         assertThat(context.getBeanNamesForType(NovelGalleryController.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(ScheduleRunner.class)).hasSize(1);
     }
 }

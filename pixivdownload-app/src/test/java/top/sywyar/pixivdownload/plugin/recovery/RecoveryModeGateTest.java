@@ -17,8 +17,11 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
@@ -74,16 +77,40 @@ class RecoveryModeGateTest {
     /** 正常运行（download-workbench 在场）的 gate。 */
     private RecoveryModeGate operationalGate() {
         RecoveryModeService service = recoveryService(
-                new TestPlugin("core", PluginKind.CORE), new TestPlugin("download-workbench"));
+                startedDownloadWorkbenchInventory(), new TestPlugin("core", PluginKind.CORE));
         assertThat(service.isActive()).isFalse();
         return new RecoveryModeGate(service, localeResolver, messages);
     }
 
     private static RecoveryModeService recoveryService(PixivFeaturePlugin... plugins) {
+        return recoveryService(PluginInventory.empty(), plugins);
+    }
+
+    private static RecoveryModeService recoveryService(PluginInventory inventory, PixivFeaturePlugin... plugins) {
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(DW_REQUIRED));
-        PluginRegistry registry = new PluginRegistry(List.of(plugins), new PluginToggleProperties());
+        PluginRegistry registry = new PluginRegistry(
+                List.of(plugins), new PluginToggleProperties(), inventory.toDiscoveryResult());
         return new RecoveryModeService(
-                new PluginStatusService(registry, PluginInventory.empty(), policy), policy);
+                new PluginStatusService(registry, inventory, policy), policy);
+    }
+
+    private static PluginInventory startedDownloadWorkbenchInventory() {
+        TestPlugin plugin = new TestPlugin("download-workbench");
+        PluginDescriptor descriptor = new PluginDescriptor(
+                "download-workbench",
+                "download-workbench",
+                "1.0.0",
+                PluginApiRequirement.of(1, 0),
+                List.of(),
+                "top.sywyar.pixivdownload.download.DownloadWorkbenchPf4jPlugin",
+                plugin.displayNamespace(),
+                plugin.displayName(),
+                plugin.description(),
+                plugin.iconKey(),
+                plugin.colorToken(),
+                plugin.kind());
+        return new PluginInventory(List.of(new PluginInstallation(
+                descriptor, PluginStatus.STARTED, RecoveryModeGateTest.class.getClassLoader(), plugin)), List.of());
     }
 
     @ParameterizedTest

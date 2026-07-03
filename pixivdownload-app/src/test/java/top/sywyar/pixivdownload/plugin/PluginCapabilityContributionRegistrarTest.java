@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionReg
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PluginCapabilityContributionAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PushChannelCapabilityAdapter;
 import top.sywyar.pixivdownload.push.PushChannel;
-import top.sywyar.pixivdownload.push.PushChannelRegistry;
+import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;

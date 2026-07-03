@@ -5,9 +5,12 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeDecision;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
@@ -27,9 +30,15 @@ class RecoveryModeServiceTest {
                     false, "plugin.recovery.missing.download-workbench")));
 
     private static RecoveryModeService service(RequiredPluginPolicy policy, PixivFeaturePlugin... plugins) {
-        PluginRegistry registry = new PluginRegistry(List.of(plugins), new PluginToggleProperties());
+        return service(policy, PluginInventory.empty(), plugins);
+    }
+
+    private static RecoveryModeService service(RequiredPluginPolicy policy, PluginInventory inventory,
+                                               PixivFeaturePlugin... plugins) {
+        PluginRegistry registry = new PluginRegistry(
+                List.of(plugins), new PluginToggleProperties(), inventory.toDiscoveryResult());
         return new RecoveryModeService(
-                new PluginStatusService(registry, PluginInventory.empty(), policy), policy);
+                new PluginStatusService(registry, inventory, policy), policy);
     }
 
     @Test
@@ -45,7 +54,7 @@ class RecoveryModeServiceTest {
     @DisplayName("必选下载插件在场且 STARTED：正常运行，不进入恢复模式")
     void presentRequiredPluginIsOperational() {
         RecoveryModeService service = service(POLICY,
-                new TestPlugin("core", PluginKind.CORE), new TestPlugin("download-workbench"));
+                startedDownloadWorkbenchInventory(), new TestPlugin("core", PluginKind.CORE));
 
         assertThat(service.isActive()).isFalse();
         assertThat(service.decision().reasons()).isEmpty();
@@ -67,6 +76,25 @@ class RecoveryModeServiceTest {
                 service(RequiredPluginPolicy.empty(), new TestPlugin("core", PluginKind.CORE));
 
         assertThat(service.isActive()).isFalse();
+    }
+
+    private static PluginInventory startedDownloadWorkbenchInventory() {
+        TestPlugin plugin = new TestPlugin("download-workbench");
+        PluginDescriptor descriptor = new PluginDescriptor(
+                "download-workbench",
+                "download-workbench",
+                "1.0.0",
+                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                List.of(),
+                "top.sywyar.pixivdownload.download.DownloadWorkbenchPf4jPlugin",
+                plugin.displayNamespace(),
+                plugin.displayName(),
+                plugin.description(),
+                plugin.iconKey(),
+                plugin.colorToken(),
+                plugin.kind());
+        return new PluginInventory(List.of(new PluginInstallation(
+                descriptor, PluginStatus.STARTED, RecoveryModeServiceTest.class.getClassLoader(), plugin)), List.of());
     }
 
     private static final class TestPlugin implements PixivFeaturePlugin {

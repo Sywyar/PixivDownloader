@@ -256,7 +256,7 @@ public class GuiLauncher {
         // GUI theme 是首窗前 startup-only 消费者：先取出已启用功能插件，再释放快照，避免重复钉住旧 generation。
         final List<PixivFeaturePlugin> startupThemePlugins = pluginSession.startupDiscovery().discovered().stream()
                 .map(discovered -> discovered.plugin())
-                .filter(plugin -> plugin.required() || pluginSession.enabledSnapshot().isEnabled(plugin.id()))
+                .filter(plugin -> pluginSession.enabledSnapshot().isEnabled(plugin.id()))
                 .toList();
         final GuiConfigContributionSnapshot guiConfigContributions = buildGuiConfigContributionSnapshot(pluginSession);
         final GuiWebEntrySnapshot guiWebEntries = buildGuiWebEntrySnapshot(pluginSession);

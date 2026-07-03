@@ -4,9 +4,10 @@
     GitHub Releases of the distribution repo + a curation source.
 
 .DESCRIPTION
-    The manifest is derived from the published release assets, NOT from a local build — so it is correct
+    The manifest is derived from the published release assets, NOT from a local build - so it is correct
     whether or not anything was rebuilt this run (version-gated publishing keeps unchanged plugins' assets
-    untouched, and a rebuilt artifact of the same version can differ byte-wise). For each official plugin:
+    untouched, and a rebuilt artifact of the same version can differ byte-wise). For each official required
+    or optional plugin:
 
       - id / version / requires      : read from the module's source plugin.properties (literal, no build).
       - sha256 / expectedSizeBytes   : computed from the DOWNLOADED published plugin artifact (the real bytes).
@@ -100,9 +101,9 @@ function Read-SourceDescriptor([string]$module) {
 }
 
 $curation = Read-Json $CurationFile
-$plugins = @(Get-OfficialOptionalPlugins)
+$plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 
-# 拉取仓库中已发布的旧 manifest，用于跨版本累积下载量（previousDownloadCount）。
+# Fetch the previously published manifest to preserve cumulative download counts.
 $existingManifestUrl = "https://raw.githubusercontent.com/$Repo/master/manifest.json"
 $prevByPlugin = @{}
 try {
@@ -125,7 +126,7 @@ try {
         Write-Host "  No existing manifest found (first run), all previousDownloadCount start at 0."
     }
 } catch {
-    Write-Host "  Could not fetch existing manifest: $_ — all previousDownloadCount start at 0."
+    Write-Host "  Could not fetch existing manifest: $_ - all previousDownloadCount start at 0."
 }
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("market-manifest-" + [Guid]::NewGuid().ToString("N"))
@@ -157,15 +158,16 @@ try {
         $releasedTime = $rel.publishedAt
         if (-not $releasedTime) { $releasedTime = $nowUtc }
 
-        # 跨版本累积下载量：版本变化时将当前 version downloadCount 累加到 previousDownloadCount；
-        # 版本未变则保持旧值；新插件（首次编译）从 0 起计。
+        # Cumulative download count: when the plugin version changes, fold the previous version's
+        # download count into previousDownloadCount; unchanged versions keep the previous value.
+        # New plugins start at 0.
         $prev = $prevByPlugin[$id]
         if ($prev) {
             if ($prev.version -and $prev.version -ne $tag) {
-                # 版本变化：累加上一个版本的 downloadCount + previousDownloadCount
+                # Version changed: accumulate the previous version's downloadCount + previousDownloadCount.
                 $previousDownloadCount = $prev.downloadCount + $prev.previousDownloadCount
             } else {
-                # 版本未变：保持旧 previousDownloadCount
+                # Version unchanged: keep previousDownloadCount.
                 $previousDownloadCount = $prev.previousDownloadCount
             }
         } else {

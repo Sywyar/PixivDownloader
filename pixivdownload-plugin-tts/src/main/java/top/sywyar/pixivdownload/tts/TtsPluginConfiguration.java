@@ -10,11 +10,22 @@ import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.config.DebugConfig;
+import top.sywyar.pixivdownload.core.ai.AiService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
+import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
+import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
+import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteRateLimitSettings;
 import top.sywyar.pixivdownload.tts.controller.TtsController;
+import top.sywyar.pixivdownload.tts.narration.controller.NarrationController;
+import top.sywyar.pixivdownload.tts.narration.controller.NarrationReferenceVoiceController;
+import top.sywyar.pixivdownload.tts.narration.controller.NarrationTtsController;
 import top.sywyar.pixivdownload.tts.narration.engine.CosyVoiceNarrationEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.DoubaoNarrationEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.ElevenLabsNarrationEngine;
@@ -87,6 +98,37 @@ public class TtsPluginConfiguration {
                                        TtsRateLimitService rateLimitService,
                                        @Qualifier("ttsPluginMessages") MessageResolver messages) {
         return new TtsController(edgeTtsClient, voiceService, rateLimitService, messages);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(TtsPlugin.ID)
+    public NarrationController narrationController(NovelNarrationScriptService scriptService,
+                                                   NovelNarrationCastService castService,
+                                                   NarrationReferenceVoiceService referenceVoiceService,
+                                                   NarrationAudioService narrationAudioService,
+                                                   NovelDatabase novelDatabase,
+                                                   AppMessages messages,
+                                                   DebugConfig debugConfig,
+                                                   AiService aiService) {
+        return new NarrationController(scriptService, castService, referenceVoiceService, narrationAudioService,
+                novelDatabase, messages, debugConfig, aiService);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(TtsPlugin.ID)
+    public NarrationTtsController narrationTtsController(NarrationAudioService narrationAudioService,
+                                                         NovelNarrationScriptService narrationScriptService,
+                                                         AppMessages messages) {
+        return new NarrationTtsController(narrationAudioService, narrationScriptService, messages);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(TtsPlugin.ID)
+    public NarrationReferenceVoiceController narrationReferenceVoiceController(
+            NovelNarrationCastService castService,
+            NarrationReferenceVoiceService referenceVoiceService,
+            AppMessages messages) {
+        return new NarrationReferenceVoiceController(castService, referenceVoiceService, messages);
     }
 
     @Bean

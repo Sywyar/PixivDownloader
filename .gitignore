@@ -66,3 +66,5 @@ build/
 /pixivdownload-app/_gui/
 /pixivdownload-app/_tts/
 /plugins/
+/pixivdownload-plugin-download-workbench/log/
+/pixivdownload-plugin-tts/log/

@@ -31,18 +31,11 @@ class UserscriptRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集油猴脚本来源（唯下载工作台插件声明一条）")
+    @DisplayName("core-only 内置插件清单不收集油猴脚本来源")
     void collectsFromBuiltInPlugins() {
         UserscriptRegistry registry =
                 new UserscriptRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        assertThat(registry.userscripts())
-                .singleElement()
-                .satisfies(registered -> {
-                    assertThat(registered.pluginId()).isEqualTo("download-workbench");
-                    assertThat(registered.contribution().classpathPattern())
-                            .isEqualTo("classpath:/static/userscripts/*.user.js");
-                    assertThat(registered.classLoader()).isNotNull();
-                });
+        assertThat(registry.userscripts()).isEmpty();
     }
 
     @Test

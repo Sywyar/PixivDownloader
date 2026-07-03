@@ -135,6 +135,11 @@ function Invoke-External {
 }
 
 function Get-BuiltJar {
+    $bootCandidate = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app\target\PixivDownload-*-boot.jar") -File
+    if ($bootCandidate) {
+        return ($bootCandidate | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+    }
+
     $jar = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app\target\PixivDownload-*.jar") -File |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
@@ -183,8 +188,7 @@ function Resolve-PrebuiltPluginsDir {
 }
 
 function Stage-OfficialPlugins {
-    # Stage the official optional external plugin artifacts into <AppDir>\plugins so the portable zip
-    # and the installer (which copy the whole app-image) carry the "full offline" plugins/ layout.
+    # Stage the requested official external plugin artifacts into <AppDir>\plugins.
     # Each artifact is shape-checked and copied under a STABLE, version-less name (<module>.<ext>): an in-place
     # installer upgrade then overwrites only that exact path (the existing [Files] ignoreversion flag)
     # and never leaves a stale duplicate, while third-party plugin artifacts under plugins/ - any other name -
@@ -192,6 +196,7 @@ function Stage-OfficialPlugins {
     # plugin.version (read from plugin.properties) is recorded in plugins-manifest.json.
     param(
         [Parameter(Mandatory = $true)][string]$AppDir,
+        [Parameter(Mandatory = $true)]$Plugins,
         [string]$PrebuiltPluginsDir,
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
         [Parameter(Mandatory = $true)][string]$OfficialKeyId,
@@ -203,7 +208,8 @@ function Stage-OfficialPlugins {
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     $manifest = @()
     $sumLines = @()
-    foreach ($plugin in (Get-OfficialOptionalPlugins)) {
+    $requiredPluginIds = @(Get-OfficialRequiredPlugins | ForEach-Object { $_.Id })
+    foreach ($plugin in $Plugins) {
         $extension = Get-OfficialPluginArtifactExtension $plugin
         if ($PrebuiltPluginsDir) {
             $candidate = Get-ChildItem (Join-Path $PrebuiltPluginsDir "$($plugin.Module)-*.$extension") -File -ErrorAction SilentlyContinue |
@@ -232,6 +238,7 @@ function Stage-OfficialPlugins {
             id       = $plugin.Id
             version  = $descriptor["plugin.version"]
             requires = $descriptor["plugin.requires"]
+            required = ($requiredPluginIds -contains $plugin.Id)
             file     = $stableName
             sha256   = $sha
             signature = $signature
@@ -382,19 +389,19 @@ try {
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
 
-    # Stage the official optional external plugins into the (online) app-image plugins/ folder before
-    # packaging. Both the offline app-image (a copy of the online one) and the installer (which copies
-    # the whole app-image via the [Files] section) inherit plugins/ from here - one staging step feeds
-    # all three outputs. The download workbench is a built-in required plugin inside the boot jar, so
-    # the base download workflow works even with -SkipPlugins (no bundled optional plugins).
+    # Stage the required external plugins into the (online) app-image plugins/ folder before packaging.
+    # The online portable and installer are the default downloader package: core shell + required
+    # download-workbench. The offline app-image later adds optional plugins to become full-offline.
     if (-not $SkipPlugins) {
-        Write-Step "Staging official optional external plugins into app-image plugins/"
-        $stagedCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
+        Write-Step "Staging official required external plugins into app-image plugins/"
+        $requiredPlugins = @(Get-OfficialRequiredPlugins)
+        $requiredCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -Plugins $requiredPlugins `
+            -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
             -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
             -SignatureToolJar $SignatureToolJar
-        Write-Host ("    {0} official optional plugin(s) staged under plugins/ (full-offline current form)." -f $stagedCount) -ForegroundColor Green
+        Write-Host ("    {0} official required plugin(s) staged under plugins/ (default downloader)." -f $requiredCount) -ForegroundColor Green
     } else {
-        Write-Step "Skipping optional plugin staging (-SkipPlugins): default downloader without bundled plugins"
+        Write-Step "Skipping plugin staging (-SkipPlugins): core shell only; required plugin missing triggers recovery"
     }
 
     if (-not $SkipPortable) {
@@ -408,6 +415,15 @@ try {
         Write-Step "Building offline app-image"
         Ensure-Directory $OfflineAppImageRoot
         Copy-Item $OnlineAppDir $OfflineAppImageRoot -Recurse -Force
+        if (-not $SkipPlugins) {
+            Write-Step "Staging official required + optional external plugins into offline app-image plugins/"
+            $fullOfflinePlugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
+            $fullOfflineCount = Stage-OfficialPlugins -AppDir $OfflineAppDir -Plugins $fullOfflinePlugins `
+                -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
+                -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
+                -SignatureToolJar $SignatureToolJar
+            Write-Host ("    {0} official plugin(s) staged under plugins/ (full-offline)." -f $fullOfflineCount) -ForegroundColor Green
+        }
         $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
         $offlineFfmpegLicenseDir = Join-Path $offlineFfmpegDir "licenses"
         Ensure-Directory $offlineFfmpegLicenseDir
@@ -448,9 +464,9 @@ try {
     }
     Write-Host "App dir       : $OnlineAppDir"
     if (-not $SkipPlugins) {
-        Write-Host "Plugins       : official optional plugins bundled under plugins/ (full-offline current form)"
+        Write-Host "Plugins       : required plugins in default package; optional plugins only in full-offline portable"
     } else {
-        Write-Host "Plugins       : none bundled (-SkipPlugins; default downloader works without optional plugins)"
+        Write-Host "Plugins       : none bundled (-SkipPlugins; core shell recovery package)"
     }
     if ($MsiCultures -or $MsiVariants) {
         Write-Host "Note: MSI options are retained for compatibility and are ignored by the Inno Setup flow."

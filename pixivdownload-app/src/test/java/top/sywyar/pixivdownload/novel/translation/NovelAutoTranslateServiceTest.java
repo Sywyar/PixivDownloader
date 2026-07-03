@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.translation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.ai.AiService;
+import top.sywyar.pixivdownload.core.ai.AiService;
 
 import java.time.Duration;
 

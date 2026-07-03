@@ -8,8 +8,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.gallery.GalleryController;
 import top.sywyar.pixivdownload.novel.NovelBatchService;
 import top.sywyar.pixivdownload.novel.NovelGalleryService;
@@ -19,7 +17,6 @@ import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
 import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.schedule.ScheduleRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
@@ -31,7 +28,7 @@ import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 /**
  * 禁用语义（真实 Spring 上下文）：{@code plugins.novel.enabled=false} 时，小说插件托管业务 Bean 缺席、
- * 小说作品类型执行器解析为空、小说贡献不注册，但插件 descriptor 仍在安装集合、受管 schema 不变，且其它插件
+ * 小说作品类型执行器缺席、小说贡献不注册，但插件 descriptor 仍在安装集合、受管 schema 不变，且其它插件
  * （含核心下载链路 Hash 写入）不受影响。
  */
 @SpringBootTest(properties = {
@@ -61,8 +58,6 @@ class NovelPluginDisabledContextTest {
     private ApplicationContext context;
     @Autowired
     private PluginRegistry pluginRegistry;
-    @Autowired
-    private ScheduledWorkRunnerRegistry workRunnerRegistry;
     @Autowired
     private NavigationRegistry navigationRegistry;
     @Autowired
@@ -95,13 +90,6 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("作品类型执行器：novel 解析为空、illust 仍在场")
-    void novelWorkRunnerAbsentIllustPresent() {
-        assertThat(workRunnerRegistry.resolve(ScheduledWorkKind.NOVEL)).isEmpty();
-        assertThat(workRunnerRegistry.resolve(ScheduledWorkKind.ILLUST)).isPresent();
-    }
-
-    @Test
     @DisplayName("小说贡献不注册：导航 / 路由 / 队列类型 / UI 槽位缺席，新旧小说下载 URL 未声明（运行期 404）")
     void novelContributionsAbsent() {
         assertThat(navigationRegistry.navigation())
@@ -120,9 +108,8 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("禁用 novel 不影响其它插件：计划任务宿主 / 画廊 Bean 在场，核心 Hash 写入接缝在场")
+    @DisplayName("禁用 novel 不影响其它插件：画廊 Bean 在场，核心 Hash 写入接缝在场")
     void otherPluginsUnaffected() {
-        assertThat(context.getBeanNamesForType(ScheduleRunner.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(GalleryController.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(ArtworkHashService.class)).hasSize(1);
     }

@@ -23,10 +23,13 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,8 +38,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 固化为可重复的自动化检查，供分发 / 打包流程依赖。三条互补验证：
  * <ol>
  *   <li><b>boot jar 不含外置插件类与资源</b>——经「运行期类路径不可加载」实证：app 模块测试运行期的类路径即 boot jar
- *       的 {@code BOOT-INF/classes} + {@code BOOT-INF/lib}（去掉 test 作用域），故外置插件 {@code stats} /
- *       {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言内置下载工作台插件类、
+ *       的 {@code BOOT-INF/classes} + {@code BOOT-INF/lib}（去掉 test 作用域），故外置插件 {@code download-workbench} /
+ *       {@code stats} / {@code recovery-sentinel} 的类不可加载，即可证明它们不在 boot jar 内；同时正向断言
  *       宿主 PF4J 运行时可加载、核心静态资源在位（非空泛断言）；外置插件的静态资源 / i18n 经核心壳 classloader 解析不到。</li>
  *   <li><b>{@code stats} 以 thin 外置插件形态打包</b>——其构建产物根部含 {@code plugin.properties} + 外置主类，
  *       且不泄漏共享契约 / 宿主类；若 Maven 已产出真实插件 jar，再断言 jar 内无 {@code BOOT-INF/}、无打入的
@@ -57,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("插件分发打包边界：boot jar 不含外置插件类、外置插件独立产物形态")
 class DistributionPackagingBoundaryTest {
 
+    private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
     private static final String NOTIFICATION_CLASSES_PROPERTY = "notification.plugin.classes";
     private static final String PUSH_CLASSES_PROPERTY = "push.plugin.classes";
@@ -68,19 +72,21 @@ class DistributionPackagingBoundaryTest {
     private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
 
     @Test
-    @DisplayName("boot jar 运行期类路径含内置下载工作台与宿主 PF4J，但不含外置插件 stats / recovery-sentinel 的类与资源")
+    @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置 download-workbench / stats / recovery-sentinel 的类与资源")
     void bootJarExcludesExternalPluginClassesAndResources() {
         ClassLoader host = getClass().getClassLoader();
 
-        // 正向（非空泛）：内置下载工作台插件随 boot jar 编译进来、宿主提供 PF4J 运行时、核心静态资源在位。
-        assertThat(canLoad(host, "top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin"))
-                .as("内置下载工作台插件类应在 boot jar 内").isTrue();
+        // 正向（非空泛）：宿主提供 PF4J 运行时、核心静态资源在位。
         assertThat(canLoad(host, "org.pf4j.PluginManager"))
                 .as("宿主应随 boot jar 提供 PF4J 运行时").isTrue();
         assertThat(host.getResource("static/favicon.ico"))
                 .as("核心静态资源应在 boot jar 内").isNotNull();
 
         // 反向：外置插件的主类绝不在核心壳运行期类路径（= boot jar）内。
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.download.DownloadWorkbenchPf4jPlugin"))
+                .as("外置 download-workbench 插件主类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin"))
+                .as("外置 download-workbench 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsPf4jPlugin"))
                 .as("外置 stats 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsPlugin"))
@@ -109,6 +115,16 @@ class DistributionPackagingBoundaryTest {
                 .as("spring-context-support 邮件实现不应在 app boot jar 运行期类路径内").isFalse();
 
         // 外置插件的静态资源 / i18n 只随其自身 thin jar 携带，核心壳 classloader 解析不到。
+        assertThat(host.getResource("static/pixiv-batch.html"))
+                .as("download-workbench 下载页不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-batch/pixiv-batch.css"))
+                .as("download-workbench 下载页静态资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/userscripts/Pixiv 页面批量下载器(Page Scrape).user.js"))
+                .as("download-workbench userscript 不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/batch.properties"))
+                .as("download-workbench i18n 不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/userscript.properties"))
+                .as("download-workbench userscript i18n 不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-stats/pixiv-stats.css"))
                 .as("stats 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/stats.properties"))
@@ -133,6 +149,75 @@ class DistributionPackagingBoundaryTest {
                 .as("push i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("mail/templates/run-summary.html"))
                 .as("mail 模板资源不应在 boot jar 内").isNull();
+    }
+
+    @Test
+    @DisplayName("boot jar 条目黑名单：不含外置插件实现包、静态资源、i18n 与私有依赖")
+    void bootJarEntriesExcludeExternalPluginPayloads() {
+        Path bootJar = locateBootJar();
+        Assumptions.assumeTrue(bootJar != null,
+                "boot jar 尚未生成（需 package 阶段），跳过 jar 条目级边界验证");
+
+        List<String> entries = jarEntryNames(bootJar);
+        List<String> forbiddenPrefixes = List.of(
+                "BOOT-INF/classes/top/sywyar/pixivdownload/ai/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/notification/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/push/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/tts/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/mail/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
+                "BOOT-INF/classes/static/pixiv-batch",
+                "BOOT-INF/classes/static/userscripts/",
+                "BOOT-INF/classes/static/pixiv-stats/",
+                "BOOT-INF/classes/static/pixiv-tts/",
+                "BOOT-INF/classes/static/pixiv-ai/",
+                "BOOT-INF/classes/i18n/web/batch",
+                "BOOT-INF/classes/i18n/web/userscript",
+                "BOOT-INF/classes/i18n/web/stats",
+                "BOOT-INF/classes/i18n/web/gui-theme",
+                "BOOT-INF/classes/i18n/web/notification",
+                "BOOT-INF/classes/i18n/web/push",
+                "BOOT-INF/classes/i18n/web/mail",
+                "BOOT-INF/classes/i18n/web/tts",
+                "BOOT-INF/classes/i18n/web/ai",
+                "BOOT-INF/classes/i18n/web/translate",
+                "BOOT-INF/classes/i18n/mail/",
+                "BOOT-INF/classes/i18n/push/",
+                "BOOT-INF/classes/i18n/tts/",
+                "BOOT-INF/classes/i18n/ai/",
+                "BOOT-INF/classes/mail/templates/");
+        for (String prefix : forbiddenPrefixes) {
+            assertThat(entries)
+                    .as("boot jar must not contain external plugin payload prefix " + prefix)
+                    .noneMatch(name -> name.startsWith(prefix));
+        }
+
+        List<String> forbiddenLibPatterns = List.of(
+                "BOOT-INF/lib/flatlaf-[^/]+\\.jar",
+                "BOOT-INF/lib/flatlaf-intellij-themes-[^/]+\\.jar",
+                "BOOT-INF/lib/jna-[^/]+\\.jar",
+                "BOOT-INF/lib/jna-platform-[^/]+\\.jar",
+                "BOOT-INF/lib/jakarta\\.mail-[^/]+\\.jar",
+                "BOOT-INF/lib/jakarta\\.activation-api-[^/]+\\.jar",
+                "BOOT-INF/lib/angus-[^/]+\\.jar",
+                "BOOT-INF/lib/spring-context-support-[^/]+\\.jar");
+        for (String pattern : forbiddenLibPatterns) {
+            assertThat(entries)
+                    .as("boot jar must not contain external plugin private dependency " + pattern)
+                    .noneMatch(name -> name.matches(pattern));
+        }
+    }
+
+    @Test
+    @DisplayName("download-workbench 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void downloadWorkbenchPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(DOWNLOAD_WORKBENCH_CLASSES_PROPERTY, "pixivdownload-plugin-download-workbench",
+                "top/sywyar/pixivdownload/download/DownloadWorkbenchPf4jPlugin.class");
     }
 
     @Test
@@ -309,6 +394,67 @@ class DistributionPackagingBoundaryTest {
     private static Path locateConfiguredDir(String property) {
         String configured = System.getProperty(property);
         return (configured == null || configured.isBlank()) ? null : Path.of(configured);
+    }
+
+    private static Path locateBootJar() {
+        Path repoRoot = locateRepoRoot();
+        Path targetDir = repoRoot.resolve("pixivdownload-app").resolve("target");
+        if (!Files.isDirectory(targetDir)) {
+            return null;
+        }
+        try (Stream<Path> stream = Files.list(targetDir)) {
+            return stream.filter(candidate -> Files.isRegularFile(candidate)
+                            && candidate.getFileName().toString().matches("PixivDownload-.*-boot\\.jar"))
+                    .sorted(Comparator.comparing(DistributionPackagingBoundaryTest::lastModified).reversed())
+                    .filter(candidate -> isFreshBootJar(candidate, repoRoot))
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException ignored) {
+            // jar may not exist in test phase.
+        }
+        return null;
+    }
+
+    private static boolean isFreshBootJar(Path candidate, Path repoRoot) {
+        try {
+            FileTime jarTime = Files.getLastModifiedTime(candidate);
+            return !hasNewerFile(repoRoot.resolve("pixivdownload-app").resolve("src").resolve("main").resolve("java"),
+                    jarTime)
+                    && !hasNewerFile(repoRoot.resolve("pixivdownload-app").resolve("src").resolve("main")
+                    .resolve("resources"), jarTime);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static boolean hasNewerFile(Path root, FileTime jarTime) throws IOException {
+        if (!Files.isDirectory(root)) {
+            return false;
+        }
+        try (Stream<Path> stream = Files.walk(root)) {
+            return stream.filter(Files::isRegularFile)
+                    .anyMatch(path -> lastModified(path).compareTo(jarTime) > 0);
+        }
+    }
+
+    private static FileTime lastModified(Path path) {
+        try {
+            return Files.getLastModifiedTime(path);
+        } catch (IOException e) {
+            return FileTime.fromMillis(0);
+        }
+    }
+
+    private static Path locateRepoRoot() {
+        Path current = Path.of("").toAbsolutePath();
+        while (current != null) {
+            if (Files.isDirectory(current.resolve("pixivdownload-app"))
+                    && Files.isDirectory(current.resolve("scripts"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("无法定位仓库根目录");
     }
 
     private static Path locateConfiguredGuiThemeJar(Path classesDir) {

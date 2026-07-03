@@ -16,7 +16,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.support.TransactionOperations;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.download.db.PathPrefixStartupMigration;
+import top.sywyar.pixivdownload.core.download.db.PathPrefixStartupMigration;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 

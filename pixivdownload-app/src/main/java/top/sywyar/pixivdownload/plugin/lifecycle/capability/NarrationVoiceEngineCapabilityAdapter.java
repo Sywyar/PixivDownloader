@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.lifecycle.capability;
 
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.tts.narration.engine.NarrationEngineRegistry;
+import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
 
 import java.util.List;

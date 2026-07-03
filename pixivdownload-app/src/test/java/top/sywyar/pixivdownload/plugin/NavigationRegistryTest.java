@@ -31,13 +31,13 @@ class NavigationRegistryTest {
     void collectsNavigationFromBuiltInPlugins() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
-        // 下载工作台 / 监控 / 邀请码管理 / 插件管理 / 插件市场（基础 + 管理）+ 画廊主入口及其类型切换 / 统计页视图三链
+        // 监控 / 邀请码管理 / 插件管理 / 插件市场（基础 + 管理）+ 画廊主入口及其类型切换 / 统计页视图三链
         // + 小说主入口及其类型切换 + 疑似重复。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 已外置，
-        // 其导航项经外置插件 contribution 注册、不在内置清单。
+        // download-workbench / stats 导航项经外置插件 contribution 注册、不在内置清单。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
                 .containsExactlyInAnyOrder(
-                        "download-workbench", "monitor", "invite-manage", "plugin-manage", "plugin-market",
+                        "monitor", "invite-manage", "plugin-manage", "plugin-market",
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "gallery-gui-open", "gallery-invite-manage-back",
@@ -73,16 +73,6 @@ class NavigationRegistryTest {
                     assertThat(registered.navigation().labelI18nKey()).isEqualTo("invite.manage.back");
                     assertThat(registered.navigation().href()).isEqualTo("/pixiv-gallery.html?view=all");
                     assertThat(registered.navigation().placements()).containsExactly("invite.manage.back");
-                });
-        // 下载工作台导航：VISITOR（访客 / 管理员可见、受邀访客不可见），归 download-workbench 插件，进顶部栏 + 中立主侧栏 + 两家族侧栏。
-        assertThat(registry.navigation())
-                .filteredOn(registered -> registered.navigation().id().equals("download-workbench"))
-                .singleElement()
-                .satisfies(registered -> {
-                    assertThat(registered.pluginId()).isEqualTo("download-workbench");
-                    assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.VISITOR);
-                    assertThat(registered.navigation().placements())
-                            .containsExactlyInAnyOrder("app.top", "app.sidebar", "gallery.sidebar", "novel.sidebar");
                 });
         // 监控 / 邀请码管理 / 插件管理导航归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement，
         // 插件管理只进顶部栏 placement（app.top）、不进侧栏。

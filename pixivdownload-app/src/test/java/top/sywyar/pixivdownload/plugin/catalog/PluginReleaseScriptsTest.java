@@ -103,6 +103,10 @@ class PluginReleaseScriptsTest {
         String common = script("plugin-distribution-common.ps1");
 
         assertThat(common).contains(
+                "function Get-OfficialRequiredPlugins",
+                "Id = \"download-workbench\"",
+                "Module = \"pixivdownload-plugin-download-workbench\"",
+                "function Get-OfficialDistributionPlugins",
                 "Format = \"jar\"",
                 "PrivateLibs = $true",
                 "PrivateLibs = $false",
@@ -120,12 +124,13 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场策展文件覆盖所有官方可选插件的展示字段")
-    void marketCurationCoversOfficialOptionalPlugins() throws Exception {
+    @DisplayName("市场策展文件覆盖所有官方 required/optional 插件的展示字段")
+    void marketCurationCoversOfficialDistributionPlugins() throws Exception {
         String common = script("plugin-distribution-common.ps1");
         JsonNode curation = new ObjectMapper().readTree(repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
-        Set<String> officialPluginIds = officialOptionalPluginIds(common);
+        Set<String> officialPluginIds = officialDistributionPluginIds(common);
 
+        assertThat(officialPluginIds).contains("download-workbench");
         assertThat(officialPluginIds).contains("notification");
         for (String pluginId : officialPluginIds) {
             JsonNode entry = curation.get(pluginId);
@@ -172,6 +177,10 @@ class PluginReleaseScriptsTest {
                     "signature = $signature"
             );
         }
+        assertThat(distribution).contains(
+                "[switch]$DefaultDownloader",
+                "Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader)",
+                "CoreShellOnly and DefaultDownloader cannot be combined.");
     }
 
     @Test
@@ -180,6 +189,12 @@ class PluginReleaseScriptsTest {
         String distribution = script("assemble-plugin-distribution.ps1");
 
         assertThat(distribution).contains(
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/ai/\"",
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/notification/\"",
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/push/\"",
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/tts/\"",
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/download/\"",
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/schedule/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/\"",
                 "\"BOOT-INF/classes/i18n/web/notification\""
         );
@@ -216,6 +231,80 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("release/nightly 工作流只上传已验证的可执行 boot jar，避免普通 jar 混入安装器")
+    void releaseWorkflowsUploadOnlyStagedExecutableBootJar() throws Exception {
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+
+            assertThat(workflow).as(name).contains(
+                    "Stage executable JAR",
+                    "build/release-jars",
+                    "jar tf \"$OUTPUT_JAR\" | grep -q '^BOOT-INF/'",
+                    "path: build/release-jars/*.jar",
+                    "$jars = @(Get-ChildItem artifacts/jar/PixivDownload-*.jar -File)",
+                    "$jars.Count -ne 1",
+                    "$jar = $jars[0]");
+            assertThat(workflow).as(name).doesNotContain("path: pixivdownload-app/target/PixivDownload-*.jar");
+            assertThat(workflow).as(name).doesNotContain("PixivDownload-*-boot.jar -File | Select-Object -First 1");
+        }
+    }
+
+    @Test
+    @DisplayName("release/nightly 工作流发布签名分发布局而不是裸插件 jar")
+    void releaseWorkflowsPublishSignedPluginDistributions() throws Exception {
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+
+            assertThat(workflow).as(name).contains(
+                    "Prepare plugin signing private key",
+                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                    "Assemble plugin distributions",
+                    "-CoreShellOnly",
+                    "-DefaultDownloader",
+                    "full-offline",
+                    "name: plugin-distributions",
+                    "path: build/plugin-distributions/PixivDownload-*.zip",
+                    "path: artifacts/plugin-distributions",
+                    "artifacts/plugin-distributions/*.zip",
+                    "name: plugin-inputs",
+                    "path: build/plugin-inputs/*.jar",
+                    "path: artifacts/plugin-inputs",
+                    "default-downloader.zip",
+                    "full-offline.zip",
+                    "plugins-manifest.json");
+            assertThat(workflow).as(name).doesNotContain(
+                    "artifacts/plugins/*.jar",
+                    "name: plugins",
+                    "path: build/release-plugins/*.jar",
+                    "build/release-plugins",
+                    "Release 附件中的 `pixivdownload-plugin-download-workbench-*.jar`",
+                    "同一 Nightly 附件中的 `pixivdownload-plugin-download-workbench-*.jar`");
+        }
+    }
+
+    @Test
+    @DisplayName("Dockerfile 只从签名 default 分发布局复制 required 插件")
+    void dockerfileCopiesSignedDefaultDistribution() throws Exception {
+        String dockerfile = dockerfile();
+
+        assertThat(dockerfile).contains(
+                "ARG PIXIVDOWNLOADER_DISTRIBUTION=build/dist/default-downloader",
+                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar",
+                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/",
+                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json",
+                "COPY ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS",
+                "pixivdownload-plugin-download-workbench-*.jar",
+                "test -f \"$required_plugin.sha256\"",
+                "test -f \"$required_plugin.sig\"",
+                "plugins/provenance/$(basename \"$required_plugin\").pixiv-plugin-provenance");
+        assertThat(dockerfile).doesNotContain(
+                "/build/pixivdownload-plugin-download-workbench/target",
+                "COPY --from=builder /build/pixivdownload-plugin-download-workbench",
+                "mvn -B -DskipTests package",
+                "COPY . .");
+    }
+
+    @Test
     @DisplayName("发布脚本不携带私钥材料，也不把私钥写入产物")
     void scriptsDoNotEmbedOrWritePrivateKeyMaterial() throws Exception {
         for (String name : List.of(
@@ -241,21 +330,23 @@ class PluginReleaseScriptsTest {
                 StandardCharsets.UTF_8);
     }
 
+    private static String dockerfile() throws IOException {
+        return Files.readString(repoRoot().resolve("Dockerfile"), StandardCharsets.UTF_8);
+    }
+
     private static String pluginDescriptor(String module) throws IOException {
         return Files.readString(repoRoot().resolve(module).resolve("src/main/resources/plugin.properties"),
                 StandardCharsets.UTF_8);
     }
 
-    private static Set<String> officialOptionalPluginIds(String common) {
-        int start = common.indexOf("$plugins = @(");
-        int end = common.indexOf("if ($IncludeSentinel)", start);
-        assertThat(start).as("official plugin list start").isGreaterThanOrEqualTo(0);
-        assertThat(end).as("official plugin list end").isGreaterThan(start);
-
-        Matcher matcher = Pattern.compile("Id\\s*=\\s*\"([^\"]+)\"").matcher(common.substring(start, end));
+    private static Set<String> officialDistributionPluginIds(String common) {
+        Matcher matcher = Pattern.compile("Id\\s*=\\s*\"([^\"]+)\"").matcher(common);
         Set<String> ids = new LinkedHashSet<>();
         while (matcher.find()) {
-            ids.add(matcher.group(1));
+            String id = matcher.group(1);
+            if (!"recovery-sentinel".equals(id)) {
+                ids.add(id);
+            }
         }
         assertThat(ids).as("official plugin ids").isNotEmpty();
         return ids;

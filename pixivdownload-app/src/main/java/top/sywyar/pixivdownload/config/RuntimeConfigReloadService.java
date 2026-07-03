@@ -12,13 +12,13 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
-import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.core.notification.NotificationConfig;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
-import top.sywyar.pixivdownload.tts.narration.engine.NarrationTtsConfig;
+import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;

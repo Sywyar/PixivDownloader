@@ -181,14 +181,14 @@ class StatsExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("双来源 PluginRegistry Bean：七内置 + 外置 stats，stats 来源 EXTERNAL、classloader 为外置插件 loader")
+    @DisplayName("双来源 PluginRegistry Bean：五内置 + 外置 stats，stats 来源 EXTERNAL、classloader 为外置插件 loader")
     void pluginRegistryBeanContainsStatsAsExternal() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder(
-                        "core", "download-workbench", "schedule", "gallery", "novel", "duplicate", "plugin-market", "stats");
+                        "core", "gallery", "novel", "duplicate", "plugin-market", "stats");
         assertThat(pluginRegistry.source("stats")).contains(PluginSource.EXTERNAL);
         assertThat(externalStatsClassLoader()).isNotSameAs(getClass().getClassLoader());
-        // 内置七插件来源仍为内置（外置接入不改内置语义）。
+        // 内置插件来源仍为内置（外置接入不改内置语义）。
         assertThat(pluginRegistry.registeredPlugins())
                 .filteredOn(rp -> !rp.id().equals("stats"))
                 .allSatisfy(rp -> assertThat(rp.source()).isEqualTo(PluginSource.BUILT_IN));

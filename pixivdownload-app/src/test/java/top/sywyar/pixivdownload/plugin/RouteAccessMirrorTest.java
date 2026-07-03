@@ -177,16 +177,13 @@ class RouteAccessMirrorTest {
     @Test
     @DisplayName("代表性内置路由的归属插件与访问策略符合预期（防误改策略 / 归属，覆盖每种策略 + 新声明 URL）")
     void representativeRoutesHaveExpectedOwnerAndPolicy() {
-        // 核心声明：下载域数据 / 图片字节 / 状态 / 代理 / 公开与共享静态 / 本地放行特例 / 横切 API
+        // 核心声明：下载历史与本地资产 / 公开与共享静态 / 本地放行特例 / 横切 API。
+        // 下载工作台已外置；提交、队列、状态、Pixiv 抓取代理、SSE、userscript 入口不在 core-only 快照中。
         assertOwnerPolicy("/api/downloaded/batch", "core", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/downloaded/statistics", "core", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/downloaded/image/**", "core", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/authors**", "core", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/collections**", "core", AccessPolicy.INVITED_GUEST);
-        assertOwnerPolicy("/api/download/status/active", "core", AccessPolicy.INVITED_GUEST);
-        assertOwnerPolicy("/api/download/status/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
-        assertOwnerPolicy("/api/download/status", "core", AccessPolicy.LOCAL);
-        assertOwnerPolicy("/api/pixiv/artwork/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         // 插件管理后端 API：状态查询 + 外置插件运行期生命周期动词，仅管理员（admin-only）。
         assertOwnerPolicy("/api/plugins/**", "core", AccessPolicy.ADMIN);
         assertOwnerPolicy("/js/pixiv-side-modules.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
@@ -207,7 +204,6 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/drilldowns", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/quota/**", "core", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/archive/**", "core", AccessPolicy.VISITOR);
-        assertOwnerPolicy("/api/pixiv/me/**", "core", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/setup/**", "core", AccessPolicy.VISITOR);
         assertOwnerPolicy("/js/**", "core", AccessPolicy.VISITOR);
         assertOwnerPolicy("/vendor/**", "core", AccessPolicy.VISITOR);
@@ -225,6 +221,9 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/gallery/novels", "novel", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/pixiv/novel/**", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/pixiv/novel-search**", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/pixiv/user/*/novels", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/pixiv/user/*/novel-cards", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/pixiv/me/novel-bookmarks", "novel", AccessPolicy.VISITOR);
         // 小说下载端点归小说插件、新址 + 旧址兼容垫片一律 VISITOR（复刻 /api/download/pixiv 现状）。
         assertOwnerPolicy("/api/novel/download", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/status/**", "novel", AccessPolicy.VISITOR);
@@ -239,14 +238,23 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/plugin-market.html", "plugin-market", AccessPolicy.ADMIN);
         assertOwnerPolicy("/plugin-market/**", "plugin-market", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/plugin-market/**", "plugin-market", AccessPolicy.ADMIN);
-        // 计划任务宿主：计划任务管理 API（仅管理员），归 schedule 宿主插件声明。
-        assertOwnerPolicy("/api/schedule/**", "schedule", AccessPolicy.ADMIN);
-        // 下载工作台：下载页 / 提交 / 队列 / 扩展点（VISITOR，复刻未声明现状）。
-        assertOwnerPolicy("/api/download/extensions", "download-workbench", AccessPolicy.VISITOR);
-        assertOwnerPolicy("/pixiv-batch.html", "download-workbench", AccessPolicy.VISITOR);
-        assertOwnerPolicy("/pixiv-batch/**", "download-workbench", AccessPolicy.VISITOR);
-        assertOwnerPolicy("/api/download/pixiv", "download-workbench", AccessPolicy.VISITOR);
-        assertOwnerPolicy("/api/batch/**", "download-workbench", AccessPolicy.VISITOR);
+        // 外置 required download-workbench 缺席时，core-only 快照不得声明下载工作台 / 计划任务宿主 URL。
+        assertRouteAbsent("/api/schedule/**");
+        assertRouteAbsent("/api/download/extensions");
+        assertRouteAbsent("/pixiv-batch.html");
+        assertRouteAbsent("/pixiv-batch/**");
+        assertRouteAbsent("/api/download/pixiv");
+        assertRouteAbsent("/api/batch/**");
+        assertRouteAbsent("/api/download/status/active");
+        assertRouteAbsent("/api/download/status/**");
+        assertRouteAbsent("/api/download/status");
+        assertRouteAbsent("/api/pixiv/artwork/**");
+        assertRouteAbsent("/api/pixiv/user/**");
+        assertRouteAbsent("/api/pixiv/search**");
+        assertRouteAbsent("/api/pixiv/series/**");
+        assertRouteAbsent("/api/pixiv/me/**");
+        assertRouteAbsent("/api/scripts**");
+        assertRouteAbsent("/api/sse/**");
     }
 
     private static List<WebRouteContribution> byPolicy(AccessPolicy policy) {
@@ -264,5 +272,13 @@ class RouteAccessMirrorTest {
                     assertThat(registered.route().pathPattern()).isEqualTo(pattern);
                     assertThat(registered.route().accessPolicy()).isEqualTo(policy);
                 });
+    }
+
+    private static void assertRouteAbsent(String pattern) {
+        assertThat(REGISTRY.routes().stream()
+                .map(registered -> registered.route().pathPattern())
+                .toList())
+                .as("core-only 内置快照不应声明外置下载工作台路由 %s", pattern)
+                .doesNotContain(pattern);
     }
 }

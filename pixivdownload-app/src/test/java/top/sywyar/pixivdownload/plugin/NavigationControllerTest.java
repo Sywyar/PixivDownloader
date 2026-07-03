@@ -154,19 +154,19 @@ class NavigationControllerTest {
     // ========== 来源层级 + placement 内 priority 排序 ==========
 
     @Test
-    @DisplayName("管理员的 app.top placement 顺序：下载工作台、监控、画廊、小说、疑似重复、插件管理、插件市场（自带基础页面在前、管理入口在末；stats 已外置）")
+    @DisplayName("core-only 管理员的 app.top placement 顺序：监控、画廊、小说、疑似重复、插件管理、插件市场（管理入口在末；download-workbench/stats 已外置）")
     void adminAppTopPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
 
-        // 插件管理（管理入口，priority 85）、插件市场（priority 86）排在全部内置基础 / 功能页面之后——内置必选业务页面靠前。
+        // 插件管理（管理入口，priority 85）、插件市场（priority 86）排在全部内置基础 / 功能页面之后。
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate",
+                .containsExactly("monitor", "gallery", "novel", "duplicate",
                         "plugin-manage", "plugin-market");
     }
 
     @Test
-    @DisplayName("管理员的 app.sidebar（统计页中立主侧栏）顺序：下载工作台、监控、画廊、疑似重复、邀请码管理（自带基础页面在前；插件管理已移出侧栏、改入顶部栏；stats 已外置）")
+    @DisplayName("core-only 管理员的 app.sidebar 顺序：监控、画廊、疑似重复、邀请码管理（download-workbench/stats 已外置）")
     void adminAppSidebarPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
@@ -174,18 +174,18 @@ class NavigationControllerTest {
         // 统计页用宿主中立的 app.sidebar slot：相关内置插件把主入口同时贡献到此，按 priority 排序、内置在前。
         // 插件管理现仅进顶部栏 placement（app.top），不再出现在主侧栏。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("download-workbench", "monitor", "gallery", "duplicate", "invite-manage");
+                .containsExactly("monitor", "gallery", "duplicate", "invite-manage");
     }
 
     @Test
-    @DisplayName("禁用画廊：app.sidebar 去掉画廊入口，但 monitor / 下载 / 疑似重复 / 邀请码管理仍按注册贡献显示")
+    @DisplayName("禁用画廊：app.sidebar 去掉画廊入口，但 monitor / 疑似重复 / 邀请码管理仍按注册贡献显示")
     void disablingGalleryKeepsAppSidebarNonGalleryEntries() {
         NavigationController controller = controllerFor(new NavigationRegistry(
                 new PluginRegistry(BuiltInPlugins.createAll(), disabling("gallery"))));
 
         // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变（插件管理已移入顶部栏，不在主侧栏）。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("download-workbench", "monitor", "duplicate", "invite-manage")
+                .containsExactly("monitor", "duplicate", "invite-manage")
                 .doesNotContain("gallery");
     }
 
@@ -200,7 +200,7 @@ class NavigationControllerTest {
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate",
+                .containsExactly("monitor", "gallery", "novel", "duplicate",
                         "plugin-manage", "plugin-market", "third-party-demo");
     }
 

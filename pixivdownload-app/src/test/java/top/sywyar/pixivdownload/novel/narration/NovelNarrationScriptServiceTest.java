@@ -4,14 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationScriptRow;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
-import top.sywyar.pixivdownload.tts.narration.NarrationScript;
+import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 
 import java.util.List;

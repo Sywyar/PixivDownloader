@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Per-plugin, version-gated build + publish / repair: for each official optional plugin, create the
+    Per-plugin, version-gated build + publish / repair: for each official required or optional plugin, create the
     GitHub Release when missing, supplement missing release assets for the current plugin.version, or
     force rebuild and replace release assets.
 
@@ -211,7 +211,7 @@ function Remove-ExistingReleaseAssets {
 $mvn = Get-MavenCommand $ProjectRoot
 $stageDir = Join-Path $ProjectRoot "build/release-plugins"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
-$plugins = @(Get-OfficialOptionalPlugins)
+$plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 $published = @()
 
 foreach ($plugin in $plugins) {

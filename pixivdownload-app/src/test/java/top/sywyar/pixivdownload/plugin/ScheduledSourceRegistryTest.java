@@ -16,8 +16,8 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 
 /**
- * 计划任务来源注册中心与枚举包装测试。覆盖：内置 7 个来源对枚举值的全覆盖与规范 type 映射、
- * 仅核心贡献来源、注册可逆性、type / legacy 同类与跨类冲突即抛错、按 type / legacy 解析、
+ * 计划任务来源注册中心与枚举包装测试。覆盖：core-only 快照不携带下载工作台来源、
+ * 注册可逆性、type / legacy 同类与跨类冲突即抛错、按 type / legacy 解析、
  * 失败注册整体快照不半更新、快照不可变。
  *
  * <p>这些用例固化注册中心的「身份 + legacy 映射」骨架与单快照原子发布语义，防止读侧观察到半更新、
@@ -75,39 +75,29 @@ class ScheduledSourceRegistryTest {
     }
 
     @Test
-    @DisplayName("内置来源覆盖全部 ScheduledTaskType 枚举值：legacy 枚举名与规范 type 均可解析到对应 provider")
-    void builtInSourcesCoverEveryEnumValue() {
+    @DisplayName("core-only 内置插件清单不携带下载工作台计划任务来源")
+    void builtInSourcesAreAbsentFromCoreOnlySnapshot() {
         ScheduledSourceRegistry registry = ScheduledSourceRegistry.forBuiltInPlugins();
 
-        assertThat(registry.sources()).hasSize(ScheduledTaskType.values().length);
+        assertThat(registry.sources()).isEmpty();
         for (ScheduledTaskType type : ScheduledTaskType.values()) {
             String canonical = EXPECTED_CANONICAL.get(type);
-            // legacy 枚举名（数据库 type 列现存值）→ provider
             assertThat(registry.resolve(type.name()))
-                    .as("legacy 类型 %s 应解析到 provider", type.name())
-                    .isPresent();
-            // 规范 type（小写短横线）→ 同一 provider
+                    .as("core-only 模式不应解析下载工作台 legacy 类型 %s", type.name())
+                    .isEmpty();
             assertThat(registry.byType(canonical))
-                    .as("规范 type %s 应解析到 provider", canonical)
-                    .isPresent();
-            assertThat(registry.resolve(type.name()).orElseThrow().type()).isEqualTo(canonical);
-            assertThat(registry.byType(canonical).orElseThrow().legacyTypeNames()).contains(type.name());
+                    .as("core-only 模式不应解析下载工作台规范 type %s", canonical)
+                    .isEmpty();
         }
     }
 
     @Test
-    @DisplayName("内置插件中仅下载工作台插件贡献计划任务来源，且恰好 7 个")
-    void onlyDownloadWorkbenchContributesScheduledSources() {
+    @DisplayName("core-only 内置插件均不贡献计划任务来源")
+    void builtInPluginsDoNotContributeScheduledSources() {
         for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
-            if (plugin.id().equals("download-workbench")) {
-                assertThat(plugin.scheduledSources())
-                        .as("下载工作台插件应贡献全部 7 个计划任务来源")
-                        .hasSize(ScheduledTaskType.values().length);
-            } else {
-                assertThat(plugin.scheduledSources())
-                        .as("插件 %s 当前不贡献计划任务来源", plugin.id())
-                        .isEmpty();
-            }
+            assertThat(plugin.scheduledSources())
+                    .as("core-only 插件 %s 当前不贡献计划任务来源", plugin.id())
+                    .isEmpty();
         }
     }
 

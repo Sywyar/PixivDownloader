@@ -13,11 +13,9 @@ import java.util.LinkedHashMap;
  * 缺项时默认全部启用。它是插件启用状态的<b>单一事实源</b>：app 侧 {@code PluginRegistry} 据此决定活动快照，
  * {@link ConditionalOnPluginEnabled} 据此决定插件托管业务 Bean 是否装配。
  * <p>
- * 本类只反映 {@code config.yaml} 里的<b>原始开关值</b>；必选插件（{@code PixivFeaturePlugin.required()}：
- * 核心插件，以及覆写返回 {@code true} 的功能插件如 download-workbench / schedule）的「不可禁用」由 app 侧
- * {@code PluginRegistry} 在注册期强制（即便此处读到 {@code false} 也忽略），与本配置无关；必选插件的业务
- * Bean 一律不标 {@link ConditionalOnPluginEnabled}（恒无条件装配），故 {@link OnPluginEnabledCondition}
- * 只读开关、不再特判必选性。
+ * 本类只反映 {@code config.yaml} 里的<b>原始开关值</b>；内置核心插件与核心策略声明的必选插件是否可禁用，
+ * 由 app 侧 {@code PluginRegistry} 在注册期判定，与外置插件自己的 {@code PixivFeaturePlugin.required()}
+ * 自声明无关。{@link OnPluginEnabledCondition} 只读开关、不特判必选性。
  * <p>
  * Spring 上下文之外（{@code BuiltInPlugins.createAll()} 路径、单元测试）用空实例即代表全部启用。
  */

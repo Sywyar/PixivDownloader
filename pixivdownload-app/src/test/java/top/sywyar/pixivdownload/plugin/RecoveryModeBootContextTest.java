@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
- * 真实 Spring 上下文：下载工作台作为内置必选插件恒在场，恢复模式判定为正常运行（不进入恢复模式、不改变路由行为）；
+ * 真实 Spring 上下文：缺少外置 required download-workbench 时，核心壳进入恢复模式；
  * 必选策略声明 {@code download-workbench} 必选且不允许禁用。
  */
 @SpringBootTest(properties = {
@@ -23,7 +23,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-absent",
         "setup.browser.auto-open=false"
 })
-@DisplayName("恢复模式真实上下文：内置下载插件在场时正常运行、必选策略禁止禁用 download-workbench")
+@DisplayName("恢复模式真实上下文：缺少外置 download-workbench 时进入恢复模式、必选策略禁止禁用")
 class RecoveryModeBootContextTest {
 
     static {
@@ -47,10 +47,11 @@ class RecoveryModeBootContextTest {
     private RequiredPluginPolicy requiredPluginPolicy;
 
     @Test
-    @DisplayName("下载工作台内置在场：不进入恢复模式")
-    void builtInDownloadWorkbenchKeepsOperational() {
-        assertThat(recoveryModeService.isActive()).isFalse();
-        assertThat(recoveryModeService.decision().reasons()).isEmpty();
+    @DisplayName("缺少外置 download-workbench：进入恢复模式")
+    void missingExternalDownloadWorkbenchActivatesRecovery() {
+        assertThat(recoveryModeService.isActive()).isTrue();
+        assertThat(recoveryModeService.decision().firstReason().orElseThrow().pluginId())
+                .isEqualTo("download-workbench");
     }
 
     @Test

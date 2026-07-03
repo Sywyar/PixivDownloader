@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.narration;
 
-import top.sywyar.pixivdownload.tts.narration.NarrationScript;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 
 import java.util.List;
 

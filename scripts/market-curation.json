@@ -1,5 +1,23 @@
 {
   "_comment": "插件市场展示字段的策展源（运营者维护）。安装关键字段（version/packageUrl/sha256/size/requiredCoreApi）不在此处——由 generate-market-manifest.ps1 从真实产物推导。键为 pluginId。",
+  "download-workbench": {
+    "displayNameKey": "batch:plugin.label",
+    "descriptionKey": "batch:plugin.summary",
+    "displayName": { "zh": "下载工作台", "en": "Download Workbench" },
+    "summary": { "zh": "默认下载页、Pixiv 抓取、队列、油猴脚本与计划下载宿主", "en": "Default download page, Pixiv fetch proxy, queue, userscripts, and scheduled download host" },
+    "description": { "zh": "官方必需插件，提供基础插画下载工作流、下载队列、批量状态、Pixiv 代理入口、下载页静态资源、油猴脚本分发与计划下载宿主。缺失时核心壳进入恢复 / 补齐模式。", "en": "Official required plugin providing the basic illustration download workflow, queue, batch state, Pixiv proxy endpoints, workbench static assets, userscript distribution, and scheduled download host. When missing, the core shell enters recovery/repair mode." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "download",
+    "tags": ["download", "pixiv", "queue", "userscript", "schedule"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "iconToken": "download",
+    "colorToken": "pixiv",
+    "recommended": true,
+    "officialRequired": true,
+    "changeNotes": ["下载工作台从核心壳外置为官方必需插件"]
+  },
   "gui-theme": {
     "displayNameKey": "gui-theme:plugin.label",
     "descriptionKey": "gui-theme:plugin.summary",

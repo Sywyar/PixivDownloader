@@ -23,17 +23,10 @@ class DownloadTabRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置标签页（下载工作台声明 5 个获取方式标签页）")
+    @DisplayName("core-only 内置插件清单不携带下载工作台标签页")
     void collectsTabsFromBuiltInPlugins() {
         DownloadTabRegistry registry = new DownloadTabRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        assertThat(registry.tabs())
-                .extracting(registered -> registered.tab().tabId())
-                .containsExactlyInAnyOrder("quick-fetch", "single-import", "user", "search", "series");
-        assertThat(registry.tabs())
-                .allSatisfy(registered -> {
-                    assertThat(registered.pluginId()).isEqualTo("download-workbench");
-                    assertThat(registered.tab().supportedQueueTypes()).contains("illust", "novel");
-                });
+        assertThat(registry.tabs()).isEmpty();
     }
 
     @Test

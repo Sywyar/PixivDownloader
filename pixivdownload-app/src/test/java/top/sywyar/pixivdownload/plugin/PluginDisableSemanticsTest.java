@@ -71,20 +71,21 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("禁用画廊后下载工作台仍注册其路由（下载页可运行）")
-    void disablingGalleryKeepsDownloadWorkbench() {
-        assertThat(routeOwners(registryDisabling("gallery"))).contains("download-workbench");
+    @DisplayName("禁用画廊不会在 core-only 内置快照中引入外置下载工作台路由")
+    void disablingGalleryKeepsDownloadWorkbenchExternal() {
+        assertThat(routeOwners(registryDisabling("gallery"))).doesNotContain("download-workbench");
     }
 
     @Test
-    @DisplayName("下载工作台为必选插件：即便配置 enabled=false 也仍进入活动快照并注册其路由（无法被关闭）")
-    void downloadWorkbenchIsRequiredAndCannotBeDisabled() {
+    @DisplayName("download-workbench 已外置：内置插件开关不会把它伪造成 built-in 活动插件")
+    void downloadWorkbenchIsExternalToBuiltInSnapshot() {
         PluginRegistry registry = registryDisabling("download-workbench");
 
-        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).contains("download-workbench");
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).doesNotContain("download-workbench");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("download-workbench");
         assertThat(registry.disabledPlugins())
                 .extracting(PixivFeaturePlugin::id).doesNotContain("download-workbench");
-        assertThat(routeOwners(registry)).contains("download-workbench");
+        assertThat(routeOwners(registry)).doesNotContain("download-workbench");
     }
 
     @Test
@@ -190,15 +191,15 @@ class PluginDisableSemanticsTest {
     @DisplayName("禁用单个功能插件不影响其它插件导航（跨插件独立）")
     void disablingOnePluginKeepsOtherNavigation() {
         List<String> ids = navIds(registryDisabling("gallery"));
-        // 仅 gallery 入口消失；下载工作台 / 监控 / 小说 / 疑似重复 / 邀请码管理仍在（stats 已外置、不在内置导航）。
+        // 仅 gallery 入口消失；监控 / 小说 / 疑似重复 / 邀请码管理仍在（download-workbench/stats 已外置、不在内置导航）。
         assertThat(ids).contains(
-                "download-workbench", "monitor", "novel", "duplicate", "invite-manage");
+                "monitor", "novel", "duplicate", "invite-manage");
     }
 
     @Test
-    @DisplayName("下载工作台为必选插件：即便配置 enabled=false 也仍贡献下载页导航（无法被关闭）")
-    void requiredDownloadWorkbenchKeepsNavigationEvenWhenDisabled() {
-        assertThat(navIds(registryDisabling("download-workbench"))).contains("download-workbench");
+    @DisplayName("download-workbench 已外置：内置插件开关不会注册下载页导航")
+    void downloadWorkbenchToggleDoesNotCreateBuiltInNavigation() {
+        assertThat(navIds(registryDisabling("download-workbench"))).doesNotContain("download-workbench");
     }
 
     @Test

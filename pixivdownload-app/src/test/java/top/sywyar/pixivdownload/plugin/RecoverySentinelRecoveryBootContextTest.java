@@ -15,9 +15,9 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
  * 真实 Spring 上下文：打开显式开关 {@code pixivdownload.recovery-sentinel.required=true}，并把插件目录指向一个不存在的
- * 目录（即未安装 recovery-sentinel 外置插件）。此时核心策略把 recovery-sentinel 声明为必选、而它缺失，应用应启动进入
- * 恢复模式——这条用例证明配置开关、必选策略 Bean、插件状态服务与 {@link RecoveryModeService} 在真实容器里串起来后，
- * 缺失一个必选外置插件确实让核心进入恢复模式（内置 download-workbench 仍在场、不是触发原因）。
+ * 目录（即未安装 recovery-sentinel 外置插件）。核心已把 recovery-sentinel 与 download-workbench 都声明为必选，因此启动时会检测到
+ * 两个必选缺失项并进入恢复模式。该用例用于验证配置开关、必选策略 Bean、插件状态服务与 {@link RecoveryModeService} 在真实容器里串起来后
+ * 的失配行为。
  *
  * <p>用独立的属性集与目录（{@code plugins-recovery-sentinel-absent}），与其它 boot 用例的上下文缓存隔离；
  * {@link DirtiesContext} 在类结束后关闭这套上下文。
@@ -62,11 +62,11 @@ class RecoverySentinelRecoveryBootContextTest {
     }
 
     @Test
-    @DisplayName("必选的 recovery-sentinel 缺失：应用进入恢复模式，首要原因为缺失的 recovery-sentinel")
+    @DisplayName("必选插件缺失：应用进入恢复模式，并识别到多个必选缺失项")
     void missingRequiredSentinelEntersRecovery() {
         assertThat(recoveryModeService.isActive()).isTrue();
-        assertThat(recoveryModeService.decision().firstReason().orElseThrow().pluginId())
-                .isEqualTo("recovery-sentinel");
+        assertThat(recoveryModeService.decision().reasons()).extracting("pluginId")
+                .containsExactlyInAnyOrder("download-workbench", "recovery-sentinel");
         assertThat(recoveryModeService.decision().firstReason().orElseThrow().status())
                 .isEqualTo(PluginStatus.MISSING_REQUIRED);
     }

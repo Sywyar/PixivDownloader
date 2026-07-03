@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.db;
+package top.sywyar.pixivdownload.core.download.db;
 
 import jakarta.annotation.PostConstruct;
 import org.apache.ibatis.mapping.Environment;

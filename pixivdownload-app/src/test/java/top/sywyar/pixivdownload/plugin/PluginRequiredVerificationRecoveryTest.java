@@ -6,16 +6,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbeFeaturePlugin;
 import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbePlugin;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -44,9 +47,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
-import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 @DisplayName("required 外置插件验签失败：PF4J 前阻断并进入恢复模式")
 class PluginRequiredVerificationRecoveryTest {
@@ -70,6 +70,35 @@ class PluginRequiredVerificationRecoveryTest {
         Scenario scenario = scenario("missing-sidecar");
 
         startAndAssertRecovery(scenario, new PluginSupplyChainVerifier(), REQUIRED_POLICY);
+    }
+
+    @Test
+    @DisplayName("required official 外置插件 provenance 离线复验通过：加载且恢复模式 inactive")
+    void requiredOfficialProvenanceAccepted() throws Exception {
+        Scenario scenario = scenario("verified-required");
+        SigningFixture signing = SigningFixture.create("active-key", TrustedPluginKey.State.ACTIVE);
+        SignatureMetadata metadata = signing.artifactSignature(scenario.jar());
+        writeOfficialProvenance(scenario, metadata, signing,
+                VerificationStatus.VERIFIED, "VERIFIED");
+
+        PluginRuntimeManager manager = start(scenario, signing.verifier());
+        try {
+            assertThat(manager.status().orElseThrow().startedPluginIds()).contains(PLUGIN_ID);
+            RecoveryModeService recovery = recovery(manager, scenario.pluginsDir(), REQUIRED_POLICY);
+            assertThat(recovery.isActive()).isFalse();
+
+            PluginProvenanceRecord provenance =
+                    new PluginProvenanceStore(scenario.pluginsDir()).read(scenario.jar()).orElseThrow();
+            assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.VERIFIED);
+            assertThat(provenance.diagnosticCode()).isEqualTo("VERIFIED");
+            assertThat(provenance.keyId()).isEqualTo(signing.keyId());
+            assertThat(provenance.publisher()).isEqualTo("Test Publisher");
+            assertThat(provenance.trustLabel()).isEqualTo("Test Trust");
+            assertThat(PluginVerificationProjector.fromProvenance(provenance).offlineReverifySuccess())
+                    .isTrue();
+        } finally {
+            manager.shutdown();
+        }
     }
 
     @Test
@@ -213,7 +242,7 @@ class PluginRequiredVerificationRecoveryTest {
     private static RecoveryModeService recovery(PluginRuntimeManager manager, Path pluginsDir,
                                                 RequiredPluginPolicy policy) {
         PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties(),
-                manager.discoverFeaturePlugins());
+                manager.discoverFeaturePlugins(), policy);
         ExternalPluginInstaller installer = new ExternalPluginInstaller(
                 pluginsDir, PluginPackageLimits.defaults(), new PluginSupplyChainVerifier());
         PluginStatusService statusService = new PluginStatusService(registry, manager, installer, policy);

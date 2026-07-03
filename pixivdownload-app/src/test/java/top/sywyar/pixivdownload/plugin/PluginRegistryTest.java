@@ -7,6 +7,8 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +64,11 @@ class PluginRegistryTest {
         @Override
         public PluginKind kind() {
             return kind;
+        }
+
+        @Override
+        public boolean required() {
+            return false;
         }
 
         @Override
@@ -192,6 +199,44 @@ class PluginRegistryTest {
 
         assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
         assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("stats");
+    }
+
+    @Test
+    @DisplayName("外置插件自称 required 不得绕过 enabled=false")
+    void externalSelfDeclaredRequiredCannotBypassDisabledToggle() {
+        ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        toggles.put("third-party", disabledToggle());
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(
+                List.of(external("third-party-pack", new RequiredTestPlugin("third-party"), extCl)), List.of());
+
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE)), toggles, discovery);
+
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).contains("third-party");
+        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("third-party");
+        assertThat(registry.source("third-party")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("核心 RequiredPluginPolicy 声明的外置插件可覆盖 enabled=false")
+    void requiredPolicyCanKeepExternalPluginActiveWhenToggleDisabled() {
+        ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        toggles.put("download-workbench", disabledToggle());
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(
+                List.of(external("download-workbench", new TestPlugin("download-workbench"), extCl)), List.of());
+        RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(new RequiredPluginPolicy.RequiredPlugin(
+                "download-workbench", PluginApiRequirement.unspecified(), false, "plugin.required.missing")));
+
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE)), toggles, discovery, policy);
+
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id)
+                .containsExactly("core", "download-workbench");
+        assertThat(registry.disabledPlugins()).isEmpty();
+        assertThat(registry.source("download-workbench")).contains(PluginSource.EXTERNAL);
     }
 
     @Test
@@ -383,5 +428,16 @@ class PluginRegistryTest {
         PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
         toggle.setEnabled(false);
         return toggle;
+    }
+
+    private static final class RequiredTestPlugin extends TestPlugin {
+        private RequiredTestPlugin(String id) {
+            super(id);
+        }
+
+        @Override
+        public boolean required() {
+            return true;
+        }
     }
 }

@@ -594,7 +594,6 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
                 || path.startsWith("/api/i18n/")
-                || path.startsWith("/api/scripts/")
                 || path.equals("/invite");
     }
 

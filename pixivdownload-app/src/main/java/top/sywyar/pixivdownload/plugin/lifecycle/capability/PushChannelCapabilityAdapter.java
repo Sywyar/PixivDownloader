@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.lifecycle.capability;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.push.PushChannel;
-import top.sywyar.pixivdownload.push.PushChannelRegistry;
+import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 
 import java.util.List;
 

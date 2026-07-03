@@ -157,11 +157,12 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
+                    <classifier>boot</classifier>
                 </configuration>
             </plugin>
             <!-- 把外置插件的构建产物目录传给集成测试（据此组装临时插件 jar 做真实 PF4J 加载验证）。
-                 root reactor 测试时这些插件模块先于 app 构建；缺失时对应测试 assumeTrue 跳过（如 IDE 未触发 reactor
-                 构建），不影响其它测试。 -->
+                 外置模块 classes 缺失时对应测试 assumeTrue 跳过（如 IDE 未触发 reactor 构建，或该模块在 app 之后构建），
+                 不影响其它测试；外置模块自身测试会覆盖其边界守卫。 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -174,6 +175,7 @@
                         <tts.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-tts/target/classes</tts.plugin.classes>
                         <ai.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-ai/target/classes</ai.plugin.classes>
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
+                        <download-workbench.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-download-workbench/target/classes</download-workbench.plugin.classes>
                         <gui-theme.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/classes</gui-theme.plugin.classes>
                         <gui-theme.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-${project.version}.jar</gui-theme.plugin.jar>
                     </systemPropertyVariables>
@@ -197,65 +199,6 @@
                         <goals>
                             <goal>report</goal>
                         </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.5.0</version>
-                <executions>
-                    <execution>
-                        <id>generate-bundled-userscript</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <!-- 脚本、油猴源与生成产物仍住仓库根（reactor root），主程序下沉为子模块后用
-                                 maven.multiModuleProjectDirectory 指回根目录 -->
-                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
-                            <executable>${powershell.executable}</executable>
-                            <arguments>
-                                <argument>-NoProfile</argument>
-                                <argument>-NonInteractive</argument>
-                                <argument>-Command</argument>
-                                <argument>&amp; '${maven.multiModuleProjectDirectory}/scripts/build-userscript-bundle.ps1' -Version '${app.release.version}'</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <!-- 将仓库根目录的 *.user.js 复制到 classpath:/static/userscripts/，供 ScriptRegistry 扫描 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-userscripts</id>
-                        <phase>generate-resources</phase>
-                        <goals>
-                            <goal>copy-resources</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.outputDirectory}/static/userscripts</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${maven.multiModuleProjectDirectory}</directory>
-                                    <includes>
-                                        <include>*.user.js</include>
-                                    </includes>
-                                    <filtering>false</filtering>
-                                </resource>
-                                <resource>
-                                    <directory>${maven.multiModuleProjectDirectory}/build/generated-userscripts</directory>
-                                    <includes>
-                                        <include>*.user.js</include>
-                                    </includes>
-                                    <filtering>false</filtering>
-                                </resource>
-                            </resources>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>

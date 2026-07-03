@@ -23,12 +23,12 @@ class QueueTypeRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置作品类型（下载工作台 illust + 小说 novel）")
+    @DisplayName("core-only 内置插件清单只携带 novel 作品类型，illust 随外置 download-workbench 提供")
     void collectsQueueTypesFromBuiltInPlugins() {
         QueueTypeRegistry registry = new QueueTypeRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         assertThat(registry.queueTypes())
                 .extracting(registered -> registered.queueType().type())
-                .containsExactlyInAnyOrder("illust", "novel");
+                .containsExactlyInAnyOrder("novel");
         assertThat(registry.queueTypes())
                 .filteredOn(registered -> registered.queueType().type().equals("novel"))
                 .singleElement()
@@ -36,13 +36,6 @@ class QueueTypeRegistryTest {
                     assertThat(registered.pluginId()).isEqualTo("novel");
                     assertThat(registered.queueType().moduleUrl())
                             .isEqualTo("/pixiv-novel-download/novel-queue-type.js");
-                });
-        assertThat(registry.queueTypes())
-                .filteredOn(registered -> registered.queueType().type().equals("illust"))
-                .singleElement()
-                .satisfies(registered -> {
-                    assertThat(registered.pluginId()).isEqualTo("download-workbench");
-                    assertThat(registered.queueType().moduleUrl()).isNull();
                 });
     }
 

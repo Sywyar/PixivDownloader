@@ -14,8 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 
 /**
- * 真实 Spring 上下文：无 {@code plugins/} 目录时，插件状态服务把七个内置插件都报告为 {@link PluginStatus#STARTED}、
- * 描述符均与当前核心 API 兼容、无任何不兼容 / 失败 / 未满足必选要求（空必选策略）。验证状态模型「可由后端查询」端到端就绪。
+ * 真实 Spring 上下文：无 {@code plugins/} 目录时，插件状态服务把 core-only 内置插件报告为
+ * {@link PluginStatus#STARTED}，并把缺失的 required download-workbench 报告为未满足要求。
  */
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -24,7 +24,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-absent",
         "setup.browser.auto-open=false"
 })
-@DisplayName("插件状态服务真实上下文：内置插件全报告 STARTED、无未满足要求")
+@DisplayName("插件状态服务真实上下文：core-only 内置插件 STARTED、required download-workbench 缺失")
 class PluginStatusServiceBootContextTest {
 
     static {
@@ -46,18 +46,20 @@ class PluginStatusServiceBootContextTest {
     private PluginStatusService pluginStatusService;
 
     @Test
-    @DisplayName("七个内置插件全部 STARTED、API 兼容，无不兼容 / 失败 / 未满足必选要求（stats 已外置、不在内置清单）")
+    @DisplayName("五个 core-only 内置插件 STARTED，download-workbench 缺失 required")
     void builtInPluginsAreAllStartedAndCompatible() {
         PluginStatusReport report = pluginStatusService.report();
 
         assertThat(report.withStatus(PluginStatus.STARTED)).extracting(PluginDiagnostic::id)
                 .containsExactlyInAnyOrder(
-                        "core", "download-workbench", "schedule", "gallery", "novel", "duplicate", "plugin-market");
+                        "core", "gallery", "novel", "duplicate", "plugin-market");
+        assertThat(report.withStatus(PluginStatus.MISSING_REQUIRED)).extracting(PluginDiagnostic::id)
+                .containsExactly("download-workbench");
         assertThat(report.withStatus(PluginStatus.INCOMPATIBLE)).isEmpty();
         assertThat(report.withStatus(PluginStatus.FAILED)).isEmpty();
-        assertThat(report.hasUnmetRequirement()).isFalse();
-        // 内置插件描述符均与当前核心 API 兼容
-        assertThat(report.diagnostics())
+        assertThat(report.hasUnmetRequirement()).isTrue();
+        // 有描述符的内置插件均与当前核心 API 兼容；缺失 required 没有 descriptor。
+        assertThat(report.diagnostics().stream().filter(diagnostic -> diagnostic.descriptor() != null).toList())
                 .allSatisfy(diagnostic -> assertThat(diagnostic.descriptor().isApiCompatible()).isTrue());
     }
 }

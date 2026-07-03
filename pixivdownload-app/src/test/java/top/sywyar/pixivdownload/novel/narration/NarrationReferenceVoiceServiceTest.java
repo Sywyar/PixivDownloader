@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
-import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
+import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;

@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.lifecycle.capability;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.notification.NotificationSink;
-import top.sywyar.pixivdownload.notification.NotificationSinkRegistry;
+import top.sywyar.pixivdownload.core.notification.NotificationSinkRegistry;
 
 import java.util.List;
 

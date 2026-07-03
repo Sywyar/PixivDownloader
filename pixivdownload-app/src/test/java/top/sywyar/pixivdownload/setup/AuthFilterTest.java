@@ -82,7 +82,7 @@ class AuthFilterTest {
                 "/",
                 "/index",
                 "/login.html",
-                "/pixiv-batch.html",
+                "/pixiv-gallery.html",
                 "/js/pixiv-lang-switcher.js",
                 "/vendor/fonts/fonts.css",
                 "/vendor/fontawesome/webfonts/fa-solid-900.woff2"
@@ -246,7 +246,7 @@ class AuthFilterTest {
             when(rateLimitService.isAllowed(any())).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -263,7 +263,7 @@ class AuthFilterTest {
     @DisplayName("OPTIONS 预检请求应直接放行")
     void shouldPassThroughOptionsRequest() throws Exception {
         request.setMethod("OPTIONS");
-        request.setRequestURI("/api/download/pixiv");
+        request.setRequestURI("/api/app/info");
 
         authFilter.doFilterInternal(request, response, filterChain);
 
@@ -393,7 +393,7 @@ class AuthFilterTest {
                 "/api/quota/init",
                 "/api/archive/status/some-token",
                 "/api/archive/download/some-token",
-                "/api/download/status"
+                "/api/app/info"
         })
         @DisplayName("Solo 模式下配额/归档路径不公开，无效 Session 应返回 401")
         void shouldNotBePublicInSoloMode(String path) throws Exception {
@@ -664,7 +664,7 @@ class AuthFilterTest {
         @DisplayName("API 请求应返回 503")
         void shouldReturn503ForApiRequest() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -739,7 +739,7 @@ class AuthFilterTest {
         @DisplayName("无 Cookie 时应分配 UUID Cookie")
         void shouldAssignUuidCookie() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -754,7 +754,7 @@ class AuthFilterTest {
         @DisplayName("已有 UUID Cookie 时不应重新分配")
         void shouldNotReassignExistingUuidCookie() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie("pixiv_user_id", "existing-uuid-value"));
 
@@ -769,7 +769,7 @@ class AuthFilterTest {
         @DisplayName("有效的 X-User-UUID 请求头应被使用")
         void shouldUseValidXUserUuidHeader() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
             request.addHeader("X-User-UUID", "12345678-1234-1234-1234-123456789abc");
 
@@ -784,7 +784,7 @@ class AuthFilterTest {
         @DisplayName("格式无效的 X-User-UUID 应被忽略，生成新 UUID")
         void shouldIgnoreInvalidXUserUuidHeader() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
             request.addHeader("X-User-UUID", "invalid-uuid");
 
@@ -908,8 +908,8 @@ class AuthFilterTest {
 
         @BeforeEach
         void setupMocks() {
-            when(setupService.isSetupComplete()).thenReturn(true);
-            when(setupService.getMode()).thenReturn("multi");
+            lenient().when(setupService.isSetupComplete()).thenReturn(true);
+            lenient().when(setupService.getMode()).thenReturn("multi");
         }
 
         @Test
@@ -918,7 +918,7 @@ class AuthFilterTest {
             when(rateLimitService.isAllowed(any())).thenReturn(false);
 
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -933,7 +933,7 @@ class AuthFilterTest {
             when(rateLimitService.isAllowed(any())).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -943,10 +943,10 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("普通页面路径不进行速率限制检查")
-        void shouldNotCheckRateLimitForNormalPage() throws Exception {
+        @DisplayName("公开 API 路径不进行多人模式 API 速率限制检查")
+        void shouldNotCheckRateLimitForPublicApi() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/pixiv-batch.html");
+            request.setRequestURI("/api/auth/check");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -961,7 +961,7 @@ class AuthFilterTest {
             when(setupService.isAdminLoggedIn(any())).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie("pixiv_session", "valid-token"));
 
@@ -990,7 +990,7 @@ class AuthFilterTest {
             when(setupService.isValidSession("valid-token")).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie("pixiv_session", "valid-token"));
 
@@ -1005,7 +1005,7 @@ class AuthFilterTest {
             when(setupService.isValidSession(any())).thenReturn(false);
 
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -1034,7 +1034,7 @@ class AuthFilterTest {
             when(setupService.isValidSession("header-token")).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
             request.addHeader("X-Session-Token", "header-token");
 
@@ -1143,8 +1143,8 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("multi 模式下应重定向到 pixiv-batch.html")
-        void shouldRedirectToPixivBatchWhenNotInIntroMode() throws Exception {
+        @DisplayName("core-only multi 模式下应回退重定向到 pixiv-gallery.html")
+        void shouldRedirectToGalleryWhenNotInIntroModeAndDownloadWorkbenchAbsent() throws Exception {
             when(setupService.isIntroMode()).thenReturn(false);
             when(setupService.getMode()).thenReturn("multi");
 
@@ -1154,12 +1154,12 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-batch.html");
+            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-gallery.html");
         }
 
         @Test
-        @DisplayName("multi 模式无 canvas 参数也应重定向到 pixiv-batch.html")
-        void shouldRedirectToPixivBatchWithoutCanvasParam() throws Exception {
+        @DisplayName("core-only multi 模式无 canvas 参数也应回退重定向到 pixiv-gallery.html")
+        void shouldRedirectToGalleryWithoutCanvasParamAndDownloadWorkbenchAbsent() throws Exception {
             when(setupService.isIntroMode()).thenReturn(false);
             when(setupService.getMode()).thenReturn("multi");
 
@@ -1168,7 +1168,7 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-batch.html");
+            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-gallery.html");
         }
 
         @Test
@@ -1338,21 +1338,17 @@ class AuthFilterTest {
         }
     }
 
-    // ========== 下载页扩展点装配端点（归下载工作台、VISITOR：随下载页消费的只读装配接口） ==========
+    // ========== 下载页扩展点装配端点（download-workbench 缺席时 core-only 不开放） ==========
 
     @Nested
-    @DisplayName("下载页扩展点端点 /api/download/extensions 访问级别（归下载工作台、VISITOR）")
+    @DisplayName("download-workbench 缺席时 /api/download/extensions 不开放")
     class DownloadExtensionsEndpointTests {
 
-        // 该端点声明为 VISITOR（AuthFilter 不派生任何清单、命中后落默认会话/访客分支），访问行为
-        // 与未声明时逐字等价、并与小说/插画下载提交端点对称：multi 访客可读 / solo 需会话 / 邀请访客 403。
-
         @Test
-        @DisplayName("多人模式普通访客可读取（下载页在 multi 模式由访客装配队列引擎）")
-        void multiVisitorAllowed() throws Exception {
+        @DisplayName("多人模式普通访客访问返回 404（不落到 core 宽前缀放行）")
+        void multiVisitorReturns404() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
-            when(rateLimitService.isAllowed(any())).thenReturn(true);
 
             request.setMethod("GET");
             request.setRequestURI("/api/download/extensions");
@@ -1360,15 +1356,16 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            verify(filterChain).doFilter(request, response);
+            assertThat(response.getStatus()).isEqualTo(404);
+            verify(rateLimitService, never()).isAllowed(any());
+            verify(filterChain, never()).doFilter(request, response);
         }
 
         @Test
-        @DisplayName("solo 模式未登录访问应 401（不扩大未登录可达面）")
-        void soloUnauthorizedRejected() throws Exception {
+        @DisplayName("solo 模式未登录访问返回 404（未声明优先于 401）")
+        void soloUnauthorizedReturns404() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
-            when(setupService.isValidSession(any())).thenReturn(false);
 
             request.setMethod("GET");
             request.setRequestURI("/api/download/extensions");
@@ -1376,7 +1373,7 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getStatus()).isEqualTo(404);
             verify(filterChain, never()).doFilter(request, response);
         }
 
@@ -1601,7 +1598,7 @@ class AuthFilterTest {
             when(setupService.isValidSession(any())).thenReturn(false);
 
             request.setMethod("POST");
-            request.setRequestURI("/api/download/pixiv");
+            request.setRequestURI("/api/app/info");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);

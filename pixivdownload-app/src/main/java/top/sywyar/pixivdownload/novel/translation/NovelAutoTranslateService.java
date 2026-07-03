@@ -4,7 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.ai.AiService;
+import top.sywyar.pixivdownload.core.ai.AiService;
 
 import java.time.Duration;
 import java.util.Locale;

@@ -75,7 +75,8 @@ public record WebRouteContribution(
 
     /**
      * 路径是否命中本路由的模式。以 {@code **} 结尾的模式按去掉末尾 {@code **} 后的前缀做 {@code startsWith}
-     * 匹配（含 {@code /api/authors**} 这类无尾斜杠前缀），否则按精确相等匹配——与 {@code AuthFilter} 的派生口径一致。
+     * 匹配（含 {@code /api/authors**} 这类无尾斜杠前缀）；其它模式允许整段 {@code *} 通配一个路径段
+     * （例如用户小说列表这类 user-id 动态段）；无通配符时按精确相等匹配。
      */
     public boolean matches(String path) {
         if (path == null) {
@@ -83,6 +84,19 @@ public record WebRouteContribution(
         }
         if (pathPattern.endsWith("**")) {
             return path.startsWith(pathPattern.substring(0, pathPattern.length() - 2));
+        }
+        if (pathPattern.contains("*")) {
+            String[] patternSegments = pathPattern.split("/");
+            String[] pathSegments = path.split("/");
+            if (patternSegments.length != pathSegments.length) {
+                return false;
+            }
+            for (int i = 0; i < patternSegments.length; i++) {
+                if (!patternSegments[i].equals("*") && !patternSegments[i].equals(pathSegments[i])) {
+                    return false;
+                }
+            }
+            return true;
         }
         return path.equals(pathPattern);
     }

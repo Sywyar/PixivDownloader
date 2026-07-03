@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.controller;
+package top.sywyar.pixivdownload.core.download.controller;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,13 +14,13 @@ import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.download.ArtworkMetadataRecoveryService;
-import top.sywyar.pixivdownload.download.ArtworkMoveService;
-import top.sywyar.pixivdownload.download.DownloadStatisticsService;
-import top.sywyar.pixivdownload.download.DownloadedArtworkService;
+import top.sywyar.pixivdownload.core.download.ArtworkMetadataRecoveryService;
+import top.sywyar.pixivdownload.core.download.ArtworkMoveService;
+import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
+import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.response.StatisticsResponse;
+import top.sywyar.pixivdownload.core.download.response.StatisticsResponse;
 
 import java.util.List;
 

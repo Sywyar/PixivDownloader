@@ -21,8 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 页面不得再用 include/exclude/requires 过滤 id，也不得硬编码其它插件的入口 href（否则禁用对应插件后
  * 前端残留点开即 404 的坏入口）。
  * <p>
- * 经 classpath 扫描各模块 {@code static/} 下的页面资源（已适配页面分散在主程序与各功能插件模块、随各自模块打包到
- * 同一 boot jar，故按 classpath 资源而非单一模块的源码目录定位）：
+ * 经 classpath 扫描 app boot jar 内置页面资源（download-workbench 页面已外置，其页面守卫随插件模块测试）：
  * <ul>
  *   <li>每个已适配页面声明其预期 placement slot（{@code data-nav-slot="<placement>"}）；</li>
  *   <li>已适配页面不再使用 {@code data-nav-include} / {@code data-nav-exclude} / {@code data-nav-requires}；</li>
@@ -46,7 +45,6 @@ class NavigationMarkupGuardTest {
     /** 已接入动态导航 slot 的页面 → 其预期声明的 placement slot。 */
     private static final Map<String, List<String>> EXPECTED_SLOTS = Map.of(
             "monitor.html", List.of(NavigationPlacements.APP_TOP),
-            "pixiv-batch.html", List.of(NavigationPlacements.APP_TOP),
             "plugin-manage.html", List.of(NavigationPlacements.APP_TOP),
             "plugin-market.html", List.of(NavigationPlacements.APP_TOP),
             "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
@@ -72,8 +70,6 @@ class NavigationMarkupGuardTest {
      */
     private static final Map<String, List<String>> FORBIDDEN_HREFS = Map.of(
             "monitor.html", List.of("/pixiv-gallery.html", "/pixiv-novel-gallery.html",
-                    "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
-            "pixiv-batch.html", List.of("/monitor.html", "/pixiv-gallery.html", "/pixiv-novel-gallery.html",
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
             "plugin-manage.html", List.of("/monitor.html", "/pixiv-gallery.html", "/pixiv-novel-gallery.html",
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html", "/plugin-market.html"),

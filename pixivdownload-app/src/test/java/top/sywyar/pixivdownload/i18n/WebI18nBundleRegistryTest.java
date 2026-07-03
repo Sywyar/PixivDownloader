@@ -26,7 +26,7 @@ class WebI18nBundleRegistryTest {
     private static final ClassLoader LOADER = WebI18nBundleRegistryTest.class.getClassLoader();
 
     /**
-     * namespace → baseName 基线：内置共 19 条（stats/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
+     * namespace → baseName 基线：内置共 17 条（download-workbench/stats/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
      * 保证「所有页面 i18n 行为不变」。新增 namespace 时同步本基线。
      */
     private static final Map<String, String> LEGACY_NAMESPACE_BASENAMES = legacyBaseNames();
@@ -37,7 +37,6 @@ class WebI18nBundleRegistryTest {
         map.put("setup", "i18n.web.setup");
         map.put("login", "i18n.web.login");
         map.put("intro", "i18n.web.intro");
-        map.put("batch", "i18n.web.batch");
         map.put("gallery", "i18n.web.gallery");
         map.put("duplicates", "i18n.web.duplicates");
         map.put("artwork", "i18n.web.artwork");
@@ -46,7 +45,6 @@ class WebI18nBundleRegistryTest {
         map.put("novel", "i18n.web.novel");
         map.put("narration", "i18n.web.narration");
         map.put("monitor", "i18n.web.monitor");
-        map.put("userscript", "i18n.web.userscript");
         map.put("invite", "i18n.web.invite");
         map.put("tour", "i18n.web.tour");
         map.put("maintenance", "i18n.web.maintenance");
@@ -68,7 +66,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（19 条；stats/translate 已外置）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（17 条；download-workbench/stats/translate 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 
@@ -90,8 +88,6 @@ class WebI18nBundleRegistryTest {
         WebI18nBundleRegistry registry = builtInRegistry();
         assertThat(ownerOf(registry, "common")).isEqualTo("core");
         assertThat(ownerOf(registry, "maintenance")).isEqualTo("core");
-        assertThat(ownerOf(registry, "batch")).isEqualTo("download-workbench");
-        assertThat(ownerOf(registry, "userscript")).isEqualTo("download-workbench");
         assertThat(ownerOf(registry, "gallery")).isEqualTo("gallery");
         assertThat(ownerOf(registry, "artwork")).isEqualTo("gallery");
         assertThat(ownerOf(registry, "novel")).isEqualTo("novel");
@@ -224,6 +220,21 @@ class WebI18nBundleRegistryTest {
 
         assertThat(ownerOf(registry, "translate")).isEqualTo("ai");
         assertThat(registry.resolve("translate").contribution().baseName()).isEqualTo("i18n.web.translate");
+    }
+
+    @Test
+    @DisplayName("batch/userscript namespace 可由外置 download-workbench 插件注册，不属于内置快照")
+    void downloadWorkbenchNamespacesCanBeProvidedByExternalPlugin() {
+        WebI18nBundleRegistry registry = builtInRegistry();
+        assertThat(registry.resolve("batch")).isNull();
+        assertThat(registry.resolve("userscript")).isNull();
+
+        registry.register("download-workbench", LOADER, List.of(
+                new I18nContribution("batch", "i18n.web.batch", 5),
+                new I18nContribution("userscript", "i18n.web.userscript", 16)));
+
+        assertThat(ownerOf(registry, "batch")).isEqualTo("download-workbench");
+        assertThat(ownerOf(registry, "userscript")).isEqualTo("download-workbench");
     }
 
     @Test

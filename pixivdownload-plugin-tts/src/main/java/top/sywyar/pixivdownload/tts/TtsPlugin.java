@@ -58,6 +58,7 @@ public class TtsPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         return List.of(
+                WebRouteContribution.admin("/api/narration/**"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/tts/**"),
                 WebRouteContribution.visitorAndInvitedGuest("/pixiv-tts/**"));
     }

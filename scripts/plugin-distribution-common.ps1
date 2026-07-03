@@ -9,13 +9,23 @@
 
         . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
-    It defines the canonical official optional external plugin list plus the plugin-jar inspection and
+    It defines the canonical official external plugin lists plus the plugin-jar inspection and
     checksum helpers. It performs no work on its own and writes nothing to disk.
 
     ASCII-only (no BOM, English comments): these scripts run under Windows powershell(5.1); non-ASCII
     without a BOM is decoded with the system ANSI code page and fails to parse (same constraint as the
     other scripts/*.ps1).
 #>
+
+# Official required external plugins (id / Maven module / artifact format). These are bundled into the
+# default downloader package and are also published to the official plugin repository for repair/recovery.
+function Get-OfficialRequiredPlugins {
+    [CmdletBinding()]
+    param()
+    return @(
+        [pscustomobject]@{ Id = "download-workbench"; Module = "pixivdownload-plugin-download-workbench"; Format = "jar"; PrivateLibs = $false }
+    )
+}
 
 # Official optional external plugins (id / Maven module / artifact format). recovery-sentinel is a recovery-mode
 # validation fixture, not a user-facing official plugin, so it is only ever included on demand
@@ -52,6 +62,22 @@ function Get-OfficialOptionalPlugins {
     )
     if ($IncludeSentinel) {
         $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }
+    }
+    return $plugins
+}
+
+function Get-OfficialDistributionPlugins {
+    [CmdletBinding()]
+    param(
+        [switch]$IncludeOptional,
+        [switch]$IncludeSentinel
+    )
+    $plugins = @(Get-OfficialRequiredPlugins)
+    if ($IncludeOptional) {
+        $plugins += @(Get-OfficialOptionalPlugins -IncludeSentinel:$IncludeSentinel)
+    } elseif ($IncludeSentinel) {
+        $plugins += @(Get-OfficialOptionalPlugins -IncludeSentinel:$IncludeSentinel |
+            Where-Object { $_.Id -eq "recovery-sentinel" })
     }
     return $plugins
 }

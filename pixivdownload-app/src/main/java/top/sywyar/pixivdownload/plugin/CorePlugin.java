@@ -126,12 +126,10 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/pixiv-invite-detail.html"),
                 WebRouteContribution.admin("/plugin-manage.html"),
                 WebRouteContribution.admin("/api/downloaded/batch"),
-                // （/api/schedule/** 随 schedule 能力收编进下载工作台，由 DownloadWorkbenchPlugin 声明）
                 WebRouteContribution.admin("/api/admin/**"),
                 // 插件管理后端 API（PluginManagementController）：状态查询 + 外置插件运行期生命周期动词 + 本地包安装，仅管理员。
                 // 与恢复模式访问放行 /api/plugins/ 同前缀，使核心进入恢复模式时管理员仍可查询状态并驱动修复。
                 WebRouteContribution.admin("/api/plugins/**"),
-                WebRouteContribution.admin("/api/narration/**"),
                 WebRouteContribution.admin("/monitor/**"),
                 WebRouteContribution.admin("/pixiv-invite-manage/**"),
                 WebRouteContribution.admin("/pixiv-invite-detail/**"),
@@ -142,7 +140,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.invitedGuest("/api/downloaded/history"),
                 WebRouteContribution.invitedGuest("/api/downloaded/history/paged"),
                 WebRouteContribution.invitedGuest("/api/downloaded/by-move-folder"),
-                WebRouteContribution.invitedGuest("/api/download/status/active"),
                 WebRouteContribution.invitedGuest("/api/downloaded/thumbnail/**"),
                 WebRouteContribution.invitedGuest("/api/downloaded/thumbnail-file/**"),
                 WebRouteContribution.invitedGuest("/api/downloaded/rawfile/**"),
@@ -152,9 +149,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.invitedGuest("/api/authors**"),
                 WebRouteContribution.invitedGuest("/api/series**"),
                 WebRouteContribution.invitedGuest("/api/collections**"),
-                // ── 访客可达、不入 monitor：只读代理 / 下载状态轮询前缀（multi 普通访客 GET 亦可达）──────
-                WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
-                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
+                // ── 访客可达、不入 monitor：共享只读静态依赖（multi 普通访客 GET 亦可达）──────────
                 // 跨页共享只读静态依赖（访客可读、不入 monitor）。其中 i18n / 语言切换 / 主题三件
                 // 同时也是 PUBLIC（见下），按现状两个清单都登记。
                 WebRouteContribution.visitorAndInvitedGuest("/css/admin-visibility.css"),
@@ -214,25 +209,15 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/js/**"),
                 WebRouteContribution.visitor("/css/**"),
                 WebRouteContribution.visitor("/vendor/**"),
-                // setup / scripts：multi 公开、solo 需会话的不对称由 AuthFilter 内联 isDefaultPublicPath 承载；
+                // setup：multi 公开、solo 需会话的不对称由 AuthFilter 内联 isDefaultPublicPath 承载；
                 // 此处 VISITOR 声明不派生进任何清单、不改其内联访问行为，只为纳入「全 URL 声明」守卫。
-                // /api/scripts** 用无尾斜杠 startsWith（同 /api/authors**）：覆盖裸列表端点 /api/scripts 与 /api/scripts/{id}。
                 WebRouteContribution.visitor("/api/setup/**"),
-                WebRouteContribution.visitor("/api/scripts**"),
                 // （/api/navigation 改归上面的 VISITOR_AND_INVITED_GUEST 块，使受邀访客可读动态导航。）
                 // 应用信息 / 配额 / 归档 / 迁移：随页面消费的访客可用 API（历史未声明 API 的涌现行为）。
                 WebRouteContribution.visitor("/api/app/info"),
                 WebRouteContribution.visitor("/api/quota/**"),
                 WebRouteContribution.visitor("/api/archive/**"),
                 WebRouteContribution.visitor("/api/migration/**"),
-                // 下载进度 SSE 流（跨页消费、与下载状态轮询同归核心）。
-                WebRouteContribution.visitor("/api/sse/**"),
-                // Pixiv 只读代理的其余子面（artwork 已在上面对访客开放；小说只读代理由 novel 插件声明）。
-                WebRouteContribution.visitor("/api/pixiv/user/**"),
-                WebRouteContribution.visitor("/api/pixiv/search**"),
-                WebRouteContribution.visitor("/api/pixiv/series/**"),
-                WebRouteContribution.visitor("/api/pixiv/me/**"),
-                WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),
                 // ── GUI：本地 + token 双重校验（由 AuthFilter 内联分支执行；声明为纳入守卫与镜像）──────
                 WebRouteContribution.gui("/api/gui/**"),
                 // ── actuator 公开探针：容器健康 / 信息端点（由 AuthFilter 内联 fast-path 放行；声明为纳入
@@ -245,8 +230,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.local("/proxy.pac"),
                 WebRouteContribution.local("/setup.html"),
                 WebRouteContribution.local("/setup/**"),
-                WebRouteContribution.local("/api/downloaded/**"),
-                WebRouteContribution.local("/api/download/status"));
+                WebRouteContribution.local("/api/downloaded/**"));
     }
 
     @Override

@@ -137,8 +137,8 @@ public class PluginRuntimeConfiguration {
      * {@link RecoveryModeService} 据本策略与插件状态报告判定是否进入恢复模式；本配置只声明策略数据，不在启动期据此
      * 拦截请求（拦截由恢复模式访问控制 {@link RecoveryModeGate} 执行）。必选性由本策略声明，而非由插件自称。
      * <ul>
-     *   <li>下载工作台 {@code download-workbench} 恒为必选——它随主程序编译为内置必选插件、恒在场且与核心 API 同版本，
-     *       故正常运行下该必选项恒满足。</li>
+     *   <li>下载工作台 {@code download-workbench} 恒为必选——它是官方 required 外置插件，由发行元数据和本核心策略
+     *       约束，不依赖插件自称必选；缺失 / 不兼容 / 验签失败时核心进入恢复模式。</li>
      *   <li>{@code recovery-sentinel} 仅当显式开关 {@code pixivdownload.recovery-sentinel.required=true} 打开时才追加为
      *       必选项（默认关闭、不参与判定，故默认配置下核心不因它进入恢复模式）。它是一个不贡献任何功能的最小外置插件：
      *       开关打开后，若该外置插件缺失（未放入 {@code plugins/}）或被 {@code plugins.recovery-sentinel.enabled=false}

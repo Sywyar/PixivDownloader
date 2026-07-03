@@ -225,7 +225,7 @@ public interface NovelMapper {
             + " control_instruction AS controlInstruction, (character_id = 0) AS narrator,"
             + " edited_by_user AS editedByUser"
             + " FROM novel_narration_voices WHERE cast_id = #{castId} ORDER BY character_id")
-    List<top.sywyar.pixivdownload.ai.narration.NarrationCharacter> findNarrationVoices(@Param("castId") long castId);
+    List<top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter> findNarrationVoices(@Param("castId") long castId);
 
     @Select("SELECT MAX(character_id) FROM novel_narration_voices WHERE cast_id = #{castId}")
     Integer maxNarrationVoiceId(@Param("castId") long castId);

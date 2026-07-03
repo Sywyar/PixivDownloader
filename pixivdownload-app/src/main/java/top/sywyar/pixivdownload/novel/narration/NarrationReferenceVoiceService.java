@@ -2,11 +2,11 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
-import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
+import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.util.TimestampUtils;

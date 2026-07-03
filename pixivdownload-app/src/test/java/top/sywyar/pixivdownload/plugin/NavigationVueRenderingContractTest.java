@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       回退 {@code renderSlot} / {@code buildItemHtml}，挂载失败收敛为 {@code console.warn} + 不抛；</li>
  *   <li>每次渲染（含失败降级）后派发 {@code pixivnav:rendered} 生命周期事件、拉取失败清空 slot（与历史一致）；</li>
  *   <li>运行时单一来源：导航渲染器不自带 / 不硬编码 {@code /vendor/vue/} 或捆绑 Vue 文件（呼应「禁止自带共享前端运行时」红线）；</li>
- *   <li>渲染 Vue 化的全部宿主页（app 模块 6 页）都加载共享 helper {@code /js/pixiv-vue.js}（否则 Vue 路径静默回退命令式）。</li>
+ *   <li>渲染 Vue 化的全部 app 内置宿主页都加载共享 helper {@code /js/pixiv-vue.js}（否则 Vue 路径静默回退命令式）。</li>
  * </ul>
  */
 @DisplayName("Vue reactive 渲染契约守卫：跨插件导航 reactive 主路径 + 命令式回退 + 运行时单一来源")
@@ -34,7 +34,7 @@ class NavigationVueRenderingContractTest {
 
     /** 加载导航渲染器、需经 Vue 主路径渲染其 nav slot 的 app 模块宿主页。 */
     private static final List<String> NAV_PAGES = List.of(
-            "monitor.html", "pixiv-batch.html", "pixiv-gallery.html",
+            "monitor.html", "pixiv-gallery.html",
             "pixiv-novel-gallery.html", "pixiv-series.html", "pixiv-duplicates.html");
 
     private static String read(String resource) throws IOException {
