@@ -7,7 +7,6 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07
 
 jobs:
   resolve-version:
@@ -41,8 +40,12 @@ jobs:
           echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
+  publish-plugins:
+    uses: ./.github/workflows/publish-plugins.yml
+    secrets: inherit
+
   build-jar:
-    needs: resolve-version
+    needs: [resolve-version, publish-plugins]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -91,27 +94,20 @@ jobs:
           name: jar
           path: build/release-jars/*.jar
 
-      - name: Prepare plugin signing private key
+      - name: Stage official plugin inputs from signed catalog
         shell: pwsh
-        env:
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64) -and [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM)) {
-            throw "Missing GitHub Actions secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 or PLUGIN_SIGNING_PRIVATE_KEY_PEM."
+          $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
+            Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+            Sort-Object LastWriteTime -Descending)
+          if ($signatureTools.Count -lt 1) {
+            throw "Could not find pixivdownload-plugin-signature tool jar."
           }
-          $signingDir = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-signing"
-          New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
-          $privateKeyFile = Join-Path $signingDir "official-ed25519-private-key.pem"
-          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
-            $privateKeyBytes = [System.Convert]::FromBase64String(($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', ''))
-            [System.IO.File]::WriteAllBytes($privateKeyFile, $privateKeyBytes)
-          } else {
-            $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM
-            $pem = $pem.Replace('\r\n', "`n").Replace('\n', "`n").Replace('\r', "`n")
-            [System.IO.File]::WriteAllText($privateKeyFile, $pem.Trim() + "`n", (New-Object System.Text.UTF8Encoding($false)))
-          }
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile`n", (New-Object System.Text.UTF8Encoding($false)))
+          $signatureTool = $signatureTools[0]
+          ./scripts/stage-official-plugin-inputs-from-catalog.ps1 `
+            -OutputDir build/plugin-inputs `
+            -SignatureToolJar $signatureTool.FullName `
+            -IncludeOptional
 
       - name: Assemble full-offline distribution
         shell: pwsh
@@ -119,53 +115,33 @@ jobs:
           $version = '${{ needs.resolve-version.outputs.version }}'
           $distRoot = "build/plugin-distributions"
           New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+          $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
+            Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+            Sort-Object LastWriteTime -Descending)
+          if ($signatureTools.Count -lt 1) {
+            throw "Could not find pixivdownload-plugin-signature tool jar."
+          }
+          $signatureTool = $signatureTools[0]
           ./scripts/assemble-plugin-distribution.ps1 `
             -Version $version `
             -OutputDir "$distRoot/full-offline" `
-            -OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID `
-            -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
+            -PrebuiltPluginsDir build/plugin-inputs `
+            -SignatureToolJar $signatureTool.FullName
           $source = Join-Path $distRoot "full-offline"
           $zip = Join-Path $distRoot "PixivDownload-$version-full-offline.zip"
           Compress-Archive -Path (Join-Path $source "*") -DestinationPath $zip -Force
+
+      - name: Upload plugin inputs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-inputs
+          path: build/plugin-inputs/*
 
       - name: Upload plugin distributions artifact
         uses: actions/upload-artifact@v4
         with:
           name: plugin-distributions
           path: build/plugin-distributions/PixivDownload-*-full-offline.zip
-
-      - name: Cleanup plugin signing private key
-        if: always()
-        shell: pwsh
-        run: |
-          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_FILE)) {
-            Remove-Item -LiteralPath $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Stage official plugin inputs
-        shell: bash
-        run: |
-          mkdir -p build/plugin-inputs
-          cp pixivdownload-plugin-download-workbench/target/pixivdownload-plugin-download-workbench-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-stats/target/pixivdownload-plugin-stats-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-duplicate/target/pixivdownload-plugin-duplicate-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-gallery/target/pixivdownload-plugin-gallery-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-novel-gallery/target/pixivdownload-plugin-novel-gallery-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-notification/target/pixivdownload-plugin-notification-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-push/target/pixivdownload-plugin-push-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-mail/target/pixivdownload-plugin-mail-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-tts/target/pixivdownload-plugin-tts-*.jar build/plugin-inputs/
-          cp pixivdownload-plugin-ai/target/pixivdownload-plugin-ai-*.jar build/plugin-inputs/
-          # Keep only distributable plugin jars (exclude sources/javadoc if ever produced).
-          rm -f build/plugin-inputs/*-sources.jar build/plugin-inputs/*-javadoc.jar
-          ls -l build/plugin-inputs/
-
-      - name: Upload plugin inputs artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: plugin-inputs
-          path: build/plugin-inputs/*.jar
 
   build-windows-installer:
     needs: [resolve-version, build-jar]
@@ -208,28 +184,6 @@ jobs:
         shell: powershell
         run: .\mvnw.cmd "-pl" "pixivdownload-plugin-signature" "-am" "package" "-DskipTests" "-Dexec.skip=true"
 
-      - name: Prepare plugin signing private key
-        shell: powershell
-        env:
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
-          PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64) -and [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM)) {
-            throw "Missing GitHub Actions secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 or PLUGIN_SIGNING_PRIVATE_KEY_PEM."
-          }
-          $signingDir = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-signing"
-          New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
-          $privateKeyFile = Join-Path $signingDir "official-ed25519-private-key.pem"
-          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
-            $privateKeyBytes = [System.Convert]::FromBase64String(($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', ''))
-            [System.IO.File]::WriteAllBytes($privateKeyFile, $privateKeyBytes)
-          } else {
-            $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM
-            $pem = $pem.Replace('\r\n', "`n").Replace('\n', "`n").Replace('\r', "`n")
-            [System.IO.File]::WriteAllText($privateKeyFile, $pem.Trim() + "`n", (New-Object System.Text.UTF8Encoding($false)))
-          }
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile`n", (New-Object System.Text.UTF8Encoding($false)))
-
       - name: Package Windows setup
         shell: pwsh
         run: |
@@ -240,22 +194,20 @@ jobs:
           }
           $jar = $jars[0]
           $pluginsDir = (Resolve-Path artifacts/plugin-inputs).Path
+          $signatureTools = @(Get-ChildItem pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar -File |
+            Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+            Sort-Object LastWriteTime -Descending)
+          if ($signatureTools.Count -lt 1) {
+            throw "Could not find pixivdownload-plugin-signature tool jar."
+          }
+          $signatureTool = $signatureTools[0]
           ./scripts/package-local.ps1 `
             -Version $version `
             -PrebuiltJar $jar.FullName `
             -PrebuiltPluginsDir $pluginsDir `
-            -OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID `
-            -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE `
+            -SignatureToolJar $signatureTool.FullName `
             -SkipPortable `
             -SkipOfflinePortable
-
-      - name: Cleanup plugin signing private key
-        if: always()
-        shell: powershell
-        run: |
-          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_FILE)) {
-            Remove-Item -LiteralPath $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE -Force -ErrorAction SilentlyContinue
-          }
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4

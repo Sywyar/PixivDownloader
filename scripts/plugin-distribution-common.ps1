@@ -163,6 +163,82 @@ function New-PluginArtifactSignature {
     return (Get-Content -LiteralPath $OutputPath -Raw -Encoding UTF8 | ConvertFrom-Json)
 }
 
+function Find-PluginArtifactSignatureSidecar {
+    param([Parameter(Mandatory = $true)][string]$ArtifactPath)
+    foreach ($candidate in @("$ArtifactPath.sig", "$ArtifactPath.sig.json")) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    return ""
+}
+
+function Read-PluginSignatureMetadata {
+    param([Parameter(Mandatory = $true)][string]$SignaturePath)
+    if (-not (Test-Path -LiteralPath $SignaturePath -PathType Leaf)) {
+        throw "Plugin signature sidecar not found: $SignaturePath"
+    }
+    return (Get-Content -LiteralPath $SignaturePath -Raw -Encoding UTF8 | ConvertFrom-Json)
+}
+
+function Assert-PluginArtifactSignature {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolJar,
+        [Parameter(Mandatory = $true)][string]$ArtifactPath,
+        [Parameter(Mandatory = $true)][string]$SignaturePath,
+        [Parameter(Mandatory = $true)][string]$PluginId,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [long]$ExpectedSizeBytes,
+        [string]$Sha256
+    )
+    if ($ExpectedSizeBytes -le 0) {
+        $ExpectedSizeBytes = (Get-Item -LiteralPath $ArtifactPath).Length
+    }
+    if ([string]::IsNullOrWhiteSpace($Sha256)) {
+        $Sha256 = Get-Sha256Hex $ArtifactPath
+    }
+    Invoke-PluginSignatureTool $ToolJar @(
+        "verify-artifact",
+        "--artifact", $ArtifactPath,
+        "--signature", $SignaturePath,
+        "--plugin-id", $PluginId,
+        "--version", $Version,
+        "--expected-size", ([string]$ExpectedSizeBytes),
+        "--sha256", $Sha256,
+        "--policy", "official"
+    )
+    return Read-PluginSignatureMetadata $SignaturePath
+}
+
+function Get-PluginArtifactSignatureForDistribution {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolJar,
+        [Parameter(Mandatory = $true)][string]$ArtifactPath,
+        [Parameter(Mandatory = $true)][string]$PluginId,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [string]$ExistingSignaturePath,
+        [string]$OfficialKeyId,
+        [string]$PrivateKeyFile,
+        [Parameter(Mandatory = $true)][string]$OutputPath
+    )
+    if (-not [string]::IsNullOrWhiteSpace($ExistingSignaturePath)) {
+        $signature = Assert-PluginArtifactSignature $ToolJar $ArtifactPath $ExistingSignaturePath `
+            $PluginId $Version (Get-Item -LiteralPath $ArtifactPath).Length (Get-Sha256Hex $ArtifactPath)
+        Copy-Item -LiteralPath $ExistingSignaturePath -Destination $OutputPath -Force
+        return $signature
+    }
+
+    if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) {
+        throw "OfficialKeyId is required when a plugin artifact has no .sig sidecar."
+    }
+    if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
+        throw "PrivateKeyFile is required when a plugin artifact has no .sig sidecar."
+    }
+
+    return New-PluginArtifactSignature $ToolJar $ArtifactPath $PluginId $Version `
+        $OfficialKeyId $PrivateKeyFile $OutputPath
+}
+
 function Write-PluginProvenanceSidecar {
     param(
         [Parameter(Mandatory = $true)][string]$ArtifactPath,

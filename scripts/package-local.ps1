@@ -44,7 +44,9 @@ $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
 $FfmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
 $OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
+$InstallerPluginApiVersion = "1.0.0"
 $InstallerCatalogDirName = "installer-catalog"
+$InstallerCatalogIncludePath = Join-Path $BuildRoot "installer-plugin-catalog-items.iss.inc"
 $FfmpegExe = Join-Path $FfmpegDir "ffmpeg.exe"
 $FfprobeExe = Join-Path $FfmpegDir "ffprobe.exe"
 $FfmpegLicense = Join-Path $FfmpegDir "ffmpeg-LGPL.txt"
@@ -201,8 +203,8 @@ function Stage-OfficialPlugins {
         [Parameter(Mandatory = $true)]$Plugins,
         [string]$PrebuiltPluginsDir,
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [Parameter(Mandatory = $true)][string]$OfficialKeyId,
-        [Parameter(Mandatory = $true)][string]$PrivateKeyFile,
+        [string]$OfficialKeyId,
+        [string]$PrivateKeyFile,
         [Parameter(Mandatory = $true)][string]$SignatureToolJar
     )
     $pluginsDir = Join-Path $AppDir "plugins"
@@ -225,14 +227,22 @@ function Stage-OfficialPlugins {
         } else {
             $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         }
+        $sourceSignaturePath = Find-PluginArtifactSignatureSidecar $sourceArtifact
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
         $stableName = "$($plugin.Module).$extension"
         $targetArtifact = Join-Path $pluginsDir $stableName
         Copy-Item $sourceArtifact $targetArtifact -Force
         $sha = Get-Sha256Hex $targetArtifact
         [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $stableName`n", $utf8NoBom)
-        $signature = New-PluginArtifactSignature $SignatureToolJar $targetArtifact $plugin.Id $descriptor["plugin.version"] `
-            $OfficialKeyId $PrivateKeyFile "$targetArtifact.sig"
+        $signature = Get-PluginArtifactSignatureForDistribution `
+            -ToolJar $SignatureToolJar `
+            -ArtifactPath $targetArtifact `
+            -PluginId $plugin.Id `
+            -Version $descriptor["plugin.version"] `
+            -ExistingSignaturePath $sourceSignaturePath `
+            -OfficialKeyId $OfficialKeyId `
+            -PrivateKeyFile $PrivateKeyFile `
+            -OutputPath "$targetArtifact.sig"
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
             $sha $signature $verifiedAt)
@@ -289,6 +299,194 @@ function Assert-InstallerPluginCatalogSignature {
     )
 }
 
+function Get-InstallerCatalogProp {
+    param(
+        $Object,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    if ($null -eq $Object) { return $null }
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $null }
+    return $prop.Value
+}
+
+function Get-InstallerCatalogTextValue {
+    param(
+        $Map,
+        [AllowEmptyString()][string]$Fallback,
+        [Parameter(Mandatory = $true)][string]$Language
+    )
+    if ($null -eq $Map) { return $Fallback }
+    $base = $Language.Split("-")[0]
+    foreach ($key in @($Language, $base, "zh", "en")) {
+        $value = Get-InstallerCatalogProp $Map $key
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            return [string]$value
+        }
+    }
+    foreach ($prop in $Map.PSObject.Properties) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$prop.Value)) {
+            return [string]$prop.Value
+        }
+    }
+    return $Fallback
+}
+
+function Escape-InstallerCatalogField {
+    param([string]$Value)
+    if ($null -eq $Value) { return "" }
+    return $Value.Replace("%", "%25").Replace("|", "%7C").Replace("`r", " ").Replace("`n", " ")
+}
+
+function Parse-InstallerCatalogVersionPair {
+    param([string]$Version)
+    if ([string]::IsNullOrWhiteSpace($Version)) { return @(0, 0) }
+    $parts = $Version.Split(".")
+    $major = 0
+    $minor = 0
+    if ($parts.Length -ge 1) { [void][int]::TryParse($parts[0], [ref]$major) }
+    if ($parts.Length -ge 2) { [void][int]::TryParse($parts[1], [ref]$minor) }
+    return @($major, $minor)
+}
+
+function Test-InstallerCatalogCompatible {
+    param(
+        [string]$Required,
+        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+    )
+    if ([string]::IsNullOrWhiteSpace($Required)) { return $true }
+    $core = Parse-InstallerCatalogVersionPair $CoreApiVersion
+    $requiredPair = Parse-InstallerCatalogVersionPair $Required
+    return ($core[0] -eq $requiredPair[0]) -and ($core[1] -ge $requiredPair[1])
+}
+
+function Select-InstallerCatalogPackage {
+    param($Entry)
+    $packages = @(Get-InstallerCatalogProp $Entry "packages")
+    if ($packages.Count -eq 0) { return $null }
+    $market = Get-InstallerCatalogProp $Entry "market"
+    $latest = Get-InstallerCatalogProp $market "latestVersion"
+    if (-not [string]::IsNullOrWhiteSpace([string]$latest)) {
+        foreach ($pkg in $packages) {
+            if ((Get-InstallerCatalogProp $pkg "version") -eq $latest) {
+                return $pkg
+            }
+        }
+    }
+    return $packages[0]
+}
+
+function Test-InstallerCatalogInstallablePackage {
+    param(
+        $Package,
+        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+    )
+    if ($null -eq $Package) { return $false }
+    if ([string]::IsNullOrWhiteSpace([string](Get-InstallerCatalogProp $Package "version"))) { return $false }
+    if ([string]::IsNullOrWhiteSpace([string](Get-InstallerCatalogProp $Package "packageUrl"))) { return $false }
+    if ([string]::IsNullOrWhiteSpace([string](Get-InstallerCatalogProp $Package "sha256"))) { return $false }
+    $size = [int64](Get-InstallerCatalogProp $Package "expectedSizeBytes")
+    if ($size -le 0) { return $false }
+    if ($null -eq (Get-InstallerCatalogProp $Package "signature")) { return $false }
+    return Test-InstallerCatalogCompatible ([string](Get-InstallerCatalogProp $Package "requiredCoreApi")) $CoreApiVersion
+}
+
+function New-InstallerCatalogProjectionRows {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$Language,
+        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+    )
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($entry in @(Get-InstallerCatalogProp $manifest "entries")) {
+        $pluginId = [string](Get-InstallerCatalogProp $entry "pluginId")
+        if ([string]::IsNullOrWhiteSpace($pluginId)) { continue }
+        $market = Get-InstallerCatalogProp $entry "market"
+        if ([bool](Get-InstallerCatalogProp $market "officialRequired")) { continue }
+        $pkg = Select-InstallerCatalogPackage $entry
+        if (-not (Test-InstallerCatalogInstallablePackage $pkg $CoreApiVersion)) { continue }
+        $rows.Add([pscustomobject]@{
+            PluginId = $pluginId
+            Version = [string](Get-InstallerCatalogProp $pkg "version")
+            DisplayName = Get-InstallerCatalogTextValue (Get-InstallerCatalogProp $market "displayName") $pluginId $Language
+            Summary = Get-InstallerCatalogTextValue (Get-InstallerCatalogProp $market "summary") "" $Language
+            Size = [string](Get-InstallerCatalogProp $pkg "expectedSizeBytes")
+            Category = [string](Get-InstallerCatalogProp $market "category")
+        })
+    }
+    return $rows.ToArray()
+}
+
+function Write-InstallerPluginCatalogProjection {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$OutputPath,
+        [Parameter(Mandatory = $true)][string]$Language,
+        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+    )
+    $projectionUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("CATALOG|PACKAGED|installer-plugin-catalog.json")
+    foreach ($row in @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
+                -Language $Language -CoreApiVersion $CoreApiVersion)) {
+        $line = "ITEM|{0}|{1}|{2}|{3}|{4}|{5}" -f `
+            (Escape-InstallerCatalogField $row.PluginId), (Escape-InstallerCatalogField $row.Version), `
+            (Escape-InstallerCatalogField $row.DisplayName), (Escape-InstallerCatalogField $row.Summary), `
+            (Escape-InstallerCatalogField $row.Size), (Escape-InstallerCatalogField $row.Category)
+        $lines.Add($line)
+    }
+    [System.IO.File]::WriteAllText($OutputPath, (($lines -join "`n") + "`n"), $projectionUtf8NoBom)
+}
+
+function Escape-InstallerCatalogIssString {
+    param([AllowNull()][string]$Value)
+    if ($null -eq $Value) { return "''" }
+    $escaped = $Value.Replace("'", "''").Replace("`r", " ").Replace("`n", " ")
+    return "'$escaped'"
+}
+
+function Add-InstallerCatalogIncludeRows {
+    param(
+        [Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$Lines,
+        $Rows
+    )
+    foreach ($row in @($Rows)) {
+        $Lines.Add(("    AddPluginCatalogItem({0}, {1}, {2}, {3});" -f `
+                    (Escape-InstallerCatalogIssString $row.PluginId), `
+                    (Escape-InstallerCatalogIssString $row.Version), `
+                    (Escape-InstallerCatalogIssString $row.DisplayName), `
+                    (Escape-InstallerCatalogIssString $row.Summary)))
+    }
+}
+
+function Write-InstallerPluginCatalogInclude {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$OutputPath,
+        [Parameter(Mandatory = $true)][string]$CoreApiVersion
+    )
+    $projectionUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $enRows = @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
+            -Language "en" -CoreApiVersion $CoreApiVersion)
+    $zhRows = @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
+            -Language "zh-CN" -CoreApiVersion $CoreApiVersion)
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("// Generated by scripts/package-local.ps1. Do not edit.")
+    $lines.Add("procedure LoadCompiledInstallerPluginCatalogItems;")
+    $lines.Add("begin")
+    $lines.Add("  if ActiveLanguage = 'zhcn' then")
+    $lines.Add("  begin")
+    Add-InstallerCatalogIncludeRows -Lines $lines -Rows $zhRows
+    $lines.Add("  end")
+    $lines.Add("  else")
+    $lines.Add("  begin")
+    Add-InstallerCatalogIncludeRows -Lines $lines -Rows $enRows
+    $lines.Add("  end;")
+    $lines.Add("end;")
+    [System.IO.File]::WriteAllText($OutputPath, (($lines -join "`n") + "`n"), $projectionUtf8NoBom)
+}
+
 function Stage-InstallerPluginCatalogSnapshot {
     param(
         [Parameter(Mandatory = $true)][string]$AppDir,
@@ -298,6 +496,8 @@ function Stage-InstallerPluginCatalogSnapshot {
     Ensure-Directory $catalogDir
     $manifestTarget = Join-Path $catalogDir "manifest.json"
     $signatureTarget = Join-Path $catalogDir "manifest.json.sig"
+    $projectionEnTarget = Join-Path $catalogDir "catalog.en.txt"
+    $projectionZhTarget = Join-Path $catalogDir "catalog.zh-CN.txt"
 
     $downloadDir = Join-Path $BuildRoot "installer-catalog-download"
     Remove-PathIfExists $downloadDir
@@ -320,6 +520,12 @@ function Stage-InstallerPluginCatalogSnapshot {
 
     Copy-Item $manifestTemp $manifestTarget -Force
     Copy-Item $signatureTemp $signatureTarget -Force
+    Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionEnTarget `
+        -Language "en" -CoreApiVersion $InstallerPluginApiVersion
+    Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionZhTarget `
+        -Language "zh-CN" -CoreApiVersion $InstallerPluginApiVersion
+    Write-InstallerPluginCatalogInclude -ManifestPath $manifestTemp -OutputPath $InstallerCatalogIncludePath `
+        -CoreApiVersion $InstallerPluginApiVersion
     Write-Host ("    OK: signed installer plugin catalog staged under {0}." -f $InstallerCatalogDirName) -ForegroundColor Green
 }
 
@@ -382,10 +588,6 @@ try {
     $resolvedPrebuiltPluginsDir = ""
     if (-not $SkipPlugins) {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
-        if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required when staging plugins." }
-        if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
-            throw "PrivateKeyFile is required when staging plugins and must point to an Ed25519 PKCS#8 PEM file."
-        }
         $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
     }
     $mavenCmd = $null
@@ -399,7 +601,7 @@ try {
     }
 
     Write-Step "Cleaning local packaging directories"
-    foreach ($path in @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir)) {
+    foreach ($path in @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)) {
         Remove-PathIfExists $path
     }
     Ensure-Directory $InputDir

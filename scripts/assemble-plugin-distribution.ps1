@@ -45,6 +45,10 @@
 .PARAMETER OutputDir
     Distribution output directory. Default <repo>/build/dist.
 
+.PARAMETER PrebuiltPluginsDir
+    Directory containing official plugin artifacts downloaded from the signed plugin catalog. When an artifact has
+    an adjacent .sig sidecar, the signature is verified and reused instead of generating a new local signature.
+
 .PARAMETER Build
     Run Maven `package` (skip tests and userscript generation) before staging; otherwise the reactor jars
     must already be built.
@@ -57,6 +61,7 @@
 param(
     [string]$Version = "0.0.1-local",
     [string]$OutputDir,
+    [string]$PrebuiltPluginsDir,
     [switch]$Build,
     [switch]$CoreShellOnly,
     [switch]$DefaultDownloader,
@@ -79,15 +84,18 @@ if (-not $OutputDir) {
 }
 $PluginsOutDir = Join-Path $OutputDir "plugins"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-if (-not $CoreShellOnly -and [string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
-if (-not $CoreShellOnly -and ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf))) {
-    throw "PrivateKeyFile is required and must point to an Ed25519 PKCS#8 PEM file."
-}
 if ($CoreShellOnly -and $DefaultDownloader) {
     throw "CoreShellOnly and DefaultDownloader cannot be combined."
 }
+$ResolvedPrebuiltPluginsDir = ""
 if (-not $CoreShellOnly) {
     $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
+    if (-not [string]::IsNullOrWhiteSpace($PrebuiltPluginsDir)) {
+        if (-not (Test-Path -LiteralPath $PrebuiltPluginsDir -PathType Container)) {
+            throw "PrebuiltPluginsDir not found or not a directory: $PrebuiltPluginsDir"
+        }
+        $ResolvedPrebuiltPluginsDir = (Resolve-Path -LiteralPath $PrebuiltPluginsDir).Path
+    }
 }
 
 # Official external plugins (required + optional). recovery-sentinel only when -IncludeSentinel.
@@ -253,6 +261,22 @@ function Get-AppBootJar {
         Select-Object -First 1
 }
 
+function Find-PrebuiltPluginArtifact {
+    param(
+        [Parameter(Mandatory = $true)]$Plugin,
+        [Parameter(Mandatory = $true)][string]$Directory
+    )
+    $extension = Get-OfficialPluginArtifactExtension $Plugin
+    $candidate = Get-ChildItem (Join-Path $Directory "$($Plugin.Module)-*.$extension") -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if (-not $candidate) {
+        throw "Prebuilt plugin artifact for module $($Plugin.Module) not found under $Directory."
+    }
+    return $candidate.FullName
+}
+
 Push-Location $ProjectRoot
 try {
     if ($Build) {
@@ -288,7 +312,12 @@ try {
     $requiredPluginIds = @(Get-OfficialRequiredPlugins | ForEach-Object { $_.Id })
     foreach ($plugin in $DistributionPlugins) {
         Write-Step "Staging plugin '$($plugin.Id)'"
-        $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
+        if ($ResolvedPrebuiltPluginsDir) {
+            $sourceArtifact = Find-PrebuiltPluginArtifact $plugin $ResolvedPrebuiltPluginsDir
+        } else {
+            $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
+        }
+        $sourceSignaturePath = Find-PluginArtifactSignatureSidecar $sourceArtifact
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
         $pluginVersion = $descriptor["plugin.version"]
         $requires = $descriptor["plugin.requires"]
@@ -301,8 +330,15 @@ try {
 
         $sha = Get-Sha256Hex $targetArtifact
         [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $targetName`n", $Utf8NoBom)
-        $signature = New-PluginArtifactSignature $SignatureToolJar $targetArtifact $plugin.Id $pluginVersion `
-            $OfficialKeyId $PrivateKeyFile "$targetArtifact.sig"
+        $signature = Get-PluginArtifactSignatureForDistribution `
+            -ToolJar $SignatureToolJar `
+            -ArtifactPath $targetArtifact `
+            -PluginId $plugin.Id `
+            -Version $pluginVersion `
+            -ExistingSignaturePath $sourceSignaturePath `
+            -OfficialKeyId $OfficialKeyId `
+            -PrivateKeyFile $PrivateKeyFile `
+            -OutputPath "$targetArtifact.sig"
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
             $sha $signature $verifiedAt)

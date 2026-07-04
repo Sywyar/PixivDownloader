@@ -1,16 +1,17 @@
 name: Publish plugins
 
 # 构建官方外置插件 → 发布到独立分发仓库的 Release，并生成 / 提交插件市场 manifest.json。
-# 触发：push v* 标签（随主程序发版一并发布插件）/ 每日定时（刷新 download_count 等快照）/ 手动。
+# 触发：由 release/nightly 复用调用（串行阻塞主产物打包）/ 手动。
 # 跨仓库写入用细粒度 PAT（secrets.PLUGINS_REPO_TOKEN，目标仓库 Contents: 读写 + Metadata: 读），
 # 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
 on:
-  push:
-    tags:
-      - 'v*'
-  schedule:
-    # 每日定时（与 nightly 同 cron）：发布幂等，主要用于刷新 manifest 的 download_count 快照。
-    - cron: '33 18 * * *'
+  workflow_call:
+    inputs:
+      publish_args:
+        description: '可选发布参数；填写 -f 时强制重编译并覆盖上传所有插件资产'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       publish_args:
@@ -85,7 +86,7 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
-          PUBLISH_PLUGIN_ARGS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_args || '' }}
+          PUBLISH_PLUGIN_ARGS: ${{ inputs.publish_args || '' }}
         run: |
           $publishArgs = @{
             Repo = $env:PLUGINS_REPO

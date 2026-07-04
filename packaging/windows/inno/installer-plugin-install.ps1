@@ -11,14 +11,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Write-State([string]$Value) {
     $dir = [System.IO.Path]::GetDirectoryName($ProgressFile)
     if (-not [string]::IsNullOrWhiteSpace($dir)) {
         [System.IO.Directory]::CreateDirectory($dir) | Out-Null
     }
-    $safe = [System.Text.RegularExpressions.Regex]::Replace($Value, "[^ -~]", "?")
-    $bytes = [System.Text.Encoding]::ASCII.GetBytes($safe)
+    $bytes = $Utf8NoBom.GetBytes($Value + "`n")
     for ($attempt = 0; $attempt -lt 40; $attempt++) {
         try {
             $stream = [System.IO.File]::Open($ProgressFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
@@ -36,9 +36,24 @@ function Write-State([string]$Value) {
     }
 }
 
-function Format-Error([System.Exception]$ErrorValue) {
-    $message = $ErrorValue.GetType().FullName + ": " + $ErrorValue.Message
-    return [System.Text.RegularExpressions.Regex]::Replace($message, "[^ -~]", "?")
+function Escape-StateField([string]$Value) {
+    if ($null -eq $Value) { return "" }
+    return $Value.Replace("%", "%25").Replace("|", "%7C").Replace("`r", " ").Replace("`n", " ")
+}
+
+function Format-Error([System.Management.Automation.ErrorRecord]$ErrorRecord) {
+    if ($null -eq $ErrorRecord) {
+        return "Unknown optional plugin installation error."
+    }
+    $errorValue = $ErrorRecord.Exception
+    if ($null -eq $errorValue) {
+        return [string]$ErrorRecord
+    }
+    $message = $errorValue.GetType().FullName + ": " + $errorValue.Message
+    if (($null -ne $ErrorRecord.InvocationInfo) -and ($ErrorRecord.InvocationInfo.ScriptLineNumber -gt 0)) {
+        $message += " (line " + $ErrorRecord.InvocationInfo.ScriptLineNumber + ")"
+    }
+    return $message
 }
 
 function Get-Prop($Object, [string]$Name) {
@@ -100,7 +115,7 @@ function Parse-Dependencies($Package) {
             })
         }
     }
-    return @($result)
+    return $result.ToArray()
 }
 
 function Find-Entry($Manifest, [string]$PluginId) {
@@ -269,7 +284,11 @@ function Download-Package($Item, [string]$Target) {
     $request.Timeout = 600000
     $request.ReadWriteTimeout = 600000
     if ([string]::IsNullOrWhiteSpace($ProxyUrl)) {
-        $request.Proxy = $null
+        $systemProxy = [System.Net.WebRequest]::GetSystemWebProxy()
+        if ($null -ne $systemProxy) {
+            $systemProxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials
+            $request.Proxy = $systemProxy
+        }
     } else {
         $proxy = New-Object System.Net.WebProxy($ProxyUrl, $true)
         $proxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials
@@ -413,6 +432,6 @@ try {
     Write-State ("DONE|{0}" -f $plan.Count)
     exit 0
 } catch {
-    Write-State ("ERROR|" + (Format-Error $_.Exception))
+    Write-State ("ERROR|" + (Escape-StateField (Format-Error $_)))
     exit 1
 }

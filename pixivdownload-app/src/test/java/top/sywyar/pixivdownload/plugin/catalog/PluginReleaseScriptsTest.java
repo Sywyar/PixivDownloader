@@ -117,6 +117,9 @@ class PluginReleaseScriptsTest {
                 "function Get-OfficialPluginArtifactName",
                 "return \"$($Plugin.Module)-$Version.$extension\"",
                 "function Find-ModulePluginArtifact",
+                "function Find-PluginArtifactSignatureSidecar",
+                "function Assert-PluginArtifactSignature",
+                "function Get-PluginArtifactSignatureForDistribution",
                 "Assert-JarWithPrivatePluginLibs",
                 "Assert-ThinPluginJar",
                 "^flatlaf-[0-9].*\\.jar$",
@@ -206,11 +209,16 @@ class PluginReleaseScriptsTest {
         String common = script("plugin-distribution-common.ps1");
         String distribution = script("assemble-plugin-distribution.ps1");
         String windows = script("package-local.ps1");
+        String catalogStage = script("stage-official-plugin-inputs-from-catalog.ps1");
         String inno = innoScript();
         String installerInstall = innoSupportScript("installer-plugin-install.ps1");
 
         assertThat(common).contains(
                 "function New-PluginArtifactSignature",
+                "function Find-PluginArtifactSignatureSidecar",
+                "function Assert-PluginArtifactSignature",
+                "function Get-PluginArtifactSignatureForDistribution",
+                "\"verify-artifact\"",
                 "function Write-PluginProvenanceSidecar",
                 "Join-Path $artifact.Directory.FullName \"provenance\"",
                 ".pixiv-plugin-provenance",
@@ -219,33 +227,114 @@ class PluginReleaseScriptsTest {
         );
         for (String script : List.of(distribution, windows)) {
             assertThat(script).contains(
-                    "New-PluginArtifactSignature",
+                    "Find-PluginArtifactSignatureSidecar",
+                    "Get-PluginArtifactSignatureForDistribution",
                     "Write-PluginProvenanceSidecar",
                     "Assert-NoPrivateKeyMaterial",
                     "signature = $signature"
             );
         }
         assertThat(distribution).contains(
+                "[string]$PrebuiltPluginsDir",
+                "Find-PrebuiltPluginArtifact",
                 "[switch]$DefaultDownloader",
                 "Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader)",
                 "CoreShellOnly and DefaultDownloader cannot be combined.");
         assertThat(windows).contains(
                 "$OfficialPluginCatalogUrl = \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
+                "$InstallerPluginApiVersion = \"1.0.0\"",
                 "Stage-InstallerPluginCatalogSnapshot",
+                "Write-InstallerPluginCatalogProjection",
+                "Write-InstallerPluginCatalogInclude",
+                "Escape-InstallerCatalogIssString",
+                "$InstallerCatalogIncludePath = Join-Path $BuildRoot \"installer-plugin-catalog-items.iss.inc\"",
+                "[AllowEmptyString()][string]$Fallback",
                 "\"verify-manifest\"",
                 "installer-catalog",
+                "catalog.en.txt",
+                "catalog.zh-CN.txt",
+                "installer-plugin-catalog-items.iss.inc",
                 "$installerPluginCatalogEnabled = if ($SkipPlugins) { \"0\" } else { \"1\" }",
                 "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
                 "/DSignatureToolJar=$SignatureToolJar");
+        assertThat(catalogStage).contains(
+                "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
+                "\"verify-manifest\"",
+                "Assert-PluginArtifactSignature",
+                "Get-OfficialDistributionPlugins -IncludeOptional:$IncludeOptional",
+                "[System.IO.File]::WriteAllText($artifactSignaturePath",
+                "$artifactPath.sha256");
         assertThat(inno).contains(
                 "#define InstallerPluginCatalogEnabled \"0\"",
+                "#error SignatureToolJar must be defined when InstallerPluginCatalogEnabled is 1.",
                 "#if InstallerPluginCatalogEnabled == \"1\"",
-                "#define PluginCatalogManifestUrl \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
-                "installer-plugin-catalog.ps1",
                 "installer-plugin-install.ps1",
                 "IsInstallerPluginCatalogEnabled",
+                "ShouldShowOptionalPluginsPage",
+                "OptionalPluginsPage := CreateCustomPage",
+                "PluginCheckList.Parent := OptionalPluginsPage.Surface",
+                "PageID = OptionalPluginsPage.ID",
+                "#include \"..\\..\\..\\build\\installer-plugin-catalog-items.iss.inc\"",
+                "LoadCompiledInstallerPluginCatalogItems",
+                "PackagedPluginCatalogManifestPath",
+                "LoadPackagedInstallerPluginCatalog",
+                "WizardForm.NextButton.Enabled := True",
+                "CurPageID = OptionalPluginsPage.ID",
+                "ewNoWait",
+                "ReadProgressLineUtf8",
+                "LoadStringsFromFile(ProgressPath, Lines)",
+                "RaiseException(DecodeCatalogField(Parts[1]))",
                 "pixivdownload-plugin-signature-tool.jar");
+        assertThat(inno).doesNotContain("#if Len(SignatureToolJar) > 0");
+        assertThat(inno).doesNotContain("LoadStringFromFile(OutputPath");
+        assertThat(inno).doesNotContain("RunPowerShellAndWait");
+        assertThat(inno).doesNotContain("PluginCatalogManifestUrl");
+        assertThat(inno).doesNotContain("PluginCatalogTimeoutMs");
+        assertThat(inno).doesNotContain("PluginCatalogOnline");
+        assertThat(inno).doesNotContain("installer-plugin-catalog.ps1");
+        assertThat(inno).doesNotContain("StartInstallerPluginCatalogLoad");
+        assertThat(inno).doesNotContain("FinishInstallerPluginCatalogLoad");
+        assertThat(inno).doesNotContain("PollInstallerPluginCatalog");
+        assertThat(inno).doesNotContain("installer-plugin-catalog.en.txt");
+        assertThat(inno).doesNotContain("installer-plugin-catalog.zh-CN.txt");
+        assertThat(inno).doesNotContain("PluginCatalogProjection");
+        assertThat(inno).doesNotContain("ExtractPluginCatalogProjectionFile");
+        assertThat(inno).doesNotContain("ParsePluginCatalogOutput");
+        assertThat(inno).doesNotContain("LoadStringsFromFile(OutputPath");
+        assertThat(inno).doesNotContain("solidbreak");
+        assertThat(inno).doesNotContain("SetTimer@user32.dll");
+        assertThat(inno).doesNotContain("KillTimer@user32.dll");
+        assertThat(inno).doesNotContain("StartPluginCatalogTimer");
+        assertThat(inno).doesNotContain("PluginCatalogTimerProc");
+        assertThat(inno).doesNotContain("CreateCallback(@PluginCatalogTimerProc)");
+        assertThat(inno).doesNotContain("StartPluginCatalogProjectionTimer");
+        assertThat(inno).doesNotContain("StopPluginCatalogProjectionTimer");
+        assertThat(inno).doesNotContain("CreateCallback(@PluginCatalogProjectionTimerProc)");
+        assertThat(inno).doesNotContain("SchedulePackagedInstallerPluginCatalogLoad");
+        assertThat(inno).doesNotContain("while (not IsPluginCatalogOutputReady(OutputPath))");
+        assertThat(inno).doesNotContain("WizardForm.NextButton.Enabled := False");
+        assertThat(inno).doesNotContainPattern("if\\s+ShouldShowOptionalPluginsPage\\s+then\\s+StartPluginCatalogTimer");
+        Matcher initializeWizard = Pattern.compile("procedure InitializeWizard;(?<body>.*?)function ShouldSkipPage",
+                Pattern.DOTALL).matcher(inno);
+        assertThat(initializeWizard.find()).isTrue();
+        assertThat(initializeWizard.group("body")).doesNotContain("StartPluginCatalogTimer");
+        Matcher curPageChanged = Pattern.compile("procedure CurPageChanged\\(CurPageID: Integer\\);(?<body>.*?)function OnFfmpegDownloadProgress",
+                Pattern.DOTALL).matcher(inno);
+        assertThat(curPageChanged.find()).isTrue();
+        assertThat(curPageChanged.group("body")).contains("LoadPackagedInstallerPluginCatalog");
+        assertThat(curPageChanged.group("body")).doesNotContain(
+                "CurPageID = OptionalFeaturesPage.ID",
+                "StartPluginCatalogTimer",
+                "FinishInstallerPluginCatalogLoad",
+                "ExtractPluginInstallerSupportFiles");
         assertThat(installerInstall).contains(
+                "$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)",
+                "$Utf8NoBom.GetBytes($Value + \"`n\")",
+                "function Escape-StateField",
+                "function Format-Error([System.Management.Automation.ErrorRecord]$ErrorRecord)",
+                "return $result.ToArray()",
+                "[System.Net.WebRequest]::GetSystemWebProxy()",
+                "Write-State (\"ERROR|\" + (Escape-StateField (Format-Error $_)))",
                 "function Remove-SupersededInstalledPlugins",
                 "Read-PluginIdFromPackage",
                 "plugin.id",
@@ -254,6 +343,32 @@ class PluginReleaseScriptsTest {
                 "$($artifact.FullName).sha256",
                 "$($artifact.FullName).sig",
                 ".pixiv-plugin-provenance");
+        assertThat(installerInstall).doesNotContain("[^ -~]");
+    }
+
+    @Test
+    @DisplayName("本地一键安装器脚本从签名清单拉取插件后构建安装包")
+    void oneShotInstallerScriptUsesSignedCatalogPluginInputs() throws Exception {
+        String script = script("package-installer-with-plugins.ps1");
+
+        assertThat(script).contains(
+                "pixivdownload-plugin-signature,pixivdownload-app",
+                "stage-official-plugin-inputs-from-catalog.ps1",
+                "package-local.ps1",
+                "Resolve-SignatureToolJar",
+                "SignatureToolJar must not be empty.",
+                "-IncludeOptional",
+                "-PrebuiltPluginsDir $PluginInputsDir",
+                "-SignatureToolJar $resolvedSignatureToolJar",
+                "-SkipPortable",
+                "-SkipOfflinePortable",
+                "PixivDownload-$Version-win-x64-setup.exe"
+        );
+        assertThat(script).doesNotContain(
+                "-SkipPlugins",
+                "OfficialKeyId",
+                "PrivateKeyFile"
+        );
     }
 
     @Test
@@ -283,6 +398,7 @@ class PluginReleaseScriptsTest {
         String workflow = workflow("publish-plugins.yml");
 
         assertThat(workflow).contains(
+                "workflow_call:",
                 "PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07",
                 "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                 "PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}",
@@ -302,6 +418,8 @@ class PluginReleaseScriptsTest {
                 "Copy-Item build/manifest.json.sig plugins-repo/manifest.json.sig -Force",
                 "git add manifest.json manifest.json.sig",
                 "Cleanup plugin signing private key");
+        assertThat(workflow).doesNotContain("tags:");
+        assertThat(workflow).doesNotContain("schedule:");
         assertThat(workflow).doesNotContain("-----BEGIN PRIVATE KEY-----");
         assertThat(workflow).doesNotContain("\"-Repo\", $env:PLUGINS_REPO");
         assertThat(workflow).doesNotContain("\"-PrivateKeyFile\", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE");
@@ -333,24 +451,31 @@ class PluginReleaseScriptsTest {
             String workflow = workflow(name);
 
             assertThat(workflow).as(name).contains(
-                    "Prepare plugin signing private key",
-                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                    "publish-plugins:",
+                    "uses: ./.github/workflows/publish-plugins.yml",
+                    "Stage official plugin inputs from signed catalog",
+                    "stage-official-plugin-inputs-from-catalog.ps1",
                     "Assemble full-offline distribution",
                     "full-offline",
+                    "-PrebuiltPluginsDir build/plugin-inputs",
+                    "-SignatureToolJar $signatureTool.FullName",
                     "name: plugin-distributions",
                     "path: build/plugin-distributions/PixivDownload-*-full-offline.zip",
                     "path: artifacts/plugin-distributions",
                     "artifacts/plugin-distributions/*-full-offline.zip",
                     "name: plugin-inputs",
-                    "path: build/plugin-inputs/*.jar",
+                    "path: build/plugin-inputs/*",
                     "path: artifacts/plugin-inputs",
-                    "pixivdownload-plugin-duplicate/target/pixivdownload-plugin-duplicate-*.jar",
                     "full-offline.zip",
                     "plugins-manifest.json",
                     "Generate update manifest",
                     "artifacts/update.json",
                     "\"win-x64-installer\"");
             assertThat(workflow).as(name).doesNotContain(
+                    "Prepare plugin signing private key",
+                    "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
+                    "PLUGIN_SIGNING_PRIVATE_KEY_FILE",
+                    "pixivdownload-plugin-duplicate/target/pixivdownload-plugin-duplicate-*.jar",
                     "-CoreShellOnly",
                     "-DefaultDownloader",
                     "default-downloader.zip",
@@ -394,7 +519,9 @@ class PluginReleaseScriptsTest {
                 "plugin-distribution-common.ps1",
                 "publish-plugin-releases.ps1",
                 "generate-market-manifest.ps1",
+                "stage-official-plugin-inputs-from-catalog.ps1",
                 "assemble-plugin-distribution.ps1",
+                "package-installer-with-plugins.ps1",
                 "package-local.ps1")) {
             String script = script(name);
             assertThat(script).as(name).doesNotContain("-----BEGIN PRIVATE KEY-----");
