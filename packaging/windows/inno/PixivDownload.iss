@@ -2,6 +2,9 @@
 #define AppPublisher "sywyar"
 #define AppExeName "PixivDownload.exe"
 #define FfmpegArchiveUrl "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
+#define PluginCatalogManifestUrl "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
+#define PluginCatalogTimeoutMs "3000"
+#define PluginApiVersion "1.0.0"
 
 #ifndef AppVersion
 #define AppVersion "0.0.1-local"
@@ -17,6 +20,14 @@
 
 #ifndef OutputDir
 #define OutputDir "..\..\..\build\out"
+#endif
+
+#ifndef SignatureToolJar
+#define SignatureToolJar ""
+#endif
+
+#ifndef InstallerPluginCatalogEnabled
+#define InstallerPluginCatalogEnabled "0"
 #endif
 
 [Setup]
@@ -56,6 +67,30 @@ en.OptionalTasksGroup=Optional setup tasks:
 zhcn.OptionalTasksGroup=可选安装任务：
 en.TaskDownloadFfmpeg=Download and install FFmpeg after PixivDownload is installed
 zhcn.TaskDownloadFfmpeg=安装 PixivDownload 后下载并安装 FFmpeg
+en.OptionalFeaturesTitle=Optional features
+zhcn.OptionalFeaturesTitle=附加功能
+en.OptionalFeaturesDescription=Choose extra components to install and enable.
+zhcn.OptionalFeaturesDescription=选择需要安装并启用的附加组件。
+en.PluginCatalogLoading=Loading signed plugin catalog...
+zhcn.PluginCatalogLoading=正在获取签名插件清单...
+en.PluginCatalogOnline=Loaded the signed online plugin catalog.
+zhcn.PluginCatalogOnline=已获取签名在线插件清单。
+en.PluginCatalogPackaged=Using the signed plugin catalog packaged with this setup.
+zhcn.PluginCatalogPackaged=正在使用安装包内置的签名插件清单。
+en.PluginCatalogUnavailable=No signed plugin catalog is available.
+zhcn.PluginCatalogUnavailable=未找到可用的签名插件清单。
+en.PluginListHint=Optional plugins are installed from the signed official catalog and take effect after restart.
+zhcn.PluginListHint=可选插件会从签名官方清单安装，重启应用后生效。
+en.PluginInstalling=Installing optional plugins...
+zhcn.PluginInstalling=正在安装可选插件...
+en.PluginCompleted=Optional plugins have been installed and enabled.
+zhcn.PluginCompleted=可选插件已安装并启用。
+en.PluginFailed=Optional plugin installation failed. PixivDownload was installed; retry from Plugin Market later.
+zhcn.PluginFailed=可选插件安装失败。PixivDownload 已安装，稍后可在插件市场重试。
+en.PluginFinishedSuccess=Selected optional plugins were installed and enabled.
+zhcn.PluginFinishedSuccess=已选可选插件已安装并启用。
+en.PluginFinishedFailed=部分可选插件未安装。可打开 PixivDownload 的插件市场重试。
+zhcn.PluginFinishedFailed=部分可选插件未能安装。可打开 PixivDownload 的插件市场重试。
 en.FfmpegWaiting=FFmpeg download is waiting for application installation to finish.
 zhcn.FfmpegWaiting=FFmpeg 下载正在等待应用安装完成。
 en.FfmpegDownloading=Downloading FFmpeg...
@@ -113,9 +148,6 @@ zhcn.AppRunningError=检测到 PixivDownload 正在运行。请完全关闭它�
 en.AppRunningAbort=Setup cannot continue while PixivDownload is running. Installation was cancelled.
 zhcn.AppRunningAbort=PixivDownload 正在运行，安装无法继续，已取消安装。
 
-[Tasks]
-Name: "downloadffmpeg"; Description: "{cm:TaskDownloadFfmpeg}"; GroupDescription: "{cm:OptionalTasksGroup}"; Flags: unchecked; Check: ShouldShowFfmpegTask
-
 [InstallDelete]
 ; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时
 ; 残留在 {app}\app 下。安装文件复制前先清空该目录，避免旧版本 jar 堆积。
@@ -130,6 +162,15 @@ Type: filesandordirs; Name: "{app}\app"; Check: ShouldInstallApplicationFiles
 ; app-image 根目录已含 plugins\（package-local.ps1 预置的官方 required 插件 jar + 校验文件 + manifest）；
 ; 此处递归复制即把 plugins\ 一并装入 {app}\plugins。
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallApplicationFiles
+Source: "installer-plugin-catalog.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "installer-plugin-install.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+#if InstallerPluginCatalogEnabled == "1"
+Source: "{#AppImageDir}\installer-catalog\manifest.json"; DestDir: "{tmp}"; DestName: "installer-plugin-catalog.json"; Flags: dontcopy
+Source: "{#AppImageDir}\installer-catalog\manifest.json.sig"; DestDir: "{tmp}"; DestName: "installer-plugin-catalog.json.sig"; Flags: dontcopy
+#if Len(SignatureToolJar) > 0
+Source: "{#SignatureToolJar}"; DestDir: "{tmp}"; DestName: "pixivdownload-plugin-signature-tool.jar"; Flags: dontcopy
+#endif
+#endif
 
 [Registry]
 Root: HKLM64; Subkey: "Software\sywyar\PixivDownload"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletevalue uninsdeletekeyifempty; Check: ShouldInstallApplicationFiles
@@ -182,6 +223,11 @@ const
   MaintenanceRepairMode = 'repair';
   MaintenanceChangeMode = 'change';
   MaintenanceUninstallMode = 'uninstall';
+  PluginCatalogOutputName = 'pixivdownload-plugin-catalog.txt';
+  PluginCatalogRuntimeName = 'pixivdownload-plugin-catalog-runtime.json';
+  PluginCatalogScriptName = 'installer-plugin-catalog.ps1';
+  PluginInstallScriptName = 'installer-plugin-install.ps1';
+  PluginSignatureToolName = 'pixivdownload-plugin-signature-tool.jar';
   FfmpegLicenseNotice =
     'FFmpeg is licensed under the LGPL v2.1.'#13#10 +
     'Source code: https://ffmpeg.org'#13#10 +
@@ -209,8 +255,20 @@ external 'Process32NextW@kernel32.dll stdcall';
 function CloseHandle(hObject: Longword): Boolean;
 external 'CloseHandle@kernel32.dll stdcall';
 
+function ResolveSystemProxyUrl: String;
+forward;
+
 var
   MaintenancePage: TWizardPage;
+  OptionalFeaturesPage: TWizardPage;
+  FfmpegCheckBox: TNewCheckBox;
+  PluginStatusLabel: TNewStaticText;
+  PluginHintLabel: TNewStaticText;
+  PluginCheckList: TNewCheckListBox;
+  PluginCatalogLoaded: Boolean;
+  PluginCatalogPath: String;
+  PluginIds: TArrayOfString;
+  PluginVersions: TArrayOfString;
   FfmpegTitleLabel: TNewStaticText;
   FfmpegDetailLabel: TNewStaticText;
   FfmpegProgressBar: TNewProgressBar;
@@ -218,6 +276,8 @@ var
   FfmpegProgressLastPercent: Integer;
   FfmpegInstalled: Boolean;
   FfmpegFailed: Boolean;
+  PluginInstalled: Boolean;
+  PluginFailed: Boolean;
   SystemProxyUrl: String;
   ExistingInstallationResolved: Boolean;
   ExistingInstallationFound: Boolean;
@@ -561,6 +621,335 @@ begin
   ProcessInstallerMessages;
 end;
 
+function DecodeCatalogField(const Value: String): String;
+begin
+  Result := Value;
+  StringChangeEx(Result, '%7C', '|', True);
+  StringChangeEx(Result, '%25', '%', True);
+end;
+
+function IsInstallerPluginCatalogEnabled: Boolean;
+begin
+#if InstallerPluginCatalogEnabled == "1"
+  Result := True;
+#else
+  Result := False;
+#endif
+end;
+
+procedure ExtractPluginInstallerSupportFiles;
+begin
+  ExtractTemporaryFile(PluginCatalogScriptName);
+  ExtractTemporaryFile(PluginInstallScriptName);
+#if InstallerPluginCatalogEnabled == "1"
+  ExtractTemporaryFile('installer-plugin-catalog.json');
+  ExtractTemporaryFile('installer-plugin-catalog.json.sig');
+#if Len(SignatureToolJar) > 0
+  ExtractTemporaryFile(PluginSignatureToolName);
+#endif
+#endif
+end;
+
+function SignatureToolTempPath: String;
+begin
+#if InstallerPluginCatalogEnabled == "1"
+#if Len(SignatureToolJar) > 0
+  Result := ExpandConstant('{tmp}\' + PluginSignatureToolName);
+#else
+  Result := '';
+#endif
+#else
+  Result := '';
+#endif
+end;
+
+function QuoteArg(const Value: String): String;
+begin
+  Result := '"' + Value + '"';
+end;
+
+function PluginCatalogLanguage: String;
+begin
+  if ActiveLanguage = 'zhcn' then
+    Result := 'zh-CN'
+  else
+    Result := 'en';
+end;
+
+function RunPowerShellAndWait(const ScriptPath, Params: String; var ResultCode: Integer): Boolean;
+begin
+  Result := Exec(
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -File ' + QuoteArg(ScriptPath) + ' ' + Params,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode);
+end;
+
+function ShouldShowOptionalFeaturesPage: Boolean;
+begin
+  ResolveExistingInstallation;
+  Result :=
+    (not ExistingInstallationFound) or
+    (MaintenanceMode = MaintenanceChangeMode);
+end;
+
+function IsFfmpegRequested: Boolean;
+begin
+  Result := Assigned(FfmpegCheckBox) and FfmpegCheckBox.Checked and ShouldShowOptionalFeaturesPage;
+end;
+
+function AnyPluginSelected: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if not IsInstallerPluginCatalogEnabled then
+    exit;
+  if not Assigned(PluginCheckList) then
+    exit;
+  for I := 0 to PluginCheckList.Items.Count - 1 do
+  begin
+    if PluginCheckList.Checked[I] then
+    begin
+      Result := True;
+      exit;
+    end;
+  end;
+end;
+
+function SelectedPluginIds: String;
+var
+  I: Integer;
+begin
+  Result := '';
+  if not IsInstallerPluginCatalogEnabled then
+    exit;
+  if not Assigned(PluginCheckList) then
+    exit;
+  for I := 0 to PluginCheckList.Items.Count - 1 do
+  begin
+    if PluginCheckList.Checked[I] then
+    begin
+      if Result <> '' then
+        Result := Result + ',';
+      Result := Result + PluginIds[I];
+    end;
+  end;
+end;
+
+procedure ClearPluginCatalogItems;
+begin
+  if Assigned(PluginCheckList) then
+    PluginCheckList.Items.Clear;
+  SetArrayLength(PluginIds, 0);
+  SetArrayLength(PluginVersions, 0);
+end;
+
+procedure AddPluginCatalogItem(const PluginId, Version, DisplayName, Summary: String);
+var
+  Index: Integer;
+  Caption: String;
+begin
+  Index := GetArrayLength(PluginIds);
+  SetArrayLength(PluginIds, Index + 1);
+  SetArrayLength(PluginVersions, Index + 1);
+  PluginIds[Index] := PluginId;
+  PluginVersions[Index] := Version;
+  Caption := DisplayName + '  v' + Version;
+  if Summary <> '' then
+    Caption := Caption + ' - ' + Summary;
+  PluginCheckList.AddCheckBox(Caption, '', 0, False, True, False, True, nil);
+end;
+
+procedure ParsePluginCatalogOutput(const OutputPath: String);
+var
+  Content: AnsiString;
+  Text: String;
+  Lines: TArrayOfString;
+  Parts: TArrayOfString;
+  I: Integer;
+  Source: String;
+begin
+  ClearPluginCatalogItems;
+  Source := 'UNAVAILABLE';
+  PluginCatalogPath := '';
+  if not LoadStringFromFile(OutputPath, Content) then
+  begin
+    PluginStatusLabel.Caption := CustomMessage('PluginCatalogUnavailable');
+    exit;
+  end;
+  Text := String(Content);
+  Lines := StringSplit(Text, [#10], stExcludeEmpty);
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    StringChangeEx(Lines[I], #13, '', True);
+    Parts := StringSplit(Lines[I], ['|'], stAll);
+    if GetArrayLength(Parts) = 0 then
+      continue;
+    if Parts[0] = 'CATALOG' then
+    begin
+      if GetArrayLength(Parts) >= 2 then
+        Source := Parts[1];
+      if GetArrayLength(Parts) >= 3 then
+        PluginCatalogPath := Parts[2];
+    end
+    else if (Parts[0] = 'ITEM') and (GetArrayLength(Parts) >= 6) then
+      AddPluginCatalogItem(
+        DecodeCatalogField(Parts[1]),
+        DecodeCatalogField(Parts[2]),
+        DecodeCatalogField(Parts[3]),
+        DecodeCatalogField(Parts[4]));
+  end;
+
+  if Source = 'ONLINE' then
+    PluginStatusLabel.Caption := CustomMessage('PluginCatalogOnline')
+  else if Source = 'PACKAGED' then
+    PluginStatusLabel.Caption := CustomMessage('PluginCatalogPackaged')
+  else
+    PluginStatusLabel.Caption := CustomMessage('PluginCatalogUnavailable');
+end;
+
+procedure LoadInstallerPluginCatalog;
+var
+  ScriptPath: String;
+  OutputPath: String;
+  RuntimeCatalogPath: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  if PluginCatalogLoaded then
+    exit;
+  PluginCatalogLoaded := True;
+  ClearPluginCatalogItems;
+  if not IsInstallerPluginCatalogEnabled then
+  begin
+    PluginStatusLabel.Caption := CustomMessage('PluginCatalogUnavailable');
+    exit;
+  end;
+  PluginStatusLabel.Caption := CustomMessage('PluginCatalogLoading');
+  ProcessInstallerMessages;
+
+  ExtractPluginInstallerSupportFiles;
+  ScriptPath := ExpandConstant('{tmp}\' + PluginCatalogScriptName);
+  OutputPath := ExpandConstant('{tmp}\' + PluginCatalogOutputName);
+  RuntimeCatalogPath := ExpandConstant('{tmp}\' + PluginCatalogRuntimeName);
+  DeleteFile(OutputPath);
+  DeleteFile(RuntimeCatalogPath);
+  SystemProxyUrl := ResolveSystemProxyUrl;
+
+  Params :=
+    '-ManifestUrl ' + QuoteArg('{#PluginCatalogManifestUrl}') +
+    ' -PackagedManifest ' + QuoteArg(ExpandConstant('{tmp}\installer-plugin-catalog.json')) +
+    ' -PackagedSignature ' + QuoteArg(ExpandConstant('{tmp}\installer-plugin-catalog.json.sig')) +
+    ' -SignatureToolJar ' + QuoteArg(SignatureToolTempPath) +
+    ' -OutputFile ' + QuoteArg(OutputPath) +
+    ' -CatalogFile ' + QuoteArg(RuntimeCatalogPath) +
+    ' -TimeoutMs {#PluginCatalogTimeoutMs}' +
+    ' -ProxyUrl ' + QuoteArg(SystemProxyUrl) +
+    ' -Language ' + QuoteArg(PluginCatalogLanguage) +
+    ' -CoreApiVersion ' + QuoteArg('{#PluginApiVersion}');
+
+  if not RunPowerShellAndWait(ScriptPath, Params, ResultCode) then
+    PluginStatusLabel.Caption := CustomMessage('PluginCatalogUnavailable')
+  else
+    ParsePluginCatalogOutput(OutputPath);
+end;
+
+procedure ApplyPluginInstallProgress(const Line: String);
+var
+  CleanLine: String;
+  Parts: TArrayOfString;
+  Percent: Integer;
+  Detail: String;
+begin
+  CleanLine := Line;
+  StringChangeEx(CleanLine, #13, '', True);
+  StringChangeEx(CleanLine, #10, '', True);
+  Parts := StringSplit(CleanLine, ['|'], stAll);
+  if GetArrayLength(Parts) = 0 then
+    exit;
+  if Parts[0] = 'PLUGIN' then
+  begin
+    Detail := '';
+    if GetArrayLength(Parts) >= 4 then
+      Detail := Parts[1] + ' (' + Parts[2] + ' / ' + Parts[3] + ')';
+    SetFfmpegProgress(CustomMessage('PluginInstalling'), Detail, 0);
+  end
+  else if Parts[0] = 'PROGRESS' then
+  begin
+    Percent := 0;
+    if GetArrayLength(Parts) >= 4 then
+      Percent := StrToIntDef(Parts[3], 0);
+    SetFfmpegProgress(CustomMessage('PluginInstalling'), Parts[1] + ' / ' + Parts[2] + ' bytes', Percent);
+  end;
+end;
+
+procedure DownloadAndInstallSelectedPlugins;
+var
+  ScriptPath: String;
+  ProgressPath: String;
+  Params: String;
+  ResultCode: Integer;
+  ProgressLine: AnsiString;
+  ProgressText: String;
+  Parts: TArrayOfString;
+begin
+  if not IsInstallerPluginCatalogEnabled then
+    exit;
+  if (SelectedPluginIds = '') or (PluginCatalogPath = '') then
+    exit;
+  ExtractPluginInstallerSupportFiles;
+  ScriptPath := ExpandConstant('{tmp}\' + PluginInstallScriptName);
+  ProgressPath := ExpandConstant('{tmp}\pixivdownload-plugin-install.progress');
+  DeleteFile(ProgressPath);
+  SystemProxyUrl := ResolveSystemProxyUrl;
+
+  Params :=
+    '-ManifestFile ' + QuoteArg(PluginCatalogPath) +
+    ' -PluginIds ' + QuoteArg(SelectedPluginIds) +
+    ' -InstallDir ' + QuoteArg(ExpandConstant('{app}')) +
+    ' -ProgressFile ' + QuoteArg(ProgressPath) +
+    ' -SignatureToolJar ' + QuoteArg(SignatureToolTempPath) +
+    ' -JavaPath ' + QuoteArg(ExpandConstant('{app}\runtime\bin\java.exe')) +
+    ' -ProxyUrl ' + QuoteArg(SystemProxyUrl) +
+    ' -CoreApiVersion ' + QuoteArg('{#PluginApiVersion}');
+
+  SetFfmpegProgress(CustomMessage('PluginInstalling'), '', 0);
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -File ' + QuoteArg(ScriptPath) + ' ' + Params,
+    '', SW_HIDE, ewNoWait, ResultCode) then
+    RaiseException('Could not start optional plugin installer: ' + SysErrorMessage(ResultCode));
+
+  while True do
+  begin
+    if FileExists(ProgressPath) and LoadStringFromFile(ProgressPath, ProgressLine) then
+    begin
+      ProgressText := String(ProgressLine);
+      ApplyPluginInstallProgress(ProgressText);
+      Parts := StringSplit(ProgressText, ['|'], stAll);
+      if GetArrayLength(Parts) > 0 then
+      begin
+        if Parts[0] = 'DONE' then
+        begin
+          SetFfmpegProgress(CustomMessage('PluginCompleted'), '', 100);
+          PluginInstalled := True;
+          exit;
+        end
+        else if Parts[0] = 'ERROR' then
+        begin
+          if GetArrayLength(Parts) >= 2 then
+            RaiseException(Parts[1])
+          else
+            RaiseException('Optional plugin installation failed.');
+        end;
+      end;
+    end;
+    ResponsiveSleep(200);
+  end;
+end;
+
 procedure InitializeWizard;
 var
   RepairButton: TNewButton;
@@ -605,6 +994,40 @@ begin
       MaintenanceUninstallMode);
   end;
 
+  OptionalFeaturesPage := CreateCustomPage(
+    wpSelectDir,
+    CustomMessage('OptionalFeaturesTitle'),
+    CustomMessage('OptionalFeaturesDescription'));
+
+  FfmpegCheckBox := TNewCheckBox.Create(OptionalFeaturesPage);
+  FfmpegCheckBox.Parent := OptionalFeaturesPage.Surface;
+  FfmpegCheckBox.Left := 0;
+  FfmpegCheckBox.Top := 0;
+  FfmpegCheckBox.Width := OptionalFeaturesPage.SurfaceWidth;
+  FfmpegCheckBox.Caption := CustomMessage('TaskDownloadFfmpeg');
+  FfmpegCheckBox.Checked := False;
+
+  PluginHintLabel := TNewStaticText.Create(OptionalFeaturesPage);
+  PluginHintLabel.Parent := OptionalFeaturesPage.Surface;
+  PluginHintLabel.Left := 0;
+  PluginHintLabel.Top := FfmpegCheckBox.Top + FfmpegCheckBox.Height + ScaleY(14);
+  PluginHintLabel.Width := OptionalFeaturesPage.SurfaceWidth;
+  PluginHintLabel.Caption := CustomMessage('PluginListHint');
+
+  PluginStatusLabel := TNewStaticText.Create(OptionalFeaturesPage);
+  PluginStatusLabel.Parent := OptionalFeaturesPage.Surface;
+  PluginStatusLabel.Left := 0;
+  PluginStatusLabel.Top := PluginHintLabel.Top + PluginHintLabel.Height + ScaleY(8);
+  PluginStatusLabel.Width := OptionalFeaturesPage.SurfaceWidth;
+  PluginStatusLabel.Caption := CustomMessage('PluginCatalogLoading');
+
+  PluginCheckList := TNewCheckListBox.Create(OptionalFeaturesPage);
+  PluginCheckList.Parent := OptionalFeaturesPage.Surface;
+  PluginCheckList.Left := 0;
+  PluginCheckList.Top := PluginStatusLabel.Top + PluginStatusLabel.Height + ScaleY(8);
+  PluginCheckList.Width := OptionalFeaturesPage.SurfaceWidth;
+  PluginCheckList.Height := OptionalFeaturesPage.SurfaceHeight - PluginCheckList.Top;
+
   FfmpegTitleLabel := TNewStaticText.Create(WizardForm);
   FfmpegTitleLabel.Parent := WizardForm.ProgressGauge.Parent;
   FfmpegTitleLabel.Left := WizardForm.ProgressGauge.Left;
@@ -640,12 +1063,15 @@ begin
   if ShowMaintenancePage then
   begin
     if (MaintenanceMode = MaintenanceRepairMode) and
-       ((PageID = wpSelectDir) or (PageID = wpSelectProgramGroup) or (PageID = wpSelectTasks)) then
+       ((PageID = wpSelectDir) or (PageID = wpSelectProgramGroup) or
+        (Assigned(OptionalFeaturesPage) and (PageID = OptionalFeaturesPage.ID))) then
       Result := True
     else if (MaintenanceMode = MaintenanceChangeMode) and
             ((PageID = wpSelectDir) or (PageID = wpSelectProgramGroup)) then
       Result := True;
   end;
+  if Assigned(OptionalFeaturesPage) and (PageID = OptionalFeaturesPage.ID) and (not ShouldShowOptionalFeaturesPage) then
+    Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -694,27 +1120,29 @@ begin
   Result := not IsTaskOnlyMaintenanceChange;
 end;
 
-function ShouldShowFfmpegTask: Boolean;
-begin
-  ResolveExistingInstallation;
-  Result :=
-    (not ExistingInstallationFound) or
-    (MaintenanceMode = MaintenanceChangeMode);
-end;
-
 procedure CurPageChanged(CurPageID: Integer);
 var
   FfmpegRequested: Boolean;
+  ExtraRequested: Boolean;
 begin
-  if CurPageID = wpInstalling then
+  if Assigned(OptionalFeaturesPage) and (CurPageID = OptionalFeaturesPage.ID) then
   begin
-    FfmpegRequested := WizardIsTaskSelected('downloadffmpeg') and ShouldShowFfmpegTask;
-    SetFfmpegControlsVisible(FfmpegRequested);
-    if FfmpegRequested then
+    LoadInstallerPluginCatalog;
+  end
+  else if CurPageID = wpInstalling then
+  begin
+    FfmpegRequested := IsFfmpegRequested;
+    ExtraRequested := FfmpegRequested or AnyPluginSelected;
+    SetFfmpegControlsVisible(ExtraRequested);
+    if ExtraRequested then
       SetFfmpegProgress(CustomMessage('FfmpegWaiting'), '', 0);
   end
   else if CurPageID = wpFinished then
   begin
+    if PluginInstalled then
+      WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + CustomMessage('PluginFinishedSuccess')
+    else if PluginFailed then
+      WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + CustomMessage('PluginFinishedFailed');
     if FfmpegInstalled then
       WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + CustomMessage('FfmpegFinishedSuccess')
     else if FfmpegFailed then
@@ -1220,7 +1648,20 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ErrorMessage: String;
 begin
-  if (CurStep = ssPostInstall) and WizardIsTaskSelected('downloadffmpeg') and ShouldShowFfmpegTask then
+  if (CurStep = ssPostInstall) and AnyPluginSelected then
+  begin
+    try
+      DownloadAndInstallSelectedPlugins;
+    except
+      ErrorMessage := GetExceptionMessage;
+      PluginFailed := True;
+      Log('Optional plugin installation failed: ' + ErrorMessage);
+      SetFfmpegProgress(CustomMessage('PluginFailed'), ErrorMessage, 0);
+      SuppressibleMsgBox(CustomMessage('PluginFailed') + #13#10#13#10 + ErrorMessage, mbError, MB_OK, IDOK);
+    end;
+  end;
+
+  if (CurStep = ssPostInstall) and IsFfmpegRequested then
   begin
     try
       DownloadAndInstallFfmpeg;

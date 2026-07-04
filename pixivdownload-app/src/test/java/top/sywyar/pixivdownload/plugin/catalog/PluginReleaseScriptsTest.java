@@ -206,6 +206,8 @@ class PluginReleaseScriptsTest {
         String common = script("plugin-distribution-common.ps1");
         String distribution = script("assemble-plugin-distribution.ps1");
         String windows = script("package-local.ps1");
+        String inno = innoScript();
+        String installerInstall = innoSupportScript("installer-plugin-install.ps1");
 
         assertThat(common).contains(
                 "function New-PluginArtifactSignature",
@@ -227,6 +229,31 @@ class PluginReleaseScriptsTest {
                 "[switch]$DefaultDownloader",
                 "Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader)",
                 "CoreShellOnly and DefaultDownloader cannot be combined.");
+        assertThat(windows).contains(
+                "$OfficialPluginCatalogUrl = \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
+                "Stage-InstallerPluginCatalogSnapshot",
+                "\"verify-manifest\"",
+                "installer-catalog",
+                "$installerPluginCatalogEnabled = if ($SkipPlugins) { \"0\" } else { \"1\" }",
+                "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
+                "/DSignatureToolJar=$SignatureToolJar");
+        assertThat(inno).contains(
+                "#define InstallerPluginCatalogEnabled \"0\"",
+                "#if InstallerPluginCatalogEnabled == \"1\"",
+                "#define PluginCatalogManifestUrl \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
+                "installer-plugin-catalog.ps1",
+                "installer-plugin-install.ps1",
+                "IsInstallerPluginCatalogEnabled",
+                "pixivdownload-plugin-signature-tool.jar");
+        assertThat(installerInstall).contains(
+                "function Remove-SupersededInstalledPlugins",
+                "Read-PluginIdFromPackage",
+                "plugin.id",
+                "$item.PluginId + \"-\" + $item.Version + $ext",
+                "Remove-SupersededInstalledPlugins $pluginsDir $item.PluginId $target",
+                "$($artifact.FullName).sha256",
+                "$($artifact.FullName).sig",
+                ".pixiv-plugin-provenance");
     }
 
     @Test
@@ -300,7 +327,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("release/nightly 工作流发布签名分发布局而不是裸插件 jar")
+    @DisplayName("release/nightly 工作流只发布签名 full-offline 分发布局而不是裸插件 jar")
     void releaseWorkflowsPublishSignedPluginDistributions() throws Exception {
         for (String name : List.of("release.yml", "nightly.yml")) {
             String workflow = workflow(name);
@@ -308,21 +335,27 @@ class PluginReleaseScriptsTest {
             assertThat(workflow).as(name).contains(
                     "Prepare plugin signing private key",
                     "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
-                    "Assemble plugin distributions",
-                    "-CoreShellOnly",
-                    "-DefaultDownloader",
+                    "Assemble full-offline distribution",
                     "full-offline",
                     "name: plugin-distributions",
-                    "path: build/plugin-distributions/PixivDownload-*.zip",
+                    "path: build/plugin-distributions/PixivDownload-*-full-offline.zip",
                     "path: artifacts/plugin-distributions",
-                    "artifacts/plugin-distributions/*.zip",
+                    "artifacts/plugin-distributions/*-full-offline.zip",
                     "name: plugin-inputs",
                     "path: build/plugin-inputs/*.jar",
                     "path: artifacts/plugin-inputs",
-                    "default-downloader.zip",
+                    "pixivdownload-plugin-duplicate/target/pixivdownload-plugin-duplicate-*.jar",
                     "full-offline.zip",
-                    "plugins-manifest.json");
+                    "plugins-manifest.json",
+                    "Generate update manifest",
+                    "artifacts/update.json",
+                    "\"win-x64-installer\"");
             assertThat(workflow).as(name).doesNotContain(
+                    "-CoreShellOnly",
+                    "-DefaultDownloader",
+                    "default-downloader.zip",
+                    "core-shell-only.zip",
+                    "artifacts/plugin-distributions/*.zip",
                     "artifacts/plugins/*.jar",
                     "name: plugins",
                     "path: build/release-plugins/*.jar",
@@ -373,6 +406,16 @@ class PluginReleaseScriptsTest {
 
     private static String script(String name) throws IOException {
         return Files.readString(repoRoot().resolve("scripts").resolve(name), StandardCharsets.UTF_8);
+    }
+
+    private static String innoScript() throws IOException {
+        return Files.readString(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
+                .resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
+    }
+
+    private static String innoSupportScript(String name) throws IOException {
+        return Files.readString(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
+                .resolve(name), StandardCharsets.UTF_8);
     }
 
     private static String workflow(String name) throws IOException {

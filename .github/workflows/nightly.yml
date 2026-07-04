@@ -113,7 +113,7 @@ jobs:
           }
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile`n", (New-Object System.Text.UTF8Encoding($false)))
 
-      - name: Assemble plugin distributions
+      - name: Assemble full-offline distribution
         shell: pwsh
         run: |
           $version = '${{ needs.resolve-version.outputs.version }}'
@@ -121,30 +121,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
           ./scripts/assemble-plugin-distribution.ps1 `
             -Version $version `
-            -OutputDir "$distRoot/core-shell-only" `
-            -CoreShellOnly
-          ./scripts/assemble-plugin-distribution.ps1 `
-            -Version $version `
-            -OutputDir "$distRoot/default-downloader" `
-            -DefaultDownloader `
-            -OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID `
-            -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
-          ./scripts/assemble-plugin-distribution.ps1 `
-            -Version $version `
             -OutputDir "$distRoot/full-offline" `
             -OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID `
             -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
-          foreach ($name in @("core-shell-only", "default-downloader", "full-offline")) {
-            $source = Join-Path $distRoot $name
-            $zip = Join-Path $distRoot "PixivDownload-$version-$name.zip"
-            Compress-Archive -Path (Join-Path $source "*") -DestinationPath $zip -Force
-          }
+          $source = Join-Path $distRoot "full-offline"
+          $zip = Join-Path $distRoot "PixivDownload-$version-full-offline.zip"
+          Compress-Archive -Path (Join-Path $source "*") -DestinationPath $zip -Force
 
       - name: Upload plugin distributions artifact
         uses: actions/upload-artifact@v4
         with:
           name: plugin-distributions
-          path: build/plugin-distributions/PixivDownload-*.zip
+          path: build/plugin-distributions/PixivDownload-*-full-offline.zip
 
       - name: Cleanup plugin signing private key
         if: always()
@@ -161,6 +149,7 @@ jobs:
           cp pixivdownload-plugin-download-workbench/target/pixivdownload-plugin-download-workbench-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-stats/target/pixivdownload-plugin-stats-*.jar build/plugin-inputs/
+          cp pixivdownload-plugin-duplicate/target/pixivdownload-plugin-duplicate-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-gallery/target/pixivdownload-plugin-gallery-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-novel-gallery/target/pixivdownload-plugin-novel-gallery-*.jar build/plugin-inputs/
           cp pixivdownload-plugin-notification/target/pixivdownload-plugin-notification-*.jar build/plugin-inputs/
@@ -177,19 +166,6 @@ jobs:
         with:
           name: plugin-inputs
           path: build/plugin-inputs/*.jar
-
-      - name: Stage release userscripts
-        shell: bash
-        run: |
-          mkdir -p build/release-userscripts
-          cp "build/generated-userscripts/Pixiv All-in-One.user.js" build/release-userscripts/
-          cp "Pixiv 单作品图片下载器(Local Download).user.js" build/release-userscripts/
-
-      - name: Upload userscript artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: userscripts
-          path: build/release-userscripts/*.user.js
 
   build-windows-installer:
     needs: [resolve-version, build-jar]
@@ -299,12 +275,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download JAR artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: jar
-          path: artifacts/
-
       - name: Download Windows installer artifacts
         uses: actions/download-artifact@v4
         with:
@@ -316,12 +286,6 @@ jobs:
         with:
           name: plugin-distributions
           path: artifacts/plugin-distributions
-
-      - name: Download userscript artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: userscripts
-          path: artifacts/userscripts
 
       - name: Diff changelog since last nightly
         id: changelog
@@ -348,7 +312,7 @@ jobs:
             echo "has_notes=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Generate update.json
+      - name: Generate update manifest
         shell: bash
         env:
           GH_REPOSITORY: ${{ github.repository }}
@@ -406,17 +370,15 @@ jobs:
 
           ## 使用说明 / Usage
 
-          ### Windows 安装器
-          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。
+          ### Windows 安装包
+          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装包的“附加功能”页可选安装 FFmpeg 与官方可选插件；插件清单网络获取超时或失败时会使用安装包内置的签名清单快照。
 
-          ### JAR 包（跨平台）
-          需要 Java 17+：
+          ### 离线全量包（跨平台）
+          下载 `PixivDownload-*-full-offline.zip`，解压后在目录内运行：
           ```
-          java -jar PixivDownload-*.jar
+          java -Dfile.encoding=UTF-8 -jar PixivDownload-*.jar
           ```
-          推荐下载 `PixivDownload-*-default-downloader.zip`，解压后在目录内运行其中的 `PixivDownload-*.jar`。该包已包含签名后的 required `download-workbench` 插件、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`。
-
-          `PixivDownload-*-full-offline.zip` 在 default 包基础上额外包含官方可选插件，适合离线部署。单独的 `PixivDownload-*.jar` 或 `PixivDownload-*-core-shell-only.zip` 只包含核心壳，缺少 required 插件时会进入恢复 / 修复模式，下载页和下载 API 不会开放。
+          该包包含核心壳、签名后的 required `download-workbench` 插件、全部官方可选插件、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`。Nightly Release 不再提供独立 JAR、core-shell-only 包或 default-downloader 包作为普通下载附件。
           EOF
 
           if [ "${{ steps.changelog.outputs.has_notes }}" = "true" ]; then
@@ -457,8 +419,6 @@ jobs:
           body_path: RELEASE_BODY.md
           prerelease: true
           files: |
-            artifacts/PixivDownload-*.jar
             artifacts/*-setup.exe
-            artifacts/plugin-distributions/*.zip
-            artifacts/userscripts/*.user.js
+            artifacts/plugin-distributions/*-full-offline.zip
             artifacts/update.json

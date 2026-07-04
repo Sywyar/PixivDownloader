@@ -19,6 +19,8 @@ import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 受信 catalog 读取服务：从<b>服务端配置的仓库列表</b>（{@link PluginRepositoryRegistry}，内嵌官方默认仓库 + 自定义仓库，
@@ -33,6 +35,8 @@ import java.util.function.Function;
 public class PluginCatalogService {
 
     private static final Logger log = LoggerFactory.getLogger(PluginCatalogService.class);
+    private static final Pattern GITHUB_BLOB_MANIFEST_URL = Pattern.compile(
+            "^https://github\\.com/([^/?#]+)/([^/?#]+)/blob/([^/?#]+)/(.+\\.json)(?:[?#].*)?$");
 
     private final PluginRepositoryRegistry repositoryRegistry;
     private final PluginCatalogClientProvider clientProvider;
@@ -147,8 +151,9 @@ public class PluginCatalogService {
         byte[] bytes;
         byte[] signatureBytes;
         try {
-            bytes = httpClient.fetchBytes(repository.manifestUrl(), repository.maxManifestBytes());
-            signatureBytes = httpClient.fetchBytes(detachedManifestSignatureUrl(repository.manifestUrl()),
+            String manifestUrl = normalizedManifestUrl(repository.manifestUrl());
+            bytes = httpClient.fetchBytes(manifestUrl, repository.maxManifestBytes());
+            signatureBytes = httpClient.fetchBytes(detachedManifestSignatureUrl(manifestUrl),
                     Math.min(16 * 1024, repository.maxManifestBytes()));
         } catch (PluginCatalogException e) {
             log.warn("Failed to fetch plugin catalog manifest from repository {}: {}",
@@ -229,7 +234,25 @@ public class PluginCatalogService {
     }
 
     private static String detachedManifestSignatureUrl(String manifestUrl) {
-        return manifestUrl.trim() + ".sig";
+        String normalized = normalizedManifestUrl(manifestUrl);
+        int query = normalized.indexOf('?');
+        if (query >= 0) {
+            return normalized.substring(0, query) + ".sig" + normalized.substring(query);
+        }
+        return normalized + ".sig";
+    }
+
+    static String normalizedManifestUrl(String manifestUrl) {
+        String url = manifestUrl == null ? "" : manifestUrl.trim();
+        Matcher githubBlob = GITHUB_BLOB_MANIFEST_URL.matcher(url);
+        if (githubBlob.matches()) {
+            return "https://raw.githubusercontent.com/"
+                    + githubBlob.group(1) + "/"
+                    + githubBlob.group(2) + "/"
+                    + githubBlob.group(3) + "/"
+                    + githubBlob.group(4);
+        }
+        return url;
     }
 
 }

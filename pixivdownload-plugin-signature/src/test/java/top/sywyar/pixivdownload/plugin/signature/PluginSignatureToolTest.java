@@ -53,6 +53,21 @@ class PluginSignatureToolTest {
                 artifact, "demo", "1.0.0", Files.size(artifact), Hashing.hex(Hashing.sha256(artifact)),
                 artifactMetadata, VerificationPolicy.customRepository()));
         assertThat(artifactResult.status()).isEqualTo(VerificationStatus.VERIFIED);
+        PluginSignatureTool.main(new String[]{
+                "verify-artifact",
+                "--artifact", artifact.toString(),
+                "--signature", artifactSig.toString(),
+                "--plugin-id", "demo",
+                "--version", "1.0.0",
+                "--expected-size", Long.toString(Files.size(artifact)),
+                "--sha256", Hashing.hex(Hashing.sha256(artifact)),
+                "--policy", "custom",
+                "--trusted-key-id", keyId,
+                "--trusted-public-key", Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()),
+                "--trusted-publisher", "CLI Test Publisher",
+                "--trusted-label", "CLI Test Root",
+                "--trusted-official", "false"
+        });
 
         Path manifest = tempDir.resolve("manifest.json");
         Files.writeString(manifest, "{\"schemaVersion\":\"1\",\"entries\":[]}");
@@ -69,6 +84,18 @@ class PluginSignatureToolTest {
         VerificationResult manifestResult = verifier.verifyManifest(new ManifestVerificationRequest(
                 Files.readAllBytes(manifest), "repo", manifestMetadata, VerificationPolicy.customRepository()));
         assertThat(manifestResult.status()).isEqualTo(VerificationStatus.VERIFIED);
+        PluginSignatureTool.main(new String[]{
+                "verify-manifest",
+                "--manifest", manifest.toString(),
+                "--signature", manifestSig.toString(),
+                "--repository-id", "repo",
+                "--policy", "custom",
+                "--trusted-key-id", keyId,
+                "--trusted-public-key", Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()),
+                "--trusted-publisher", "CLI Test Publisher",
+                "--trusted-label", "CLI Test Root",
+                "--trusted-official", "false"
+        });
     }
 
     private static String pem(byte[] pkcs8) {

@@ -219,6 +219,35 @@ class PluginCatalogServiceTest {
     }
 
     @Test
+    @DisplayName("GitHub blob 清单地址：读取时转为 raw.githubusercontent.com 直连")
+    void loadNormalizesGithubBlobManifestUrl() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/repo/blob/master/manifest.json", bytes);
+        CatalogTestSupport.serveBytes(server, "/repo/blob/master/manifest.json.sig",
+                signing.manifestSignatureBytes("configured", bytes));
+        PluginCatalogService service = service(true,
+                CatalogTestSupport.loopbackUrl(server, "/repo/blob/master/manifest.json"), signing);
+
+        PluginCatalogManifest manifest = service.load();
+
+        assertThat(PluginCatalogService.normalizedManifestUrl(
+                "https://github.com/Sywyar/PixivDownloader-plugins/blob/master/manifest.json"))
+                .isEqualTo("https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json");
+        assertThat(manifest.findEntry("demo")).isPresent();
+    }
+
+    @Test
+    @DisplayName("GitHub raw 清单地址：读取时保持直连地址，不追加 raw=1")
+    void loadKeepsGithubRawManifestUrl() {
+        assertThat(PluginCatalogService.normalizedManifestUrl(
+                "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"))
+                .isEqualTo("https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json");
+    }
+
+    @Test
     @DisplayName("manifest-url 为坏 URI（含非法空格）：稳定归 CATALOG_UNAVAILABLE，不产生 500")
     void loadMalformedManifestUrlIsUnavailable() {
         // 配置成坏 URI（内含非法空格）：拉取阶段 INSECURE_URL → load() 统一归 CATALOG_UNAVAILABLE，绝不逃逸为 500。

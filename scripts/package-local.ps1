@@ -43,6 +43,8 @@ $AppVendor = "sywyar"
 $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
 $FfmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
+$OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
+$InstallerCatalogDirName = "installer-catalog"
 $FfmpegExe = Join-Path $FfmpegDir "ffmpeg.exe"
 $FfprobeExe = Join-Path $FfmpegDir "ffprobe.exe"
 $FfmpegLicense = Join-Path $FfmpegDir "ffmpeg-LGPL.txt"
@@ -253,6 +255,74 @@ function Stage-OfficialPlugins {
     return $manifest.Count
 }
 
+function ConvertTo-RawPluginCatalogUrl {
+    param([Parameter(Mandatory = $true)][string]$Url)
+    $trimmed = $Url.Trim()
+    if ($trimmed -match "^https://github\.com/([^/?#]+)/([^/?#]+)/blob/([^/?#]+)/(.+\.json)(?:[?#].*)?$") {
+        return "https://raw.githubusercontent.com/$($Matches[1])/$($Matches[2])/$($Matches[3])/$($Matches[4])"
+    }
+    return $trimmed
+}
+
+function Get-PluginCatalogSignatureUrl {
+    param([Parameter(Mandatory = $true)][string]$Url)
+    $raw = ConvertTo-RawPluginCatalogUrl $Url
+    $queryIndex = $raw.IndexOf("?")
+    if ($queryIndex -ge 0) {
+        return $raw.Substring(0, $queryIndex) + ".sig" + $raw.Substring($queryIndex)
+    }
+    return "$raw.sig"
+}
+
+function Assert-InstallerPluginCatalogSignature {
+    param(
+        [Parameter(Mandatory = $true)][string]$SignatureToolJar,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$SignaturePath
+    )
+    Invoke-PluginSignatureTool $SignatureToolJar @(
+        "verify-manifest",
+        "--manifest", $ManifestPath,
+        "--signature", $SignaturePath,
+        "--repository-id", "official",
+        "--policy", "official"
+    )
+}
+
+function Stage-InstallerPluginCatalogSnapshot {
+    param(
+        [Parameter(Mandatory = $true)][string]$AppDir,
+        [Parameter(Mandatory = $true)][string]$SignatureToolJar
+    )
+    $catalogDir = Join-Path $AppDir $InstallerCatalogDirName
+    Ensure-Directory $catalogDir
+    $manifestTarget = Join-Path $catalogDir "manifest.json"
+    $signatureTarget = Join-Path $catalogDir "manifest.json.sig"
+
+    $downloadDir = Join-Path $BuildRoot "installer-catalog-download"
+    Remove-PathIfExists $downloadDir
+    Ensure-Directory $downloadDir
+    $manifestTemp = Join-Path $downloadDir "manifest.json"
+    $signatureTemp = Join-Path $downloadDir "manifest.json.sig"
+    $manifestUrl = ConvertTo-RawPluginCatalogUrl $OfficialPluginCatalogUrl
+    $signatureUrl = Get-PluginCatalogSignatureUrl $OfficialPluginCatalogUrl
+
+    Write-Host ("    Fetching signed installer plugin catalog: {0}" -f $OfficialPluginCatalogUrl)
+    Invoke-WebRequest -Uri $manifestUrl -OutFile $manifestTemp -UseBasicParsing -TimeoutSec 30
+    Invoke-WebRequest -Uri $signatureUrl -OutFile $signatureTemp -UseBasicParsing -TimeoutSec 30
+    Assert-InstallerPluginCatalogSignature -SignatureToolJar $SignatureToolJar `
+        -ManifestPath $manifestTemp -SignaturePath $signatureTemp
+
+    $parsed = Get-Content -LiteralPath $manifestTemp -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -eq $parsed -or $null -eq $parsed.entries) {
+        throw "Installer plugin catalog manifest does not contain an entries array."
+    }
+
+    Copy-Item $manifestTemp $manifestTarget -Force
+    Copy-Item $signatureTemp $signatureTarget -Force
+    Write-Host ("    OK: signed installer plugin catalog staged under {0}." -f $InstallerCatalogDirName) -ForegroundColor Green
+}
+
 function Get-InstallerVersion {
     param([string]$VersionText)
 
@@ -400,6 +470,9 @@ try {
             -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
             -SignatureToolJar $SignatureToolJar
         Write-Host ("    {0} official required plugin(s) staged under plugins/ (default downloader)." -f $requiredCount) -ForegroundColor Green
+
+        Write-Step "Staging signed installer plugin catalog snapshot"
+        Stage-InstallerPluginCatalogSnapshot -AppDir $OnlineAppDir -SignatureToolJar $SignatureToolJar
     } else {
         Write-Step "Skipping plugin staging (-SkipPlugins): core shell only; required plugin missing triggers recovery"
     }
@@ -440,11 +513,14 @@ try {
         $innoCompiler = & $PrepareInnoAdminLoaderScript -CompilerPath $innoCompilerSource -OutputDirectory $InnoToolchainDir
 
         Write-Step "Building Windows setup"
+        $installerPluginCatalogEnabled = if ($SkipPlugins) { "0" } else { "1" }
         Invoke-External $innoCompiler @(
             "/DAppVersion=$Version",
             "/DInstallerVersion=$InstallerVersion",
             "/DAppImageDir=$OnlineAppDir",
             "/DOutputDir=$OutDir",
+            "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
+            "/DSignatureToolJar=$SignatureToolJar",
             $InnoScript
         )
     }

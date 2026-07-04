@@ -56,7 +56,7 @@ public record PluginRepository(
     /** 内嵌官方默认仓库的稳定 id。 */
     public static final String OFFICIAL_ID = "official";
 
-    /** 内嵌官方默认仓库的清单地址：插件分发仓库 code 区的 manifest.json，经 raw.githubusercontent 200 直出（无重定向）。 */
+    /** 内嵌官方默认仓库的清单地址：直连 GitHub raw 内容，避免 GitHub blob 页面重定向触发代理白名单拒绝。 */
     public static final String OFFICIAL_MANIFEST_URL =
             "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json";
 

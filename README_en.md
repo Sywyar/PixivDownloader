@@ -21,8 +21,8 @@
 
 ## Features
 
-> [!WARNING]
-> **Items marked with `*` are not yet available in the stable release (nightly build only)**
+> [!NOTE]
+> Some capabilities are provided by official optional plugins. The Windows installer preinstalls the required `download-workbench`; the full-offline package carries every official optional plugin.
 
 - One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
 - Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
@@ -35,8 +35,8 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- `*` Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins (Not yet launched)
-- `*` Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI (Not yet launched)
+- Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins
+- Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI
 - Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
@@ -68,13 +68,26 @@ Download the latest version from [Releases](../../releases):
 
 | Type                                | Description                                                         |
 |-------------------------------------|---------------------------------------------------------------------|
-| `PixivDownload-vX.X.X.jar`          | Universal JAR, requires Java 17+                                    |
-| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install |
+| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg and official plugin install |
+| `PixivDownload-*-full-offline.zip`  | Full offline package, requires Java 17+; includes the core shell, required `download-workbench`, and every official optional plugin |
+
+### Packages and official plugins
+
+Current builds use external plugins:
+
+- `download-workbench` is the required external plugin. It provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The Windows installer and full-offline package bundle it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path and only exposes login, plugin management, and repair/install entry points.
+- `stats`, `duplicate`, `gallery`, `novel-gallery`, `tts`, `ai`, `push`, `mail`, `gui-theme`, and `notification` are official optional plugins. When installed and enabled, their pages, APIs, static resources, i18n, navigation, GUI config fields, or capability contributions are available. When missing or disabled, those entries are simply absent and do not trigger recovery.
+- GitHub Releases provide only the Windows installer and the full-offline package. The standalone core shell JAR and default downloader package are still used by build / recovery flows, but are not published as normal download assets.
+- The Windows installer bundles the required `download-workbench` plugin and can install optional plugins from the signed official catalog on the optional features page. The full-offline package adds every official optional plugin plus the files needed for offline verification.
+- Missing or disabling `duplicate` does not affect image Hash writes after downloads and does not delete historical Hash data.
+- Missing or disabling `gallery` only removes the local gallery, artwork detail pages, display APIs, navigation, and related static resources. The download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, and local resource index remain intact.
+- Missing or disabling `novel-gallery` only removes the novel gallery, novel reader, display APIs, navigation, static resources, and i18n. Novel downloading, body storage, translation state, series compilation, scheduled novel runner, TTS / AI degradation behavior, and historical novel data do not depend on it.
+- When TTS / AI / push / mail plugins are missing, the corresponding capability is unavailable or skipped; there is no fallback implementation inside the core.
 
 ### Run
 
 ```bash
-# Start from JAR
+# Start from the full-offline package after extraction
 java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
 
 # Start from Windows EXE
