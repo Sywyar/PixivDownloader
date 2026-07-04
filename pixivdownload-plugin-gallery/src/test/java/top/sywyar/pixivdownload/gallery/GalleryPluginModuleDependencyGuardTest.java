@@ -1,11 +1,15 @@
 package top.sywyar.pixivdownload.gallery;
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,6 +20,19 @@ class GalleryPluginModuleDependencyGuardTest {
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload.gallery");
+
+    private static final Set<String> FORBIDDEN_FILE_READ_METHODS = Set.of(
+            "readString", "readAllBytes", "readAllLines", "lines",
+            "newBufferedReader", "newInputStream");
+
+    private static final DescribedPredicate<JavaMethodCall> READS_LOCAL_FILES_DIRECTLY =
+            new DescribedPredicate<>("调用 java.nio.file.Files 的本地文件读取 / 打开方法") {
+                @Override
+                public boolean test(JavaMethodCall call) {
+                    return call.getTargetOwner().getFullName().equals("java.nio.file.Files")
+                            && FORBIDDEN_FILE_READ_METHODS.contains(call.getName());
+                }
+            };
 
     @Test
     @DisplayName("gallery 托管 Bean 不得直连数据库底层")
@@ -52,6 +69,27 @@ class GalleryPluginModuleDependencyGuardTest {
                         top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper.class))
                 .because("gallery 已接口化：查询走 WorkQueryService/WorkMetadataRepository，删除走 "
                         + "WorkAssetService/WorkDeletionService，文件访问与元数据事实留在 core owned 服务内")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("gallery 不得直读 meta sidecar 实现层或本地作品文件")
+    void galleryMustUseWorkAssetServiceForSidecarAndFiles() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .should().dependOnClassesThat()
+                .belongToAnyOf(
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
+                        top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta.class)
+                .because("作品 meta sidecar 的归一化 / 落盘 / 文件层读写是核心捕获实现；"
+                        + "gallery 取 sidecar 只能经 WorkAssetService.findSidecarMeta")
+                .check(CLASSES);
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .should().callMethodWhere(READS_LOCAL_FILES_DIRECTLY)
+                .because("gallery 的作品文件枚举 / 读取只能经 WorkAssetService，不得自行读本地文件")
                 .check(CLASSES);
     }
 

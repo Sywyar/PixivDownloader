@@ -27,12 +27,12 @@ class NavigationRegistryTest {
     }
 
     @Test
-    @DisplayName("gallery 已安装时从 PluginRegistry 收集导航项（主入口 + 类型切换 + 统计页画廊视图 + 图标）")
+    @DisplayName("gallery/novel-gallery 已安装时从 PluginRegistry 收集导航项（主入口 + 类型切换 + 统计页画廊视图 + 图标）")
     void collectsNavigationFromBuiltInPlugins() {
-        NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(builtInWithGallery()));
+        NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
         // 监控 / 邀请码管理 / 插件管理 / 插件市场（基础 + 管理）+ 画廊主入口及其类型切换 / 统计页视图三链
-        // + 小说主入口及其类型切换。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 与 duplicate 已外置，
+        // + 小说画廊主入口及其类型切换。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 与 duplicate 已外置，
         // download-workbench / stats / duplicate 导航项经外置插件 contribution 注册、不在内置清单。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
@@ -41,7 +41,7 @@ class NavigationRegistryTest {
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "gallery-gui-open", "gallery-invite-manage-back",
-                        "novel", "novel-type-switch");
+                        "novel-gallery", "novel-type-switch");
         // 画廊主入口归 gallery 插件、INVITED_GUEST 可见、进入顶部栏 + 中立主侧栏 + 画廊侧栏 + 疑似重复图标区四个 placement。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("gallery"))
@@ -268,10 +268,11 @@ class NavigationRegistryTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
-    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> builtInWithGallery() {
+    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> builtInWithGalleryAndNovelGallery() {
         java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins =
                 new java.util.ArrayList<>(BuiltInPlugins.createAll());
         plugins.add(new TestGalleryPlugin());
+        plugins.add(new TestNovelGalleryPlugin());
         return plugins;
     }
 }

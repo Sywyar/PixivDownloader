@@ -199,14 +199,15 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("app 生产代码与 POM 不得依赖 gallery 外置插件模块")
+    @DisplayName("app 生产代码与 POM 不得依赖 gallery / novel-gallery 外置插件模块")
     void appDoesNotDependOnGalleryPluginModule() throws IOException {
         Path pom = Path.of("pixivdownload-app/pom.xml");
         if (!Files.exists(pom)) {
             pom = Path.of("pom.xml");
         }
         assertThat(Files.readString(pom, StandardCharsets.UTF_8))
-                .doesNotContain("<artifactId>pixivdownload-plugin-gallery</artifactId>");
+                .doesNotContain("<artifactId>pixivdownload-plugin-gallery</artifactId>")
+                .doesNotContain("<artifactId>pixivdownload-plugin-novel-gallery</artifactId>");
 
         Path sourceRoot = Path.of("pixivdownload-app/src/main/java");
         if (!Files.exists(sourceRoot)) {
@@ -215,7 +216,8 @@ class PluginApiDependencyGuardTest {
         try (var paths = Files.walk(sourceRoot)) {
             assertThat(paths
                     .filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> contains(path, "top.sywyar.pixivdownload.gallery"))
+                    .filter(path -> contains(path, "top.sywyar.pixivdownload.gallery")
+                            || contains(path, "top.sywyar.pixivdownload.novelgallery"))
                     .map(Path::toString)
                     .toList())
                     .isEmpty();
@@ -266,34 +268,10 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("小说画廊侧服务不得依赖核心实现类：数据与文件访问只能走 plugin.api 核心接口")
-    void novelGalleryServicesDependOnlyOnCoreInterfaces() {
-        // novel 包同时容纳 novel-core（下载/正文/翻译/TTS，不强拆、合法直连 NovelDatabase），
-        // 守卫范围因此按 Bean 收敛口径限定在小说画廊侧两个接口化服务，而非整个包
-        noClasses()
-                .that(JavaClass.Predicates.belongToAnyOf(
-                        top.sywyar.pixivdownload.novel.NovelGalleryService.class,
-                        top.sywyar.pixivdownload.novel.NovelBatchService.class))
-                .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
-                        top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
-                        top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,
-                        top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
-                        top.sywyar.pixivdownload.author.AuthorService.class,
-                        top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class))
-                .because("小说画廊已接口化：查询走 WorkQueryService/WorkMetadataRepository、删除走 "
-                        + "WorkAssetService/WorkDeletionService，禁止回潮直连核心实现类；小说 upload_time "
-                        + "列也藏在核心 NovelMetadataRepository 后，只能经 WorkMetadataRepository 读")
-                .check(CLASSES);
-    }
-
-    @Test
     @DisplayName("业务插件不得直读 meta sidecar 实现层：sidecar 只能经 WorkAssetService.findSidecarMeta 读")
     void businessPluginsMustNotReadMetaSidecarDirectly() {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
-                .or(JavaClass.Predicates.belongToAnyOf(
-                        top.sywyar.pixivdownload.novel.NovelGalleryService.class,
-                        top.sywyar.pixivdownload.novel.NovelBatchService.class))
                 .should().dependOnClassesThat()
                 .belongToAnyOf(
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore.class,
@@ -304,6 +282,7 @@ class PluginApiDependencyGuardTest {
                         + "画廊与小说画廊两侧业务插件取 sidecar 只能经 plugin.api 的 "
                         + "WorkAssetService.findSidecarMeta（产出 JDK-only WorkSidecarMeta），"
                         + "禁止直依赖核心 sidecar 实现层或自行解析 {workId}.meta.json")
+                .allowEmptyShould(true)
                 .check(CLASSES);
     }
 
@@ -315,13 +294,11 @@ class PluginApiDependencyGuardTest {
         // Spring AOP 拦不到 java.nio.file.Files 的 static 方法、也只覆盖跑过的路径，故用 ArchUnit 静态守卫。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
-                .or(JavaClass.Predicates.belongToAnyOf(
-                        top.sywyar.pixivdownload.novel.NovelGalleryService.class,
-                        top.sywyar.pixivdownload.novel.NovelBatchService.class))
                 .should().callMethodWhere(READS_LOCAL_FILES_DIRECTLY)
                 .because("作品文件（含 meta sidecar）的枚举 / 读取是核心本地资产能力：sidecar 只能经 "
                         + "WorkAssetService.findSidecarMeta 读、普通作品文件也应经 WorkAssetService，"
                         + "业务插件不得直接调用 java.nio.file.Files 读本地文件，更不得自行拼 {workId}.meta.json 绕过桥")
+                .allowEmptyShould(true)
                 .check(CLASSES);
     }
 

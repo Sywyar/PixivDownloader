@@ -151,7 +151,7 @@
             const params = new URLSearchParams();
             params.set('format', 'epub');
             if (lang) params.set('lang', lang);
-            const url = `/api/gallery/novel/series/${state.seriesId}/merged?${params.toString()}`;
+            const url = `/api/novel/series/${state.seriesId}/merged?${params.toString()}`;
             const res = await fetch(url, {credentials: 'same-origin'});
             if (res.status === 401) {
                 window.location.href = '/login.html?redirect='

@@ -132,7 +132,7 @@ function renderedCount(record) { return record.events.filter(e => e.type === 'pi
 const ITEMS = [
     { id: 'gallery', placements: ['app.top', 'gallery.sidebar'], href: '/pixiv-gallery.html?view=all', icon: 'images', labelNamespace: 'gallery', labelI18nKey: 'nav.label', markers: ['first-download-result'] },
     { id: 'monitor', placements: ['app.top'], href: '/monitor.html', icon: 'monitor', labelNamespace: 'monitor', labelI18nKey: 'nav.monitor' },
-    { id: 'novel', placements: ['gallery.sidebar'], href: '/pixiv-novel-gallery.html?view=all', icon: 'book', labelNamespace: 'novel', labelI18nKey: 'nav.label' }
+    { id: 'novel-gallery', placements: ['gallery.sidebar'], href: '/pixiv-novel-gallery.html?view=all', icon: 'book', labelNamespace: 'novel-gallery', labelI18nKey: 'nav.label' }
 ];
 
 async function main() {

@@ -1812,7 +1812,7 @@
             return new Promise((resolve) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
-                    url: `${serverBase}/api/gallery/novel/${encodeURIComponent(novelId)}/downloaded`,
+                    url: `${serverBase}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
                     onload: (res) => {
                         try {
                             if (res.status === 200) {
@@ -1834,7 +1834,7 @@
                 if (userUUID) headers['X-User-UUID'] = userUUID;
                 GM_xmlhttpRequest({
                     method: 'POST',
-                    url: `${serverBase}/api/download/pixiv/novel`,
+                    url: `${serverBase}/api/novel/download`,
                     headers,
                     data: JSON.stringify(body),
                     onload: (res) => {
@@ -1864,7 +1864,7 @@
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
-                    url: `${serverBase}/api/download/novel/status/${encodeURIComponent(novelId)}`,
+                    url: `${serverBase}/api/novel/status/${encodeURIComponent(novelId)}`,
                     onload: (res) => {
                         try {
                             resolve(JSON.parse(res.responseText));
@@ -2400,7 +2400,7 @@
             for (const sid of seriesIds) {
                 GM_xmlhttpRequest({
                     method: 'POST',
-                    url: `${serverBase}/api/gallery/novel/series/${encodeURIComponent(sid)}/merge?format=${encodeURIComponent(fmt)}`,
+                    url: `${serverBase}/api/novel/series/${encodeURIComponent(sid)}/merge?format=${encodeURIComponent(fmt)}`,
                     headers: {'X-User-UUID': userUUID || ''},
                     onload: (res) => this._handleMergeResponse(sid, res),
                     onerror: () => this._reportMergeFailure(

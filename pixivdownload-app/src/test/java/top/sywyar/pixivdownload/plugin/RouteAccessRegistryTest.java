@@ -26,19 +26,25 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集内置插件路由；gallery 与其它外置能力路由不在内置快照")
+    @DisplayName("构造时从 PluginRegistry 收集内置插件路由；gallery/novel-gallery 与其它外置能力路由不在内置快照")
     void collectsRoutesFromBuiltInPlugins() {
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         // 可选能力已改为外置 PF4J 插件：其路由经外置插件 contribution 注册，绝不出现在内置快照里。
         assertThat(registry.routes())
-                .noneMatch(registered -> Set.of("gallery", "stats", "duplicate", "push", "mail", "tts", "ai")
+                .noneMatch(registered -> Set.of(
+                                "gallery", "novel-gallery", "stats", "duplicate", "push", "mail", "tts", "ai")
                         .contains(registered.pluginId()));
 
-        RouteAccessRegistry withGallery = new RouteAccessRegistry(new PluginRegistry(List.of(new TestGalleryPlugin())));
+        RouteAccessRegistry withGallery = new RouteAccessRegistry(
+                new PluginRegistry(List.of(new TestGalleryPlugin(), new TestNovelGalleryPlugin())));
         assertThat(withGallery.routes())
                 .filteredOn(registered -> registered.pluginId().equals("gallery"))
                 .extracting(registered -> registered.route().pathPattern())
                 .contains("/api/gallery/artwork**");
+        assertThat(withGallery.routes())
+                .filteredOn(registered -> registered.pluginId().equals("novel-gallery"))
+                .extracting(registered -> registered.route().pathPattern())
+                .contains("/api/gallery/novel/**");
     }
 
     @Test

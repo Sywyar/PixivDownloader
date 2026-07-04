@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel.request;
+package top.sywyar.pixivdownload.novelgallery;
 
 import java.util.List;
 

@@ -58,6 +58,8 @@
         <module>pixivdownload-plugin-duplicate</module>
         <!-- 官方可选本地画廊外置插件。核心下载事实 / 元数据 / 资产能力留 app，本模块只承载展示层。 -->
         <module>pixivdownload-plugin-gallery</module>
+        <!-- 官方可选小说画廊外置插件。小说下载事实 / 正文 / 翻译 / TTS / AI 能力留 app，本模块只承载展示层。 -->
+        <module>pixivdownload-plugin-novel-gallery</module>
     </modules>
     <scm>
         <connection/>

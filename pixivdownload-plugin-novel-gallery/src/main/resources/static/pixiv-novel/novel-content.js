@@ -1,6 +1,6 @@
 'use strict';
 async function loadAll() {
-    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common', 'translate', 'narration', 'tts'] });
+    pageI18n = await PixivI18n.create({ namespaces: ['novel-gallery', 'common', 'translate', 'narration', 'tts'] });
     pageI18n.apply();
     await PixivLangSwitcher.mount({
         mountPoint: document.getElementById('langSwitcherAnchor'),

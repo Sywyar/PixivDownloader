@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novelgallery;
 
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.db.TagDto;

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="novel:gallery.type.novel">小说</title>
+    <title data-i18n="novel-gallery:gallery.type.novel">小说</title>
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-side-modules.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
@@ -40,7 +40,7 @@
                         <path d="M8 11h8"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="novel:nav.all">全部小说</span>
+                <span class="nav-label" data-i18n="novel-gallery:nav.all">全部小说</span>
             </a>
             <a class="nav-item" data-view="authors" href="/pixiv-novel-gallery.html?view=authors" id="navViewAuthors">
                 <div class="nav-icon">
@@ -51,7 +51,7 @@
                         <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="novel:nav.by-author">按作者查看小说</span>
+                <span class="nav-label" data-i18n="novel-gallery:nav.by-author">按作者查看小说</span>
             </a>
             <a class="nav-item" data-view="series" href="/pixiv-novel-gallery.html?view=series" id="navViewSeries">
                 <div class="nav-icon">
@@ -61,7 +61,7 @@
                         <path d="M4 18h10"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="novel:nav.by-series">按系列查看小说</span>
+                <span class="nav-label" data-i18n="novel-gallery:nav.by-series">按系列查看小说</span>
             </a>
         </nav>
 
@@ -110,10 +110,10 @@
                 <option value="all" data-i18n="search.type.all">综合</option>
                 <option value="title" data-i18n="search.type.title">标题</option>
                 <option value="author" data-i18n="search.type.author">作者名</option>
-                <option value="id" data-i18n="novel:search.type.id">小说 ID</option>
+                <option value="id" data-i18n="novel-gallery:search.type.id">小说 ID</option>
                 <option value="authorId" data-i18n="search.type.author-id">作者 ID</option>
                 <option value="desc" data-i18n="search.type.desc">简介</option>
-                <option value="content" data-i18n="novel:search.type.content">正文</option>
+                <option value="content" data-i18n="novel-gallery:search.type.content">正文</option>
                 <option value="tag" data-i18n="search.type.tag">标签（模糊）</option>
                 <option value="tagExact" data-i18n="search.type.tag-exact">标签（精确）</option>
             </select>
@@ -121,7 +121,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
-                <input type="text" id="searchInput" data-i18n-placeholder="novel:search.placeholder" placeholder="按标题搜索...">
+                <input type="text" id="searchInput" data-i18n-placeholder="novel-gallery:search.placeholder" placeholder="按标题搜索...">
             </label>
             <button class="filter-btn" id="filterToggle">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -142,7 +142,7 @@
                     <polyline points="9 11 12 14 22 4"/>
                     <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
                 </svg>
-                <span data-i18n="novel:manage.button">批量管理</span>
+                <span data-i18n="novel-gallery:manage.button">批量管理</span>
             </button>
             <div class="topbar-actions" id="langSwitcherAnchor"></div>
 
@@ -150,9 +150,9 @@
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.sort.label">排序</span>
                 <button class="chip active" data-sort="date" data-i18n="filter.sort.date">时间</button>
-                <button class="chip" data-sort="novelId" data-i18n="novel:filter.sort.novel-id">小说 ID</button>
-                <button class="chip" data-sort="wordCount" data-i18n="novel:filter.sort.word-count">字数</button>
-                <button class="chip" data-sort="series" data-i18n="novel:filter.sort.series">系列</button>
+                <button class="chip" data-sort="novelId" data-i18n="novel-gallery:filter.sort.novel-id">小说 ID</button>
+                <button class="chip" data-sort="wordCount" data-i18n="novel-gallery:filter.sort.word-count">字数</button>
+                <button class="chip" data-sort="series" data-i18n="novel-gallery:filter.sort.series">系列</button>
                 <button class="chip" id="orderToggle" data-order="desc" data-i18n="filter.order.desc" style="margin-left:auto">↓ 降序</button>
             </div>
             <div class="filter-row">
@@ -179,7 +179,7 @@
                     <div class="filter-tags-controls">
                         <label class="tag-search-box">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                            <input type="text" id="seriesSearchInput" data-i18n-placeholder="novel:filter.series.search.placeholder" placeholder="搜索系列...">
+                            <input type="text" id="seriesSearchInput" data-i18n-placeholder="novel-gallery:filter.series.search.placeholder" placeholder="搜索系列...">
                         </label>
                         <button class="chip" id="seriesFilterReset" type="button" data-i18n="filter.reset">重置筛选</button>
                         <button class="chip" id="seriesExpandToggle" type="button" data-i18n="filter.expand">展开全部</button>
@@ -335,32 +335,32 @@
 
 <div class="batch-action-bar" id="batchActionBar">
     <span class="batch-count" id="batchCount"></span>
-    <button class="btn" id="batchSelectAll" type="button" data-i18n="novel:manage.select-all">全选本页</button>
-    <button class="btn" id="batchSelectAllResults" type="button" data-i18n="novel:manage.select-all-results">全选所有结果</button>
-    <button class="btn" id="batchClear" type="button" data-i18n="novel:manage.clear">清除选择</button>
+    <button class="btn" id="batchSelectAll" type="button" data-i18n="novel-gallery:manage.select-all">全选本页</button>
+    <button class="btn" id="batchSelectAllResults" type="button" data-i18n="novel-gallery:manage.select-all-results">全选所有结果</button>
+    <button class="btn" id="batchClear" type="button" data-i18n="novel-gallery:manage.clear">清除选择</button>
     <div class="batch-menu-wrap">
-        <button class="btn btn-primary" id="batchActionMenuToggle" type="button" data-i18n="novel:manage.action-menu">操作</button>
+        <button class="btn btn-primary" id="batchActionMenuToggle" type="button" data-i18n="novel-gallery:manage.action-menu">操作</button>
         <div class="batch-menu" id="batchActionMenu">
-            <button type="button" data-action="export" data-i18n="novel:manage.export">导出</button>
-            <button type="button" data-action="collect" data-i18n="novel:manage.collect">添加到收藏夹</button>
-            <button type="button" data-action="delete" class="danger" data-i18n="novel:manage.delete">删除</button>
+            <button type="button" data-action="export" data-i18n="novel-gallery:manage.export">导出</button>
+            <button type="button" data-action="collect" data-i18n="novel-gallery:manage.collect">添加到收藏夹</button>
+            <button type="button" data-action="delete" class="danger" data-i18n="novel-gallery:manage.delete">删除</button>
         </div>
     </div>
-    <button class="btn" id="batchExit" type="button" data-i18n="novel:manage.exit">退出管理</button>
+    <button class="btn" id="batchExit" type="button" data-i18n="novel-gallery:manage.exit">退出管理</button>
 </div>
 
 <div class="modal-backdrop" id="modalBatchDelete">
     <div class="modal">
         <div class="modal-head">
-            <span class="modal-title" data-i18n="novel:manage.confirm-title">删除选中的小说</span>
+            <span class="modal-title" data-i18n="novel-gallery:manage.confirm-title">删除选中的小说</span>
             <button class="modal-close" id="batchDeleteClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <p class="delete-modal-text" id="batchDeleteMessage"></p>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="batchDeleteCancel" type="button" data-i18n="novel:manage.confirm-cancel">取消</button>
-            <button class="btn btn-danger" id="batchDeleteConfirm" type="button" data-i18n="novel:manage.confirm-delete">删除</button>
+            <button class="btn" id="batchDeleteCancel" type="button" data-i18n="novel-gallery:manage.confirm-cancel">取消</button>
+            <button class="btn btn-danger" id="batchDeleteConfirm" type="button" data-i18n="novel-gallery:manage.confirm-delete">删除</button>
         </div>
     </div>
 </div>
@@ -368,33 +368,33 @@
 <div class="modal-backdrop" id="modalBatchExport">
     <div class="modal">
         <div class="modal-head">
-            <span class="modal-title" data-i18n="novel:manage.export-title">导出选中的小说</span>
+            <span class="modal-title" data-i18n="novel-gallery:manage.export-title">导出选中的小说</span>
             <button class="modal-close" id="batchExportClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <div class="export-option-row">
-                <label class="export-option-label" for="batchExportGroupBy" data-i18n="novel:manage.export-group-by">打包方式</label>
+                <label class="export-option-label" for="batchExportGroupBy" data-i18n="novel-gallery:manage.export-group-by">打包方式</label>
                 <select class="export-option-select" id="batchExportGroupBy">
-                    <option value="author" data-i18n="novel:manage.export-group-author">按作者 / 作品分类</option>
-                    <option value="id" data-i18n="novel:manage.export-group-id">以作品 ID 为文件夹名</option>
+                    <option value="author" data-i18n="novel-gallery:manage.export-group-author">按作者 / 作品分类</option>
+                    <option value="id" data-i18n="novel-gallery:manage.export-group-id">以作品 ID 为文件夹名</option>
                 </select>
             </div>
             <div class="export-option-row">
-                <label class="export-option-label" for="batchExportFormat" data-i18n="novel:manage.export-format">打包格式</label>
+                <label class="export-option-label" for="batchExportFormat" data-i18n="novel-gallery:manage.export-format">打包格式</label>
                 <select class="export-option-select" id="batchExportFormat">
                     <option value="zip">ZIP</option>
                 </select>
             </div>
             <label class="export-delete-check">
                 <input type="checkbox" id="batchExportDeleteAfter">
-                <span data-i18n="novel:manage.export-delete-source">导出后删除源文件与下载记录</span>
+                <span data-i18n="novel-gallery:manage.export-delete-source">导出后删除源文件与下载记录</span>
             </label>
             <p class="delete-modal-text export-delete-hint" id="batchExportDeleteHint" hidden
-               data-i18n="novel:manage.export-delete-hint">只有打包成功后才会删除源文件和下载记录；删除不可恢复，压缩包按归档过期时间保留。</p>
+               data-i18n="novel-gallery:manage.export-delete-hint">只有打包成功后才会删除源文件和下载记录；删除不可恢复，压缩包按归档过期时间保留。</p>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="batchExportCancel" type="button" data-i18n="novel:manage.confirm-cancel">取消</button>
-            <button class="btn btn-primary" id="batchExportConfirm" type="button" data-i18n="novel:manage.export-start">开始导出</button>
+            <button class="btn" id="batchExportCancel" type="button" data-i18n="novel-gallery:manage.confirm-cancel">取消</button>
+            <button class="btn btn-primary" id="batchExportConfirm" type="button" data-i18n="novel-gallery:manage.export-start">开始导出</button>
         </div>
     </div>
 </div>
@@ -402,14 +402,14 @@
 <div class="modal-backdrop" id="modalBatchCollection">
     <div class="modal">
         <div class="modal-head">
-            <span class="modal-title" data-i18n="novel:manage.collect-title">添加到收藏夹</span>
+            <span class="modal-title" data-i18n="novel-gallery:manage.collect-title">添加到收藏夹</span>
             <button class="modal-close" id="batchCollectionClose" type="button">×</button>
         </div>
         <div class="modal-body">
             <div class="collection-list" id="batchCollectionList"></div>
         </div>
         <div class="modal-foot">
-            <button class="btn" id="batchCollectionCancel" type="button" data-i18n="novel:manage.confirm-cancel">取消</button>
+            <button class="btn" id="batchCollectionCancel" type="button" data-i18n="novel-gallery:manage.confirm-cancel">取消</button>
         </div>
     </div>
 </div>

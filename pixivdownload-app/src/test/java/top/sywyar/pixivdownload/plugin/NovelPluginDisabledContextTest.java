@@ -8,11 +8,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.novel.NovelBatchService;
-import top.sywyar.pixivdownload.novel.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardController;
-import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
 import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -26,7 +23,7 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 /**
- * 禁用语义（真实 Spring 上下文）：{@code plugins.novel.enabled=false} 时，小说插件托管业务 Bean 缺席、
+ * 禁用语义（真实 Spring 上下文）：{@code plugins.novel.enabled=false} 时，小说下载托管业务 Bean 缺席、
  * 小说作品类型执行器缺席、小说贡献不注册，但插件 descriptor 仍在安装集合、受管 schema 不变，且其它内置插件
  * 与核心下载链路 Hash 写入不受影响。
  */
@@ -77,14 +74,11 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("小说插件托管业务 Bean 全部缺席")
+    @DisplayName("小说下载托管业务 Bean 全部缺席")
     void novelManagedBeansAbsent() {
-        assertThat(context.getBeanNamesForType(NovelGalleryController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(NovelDownloadController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(NovelDownloadLegacyForwardController.class)).isEmpty();
         assertThat(context.getBeanNamesForType(NovelPixivProxyController.class)).isEmpty();
-        assertThat(context.getBeanNamesForType(NovelGalleryService.class)).isEmpty();
-        assertThat(context.getBeanNamesForType(NovelBatchService.class)).isEmpty();
         assertThat(context.getBeanNamesForType(ScheduledNovelDownloadDelegate.class)).isEmpty();
     }
 
@@ -99,7 +93,6 @@ class NovelPluginDisabledContextTest {
                 .extracting(QueueTypeRegistry.RegisteredQueueType::pluginId).doesNotContain("novel");
         assertThat(webUiSlotRegistry.slots())
                 .extracting(WebUiSlotRegistry.RegisteredUiSlot::pluginId).doesNotContain("novel");
-        assertThat(routeAccessRegistry.isDeclared("/pixiv-novel-gallery.html")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/novel/download")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/pixiv/novel/7/meta")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/pixiv/novel-search")).isFalse();

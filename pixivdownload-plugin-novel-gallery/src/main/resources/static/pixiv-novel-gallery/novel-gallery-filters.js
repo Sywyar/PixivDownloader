@@ -2,27 +2,27 @@
 
 function searchPlaceholderFor(type) {
     switch (type) {
-        case 'title': return pageI18n.t('gallery:search.placeholder.title', '按作品标题搜索...');
-        case 'author': return pageI18n.t('gallery:search.placeholder.author', '按作者名搜索...');
-        case 'id': return pageI18n.t('novel:search.placeholder.id', '输入小说 ID（数字，精确匹配）...');
-        case 'authorId': return pageI18n.t('gallery:search.placeholder.author-id', '输入作者 ID（数字，精确匹配）...');
-        case 'desc': return pageI18n.t('gallery:search.placeholder.desc', '按作品简介搜索...');
-        case 'content': return pageI18n.t('novel:search.placeholder.content', '按正文关键词全文检索...');
-        case 'tag': return pageI18n.t('gallery:search.placeholder.tag', '按标签关键词搜索（模糊）...');
-        case 'tagExact': return pageI18n.t('gallery:search.placeholder.tag-exact', '输入完整标签名（精确匹配）...');
-        default: return pageI18n.t('novel:search.placeholder', '按标题搜索...');
+        case 'title': return pageI18n.t('novel-gallery:search.placeholder.title', '按作品标题搜索...');
+        case 'author': return pageI18n.t('novel-gallery:search.placeholder.author', '按作者名搜索...');
+        case 'id': return pageI18n.t('novel-gallery:search.placeholder.id', '输入小说 ID（数字，精确匹配）...');
+        case 'authorId': return pageI18n.t('novel-gallery:search.placeholder.author-id', '输入作者 ID（数字，精确匹配）...');
+        case 'desc': return pageI18n.t('novel-gallery:search.placeholder.desc', '按作品简介搜索...');
+        case 'content': return pageI18n.t('novel-gallery:search.placeholder.content', '按正文关键词全文检索...');
+        case 'tag': return pageI18n.t('novel-gallery:search.placeholder.tag', '按标签关键词搜索（模糊）...');
+        case 'tagExact': return pageI18n.t('novel-gallery:search.placeholder.tag-exact', '输入完整标签名（精确匹配）...');
+        default: return pageI18n.t('novel-gallery:search.placeholder', '按标题搜索...');
     }
 }
 
 function searchPlaceholderForCurrentView() {
     if (state.view === 'authors') {
         return pageI18n
-            ? pageI18n.t('gallery:filter.authors.search.placeholder', 'Search authors...')
+            ? pageI18n.t('novel-gallery:filter.authors.search.placeholder', 'Search authors...')
             : 'Search authors...';
     }
     if (state.view === 'series') {
         return pageI18n
-            ? pageI18n.t('novel:filter.series.search.placeholder', 'Search series...')
+            ? pageI18n.t('novel-gallery:filter.series.search.placeholder', 'Search series...')
             : 'Search series...';
     }
     return searchPlaceholderFor(state.searchType || 'all');
@@ -135,7 +135,7 @@ async function loadTags() {
         state.tags = data.tags || [];
         state.tags.forEach(rememberTagOption);
         renderTagChips();
-    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.tags-failed', '加载标签失败') : '加载标签失败', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('novel-gallery:log.tags-failed', '加载标签失败') : '加载标签失败', e); }
 }
 
 function renderTagChips() {
@@ -222,7 +222,7 @@ async function loadSeries() {
         const data = await r.json();
         state.series = data.content || [];
         renderSeriesChips();
-    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.series-options-failed', '加载系列失败') : '加载系列失败', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('novel-gallery:log.series-options-failed', '加载系列失败') : '加载系列失败', e); }
 }
 
 function renderSeriesChips() {
@@ -264,7 +264,7 @@ async function loadAuthors() {
         state.authors = data.content || [];
         state.authors.forEach(rememberAuthorOption);
         renderAuthorChips();
-    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.author-options-failed', '加载作者失败') : '加载作者失败', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('novel-gallery:log.author-options-failed', '加载作者失败') : '加载作者失败', e); }
 }
 
 function renderAuthorChips() {

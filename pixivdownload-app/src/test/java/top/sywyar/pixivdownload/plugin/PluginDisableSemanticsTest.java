@@ -32,11 +32,11 @@ class PluginDisableSemanticsTest {
             off.setEnabled(false);
             toggles.put(id, off);
         }
-        return new PluginRegistry(withGallery(BuiltInPlugins.createAll()), toggles);
+        return new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll()), toggles);
     }
 
     private static PluginRegistry allEnabled() {
-        return new PluginRegistry(withGallery(BuiltInPlugins.createAll()));
+        return new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll()));
     }
 
     private static List<String> routeOwners(PluginRegistry registry) {
@@ -89,13 +89,13 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("禁用 gallery / novel：受管 schema 不变，其路由不再注册")
+    @DisplayName("禁用 gallery / novel-gallery / novel：受管 schema 不变，其路由不再注册")
     void disablingGalleryAndNovelKeepsSchemaIntact() {
-        PluginRegistry disabled = registryDisabling("gallery", "novel");
+        PluginRegistry disabled = registryDisabling("gallery", "novel-gallery", "novel");
 
         assertThat(new DatabaseSchemaRegistry(disabled).mergedSchema().tables().keySet())
                 .isEqualTo(new DatabaseSchemaRegistry(allEnabled()).mergedSchema().tables().keySet());
-        assertThat(routeOwners(disabled)).doesNotContain("gallery", "novel");
+        assertThat(routeOwners(disabled)).doesNotContain("gallery", "novel-gallery", "novel");
     }
 
     private static List<String> navIds(PluginRegistry registry) {
@@ -109,7 +109,8 @@ class PluginDisableSemanticsTest {
     void disablingFeaturePluginsDropsTheirNavigation() {
         assertThat(navIds(registryDisabling("gallery")))
                 .doesNotContain("gallery", "gallery-gui-open", "gallery-invite-manage-back");
-        assertThat(navIds(registryDisabling("novel"))).doesNotContain("novel");
+        assertThat(navIds(registryDisabling("novel-gallery")))
+                .doesNotContain("novel-gallery", "novel-type-switch");
     }
 
     @Test
@@ -177,12 +178,13 @@ class PluginDisableSemanticsTest {
     @Test
     @DisplayName("禁用功能插件：其落点从 LandingRegistry 消失，邀请落点按落点优先级自动回退到其它已启用插件")
     void disablingFeaturePluginsDropsTheirLandings() {
-        // 禁用画廊：画廊落点不再注册，受邀访客邀请落点回退到小说（priority 30，仍启用）。
-        assertThat(landingOwners(registryDisabling("gallery"))).doesNotContain("gallery").contains("novel");
+        // 禁用画廊：画廊落点不再注册，受邀访客邀请落点回退到小说画廊（priority 30，仍启用）。
+        assertThat(landingOwners(registryDisabling("gallery")))
+                .doesNotContain("gallery").contains("novel-gallery");
         assertThat(new LandingRegistry(registryDisabling("gallery")).resolve(Audience.INVITED_GUEST))
                 .contains("/pixiv-novel-gallery.html");
-        // 画廊 + 小说都禁用：无受邀访客落点（调用方兜底回登录页）。
-        assertThat(new LandingRegistry(registryDisabling("gallery", "novel")).resolve(Audience.INVITED_GUEST))
+        // 画廊 + 小说画廊都禁用：无受邀访客落点（调用方兜底回登录页）。
+        assertThat(new LandingRegistry(registryDisabling("gallery", "novel-gallery")).resolve(Audience.INVITED_GUEST))
                 .isEmpty();
     }
 
@@ -190,9 +192,9 @@ class PluginDisableSemanticsTest {
     @DisplayName("禁用单个功能插件不影响其它插件导航（跨插件独立）")
     void disablingOnePluginKeepsOtherNavigation() {
         List<String> ids = navIds(registryDisabling("gallery"));
-        // 仅 gallery 入口消失；监控 / 小说 / 邀请码管理仍在（download-workbench/stats/duplicate 已外置、不在内置导航）。
+        // 仅 gallery 入口消失；监控 / 小说画廊 / 邀请码管理仍在（download-workbench/stats/duplicate 已外置、不在内置导航）。
         assertThat(ids).contains(
-                "monitor", "novel", "invite-manage");
+                "monitor", "novel-gallery", "invite-manage");
     }
 
     @Test
@@ -219,9 +221,10 @@ class PluginDisableSemanticsTest {
         assertThat(navIds(allEnabled())).contains("monitor", "invite-manage");
     }
 
-    private static List<PixivFeaturePlugin> withGallery(List<PixivFeaturePlugin> plugins) {
+    private static List<PixivFeaturePlugin> withGalleryAndNovelGallery(List<PixivFeaturePlugin> plugins) {
         java.util.ArrayList<PixivFeaturePlugin> out = new java.util.ArrayList<>(plugins);
         out.add(new TestGalleryPlugin());
+        out.add(new TestNovelGalleryPlugin());
         return out;
     }
 }

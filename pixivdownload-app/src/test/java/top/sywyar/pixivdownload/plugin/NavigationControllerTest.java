@@ -154,21 +154,21 @@ class NavigationControllerTest {
     // ========== 来源层级 + placement 内 priority 排序 ==========
 
     @Test
-    @DisplayName("gallery 已安装时管理员的 app.top placement 顺序：内置入口在前，外置 gallery 追加")
+    @DisplayName("gallery/novel-gallery 已安装时管理员的 app.top placement 顺序：内置入口在前，外置插件追加")
     void adminAppTopPlacementOrder() {
         NavigationController controller = controllerFor(
-                new NavigationRegistry(new PluginRegistry(builtInWithGallery())));
+                new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
 
-        // gallery 已是外置插件，不再按内置来源排序；同一 placement 下追加在内置入口之后。
+        // gallery/novel-gallery 已是外置插件，不再按内置来源排序；同一 placement 下追加在内置入口之后。
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("monitor", "novel", "plugin-manage", "plugin-market", "gallery");
+                .containsExactly("monitor", "plugin-manage", "plugin-market", "gallery", "novel-gallery");
     }
 
     @Test
     @DisplayName("gallery 已安装时管理员的 app.sidebar placement 顺序：内置入口在前，外置 gallery 追加")
     void adminAppSidebarPlacementOrder() {
         NavigationController controller = controllerFor(
-                new NavigationRegistry(new PluginRegistry(builtInWithGallery())));
+                new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
 
         // 统计页用宿主中立的 app.sidebar slot：内置入口先排序，外置 gallery 在内置入口之后。
         // 插件管理现仅进顶部栏 placement（app.top），不再出现在主侧栏。
@@ -180,7 +180,7 @@ class NavigationControllerTest {
     @DisplayName("禁用画廊：app.sidebar 去掉画廊入口，但 monitor / 邀请码管理仍按注册贡献显示")
     void disablingGalleryKeepsAppSidebarNonGalleryEntries() {
         NavigationController controller = controllerFor(new NavigationRegistry(
-                new PluginRegistry(builtInWithGallery(), disabling("gallery"))));
+                new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("gallery"))));
 
         // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变（插件管理已移入顶部栏，不在主侧栏）。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
@@ -194,13 +194,13 @@ class NavigationControllerTest {
         PixivFeaturePlugin thirdParty = new TestNavPlugin("third-party-demo", List.of(
                 new NavigationContribution("third-party-demo", "app.top", "ns", "nav.tp", "/third-party-demo.html",
                         "icon", AccessPolicy.ADMIN, -100)));
-        List<PixivFeaturePlugin> plugins = new ArrayList<>(builtInWithGallery());
+        List<PixivFeaturePlugin> plugins = new ArrayList<>(builtInWithGalleryAndNovelGallery());
         plugins.add(thirdParty);
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("monitor", "novel", "plugin-manage",
-                        "plugin-market", "third-party-demo", "gallery");
+                .containsExactly("monitor", "plugin-manage",
+                        "plugin-market", "third-party-demo", "gallery", "novel-gallery");
     }
 
     // ========== placement 随插件禁用消失 ==========
@@ -209,7 +209,7 @@ class NavigationControllerTest {
     @DisplayName("禁用画廊：其全部 placement 入口消失（含疑似重复页画廊图标、统计页画廊视图、小说页类型切换的画廊入口）")
     void disablingGalleryRemovesAllItsPlacements() {
         NavigationController controller = controllerFor(new NavigationRegistry(
-                new PluginRegistry(builtInWithGallery(), disabling("gallery"))));
+                new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("gallery"))));
         MockHttpServletRequest admin = adminRequest();
 
         assertThat(controller.navigation(admin)).extracting(NavigationController.NavigationView::id)
@@ -224,15 +224,15 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("禁用小说：画廊页类型切换的小说入口消失（gallery.type-switch placement 空）")
+    @DisplayName("禁用小说画廊：画廊页类型切换的小说入口消失（gallery.type-switch placement 空）")
     void disablingNovelRemovesGalleryTypeSwitchEntry() {
         NavigationController controller = controllerFor(new NavigationRegistry(
-                new PluginRegistry(builtInWithGallery(), disabling("novel"))));
+                new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("novel-gallery"))));
         MockHttpServletRequest admin = adminRequest();
 
         assertThat(idsInPlacement(controller, admin, "gallery.type-switch")).isEmpty();
         assertThat(controller.navigation(admin)).extracting(NavigationController.NavigationView::id)
-                .doesNotContain("novel", "novel-type-switch")
+                .doesNotContain("novel-gallery", "novel-type-switch")
                 .contains("gallery");
     }
 
@@ -240,7 +240,7 @@ class NavigationControllerTest {
     @DisplayName("stats/duplicate 已外置、未安装：疑似重复页图标区只保留画廊插件贡献的图标")
     void builtInDuplicatesHeaderHasNoStatsIcon() {
         NavigationController controller = controllerFor(new NavigationRegistry(
-                new PluginRegistry(builtInWithGallery())));
+                new PluginRegistry(builtInWithGalleryAndNovelGallery())));
 
         // 统计入口由外置 stats 插件经 duplicates.header-icons placement 贡献；未安装时该 slot 只剩画廊图标。
         assertThat(idsInPlacement(controller, adminRequest(), "duplicates.header-icons"))
@@ -251,7 +251,7 @@ class NavigationControllerTest {
     @DisplayName("受邀访客的 /api/navigation 不泄露任何 ADMIN 项（监控 / 疑似重复 / 邀请码管理）")
     void invitedGuestSeesNoAdminItems() {
         NavigationController controller = controllerFor(
-                new NavigationRegistry(new PluginRegistry(builtInWithGallery())));
+                new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
         when(setupService.hasAdminScope(any())).thenReturn(true); // solo 下恒真，访客判定须优先
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession());
@@ -259,8 +259,8 @@ class NavigationControllerTest {
         List<String> ids = controller.navigation(request).stream()
                 .map(NavigationController.NavigationView::id).toList();
 
-        // 受邀访客可见画廊 / 小说（INVITED_GUEST）；不可见 ADMIN 项（监控 / 疑似重复 / 邀请码管理 / 插件管理 / 插件市场）与 VISITOR 下载页。
-        assertThat(ids).contains("gallery", "novel")
+        // 受邀访客可见画廊 / 小说画廊（INVITED_GUEST）；不可见 ADMIN 项（监控 / 疑似重复 / 邀请码管理 / 插件管理 / 插件市场）与 VISITOR 下载页。
+        assertThat(ids).contains("gallery", "novel-gallery")
                 .doesNotContain("monitor", "duplicate", "invite-manage", "plugin-manage", "plugin-market", "download-workbench");
     }
 
@@ -300,9 +300,10 @@ class NavigationControllerTest {
         }
     }
 
-    private static List<PixivFeaturePlugin> builtInWithGallery() {
+    private static List<PixivFeaturePlugin> builtInWithGalleryAndNovelGallery() {
         List<PixivFeaturePlugin> plugins = new ArrayList<>(BuiltInPlugins.createAll());
         plugins.add(new TestGalleryPlugin());
+        plugins.add(new TestNovelGalleryPlugin());
         return plugins;
     }
 }

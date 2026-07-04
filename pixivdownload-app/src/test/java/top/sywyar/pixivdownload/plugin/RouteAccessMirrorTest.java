@@ -33,18 +33,19 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 class RouteAccessMirrorTest {
 
     private static final RouteAccessRegistry REGISTRY =
-            new RouteAccessRegistry(new PluginRegistry(withGallery(BuiltInPlugins.createAll())));
+            new RouteAccessRegistry(new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll())));
 
     /** AuthFilter 派生口径：monitor 受保护 ← ADMIN 或 INVITED_GUEST。 */
     private static boolean isMonitorPolicy(AccessPolicy policy) {
         return policy == AccessPolicy.ADMIN || policy == AccessPolicy.INVITED_GUEST;
     }
 
-    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> withGallery(
+    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> withGalleryAndNovelGallery(
             List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins) {
         java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> out =
                 new java.util.ArrayList<>(plugins);
         out.add(new TestGalleryPlugin());
+        out.add(new TestNovelGalleryPlugin());
         return out;
     }
 
@@ -219,14 +220,17 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/actuator/health", "core", AccessPolicy.ACTUATOR_PUBLIC);
         assertOwnerPolicy("/proxy.pac", "core", AccessPolicy.LOCAL);
         assertOwnerPolicy("/setup.html", "core", AccessPolicy.LOCAL);
-        // 功能插件声明：画廊 / 小说页面 + /api/gallery 子面按控制器归属拆分，互不越界。
+        // 功能插件声明：画廊 / 小说画廊页面 + /api/gallery 子面按控制器归属拆分，互不越界。
         assertOwnerPolicy("/pixiv-gallery.html", "gallery", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/gallery/artwork**", "gallery", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/gallery/tags**", "gallery", AccessPolicy.INVITED_GUEST);
-        assertOwnerPolicy("/pixiv-novel.html", "novel", AccessPolicy.INVITED_GUEST);
-        assertOwnerPolicy("/api/gallery/novel/**", "novel", AccessPolicy.INVITED_GUEST);
-        assertOwnerPolicy("/api/gallery/novels/**", "novel", AccessPolicy.INVITED_GUEST);
-        assertOwnerPolicy("/api/gallery/novels", "novel", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/pixiv-novel.html", "novel-gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/pixiv-novel-gallery.html", "novel-gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/pixiv-novel/**", "novel-gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/pixiv-novel-gallery/**", "novel-gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/novel/**", "novel-gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/novels/**", "novel-gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/novels", "novel-gallery", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/pixiv/novel/**", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/pixiv/novel-search**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/pixiv/user/*/novels", "novel", AccessPolicy.VISITOR);
@@ -236,6 +240,13 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/novel/download", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/novel/translate-status/**", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/*/downloaded", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/series/*/merge", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/series/*/merged", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/novel/*/translate", "novel", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/novel/translate-lang-probe", "novel", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/novel/series/*/translate-title", "novel", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/novel/series/*/novel-ids", "novel", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/download/pixiv/novel", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/download/novel/status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/pixiv-novel-download/**", "novel", AccessPolicy.VISITOR);

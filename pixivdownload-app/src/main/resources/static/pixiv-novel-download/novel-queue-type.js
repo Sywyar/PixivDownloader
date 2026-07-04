@@ -12,7 +12,7 @@
     // 三态判重：null = 未下载；{downloaded:true, deleted:false} = 已下载；{downloaded:true, deleted:true} = 已下载但被画廊删除
     async function checkNovelDownloaded(novelId) {
         try {
-            const res = await fetch(`${BASE}/api/gallery/novel/${encodeURIComponent(novelId)}/downloaded`,
+            const res = await fetch(`${BASE}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
                 {credentials: 'same-origin'});
             if (!res.ok) return null;
             const data = await res.json();
@@ -249,7 +249,7 @@
         try {
             // 合订本格式独立于单章下载格式（novelFormat），默认推荐 EPUB
             const mfmt = (state.settings.mergeNovelFormat || 'epub').toLowerCase();
-            const res = await fetch(`${BASE}/api/gallery/novel/series/${encodeURIComponent(seriesId)}/merge?format=${encodeURIComponent(mfmt)}`, {
+            const res = await fetch(`${BASE}/api/novel/series/${encodeURIComponent(seriesId)}/merge?format=${encodeURIComponent(mfmt)}`, {
                 method: 'POST', credentials: 'same-origin'
             });
             const data = await readMergeResponse(res);

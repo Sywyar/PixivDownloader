@@ -525,15 +525,15 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 小说下载判重端点 {@code GET /api/gallery/novel/{novelId}/downloaded}：只读，仅返回
+     * 小说下载判重端点 {@code GET /api/novel/{novelId}/downloaded}：只读，仅返回
      * {@code downloaded}/{@code deleted} 两个布尔，供批量下载器「跳过已下载」判重。它与作品侧
-     * {@code /api/downloaded/{id}} 语义对等，但位于 {@code /api/gallery/} 前缀下，若按 monitor
-     * 保护处理，multi 模式非管理员会在进入控制器前收到 401，导致 skipHistory 失效、已软删除小说被重下。
+     * {@code /api/downloaded/{id}} 语义对等。若按 monitor 保护处理，multi 模式非管理员会在进入控制器前收到 401，
+     * 导致 skipHistory 失效、已软删除小说被重下。
      * 故从 monitor 保护中排除并按 {@code /api/downloaded/} 同等规则放行（本地直通 + multi 非管理员限流放行）；
-     * 控制器内仍有 {@code requireNovelVisible} 守卫，访客邀请会话则照旧经 {@code /api/gallery/} 白名单放行。
+     * 控制器内仍按小说下载核心状态判定。
      */
     private boolean isNovelDownloadedCheck(String path) {
-        return path.startsWith("/api/gallery/novel/") && path.endsWith("/downloaded");
+        return path.startsWith("/api/novel/") && path.endsWith("/downloaded");
     }
 
     private boolean isPublic(String path) {

@@ -128,7 +128,7 @@ function selectAllResults() {
     batch.excluded.clear();
     syncVisibleBatchCards();
     updateBatchBar();
-    toast(pageI18n.t('novel:manage.selected-all-results', '已选择当前筛选结果，共 {count} 项', { count: total }), 'success');
+    toast(pageI18n.t('novel-gallery:manage.selected-all-results', '已选择当前筛选结果，共 {count} 项', { count: total }), 'success');
 }
 
 function clearBatchSelection() {
@@ -143,7 +143,7 @@ function updateBatchBar() {
     if (!bar) return;
     bar.classList.toggle('open', batch.active);
     const count = batchSelectedCount();
-    document.getElementById('batchCount').textContent = pageI18n.t('novel:manage.selected-count', '已选 {count} 项', { count });
+    document.getElementById('batchCount').textContent = pageI18n.t('novel-gallery:manage.selected-count', '已选 {count} 项', { count });
     const allResults = document.getElementById('batchSelectAllResults');
     if (allResults) allResults.disabled = !batch.active || Number(state.totalElements || 0) === 0;
     document.querySelectorAll('#batchActionMenu [data-action]').forEach(btn => {
@@ -169,7 +169,7 @@ function buildBatchPayload(collectionId) {
 function openBatchDeleteModal() {
     const count = batchSelectedCount();
     if (count === 0) return;
-    document.getElementById('batchDeleteMessage').textContent = pageI18n.t('novel:manage.confirm-message',
+    document.getElementById('batchDeleteMessage').textContent = pageI18n.t('novel-gallery:manage.confirm-message',
         '确定要删除选中的 {count} 本小说吗？这些小说的正文、封面等文件会被永久删除且无法恢复；下载记录将保留删除标记，默认不会被重新下载。',
         { count });
     document.getElementById('modalBatchDelete').classList.add('open');
@@ -186,7 +186,7 @@ async function confirmBatchDelete() {
     try {
         await runBatchDelete();
     } catch (e) {
-        toast(e.message || pageI18n.t('novel:manage.delete-failed', '删除失败'), 'error');
+        toast(e.message || pageI18n.t('novel-gallery:manage.delete-failed', '删除失败'), 'error');
     } finally {
         confirmBtn.disabled = false;
     }
@@ -227,7 +227,7 @@ async function runBatchDelete() {
         body: JSON.stringify(buildBatchPayload())
     });
     const deleted = data && typeof data.deleted === 'number' ? data.deleted : expected;
-    toast(pageI18n.t('novel:manage.delete-success', '已删除 {count} 本小说', { count: deleted }), 'success');
+    toast(pageI18n.t('novel-gallery:manage.delete-success', '已删除 {count} 本小说', { count: deleted }), 'success');
     closeBatchDeleteModal();
     exitBatchMode();
     reloadNovels();
@@ -263,14 +263,14 @@ async function submitBatchExport() {
         });
         closeBatchExportModal();
         if (!data || !data.archiveToken) {
-            toast(pageI18n.t('novel:manage.export-empty', '没有可导出的文件'), 'error');
+            toast(pageI18n.t('novel-gallery:manage.export-empty', '没有可导出的文件'), 'error');
             return;
         }
-        toast(pageI18n.t('novel:manage.export-started', '正在后台打包，可在任务列表中查看进度'), 'success');
+        toast(pageI18n.t('novel-gallery:manage.export-started', '正在后台打包，可在任务列表中查看进度'), 'success');
         exitBatchMode();
         watchExportArchive(data.archiveToken, deleteAfter);
     } catch (e) {
-        toast(e.message || pageI18n.t('novel:manage.export-failed', '导出失败'), 'error');
+        toast(e.message || pageI18n.t('novel-gallery:manage.export-failed', '导出失败'), 'error');
     } finally {
         confirmBtn.disabled = false;
     }
@@ -280,13 +280,13 @@ function watchExportArchive(token, reloadWhenReady) {
     if (!window.PixivSideModules) return;
     window.PixivSideModules.trackArchive(token, {
         onReady: () => {
-            toast(pageI18n.t('novel:manage.export-ready', '压缩包已就绪，已开始下载'), 'success');
+            toast(pageI18n.t('novel-gallery:manage.export-ready', '压缩包已就绪，已开始下载'), 'success');
             if (reloadWhenReady) reloadNovels();
         },
         onFailed: status => {
             toast(status === 'empty'
-                ? pageI18n.t('novel:manage.export-empty', '没有可导出的文件')
-                : pageI18n.t('novel:manage.export-failed', '导出失败'), 'error');
+                ? pageI18n.t('novel-gallery:manage.export-empty', '没有可导出的文件')
+                : pageI18n.t('novel-gallery:manage.export-failed', '导出失败'), 'error');
         },
     });
     window.PixivSideModules.openTasks();
@@ -350,13 +350,13 @@ async function submitBatchCollect(collectionId) {
             body: JSON.stringify(buildBatchPayload(collectionId))
         });
         const changed = data && typeof data.changed === 'number' ? data.changed : 0;
-        toast(pageI18n.t('novel:manage.collect-success', '已添加 {count} 本小说到收藏夹', { count: changed }), 'success');
+        toast(pageI18n.t('novel-gallery:manage.collect-success', '已添加 {count} 本小说到收藏夹', { count: changed }), 'success');
         closeBatchCollectionModal();
         exitBatchMode();
         await loadCollections();
         reloadNovels();
     } catch (e) {
-        toast(e.message || pageI18n.t('novel:manage.collect-failed', '添加到收藏夹失败'), 'error');
+        toast(e.message || pageI18n.t('novel-gallery:manage.collect-failed', '添加到收藏夹失败'), 'error');
     }
 }
 

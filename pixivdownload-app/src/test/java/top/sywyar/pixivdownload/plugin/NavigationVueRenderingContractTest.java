@@ -38,7 +38,9 @@ class NavigationVueRenderingContractTest {
             Path.of("pixivdownload-app/src/main/resources/static"),
             Path.of("../pixivdownload-app/src/main/resources/static"),
             Path.of("pixivdownload-plugin-gallery/src/main/resources/static"),
-            Path.of("../pixivdownload-plugin-gallery/src/main/resources/static"));
+            Path.of("../pixivdownload-plugin-gallery/src/main/resources/static"),
+            Path.of("pixivdownload-plugin-novel-gallery/src/main/resources/static"),
+            Path.of("../pixivdownload-plugin-novel-gallery/src/main/resources/static"));
 
     /** 加载导航渲染器、需经 Vue 主路径渲染其 nav slot 的 app 模块宿主页。 */
     private static final List<String> NAV_PAGES = List.of(

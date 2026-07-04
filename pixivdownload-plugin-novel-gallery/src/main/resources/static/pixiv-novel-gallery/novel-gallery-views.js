@@ -90,7 +90,7 @@ async function reloadNovels() {
         setSearchEmptyState((data.totalElements || 0) === 0 && hasActiveNovelFilters());
     } catch (e) {
         state.totalElements = 0;
-        document.getElementById('grid').innerHTML = `<div class="empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        document.getElementById('grid').innerHTML = `<div class="empty">${esc(pageI18n.t('novel-gallery:status.load-failed', '加载失败'))}</div>`;
         document.getElementById('pagination').innerHTML = '';
         setSearchEmptyState(false);
     }
@@ -103,16 +103,16 @@ function formatReadingDuration(seconds) {
     const minute = Math.floor((total % 3600) / 60);
     const second = total % 60;
     const parts = [];
-    if (hour > 0) parts.push(pageI18n.t('novel:duration.hour', '{count} 小时', { count: hour }));
-    if (minute > 0) parts.push(pageI18n.t('novel:duration.minute', '{count} 分钟', { count: minute }));
-    if (second > 0 && hour === 0) parts.push(pageI18n.t('novel:duration.second', '{count} 秒', { count: second }));
-    if (!parts.length) parts.push(pageI18n.t('novel:duration.second', '{count} 秒', { count: total }));
+    if (hour > 0) parts.push(pageI18n.t('novel-gallery:duration.hour', '{count} 小时', { count: hour }));
+    if (minute > 0) parts.push(pageI18n.t('novel-gallery:duration.minute', '{count} 分钟', { count: minute }));
+    if (second > 0 && hour === 0) parts.push(pageI18n.t('novel-gallery:duration.second', '{count} 秒', { count: second }));
+    if (!parts.length) parts.push(pageI18n.t('novel-gallery:duration.second', '{count} 秒', { count: total }));
     return parts.join(' ');
 }
 
 function formatReadingTime(seconds) {
     const text = formatReadingDuration(seconds);
-    return text ? pageI18n.t('novel:meta.reading-time', '预计阅读：{time}', { time: text }) : '';
+    return text ? pageI18n.t('novel-gallery:meta.reading-time', '预计阅读：{time}', { time: text }) : '';
 }
 
 function hasActiveNovelFilters() {
@@ -130,11 +130,11 @@ function renderGrid(items) {
     const grid = document.getElementById('grid');
     if (!items.length) {
         if (hasActiveNovelFilters()) {
-            grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
+            grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel-gallery:status.empty', '暂无小说'))}</div>`;
         } else {
             grid.innerHTML = `<div class="empty empty-cta" style="grid-column:1/-1;">`
-                + `<div>${esc(pageI18n.t('novel:status.no-downloads', '没有下载的作品，快去下载页下载吧！'))}</div>`
-                + `<a class="btn btn-primary" href="/pixiv-batch.html" target="_blank" rel="noopener">${esc(pageI18n.t('novel:status.go-download', '前往下载页'))}</a>`
+                + `<div>${esc(pageI18n.t('novel-gallery:status.no-downloads', '没有下载的作品，快去下载页下载吧！'))}</div>`
+                + `<a class="btn btn-primary" href="/pixiv-batch.html" target="_blank" rel="noopener">${esc(pageI18n.t('novel-gallery:status.go-download', '前往下载页'))}</a>`
                 + `</div>`;
         }
         return;
@@ -145,10 +145,10 @@ function renderGrid(items) {
         if (item.xRestrict === 1) badges.push('<span class="badge r18">R-18</span>');
         if (item.xRestrict === 2) badges.push('<span class="badge r18g">R-18G</span>');
         if (item.isAi) badges.push('<span class="badge ai">AI</span>');
-        if (item.isOriginal) badges.push(`<span class="badge original">${esc(pageI18n.t('novel:meta.original', '原创'))}</span>`);
+        if (item.isOriginal) badges.push(`<span class="badge original">${esc(pageI18n.t('novel-gallery:meta.original', '原创'))}</span>`);
         const meta = [];
-        if (item.wordCount && item.wordCount > 0) meta.push(esc(pageI18n.t('novel:meta.word-count', '{count} 字', { count: item.wordCount })));
-        else if (item.textLength && item.textLength > 0) meta.push(esc(pageI18n.t('novel:meta.text-length', '{count} 字符', { count: item.textLength })));
+        if (item.wordCount && item.wordCount > 0) meta.push(esc(pageI18n.t('novel-gallery:meta.word-count', '{count} 字', { count: item.wordCount })));
+        else if (item.textLength && item.textLength > 0) meta.push(esc(pageI18n.t('novel-gallery:meta.text-length', '{count} 字符', { count: item.textLength })));
         const readingText = formatReadingTime(item.readingTimeSeconds);
         if (readingText) meta.push(esc(readingText));
         if (item.seriesId && item.seriesId > 0 && item.seriesOrder != null) meta.push('#' + item.seriesOrder);
@@ -161,7 +161,7 @@ function renderGrid(items) {
             </span>
             ${cover}
             <div class="card-title">${esc(item.title || '')}</div>
-            <div class="card-author">${esc(item.authorName || pageI18n.t('novel:status.unknown-author', '未知作者'))}</div>
+            <div class="card-author">${esc(item.authorName || pageI18n.t('novel-gallery:status.unknown-author', '未知作者'))}</div>
             <div class="badges">${badges.join('')}</div>
             <div class="card-footer">
                 <div class="card-footer-info">
@@ -237,7 +237,7 @@ async function reloadAuthorsView() {
     persistNovelGalleryState();
     setSearchEmptyState(false);
     const grid = document.getElementById('authorGrid');
-    grid.innerHTML = `<div class="author-works-loading">${esc(pageI18n.t('novel:status.loading', '加载中...'))}</div>`;
+    grid.innerHTML = `<div class="author-works-loading">${esc(pageI18n.t('novel-gallery:status.loading', '加载中...'))}</div>`;
     try {
         const params = new URLSearchParams({
             page: String(state.authorsView.page),
@@ -254,7 +254,7 @@ async function reloadAuthorsView() {
         renderPagination('authorPagination', state.authorsView.totalPages, state.authorsView.page,
             p => { state.authorsView.page = p; reloadAuthorsView(); });
     } catch (e) {
-        grid.innerHTML = `<div class="empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        grid.innerHTML = `<div class="empty">${esc(pageI18n.t('novel-gallery:status.load-failed', '加载失败'))}</div>`;
         document.getElementById('authorPagination').innerHTML = '';
     }
 }
@@ -265,13 +265,13 @@ function renderAuthorsView(authors) {
         grid.innerHTML = `<div class="empty">${esc(pageI18n.t('status.no-authors', '暂无作者'))}</div>`;
         return;
     }
-    const viewAllLabel = esc(pageI18n.t('novel:series.view-all', '查看全部'));
-    const loadingLabel = esc(pageI18n.t('novel:status.loading', '加载中...'));
-    const prevLabel = esc(pageI18n.t('novel:author-view.prev-group', '上一组'));
-    const nextLabel = esc(pageI18n.t('novel:author-view.next-group', '下一组'));
+    const viewAllLabel = esc(pageI18n.t('novel-gallery:series.view-all', '查看全部'));
+    const loadingLabel = esc(pageI18n.t('novel-gallery:status.loading', '加载中...'));
+    const prevLabel = esc(pageI18n.t('novel-gallery:author-view.prev-group', '上一组'));
+    const nextLabel = esc(pageI18n.t('novel-gallery:author-view.next-group', '下一组'));
     grid.innerHTML = authors.map(a => {
         const name = a.name || ('#' + a.authorId);
-        const countText = esc(pageI18n.t('novel:author-view.count', '{count} 部 · #{authorId}', { count: a.novelCount, authorId: a.authorId }));
+        const countText = esc(pageI18n.t('novel-gallery:author-view.count', '{count} 部 · #{authorId}', { count: a.novelCount, authorId: a.authorId }));
         return `
         <div class="author-row" data-author-id="${a.authorId}" data-author-name="${esc(a.name || '')}">
             <div class="author-row-info">
@@ -335,7 +335,7 @@ async function reloadSeriesView() {
     persistNovelGalleryState();
     setSearchEmptyState(false);
     const grid = document.getElementById('seriesGrid');
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.loading', '加载中...'))}</div>`;
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel-gallery:status.loading', '加载中...'))}</div>`;
     try {
         const params = new URLSearchParams({
             page: String(state.seriesView.page),
@@ -352,7 +352,7 @@ async function reloadSeriesView() {
         renderPagination('seriesPagination', state.seriesView.totalPages, state.seriesView.page,
             p => { state.seriesView.page = p; reloadSeriesView(); });
     } catch (e) {
-        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel-gallery:status.load-failed', '加载失败'))}</div>`;
         document.getElementById('seriesPagination').innerHTML = '';
     }
 }
@@ -360,22 +360,22 @@ async function reloadSeriesView() {
 function renderSeriesView(seriesList) {
     const grid = document.getElementById('seriesGrid');
     if (!seriesList.length) {
-        grid.innerHTML = `<div class="empty">${esc(pageI18n.t('novel:batch.gallery.series-empty', '暂无系列'))}</div>`;
+        grid.innerHTML = `<div class="empty">${esc(pageI18n.t('novel-gallery:batch.gallery.series-empty', '暂无系列'))}</div>`;
         return;
     }
-    const unknownAuthor = pageI18n.t('novel:status.unknown-author', '未知');
-    const fallbackSeriesTitle = pageI18n.t('novel:series.unknown-title', '未命名系列');
-    const viewAllLabel = esc(pageI18n.t('novel:series.view-all', '查看全部'));
-    const loadingLabel = esc(pageI18n.t('novel:status.loading', '加载中...'));
-    const prevLabel = esc(pageI18n.t('novel:author-view.prev-group', '上一组'));
-    const nextLabel = esc(pageI18n.t('novel:author-view.next-group', '下一组'));
+    const unknownAuthor = pageI18n.t('novel-gallery:status.unknown-author', '未知');
+    const fallbackSeriesTitle = pageI18n.t('novel-gallery:series.unknown-title', '未命名系列');
+    const viewAllLabel = esc(pageI18n.t('novel-gallery:series.view-all', '查看全部'));
+    const loadingLabel = esc(pageI18n.t('novel-gallery:status.loading', '加载中...'));
+    const prevLabel = esc(pageI18n.t('novel-gallery:author-view.prev-group', '上一组'));
+    const nextLabel = esc(pageI18n.t('novel-gallery:author-view.next-group', '下一组'));
     const maxTags = 6;
     grid.innerHTML = seriesList.map(s => {
         const title = s.title || fallbackSeriesTitle;
         const author = s.authorName || (s.authorId != null ? '#' + s.authorId : unknownAuthor);
-        const countText = esc(pageI18n.t('novel:series.count', '{count} 部 · #{seriesId}', { count: s.novelCount, seriesId: s.seriesId }));
+        const countText = esc(pageI18n.t('novel-gallery:series.count', '{count} 部 · #{seriesId}', { count: s.novelCount, seriesId: s.seriesId }));
         const authorLine = author
-            ? `<div class="author-row-count">${esc(pageI18n.t('novel:series.author-prefix', '作者：{name}', { name: author }))}</div>`
+            ? `<div class="author-row-count">${esc(pageI18n.t('novel-gallery:series.author-prefix', '作者：{name}', { name: author }))}</div>`
             : '';
         const cover = s.coverExt
             ? `<div class="series-row-cover"><img src="/api/gallery/novel/series/${s.seriesId}/cover" alt="${esc(title)}" loading="lazy" onerror="this.parentElement.replaceWith(Object.assign(document.createElement('div'),{className:'series-row-cover',textContent:this.alt}))"></div>`
@@ -391,7 +391,7 @@ function renderSeriesView(seriesList) {
                       return `<button class="series-row-tag" type="button" data-filter-series-tag-id="${tagId}" data-tag-name="${esc(name)}" data-tag-translated-name="${esc(tg.translatedName || '')}" title="${esc(tagLabel || label || name)}">${esc(name)}</button>`;
                   }
                   return `<span class="series-row-tag" title="${esc(tagLabel || label || name)}">${esc(name)}</span>`;
-              }).join('')}${tags.length > maxTags ? `<span class="series-row-tag-more">${esc(pageI18n.t('novel:series.tag-more', '+{count}', { count: tags.length - maxTags }))}</span>` : ''}</div>`
+              }).join('')}${tags.length > maxTags ? `<span class="series-row-tag-more">${esc(pageI18n.t('novel-gallery:series.tag-more', '+{count}', { count: tags.length - maxTags }))}</span>` : ''}</div>`
             : '';
         return `
         <div class="author-row series-row" data-series-id="${s.seriesId}" data-series-title="${esc(s.title || '')}">
@@ -468,14 +468,14 @@ async function loadSeriesNovels(seriesId, strip, leftBtn, rightBtn) {
         const data = await r.json();
         const items = data.content || [];
         if (!items.length) {
-            strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
+            strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel-gallery:status.empty', '暂无小说'))}</div>`;
             if (leftBtn) leftBtn.disabled = true;
             if (rightBtn) rightBtn.disabled = true;
             return;
         }
         renderSeriesPagedStrip(strip, items, leftBtn, rightBtn);
     } catch (e) {
-        strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel-gallery:status.load-failed', '加载失败'))}</div>`;
         if (leftBtn) leftBtn.disabled = true;
         if (rightBtn) rightBtn.disabled = true;
     }
@@ -491,7 +491,7 @@ const SERIES_CARD_HEIGHT_PX = 180;
 const SERIES_STRIP_PADDING_X_PX = 80;
 
 function renderSeriesItemCard(item) {
-    const title = item.title || pageI18n.t('novel:status.unknown-novel', '小说 {id}', { id: item.novelId });
+    const title = item.title || pageI18n.t('novel-gallery:status.unknown-novel', '小说 {id}', { id: item.novelId });
     const order = item.seriesOrder != null
         ? `<div class="author-work-pages">#${esc(item.seriesOrder)}</div>`
         : '';
@@ -666,11 +666,11 @@ async function loadAuthorWorks(authorId, strip) {
         const data = await r.json();
         const items = data.content || [];
         if (!items.length) {
-            strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
+            strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel-gallery:status.empty', '暂无小说'))}</div>`;
             return;
         }
         strip.innerHTML = items.map(item => {
-            const title = item.title || pageI18n.t('novel:status.unknown-novel', '小说 {id}', { id: item.novelId });
+            const title = item.title || pageI18n.t('novel-gallery:status.unknown-novel', '小说 {id}', { id: item.novelId });
             const order = (item.seriesId && item.seriesId > 0 && item.seriesOrder != null)
                 ? `<div class="author-work-pages">#${esc(item.seriesOrder)}</div>`
                 : '';
@@ -692,7 +692,7 @@ async function loadAuthorWorks(authorId, strip) {
             });
         });
     } catch (e) {
-        strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel-gallery:status.load-failed', '加载失败'))}</div>`;
     }
 }
 
@@ -750,7 +750,7 @@ function buildPageWindow(current, total) {
 
 function buildPageJumpInput(totalPages) {
     const label = pageI18n
-        ? pageI18n.t('gallery:pagination.jump', 'Jump to page')
+        ? pageI18n.t('novel-gallery:pagination.jump', 'Jump to page')
         : 'Jump to page';
     return `<input class="page-jump-input" type="number" min="1" max="${totalPages}" step="1" inputmode="numeric" placeholder="..." aria-label="${esc(label)}" title="${esc(label)}">`;
 }

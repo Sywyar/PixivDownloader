@@ -165,7 +165,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // 通用下钻渲染器：与 /api/drilldowns（VISITOR_AND_INVITED_GUEST）同口径显式声明，使受邀访客页面也能
                 // 加载该共享下钻 helper；同 page-sections 不依赖 /js/** 的 VISITOR 兜底（否则邀请访客 403）。
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-drilldowns.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-novel-render.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-theme.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-vue.js"),

@@ -71,9 +71,9 @@ class StaticResourceConfigTest {
     }
 
     @Test
-    @DisplayName("内置插件页面静态目录 /pixiv-novel-gallery/*.js 经 contribution handler 返回 200")
+    @DisplayName("内置 novel 下载行为模块 /pixiv-novel-download/*.js 经 contribution handler 返回 200")
     void servesPluginPageStaticResource() throws Exception {
-        mockMvc.perform(get("/pixiv-novel-gallery/novel-gallery-core.js"))
+        mockMvc.perform(get("/pixiv-novel-download/novel-queue-type.js"))
                 .andExpect(status().isOk());
     }
 

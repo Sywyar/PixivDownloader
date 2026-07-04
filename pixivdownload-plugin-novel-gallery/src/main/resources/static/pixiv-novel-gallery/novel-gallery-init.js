@@ -16,7 +16,7 @@ function setupNovelCrossPageHandoff() {
 async function init() {
     restoreSidebarState();
 
-    pageI18n = await PixivI18n.create({ namespaces: ['gallery', 'novel', 'common'] });
+    pageI18n = await PixivI18n.create({ namespaces: ['novel-gallery', 'common'] });
     pageI18n.apply();
     updateSearchPlaceholder();
     updateOrderToggleLabel();
@@ -266,7 +266,7 @@ function setupEventHandlers() {
         const file = e.target.files[0];
         if (!file) return;
         if (file.size > 1024 * 1024) {
-            toast(pageI18n.t('gallery:toast.icon-too-large', '图标大小不能超过 1MB'), 'error');
+            toast(pageI18n.t('novel-gallery:toast.icon-too-large', '图标大小不能超过 1MB'), 'error');
             e.target.value = '';
             return;
         }

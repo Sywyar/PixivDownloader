@@ -9,7 +9,7 @@ import org.springframework.context.ApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
-import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
+import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
@@ -20,15 +20,15 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 
 /**
- * 缺失 / 禁用语义（真实 Spring 上下文）：gallery 已是外置插件，外置包缺失时即便写入禁用开关也不注册贡献；
+ * 缺失 / 禁用语义（真实 Spring 上下文）：gallery / novel-gallery 已是外置插件，外置包缺失时即便写入禁用开关也不注册贡献；
  * 同时尝试禁用核心插件
  * （{@code plugins.core.enabled=false}）。验证：
  * <ul>
  *   <li>核心 Hash 写入服务（{@link ArtworkHashService}，核心 root 扫描、非插件托管）<b>仍在场</b>——
  *       下载后即时算 Hash 不随 duplicate 外置插件缺席；</li>
- *   <li>gallery / duplicate 缺失时其路由、静态资源、i18n、导航与维护任务不注入，核心维护任务仍在场；</li>
+ *   <li>gallery / novel-gallery / duplicate 缺失时其路由、静态资源、i18n、导航与维护任务不注入，核心维护任务仍在场；</li>
  *   <li>{@code plugins.core.enabled=false} 被忽略——核心插件不可禁用，核心 Bean 始终在场；</li>
- *   <li>未受影响的 novel 托管 Bean 仍在场；外置 download-workbench 不属于 core 壳内置上下文。</li>
+ *   <li>未受影响的 novel 下载 Bean 仍在场；外置 download-workbench 不属于 core 壳内置上下文。</li>
  * </ul>
  * （统计 stats、gallery 与 duplicate 都是外置 PF4J 插件、不在内置清单内：其安装后接入语义由外置加载测试覆盖。）
  */
@@ -39,9 +39,10 @@ import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-absent",
         "setup.browser.auto-open=false",
         "plugins.gallery.enabled=false",
+        "plugins.novel-gallery.enabled=false",
         "plugins.core.enabled=false"
 })
-@DisplayName("gallery 外置缺失且尝试禁用 core 的真实上下文语义")
+@DisplayName("gallery/novel-gallery 外置缺失且尝试禁用 core 的真实上下文语义")
 class FeaturePluginsDisabledContextTest {
 
     static {
@@ -73,34 +74,39 @@ class FeaturePluginsDisabledContextTest {
     private NavigationRegistry navigationRegistry;
 
     @Test
-    @DisplayName("gallery/duplicate 未安装，core 仍在场（core 配置被忽略）")
+    @DisplayName("gallery/novel-gallery/duplicate 未安装，core 仍在场（core 配置被忽略）")
     void disabledFeaturesLeaveSnapshotCoreStays() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
                 .contains("core", "novel")
-                .doesNotContain("gallery", "duplicate");
+                .doesNotContain("gallery", "novel-gallery", "duplicate");
         assertThat(pluginRegistry.disabledPlugins()).extracting(PixivFeaturePlugin::id)
-                .doesNotContain("gallery", "duplicate");
+                .doesNotContain("gallery", "novel-gallery", "duplicate");
         // core 永不可禁用：plugins.core.enabled=false 被忽略，核心插件仍活动、descriptor Bean 在场。
         assertThat(pluginRegistry.find("core")).isPresent();
         assertThat(context.getBeanNamesForType(CorePlugin.class)).hasSize(1);
     }
 
     @Test
-    @DisplayName("gallery 外置包缺失时 route/static/i18n/nav/ui 贡献缺席，duplicate 外置 Bean 不在 core-only 上下文")
+    @DisplayName("gallery/novel-gallery 外置包缺失时 route/static/i18n/nav/ui 贡献缺席，duplicate 外置 Bean 不在 core-only 上下文")
     void missingExternalFeatureContributionsAbsent() {
         assertThat(routeAccessRegistry.routes())
                 .extracting(RouteAccessRegistry.RegisteredRoute::pluginId)
-                .doesNotContain("gallery", "duplicate");
+                .doesNotContain("gallery", "novel-gallery", "duplicate");
         assertThat(routeAccessRegistry.isDeclared("/pixiv-gallery.html")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/gallery/artworks")).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/pixiv-novel-gallery.html")).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/pixiv-novel.html")).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/api/gallery/novels")).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/api/gallery/novel/7")).isFalse();
         assertThat(staticResourceRegistry.resources())
                 .extracting(StaticResourceRegistry.RegisteredStaticResource::pluginId)
-                .doesNotContain("gallery", "duplicate");
+                .doesNotContain("gallery", "novel-gallery", "duplicate");
         assertThat(webI18nBundleRegistry.resolve("gallery")).isNull();
         assertThat(webI18nBundleRegistry.resolve("artwork")).isNull();
+        assertThat(webI18nBundleRegistry.resolve("novel-gallery")).isNull();
         assertThat(navigationRegistry.navigation())
                 .extracting(NavigationRegistry.RegisteredNavigation::pluginId)
-                .doesNotContain("gallery", "duplicate");
+                .doesNotContain("gallery", "novel-gallery", "duplicate");
         assertThat(context.getBeanDefinitionNames())
                 .noneMatch(name -> name.toLowerCase(java.util.Locale.ROOT).contains("duplicate"));
     }
@@ -122,8 +128,8 @@ class FeaturePluginsDisabledContextTest {
     }
 
     @Test
-    @DisplayName("禁用上述插件不影响 novel 托管 Bean")
+    @DisplayName("缺失上述插件不影响 novel 下载 Bean")
     void unrelatedPluginsUnaffected() {
-        assertThat(context.getBeanNamesForType(NovelGalleryController.class)).hasSize(1);
+        assertThat(context.getBeanNamesForType(NovelDownloadController.class)).hasSize(1);
     }
 }

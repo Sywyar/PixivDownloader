@@ -844,7 +844,7 @@
             })
         };
         if (opts.signal) fetchInit.signal = opts.signal;
-        var res = await fetch('/api/gallery/novel/' + encodeURIComponent(novelId) + '/translate', fetchInit);
+        var res = await fetch('/api/novel/' + encodeURIComponent(novelId) + '/translate', fetchInit);
         if (!res.ok) {
             var msg = 'HTTP ' + res.status;
             try {
@@ -860,7 +860,7 @@
         var params = new URLSearchParams();
         params.set('format', format || 'epub');
         if (langCode) params.set('lang', langCode);
-        var res = await fetch('/api/gallery/novel/series/' + encodeURIComponent(seriesId)
+        var res = await fetch('/api/novel/series/' + encodeURIComponent(seriesId)
             + '/merge?' + params.toString(), { method: 'POST', credentials: 'same-origin' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
@@ -875,7 +875,7 @@
         var doDescription = translateDescription == null ? true : !!translateDescription;
         if (!doTitle && !doDescription) return null;
         try {
-            var res = await fetch('/api/gallery/novel/series/' + encodeURIComponent(seriesId)
+            var res = await fetch('/api/novel/series/' + encodeURIComponent(seriesId)
                 + '/translate-title', {
                 method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
@@ -896,7 +896,7 @@
     }
 
     async function fetchSeriesNovelIds(seriesId) {
-        var res = await fetch('/api/gallery/novel/series/' + encodeURIComponent(seriesId) + '/novel-ids',
+        var res = await fetch('/api/novel/series/' + encodeURIComponent(seriesId) + '/novel-ids',
             { credentials: 'same-origin' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         var data = await res.json();
@@ -914,7 +914,7 @@
             body: JSON.stringify({ targetLanguage: targetLanguage || '' })
         };
         if (opts.signal) fetchInit.signal = opts.signal;
-        var res = await fetch('/api/gallery/novel/translate-lang-probe', fetchInit);
+        var res = await fetch('/api/novel/translate-lang-probe', fetchInit);
         if (!res.ok) return '';
         try {
             var data = await res.json();

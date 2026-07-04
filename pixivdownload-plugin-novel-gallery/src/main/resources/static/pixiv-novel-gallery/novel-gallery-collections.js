@@ -58,8 +58,8 @@ function syncCollectionFormTitle() {
     const title = document.getElementById('collectionFormTitle');
     if (!title || !pageI18n) return;
     title.textContent = state.editingCollection
-        ? pageI18n.t('gallery:collection.form.edit', '编辑收藏夹')
-        : pageI18n.t('gallery:collection.form.create', '新建收藏夹');
+        ? pageI18n.t('novel-gallery:collection.form.edit', '编辑收藏夹')
+        : pageI18n.t('novel-gallery:collection.form.create', '新建收藏夹');
 }
 
 function defaultCollectionDownloadRoot() {
@@ -140,16 +140,16 @@ function updateFormIconPreview(collection) {
 async function submitCollectionForm() {
     const name = document.getElementById('collectionFormName').value.trim();
     if (!name) {
-        toast(pageI18n.t('gallery:toast.name-required', '请输入名称'), 'error');
+        toast(pageI18n.t('novel-gallery:toast.name-required', '请输入名称'), 'error');
         return;
     }
     const downloadRoot = readCollectionDownloadRoot();
     if (document.getElementById('collectionDownloadRootEnabled').checked && !downloadRoot) {
-        toast(pageI18n.t('gallery:toast.download-root-required', '请填写下载目录'), 'error');
+        toast(pageI18n.t('novel-gallery:toast.download-root-required', '请填写下载目录'), 'error');
         return;
     }
     if (downloadRoot && hasControlCharacter(downloadRoot)) {
-        toast(pageI18n.t('gallery:toast.download-root-invalid', '下载目录不能包含控制字符'), 'error');
+        toast(pageI18n.t('novel-gallery:toast.download-root-invalid', '下载目录不能包含控制字符'), 'error');
         return;
     }
 
@@ -187,14 +187,14 @@ async function submitCollectionForm() {
 
         toast(
             state.editingCollection
-                ? pageI18n.t('gallery:toast.saved', '已保存')
-                : pageI18n.t('gallery:toast.created', '创建成功'),
+                ? pageI18n.t('novel-gallery:toast.saved', '已保存')
+                : pageI18n.t('novel-gallery:toast.created', '创建成功'),
             'success'
         );
         closeCollectionFormModal();
         await loadCollections();
     } catch (e) {
-        toast(e.message || pageI18n.t('gallery:toast.save-failed', '保存失败'), 'error');
+        toast(e.message || pageI18n.t('novel-gallery:toast.save-failed', '保存失败'), 'error');
     } finally {
         btn.disabled = false;
     }
@@ -209,7 +209,7 @@ async function loadCollections() {
         state.collections = data.collections || [];
         renderCollections();
         renderCollectionFilterChips();
-    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.collections-failed', '加载收藏夹失败') : '加载收藏夹失败', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('novel-gallery:log.collections-failed', '加载收藏夹失败') : '加载收藏夹失败', e); }
 }
 
 function renderCollections() {

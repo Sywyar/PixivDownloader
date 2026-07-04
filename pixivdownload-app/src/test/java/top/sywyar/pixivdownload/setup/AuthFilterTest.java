@@ -477,10 +477,10 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("GET /api/gallery/novel/{id}/downloaded 本地 IP 应直接放行")
+        @DisplayName("GET /api/novel/{id}/downloaded 本地 IP 应直接放行")
         void shouldAllowLocalNovelDownloadedCheck() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/gallery/novel/12345/downloaded");
+            request.setRequestURI("/api/novel/12345/downloaded");
             request.setRemoteAddr("127.0.0.1");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -489,15 +489,15 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("小说下载判重豁免不应波及其它 /api/gallery/novel 端点（本地无 session 仍 401）")
+        @DisplayName("小说下载判重豁免不应波及其它 /api/novel 端点（本地无 session 仍按声明路由判定）")
         void shouldStillProtectOtherNovelGalleryApis() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/gallery/novel/12345");
+            request.setRequestURI("/api/novel/12345");
             request.setRemoteAddr("127.0.0.1");
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getStatus()).isEqualTo(404);
             verify(filterChain, never()).doFilter(request, response);
         }
 
@@ -595,7 +595,6 @@ class AuthFilterTest {
         @ParameterizedTest
         @ValueSource(strings = {
                 "/css/admin-visibility.css",
-                "/js/pixiv-novel-render.js",
                 "/css/pixiv-side-modules.css",
                 "/js/pixiv-side-modules.js",
                 "/js/pixiv-navigation.js",
@@ -883,7 +882,7 @@ class AuthFilterTest {
         @DisplayName("多人模式非管理员可调用小说下载判重端点（按 /api/downloaded/{id} 同等放行）")
         void shouldAllowNovelDownloadedCheckForAnonymousMultiUser() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/api/gallery/novel/12345/downloaded");
+            request.setRequestURI("/api/novel/12345/downloaded");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -1272,6 +1271,8 @@ class AuthFilterTest {
                 "POST,/api/novel/download",
                 "GET,/api/novel/status/12345",
                 "GET,/api/novel/translate-status/12345",
+                "GET,/api/novel/12345/downloaded",
+                "POST,/api/novel/series/67890/merge",
                 "POST,/api/download/pixiv/novel",
                 "GET,/api/download/novel/status/12345",
                 "GET,/api/download/novel/translate-status/12345"
@@ -1296,6 +1297,8 @@ class AuthFilterTest {
                 "POST,/api/novel/download",
                 "GET,/api/novel/status/12345",
                 "GET,/api/novel/translate-status/12345",
+                "GET,/api/novel/12345/downloaded",
+                "POST,/api/novel/series/67890/merge",
                 "POST,/api/download/pixiv/novel",
                 "GET,/api/download/novel/status/12345",
                 "GET,/api/download/novel/translate-status/12345"
@@ -1321,6 +1324,8 @@ class AuthFilterTest {
                 "POST,/api/novel/download",
                 "GET,/api/novel/status/12345",
                 "GET,/api/novel/translate-status/12345",
+                "GET,/api/novel/12345/downloaded",
+                "POST,/api/novel/series/67890/merge",
                 "POST,/api/download/pixiv/novel",
                 "GET,/api/download/novel/status/12345",
                 "GET,/api/download/novel/translate-status/12345"

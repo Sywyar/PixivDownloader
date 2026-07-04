@@ -923,7 +923,7 @@
         return new Promise((resolve) => {
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: `${serverBase}/api/gallery/novel/${encodeURIComponent(novelId)}/downloaded`,
+                url: `${serverBase}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
                 timeout: 5000,
                 onload: (res) => {
                     try {
@@ -1057,7 +1057,7 @@
                 if (userUUID) headers['X-User-UUID'] = userUUID;
                 GM_xmlhttpRequest({
                     method: 'POST',
-                    url: `${serverBase}/api/download/pixiv/novel`,
+                    url: `${serverBase}/api/novel/download`,
                     headers,
                     data: JSON.stringify(body),
                     onload: (res) => {

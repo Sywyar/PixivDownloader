@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel.controller;
+package top.sywyar.pixivdownload.novelgallery.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -9,20 +9,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.novel.NovelBatchService;
+import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
-import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
-import top.sywyar.pixivdownload.novel.NovelGalleryService;
-import top.sywyar.pixivdownload.novel.export.NovelMergeService;
+import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
-import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
-import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
+import top.sywyar.pixivdownload.novelgallery.NovelBatchRequest;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
@@ -44,7 +40,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * {@code @RestController} 仅供 Spring MVC handler 检测；Bean 本身被
- * {@code @PluginManagedBean} 排除出根包扫描，由 {@code NovelPluginConfiguration} 提供。
+ * {@code @PluginManagedBean} 排除出根包扫描，由 {@code NovelGalleryPluginConfiguration} 提供。
  */
 @PluginManagedBean
 @RestController
@@ -54,14 +50,11 @@ public class NovelGalleryController {
 
     private final NovelGalleryService novelGalleryService;
     private final NovelBatchService novelBatchService;
-    private final NovelMergeService novelMergeService;
     private final NovelSeriesService novelSeriesService;
-    private final NovelTranslationService novelTranslationService;
     private final NovelDatabase novelDatabase;
     private final NovelGalleryRepository novelGalleryRepository;
     private final WorkAssetService workAssetService;
     private final GuestAccessGuard guestAccessGuard;
-    private final AppMessages messages;
 
     @GetMapping("/novels")
     public NovelGalleryService.PagedNovels listNovels(
@@ -152,22 +145,6 @@ public class NovelGalleryController {
         NovelGalleryService.NovelView view = novelGalleryService.find(novelId);
         return view == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(view);
     }
-
-    /**
-     * 下载判重专用的三态查询：未下载 / 已下载 / 已下载但被画廊删除（软删除）。
-     * 画廊详情对软删除返回 404，批量下载的「跳过已下载」需要据 {@code deleted} 区分
-     * 「从未下载」与「已删除」，故单独提供本端点。
-     */
-    @GetMapping("/novel/{novelId}/downloaded")
-    public ResponseEntity<NovelDownloadedStateResponse> novelDownloadedState(@PathVariable long novelId,
-                                                                             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
-        NovelRecord record = novelDatabase.getNovel(novelId);
-        return ResponseEntity.ok(new NovelDownloadedStateResponse(
-                record != null, record != null && record.deleted()));
-    }
-
-    public record NovelDownloadedStateResponse(boolean downloaded, boolean deleted) {}
 
     /**
      * 删除单本小说（含磁盘文件与全部 DB 留存数据）。仅管理员可用：{@code /api/gallery/} 由
@@ -341,84 +318,8 @@ public class NovelGalleryController {
     }
 
     /**
-     * 翻译单本小说为目标语言（AI）。仅管理员可用：{@code /api/gallery/} 受 monitor 语义保护，
-     * POST 不在访客白名单内。译文保存到本地（{@code novel_translations}），供后续直接渲染、不重复请求 AI。
-     */
-    @PostMapping("/novel/{novelId}/translate")
-    public ResponseEntity<TranslateResponse> translateNovel(@PathVariable long novelId,
-                                                            @RequestBody TranslateRequest request) {
-        if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
-            return ResponseEntity.badRequest().body(new TranslateResponse(
-                    NovelTranslationService.Status.ERROR.name(), null,
-                    messages.get("novel.translate.missing-language"), false));
-        }
-        int segmentSize = request.segmentSize() == null ? 0 : Math.max(0, request.segmentSize());
-        boolean overwrite = Boolean.TRUE.equals(request.overwrite());
-        // 翻译范围：调用方不传时默认全部为 true（保持向前兼容）；三者全为 false 时由 service 层拒绝。
-        boolean translateBody = request.translateBody() == null || request.translateBody();
-        boolean translateTitle = request.translateTitle() == null || request.translateTitle();
-        boolean translateDescription = request.translateDescription() == null || request.translateDescription();
-        if (!translateBody && !translateTitle && !translateDescription) {
-            return ResponseEntity.badRequest().body(new TranslateResponse(
-                    NovelTranslationService.Status.ERROR.name(), null,
-                    messages.get("novel.translate.no-scope"), false));
-        }
-        NovelTranslationService.Result result = novelTranslationService.translateChapter(
-                novelId, request.targetLanguage(), segmentSize, overwrite,
-                request.langHint(), request.glossaryId(),
-                translateBody, translateTitle, translateDescription);
-        return ResponseEntity.ok(new TranslateResponse(
-                result.status().name(), result.langCode(), result.message(), result.truncated()));
-    }
-
-    /**
-     * 用户输入的自由文本目标语言（如「简体中文」/「english」）→ 规范 BCP-47 代码（{@code zh-CN} 等）。
-     * 仅管理员可用。系列批量翻译前调用一次，让首章也能凭已有译文的 lang_code 直接走 DB 跳过，
-     * 不必为识别语言再花一次完整翻译请求。
-     */
-    @PostMapping("/novel/translate-lang-probe")
-    public ResponseEntity<TranslateLangProbeResponse> translateLangProbe(
-            @RequestBody TranslateLangProbeRequest request) {
-        if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
-            return ResponseEntity.ok(new TranslateLangProbeResponse("", false));
-        }
-        String code = novelTranslationService.resolveLangCode(request.targetLanguage());
-        return ResponseEntity.ok(new TranslateLangProbeResponse(code, !code.isEmpty()));
-    }
-
-    /**
-     * 翻译某系列的系列名为指定目标语言（AI），并把结果落库。仅管理员可用（{@code /api/gallery/} 受 monitor 语义保护，
-     * POST 不在访客白名单内）。前端「翻译整个系列」流程在章节正文翻译完成后调用一次，确保系列名也跟上变体语言。
-     */
-    @PostMapping("/novel/series/{seriesId}/translate-title")
-    public ResponseEntity<TranslateSeriesTitleResponse> translateSeriesTitle(
-            @PathVariable long seriesId, @RequestBody TranslateSeriesTitleRequest request) {
-        if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
-            return ResponseEntity.badRequest().body(new TranslateSeriesTitleResponse(
-                    null, null, null, messages.get("novel.translate.missing-language")));
-        }
-        // 系列名 / 系列简介翻译范围：未传值默认 true；两者全 false 时拒绝。
-        boolean translateTitle = request.translateTitle() == null || request.translateTitle();
-        boolean translateDescription = request.translateDescription() == null || request.translateDescription();
-        if (!translateTitle && !translateDescription) {
-            return ResponseEntity.badRequest().body(new TranslateSeriesTitleResponse(
-                    null, null, null, messages.get("novel.translate.no-scope")));
-        }
-        String langCode = novelTranslationService.translateSeriesTitle(
-                seriesId, request.targetLanguage(), request.langHint(), request.glossaryId(),
-                translateTitle, translateDescription);
-        if (langCode == null || langCode.isBlank()) {
-            return ResponseEntity.ok(new TranslateSeriesTitleResponse(null, null, null, null));
-        }
-        String translated = novelDatabase.getSeriesTitleTranslation(seriesId, langCode);
-        String translatedDescription = novelDatabase.getSeriesDescriptionTranslation(seriesId, langCode);
-        return ResponseEntity.ok(new TranslateSeriesTitleResponse(
-                langCode, translated, translatedDescription, null));
-    }
-
-    /**
-     * 给定一批小说 ID 与目标语言，批量返回各小说在该语言下已存在的译文标题（{@code novel_translations.title}）。
-     * 不存在该语言译文或译文未带标题的小说不出现在返回 map 中。供章节卡片列表一次性替换为译后标题。
+     * 给定一批小说 ID 与目标语言，批量返回各小说在该语言下已存在的译文标题。
+     * 这是展示页读取能力；AI 翻译动作本身留在 novel-core 的 {@code /api/novel/**} 端点。
      */
     @GetMapping("/novel/translated-titles")
     public ResponseEntity<TranslatedTitlesResponse> translatedTitles(
@@ -428,7 +329,6 @@ public class NovelGalleryController {
         if (lang == null || lang.isBlank() || ids == null || ids.isBlank()) {
             return ResponseEntity.ok(new TranslatedTitlesResponse(Map.of()));
         }
-        // 邀请访客需要按可见性裁剪：只回那些访客能看到的小说的译后标题，避免泄露隐藏作品标题。
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         Map<Long, String> out = new java.util.LinkedHashMap<>();
         String langCode = lang.trim();
@@ -445,45 +345,6 @@ public class NovelGalleryController {
         }
         return ResponseEntity.ok(new TranslatedTitlesResponse(out));
     }
-
-    /** 系列内全部章节的 novel_id（按 series_order 升序），供「翻译整个系列」前端逐章循环。 */
-    @GetMapping("/novel/series/{seriesId}/novel-ids")
-    public ResponseEntity<NovelSeriesChapterIdsResponse> seriesNovelIds(@PathVariable long seriesId,
-                                                                        HttpServletRequest httpRequest) {
-        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
-        if (filter != null && !filter.contains(seriesId)) {
-            return ResponseEntity.notFound().build();
-        }
-        List<Long> ids = novelDatabase.getNovelsBySeriesId(seriesId).stream()
-                .map(NovelRecord::novelId)
-                .toList();
-        return ResponseEntity.ok(new NovelSeriesChapterIdsResponse(ids));
-    }
-
-    public record TranslateRequest(String targetLanguage, Integer segmentSize,
-                                   Boolean overwrite, String langHint, Long glossaryId,
-                                   Boolean translateBody, Boolean translateTitle,
-                                   Boolean translateDescription) {}
-
-    public record TranslateResponse(String status, String langCode, String message, boolean truncated) {}
-
-    public record TranslateLangProbeRequest(String targetLanguage) {}
-
-    public record TranslateLangProbeResponse(String code, boolean valid) {}
-
-    public record TranslateSeriesTitleRequest(String targetLanguage, String langHint, Long glossaryId,
-                                              Boolean translateTitle, Boolean translateDescription) {}
-
-    /**
-     * {@code langCode} 为空字符串或 {@code null} 表示翻译失败 / 标题为空；{@code title} 同步给出译后系列名；
-     * {@code description} 同步给出译后系列简介（未翻译 / 失败时为 {@code null}）。
-     */
-    public record TranslateSeriesTitleResponse(String langCode, String title,
-                                               String description, String message) {}
-
-    public record TranslatedTitlesResponse(Map<Long, String> titles) {}
-
-    public record NovelSeriesChapterIdsResponse(List<Long> novelIds) {}
 
     /**
      * 内嵌图片字节流，路径: {novelFolder}/embed_{imageId}.{ext}。
@@ -579,99 +440,6 @@ public class NovelGalleryController {
         return ids;
     }
 
-    @PostMapping("/novel/series/{seriesId}/merge")
-    public ResponseEntity<MergeResponse> mergeSeries(
-            @PathVariable long seriesId,
-            @RequestParam(required = false) String format,
-            @RequestParam(required = false) String lang) throws IOException {
-        // 合订本默认且推荐 EPUB（内嵌封面/插图、多级目录、系列元数据）；
-        // 显式传入 txt/html 时按指定格式合订。
-        NovelDownloadService.NovelFormat fmt = (format == null || format.isBlank())
-                ? NovelDownloadService.NovelFormat.EPUB
-                : NovelDownloadService.NovelFormat.parse(format);
-        // lang 为空：生成原文基准合订本 + 重生全部语言变体；指定 lang：仅重生该语言变体合订本。
-        NovelMergeService.MergeResult result = (lang == null || lang.isBlank())
-                ? novelMergeService.merge(seriesId, fmt)
-                : novelMergeService.mergeVariant(seriesId, fmt, lang.trim());
-        return ResponseEntity.ok(new MergeResponse(
-                result.success(), result.message(),
-                result.mergedPath(), result.chapterCount(), fmt.ext()));
-    }
-
-    /**
-     * 浏览器下载系列合订本。每次都按当前数据库状态重新生成（原文基准 / 指定语言变体），
-     * 然后把生成的文件作为附件回传。{@code lang} 为空 → 生成原文基准合订本；
-     * 非空 → 仅生成该语言变体合订本，未翻译的章节回退到原文（与 {@link NovelMergeService} 既有语义一致）。
-     */
-    @GetMapping("/novel/series/{seriesId}/merged")
-    public ResponseEntity<byte[]> downloadMergedSeries(
-            @PathVariable long seriesId,
-            @RequestParam(required = false) String format,
-            @RequestParam(required = false) String lang,
-            HttpServletRequest httpRequest) throws IOException {
-        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
-        if (filter != null && !filter.contains(seriesId)) {
-            return ResponseEntity.notFound().build();
-        }
-        NovelDownloadService.NovelFormat fmt = (format == null || format.isBlank())
-                ? NovelDownloadService.NovelFormat.EPUB
-                : NovelDownloadService.NovelFormat.parse(format);
-        NovelMergeService.MergeResult result = (lang == null || lang.isBlank())
-                ? novelMergeService.merge(seriesId, fmt)
-                : novelMergeService.mergeVariant(seriesId, fmt, lang.trim());
-        if (!result.success() || result.mergedPath() == null) {
-            return ResponseEntity.notFound().build();
-        }
-        Path file = Paths.get(result.mergedPath());
-        if (!Files.isRegularFile(file)) {
-            return ResponseEntity.notFound().build();
-        }
-        byte[] body = Files.readAllBytes(file);
-        String filename = file.getFileName().toString();
-        // RFC 5987 filename* 编码，避免中文系列名在 Content-Disposition 中被截断
-        String encoded = java.net.URLEncoder.encode(filename, java.nio.charset.StandardCharsets.UTF_8)
-                .replace("+", "%20");
-        String asciiFallback = buildAsciiContentDispositionFallback(filename,
-                seriesId, lang, fmt.ext());
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(mergedMimeFor(fmt)));
-        headers.set(HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=\"" + asciiFallback + "\"; filename*=UTF-8''" + encoded);
-        headers.setCacheControl(CacheControl.noStore());
-        return ResponseEntity.ok().headers(headers).body(body);
-    }
-
-    /**
-     * 构造 Content-Disposition 的 ASCII 兜底文件名。Tomcat 要求 {@code filename=} 参数只能用 ISO-8859-1 字符
-     * 写入响应头；含中日韩等非 ASCII 字符（例如「【小说⑤卷】」「龙之王弟殿下」）会导致整条 header 被丢弃，
-     * 下载随即失败。本方法把任何非 ASCII 可打印字符、控制字符、双引号、反斜杠都替换成 {@code _}；当替换后
-     * 几乎只剩占位符时改用合成名 {@code series-{seriesId}[_lang].{ext}} 作为兜底，确保现代客户端走 {@code filename*=}
-     * UTF-8 编码、旧客户端也能拿到一个合法可保存的回退名。
-     */
-    private static String buildAsciiContentDispositionFallback(String filename, long seriesId,
-                                                               String lang, String ext) {
-        String sanitized = filename.replaceAll("[^\\x20-\\x7E]|[\"\\\\]", "_");
-        // 全是占位符的话连扩展名也丢了，直接用合成名兜底
-        long printable = sanitized.chars()
-                .filter(c -> c != '_' && c >= 0x20 && c <= 0x7E)
-                .count();
-        if (printable < 2) {
-            return (lang == null || lang.isBlank())
-                    ? "series-" + seriesId + "." + ext
-                    : "series-" + seriesId + "_" + lang.trim().replaceAll("[^A-Za-z0-9-]", "_")
-                            + "." + ext;
-        }
-        return sanitized;
-    }
-
-    private static String mergedMimeFor(NovelDownloadService.NovelFormat fmt) {
-        return switch (fmt) {
-            case EPUB -> "application/epub+zip";
-            case HTML -> "text/html; charset=UTF-8";
-            case TXT -> "text/plain; charset=UTF-8";
-        };
-    }
-
     @PostMapping("/novels/downloaded-batch")
     public ResponseEntity<NovelDownloadedBatchResponse> downloadedBatch(
             @RequestBody NovelDownloadedBatchRequest request) {
@@ -686,13 +454,12 @@ public class NovelGalleryController {
     public record NovelContentResponse(String content, String lang, boolean translated,
                                        String translatedTitle, String translatedDescription) {}
 
+    public record TranslatedTitlesResponse(Map<Long, String> titles) {}
+
     public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
                                          NeighborView prev, NeighborView next) {}
 
     public record NeighborView(long novelId, String title, long seriesOrder) {}
-
-    public record MergeResponse(boolean success, String message,
-                                String mergedPath, int chapterCount, String format) {}
 
     public record NovelSeriesDetailResponse(long seriesId, String title, Long authorId, long updatedTime,
                                             String description, String coverExt, String coverFolder,

@@ -237,6 +237,7 @@ class PluginReleaseScriptsTest {
         assertThat(distribution).contains(
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/ai/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/duplicate/\"",
+                "\"BOOT-INF/classes/top/sywyar/pixivdownload/novelgallery/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/notification/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/push/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/tts/\"",
@@ -244,6 +245,7 @@ class PluginReleaseScriptsTest {
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/schedule/\"",
                 "\"BOOT-INF/classes/top/sywyar/pixivdownload/notificationbase/\"",
                 "\"BOOT-INF/classes/i18n/web/duplicates\"",
+                "\"BOOT-INF/classes/i18n/web/novel-gallery\"",
                 "\"BOOT-INF/classes/i18n/web/notification\""
         );
     }

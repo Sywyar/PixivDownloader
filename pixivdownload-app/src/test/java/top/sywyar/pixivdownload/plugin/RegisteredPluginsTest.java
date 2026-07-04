@@ -157,26 +157,26 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各内置插件 contribution 边界：core 独占 schema，novel/plugin-market 占各自功能贡献，gallery/download-workbench/duplicate 已外置")
+    @DisplayName("各内置插件 contribution 边界：core 独占 schema，novel/plugin-market 占各自功能贡献，gallery/novel-gallery/download-workbench/duplicate 已外置")
     void emptyPluginsContributeNothing() {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
         // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
-        // download-workbench、gallery 与 schedule 安全壳已在外置插件包中，duplicate 也随外置插件包接入。
+        // download-workbench、gallery、novel-gallery 与 schedule 安全壳已在外置插件包中，duplicate 也随外置插件包接入。
         Set<String> routeContributingPlugins = Set.of("core", "novel", "plugin-market");
         Set<String> i18nContributingPlugins = Set.of("core", "novel", "plugin-market");
-        Set<String> navContributingPlugins = Set.of("core", "novel", "plugin-market");
+        Set<String> navContributingPlugins = Set.of("core", "plugin-market");
         Set<String> staticResourceContributingPlugins = Set.of("core", "novel", "plugin-market");
         Set<String> queueTypeContributingPlugins = Set.of("novel");
         Set<String> downloadTabContributingPlugins = Set.of();
-        // 落点 / 入口（landing）：内置清单中仅小说声明；gallery 落点随外置插件接入，
+        // 落点 / 入口（landing）：gallery/novel-gallery 落点随外置插件接入，
         // 锁死契约面——其它插件不得静默声明落点（避免借落点 / 导航 order 间接改变业务落点）。
-        Set<String> landingContributingPlugins = Set.of("novel");
+        Set<String> landingContributingPlugins = Set.of();
         // gallery 外置后，页面区块 / 下钻 / GUI 引导步骤均由外置 gallery 插件声明。
         Set<String> pageSectionContributingPlugins = Set.of();
         Set<String> drilldownContributingPlugins = Set.of();
         Set<String> onboardingStepContributingPlugins = Set.of();
-        // coreColumnUsages 内置清单仅保留小说；gallery 的核心列使用在外置模块测试中守护。
-        Set<String> coreColumnUsingPlugins = Set.of("novel");
+        // coreColumnUsages 由展示插件声明；gallery/novel-gallery 的核心列使用在外置模块测试中守护。
+        Set<String> coreColumnUsingPlugins = Set.of();
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {

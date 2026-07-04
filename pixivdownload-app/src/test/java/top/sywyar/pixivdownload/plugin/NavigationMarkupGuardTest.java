@@ -48,7 +48,9 @@ class NavigationMarkupGuardTest {
             Path.of("pixivdownload-app/src/main/resources/static"),
             Path.of("../pixivdownload-app/src/main/resources/static"),
             Path.of("pixivdownload-plugin-gallery/src/main/resources/static"),
-            Path.of("../pixivdownload-plugin-gallery/src/main/resources/static"));
+            Path.of("../pixivdownload-plugin-gallery/src/main/resources/static"),
+            Path.of("pixivdownload-plugin-novel-gallery/src/main/resources/static"),
+            Path.of("../pixivdownload-plugin-novel-gallery/src/main/resources/static"));
 
     /** 已接入动态导航 slot 的页面 → 其预期声明的 placement slot。 */
     private static final Map<String, List<String>> EXPECTED_SLOTS = Map.of(

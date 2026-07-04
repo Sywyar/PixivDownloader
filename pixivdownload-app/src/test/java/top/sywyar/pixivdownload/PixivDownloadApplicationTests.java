@@ -9,7 +9,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
+import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,18 +60,18 @@ class PixivDownloadApplicationTests {
     }
 
     /**
-     * 内置插件托管 controller 经 {@code @PluginManagedBean} 排除出根包扫描、由插件
-     * Configuration 以 {@code @Bean} 提供。这里锁定 novel 仍在 context 中恰好一个
+     * 内置 novel 下载 controller 经 {@code @PluginManagedBean} 排除出根包扫描、由插件
+     * Configuration 以 {@code @Bean} 提供。这里锁定小说下载入口仍在 context 中恰好一个
      * （既没被扫描重复注册、也没因排除过滤器配置错误而丢失），且 Spring MVC 仍能识别其 handler 方法。
-     * gallery 已外置，不在 core shell 根上下文中断言。
+     * gallery / novel-gallery 已外置，不在 core shell 根上下文中断言。
      */
     @Test
-    @DisplayName("内置 novel 托管 controller 恰好注册一次且 MVC 映射不变")
+    @DisplayName("内置 novel 下载 controller 恰好注册一次且 MVC 映射不变")
     void pluginManagedControllerRegisteredExactlyOnce() {
-        assertThat(applicationContext.getBeanNamesForType(NovelGalleryController.class)).hasSize(1);
+        assertThat(applicationContext.getBeanNamesForType(NovelDownloadController.class)).hasSize(1);
         RequestMappingHandlerMapping handlerMapping = applicationContext
                 .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
-        assertThat(mappedPatterns(handlerMapping, "/api/gallery/novels")).isTrue();
+        assertThat(mappedPatterns(handlerMapping, "/api/novel/download")).isTrue();
     }
 
     private static boolean mappedPatterns(RequestMappingHandlerMapping handlerMapping, String pattern) {

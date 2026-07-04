@@ -9,17 +9,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
-import top.sywyar.pixivdownload.novel.NovelGalleryService;
-import top.sywyar.pixivdownload.novel.export.NovelMergeService;
-import top.sywyar.pixivdownload.novel.NovelSeriesService;
-import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.NovelBatchService;
+import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.export.NovelMergeService;
+import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
+import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
+import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,24 +34,32 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("NovelGalleryController#downloadMergedSeries 单元测试")
-class NovelGalleryControllerMergeDownloadTest {
+@DisplayName("NovelDownloadController#downloadMergedSeries 单元测试")
+class NovelDownloadControllerMergeDownloadTest {
 
-    @Mock private NovelGalleryService novelGalleryService;
-    @Mock private NovelBatchService novelBatchService;
-    @Mock private NovelMergeService novelMergeService;
-    @Mock private NovelSeriesService novelSeriesService;
-    @Mock private NovelTranslationService novelTranslationService;
+    @Mock private NovelDownloadService novelDownloadService;
+    @Mock private NovelAutoTranslateService novelAutoTranslateService;
     @Mock private NovelDatabase novelDatabase;
     @Mock private NovelGalleryRepository novelGalleryRepository;
-    @Mock private WorkAssetService workAssetService;
-    @Mock private GuestAccessGuard guestAccessGuard;
+    @Mock private NovelMergeService novelMergeService;
+    @Mock private NovelTranslationService novelTranslationService;
+    @Mock private SetupService setupService;
+    @Mock private UserQuotaService userQuotaService;
+    @Mock private MultiModeConfig multiModeConfig;
     @Mock private AppMessages messages;
 
-    private NovelGalleryController controller() {
-        return new NovelGalleryController(
-                novelGalleryService, novelBatchService, novelMergeService, novelSeriesService, novelTranslationService,
-                novelDatabase, novelGalleryRepository, workAssetService, guestAccessGuard, messages);
+    private NovelDownloadController controller() {
+        return new NovelDownloadController(
+                novelDownloadService,
+                novelAutoTranslateService,
+                novelDatabase,
+                novelGalleryRepository,
+                novelMergeService,
+                novelTranslationService,
+                setupService,
+                userQuotaService,
+                multiModeConfig,
+                messages);
     }
 
     @Test
@@ -88,7 +95,7 @@ class NovelGalleryControllerMergeDownloadTest {
     }
 
     @Test
-    @DisplayName("传入 lang 时只重生该语言变体（mergeVariant），不再触发原文基准 + 全部变体重生")
+    @DisplayName("传入 lang 时只重生该语言变体，不再触发原文基准合订")
     void delegatesToMergeVariantWhenLangProvided() throws Exception {
         Path tmp = Files.createTempFile("novel-series-merged-", ".epub");
         Files.write(tmp, new byte[]{1, 2, 3});
