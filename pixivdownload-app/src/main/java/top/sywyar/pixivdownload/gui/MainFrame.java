@@ -20,6 +20,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * GUI 主窗口（960x720，可调整大小）。
@@ -34,8 +35,8 @@ public class MainFrame extends JFrame {
     private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
-    private final GuiConfigContributionSnapshot guiConfigContributions;
-    private final GuiWebEntrySnapshot guiWebEntries;
+    private final Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier;
+    private final Supplier<GuiWebEntrySnapshot> guiWebEntrySupplier;
     private final GuiOnboardingSnapshot guiOnboarding;
 
     private static final int STATUS_TAB_INDEX = 1;
@@ -62,14 +63,32 @@ public class MainFrame extends JFrame {
                      GuiConfigContributionSnapshot guiConfigContributions,
                      GuiWebEntrySnapshot guiWebEntries,
                      GuiOnboardingSnapshot guiOnboarding) {
+        this(serverPort, rootFolder, configPath, fixedConfigSnapshot(guiConfigContributions),
+                fixedWebEntrySnapshot(guiWebEntries), guiOnboarding);
+    }
+
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier,
+                     GuiWebEntrySnapshot guiWebEntries,
+                     GuiOnboardingSnapshot guiOnboarding) {
+        this(serverPort, rootFolder, configPath, guiConfigContributionSupplier,
+                fixedWebEntrySnapshot(guiWebEntries), guiOnboarding);
+    }
+
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     Supplier<GuiConfigContributionSnapshot> guiConfigContributionSupplier,
+                     Supplier<GuiWebEntrySnapshot> guiWebEntrySupplier,
+                     GuiOnboardingSnapshot guiOnboarding) {
         super(GuiMessages.get("app.name"));
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
-        this.guiConfigContributions = guiConfigContributions == null
-                ? GuiConfigContributionSnapshot.empty()
-                : guiConfigContributions;
-        this.guiWebEntries = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
+        this.guiConfigContributionSupplier = guiConfigContributionSupplier == null
+                ? GuiConfigContributionSnapshot::empty
+                : guiConfigContributionSupplier;
+        this.guiWebEntrySupplier = guiWebEntrySupplier == null
+                ? GuiWebEntrySnapshot::empty
+                : guiWebEntrySupplier;
         this.guiOnboarding = guiOnboarding == null ? GuiOnboardingSnapshot.empty() : guiOnboarding;
         setSize(DEFAULT_SIZE);
         setMinimumSize(MINIMUM_SIZE);
@@ -117,8 +136,9 @@ public class MainFrame extends JFrame {
                 configPanel.reloadFromDisk();
             }
         };
+        GuiWebEntrySnapshot currentWebEntries = guiWebEntries();
         statusPanel = new StatusPanel(serverPort, rootFolder, configPath,
-                this::reloadLocale, onConfigChanged, guiWebEntries);
+                this::reloadLocale, onConfigChanged, currentWebEntries);
 
         // 整套引导已走完后不再添加欢迎 tab，避免重复展示并消除针对后端的轮询请求。
         if (!OnboardingState.isComplete(rootFolder)) {
@@ -138,7 +158,7 @@ public class MainFrame extends JFrame {
         toolsPanel = new ToolsPanel(configPath);
         // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件市场 / 管理页」。
         configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
-                ConfigFieldRegistry.snapshot(guiConfigContributions));
+                ConfigFieldRegistry.snapshot(guiConfigContributions()));
         pluginsPanel = new PluginsPanel(serverPort, statusPanel::getWebUrl);
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);
@@ -204,7 +224,30 @@ public class MainFrame extends JFrame {
     }
 
     public List<GuiWebEntrySpec> getTrayWebActions() {
-        return guiWebEntries.trayActions();
+        return guiWebEntries().trayActions();
+    }
+
+    private GuiConfigContributionSnapshot guiConfigContributions() {
+        GuiConfigContributionSnapshot snapshot = guiConfigContributionSupplier.get();
+        return snapshot == null ? GuiConfigContributionSnapshot.empty() : snapshot;
+    }
+
+    private GuiWebEntrySnapshot guiWebEntries() {
+        GuiWebEntrySnapshot snapshot = guiWebEntrySupplier.get();
+        return snapshot == null ? GuiWebEntrySnapshot.empty() : snapshot;
+    }
+
+    private static Supplier<GuiConfigContributionSnapshot> fixedConfigSnapshot(
+            GuiConfigContributionSnapshot guiConfigContributions) {
+        GuiConfigContributionSnapshot fixed = guiConfigContributions == null
+                ? GuiConfigContributionSnapshot.empty()
+                : guiConfigContributions;
+        return () -> fixed;
+    }
+
+    private static Supplier<GuiWebEntrySnapshot> fixedWebEntrySnapshot(GuiWebEntrySnapshot guiWebEntries) {
+        GuiWebEntrySnapshot fixed = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
+        return () -> fixed;
     }
 
     public void showWindow() {

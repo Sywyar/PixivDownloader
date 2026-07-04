@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.gui.panel.configtab.ConfigFieldRows;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigSectionResolver;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -58,7 +59,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
     private final List<GuiConfigSectionSpec> sectionContributions;
-    private final List<String> groups;
+    private final List<ConfigGroupSpec> groupSpecs;
     private final String serverGroup;
     private final String multiModeGroup;
     private final String maintenanceGroup;
@@ -67,8 +68,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final GuiConfigTestClient testClient;
     /** 特殊分组（自带控件 / 异步测试 / 预设联动）的可插拔实现。 */
     private List<ConfigSection> sections = List.of();
-    /** group 名 → 负责该分组的 section（普通分组无对应项，走 buildGroupPanel）。 */
-    private Map<String, ConfigSection> sectionsByGroup = Map.of();
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
@@ -97,8 +96,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
         this.allFields = snapshot.fields();
         this.sectionContributions = snapshot.sections();
-        this.groups = snapshot.groups();
-        this.serverGroup = groups.isEmpty() ? "" : groups.get(0);
+        this.groupSpecs = snapshot.groupSpecs();
+        this.serverGroup = message("gui.config.group.server");
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
         this.testClient = new GuiConfigTestClient(serverPort);
@@ -152,9 +151,40 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         List<ConfigSection> resolvedSections = new ArrayList<>();
         JTabbedPane topTabs = new JTabbedPane(JTabbedPane.TOP);
-        addHostTabs(topTabs, resolvedSections);
-        topTabs.addTab(message("gui.config.scope.plugins"),
-                buildPluginSettingsTab(resolvedSections));
+        List<ScopedGroup> hostGroups = visibleGroups(ConfigScope.HOST).stream()
+                .map(group -> new ScopedGroup(group, ConfigScope.HOST))
+                .toList();
+        List<ScopedGroup> pluginGroups = visibleGroups(ConfigScope.PLUGIN).stream()
+                .map(group -> new ScopedGroup(group, ConfigScope.PLUGIN))
+                .toList();
+        Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope =
+                buildSectionsByScope(hostGroups, pluginGroups, resolvedSections);
+
+        Set<String> assignedHostGroupIds = new LinkedHashSet<>();
+        for (TopCategory category : topCategories()) {
+            List<ScopedGroup> groups = groupsForCategory(category, hostGroups, pluginGroups);
+            if (groups.isEmpty()) {
+                continue;
+            }
+            groups.stream()
+                    .filter(group -> group.scope() == ConfigScope.HOST)
+                    .map(group -> group.spec().id())
+                    .forEach(assignedHostGroupIds::add);
+            JComponent panel = category.pluginCategory()
+                    ? buildPluginCategoryPanel(groups, sectionsByScope)
+                    : buildCategoryPanel(category, groups, sectionsByScope);
+            topTabs.addTab(category.label(), panel);
+        }
+        for (ScopedGroup group : hostGroups) {
+            if (assignedHostGroupIds.contains(group.spec().id())) {
+                continue;
+            }
+            String groupId = normalizeGroupId(group.spec().id());
+            TopCategory fallback = new TopCategory(group.label(),
+                    groupId == null ? Set.of() : Set.of(groupId), false, false);
+            topTabs.addTab(fallback.label(),
+                    buildCategoryPanel(fallback, List.of(group), sectionsByScope));
+        }
         sections = List.copyOf(resolvedSections);
         add(topTabs, BorderLayout.CENTER);
 
@@ -162,36 +192,25 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         add(buildBottomPanel(), BorderLayout.SOUTH);
     }
 
-    private void addHostTabs(JTabbedPane topTabs, List<ConfigSection> resolvedSections) {
-        ConfigScope scope = ConfigScope.HOST;
-        List<String> hostGroups = visibleGroups(scope);
-        ConfigSectionContext scopedContext = new ScopedConfigSectionContext(this, scope);
-        List<ConfigSection> hostSections = GuiConfigSectionResolver.createSections(
-                scopedContext, hostGroups, scopedSections(scope), configPath, webUrlProvider,
-                scope.includeHostTransitionAdapters());
-        resolvedSections.addAll(hostSections);
-
-        Map<String, ConfigSection> sectionsByGroup = new LinkedHashMap<>();
-        for (ConfigSection section : hostSections) {
-            sectionsByGroup.put(section.group(), section);
-        }
-
-        for (String group : hostGroups) {
-            ConfigSection section = sectionsByGroup.get(group);
-            topTabs.addTab(group, section != null ? section.build() : buildGroupPanel(group, scope));
-        }
+    private Map<ConfigScope, Map<String, ConfigSection>> buildSectionsByScope(
+            List<ScopedGroup> hostGroups,
+            List<ScopedGroup> pluginGroups,
+            List<ConfigSection> resolvedSections) {
+        Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope = new EnumMap<>(ConfigScope.class);
+        sectionsByScope.put(ConfigScope.HOST,
+                createSectionsByGroup(ConfigScope.HOST, hostGroups, resolvedSections));
+        sectionsByScope.put(ConfigScope.PLUGIN,
+                createSectionsByGroup(ConfigScope.PLUGIN, pluginGroups, resolvedSections));
+        return sectionsByScope;
     }
 
-    private JComponent buildPluginSettingsTab(List<ConfigSection> resolvedSections) {
-        ConfigScope scope = ConfigScope.PLUGIN;
-        List<String> scopeGroups = visibleGroups(scope);
-        if (scopeGroups.isEmpty()) {
-            return buildEmptyScopePanel(scope);
-        }
-
+    private Map<String, ConfigSection> createSectionsByGroup(ConfigScope scope,
+                                                             List<ScopedGroup> groups,
+                                                             List<ConfigSection> resolvedSections) {
         ConfigSectionContext scopedContext = new ScopedConfigSectionContext(this, scope);
         List<ConfigSection> scopeSections = GuiConfigSectionResolver.createSections(
-                scopedContext, scopeGroups, scopedSections(scope), configPath, webUrlProvider,
+                scopedContext, groups.stream().map(ScopedGroup::spec).toList(), scopedSections(scope),
+                configPath, webUrlProvider,
                 scope.includeHostTransitionAdapters());
         resolvedSections.addAll(scopeSections);
 
@@ -199,18 +218,134 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         for (ConfigSection section : scopeSections) {
             sectionsByGroup.put(section.group(), section);
         }
+        return sectionsByGroup;
+    }
+
+    private List<TopCategory> topCategories() {
+        return List.of(
+                new TopCategory(message("gui.config.group.download"),
+                        Set.of(GuiConfigGroups.DOWNLOAD), false, false),
+                new TopCategory(message("gui.config.category.runtime-network"),
+                        Set.of(GuiConfigGroups.SERVER, GuiConfigGroups.PROXY,
+                                GuiConfigGroups.HTTPS, GuiConfigGroups.UPDATE), false, true),
+                new TopCategory(message("gui.config.category.access-control"),
+                        Set.of(GuiConfigGroups.MULTI_MODE, GuiConfigGroups.GUEST_INVITE,
+                                GuiConfigGroups.SECURITY), false, true),
+                new TopCategory(message("gui.config.category.automation-maintenance"),
+                        Set.of(GuiConfigGroups.SCHEDULE, GuiConfigGroups.MAINTENANCE), false, true),
+                new TopCategory(message("gui.config.group.plugins"),
+                        Set.of(GuiConfigGroups.PLUGINS), true, true)
+        );
+    }
+
+    private List<ScopedGroup> groupsForCategory(TopCategory category,
+                                                List<ScopedGroup> hostGroups,
+                                                List<ScopedGroup> pluginGroups) {
+        List<ScopedGroup> groups = new ArrayList<>();
+        if (category.pluginCategory()) {
+            hostGroups.stream()
+                    .filter(group -> categoryContains(category, group))
+                    .forEach(groups::add);
+            groups.addAll(pluginGroups);
+            return List.copyOf(groups);
+        }
+        hostGroups.stream()
+                .filter(group -> categoryContains(category, group))
+                .forEach(groups::add);
+        return List.copyOf(groups);
+    }
+
+    private static boolean categoryContains(TopCategory category, ScopedGroup group) {
+        String groupId = normalizeGroupId(group.spec().id());
+        return groupId != null && category.hostGroupIds().contains(groupId);
+    }
+
+    private JComponent buildCategoryPanel(TopCategory category,
+                                          List<ScopedGroup> groups,
+                                          Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope) {
+        if (groups.size() == 1 && !category.showGroupHeadings()) {
+            ScopedGroup group = groups.get(0);
+            ConfigSection section = sectionsByScope.getOrDefault(group.scope(), Map.of()).get(group.label());
+            return section != null ? section.build() : buildGroupPanel(group);
+        }
+
+        JPanel content = new GroupContentPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        String lastHeading = null;
+        for (ScopedGroup group : groups) {
+            if (!Objects.equals(lastHeading, group.label())) {
+                addGroupHeading(content, group.label());
+                lastHeading = group.label();
+            }
+            ConfigSection section = sectionsByScope.getOrDefault(group.scope(), Map.of()).get(group.label());
+            JComponent groupContent = section != null
+                    ? unwrapSectionContent(section.build())
+                    : buildGroupContent(group, false, false);
+            removeTrailingVerticalGlue(groupContent);
+            groupContent.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(groupContent);
+            content.add(Box.createVerticalStrut(8));
+        }
+        content.add(Box.createVerticalGlue());
+
+        JScrollPane sp = new JScrollPane(content);
+        sp.setBorder(null);
+        sp.getVerticalScrollBar().setUnitIncrement(16);
+        applyScrollTopReset(sp);
+        return sp;
+    }
+
+    private JComponent buildPluginCategoryPanel(List<ScopedGroup> groups,
+                                                Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope) {
+        List<ScopedGroup> marketGroups = groups.stream()
+                .filter(group -> group.scope() == ConfigScope.HOST)
+                .toList();
+        List<ScopedGroup> pluginSettingGroups = groups.stream()
+                .filter(group -> group.scope() == ConfigScope.PLUGIN)
+                .toList();
 
         JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
-        for (String group : scopeGroups) {
-            ConfigSection section = sectionsByGroup.get(group);
-            tabs.addTab(group, section != null ? section.build() : buildGroupPanel(group, scope));
+        if (!marketGroups.isEmpty()) {
+            TopCategory marketCategory = new TopCategory(
+                    message("gui.config.scope.plugin-market-settings"), Set.of(), false, false);
+            tabs.addTab(marketCategory.label(),
+                    buildCategoryPanel(marketCategory, marketGroups, sectionsByScope));
+        }
+        TopCategory pluginSettingsCategory = new TopCategory(
+                message("gui.config.scope.plugins"), Set.of(), false, true);
+        tabs.addTab(pluginSettingsCategory.label(),
+                pluginSettingGroups.isEmpty()
+                        ? buildEmptyScopePanel(ConfigScope.PLUGIN)
+                        : buildPluginSettingsPanel(pluginSettingGroups, sectionsByScope));
+        return tabs;
+    }
+
+    private JComponent buildPluginSettingsPanel(List<ScopedGroup> pluginSettingGroups,
+                                                Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope) {
+        JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
+        for (ScopedGroup group : pluginSettingGroups) {
+            TopCategory groupCategory = new TopCategory(group.label(), Set.of(), false, false);
+            tabs.addTab(group.label(), buildCategoryPanel(groupCategory, List.of(group), sectionsByScope));
         }
         return tabs;
     }
 
-    private List<String> visibleGroups(ConfigScope scope) {
+    private void addGroupHeading(JPanel content, String label) {
+        JLabel heading = new JLabel(label);
+        heading.setFont(heading.getFont().deriveFont(Font.BOLD, 13f));
+        heading.setBorder(BorderFactory.createEmptyBorder(12, 2, 4, 2));
+        heading.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(heading);
+        JSeparator separator = new JSeparator(SwingConstants.HORIZONTAL);
+        separator.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+        separator.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(separator);
+        content.add(Box.createVerticalStrut(4));
+    }
+
+    private List<ConfigGroupSpec> visibleGroups(ConfigScope scope) {
         Set<String> claimedFieldKeys = claimedFieldKeys(scope);
-        return groups.stream()
+        return groupSpecs.stream()
                 .filter(group -> !shouldHideGroup(group))
                 .filter(group -> groupHasContent(group, scope, claimedFieldKeys))
                 .toList();
@@ -234,22 +369,70 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return sp;
     }
 
-    private boolean groupHasContent(String group, ConfigScope scope, Set<String> claimedFieldKeys) {
+    private boolean groupHasContent(ConfigGroupSpec groupSpec, ConfigScope scope, Set<String> claimedFieldKeys) {
         boolean hasField = allFields.stream()
                 .filter(ConfigFieldSpec::contributesGroupVisibility)
                 .filter(field -> !claimedFieldKeys.contains(field.key()))
-                .anyMatch(field -> group.equals(field.group()) && scope.includesField(field));
+                .anyMatch(field -> matchesGroup(field, groupSpec) && scope.includesField(field));
         boolean hasSection = sectionContributions.stream()
                 .filter(GuiConfigSectionSpec::contributesGroupVisibility)
-                .anyMatch(section -> group.equals(section.group()) && scope.includesSection(section));
-        boolean hasHostTransition = scope == ConfigScope.HOST && ConfigFieldRegistry.groupPlugins().equals(group);
+                .anyMatch(section -> matchesGroup(section, groupSpec) && scope.includesSection(section));
+        boolean hasHostTransition = scope == ConfigScope.HOST
+                && (GuiConfigGroups.PLUGINS.equals(groupSpec.id())
+                || ConfigFieldRegistry.groupPlugins().equals(groupSpec.label()));
         return hasField || hasSection || hasHostTransition;
+    }
+
+    private static boolean matchesGroup(ConfigFieldSpec field, ConfigGroupSpec group) {
+        if (field == null || group == null) {
+            return false;
+        }
+        if (GuiConfigGroups.AI.equals(group.id())
+                && (GuiConfigGroups.NARRATION_TTS.equals(normalizeGroupId(field.groupId()))
+                || ConfigFieldRegistry.groupNarrationTts().equals(field.group()))) {
+            return true;
+        }
+        return matchesGroup(field.groupId(), field.group(), group);
+    }
+
+    private static boolean matchesGroup(GuiConfigSectionSpec section, ConfigGroupSpec group) {
+        if (section == null || group == null) {
+            return false;
+        }
+        if (GuiConfigGroups.AI.equals(group.id())
+                && (GuiConfigGroups.NARRATION_TTS.equals(normalizeGroupId(section.groupId()))
+                || ConfigFieldRegistry.groupNarrationTts().equals(section.group()))) {
+            return true;
+        }
+        return matchesGroup(section.groupId(), section.group(), group);
+    }
+
+    private static boolean matchesGroup(String itemGroupId, String itemGroupLabel, ConfigGroupSpec group) {
+        String normalizedItemId = normalizeGroupId(itemGroupId);
+        String normalizedGroupId = normalizeGroupId(group.id());
+        if (normalizedItemId != null && normalizedGroupId != null) {
+            return normalizedItemId.equals(normalizedGroupId);
+        }
+        return Objects.equals(itemGroupLabel, group.label());
+    }
+
+    private static boolean isGroup(ScopedGroup group, String groupId, String fallbackLabel) {
+        if (group == null || group.spec() == null) {
+            return false;
+        }
+        String normalizedGroupId = normalizeGroupId(group.spec().id());
+        return Objects.equals(normalizedGroupId, normalizeGroupId(groupId))
+                || Objects.equals(group.label(), fallbackLabel);
+    }
+
+    private static String normalizeGroupId(String groupId) {
+        return groupId == null || groupId.isBlank() ? null : groupId.trim();
     }
 
     private Set<String> claimedFieldKeys(ConfigScope scope) {
         Set<String> claimed = new LinkedHashSet<>();
         scopedSections(scope).stream()
-                .filter(section -> !shouldHideGroup(section.group()))
+                .filter(section -> !shouldHideGroup(section.groupId(), section.group()))
                 .flatMap(section -> section.fieldLayouts().stream())
                 .map(GuiConfigFieldLayoutSpec::fieldKey)
                 .filter(Objects::nonNull)
@@ -257,39 +440,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return claimed;
     }
 
-    private JComponent buildGroupPanel(String group, ConfigScope scope) {
-        JPanel content = new GroupContentPanel();
-        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        Set<String> claimedFieldKeys = claimedFieldKeys(scope);
-
-        List<ConfigFieldSpec> fields = allFields.stream()
-                .filter(f -> group.equals(f.group()))
-                .filter(scope::includesField)
-                .filter(field -> !claimedFieldKeys.contains(field.key()))
-                .toList();
-
-        for (ConfigFieldSpec spec : fields) {
-            if (maintenanceGroup.equals(group) && isMaintenanceDayEnabledKey(spec.key())) {
-                continue;
-            }
-            FieldRenderer.RenderedField rf = ConfigFieldRows.render(spec);
-            registerField(spec, rf);
-            content.add(rf.panel());
-            if (maintenanceGroup.equals(group) && "maintenance.enabled".equals(spec.key())) {
-                JPanel weekdaysPanel = buildMaintenanceWeekdayPanel(fields);
-                weekdaysPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-                content.add(weekdaysPanel);
-                content.add(Box.createVerticalStrut(2));
-            }
-        }
-        if (serverGroup.equals(group)) {
-            JPanel autoStartPanel = buildAutoStartPanel();
-            autoStartPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            content.add(autoStartPanel);
-            content.add(Box.createVerticalStrut(2));
-        }
-        content.add(Box.createVerticalGlue());
-
+    private JComponent buildGroupPanel(ScopedGroup group) {
+        JPanel content = buildGroupContent(group, true, true);
         JScrollPane sp = new JScrollPane(content);
         sp.setBorder(null);
         sp.getVerticalScrollBar().setUnitIncrement(16);
@@ -297,6 +449,47 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         // 首次显示时统一强制回到顶部，避免切到该标签页时字段区域停在底部。
         applyScrollTopReset(sp);
         return sp;
+    }
+
+    private JPanel buildGroupContent(ScopedGroup group, boolean includeBorder, boolean includeGlue) {
+        JPanel content = new GroupContentPanel();
+        if (includeBorder) {
+            content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        }
+        Set<String> claimedFieldKeys = claimedFieldKeys(group.scope());
+        boolean maintenance = isGroup(group, GuiConfigGroups.MAINTENANCE, maintenanceGroup);
+        boolean server = isGroup(group, GuiConfigGroups.SERVER, serverGroup);
+
+        List<ConfigFieldSpec> fields = allFields.stream()
+                .filter(field -> matchesGroup(field, group.spec()))
+                .filter(group.scope()::includesField)
+                .filter(field -> !claimedFieldKeys.contains(field.key()))
+                .toList();
+
+        for (ConfigFieldSpec spec : fields) {
+            if (maintenance && isMaintenanceDayEnabledKey(spec.key())) {
+                continue;
+            }
+            FieldRenderer.RenderedField rf = ConfigFieldRows.render(spec);
+            registerField(spec, rf);
+            content.add(rf.panel());
+            if (maintenance && "maintenance.enabled".equals(spec.key())) {
+                JPanel weekdaysPanel = buildMaintenanceWeekdayPanel(fields);
+                weekdaysPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+                content.add(weekdaysPanel);
+                content.add(Box.createVerticalStrut(2));
+            }
+        }
+        if (server) {
+            JPanel autoStartPanel = buildAutoStartPanel();
+            autoStartPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(autoStartPanel);
+            content.add(Box.createVerticalStrut(2));
+        }
+        if (includeGlue) {
+            content.add(Box.createVerticalGlue());
+        }
+        return content;
     }
 
     /**
@@ -317,6 +510,28 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
             }
         });
+    }
+
+    private static JComponent unwrapSectionContent(JComponent component) {
+        if (component instanceof JScrollPane scrollPane
+                && scrollPane.getViewport().getView() instanceof JComponent content) {
+            return content;
+        }
+        return component;
+    }
+
+    private static void removeTrailingVerticalGlue(JComponent component) {
+        if (!(component instanceof JPanel panel)) {
+            return;
+        }
+        while (panel.getComponentCount() > 0) {
+            Component last = panel.getComponent(panel.getComponentCount() - 1);
+            if (!(last instanceof Box.Filler filler)
+                    || filler.getMaximumSize().height < Short.MAX_VALUE) {
+                return;
+            }
+            panel.remove(panel.getComponentCount() - 1);
+        }
     }
 
     private JPanel buildMaintenanceWeekdayPanel(List<ConfigFieldSpec> fields) {
@@ -401,8 +616,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return panel;
     }
 
-    private boolean shouldHideGroup(String group) {
-        return SOLO_MODE.equalsIgnoreCase(currentMode) && multiModeGroup.equals(group);
+    private boolean shouldHideGroup(ConfigGroupSpec group) {
+        return SOLO_MODE.equalsIgnoreCase(currentMode)
+                && (GuiConfigGroups.MULTI_MODE.equals(group.id()) || multiModeGroup.equals(group.label()));
+    }
+
+    private boolean shouldHideGroup(String groupId, String group) {
+        return SOLO_MODE.equalsIgnoreCase(currentMode)
+                && (GuiConfigGroups.MULTI_MODE.equals(normalizeGroupId(groupId)) || multiModeGroup.equals(group));
     }
 
     private String resolveCurrentMode() {
@@ -955,6 +1176,18 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return "unknown";
         }
         return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+
+    private record ScopedGroup(ConfigGroupSpec spec, ConfigScope scope) {
+        private String label() {
+            return spec.label();
+        }
+    }
+
+    private record TopCategory(String label,
+                               Set<String> hostGroupIds,
+                               boolean pluginCategory,
+                               boolean showGroupHeadings) {
     }
 
     private enum ConfigScope {

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
+import top.sywyar.pixivdownload.gui.config.ConfigGroupSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
@@ -27,7 +28,7 @@ public final class GuiConfigSectionResolver {
     }
 
     public static List<ConfigSection> createSections(ConfigSectionContext ctx,
-                                                     List<String> visibleGroups,
+                                                     List<?> visibleGroups,
                                                      List<GuiConfigSectionSpec> pluginSections,
                                                      Path configPath,
                                                      Function<String, String> webUrlProvider) {
@@ -35,14 +36,15 @@ public final class GuiConfigSectionResolver {
     }
 
     public static List<ConfigSection> createSections(ConfigSectionContext ctx,
-                                                     List<String> visibleGroups,
+                                                     List<?> visibleGroups,
                                                      List<GuiConfigSectionSpec> pluginSections,
                                                      Path configPath,
                                                      Function<String, String> webUrlProvider,
                                                      boolean includeTransitionAdapters) {
+        VisibleGroups groups = VisibleGroups.from(visibleGroups);
         List<GuiConfigSectionSpec> safePluginSections = pluginSections == null ? List.of() : pluginSections;
         List<GuiConfigSectionSpec> transitionSpecs = includeTransitionAdapters
-                ? transitionAdapterSpecs(visibleGroups)
+                ? transitionAdapterSpecs(groups)
                 : List.of();
         Map<String, List<ConfigSectionBlock>> blocksByGroup = new LinkedHashMap<>();
         Set<String> exclusiveGroups = new LinkedHashSet<>();
@@ -52,7 +54,7 @@ public final class GuiConfigSectionResolver {
             if (block != null) {
                 blocksByGroup.computeIfAbsent(spec.group(), ignored -> new ArrayList<>()).add(block);
                 if (PLUGIN_MARKET_SECTION.equals(spec.sectionId())) {
-                    exclusiveGroups.add(spec.group());
+                    addGroupKeys(exclusiveGroups, spec.groupId(), spec.group());
                 }
             }
         }
@@ -60,10 +62,10 @@ public final class GuiConfigSectionResolver {
         Map<String, List<GuiConfigSectionSpec>> declaredSpecsByGroup = new LinkedHashMap<>();
         safePluginSections.stream()
                 .filter(spec -> spec != null)
-                .filter(spec -> visibleGroups == null || visibleGroups.contains(spec.group()))
-                .filter(spec -> !exclusiveGroups.contains(spec.group()))
+                .filter(groups::contains)
+                .filter(spec -> !containsGroupKey(exclusiveGroups, spec.groupId(), spec.group()))
                 .forEach(spec -> declaredSpecsByGroup
-                        .computeIfAbsent(spec.group(), ignored -> new ArrayList<>())
+                        .computeIfAbsent(groups.labelFor(spec), ignored -> new ArrayList<>())
                         .add(spec));
 
         declaredSpecsByGroup.forEach((group, specs) -> blocksByGroup
@@ -82,11 +84,12 @@ public final class GuiConfigSectionResolver {
         return List.copyOf(sections);
     }
 
-    private static List<GuiConfigSectionSpec> transitionAdapterSpecs(List<String> visibleGroups) {
+    private static List<GuiConfigSectionSpec> transitionAdapterSpecs(VisibleGroups visibleGroups) {
         List<GuiConfigSectionSpec> specs = new ArrayList<>();
         String pluginsGroup = ConfigFieldRegistry.groupPlugins();
-        if (contains(visibleGroups, pluginsGroup)) {
-            specs.add(transitionSpec(PLUGIN_MARKET_SECTION, GuiConfigGroups.PLUGINS, pluginsGroup, 300));
+        ConfigGroupSpec group = visibleGroups.find(GuiConfigGroups.PLUGINS, pluginsGroup);
+        if (group != null) {
+            specs.add(transitionSpec(PLUGIN_MARKET_SECTION, GuiConfigGroups.PLUGINS, group.label(), 300));
         }
         return specs;
     }
@@ -141,8 +144,38 @@ public final class GuiConfigSectionResolver {
                 .toList();
     }
 
-    private static boolean contains(List<String> values, String value) {
-        return values != null && values.contains(value);
+    private static void addGroupKeys(Set<String> keys, String groupId, String groupLabel) {
+        String normalizedId = normalizeGroupId(groupId);
+        if (normalizedId != null) {
+            keys.add(normalizedId);
+        }
+        if (groupLabel != null && !groupLabel.isBlank()) {
+            keys.add(groupLabel);
+        }
+    }
+
+    private static boolean containsGroupKey(Set<String> keys, String groupId, String groupLabel) {
+        String normalizedId = normalizeGroupId(groupId);
+        return (normalizedId != null && keys.contains(normalizedId))
+                || (groupLabel != null && keys.contains(groupLabel));
+    }
+
+    private static boolean matchesGroup(String itemGroupId, String itemGroupLabel, ConfigGroupSpec group) {
+        String normalizedItemId = normalizeGroupId(itemGroupId);
+        String normalizedGroupId = normalizeGroupId(group.id());
+        if (GuiConfigGroups.AI.equals(normalizedGroupId)
+                && (GuiConfigGroups.NARRATION_TTS.equals(normalizedItemId)
+                || ConfigFieldRegistry.groupNarrationTts().equals(itemGroupLabel))) {
+            return true;
+        }
+        if (normalizedItemId != null && normalizedGroupId != null) {
+            return normalizedItemId.equals(normalizedGroupId);
+        }
+        return itemGroupLabel != null && itemGroupLabel.equals(group.label());
+    }
+
+    private static String normalizeGroupId(String groupId) {
+        return groupId == null || groupId.isBlank() ? null : groupId.trim();
     }
 
     private record FactoryConfigSectionBlock(
@@ -156,6 +189,50 @@ public final class GuiConfigSectionResolver {
         @Override
         public ConfigSection createSection(ConfigSectionContext ctx) {
             return factory.apply(ctx);
+        }
+    }
+
+    private record VisibleGroups(List<ConfigGroupSpec> values, boolean unrestricted) {
+        private static VisibleGroups from(List<?> visibleGroups) {
+            if (visibleGroups == null) {
+                return new VisibleGroups(List.of(), true);
+            }
+            List<ConfigGroupSpec> groups = new ArrayList<>();
+            for (Object value : visibleGroups) {
+                if (value instanceof ConfigGroupSpec group) {
+                    groups.add(group);
+                } else if (value instanceof String label && !label.isBlank()) {
+                    groups.add(new ConfigGroupSpec(null, label, groups.size(), true));
+                }
+            }
+            return new VisibleGroups(List.copyOf(groups), false);
+        }
+
+        private boolean contains(GuiConfigSectionSpec spec) {
+            if (unrestricted) {
+                return true;
+            }
+            return find(spec.groupId(), spec.group()) != null;
+        }
+
+        private ConfigGroupSpec find(String groupId, String groupLabel) {
+            if (unrestricted) {
+                return null;
+            }
+            for (ConfigGroupSpec group : values) {
+                if (matchesGroup(groupId, groupLabel, group)) {
+                    return group;
+                }
+            }
+            return null;
+        }
+
+        private String labelFor(GuiConfigSectionSpec spec) {
+            if (unrestricted) {
+                return spec.group();
+            }
+            ConfigGroupSpec group = find(spec.groupId(), spec.group());
+            return group == null ? spec.group() : group.label();
         }
     }
 }

@@ -120,37 +120,53 @@ public final class ConfigFieldRegistry {
         fields.addAll(contributions.fields());
         Set<String> groupsWithFields = fields.stream()
                 .filter(ConfigFieldSpec::contributesGroupVisibility)
-                .map(ConfigFieldSpec::group)
+                .flatMap(field -> groupKeys(field.groupId(), field.group()).stream())
                 .collect(java.util.stream.Collectors.toSet());
         List<ConfigFieldSpec> contributedFields = contributions.fields();
         Set<String> contributedGroupsWithFields = contributedFields.stream()
                 .filter(ConfigFieldSpec::contributesGroupVisibility)
-                .map(ConfigFieldSpec::group)
+                .flatMap(field -> groupKeys(field.groupId(), field.group()).stream())
                 .collect(java.util.stream.Collectors.toSet());
         List<GuiConfigSectionSpec> sections = contributions.sections();
         Set<String> contributedGroupsWithSections = sections.stream()
                 .filter(GuiConfigSectionSpec::contributesGroupVisibility)
-                .map(GuiConfigSectionSpec::group)
+                .flatMap(section -> groupKeys(section.groupId(), section.group()).stream())
                 .collect(java.util.stream.Collectors.toSet());
-        List<String> groupLabels = mergedGroups.stream()
+        List<ConfigGroupSpec> visibleGroupSpecs = mergedGroups.stream()
                 .filter(ConfigGroupSpec::visibleInTabs)
                 .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithFields,
                         contributedGroupsWithSections))
                 .sorted(Comparator.comparingInt(ConfigGroupSpec::order))
-                .map(ConfigGroupSpec::label)
                 .toList();
-        return new ConfigFieldSnapshot(groupLabels, fields, sections, contributions.diagnostics());
+        return ConfigFieldSnapshot.withGroupSpecs(visibleGroupSpecs, fields, sections, contributions.diagnostics());
     }
 
     private static boolean shouldShowGroup(ConfigGroupSpec group, Set<String> groupsWithFields,
                                            Set<String> contributedGroupsWithFields,
                                            Set<String> contributedGroupsWithSections) {
         if (GuiConfigGroups.AI.equals(group.id())) {
-            return contributedGroupsWithFields.contains(group.label())
+            return contributedGroupsWithFields.contains(group.id())
+                    || contributedGroupsWithFields.contains(group.label())
+                    || contributedGroupsWithFields.contains(GuiConfigGroups.NARRATION_TTS)
                     || contributedGroupsWithFields.contains(message("gui.config.group.narration-tts"))
+                    || contributedGroupsWithSections.contains(group.id())
                     || contributedGroupsWithSections.contains(group.label());
         }
-        return groupsWithFields.contains(group.label()) || contributedGroupsWithSections.contains(group.label());
+        return groupsWithFields.contains(group.id())
+                || groupsWithFields.contains(group.label())
+                || contributedGroupsWithSections.contains(group.id())
+                || contributedGroupsWithSections.contains(group.label());
+    }
+
+    private static Set<String> groupKeys(String groupId, String groupLabel) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        if (groupId != null && !groupId.isBlank()) {
+            keys.add(groupId.trim());
+        }
+        if (groupLabel != null && !groupLabel.isBlank()) {
+            keys.add(groupLabel);
+        }
+        return keys;
     }
 
     static boolean hasGroupId(String groupId) {
@@ -168,6 +184,12 @@ public final class ConfigFieldRegistry {
         return CORE_GROUPS.stream()
                 .filter(group -> group.id().equals(groupId))
                 .map(CoreGroupDefinition::order)
+                .findFirst();
+    }
+
+    static Optional<ConfigGroupSpec> coreGroupSpecByLabel(String label) {
+        return coreGroupSpecs().stream()
+                .filter(group -> group.label().equals(label))
                 .findFirst();
     }
 

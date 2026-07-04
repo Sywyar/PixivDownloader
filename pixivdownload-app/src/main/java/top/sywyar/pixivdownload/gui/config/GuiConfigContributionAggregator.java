@@ -258,6 +258,7 @@ public final class GuiConfigContributionAggregator {
                 .orElseGet(() -> customGroups.get(groupId).spec().label());
         FieldType type = mapFieldType(field.type(), field.sensitive());
         ConfigFieldSpec.Builder builder = ConfigFieldSpec.builder(key, label, type, groupLabel)
+                .groupId(groupId)
                 .ownerPluginId(registered.id())
                 .defaultValue(field.defaultValue())
                 .help(help)

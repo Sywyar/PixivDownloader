@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -37,6 +39,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -47,6 +50,11 @@ class GuiConfigContributionAggregatorTest {
 
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void resetLocale() {
+        GuiMessages.clearLocaleOverride();
+    }
 
     @Test
     @DisplayName("默认无插件贡献时字段与分组保持核心清单")
@@ -695,6 +703,52 @@ class GuiConfigContributionAggregatorTest {
             assertThat(snapshot.groups()).contains("External Group");
             assertThat(spec.label()).isEqualTo("External Label");
             assertThat(spec.helpText()).isEqualTo("External Help");
+        }
+    }
+
+    @Test
+    @DisplayName("重新聚合插件配置贡献时按当前 GUI 语言解析文案")
+    void rebuiltPluginContributionsUseCurrentGuiLocale() throws Exception {
+        Path resourceRoot = tempDir.resolve("localized-resources");
+        Path bundleDir = resourceRoot.resolve("i18n/web");
+        Files.createDirectories(bundleDir);
+        Files.writeString(bundleDir.resolve("fixture.properties"), String.join("\n",
+                "fixture.group.label=中文分组",
+                "fixture.field.label=中文标签"), StandardCharsets.UTF_8);
+        Files.writeString(bundleDir.resolve("fixture_en.properties"), String.join("\n",
+                "fixture.group.label=English Group",
+                "fixture.field.label=English Label"), StandardCharsets.UTF_8);
+        URL[] urls = {resourceRoot.toUri().toURL()};
+
+        PixivFeaturePlugin plugin = plugin("fixture", List.of(new I18nContribution("fixture", "i18n.web.fixture")),
+                () -> List.of(new GuiConfigContribution(
+                        List.of(new GuiConfigGroupContribution("fixture-i18n", "fixture.group.label", 10)),
+                        List.of(new GuiConfigFieldContribution(
+                                "fixture.i18n",
+                                "fixture-i18n",
+                                "fixture.field.label",
+                                GuiConfigFieldType.STRING,
+                                "",
+                                10)))));
+
+        try (URLClassLoader loader = new URLClassLoader(urls, null)) {
+            GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
+            ConfigFieldSnapshot zhSnapshot = ConfigFieldRegistry.snapshot(
+                    GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(
+                            new PluginRegistry.RegisteredPlugin(plugin, PluginSource.EXTERNAL, loader))));
+            ConfigFieldSpec zhSpec = field(zhSnapshot, "fixture.i18n");
+            assertThat(zhSnapshot.groups()).contains("中文分组");
+            assertThat(zhSpec.label()).isEqualTo("中文标签");
+            assertThat(zhSpec.group()).isEqualTo("中文分组");
+
+            GuiMessages.setLocale(Locale.US);
+            ConfigFieldSnapshot enSnapshot = ConfigFieldRegistry.snapshot(
+                    GuiConfigContributionAggregator.fromRegisteredPlugins(List.of(
+                            new PluginRegistry.RegisteredPlugin(plugin, PluginSource.EXTERNAL, loader))));
+            ConfigFieldSpec enSpec = field(enSnapshot, "fixture.i18n");
+            assertThat(enSnapshot.groups()).contains("English Group");
+            assertThat(enSpec.label()).isEqualTo("English Label");
+            assertThat(enSpec.group()).isEqualTo("English Group");
         }
     }
 

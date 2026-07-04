@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
@@ -52,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -253,13 +255,15 @@ public class GuiLauncher {
                 readPluginVerifierResolver(configPath));
         pluginSession.start();
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
-        // GUI theme 是首窗前 startup-only 消费者：先取出已启用功能插件，再释放快照，避免重复钉住旧 generation。
+        // 首窗前 startup-only 消费者先取出需要的固定快照；GUI 动态贡献在面板 / 菜单重建时从运行期 manager 重新发现，
+        // 以便按当前 GUI locale 重新解析插件 i18n，同时不长期持有启动 discovery。
         final List<PixivFeaturePlugin> startupThemePlugins = pluginSession.startupDiscovery().discovered().stream()
                 .map(discovered -> discovered.plugin())
                 .filter(plugin -> pluginSession.enabledSnapshot().isEnabled(plugin.id()))
                 .toList();
-        final GuiConfigContributionSnapshot guiConfigContributions = buildGuiConfigContributionSnapshot(pluginSession);
-        final GuiWebEntrySnapshot guiWebEntries = buildGuiWebEntrySnapshot(pluginSession);
+        final Supplier<GuiConfigContributionSnapshot> guiConfigContributions =
+                () -> buildGuiConfigContributionSnapshot(pluginSession);
+        final Supplier<GuiWebEntrySnapshot> guiWebEntries = () -> buildGuiWebEntrySnapshot(pluginSession);
         final GuiOnboardingSnapshot guiOnboarding = buildGuiOnboardingSnapshot(pluginSession);
         pluginSession.releaseStartupSnapshot();
 
@@ -802,11 +806,8 @@ public class GuiLauncher {
 
     private static GuiConfigContributionSnapshot buildGuiConfigContributionSnapshot(PluginBootstrapSession pluginSession) {
         try {
-            PluginRegistry registry = new PluginRegistry(
-                    BuiltInPlugins.createAll(),
-                    togglesFromSnapshot(pluginSession.enabledSnapshot()),
-                    pluginSession.startupDiscovery());
-            return GuiConfigContributionAggregator.from(registry);
+            return GuiConfigContributionAggregator.from(pluginRegistry(pluginSession,
+                    pluginSession.manager().discoverFeaturePlugins()));
         } catch (RuntimeException e) {
             log.warn(logMessage("gui.launcher.log.gui-config-contribution.failed", safeMessage(e)), e);
             return GuiConfigContributionSnapshot.empty();
@@ -815,11 +816,8 @@ public class GuiLauncher {
 
     private static GuiWebEntrySnapshot buildGuiWebEntrySnapshot(PluginBootstrapSession pluginSession) {
         try {
-            PluginRegistry registry = new PluginRegistry(
-                    BuiltInPlugins.createAll(),
-                    togglesFromSnapshot(pluginSession.enabledSnapshot()),
-                    pluginSession.startupDiscovery());
-            return GuiWebEntryContributionAggregator.from(registry);
+            return GuiWebEntryContributionAggregator.from(pluginRegistry(pluginSession,
+                    pluginSession.manager().discoverFeaturePlugins()));
         } catch (RuntimeException e) {
             log.warn(logMessage("gui.launcher.log.gui-web-entry-contribution.failed", safeMessage(e)), e);
             return GuiWebEntrySnapshot.empty();
@@ -828,15 +826,19 @@ public class GuiLauncher {
 
     private static GuiOnboardingSnapshot buildGuiOnboardingSnapshot(PluginBootstrapSession pluginSession) {
         try {
-            PluginRegistry registry = new PluginRegistry(
-                    BuiltInPlugins.createAll(),
-                    togglesFromSnapshot(pluginSession.enabledSnapshot()),
-                    pluginSession.startupDiscovery());
-            return GuiOnboardingContributionAggregator.from(registry);
+            return GuiOnboardingContributionAggregator.from(pluginRegistry(pluginSession,
+                    pluginSession.startupDiscovery()));
         } catch (RuntimeException e) {
             log.warn(logMessage("gui.launcher.log.gui-onboarding-contribution.failed", safeMessage(e)), e);
             return GuiOnboardingSnapshot.empty();
         }
+    }
+
+    private static PluginRegistry pluginRegistry(PluginBootstrapSession pluginSession,
+                                                 PluginDiscoveryResult discovery) {
+        return new PluginRegistry(BuiltInPlugins.createAll(),
+                togglesFromSnapshot(pluginSession.enabledSnapshot()),
+                discovery);
     }
 
     private static PluginToggleProperties togglesFromSnapshot(PluginEnabledSnapshot snapshot) {

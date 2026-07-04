@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSnapshot;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
@@ -10,6 +12,7 @@ import top.sywyar.pixivdownload.gui.config.ConfigSnapshot;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.config.FieldType;
 import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
+import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
 import top.sywyar.pixivdownload.gui.config.GuiConfigPresetSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionNoticeSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
@@ -35,11 +38,15 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Font;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -50,6 +57,11 @@ class GuiConfigSectionResolverTest {
 
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void resetLocale() {
+        GuiMessages.clearLocaleOverride();
+    }
 
     @Test
     @DisplayName("没有声明式 section 时不再为 AI 分组创建过渡 adapter")
@@ -351,8 +363,65 @@ class GuiConfigSectionResolverTest {
     }
 
     @Test
-    @DisplayName("配置页一级页签区分宿主配置与插件设置")
-    void configPanelSeparatesHostAndPluginSettings() {
+    @DisplayName("配置页顶层页签收敛为用户任务类别")
+    void configPanelCollapsesTopTabsIntoUserTaskCategories() {
+        ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
+                path -> path, ConfigFieldRegistry.snapshot());
+        JTabbedPane topTabs = firstTabbedPane(panel);
+
+        assertThat(tabTitles(topTabs)).containsExactly(
+                GuiMessages.get("gui.config.group.download"),
+                GuiMessages.get("gui.config.category.runtime-network"),
+                GuiMessages.get("gui.config.category.access-control"),
+                GuiMessages.get("gui.config.category.automation-maintenance"),
+                GuiMessages.get("gui.config.group.plugins"));
+
+        Component pluginsTab = tabComponent(topTabs, GuiMessages.get("gui.config.group.plugins"));
+        assertThat(pluginsTab).isInstanceOf(JTabbedPane.class);
+        JTabbedPane pluginTabs = (JTabbedPane) pluginsTab;
+        topTabs.setSelectedComponent(pluginsTab);
+        assertThat(tabTitles(pluginTabs)).containsExactly(
+                GuiMessages.get("gui.config.scope.plugin-market-settings"),
+                GuiMessages.get("gui.config.scope.plugins"));
+        assertThat(visibleFieldRowsDeep(tabComponent(pluginTabs,
+                GuiMessages.get("gui.config.scope.plugin-market-settings"))))
+                .contains("plugin-catalog.enabled");
+    }
+
+    @Test
+    @DisplayName("solo 模式下访问控制类别仍隐藏多人模式字段")
+    void soloModeStillHidesMultiModeFieldsInsideAccessControlCategory() throws IOException {
+        String previousStateDir = System.getProperty(RuntimeFiles.STATE_DIR_PROPERTY);
+        Path stateDir = tempDir.resolve("state");
+        Files.createDirectories(stateDir);
+        Files.writeString(stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON),
+                "{\"mode\":\"solo\"}", StandardCharsets.UTF_8);
+        System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, stateDir.toString());
+        try {
+            ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
+                    path -> path, ConfigFieldRegistry.snapshot());
+            JTabbedPane topTabs = firstTabbedPane(panel);
+            Component accessControlTab = tabComponent(topTabs,
+                    GuiMessages.get("gui.config.category.access-control"));
+
+            topTabs.setSelectedComponent(accessControlTab);
+            List<String> rows = visibleFieldRowsDeep(accessControlTab);
+            assertThat(rows).doesNotContain("multi-mode.quota.enabled");
+            assertThat(rows).contains(
+                    "guest-invite.request-limit-minute",
+                    "setup.login-rate-limit-minute");
+        } finally {
+            if (previousStateDir == null) {
+                System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
+            } else {
+                System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, previousStateDir);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("宿主配置按业务类别展示，插件贡献统一进入插件类别")
+    void configPanelKeepsPluginContributionsInsidePluginCategory() {
         String group = GuiMessages.get("gui.config.group.server");
         ConfigFieldSpec hostField = field("host.plugins", group);
         ConfigFieldSpec pluginField = pluginField("plugin.plugins", group, "fixture");
@@ -367,19 +436,59 @@ class GuiConfigSectionResolverTest {
         ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
                 path -> path, snapshot);
         JTabbedPane topTabs = firstTabbedPane(panel);
+        Component runtimeTab = tabComponent(topTabs, GuiMessages.get("gui.config.category.runtime-network"));
+        Component pluginsTab = tabComponent(topTabs, GuiMessages.get("gui.config.group.plugins"));
 
         assertThat(tabTitles(topTabs)).containsExactly(
-                group,
-                GuiMessages.get("gui.config.scope.plugins"));
-        assertThat(topTabs.getComponentAt(0)).isNotInstanceOf(JTabbedPane.class);
-        assertThat(tabTitles((JTabbedPane) topTabs.getComponentAt(1))).containsExactly(group);
+                GuiMessages.get("gui.config.category.runtime-network"),
+                GuiMessages.get("gui.config.group.plugins"));
+        assertThat(runtimeTab).isInstanceOf(JScrollPane.class);
+        assertThat(pluginsTab).isInstanceOf(JTabbedPane.class);
+        assertThat(visibleFieldRowsDeep(runtimeTab)).contains("host.plugins");
+        assertThat(visibleFieldRowsDeep(runtimeTab)).doesNotContain("plugin.plugins");
+        topTabs.setSelectedComponent(pluginsTab);
+        JTabbedPane pluginTabs = (JTabbedPane) pluginsTab;
+        assertThat(tabTitles(pluginTabs)).containsExactly(GuiMessages.get("gui.config.scope.plugins"));
+        Component pluginSettingsTab = tabComponent(pluginTabs, GuiMessages.get("gui.config.scope.plugins"));
+        pluginTabs.setSelectedComponent(pluginSettingsTab);
+        assertThat(pluginSettingsTab).isInstanceOf(JTabbedPane.class);
+        JTabbedPane pluginGroupTabs = (JTabbedPane) pluginSettingsTab;
+        assertThat(tabTitles(pluginGroupTabs)).containsExactly(group);
+        Component pluginGroupTab = tabComponent(pluginGroupTabs, group);
+        pluginGroupTabs.setSelectedComponent(pluginGroupTab);
+        assertThat(visibleFieldRowsDeep(pluginGroupTab)).contains("plugin.plugins");
+        assertThat(visibleFieldRowsDeep(pluginGroupTab)).doesNotContain("host.plugins");
+    }
 
-        JPanel hostContent = configTabContent(panel, group);
-        JPanel pluginContent = configTabContent(topTabs.getComponentAt(1), group);
-        assertThat(visibleFieldRows(hostContent)).contains("host.plugins");
-        assertThat(visibleFieldRows(hostContent)).doesNotContain("plugin.plugins");
-        assertThat(visibleFieldRows(pluginContent)).contains("plugin.plugins");
-        assertThat(visibleFieldRows(pluginContent)).doesNotContain("host.plugins");
+    @Test
+    @DisplayName("语言切换后复用旧语言插件贡献快照时插件配置页仍按分组 id 显示")
+    void pluginConfigGroupsSurviveLocaleSwitchWithStaleContributionLabels() {
+        GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
+        String staleGroupLabel = ConfigFieldRegistry.groupNotification();
+        ConfigFieldSpec pluginField = ConfigFieldSpec.builder(
+                        "fixture.notify", "通知开关", FieldType.BOOL, staleGroupLabel)
+                .groupId(GuiConfigGroups.NOTIFICATION)
+                .ownerPluginId("fixture")
+                .defaultValue("false")
+                .build();
+
+        GuiMessages.setLocale(Locale.US);
+        String currentGroupLabel = ConfigFieldRegistry.groupNotification();
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(pluginField), List.of(), List.of()));
+
+        ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
+                path -> path, snapshot);
+        JTabbedPane topTabs = firstTabbedPane(panel);
+        Component pluginsTab = tabComponent(topTabs, GuiMessages.get("gui.config.group.plugins"));
+        JTabbedPane pluginTabs = (JTabbedPane) pluginsTab;
+        Component pluginSettingsTab = tabComponent(pluginTabs, GuiMessages.get("gui.config.scope.plugins"));
+
+        assertThat(pluginSettingsTab).isInstanceOf(JTabbedPane.class);
+        JTabbedPane pluginGroupTabs = (JTabbedPane) pluginSettingsTab;
+        assertThat(tabTitles(pluginGroupTabs)).containsExactly(currentGroupLabel);
+        assertThat(visibleFieldRowsDeep(tabComponent(pluginGroupTabs, currentGroupLabel)))
+                .containsExactly("fixture.notify");
     }
 
     @Test
@@ -524,11 +633,17 @@ class GuiConfigSectionResolverTest {
         ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
                 path -> path, snapshot);
         JTabbedPane topTabs = firstTabbedPane(panel);
-        JTabbedPane pluginTabs = (JTabbedPane) topTabs.getComponentAt(0);
 
-        assertThat(tabTitles(topTabs)).containsExactly(GuiMessages.get("gui.config.scope.plugins"));
-        assertThat(tabTitles(pluginTabs)).containsExactly(aiGroup);
-        assertThat(visibleFieldRowsDeep(pluginTabs)).containsExactly("fixture.tts.engine");
+        assertThat(tabTitles(topTabs)).containsExactly(GuiMessages.get("gui.config.group.plugins"));
+        assertThat(topTabs.getComponentAt(0)).isInstanceOf(JTabbedPane.class);
+        JTabbedPane pluginTabs = (JTabbedPane) topTabs.getComponentAt(0);
+        assertThat(tabTitles(pluginTabs)).containsExactly(GuiMessages.get("gui.config.scope.plugins"));
+        Component pluginSettingsTab = tabComponent(pluginTabs, GuiMessages.get("gui.config.scope.plugins"));
+        assertThat(pluginSettingsTab).isInstanceOf(JTabbedPane.class);
+        JTabbedPane pluginGroupTabs = (JTabbedPane) pluginSettingsTab;
+        assertThat(tabTitles(pluginGroupTabs)).containsExactly(aiGroup);
+        assertThat(visibleFieldRowsDeep(tabComponent(pluginGroupTabs, aiGroup)))
+                .containsExactly("fixture.tts.engine");
     }
 
     @Test
@@ -763,6 +878,15 @@ class GuiConfigSectionResolverTest {
             titles.add(tabs.getTitleAt(i));
         }
         return titles;
+    }
+
+    private static Component tabComponent(JTabbedPane tabs, String title) {
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            if (title.equals(tabs.getTitleAt(i))) {
+                return tabs.getComponentAt(i);
+            }
+        }
+        throw new AssertionError("Tabbed pane title not found: " + title);
     }
 
     private static List<String> visibleFieldRows(JPanel content) {

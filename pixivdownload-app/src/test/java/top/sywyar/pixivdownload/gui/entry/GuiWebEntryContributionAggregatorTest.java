@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
 import java.util.List;
 import java.util.Locale;
@@ -48,6 +49,21 @@ class GuiWebEntryContributionAggregatorTest {
     }
 
     @Test
+    @DisplayName("重新聚合 Web 入口时状态页与托盘动作按当前 GUI 语言解析")
+    void rebuiltWebEntriesUseCurrentGuiLocale() {
+        GuiMessages.setLocale(Locale.SIMPLIFIED_CHINESE);
+        GuiWebEntrySnapshot zhSnapshot = GuiWebEntryContributionAggregator.fromRegisteredPlugins(externalGallery());
+
+        GuiMessages.setLocale(Locale.US);
+        GuiWebEntrySnapshot enSnapshot = GuiWebEntryContributionAggregator.fromRegisteredPlugins(externalGallery());
+
+        assertThat(action(zhSnapshot.statusActions()).label()).isEqualTo("本地画廊");
+        assertThat(action(zhSnapshot.trayActions()).label()).isEqualTo("本地画廊");
+        assertThat(action(enSnapshot.statusActions()).label()).isEqualTo("Local Gallery");
+        assertThat(action(enSnapshot.trayActions()).label()).isEqualTo("Local Gallery");
+    }
+
+    @Test
     @DisplayName("禁用 gallery 时状态页与托盘入口自然缺席")
     void galleryEntriesDisappearWhenGalleryDisabled() {
         GuiWebEntrySnapshot snapshot = GuiWebEntryContributionAggregator.from(registryDisablingGallery());
@@ -68,6 +84,20 @@ class GuiWebEntryContributionAggregatorTest {
 
     private static PluginRegistry registryWithGallery() {
         return new PluginRegistry(List.of(new GalleryGuiPlugin()));
+    }
+
+    private static List<PluginRegistry.RegisteredPlugin> externalGallery() {
+        return List.of(new PluginRegistry.RegisteredPlugin(
+                new GalleryGuiPlugin(),
+                PluginSource.EXTERNAL,
+                GuiWebEntryContributionAggregatorTest.class.getClassLoader()));
+    }
+
+    private static GuiWebEntrySpec action(List<GuiWebEntrySpec> actions) {
+        return actions.stream()
+                .filter(action -> action.id().equals("gallery-gui-open"))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static final class GalleryGuiPlugin implements PixivFeaturePlugin {

@@ -14,6 +14,7 @@ public record ConfigFieldSpec(
         String label,
         FieldType type,
         String group,
+        String groupId,
         String ownerPluginId,
         String helpText,
         String defaultValue,
@@ -30,6 +31,11 @@ public record ConfigFieldSpec(
     public static final String CORE_OWNER = "core";
 
     public ConfigFieldSpec {
+        groupId = groupId == null || groupId.isBlank()
+                ? ConfigFieldRegistry.coreGroupSpecByLabel(group)
+                        .map(ConfigGroupSpec::id)
+                        .orElse(null)
+                : groupId.trim();
         ownerPluginId = ownerPluginId == null || ownerPluginId.isBlank()
                 ? CORE_OWNER
                 : ownerPluginId.trim();
@@ -58,6 +64,7 @@ public record ConfigFieldSpec(
         private final String label;
         private final FieldType type;
         private final String group;
+        private String groupId;
         private String ownerPluginId = CORE_OWNER;
         private String helpText = "";
         private String defaultValue = "";
@@ -75,6 +82,11 @@ public record ConfigFieldSpec(
             this.label = label;
             this.type = type;
             this.group = group;
+        }
+
+        public Builder groupId(String groupId) {
+            this.groupId = groupId == null || groupId.isBlank() ? null : groupId.trim();
+            return this;
         }
 
         public Builder help(String helpText) {
@@ -135,7 +147,7 @@ public record ConfigFieldSpec(
         }
 
         public ConfigFieldSpec build() {
-            return new ConfigFieldSpec(key, label, type, group, ownerPluginId, helpText, defaultValue,
+            return new ConfigFieldSpec(key, label, type, group, groupId, ownerPluginId, helpText, defaultValue,
                     validator, enumValues, enumValueLabels, enabledWhen, visibleWhen,
                     visibleWhenConditions, requiresRestart, contributesGroupVisibility);
         }
