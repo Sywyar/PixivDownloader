@@ -258,10 +258,12 @@ public final class GuiConfigContributionAggregator {
                 .orElseGet(() -> customGroups.get(groupId).spec().label());
         FieldType type = mapFieldType(field.type(), field.sensitive());
         ConfigFieldSpec.Builder builder = ConfigFieldSpec.builder(key, label, type, groupLabel)
+                .ownerPluginId(registered.id())
                 .defaultValue(field.defaultValue())
                 .help(help)
                 .enabledWhen(predicate(field.enabledWhen()))
                 .visibleWhen(predicate(field.visibleWhen()))
+                .visibleWhenConditions(field.visibleWhen())
                 .validator(validator(field))
                 .contributesGroupVisibility(field.contributesGroupVisibility());
         if (field.type() == GuiConfigFieldType.ENUM) {

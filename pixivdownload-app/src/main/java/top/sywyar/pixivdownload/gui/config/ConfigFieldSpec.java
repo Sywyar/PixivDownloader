@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -12,6 +14,7 @@ public record ConfigFieldSpec(
         String label,
         FieldType type,
         String group,
+        String ownerPluginId,
         String helpText,
         String defaultValue,
         Validator validator,
@@ -19,9 +22,25 @@ public record ConfigFieldSpec(
         Map<String, String> enumValueLabels,
         Predicate<ConfigSnapshot> enabledWhen,
         Predicate<ConfigSnapshot> visibleWhen,
+        List<GuiConfigCondition> visibleWhenConditions,
         boolean requiresRestart,
         boolean contributesGroupVisibility
 ) {
+
+    public static final String CORE_OWNER = "core";
+
+    public ConfigFieldSpec {
+        ownerPluginId = ownerPluginId == null || ownerPluginId.isBlank()
+                ? CORE_OWNER
+                : ownerPluginId.trim();
+        visibleWhenConditions = visibleWhenConditions == null
+                ? List.of()
+                : List.copyOf(visibleWhenConditions);
+    }
+
+    public boolean pluginContributed() {
+        return !CORE_OWNER.equals(ownerPluginId);
+    }
 
     @FunctionalInterface
     public interface Validator {
@@ -39,6 +58,7 @@ public record ConfigFieldSpec(
         private final String label;
         private final FieldType type;
         private final String group;
+        private String ownerPluginId = CORE_OWNER;
         private String helpText = "";
         private String defaultValue = "";
         private Validator validator = v -> null;
@@ -46,6 +66,7 @@ public record ConfigFieldSpec(
         private Map<String, String> enumValueLabels = Map.of();
         private Predicate<ConfigSnapshot> enabledWhen = snap -> true;
         private Predicate<ConfigSnapshot> visibleWhen = snap -> true;
+        private List<GuiConfigCondition> visibleWhenConditions = List.of();
         private boolean requiresRestart = true;
         private boolean contributesGroupVisibility = true;
 
@@ -63,6 +84,13 @@ public record ConfigFieldSpec(
 
         public Builder defaultValue(String v) {
             this.defaultValue = v;
+            return this;
+        }
+
+        public Builder ownerPluginId(String ownerPluginId) {
+            this.ownerPluginId = ownerPluginId == null || ownerPluginId.isBlank()
+                    ? CORE_OWNER
+                    : ownerPluginId.trim();
             return this;
         }
 
@@ -91,6 +119,11 @@ public record ConfigFieldSpec(
             return this;
         }
 
+        public Builder visibleWhenConditions(List<GuiConfigCondition> conditions) {
+            this.visibleWhenConditions = conditions == null ? List.of() : List.copyOf(conditions);
+            return this;
+        }
+
         public Builder hotReloadable() {
             this.requiresRestart = false;
             return this;
@@ -102,9 +135,9 @@ public record ConfigFieldSpec(
         }
 
         public ConfigFieldSpec build() {
-            return new ConfigFieldSpec(key, label, type, group, helpText, defaultValue,
-                    validator, enumValues, enumValueLabels, enabledWhen, visibleWhen, requiresRestart,
-                    contributesGroupVisibility);
+            return new ConfigFieldSpec(key, label, type, group, ownerPluginId, helpText, defaultValue,
+                    validator, enumValues, enumValueLabels, enabledWhen, visibleWhen,
+                    visibleWhenConditions, requiresRestart, contributesGroupVisibility);
         }
     }
 }

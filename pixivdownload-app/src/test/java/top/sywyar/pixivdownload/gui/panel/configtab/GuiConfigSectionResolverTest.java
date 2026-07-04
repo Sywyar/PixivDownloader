@@ -13,6 +13,8 @@ import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigPresetSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionNoticeSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
+import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
@@ -22,6 +24,7 @@ import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JComponent;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -269,8 +272,8 @@ class GuiConfigSectionResolverTest {
     }
 
     @Test
-    @DisplayName("单卡片声明式 section 不渲染额外卡片切换器")
-    void singleCardSectionDoesNotRenderCardSwitcher() {
+    @DisplayName("单卡片声明式 section 仍保留迁移前的卡片切换控件")
+    void singleCardSectionStillRendersCardSwitcher() {
         String group = "Fixture Group";
         RecordingContext ctx = new RecordingContext(List.of(field("fixture.enabled", group)));
         GuiConfigSectionSpec declared = cardSection(
@@ -281,7 +284,7 @@ class GuiConfigSectionResolverTest {
         JComponent built = resolved.build();
         JPanel content = (JPanel) ((JScrollPane) built).getViewport().getView();
 
-        assertThat(countComponents(content, JComboBox.class)).isZero();
+        assertThat(countComponents(content, JComboBox.class)).isEqualTo(1);
         assertThat(ctx.registrationOrder()).containsExactly("fixture.enabled");
     }
 
@@ -345,6 +348,187 @@ class GuiConfigSectionResolverTest {
                 .containsExactly("fixture.engine", "fixture.first");
         assertThat(visibleFieldRowSpacingCount(content)).isEqualTo(2);
         assertThat(visibleDirectFixedStruts(content)).isZero();
+    }
+
+    @Test
+    @DisplayName("配置页一级页签区分宿主配置与插件设置")
+    void configPanelSeparatesHostAndPluginSettings() {
+        String group = GuiMessages.get("gui.config.group.server");
+        ConfigFieldSpec hostField = field("host.plugins", group);
+        ConfigFieldSpec pluginField = pluginField("plugin.plugins", group, "fixture");
+        GuiConfigSectionSpec pluginSection = section(
+                "fixture", "fixture.plugins", GuiConfigGroups.SERVER, group, 10, "plugin.plugins");
+        ConfigFieldSnapshot snapshot = new ConfigFieldSnapshot(
+                List.of(group),
+                List.of(hostField, pluginField),
+                List.of(pluginSection),
+                List.of());
+
+        ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
+                path -> path, snapshot);
+        JTabbedPane topTabs = firstTabbedPane(panel);
+
+        assertThat(tabTitles(topTabs)).containsExactly(
+                group,
+                GuiMessages.get("gui.config.scope.plugins"));
+        assertThat(topTabs.getComponentAt(0)).isNotInstanceOf(JTabbedPane.class);
+        assertThat(tabTitles((JTabbedPane) topTabs.getComponentAt(1))).containsExactly(group);
+
+        JPanel hostContent = configTabContent(panel, group);
+        JPanel pluginContent = configTabContent(topTabs.getComponentAt(1), group);
+        assertThat(visibleFieldRows(hostContent)).contains("host.plugins");
+        assertThat(visibleFieldRows(hostContent)).doesNotContain("plugin.plugins");
+        assertThat(visibleFieldRows(pluginContent)).contains("plugin.plugins");
+        assertThat(visibleFieldRows(pluginContent)).doesNotContain("host.plugins");
+    }
+
+    @Test
+    @DisplayName("声明式单卡片 section 可按枚举字段恢复子卡片切换布局")
+    void singleCardSectionRestoresNestedEnumSwitcherLayout() {
+        String group = "Fixture Group";
+        List<ConfigFieldSpec> fields = nestedSwitchingFields(group);
+        RecordingContext ctx = new RecordingContext(fields);
+        GuiConfigSectionSpec declared = cardSection(
+                "fixture", "fixture.nested-card", "fixture.group", group, 10,
+                List.of(
+                        new GuiConfigFieldLayoutSpec("fixture.engine", "tts", "TTS", 10),
+                        new GuiConfigFieldLayoutSpec("fixture.first", "tts", "TTS", 20),
+                        new GuiConfigFieldLayoutSpec("fixture.second", "tts", "TTS", 30)));
+
+        ConfigSection resolved = singleSection(ctx, group, List.of(declared));
+        JComponent built = resolved.build();
+        JPanel content = (JPanel) ((JScrollPane) built).getViewport().getView();
+
+        assertThat(countComponents(content, JComboBox.class)).isEqualTo(2);
+        assertThat(visibleFieldRowsDeep(content))
+                .containsExactly("fixture.engine", "fixture.first");
+
+        ctx.setFieldValue("fixture.engine", "second");
+        ctx.updateEnabledStates();
+
+        assertThat(visibleFieldRowsDeep(content))
+                .containsExactly("fixture.engine", "fixture.second");
+    }
+
+    @Test
+    @DisplayName("通知声明式 section 恢复旧版紧凑类型与服务卡片切换布局")
+    void notificationSectionsRestoreLegacyCompactScenarioAndServiceCards() {
+        String group = "Notification Group";
+        RecordingContext ctx = new RecordingContext(List.of(
+                boolField("push.enabled", group),
+                boolField("notification.scenario.run-summary.enabled", group),
+                boolField("notification.scenario.run-failed.enabled", group),
+                boolField("mail.enabled", group),
+                field("mail.host", group),
+                boolField("push.bark.enabled", group),
+                field("push.bark.server", group)));
+        GuiConfigSectionSpec notice = new GuiConfigSectionSpec(
+                "mail",
+                "notification.service.notice",
+                "notification",
+                group,
+                0,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                List.of(new GuiConfigSectionNoticeSpec(
+                        "notification.service.concurrent",
+                        "所有已启用的通知服务会同时生效",
+                        GuiConfigSectionNoticeStyle.HINT,
+                        0)),
+                GuiConfigSectionLayout.FIELD_LIST,
+                70,
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                false);
+        GuiConfigSectionSpec master = section("push", "push.master", "notification", group, 80, "push.enabled");
+        GuiConfigSectionSpec scenarios = new GuiConfigSectionSpec(
+                "notification",
+                "notification.scenarios",
+                "notification",
+                group,
+                0,
+                "",
+                "",
+                "需要通知的类型",
+                "取消勾选某类型后，该类型的通知都不再发送",
+                "",
+                "",
+                List.of(),
+                GuiConfigSectionLayout.COMPACT_GRID,
+                100,
+                List.of(
+                        new GuiConfigFieldLayoutSpec("notification.scenario.run-summary.enabled", null, "", 10),
+                        new GuiConfigFieldLayoutSpec("notification.scenario.run-failed.enabled", null, "", 20)),
+                List.of(),
+                List.of(),
+                false,
+                false);
+        GuiConfigSectionSpec services = cardSection(
+                "mail", "notification.services", "notification", group, 200,
+                List.of(
+                        new GuiConfigFieldLayoutSpec("mail.enabled", "mail", "邮件 / SMTP", 10),
+                        new GuiConfigFieldLayoutSpec("mail.host", "mail", "邮件 / SMTP", 20),
+                        new GuiConfigFieldLayoutSpec("push.bark.enabled", "bark", "Bark", 30),
+                        new GuiConfigFieldLayoutSpec("push.bark.server", "bark", "Bark", 40)));
+
+        ConfigSection resolved = singleSection(ctx, group, List.of(
+                services,
+                scenarios,
+                master,
+                notice));
+        JComponent built = resolved.build();
+        JPanel content = (JPanel) ((JScrollPane) built).getViewport().getView();
+        List<JComboBox> combos = components(content, JComboBox.class);
+
+        assertThat(visibleFieldRowsDeep(content))
+                .containsExactly("push.enabled", "mail.enabled", "mail.host");
+        assertThat(components(content, JCheckBox.class).stream()
+                .map(JCheckBox::getText)
+                .filter(text -> text != null && text.startsWith("notification.scenario."))
+                .toList())
+                .containsExactly(
+                        "notification.scenario.run-summary.enabled",
+                        "notification.scenario.run-failed.enabled");
+        assertThat(combos).hasSize(1);
+        assertThat(componentIndex(content, combos.get(0)))
+                .isGreaterThan(componentIndex(content, ctx.renderedField("push.enabled").panel()))
+                .isLessThan(componentIndex(content, ctx.renderedField("mail.enabled").panel()));
+
+        combos.get(0).setSelectedItem("bark");
+
+        assertThat(visibleFieldRowsDeep(content))
+                .containsExactly("push.enabled", "push.bark.enabled", "push.bark.server");
+    }
+
+    @Test
+    @DisplayName("被声明式 section 跨分组消费的插件字段不再生成平铺配置页")
+    void claimedPluginFieldsDoNotCreatePlainGroupTabs() {
+        String aiGroup = "AI Group";
+        String ttsGroup = "TTS Group";
+        ConfigFieldSpec ttsField = pluginField("fixture.tts.engine", ttsGroup, "fixture");
+        GuiConfigSectionSpec aiSection = cardSection(
+                "fixture", "fixture.ai", "fixture.ai.group", aiGroup, 10,
+                List.of(new GuiConfigFieldLayoutSpec("fixture.tts.engine", "tts", "TTS", 10)));
+        ConfigFieldSnapshot snapshot = new ConfigFieldSnapshot(
+                List.of(aiGroup, ttsGroup),
+                List.of(ttsField),
+                List.of(aiSection),
+                List.of());
+
+        ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999,
+                path -> path, snapshot);
+        JTabbedPane topTabs = firstTabbedPane(panel);
+        JTabbedPane pluginTabs = (JTabbedPane) topTabs.getComponentAt(0);
+
+        assertThat(tabTitles(topTabs)).containsExactly(GuiMessages.get("gui.config.scope.plugins"));
+        assertThat(tabTitles(pluginTabs)).containsExactly(aiGroup);
+        assertThat(visibleFieldRowsDeep(pluginTabs)).containsExactly("fixture.tts.engine");
     }
 
     @Test
@@ -489,6 +673,19 @@ class GuiConfigSectionResolverTest {
                 .build();
     }
 
+    private static ConfigFieldSpec boolField(String key, String group) {
+        return ConfigFieldSpec.builder(key, key, FieldType.BOOL, group)
+                .defaultValue("true")
+                .build();
+    }
+
+    private static ConfigFieldSpec pluginField(String key, String group, String pluginId) {
+        return ConfigFieldSpec.builder(key, key, FieldType.STRING, group)
+                .ownerPluginId(pluginId)
+                .defaultValue("")
+                .build();
+    }
+
     private static List<ConfigFieldSpec> switchingFields(String group) {
         ConfigFieldSpec engine = ConfigFieldSpec.builder("fixture.engine", "Engine", FieldType.ENUM, group)
                 .defaultValue("first")
@@ -503,22 +700,69 @@ class GuiConfigSectionResolverTest {
         return List.of(engine, first, second);
     }
 
+    private static List<ConfigFieldSpec> nestedSwitchingFields(String group) {
+        ConfigFieldSpec engine = ConfigFieldSpec.builder("fixture.engine", "Engine", FieldType.ENUM, group)
+                .defaultValue("first")
+                .enumValues("first", "second")
+                .build();
+        ConfigFieldSpec first = ConfigFieldSpec.builder("fixture.first", "First", FieldType.STRING, group)
+                .visibleWhen(snap -> snap.equals("fixture.engine", "first"))
+                .visibleWhenConditions(List.of(GuiConfigCondition.equalsTo("fixture.engine", "first")))
+                .build();
+        ConfigFieldSpec second = ConfigFieldSpec.builder("fixture.second", "Second", FieldType.STRING, group)
+                .visibleWhen(snap -> snap.equals("fixture.engine", "second"))
+                .visibleWhenConditions(List.of(GuiConfigCondition.equalsTo("fixture.engine", "second")))
+                .build();
+        return List.of(engine, first, second);
+    }
+
     private static JPanel configTabContent(ConfigPanel panel, String group) {
-        for (Component component : panel.getComponents()) {
-            if (component instanceof JTabbedPane tabs) {
-                for (int i = 0; i < tabs.getTabCount(); i++) {
-                    if (!group.equals(tabs.getTitleAt(i))) {
-                        continue;
-                    }
-                    Component tab = tabs.getComponentAt(i);
-                    if (tab instanceof JScrollPane scrollPane
-                            && scrollPane.getViewport().getView() instanceof JPanel content) {
-                        return content;
-                    }
+        return configTabContent((Component) panel, group);
+    }
+
+    private static JPanel configTabContent(Component root, String group) {
+        if (root instanceof JTabbedPane tabs) {
+            for (int i = 0; i < tabs.getTabCount(); i++) {
+                Component tab = tabs.getComponentAt(i);
+                if (group.equals(tabs.getTitleAt(i))
+                        && tab instanceof JScrollPane scrollPane
+                        && scrollPane.getViewport().getView() instanceof JPanel content) {
+                    return content;
+                }
+                try {
+                    return configTabContent(tab, group);
+                } catch (AssertionError ignored) {
+                    // Continue searching sibling tabs.
+                }
+            }
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                try {
+                    return configTabContent(child, group);
+                } catch (AssertionError ignored) {
+                    // Continue searching sibling components.
                 }
             }
         }
         throw new AssertionError("ConfigPanel tab content not found: " + group);
+    }
+
+    private static JTabbedPane firstTabbedPane(Container container) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JTabbedPane tabs) {
+                return tabs;
+            }
+        }
+        throw new AssertionError("Tabbed pane not found");
+    }
+
+    private static List<String> tabTitles(JTabbedPane tabs) {
+        List<String> titles = new ArrayList<>();
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            titles.add(tabs.getTitleAt(i));
+        }
+        return titles;
     }
 
     private static List<String> visibleFieldRows(JPanel content) {
@@ -530,6 +774,29 @@ class GuiConfigSectionResolverTest {
                 .filter(String.class::isInstance)
                 .map(String.class::cast)
                 .toList();
+    }
+
+    private static List<String> visibleFieldRowsDeep(Component root) {
+        List<String> keys = new ArrayList<>();
+        collectVisibleFieldRows(root, keys);
+        return keys;
+    }
+
+    private static void collectVisibleFieldRows(Component component, List<String> keys) {
+        if (!component.isVisible()) {
+            return;
+        }
+        if (component instanceof JComponent jComponent) {
+            Object key = jComponent.getClientProperty(ConfigFieldRows.FIELD_KEY_PROPERTY);
+            if (key instanceof String fieldKey) {
+                keys.add(fieldKey);
+            }
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                collectVisibleFieldRows(child, keys);
+            }
+        }
     }
 
     private static int visibleFieldRowSpacingCount(JPanel content) {
@@ -577,6 +844,48 @@ class GuiConfigSectionResolverTest {
             }
         }
         return count;
+    }
+
+    private static <T extends Component> List<T> components(Component root, Class<T> type) {
+        List<T> found = new ArrayList<>();
+        collectComponents(root, type, found);
+        return found;
+    }
+
+    private static <T extends Component> void collectComponents(Component root, Class<T> type, List<T> found) {
+        if (type.isInstance(root)) {
+            found.add(type.cast(root));
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                collectComponents(child, type, found);
+            }
+        }
+    }
+
+    private static int componentIndex(Container root, Component target) {
+        int[] index = {0};
+        int found = componentIndex(root, target, index);
+        if (found < 0) {
+            throw new AssertionError("Component not found: " + target);
+        }
+        return found;
+    }
+
+    private static int componentIndex(Component current, Component target, int[] index) {
+        if (current == target) {
+            return index[0];
+        }
+        index[0]++;
+        if (current instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                int found = componentIndex(child, target, index);
+                if (found >= 0) {
+                    return found;
+                }
+            }
+        }
+        return -1;
     }
 
     private static final class EmptyConfigSection implements ConfigSection {

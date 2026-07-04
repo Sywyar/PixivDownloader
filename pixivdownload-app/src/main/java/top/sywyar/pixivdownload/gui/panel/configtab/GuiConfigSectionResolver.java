@@ -31,8 +31,19 @@ public final class GuiConfigSectionResolver {
                                                      List<GuiConfigSectionSpec> pluginSections,
                                                      Path configPath,
                                                      Function<String, String> webUrlProvider) {
+        return createSections(ctx, visibleGroups, pluginSections, configPath, webUrlProvider, true);
+    }
+
+    public static List<ConfigSection> createSections(ConfigSectionContext ctx,
+                                                     List<String> visibleGroups,
+                                                     List<GuiConfigSectionSpec> pluginSections,
+                                                     Path configPath,
+                                                     Function<String, String> webUrlProvider,
+                                                     boolean includeTransitionAdapters) {
         List<GuiConfigSectionSpec> safePluginSections = pluginSections == null ? List.of() : pluginSections;
-        List<GuiConfigSectionSpec> transitionSpecs = transitionAdapterSpecs(visibleGroups);
+        List<GuiConfigSectionSpec> transitionSpecs = includeTransitionAdapters
+                ? transitionAdapterSpecs(visibleGroups)
+                : List.of();
         Map<String, List<ConfigSectionBlock>> blocksByGroup = new LinkedHashMap<>();
         Set<String> exclusiveGroups = new LinkedHashSet<>();
 

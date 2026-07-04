@@ -22,6 +22,8 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigConditionOperator;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 
 import javax.swing.BorderFactory;
@@ -92,12 +94,8 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             addPresetCombo(content, section, null);
             if (section.layout() == GuiConfigSectionLayout.CARD_SWITCHER) {
                 Map<String, List<GuiConfigFieldLayoutSpec>> layoutsByCard = layoutsByCard(section);
-                if (layoutsByCard.size() > 1) {
+                if (!layoutsByCard.isEmpty()) {
                     addCardSwitcher(content, section, rendered, layoutsByCard);
-                } else if (layoutsByCard.size() == 1) {
-                    Map.Entry<String, List<GuiConfigFieldLayoutSpec>> card =
-                            layoutsByCard.entrySet().iterator().next();
-                    addCardContent(content, section, card.getValue(), card.getKey(), rendered);
                 } else {
                     addFields(content, fieldsFor(section, rendered));
                 }
@@ -298,8 +296,44 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                                 List<GuiConfigFieldLayoutSpec> layouts,
                                 String cardId, Set<String> rendered) {
         addPresetCombo(content, section, cardId);
-        addFields(content, fieldsByLayout(layouts, rendered));
+        List<ConfigFieldSpec> fields = fieldsByLayout(layouts, rendered);
+        if (!addNestedEnumSwitcher(content, fields)) {
+            addFields(content, fields);
+        }
         addActions(content, section, cardId);
+    }
+
+    private boolean addNestedEnumSwitcher(JPanel content, List<ConfigFieldSpec> fields) {
+        NestedEnumCards nested = nestedEnumCards(fields);
+        if (nested == null) {
+            return false;
+        }
+
+        FieldRenderer.RenderedField controller = ConfigFieldRows.render(nested.controller());
+        ctx.registerField(nested.controller(), controller);
+        content.add(controller.panel());
+
+        Map<String, JComponent> cards = new LinkedHashMap<>();
+        for (String value : nested.controller().enumValues()) {
+            JPanel card = ctx.newContentPanel();
+            addFields(card, nested.fieldsByValue().getOrDefault(value, List.of()));
+            cards.put(value, card);
+        }
+
+        JPanel cardHost = manualSwapHost();
+        if (controller.control() instanceof JComboBox<?> combo) {
+            combo.addActionListener(e -> {
+                Object selected = combo.getSelectedItem();
+                if (selected instanceof String value) {
+                    GuiThemeRefresh.showCard(cardHost, cardOrFirst(cards, value));
+                }
+            });
+            Object selected = combo.getSelectedItem();
+            String initial = selected instanceof String value ? value : nested.controller().defaultValue();
+            GuiThemeRefresh.showCard(cardHost, cardOrFirst(cards, initial));
+        }
+        content.add(cardHost);
+        return true;
     }
 
     private void addCompactGrid(JPanel content, GuiConfigSectionSpec section, Set<String> rendered) {
@@ -370,6 +404,9 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         if (!section.fieldLayouts().isEmpty()) {
             return fieldsByLayout(section.fieldLayouts(), rendered);
         }
+        if (!section.contributesGroupVisibility()) {
+            return List.of();
+        }
         return ctx.allFields().stream()
                 .filter(field -> group.equals(field.group()))
                 .filter(field -> rendered.add(field.key()))
@@ -385,6 +422,53 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             }
         }
         return fields;
+    }
+
+    private NestedEnumCards nestedEnumCards(List<ConfigFieldSpec> fields) {
+        if (fields == null || fields.size() < 2) {
+            return null;
+        }
+        for (ConfigFieldSpec candidate : fields) {
+            if (candidate.type() != FieldType.ENUM || candidate.enumValues().isEmpty()) {
+                continue;
+            }
+            Map<String, List<ConfigFieldSpec>> byValue = new LinkedHashMap<>();
+            boolean allDependOnCandidate = true;
+            for (ConfigFieldSpec field : fields) {
+                if (field.key().equals(candidate.key())) {
+                    continue;
+                }
+                String value = visibleEqualsValue(field, candidate.key());
+                if (value == null || !candidate.enumValues().contains(value)) {
+                    allDependOnCandidate = false;
+                    break;
+                }
+                byValue.computeIfAbsent(value, ignored -> new ArrayList<>()).add(field);
+            }
+            if (allDependOnCandidate && !byValue.isEmpty()) {
+                return new NestedEnumCards(candidate, byValue);
+            }
+        }
+        return null;
+    }
+
+    private static String visibleEqualsValue(ConfigFieldSpec field, String key) {
+        for (GuiConfigCondition condition : field.visibleWhenConditions()) {
+            if (condition != null
+                    && condition.operator() == GuiConfigConditionOperator.EQUALS
+                    && key.equals(condition.key())) {
+                return condition.value() == null ? "" : condition.value();
+            }
+        }
+        return null;
+    }
+
+    private static JComponent cardOrFirst(Map<String, JComponent> cards, String key) {
+        JComponent card = cards.get(key);
+        if (card != null) {
+            return card;
+        }
+        return cards.values().iterator().next();
     }
 
     private void addFields(JPanel content, List<ConfigFieldSpec> fields) {
@@ -562,6 +646,12 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         private void setUpdating(boolean updating) {
             combo.putClientProperty(UPDATING_KEY, updating);
         }
+    }
+
+    private record NestedEnumCards(
+            ConfigFieldSpec controller,
+            Map<String, List<ConfigFieldSpec>> fieldsByValue
+    ) {
     }
 
     private record ActionResult(

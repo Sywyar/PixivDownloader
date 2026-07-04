@@ -150,36 +150,122 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private void buildUi() {
         setLayout(new BorderLayout(0, 0));
 
-        // 特殊分组（自带控件 / 异步测试 / 预设联动 / 列表编辑器）统一经 section contribution resolver 接入；
-        // 普通分组仍走 buildGroupPanel 声明式渲染。
-        sections = GuiConfigSectionResolver.createSections(
-                this, groups, sectionContributions, configPath, webUrlProvider);
-        sectionsByGroup = new LinkedHashMap<>();
-        for (ConfigSection section : sections) {
-            sectionsByGroup.put(section.group(), section);
-        }
-
-        // 子标签页（按 group）
-        JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
-        for (String group : groups) {
-            if (shouldHideGroup(group)) {
-                continue;
-            }
-            ConfigSection section = sectionsByGroup.get(group);
-            tabs.addTab(group, section != null ? section.build() : buildGroupPanel(group));
-        }
-        add(tabs, BorderLayout.CENTER);
+        List<ConfigSection> resolvedSections = new ArrayList<>();
+        JTabbedPane topTabs = new JTabbedPane(JTabbedPane.TOP);
+        addHostTabs(topTabs, resolvedSections);
+        topTabs.addTab(message("gui.config.scope.plugins"),
+                buildPluginSettingsTab(resolvedSections));
+        sections = List.copyOf(resolvedSections);
+        add(topTabs, BorderLayout.CENTER);
 
         // 底部面板：提示条 + 按钮
         add(buildBottomPanel(), BorderLayout.SOUTH);
     }
 
-    private JComponent buildGroupPanel(String group) {
+    private void addHostTabs(JTabbedPane topTabs, List<ConfigSection> resolvedSections) {
+        ConfigScope scope = ConfigScope.HOST;
+        List<String> hostGroups = visibleGroups(scope);
+        ConfigSectionContext scopedContext = new ScopedConfigSectionContext(this, scope);
+        List<ConfigSection> hostSections = GuiConfigSectionResolver.createSections(
+                scopedContext, hostGroups, scopedSections(scope), configPath, webUrlProvider,
+                scope.includeHostTransitionAdapters());
+        resolvedSections.addAll(hostSections);
+
+        Map<String, ConfigSection> sectionsByGroup = new LinkedHashMap<>();
+        for (ConfigSection section : hostSections) {
+            sectionsByGroup.put(section.group(), section);
+        }
+
+        for (String group : hostGroups) {
+            ConfigSection section = sectionsByGroup.get(group);
+            topTabs.addTab(group, section != null ? section.build() : buildGroupPanel(group, scope));
+        }
+    }
+
+    private JComponent buildPluginSettingsTab(List<ConfigSection> resolvedSections) {
+        ConfigScope scope = ConfigScope.PLUGIN;
+        List<String> scopeGroups = visibleGroups(scope);
+        if (scopeGroups.isEmpty()) {
+            return buildEmptyScopePanel(scope);
+        }
+
+        ConfigSectionContext scopedContext = new ScopedConfigSectionContext(this, scope);
+        List<ConfigSection> scopeSections = GuiConfigSectionResolver.createSections(
+                scopedContext, scopeGroups, scopedSections(scope), configPath, webUrlProvider,
+                scope.includeHostTransitionAdapters());
+        resolvedSections.addAll(scopeSections);
+
+        Map<String, ConfigSection> sectionsByGroup = new LinkedHashMap<>();
+        for (ConfigSection section : scopeSections) {
+            sectionsByGroup.put(section.group(), section);
+        }
+
+        JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
+        for (String group : scopeGroups) {
+            ConfigSection section = sectionsByGroup.get(group);
+            tabs.addTab(group, section != null ? section.build() : buildGroupPanel(group, scope));
+        }
+        return tabs;
+    }
+
+    private List<String> visibleGroups(ConfigScope scope) {
+        Set<String> claimedFieldKeys = claimedFieldKeys(scope);
+        return groups.stream()
+                .filter(group -> !shouldHideGroup(group))
+                .filter(group -> groupHasContent(group, scope, claimedFieldKeys))
+                .toList();
+    }
+
+    private List<GuiConfigSectionSpec> scopedSections(ConfigScope scope) {
+        return sectionContributions.stream()
+                .filter(section -> scope.includesSection(section))
+                .toList();
+    }
+
+    private JComponent buildEmptyScopePanel(ConfigScope scope) {
+        JPanel content = new GroupContentPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        JLabel label = new JLabel(message(scope.emptyMessageKey()));
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(label);
+        content.add(Box.createVerticalGlue());
+        JScrollPane sp = new JScrollPane(content);
+        sp.setBorder(null);
+        return sp;
+    }
+
+    private boolean groupHasContent(String group, ConfigScope scope, Set<String> claimedFieldKeys) {
+        boolean hasField = allFields.stream()
+                .filter(ConfigFieldSpec::contributesGroupVisibility)
+                .filter(field -> !claimedFieldKeys.contains(field.key()))
+                .anyMatch(field -> group.equals(field.group()) && scope.includesField(field));
+        boolean hasSection = sectionContributions.stream()
+                .filter(GuiConfigSectionSpec::contributesGroupVisibility)
+                .anyMatch(section -> group.equals(section.group()) && scope.includesSection(section));
+        boolean hasHostTransition = scope == ConfigScope.HOST && ConfigFieldRegistry.groupPlugins().equals(group);
+        return hasField || hasSection || hasHostTransition;
+    }
+
+    private Set<String> claimedFieldKeys(ConfigScope scope) {
+        Set<String> claimed = new LinkedHashSet<>();
+        scopedSections(scope).stream()
+                .filter(section -> !shouldHideGroup(section.group()))
+                .flatMap(section -> section.fieldLayouts().stream())
+                .map(GuiConfigFieldLayoutSpec::fieldKey)
+                .filter(Objects::nonNull)
+                .forEach(claimed::add);
+        return claimed;
+    }
+
+    private JComponent buildGroupPanel(String group, ConfigScope scope) {
         JPanel content = new GroupContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        Set<String> claimedFieldKeys = claimedFieldKeys(scope);
 
         List<ConfigFieldSpec> fields = allFields.stream()
                 .filter(f -> group.equals(f.group()))
+                .filter(scope::includesField)
+                .filter(field -> !claimedFieldKeys.contains(field.key()))
                 .toList();
 
         for (ConfigFieldSpec spec : fields) {
@@ -869,6 +955,142 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return "unknown";
         }
         return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+
+    private enum ConfigScope {
+        HOST("", true) {
+            @Override
+            boolean includesField(ConfigFieldSpec field) {
+                return field != null && !field.pluginContributed();
+            }
+
+            @Override
+            boolean includesSection(GuiConfigSectionSpec section) {
+                return section != null && ConfigFieldSpec.CORE_OWNER.equals(section.pluginId());
+            }
+        },
+        PLUGIN("gui.config.scope.plugins.empty", false) {
+            @Override
+            boolean includesField(ConfigFieldSpec field) {
+                return field != null && field.pluginContributed();
+            }
+
+            @Override
+            boolean includesSection(GuiConfigSectionSpec section) {
+                return section != null && !ConfigFieldSpec.CORE_OWNER.equals(section.pluginId());
+            }
+        };
+
+        private final String emptyMessageKey;
+        private final boolean includeHostTransitionAdapters;
+
+        ConfigScope(String emptyMessageKey, boolean includeHostTransitionAdapters) {
+            this.emptyMessageKey = emptyMessageKey;
+            this.includeHostTransitionAdapters = includeHostTransitionAdapters;
+        }
+
+        abstract boolean includesField(ConfigFieldSpec field);
+
+        abstract boolean includesSection(GuiConfigSectionSpec section);
+
+        private String emptyMessageKey() {
+            return emptyMessageKey;
+        }
+
+        private boolean includeHostTransitionAdapters() {
+            return includeHostTransitionAdapters;
+        }
+    }
+
+    private static final class ScopedConfigSectionContext implements ConfigSectionContext {
+        private final ConfigSectionContext delegate;
+        private final ConfigScope scope;
+
+        private ScopedConfigSectionContext(ConfigSectionContext delegate, ConfigScope scope) {
+            this.delegate = delegate;
+            this.scope = scope;
+        }
+
+        @Override
+        public List<ConfigFieldSpec> allFields() {
+            return delegate.allFields().stream()
+                    .filter(scope::includesField)
+                    .toList();
+        }
+
+        @Override
+        public ConfigFieldSpec findSpec(String key) {
+            ConfigFieldSpec spec = delegate.findSpec(key);
+            return scope.includesField(spec) ? spec : null;
+        }
+
+        @Override
+        public void registerField(ConfigFieldSpec spec, FieldRenderer.RenderedField rf) {
+            if (scope.includesField(spec)) {
+                delegate.registerField(spec, rf);
+            }
+        }
+
+        @Override
+        public void addFields(JPanel content, List<ConfigFieldSpec> specs) {
+            List<ConfigFieldSpec> scopedSpecs = specs == null ? List.of() : specs.stream()
+                    .filter(scope::includesField)
+                    .toList();
+            delegate.addFields(content, scopedSpecs);
+        }
+
+        @Override
+        public String currentFieldValue(String key) {
+            return delegate.currentFieldValue(key);
+        }
+
+        @Override
+        public void setFieldValue(String key, String value) {
+            delegate.setFieldValue(key, value);
+        }
+
+        @Override
+        public void lockField(String key) {
+            ConfigFieldSpec spec = delegate.findSpec(key);
+            if (scope.includesField(spec)) {
+                delegate.lockField(key);
+            }
+        }
+
+        @Override
+        public JPanel newContentPanel() {
+            return delegate.newContentPanel();
+        }
+
+        @Override
+        public void resetScrollToTopOnFirstShow(JScrollPane sp) {
+            delegate.resetScrollToTopOnFirstShow(sp);
+        }
+
+        @Override
+        public JLabel effectLabel(boolean requiresRestart) {
+            return delegate.effectLabel(requiresRestart);
+        }
+
+        @Override
+        public JTextArea hiddenValidationError() {
+            return delegate.hiddenValidationError();
+        }
+
+        @Override
+        public void showNotice(String msg) {
+            delegate.showNotice(msg);
+        }
+
+        @Override
+        public void updateEnabledStates() {
+            delegate.updateEnabledStates();
+        }
+
+        @Override
+        public GuiConfigTestClient testClient() {
+            return delegate.testClient();
+        }
     }
 
     private static final class GroupContentPanel extends JPanel implements Scrollable {

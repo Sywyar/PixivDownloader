@@ -93,6 +93,8 @@ class GuiConfigContributionAggregatorTest {
         ConfigFieldSpec secret = field(snapshot, "fixture.secret");
 
         assertThat(snapshot.groups()).contains("fixture.group.label");
+        assertThat(mode.ownerPluginId()).isEqualTo("fixture");
+        assertThat(mode.pluginContributed()).isTrue();
         assertThat(mode.label()).isEqualTo("fixture.mode.label");
         assertThat(mode.group()).isEqualTo("fixture.group.label");
         assertThat(secret.type()).isEqualTo(FieldType.PASSWORD);
