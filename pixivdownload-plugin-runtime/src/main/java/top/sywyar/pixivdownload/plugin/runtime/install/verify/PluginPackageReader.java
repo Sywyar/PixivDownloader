@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Enumeration;
@@ -86,6 +87,27 @@ public final class PluginPackageReader {
      */
     public static PluginPackageInspection inspect(Path packagePath) {
         return inspect(packagePath, PluginPackageLimits.defaults());
+    }
+
+    /**
+     * 读取磁盘上的单个 {@value #PLUGIN_PROPERTIES} 描述符文件，供显式开发模式复用同一套 PF4J 描述符解析口径。
+     */
+    public static PluginDescriptor inspectDescriptor(Path descriptorPath) {
+        return inspectDescriptor(descriptorPath, PluginPackageLimits.defaults());
+    }
+
+    /**
+     * 同 {@link #inspectDescriptor(Path)}，但用给定 {@code limits} 限制描述符读取字节数。
+     */
+    public static PluginDescriptor inspectDescriptor(Path descriptorPath, PluginPackageLimits limits) {
+        Objects.requireNonNull(descriptorPath, "descriptorPath");
+        Objects.requireNonNull(limits, "limits");
+        try (InputStream in = new BufferedInputStream(Files.newInputStream(descriptorPath))) {
+            return toDescriptor(parseDescriptor(in, descriptorPath.toString(), limits.maxDescriptorBytes()));
+        } catch (IOException e) {
+            throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
+                    "failed to read descriptor " + descriptorPath + ": " + e.getMessage(), e);
+        }
     }
 
     /**

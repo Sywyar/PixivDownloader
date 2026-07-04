@@ -8,6 +8,7 @@ import org.pf4j.PluginWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactMaterializer;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
@@ -53,6 +54,8 @@ public class PluginRuntimeManager {
     // 所有运行期包变更必须复用本类的单包原语，禁止在 app 侧直接操作 PF4J manager。
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
+    private static final String ANSI_RED_BOLD = "\u001B[1;31m";
+    private static final String ANSI_RESET = "\u001B[0m";
 
     private final Path pluginsRoot;
     private final PluginRuntimeLayout layout;
@@ -104,6 +107,10 @@ public class PluginRuntimeManager {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
         resetPluginManager();
 
+        if (PluginDevelopmentArtifacts.enabled()) {
+            return startDevelopmentMode(directory);
+        }
+
         if (!Files.isDirectory(pluginsRoot)) {
             PluginDirectoryState state = PluginDirectoryState.ABSENT;
             return cache(new PluginRuntimeStatus(directory, state, List.of(), List.of(), List.of()));
@@ -150,10 +157,109 @@ public class PluginRuntimeManager {
         PluginPackageInspection inspection = verifyBeforeLoad(artifactPath);
         PluginArtifactMaterializer.MaterializedPluginArtifact materialized =
                 materializer.materialize(artifactPath, inspection);
-        ensureManager();
+        return loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot);
+    }
+
+    private PluginRuntimeStatus startDevelopmentMode(Path productionDirectory) {
+        PluginDevelopmentArtifacts.DevelopmentDiscovery discovery;
+        try {
+            discovery = PluginDevelopmentArtifacts.discover(pluginsRoot);
+        } catch (RuntimeException e) {
+            return cache(new PluginRuntimeStatus(productionDirectory, PluginDirectoryState.ABSENT,
+                    List.of(), List.of(), List.of(new PluginLoadFailure(
+                    PluginDevelopmentArtifacts.ROOT_PROPERTY, describe(e)))));
+        }
+        printDevelopmentModeBanner(productionDirectory, discovery);
+        Path developmentRoot = discovery.developmentRoot();
+        if (!Files.isDirectory(developmentRoot)) {
+            return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.ABSENT,
+                    List.of(), List.of(), List.of()));
+        }
+        List<PluginLoadFailure> failures = new ArrayList<>(developmentSourceFailures(discovery));
+        if (discovery.artifacts().isEmpty()) {
+            return cache(new PluginRuntimeStatus(developmentRoot, PluginDirectoryState.EMPTY,
+                    List.of(), List.of(), failures));
+        }
+
+        List<PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> materializedPlugins = new ArrayList<>();
+        for (PluginDevelopmentArtifacts.DevelopmentPluginArtifact artifact : discovery.artifacts()) {
+            try {
+                materializedPlugins.add(PluginDevelopmentArtifacts.materialize(artifact, discovery.cacheRoot()));
+            } catch (RuntimeException e) {
+                failures.add(new PluginLoadFailure(artifact.moduleRoot().getFileName().toString(), describe(e)));
+                log.error("Failed to materialize development plugin module {}",
+                        artifact.moduleRoot().getFileName(), e);
+            }
+        }
+        for (PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized
+                : PluginDevelopmentArtifacts.dependencyOrder(materializedPlugins)) {
+            try {
+                loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
+                        discovery.cacheRoot());
+            } catch (RuntimeException e) {
+                failures.add(new PluginLoadFailure(materialized.descriptor().id(), describe(e)));
+                log.error("Failed to load development plugin module {}",
+                        materialized.moduleRoot().getFileName(), e);
+            }
+        }
+        for (String packageId : List.copyOf(entries.keySet())) {
+            try {
+                startPlugin(packageId);
+            } catch (RuntimeException e) {
+                failures.add(new PluginLoadFailure(packageId, describe(e)));
+                log.error("Failed to start plugin package {}", packageId, e);
+            }
+        }
+        return cache(buildStatus(developmentRoot, failures));
+    }
+
+    private static List<PluginLoadFailure> developmentSourceFailures(
+            PluginDevelopmentArtifacts.DevelopmentDiscovery discovery) {
+        if (discovery.sourceOnlyModules().isEmpty()) {
+            return List.of();
+        }
+        return discovery.sourceOnlyModules().stream()
+                .map(module -> new PluginLoadFailure(module.pluginId(),
+                        "development plugin module has plugin.properties in source resources but no compiled "
+                                + "target/classes/plugin.properties: " + module.moduleRoot()))
+                .toList();
+    }
+
+    private static void printDevelopmentModeBanner(Path productionDirectory,
+                                                   PluginDevelopmentArtifacts.DevelopmentDiscovery discovery) {
+        redLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        redLine("PIXIVDOWNLOAD PLUGIN DEVELOPMENT MODE ENABLED");
+        redLine("The plugins directory is ignored: " + productionDirectory);
+        redLine("Development root: " + discovery.developmentRoot());
+        redLine("Development cache: " + discovery.cacheRoot());
+        redLine("Compiled plugin modules: " + discovery.artifacts().size()
+                + displayModules(discovery.artifacts().stream()
+                .map(artifact -> artifact.moduleRoot().getFileName().toString()).toList()));
+        if (!discovery.sourceOnlyModules().isEmpty()) {
+            redLine("Source plugin modules without target/classes output: "
+                    + displayModules(discovery.sourceOnlyModules().stream()
+                    .map(module -> module.moduleRoot().getFileName().toString()).toList()));
+            redLine("Compile these modules before launching; otherwise required plugins may keep recovery mode active.");
+        }
+        redLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    }
+
+    private static String displayModules(List<String> modules) {
+        if (modules == null || modules.isEmpty()) {
+            return " (none)";
+        }
+        return " [" + String.join(", ", modules) + "]";
+    }
+
+    private static void redLine(String message) {
+        System.err.println(ANSI_RED_BOLD + message + ANSI_RESET);
+    }
+
+    private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot) {
+        ensureManager(pluginManagerRoot);
         String packageId;
         try {
-            packageId = pluginManager.loadPlugin(materialized.pf4jLoadPath());
+            packageId = pluginManager.loadPlugin(pf4jLoadPath);
         } catch (RuntimeException e) {
             throw new PluginRuntimeOperationException("failed to load plugin artifact " + artifactPath, e);
         }
@@ -171,7 +277,7 @@ public class PluginRuntimeManager {
         }
         long generation = generations.merge(packageId, 1L, Long::sum);
         RuntimeEntry entry = new RuntimeEntry(packageId,
-                materialized.originalArtifactPath(), materialized.pf4jLoadPath(),
+                artifactPath.toAbsolutePath().normalize(), pf4jLoadPath.toAbsolutePath().normalize(),
                 wrapper.getDescriptor().getVersion(), generation, PluginRuntimePackagePhase.LOADED);
         entries.put(packageId, entry);
         try {
@@ -418,8 +524,12 @@ public class PluginRuntimeManager {
     }
 
     private void ensureManager() {
+        ensureManager(pluginsRoot);
+    }
+
+    private void ensureManager(Path root) {
         if (pluginManager == null) {
-            pluginManager = new DefaultPluginManager(pluginsRoot);
+            pluginManager = new DefaultPluginManager(root);
         }
     }
 
@@ -462,10 +572,11 @@ public class PluginRuntimeManager {
         if (status == null && entries.isEmpty()) {
             return;
         }
-        PluginDirectoryState state = Files.isDirectory(pluginsRoot)
+        Path directory = status == null ? pluginsRoot.toAbsolutePath().normalize() : status.directory();
+        PluginDirectoryState state = Files.isDirectory(directory)
                 ? (entries.isEmpty() ? PluginDirectoryState.EMPTY : PluginDirectoryState.POPULATED)
                 : PluginDirectoryState.ABSENT;
-        this.status = new PluginRuntimeStatus(pluginsRoot.toAbsolutePath().normalize(), state,
+        this.status = new PluginRuntimeStatus(directory, state,
                 List.copyOf(entries.keySet()), entries.values().stream()
                 .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
                 .map(entry -> entry.packageId).toList(), List.of());

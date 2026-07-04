@@ -60,6 +60,8 @@
         <module>pixivdownload-plugin-gallery</module>
         <!-- 官方可选小说画廊外置插件。小说下载事实 / 正文 / 翻译 / TTS / AI 能力留 app，本模块只承载展示层。 -->
         <module>pixivdownload-plugin-novel-gallery</module>
+        <!-- 官方外置插件开发构建聚合入口。IDE 可用 -pl pixivdownload-official-plugins -am compile 一次性编译全部外置插件。 -->
+        <module>pixivdownload-official-plugins</module>
     </modules>
     <scm>
         <connection/>

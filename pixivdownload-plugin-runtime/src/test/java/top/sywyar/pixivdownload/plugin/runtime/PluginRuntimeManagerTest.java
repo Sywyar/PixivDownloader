@@ -3,22 +3,30 @@ package top.sywyar.pixivdownload.plugin.runtime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbeFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Properties;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -125,6 +133,133 @@ class PluginRuntimeManagerTest {
         assertThat(status.failures().get(0).reason()).isNotBlank();
         // POPULATED 路径会创建 PF4J 实例供后续桥接流程使用
         assertThat(manager.pluginManager()).isPresent();
+    }
+
+    @Test
+    @DisplayName("开发模式：忽略 plugins 目录内容，扫描仓库根模块 target/classes 并加载")
+    void developmentModeLoadsCompiledModuleClassesAndIgnoresPluginsDirectory() throws IOException {
+        Path repositoryRoot = tempDir.resolve("repo");
+        Path pluginsRoot = repositoryRoot.resolve("plugins");
+        Files.createDirectories(pluginsRoot);
+        Files.writeString(pluginsRoot.resolve("broken-plugin.jar"),
+                "this should be ignored in development mode", StandardCharsets.UTF_8);
+        Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
+        writeProbeSourceDescriptor(moduleRoot);
+        Path classesDirectory = moduleRoot.resolve("target/classes");
+        writeProbeClassesDirectory(classesDirectory, true);
+        PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.clearProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+
+            PluginRuntimeStatus status = manager.start();
+
+            Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                    .getPluginPath().toAbsolutePath().normalize();
+            assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
+            assertThat(status.directory()).isEqualTo(repositoryRoot.toAbsolutePath().normalize());
+            assertThat(status.loadedPluginIds()).containsExactly(PROBE_ID);
+            assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
+            assertThat(status.failures()).isEmpty();
+            assertThat(manager.artifactPath(PROBE_ID)).contains(classesDirectory.toAbsolutePath().normalize());
+            assertThat(pf4jPath).startsWith(repositoryRoot.resolve("target/pixivdownload-plugin-dev-runtime")
+                    .toAbsolutePath().normalize());
+            assertThat(pf4jPath.getFileName().toString()).isEqualTo(PROBE_ID + "-" + PROBE_VERSION);
+            assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/plugin/runtime/bootstrap/"
+                    + "BootstrapProbePlugin.class")).exists();
+            assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
+        } finally {
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+    }
+
+    @Test
+    @DisplayName("开发模式：默认开发根从模块工作目录回溯到仓库根")
+    void developmentModeFindsRepositoryRootFromModuleWorkingDirectory() throws IOException {
+        Path repositoryRoot = tempDir.resolve("repo-from-app");
+        Files.createDirectories(repositoryRoot);
+        Files.writeString(repositoryRoot.resolve("pom.xml"), "<project/>", StandardCharsets.UTF_8);
+        Path pluginsRoot = repositoryRoot.resolve("pixivdownload-app/plugins");
+        Files.createDirectories(pluginsRoot);
+        Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
+        writeProbeSourceDescriptor(moduleRoot);
+        Path classesDirectory = moduleRoot.resolve("target/classes");
+        writeProbeClassesDirectory(classesDirectory, false);
+        PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.clearProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+
+            PluginRuntimeStatus status = manager.start();
+
+            assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
+            assertThat(status.directory()).isEqualTo(repositoryRoot.toAbsolutePath().normalize());
+            assertThat(status.loadedPluginIds()).containsExactly(PROBE_ID);
+            assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
+            assertThat(status.failures()).isEmpty();
+        } finally {
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+    }
+
+    @Test
+    @DisplayName("开发模式：红色输出提示忽略 plugins，并列出未编译的源码插件模块")
+    void developmentModePrintsRedBannerAndReportsSourceOnlyModules() throws IOException {
+        Path repositoryRoot = tempDir.resolve("repo-source-only");
+        Path pluginsRoot = repositoryRoot.resolve("plugins");
+        Files.createDirectories(pluginsRoot);
+        writeProbeSourceDescriptor(repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe"));
+        PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        PrintStream previousErr = System.err;
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        try (PrintStream capture = new PrintStream(stderr, true, StandardCharsets.UTF_8)) {
+            System.setErr(capture);
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.clearProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+
+            PluginRuntimeStatus status = manager.start();
+
+            assertThat(status.state()).isEqualTo(PluginDirectoryState.EMPTY);
+            assertThat(status.failures()).hasSize(1);
+            assertThat(status.failures().get(0).source()).isEqualTo(PROBE_ID);
+            assertThat(status.failures().get(0).reason()).contains("target/classes/plugin.properties");
+        } finally {
+            System.setErr(previousErr);
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+        assertThat(stderr.toString(StandardCharsets.UTF_8))
+                .contains("\u001B[1;31m")
+                .contains("PIXIVDOWNLOAD PLUGIN DEVELOPMENT MODE ENABLED")
+                .contains("The plugins directory is ignored")
+                .contains("Source plugin modules without target/classes output")
+                .contains("pixivdownload-plugin-bootstrap-probe");
+    }
+
+    @Test
+    @DisplayName("开发模式：按 plugin.dependencies 将依赖模块排在依赖方之前加载")
+    void developmentModeOrdersMaterializedPluginsByDependencies() {
+        PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin mail =
+                materializedDevelopmentPlugin("mail", List.of(new PluginDependencyRef("notification", "1.0", false)));
+        PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin notification =
+                materializedDevelopmentPlugin("notification", List.of());
+
+        List<String> orderedIds = PluginDevelopmentArtifacts.dependencyOrder(List.of(mail, notification)).stream()
+                .map(plugin -> plugin.descriptor().id())
+                .toList();
+
+        assertThat(orderedIds).containsExactly("notification", "mail");
     }
 
     @Test
@@ -316,6 +451,42 @@ class PluginRuntimeManagerTest {
         }
     }
 
+    private static void writeProbeClassesDirectory(Path classesDirectory, boolean privateLib) throws IOException {
+        Files.createDirectories(classesDirectory);
+        String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+        Files.writeString(classesDirectory.resolve("plugin.properties"), props, StandardCharsets.UTF_8);
+        copyClassFile(classesDirectory, BootstrapProbePlugin.class);
+        copyClassFile(classesDirectory, BootstrapProbeFeaturePlugin.class);
+        if (privateLib) {
+            Path lib = classesDirectory.resolve("lib/private-lib.jar");
+            Files.createDirectories(lib.getParent());
+            Files.write(lib, nestedJarBytes());
+        }
+    }
+
+    private static void copyClassFile(Path classesDirectory, Class<?> type) throws IOException {
+        String entry = type.getName().replace('.', '/') + ".class";
+        Path target = classesDirectory.resolve(entry);
+        Files.createDirectories(target.getParent());
+        try (InputStream in = type.getResourceAsStream("/" + entry)) {
+            assertThat(in).as("class resource must be compiled: " + type.getName()).isNotNull();
+            Files.copy(in, target);
+        }
+    }
+
+    private PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materializedDevelopmentPlugin(
+            String pluginId, List<PluginDependencyRef> dependencies) {
+        Path moduleRoot = tempDir.resolve("pixivdownload-plugin-" + pluginId);
+        PluginDescriptor descriptor = new PluginDescriptor(pluginId, pluginId, PROBE_VERSION,
+                PluginApiRequirement.of(1, 0), dependencies, "com.example." + pluginId.replace("-", "") + ".Plugin",
+                null, pluginId, null, null, null, PluginKind.FEATURE);
+        return new PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin(
+                moduleRoot, moduleRoot.resolve("target/classes"),
+                tempDir.resolve("cache").resolve(pluginId), descriptor);
+    }
+
     private static void addDescriptor(ZipOutputStream zos) throws IOException {
         String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
@@ -361,5 +532,22 @@ class PluginRuntimeManagerTest {
             properties.load(in);
         }
         return properties;
+    }
+
+    private static void writeProbeSourceDescriptor(Path moduleRoot) throws IOException {
+        Path sourceResources = moduleRoot.resolve("src/main/resources");
+        Files.createDirectories(sourceResources);
+        Files.writeString(sourceResources.resolve("plugin.properties"),
+                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                        + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n",
+                StandardCharsets.UTF_8);
+    }
+
+    private static void restoreProperty(String name, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, previousValue);
+        }
     }
 }
