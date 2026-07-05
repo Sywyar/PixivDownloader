@@ -60,4 +60,7 @@ public final class NavigationPlacements {
 
     /** 邀请管理页的返回入口 slot。 */
     public static final String INVITE_MANAGE_BACK = "invite.manage.back";
+
+    /** 插件管理 / 插件市场页标题区的页内分段入口。 */
+    public static final String PLUGINS_SEGMENT = "plugins.segment";
 }

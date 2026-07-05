@@ -1,42 +1,44 @@
 (function (global) {
     'use strict';
 
-    function slotHost() {
-        if (global.PixivVue && typeof global.PixivVue.anchorFor === 'function') {
-            return global.PixivVue.anchorFor('settings-card-ai');
-        }
-        return document.querySelector('[data-vue-slot="settings-card-ai"]')
-                || document.getElementById('settings-card-ai');
+    function targetGrid() {
+        var card = document.getElementById('novel-settings-card');
+        return card ? card.querySelector('.settings-grid') : null;
     }
 
     function render() {
-        var host = slotHost();
-        if (!host || document.getElementById('novel-ai-settings-card')) return;
-        host.innerHTML =
-            '<div class="card" id="novel-ai-settings-card" style="display:none;">' +
-            '<div class="card-title" data-i18n="ai:batch.auto-translate-label">Auto-translate newly downloaded novels</div>' +
-            '<div class="settings-grid">' +
+        var grid = targetGrid();
+        if (!grid || document.getElementById('s-novel-auto-translate-row')) return;
+        var wrapper = document.createElement('div');
+        wrapper.innerHTML =
             '<div class="setting-item" id="s-novel-auto-translate-row" style="display:none;">' +
             '<input type="checkbox" id="s-novel-auto-translate">' +
             '<label for="s-novel-auto-translate" style="cursor:pointer;" data-i18n="ai:batch.auto-translate-label">Auto-translate newly downloaded novels</label>' +
             '</div>' +
             '<div class="setting-item" id="s-novel-translate-lang-row" style="display:none;">' +
             '<label for="s-novel-translate-lang" data-i18n="ai:batch.translate-lang-label">Target language:</label>' +
-            '<input type="text" id="s-novel-translate-lang" spellcheck="false"' +
-            ' style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:160px;">' +
+            '<input type="text" id="s-novel-translate-lang" class="novel-translate-input" spellcheck="false">' +
             '</div>' +
             '<div class="setting-item" id="s-novel-translate-seg-row" style="display:none;">' +
             '<label for="s-novel-translate-seg" data-i18n="ai:batch.translate-seg-label">Segment size:</label>' +
-            '<input type="number" id="s-novel-translate-seg" min="0" step="500" value="0"' +
-            ' style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:120px;">' +
+            '<input type="number" id="s-novel-translate-seg" class="novel-translate-input novel-translate-input--number" min="0" step="500" value="0">' +
             '</div>' +
             '<div class="setting-item" id="s-novel-translate-hint" style="display:none;grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"' +
-            ' data-i18n="ai:batch.translate-glossary-hint">Auto-translation uses the default term glossary. Segment size 0 translates the whole chapter at once.</div>' +
-            '</div></div>';
+            ' data-i18n="ai:batch.translate-glossary-hint">Auto-translation uses the default term glossary. Segment size 0 translates the whole chapter at once.</div>';
+        while (wrapper.firstChild) {
+            grid.appendChild(wrapper.firstChild);
+        }
         if (typeof pageI18n !== 'undefined' && pageI18n) {
-            try { pageI18n.apply(host); } catch (_) {}
+            try { pageI18n.apply(grid); } catch (_) {}
+        }
+        if (global.PixivBatch && global.PixivBatch.settings
+                && typeof global.PixivBatch.settings.updateNovelTranslateVisibility === 'function') {
+            global.PixivBatch.settings.updateNovelTranslateVisibility();
         }
     }
 
     render();
+    if (typeof global.addEventListener === 'function') {
+        global.addEventListener('pixivbatch:slotsrendered', render);
+    }
 })(window);

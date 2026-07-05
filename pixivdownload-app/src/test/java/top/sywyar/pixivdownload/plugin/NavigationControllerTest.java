@@ -161,7 +161,7 @@ class NavigationControllerTest {
 
         // gallery/novel-gallery 已是外置插件，不再按内置来源排序；同一 placement 下追加在内置入口之后。
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("monitor", "plugin-manage", "plugin-market", "gallery", "novel-gallery");
+                .containsExactly("plugin-manage", "gallery", "novel-gallery");
     }
 
     @Test
@@ -173,18 +173,18 @@ class NavigationControllerTest {
         // 统计页用宿主中立的 app.sidebar slot：内置入口先排序，外置 gallery 在内置入口之后。
         // 插件管理现仅进顶部栏 placement（app.top），不再出现在主侧栏。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("monitor", "invite-manage", "gallery");
+                .containsExactly("invite-manage", "gallery");
     }
 
     @Test
-    @DisplayName("禁用画廊：app.sidebar 去掉画廊入口，但 monitor / 邀请码管理仍按注册贡献显示")
+    @DisplayName("禁用画廊：app.sidebar 去掉画廊入口，但邀请码管理仍按注册贡献显示")
     void disablingGalleryKeepsAppSidebarNonGalleryEntries() {
         NavigationController controller = controllerFor(new NavigationRegistry(
                 new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("gallery"))));
 
         // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变（插件管理已移入顶部栏，不在主侧栏）。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("monitor", "invite-manage")
+                .containsExactly("invite-manage")
                 .doesNotContain("gallery");
     }
 
@@ -199,8 +199,7 @@ class NavigationControllerTest {
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("monitor", "plugin-manage",
-                        "plugin-market", "third-party-demo", "gallery", "novel-gallery");
+                .containsExactly("plugin-manage", "third-party-demo", "gallery", "novel-gallery");
     }
 
     // ========== placement 随插件禁用消失 ==========
@@ -248,7 +247,7 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("受邀访客的 /api/navigation 不泄露任何 ADMIN 项（监控 / 疑似重复 / 邀请码管理）")
+    @DisplayName("受邀访客的 /api/navigation 不泄露任何 ADMIN 项（疑似重复 / 邀请码管理 / 插件）")
     void invitedGuestSeesNoAdminItems() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
@@ -259,7 +258,7 @@ class NavigationControllerTest {
         List<String> ids = controller.navigation(request).stream()
                 .map(NavigationController.NavigationView::id).toList();
 
-        // 受邀访客可见画廊 / 小说画廊（INVITED_GUEST）；不可见 ADMIN 项（监控 / 疑似重复 / 邀请码管理 / 插件管理 / 插件市场）与 VISITOR 下载页。
+        // 受邀访客可见画廊 / 小说画廊（INVITED_GUEST）；不可见 ADMIN 项（疑似重复 / 邀请码管理 / 插件 / 插件市场）与 VISITOR 下载页。
         assertThat(ids).contains("gallery", "novel-gallery")
                 .doesNotContain("monitor", "duplicate", "invite-manage", "plugin-manage", "plugin-market", "download-workbench");
     }

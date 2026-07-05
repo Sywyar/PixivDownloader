@@ -192,9 +192,9 @@ class PluginDisableSemanticsTest {
     @DisplayName("禁用单个功能插件不影响其它插件导航（跨插件独立）")
     void disablingOnePluginKeepsOtherNavigation() {
         List<String> ids = navIds(registryDisabling("gallery"));
-        // 仅 gallery 入口消失；监控 / 小说画廊 / 邀请码管理仍在（download-workbench/stats/duplicate 已外置、不在内置导航）。
+        // 仅 gallery 入口消失；小说画廊 / 邀请码管理 / 插件入口仍在（download-workbench/stats/duplicate 已外置、不在内置导航）。
         assertThat(ids).contains(
-                "monitor", "novel-gallery", "invite-manage");
+                "novel-gallery", "invite-manage", "plugin-manage");
     }
 
     @Test
@@ -216,9 +216,9 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("core 始终贡献监控 / 邀请码管理基础入口（不可禁用）")
+    @DisplayName("core 始终贡献邀请码管理 / 插件基础入口（不可禁用）")
     void coreAlwaysContributesBaseNavigation() {
-        assertThat(navIds(allEnabled())).contains("monitor", "invite-manage");
+        assertThat(navIds(allEnabled())).contains("invite-manage", "plugin-manage");
     }
 
     private static List<PixivFeaturePlugin> withGalleryAndNovelGallery(List<PixivFeaturePlugin> plugins) {

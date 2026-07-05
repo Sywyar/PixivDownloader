@@ -13,7 +13,7 @@ import java.util.List;
 
 /**
  * 插件市场插件：把受信仓库 catalog 的浏览 / 安装收口为一个独立内置功能插件，向核心贡献 admin-only 的市场页面、
- * 后端 API（{@code /api/plugin-market/**}）、页面静态资源、i18n 与顶部导航入口。catalog 引擎（仓库注册中心 / SSRF
+ * 后端 API（{@code /api/plugin-market/**}）、页面静态资源、i18n 与插件页内入口。catalog 引擎（仓库注册中心 / SSRF
  * 安全客户端 / 清单解析 / 下载安装编排）仍住 {@code plugin.catalog} 领域包；本插件只承载「按插件存在」的市场 web 面，
  * 经正向 {@code market → catalog} 依赖消费引擎。
  * <p>
@@ -85,11 +85,11 @@ public class PluginMarketPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
-        // 插件市场入口：顶部应用导航栏，与插件管理 / 监控同级（管理入口段，不进画廊 / 小说家族侧栏）。
-        // priority 86 紧随插件管理（85）之后；ADMIN，仅管理员身份在 /api/navigation 可见。
+        // 插件市场入口只贡献给插件页内分段控件；顶部应用导航栏统一使用核心的「插件」入口，默认落到插件管理页。
+        // ADMIN，仅管理员身份在 /api/navigation 可见；禁用 plugin-market 后该页内入口也自然缺席。
         return List.of(new NavigationContribution(
                 ID,
-                NavigationPlacements.APP_TOP,
+                NavigationPlacements.PLUGINS_SEGMENT,
                 "plugin-market", "nav.label", "/plugin-market.html",
                 "store", AccessPolicy.ADMIN, 86));
     }

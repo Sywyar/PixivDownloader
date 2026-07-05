@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.util.List;
 import java.util.Set;
@@ -31,13 +32,13 @@ class NavigationRegistryTest {
     void collectsNavigationFromBuiltInPlugins() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
-        // 监控 / 邀请码管理 / 插件管理 / 插件市场（基础 + 管理）+ 画廊主入口及其类型切换 / 统计页视图三链
+        // 邀请码管理 / 插件入口 / 插件市场页内分段入口 + 画廊主入口及其类型切换 / 统计页视图三链
         // + 小说画廊主入口及其类型切换。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 与 duplicate 已外置，
         // download-workbench / stats / duplicate 导航项经外置插件 contribution 注册、不在内置清单。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
                 .containsExactlyInAnyOrder(
-                        "monitor", "invite-manage", "plugin-manage", "plugin-market",
+                        "invite-manage", "plugin-manage", "plugin-market",
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "gallery-gui-open", "gallery-invite-manage-back",
@@ -74,12 +75,12 @@ class NavigationRegistryTest {
                     assertThat(registered.navigation().href()).isEqualTo("/pixiv-gallery.html?view=all");
                     assertThat(registered.navigation().placements()).containsExactly("invite.manage.back");
                 });
-        // 监控 / 邀请码管理 / 插件管理导航归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement，
-        // 插件管理只进顶部栏 placement（app.top）、不进侧栏。
+        // 邀请码管理 / 插件入口归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement，
+        // 插件入口只进顶部栏 placement（app.top）、不进侧栏。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.pluginId().equals("core"))
                 .extracting(registered -> registered.navigation().id())
-                .containsExactlyInAnyOrder("monitor", "invite-manage", "plugin-manage");
+                .containsExactlyInAnyOrder("invite-manage", "plugin-manage");
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("invite-manage"))
                 .singleElement()
@@ -90,14 +91,14 @@ class NavigationRegistryTest {
                 .singleElement()
                 .satisfies(registered -> assertThat(registered.navigation().placements())
                         .containsExactly("app.top"));
-        // 插件市场导航归 plugin-market 插件、ADMIN 可见、只进顶部栏 placement（app.top）；随插件启停进出快照。
+        // 插件市场导航归 plugin-market 插件、ADMIN 可见、只进插件页内分段 placement；随插件启停进出快照。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("plugin-market"))
                 .singleElement()
                 .satisfies(registered -> {
                     assertThat(registered.pluginId()).isEqualTo("plugin-market");
                     assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.ADMIN);
-                    assertThat(registered.navigation().placements()).containsExactly("app.top");
+                    assertThat(registered.navigation().placements()).containsExactly(NavigationPlacements.PLUGINS_SEGMENT);
                 });
     }
 

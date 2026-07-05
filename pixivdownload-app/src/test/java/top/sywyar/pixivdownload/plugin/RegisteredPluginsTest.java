@@ -206,7 +206,7 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.routes()).isEmpty();
                 }
-                // 导航：内置 web 功能插件 + core（监控 / 邀请码管理）声明，
+                // 导航：内置 web 功能插件 + core（邀请码管理 / 插件入口）声明，
                 // 由 /api/navigation 按当前身份过滤后供前端跨插件导航 slot 渲染。
                 if (navContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.navigation()).isNotEmpty();

@@ -56,7 +56,6 @@ public class StatusPanel extends JPanel {
     private static final long LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS = 30L;
     private static final long PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS = 60_000L;
     private static final String BATCH_PAGE = "/pixiv-batch.html";
-    private static final String MONITOR_PAGE = "/monitor.html";
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
 
@@ -298,7 +297,6 @@ public class StatusPanel extends JPanel {
 
         List<JButton> navigationButtons = new ArrayList<>();
         navigationButtons.add(webButton(message("gui.action.open-batch"), BATCH_PAGE));
-        navigationButtons.add(webButton(message("gui.action.open-monitor"), MONITOR_PAGE));
         for (GuiWebEntrySpec entry : guiWebEntries.statusActions()) {
             navigationButtons.add(webButton(entry.label(), entry.href()));
         }
@@ -1781,10 +1779,6 @@ public class StatusPanel extends JPanel {
 
     public String getBatchUrl() {
         return getWebUrl(BATCH_PAGE);
-    }
-
-    public String getMonitorUrl() {
-        return getWebUrl(MONITOR_PAGE);
     }
 
     public void dispose() {

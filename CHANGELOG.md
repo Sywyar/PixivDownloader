@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Changed
 - 下载页进行重大改版，改为工作台布局：集中展示队列统计、下载速度、模式导航、下载配置、工具抽屉和常驻队列；工具区会直接显示 Cookie 是否可用。
+- 桌面 GUI 状态页和系统托盘不再显示下载监控快捷入口。
 - Windows 安装包和离线全量包改为随包携带官方插件；安装器使用内置签名清单展示可选插件，不再在安装器页面联网获取清单。
 - GitHub Release 附件精简为 Windows 安装包与离线全量包，不再单独发布核心壳 JAR、默认下载器包、core-shell-only 包和 userscript 文件。
 - 下载工作台改为官方必需外置插件分发；缺失、损坏、不兼容或验签失败时，程序只开放登录、插件管理和安装修复入口，并引导管理员通过插件市场修复。

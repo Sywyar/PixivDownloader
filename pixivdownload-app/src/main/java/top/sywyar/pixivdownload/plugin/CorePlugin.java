@@ -265,27 +265,21 @@ public class CorePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
-        // 核心拥有的跨页基础入口：监控（管理员运行监控）、邀请码管理（管理员邀请治理）与插件管理（管理员插件治理）。
-        // 三者均 ADMIN，仅管理员身份在 /api/navigation 可见（受邀访客 / multi 匿名访客看不到、点开本会 403）。标签走核心
-        // 自有 i18n namespace（monitor / invite / plugins），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
+        // 核心拥有的跨页基础入口：邀请码管理（管理员邀请治理）与插件管理（管理员插件治理）。
+        // 二者均 ADMIN，仅管理员身份在 /api/navigation 可见（受邀访客 / multi 匿名访客看不到、点开本会 403）。标签走核心
+        // 自有 i18n namespace（invite / plugins），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
         //
-        // placement：监控是基础页面，进顶部栏 + 各侧栏（含中立主侧栏 app.sidebar，priority 20，仅次于下载工作台 10，
-        // 排在功能页面之前）。邀请码管理是管理入口，只进各侧栏、不进顶部栏（priority 80：侧栏内最末，符合「管理入口
+        // placement：邀请码管理是管理入口，只进各侧栏、不进顶部栏（priority 80：侧栏内最末，符合「管理入口
         // 在底部」现状）——这正是「invite-manage 不靠 data-nav-exclude 从顶部栏排除，而是只注册到适合的 placement」的体现。
-        // 两者均把主入口同时贡献到 app.sidebar（统计等中立宿主页的主侧栏），与画廊 / 小说家族侧栏正交。
+        // 它把主入口同时贡献到 app.sidebar（统计等中立宿主页的主侧栏），与画廊 / 小说家族侧栏正交。
         return List.of(
-                new NavigationContribution(
-                        "monitor",
-                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
-                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
-                        "monitor", "nav.label", "/monitor.html", "monitor", AccessPolicy.ADMIN, 20),
                 new NavigationContribution(
                         "invite-manage",
                         Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR,
                                 NavigationPlacements.NOVEL_SIDEBAR),
                         "invite", "nav.label", "/pixiv-invite-manage.html",
                         "invite-manage", AccessPolicy.ADMIN, 80),
-                // 插件管理：顶部应用导航栏入口，与下载工作台 / 监控 / 画廊 / 小说同级（不进各侧栏——它是顶部栏级页面、
+                // 插件入口：顶部应用导航栏入口，与下载工作台 / 画廊 / 小说同级（不进各侧栏——它是顶部栏级页面、
                 // 非画廊 / 小说家族侧栏入口）。priority 85 仍为内置最大值，使其排在全部内置基础 / 功能页面之后
                 //（顶部栏内「管理入口在末尾」，内置必选业务页面靠前）。
                 new NavigationContribution(

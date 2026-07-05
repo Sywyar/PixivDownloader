@@ -431,6 +431,18 @@
             cursor: pointer;
         }
 
+        .novel-translate-input {
+            padding: 4px 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+            max-width: 160px;
+        }
+
+        .novel-translate-input--number {
+            max-width: 120px;
+        }
+
         .R18-label {
             color: #d63384 !important;
         }
@@ -659,6 +671,17 @@
             background: #332910;
             color: #facc15;
             border-color: #7a5c20;
+        }
+
+        .import-example-code {
+            font-family: monospace;
+            background: #fff;
+            border-radius: 4px;
+            padding: 1px 6px;
+        }
+        html[data-theme="dark"] .import-example-code {
+            background: rgba(250, 204, 21, 0.16);
+            color: #fde68a;
         }
 
         .r18-blur-label {

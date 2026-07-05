@@ -101,10 +101,6 @@ public final class SystemTrayManager {
         batchItem.addActionListener(e -> openBrowser(frame.getBatchUrl()));
         menu.add(batchItem);
 
-        JMenuItem monitorItem = new JMenuItem(message("gui.action.open-monitor"));
-        monitorItem.addActionListener(e -> openBrowser(frame.getMonitorUrl()));
-        menu.add(monitorItem);
-
         for (GuiWebEntrySpec action : frame.getTrayWebActions()) {
             JMenuItem item = new JMenuItem(action.label());
             item.addActionListener(e -> openBrowser(frame.getWebUrl(action.href())));

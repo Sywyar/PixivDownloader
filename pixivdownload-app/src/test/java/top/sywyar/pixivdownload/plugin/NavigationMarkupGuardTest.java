@@ -66,7 +66,8 @@ class NavigationMarkupGuardTest {
             NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
             NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
             NavigationPlacements.GALLERY_TYPE_SWITCH, NavigationPlacements.NOVEL_TYPE_SWITCH,
-            NavigationPlacements.DUPLICATES_HEADER_ICONS, NavigationPlacements.STATS_GALLERY_LINKS);
+            NavigationPlacements.DUPLICATES_HEADER_ICONS, NavigationPlacements.STATS_GALLERY_LINKS,
+            NavigationPlacements.PLUGINS_SEGMENT);
 
     /**
      * 每页禁止再硬编码的「其它插件」入口 href（这些一律由动态 slot 渲染）。按页面身份判定：顶部栏页面（monitor /

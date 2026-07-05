@@ -274,6 +274,11 @@ window.PixivBatch.queueTypes = (function () {
         if (typeof pageI18n !== 'undefined' && pageI18n) pageI18n.apply(document.body);
         // 锚点一律移除（一次性消费）。固定字面选择器，不拼 target。
         document.querySelectorAll('template[data-qt-slot]').forEach(t => t.remove());
+        try {
+            window.dispatchEvent(new CustomEvent('pixivbatch:slotsrendered', { detail: { targets: Array.from(byTarget.keys()) } }));
+        } catch (e) {
+            // 旧环境没有 CustomEvent 构造器时忽略；槽位本身已渲染完成。
+        }
     }
 
     return {

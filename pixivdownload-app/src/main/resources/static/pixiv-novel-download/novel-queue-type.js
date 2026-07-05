@@ -371,7 +371,7 @@ const NOVEL_SLOTS = {
     // 批量导入单作品的小说链接示例
     'import-hint':
         '<div><span data-i18n="label.import-novel-example">小说链接示例：</span>' +
-        '<span data-i18n="label.import-novel-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">' +
+        '<span class="import-example-code" data-i18n="label.import-novel-example-value">' +
         'https://www.pixiv.net/novel/show.php?id=12345678 | 示例标题</span></div>',
     // 附加筛选里的小说专属字段（最少 / 最多字数）；保留 .search-novel-only，由宿主 applySearchKindUI 按模式显隐
     'search-filter':
@@ -383,7 +383,7 @@ const NOVEL_SLOTS = {
         '<label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>' +
         '<input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"' +
         ' onchange="handleSearchFilterChange()"></div>',
-    // 小说设置卡（格式 / 合订）；下载即自动翻译由 AI 插件经 settings-card-ai 槽位贡献。
+    // 小说设置卡（格式 / 合订）；下载即自动翻译由 AI 插件追加到本卡片内。
     // id / class 与宿主 loadSettings/syncSettings/applyNovelSettingsVisibility 既有契约一致
     'settings-card':
         '<div class="card" id="novel-settings-card">' +

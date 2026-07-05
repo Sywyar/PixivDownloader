@@ -88,7 +88,7 @@ public class AiPlugin implements PixivFeaturePlugin {
                 new WebUiSlotContribution(ID, ID + ".series-detail-translate", "series-detail-ai-translate",
                         "/pixiv-ai/series-detail-ai-translate-slot.js", 20),
                 new WebUiSlotContribution(ID, ID + ".download-novel-translate-settings",
-                        "settings-card-ai", "/pixiv-ai/download-novel-ai-settings-slot.js", 20));
+                        "settings-card", "/pixiv-ai/download-novel-ai-settings-slot.js", 20));
     }
 
     @Override

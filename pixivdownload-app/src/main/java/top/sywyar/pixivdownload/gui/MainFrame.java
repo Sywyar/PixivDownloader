@@ -211,10 +211,6 @@ public class MainFrame extends JFrame {
         repaint();
     }
 
-    public String getMonitorUrl() {
-        return statusPanel.getMonitorUrl();
-    }
-
     public String getBatchUrl() {
         return statusPanel.getBatchUrl();
     }
