@@ -51,7 +51,7 @@
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>pixivdownload-plugin-novel-gallery</artifactId>
+            <artifactId>pixivdownload-plugin-novel</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

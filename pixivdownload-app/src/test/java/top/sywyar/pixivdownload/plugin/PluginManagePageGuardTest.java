@@ -97,7 +97,7 @@ class PluginManagePageGuardTest {
     void doesNotHardcodePluginList() throws IOException {
         String combined = read(CORE) + read(API) + read(VIEWS) + read(INIT);
         for (String pluginId : new String[]{
-                "download-workbench", "gallery", "novel-gallery", "novel", "duplicate", "recovery-sentinel"}) {
+                "download-workbench", "gallery", "novel", "duplicate", "recovery-sentinel"}) {
             assertThat(combined)
                     .as("页面模块不得硬编码内置插件 id：" + pluginId + "（列表须由后端响应驱动）")
                     .doesNotContain("\"" + pluginId + "\"")

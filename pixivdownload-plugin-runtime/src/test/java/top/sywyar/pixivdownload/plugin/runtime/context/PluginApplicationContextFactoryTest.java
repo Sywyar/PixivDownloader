@@ -2,10 +2,15 @@ package top.sywyar.pixivdownload.plugin.runtime.context;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -82,6 +87,29 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
+    @Test
+    @DisplayName("子 context 为插件 @Transactional Bean 创建 CGLIB 代理，并使用父 context 的事务管理器")
+    void childCreatesTransactionalProxyUsingParentTransactionManager() {
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentTransactionConfig.class)) {
+            ConfigurableApplicationContext child = factory.create(parent, new PluginContextModule(
+                    "ext-demo", getClass().getClassLoader(), List.of(TransactionalPluginConfig.class)));
+
+            Object bean = child.getBean(TransactionalPluginBean.class);
+            assertThat(AopUtils.isAopProxy(bean)).isTrue();
+            assertThat(AopUtils.isCglibProxy(bean)).isTrue();
+
+            ((TransactionalPluginBean) bean).writeInTransaction();
+
+            RecordingTransactionManager transactionManager = parent.getBean(RecordingTransactionManager.class);
+            assertThat(transactionManager.begun).isEqualTo(1);
+            assertThat(transactionManager.committed).isEqualTo(1);
+            assertThat(transactionManager.rolledBack).isZero();
+
+            child.close();
+        }
+    }
+
     // --- 夹具 ---
 
     /** 父 context 暴露的「核心 API / 服务接口」。 */
@@ -105,6 +133,41 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
+    /** 父 context 暴露的事务管理器。 */
+    @Configuration
+    static class ParentTransactionConfig {
+        @Bean
+        RecordingTransactionManager transactionManager() {
+            return new RecordingTransactionManager();
+        }
+    }
+
+    static final class RecordingTransactionManager extends AbstractPlatformTransactionManager {
+        private int begun;
+        private int committed;
+        private int rolledBack;
+
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {
+            begun++;
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+            committed++;
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {
+            rolledBack++;
+        }
+    }
+
     /** 插件 Bean：构造期注入父 context 的核心服务接口。 */
     static final class PluginBean {
         private final CoreApiService coreService;
@@ -124,6 +187,23 @@ class PluginApplicationContextFactoryTest {
         @Bean
         PluginBean pluginBean(CoreApiService coreService) {
             return new PluginBean(coreService);
+        }
+    }
+
+    public static class TransactionalPluginBean {
+        private boolean written;
+
+        @Transactional
+        public void writeInTransaction() {
+            written = true;
+        }
+    }
+
+    @Configuration
+    static class TransactionalPluginConfig {
+        @Bean
+        TransactionalPluginBean transactionalPluginBean() {
+            return new TransactionalPluginBean();
         }
     }
 }

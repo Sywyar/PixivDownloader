@@ -26,8 +26,6 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorSummary;
@@ -66,7 +64,6 @@ class CoreWorkQueryServiceTest {
     private SqlSession sqlSession;
     private JdbcTemplate jdbc;
     private PixivDatabase pixivDatabase;
-    private NovelDatabase novelDatabase;
     private NovelMetadataRepository novelMetadataRepository;
     private AuthorService authorService;
     private MangaSeriesService mangaSeriesService;
@@ -85,7 +82,6 @@ class CoreWorkQueryServiceTest {
         config.setMapUnderscoreToCamelCase(true);
         config.addMapper(PixivMapper.class);
         config.addMapper(PathPrefixMapper.class);
-        config.addMapper(NovelMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
 
@@ -104,10 +100,8 @@ class CoreWorkQueryServiceTest {
         pixivDatabase = new PixivDatabase(
                 sqlSession.getMapper(PixivMapper.class), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
+        jdbc.execute("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')");
         novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
-        novelDatabase = new NovelDatabase(
-                sqlSession.getMapper(NovelMapper.class), pixivDatabase, codec, initializer, novelMetadataRepository);
-        novelDatabase.init();
 
         authorService = mock(AuthorService.class);
         mangaSeriesService = mock(MangaSeriesService.class);
@@ -131,8 +125,33 @@ class CoreWorkQueryServiceTest {
     }
 
     private void insertNovel(long id, long time, Long authorId, Long seriesId) {
-        novelDatabase.insertNovel(id, "小说" + id, "/n/" + id, 1, "", time, 0, null, authorId, null,
-                1L, null, seriesId, null, null, null, null, null, null, null, "正文" + id, null);
+        String raw = "正文" + id;
+        jdbc.update("""
+                        INSERT INTO novels(novel_id, title, folder, count, extensions, time, R18, is_ai,
+                                           author_id, description, file_name, file_author_name_id,
+                                           series_id, series_order, word_count, text_length,
+                                           reading_time_seconds, page_count, is_original, x_language,
+                                           raw_content, cover_ext, deleted)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                        """,
+                id, "小说" + id, "/n/" + id, 1, "", time, 0, null,
+                authorId, null, 1L, null, seriesId, null, null, null,
+                null, null, null, null, raw, null);
+        jdbc.update("INSERT INTO novels_fts(rowid, content) VALUES (?, ?)", id, raw);
+    }
+
+    private void saveNovelTags(long novelId, List<TagDto> tags) {
+        for (TagDto tag : tags) {
+            Long tagId = pixivDatabase.upsertTagAndGetId(tag.getName(), tag.getTranslatedName());
+            jdbc.update("INSERT INTO novel_tags(novel_id, tag_id) VALUES (?, ?)", novelId, tagId);
+        }
+    }
+
+    private void saveNovelSeriesTags(long seriesId, List<TagDto> tags) {
+        for (TagDto tag : tags) {
+            Long tagId = pixivDatabase.upsertTagAndGetId(tag.getName(), tag.getTranslatedName());
+            jdbc.update("INSERT INTO novel_series_tags(series_id, tag_id) VALUES (?, ?)", seriesId, tagId);
+        }
     }
 
     private long tagId(String name) {
@@ -354,8 +373,8 @@ class CoreWorkQueryServiceTest {
         void shouldListNovelTagCounts() {
             insertNovel(11L, 100L, null, null);
             insertNovel(12L, 200L, null, null);
-            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null)));
-            novelDatabase.saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
+            saveNovelTags(11L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
 
             List<TagOption> all = service.tags(new TagQuery(WorkType.NOVEL, null, 100, FULLY_OPEN));
             assertThat(all).extracting(TagOption::name, TagOption::workCount)
@@ -517,8 +536,8 @@ class CoreWorkQueryServiceTest {
         void shouldApplyGuestRestrictionToNovels() {
             insertNovel(11L, 100L, null, null);
             insertNovel(12L, 200L, null, null);
-            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null)));
-            novelDatabase.saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("禁止", null)));
+            saveNovelTags(11L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("禁止", null)));
 
             PagedResult<WorkSummary> result = service.search(WorkQuery.builder(WorkType.NOVEL)
                     .restriction(tagWhitelist(List.of(tagId("魔法"))))
@@ -550,9 +569,9 @@ class CoreWorkQueryServiceTest {
             insertNovel(11L, 100L, null, null);
             insertNovel(12L, 200L, null, null);
             insertNovel(13L, 300L, null, null);
-            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
-            novelDatabase.saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
-            novelDatabase.saveNovelTags(13L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(11L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
+            saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
+            saveNovelTags(13L, List.of(new TagDto("魔法", null)));
 
             assertThat(ids(service.relatedByTags(WorkType.NOVEL, 11L, 10)))
                     .containsExactly(12L, 13L);
@@ -575,9 +594,9 @@ class CoreWorkQueryServiceTest {
             insertNovel(11L, 100L, null, 900L);
             insertNovel(12L, 200L, null, 900L);
             insertNovel(13L, 300L, null, 900L);
-            novelDatabase.updateSeriesInfo(11L, 900L, 3L);
-            novelDatabase.updateSeriesInfo(12L, 900L, 1L);
-            novelDatabase.updateSeriesInfo(13L, 900L, 2L);
+            jdbc.update("UPDATE novels SET series_id = ?, series_order = ? WHERE novel_id = ?", 900L, 3L, 11L);
+            jdbc.update("UPDATE novels SET series_id = ?, series_order = ? WHERE novel_id = ?", 900L, 1L, 12L);
+            jdbc.update("UPDATE novels SET series_id = ?, series_order = ? WHERE novel_id = ?", 900L, 2L, 13L);
 
             assertThat(ids(service.bySeries(WorkType.NOVEL, 900L, 13L, 10)))
                     .containsExactly(12L, 11L);
@@ -591,9 +610,9 @@ class CoreWorkQueryServiceTest {
             insertNovel(13L, 300L, null, 900L);
             insertNovel(14L, 400L, null, null);
             insertNovel(15L, 500L, null, 901L);
-            novelDatabase.updateSeriesInfo(11L, 900L, 1L);
-            novelDatabase.updateSeriesInfo(12L, 900L, 5L);
-            novelDatabase.updateSeriesInfo(13L, 900L, 9L);
+            jdbc.update("UPDATE novels SET series_id = ?, series_order = ? WHERE novel_id = ?", 900L, 1L, 11L);
+            jdbc.update("UPDATE novels SET series_id = ?, series_order = ? WHERE novel_id = ?", 900L, 5L, 12L);
+            jdbc.update("UPDATE novels SET series_id = ?, series_order = ? WHERE novel_id = ?", 900L, 9L, 13L);
             jdbc.update("INSERT INTO novel_series(series_id, title, author_id, updated_time) VALUES (?, ?, ?, ?)",
                     900L, "系列乙", null, 1L);
 
@@ -613,7 +632,7 @@ class CoreWorkQueryServiceTest {
         @DisplayName("小说 tagByName 精确命中返回标签，未命中返回 empty")
         void shouldFindNovelTagByExactName() {
             insertNovel(11L, 100L, null, null);
-            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", "magic")));
+            saveNovelTags(11L, List.of(new TagDto("魔法", "magic")));
 
             Optional<TagOption> found = service.tagByName(WorkType.NOVEL, "魔法", null);
             assertThat(found).isPresent();
@@ -630,8 +649,8 @@ class CoreWorkQueryServiceTest {
             insertNovel(12L, 200L, 801L, 700L);
             insertNovel(13L, 300L, 802L, 701L);
             insertNovel(14L, 400L, 802L, 701L);
-            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null)));
-            novelDatabase.saveNovelTags(14L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(11L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(14L, List.of(new TagDto("魔法", null)));
             novelMetadataRepository.markNovelDeleted(14L);
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
 
@@ -656,7 +675,7 @@ class CoreWorkQueryServiceTest {
             insertNovel(11L, 100L, 801L, 700L);
             jdbc.update("INSERT INTO novel_series(series_id, title, author_id, updated_time, cover_ext)"
                     + " VALUES (?, ?, ?, ?, ?)", 700L, "系列甲", 801L, 1L, "png");
-            novelDatabase.saveNovelSeriesTags(700L, List.of(new TagDto("魔法", "magic")));
+            saveNovelSeriesTags(700L, List.of(new TagDto("魔法", "magic")));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
 
             List<SeriesSummary> series = service.series(new SeriesQuery(WorkType.NOVEL, FULLY_OPEN));

@@ -30,8 +30,6 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.download.ArtworkFileService;
 import top.sywyar.pixivdownload.core.download.LocalWorkAssetService;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
@@ -71,7 +69,6 @@ class WorkMetaBridgeConsistencyTest {
     private SingleConnectionDataSource dataSource;
     private SqlSession sqlSession;
     private PixivDatabase pixivDatabase;
-    private NovelDatabase novelDatabase;
     private NovelMetadataRepository novelMetadataRepository;
 
     // 写入侧（捕获 → 列投影 + sidecar）
@@ -93,7 +90,6 @@ class WorkMetaBridgeConsistencyTest {
         config.setMapUnderscoreToCamelCase(true);
         config.addMapper(PixivMapper.class);
         config.addMapper(PathPrefixMapper.class);
-        config.addMapper(NovelMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
 
@@ -114,9 +110,6 @@ class WorkMetaBridgeConsistencyTest {
                 sqlSession.getMapper(PixivMapper.class), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
         novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
-        novelDatabase = new NovelDatabase(
-                sqlSession.getMapper(NovelMapper.class), pixivDatabase, codec, initializer, novelMetadataRepository);
-        novelDatabase.init();
 
         StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages());
         ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(
@@ -174,6 +167,20 @@ class WorkMetaBridgeConsistencyTest {
         return dir;
     }
 
+    private void insertNovel(long id, Path dir, boolean original) {
+        new JdbcTemplate(dataSource).update("""
+                        INSERT INTO novels(novel_id, title, folder, count, extensions, time, R18, is_ai,
+                                           author_id, description, file_name, file_author_name_id,
+                                           series_id, series_order, word_count, text_length,
+                                           reading_time_seconds, page_count, is_original, x_language,
+                                           raw_content, cover_ext, deleted)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                        """,
+                id, "小说", dir.toString(), 1, "", 2000L, 0, false,
+                null, null, 1L, null, null, null, null, null,
+                null, null, original, null, "正文", null);
+    }
+
     @Nested
     @DisplayName("持久化 round-trip：从列读 == 从 sidecar 读 == 捕获值")
     class RoundTrip {
@@ -204,8 +211,7 @@ class WorkMetaBridgeConsistencyTest {
         @DisplayName("小说：捕获后 upload_time 列投影与 sidecar normalized 一致；is_original 顶层与小说块同源")
         void novelColumnAndSidecarAgree() {
             long id = 42L;
-            novelDatabase.insertNovel(id, "小说", novelDir(id).toString(), 1, "", 2000L, 0, false,
-                    null, null, 1L, null, null, null, null, null, null, null, true, null, "正文", null);
+            insertNovel(id, novelDir(id), true);
 
             captureService.captureNovel(id, json("{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true,"
                     + "\"content\":\"很长的正文……\",\"description\":\"d\"}"), "schedule");
@@ -254,8 +260,7 @@ class WorkMetaBridgeConsistencyTest {
         void novelSoftDeleteKeepsSidecarButFiltersColumnRead() {
             long id = 43L;
             Path dir = novelDir(id);
-            novelDatabase.insertNovel(id, "小说", dir.toString(), 1, "", 2000L, 0, false, null, null,
-                    1L, null, null, null, null, null, null, null, true, null, "正文", null);
+            insertNovel(id, dir, true);
             captureService.captureNovel(id, json("{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true}"),
                     "schedule");
             assertThat(Files.exists(dir.resolve(id + ".meta.json"))).isTrue();

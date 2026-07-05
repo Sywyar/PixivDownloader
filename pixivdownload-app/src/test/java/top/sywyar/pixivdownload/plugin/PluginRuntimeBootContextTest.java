@@ -103,7 +103,7 @@ class PluginRuntimeBootContextTest {
         assertThat(pluginRegistry.plugins())
                 .extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder(
-                        "core", "novel", "plugin-market");
+                        "core", "plugin-market");
         // 无外置插件接入：全部活动插件来源均为内置
         assertThat(pluginRegistry.registeredPlugins())
                 .allSatisfy(rp -> assertThat(rp.source()).isEqualTo(PluginSource.BUILT_IN));

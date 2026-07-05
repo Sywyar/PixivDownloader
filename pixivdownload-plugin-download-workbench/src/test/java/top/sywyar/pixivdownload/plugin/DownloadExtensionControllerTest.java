@@ -11,12 +11,13 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@link DownloadExtensionController} 单测：下载页扩展点端点把 queueType / tab / ui-slot 三类合并后的不可变快照
@@ -53,12 +54,12 @@ class DownloadExtensionControllerTest {
     }
 
     @Test
-    @DisplayName("内置插件装配：小说下载页 8 个 UI 槽位经端点暴露")
+    @DisplayName("novel 插件缺席时端点不暴露小说 UI 槽位")
     void builtInNovelUiSlotsExposed() {
         DownloadExtensionController.DownloadExtensionsView view =
                 controllerFor(new PluginRegistry(BuiltInPlugins.createAll())).extensions();
         assertThat(view.uiSlots()).extracting(DownloadExtensionController.UiSlotView::target)
-                .contains("kind-option-user", "kind-option-search", "kind-option-quick",
+                .doesNotContain("kind-option-user", "kind-option-search", "kind-option-quick",
                         "quick-actions-bookmarks", "quick-actions-mine",
                         "import-hint", "search-filter", "settings-card");
     }

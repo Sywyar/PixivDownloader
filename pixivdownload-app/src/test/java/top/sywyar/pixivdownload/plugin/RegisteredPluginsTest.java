@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
-import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.market.PluginMarketPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -22,7 +21,7 @@ class RegisteredPluginsTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages：
             // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）；
-            // Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
+            // 外置插件不参与内置组合根切片；这里仅为 core / plugin-market 依赖提供兜底。
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean(top.sywyar.pixivdownload.core.hash.ImageHashMapper.class,
@@ -49,14 +48,6 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.quota.UserQuotaService.class))
             .withBean(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class))
-            .withBean(top.sywyar.pixivdownload.novel.export.NovelMergeService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.export.NovelMergeService.class))
-            .withBean(top.sywyar.pixivdownload.novel.NovelSeriesService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.NovelSeriesService.class))
-            .withBean(top.sywyar.pixivdownload.novel.translation.NovelTranslationService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.translation.NovelTranslationService.class))
-            .withBean(top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelDatabase.class))
             .withBean(top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class))
             .withBean(top.sywyar.pixivdownload.core.appconfig.MultiModeConfig.class,
@@ -85,12 +76,6 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient.class))
             .withBean(top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard.class))
-            .withBean(top.sywyar.pixivdownload.novel.download.NovelDownloader.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloader.class))
-            // 小说下载端点两个 controller 随小说插件启停收编进 NovelPluginConfiguration，其依赖的
-            // novel-core 下载服务（根包扫描）在本切片里 mock 兜底。
-            .withBean(top.sywyar.pixivdownload.novel.download.NovelDownloadService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloadService.class))
             .withBean(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class))
             .withBean(top.sywyar.pixivdownload.core.notification.NotificationService.class,
@@ -99,8 +84,6 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.SetupService.class))
             .withBean(top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class,
                     top.sywyar.pixivdownload.core.appconfig.DownloadConfig::new)
-            .withBean(top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService.class))
             .withBean("downloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean("novelDownloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
@@ -126,21 +109,20 @@ class RegisteredPluginsTest {
             // 作品类型执行器注册中心用真实 Bean：收集小说插件贡献的小说执行器。
             .withUserConfiguration(
                     CorePluginConfiguration.class,
-                    NovelPluginConfiguration.class,
                     PluginMarketPluginConfiguration.class,
                     PluginRegistry.class,
                     top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry.class,
                     DatabaseSchemaRegistry.class);
 
     @Test
-    @DisplayName("三个内置插件经各自 Configuration 注册进 PluginRegistry（download-workbench/gallery/stats/duplicate 已外置、不在内置清单）")
+    @DisplayName("内置插件经各自 Configuration 注册进 PluginRegistry（功能插件已外置、不在内置清单）")
     void allPluginsRegistered() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins())
                     .extracting(PixivFeaturePlugin::id)
                     .containsExactlyInAnyOrder(
-                            "core", "novel", "plugin-market");
+                            "core", "plugin-market");
         });
     }
 
@@ -157,25 +139,25 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各内置插件 contribution 边界：core 独占 schema，novel/plugin-market 占各自功能贡献，gallery/novel-gallery/download-workbench/duplicate 已外置")
+    @DisplayName("各内置插件 contribution 边界：core 独占 schema，plugin-market 占自身功能贡献，功能插件已外置")
     void emptyPluginsContributeNothing() {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
         // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
-        // download-workbench、gallery、novel-gallery 与 schedule 安全壳已在外置插件包中，duplicate 也随外置插件包接入。
-        Set<String> routeContributingPlugins = Set.of("core", "novel", "plugin-market");
-        Set<String> i18nContributingPlugins = Set.of("core", "novel", "plugin-market");
+        // download-workbench、gallery、novel 与 schedule 安全壳已在外置插件包中，duplicate 也随外置插件包接入。
+        Set<String> routeContributingPlugins = Set.of("core", "plugin-market");
+        Set<String> i18nContributingPlugins = Set.of("core", "plugin-market");
         Set<String> navContributingPlugins = Set.of("core", "plugin-market");
-        Set<String> staticResourceContributingPlugins = Set.of("core", "novel", "plugin-market");
-        Set<String> queueTypeContributingPlugins = Set.of("novel");
+        Set<String> staticResourceContributingPlugins = Set.of("core", "plugin-market");
+        Set<String> queueTypeContributingPlugins = Set.of();
         Set<String> downloadTabContributingPlugins = Set.of();
-        // 落点 / 入口（landing）：gallery/novel-gallery 落点随外置插件接入，
+        // 落点 / 入口（landing）：gallery/novel 落点随外置插件接入，
         // 锁死契约面——其它插件不得静默声明落点（避免借落点 / 导航 order 间接改变业务落点）。
         Set<String> landingContributingPlugins = Set.of();
         // gallery 外置后，页面区块 / 下钻 / GUI 引导步骤均由外置 gallery 插件声明。
         Set<String> pageSectionContributingPlugins = Set.of();
         Set<String> drilldownContributingPlugins = Set.of();
         Set<String> onboardingStepContributingPlugins = Set.of();
-        // coreColumnUsages 由展示插件声明；gallery/novel-gallery 的核心列使用在外置模块测试中守护。
+        // coreColumnUsages 由展示插件声明；gallery/novel 的核心列使用在外置模块测试中守护。
         Set<String> coreColumnUsingPlugins = Set.of();
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
@@ -221,7 +203,7 @@ class RegisteredPluginsTest {
                 }
                 // 油猴脚本扫描来源随外置 download-workbench 声明，内置插件均不声明。
                 assertThat(plugin.userscripts()).isEmpty();
-                // 下载队列作品类型：内置清单中仅 novel 声明；illust 随外置 download-workbench 声明。
+                // 下载队列作品类型随外置插件声明：illust 由 download-workbench 提供，novel 由 novel 提供。
                 if (queueTypeContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.queueTypes()).isNotEmpty();
                 } else {

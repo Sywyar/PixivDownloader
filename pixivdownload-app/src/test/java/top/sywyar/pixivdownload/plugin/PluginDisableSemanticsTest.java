@@ -89,13 +89,13 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("禁用 gallery / novel-gallery / novel：受管 schema 不变，其路由不再注册")
+    @DisplayName("禁用 gallery / novel：受管 schema 不变，其路由不再注册")
     void disablingGalleryAndNovelKeepsSchemaIntact() {
-        PluginRegistry disabled = registryDisabling("gallery", "novel-gallery", "novel");
+        PluginRegistry disabled = registryDisabling("gallery", "novel");
 
         assertThat(new DatabaseSchemaRegistry(disabled).mergedSchema().tables().keySet())
                 .isEqualTo(new DatabaseSchemaRegistry(allEnabled()).mergedSchema().tables().keySet());
-        assertThat(routeOwners(disabled)).doesNotContain("gallery", "novel-gallery", "novel");
+        assertThat(routeOwners(disabled)).doesNotContain("gallery", "novel");
     }
 
     private static List<String> navIds(PluginRegistry registry) {
@@ -109,7 +109,7 @@ class PluginDisableSemanticsTest {
     void disablingFeaturePluginsDropsTheirNavigation() {
         assertThat(navIds(registryDisabling("gallery")))
                 .doesNotContain("gallery", "gallery-gui-open", "gallery-invite-manage-back");
-        assertThat(navIds(registryDisabling("novel-gallery")))
+        assertThat(navIds(registryDisabling("novel")))
                 .doesNotContain("novel-gallery", "novel-type-switch");
     }
 
@@ -180,11 +180,11 @@ class PluginDisableSemanticsTest {
     void disablingFeaturePluginsDropsTheirLandings() {
         // 禁用画廊：画廊落点不再注册，受邀访客邀请落点回退到小说画廊（priority 30，仍启用）。
         assertThat(landingOwners(registryDisabling("gallery")))
-                .doesNotContain("gallery").contains("novel-gallery");
+                .doesNotContain("gallery").contains("novel");
         assertThat(new LandingRegistry(registryDisabling("gallery")).resolve(Audience.INVITED_GUEST))
                 .contains("/pixiv-novel-gallery.html");
         // 画廊 + 小说画廊都禁用：无受邀访客落点（调用方兜底回登录页）。
-        assertThat(new LandingRegistry(registryDisabling("gallery", "novel-gallery")).resolve(Audience.INVITED_GUEST))
+        assertThat(new LandingRegistry(registryDisabling("gallery", "novel")).resolve(Audience.INVITED_GUEST))
                 .isEmpty();
     }
 

@@ -132,6 +132,7 @@ class PluginApiDependencyGuardTest {
                 .resideInAPackage("top.sywyar.pixivdownload.download..")
                 .because("小说下载的 HTTP 投影、书签动作结果、sidecar 捕获与 Pixiv 共享动作已中性化；"
                         + "novel 包不得依赖未来 download-workbench 的实现包")
+                .allowEmptyShould(true)
                 .check(CLASSES);
     }
 
@@ -199,7 +200,7 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("app 生产代码与 POM 不得依赖 gallery / novel-gallery 外置插件模块")
+    @DisplayName("app 生产代码与 POM 不得依赖 gallery / novel 外置插件模块")
     void appDoesNotDependOnGalleryPluginModule() throws IOException {
         Path pom = Path.of("pixivdownload-app/pom.xml");
         if (!Files.exists(pom)) {
@@ -207,7 +208,7 @@ class PluginApiDependencyGuardTest {
         }
         assertThat(Files.readString(pom, StandardCharsets.UTF_8))
                 .doesNotContain("<artifactId>pixivdownload-plugin-gallery</artifactId>")
-                .doesNotContain("<artifactId>pixivdownload-plugin-novel-gallery</artifactId>");
+                .doesNotContain("<artifactId>pixivdownload-plugin-novel</artifactId>");
 
         Path sourceRoot = Path.of("pixivdownload-app/src/main/java");
         if (!Files.exists(sourceRoot)) {
@@ -217,7 +218,8 @@ class PluginApiDependencyGuardTest {
             assertThat(paths
                     .filter(path -> path.toString().endsWith(".java"))
                     .filter(path -> contains(path, "top.sywyar.pixivdownload.gallery")
-                            || contains(path, "top.sywyar.pixivdownload.novelgallery"))
+                            || contains(path, "top.sywyar.pixivdownload.novelgallery")
+                            || contains(path, "top.sywyar.pixivdownload.novel."))
                     .map(Path::toString)
                     .toList())
                     .isEmpty();
@@ -375,6 +377,7 @@ class PluginApiDependencyGuardTest {
                 .because("作品类型执行器随贡献它的插件生命周期归属：必须 @PluginManagedBean 由对应 "
                         + "XxxPluginConfiguration 显式装配、排除出根包扫描，不得用 @Service / @Component 根扫描注册，"
                         + "否则插件禁用后仍被注册偷跑")
+                .allowEmptyShould(true)
                 .check(CLASSES);
     }
 
@@ -523,6 +526,7 @@ class PluginApiDependencyGuardTest {
                 .because("队列宿主操作适配器随贡献它的插件生命周期归属：必须 @PluginManagedBean 由对应 "
                         + "XxxPluginConfiguration 显式装配、排除出根包扫描，不得用 @Service / @Component 根扫描注册，"
                         + "否则插件禁用后仍被注册偷跑")
+                .allowEmptyShould(true)
                 .check(CLASSES);
     }
 

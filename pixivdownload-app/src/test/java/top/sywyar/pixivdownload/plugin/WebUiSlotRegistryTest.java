@@ -24,10 +24,14 @@ class WebUiSlotRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集活动插件的 UI 槽位（小说插件贡献下载页 8 个槽位锚点）")
+    @DisplayName("core-only 不携带小说下载 UI 槽位，外置 novel 插件贡献下载页 8 个槽位锚点")
     void collectsUiSlotsFromBuiltInPlugins() {
         WebUiSlotRegistry registry = new WebUiSlotRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        assertThat(registry.slots())
+        assertThat(registry.slots()).isEmpty();
+
+        WebUiSlotRegistry withNovel = new WebUiSlotRegistry(
+                new PluginRegistry(List.of(new TestNovelGalleryPlugin())));
+        assertThat(withNovel.slots())
                 .filteredOn(registered -> registered.pluginId().equals("novel"))
                 .extracting(registered -> registered.slot().target())
                 .containsExactlyInAnyOrder(
@@ -35,7 +39,7 @@ class WebUiSlotRegistryTest {
                         "quick-actions-bookmarks", "quick-actions-mine",
                         "import-hint", "search-filter", "settings-card");
         // 槽位由小说自有行为模块渲染（与 queueType moduleUrl 同一模块）。
-        assertThat(registry.slots())
+        assertThat(withNovel.slots())
                 .filteredOn(registered -> registered.pluginId().equals("novel"))
                 .allSatisfy(registered -> assertThat(registered.slot().moduleUrl())
                         .isEqualTo("/pixiv-novel-download/novel-queue-type.js"));

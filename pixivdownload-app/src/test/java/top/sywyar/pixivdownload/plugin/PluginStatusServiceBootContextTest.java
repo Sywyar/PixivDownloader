@@ -52,7 +52,7 @@ class PluginStatusServiceBootContextTest {
 
         assertThat(report.withStatus(PluginStatus.STARTED)).extracting(PluginDiagnostic::id)
                 .containsExactlyInAnyOrder(
-                        "core", "novel", "plugin-market");
+                        "core", "plugin-market");
         assertThat(report.withStatus(PluginStatus.MISSING_REQUIRED)).extracting(PluginDiagnostic::id)
                 .containsExactly("download-workbench");
         assertThat(report.withStatus(PluginStatus.INCOMPATIBLE)).isEmpty();

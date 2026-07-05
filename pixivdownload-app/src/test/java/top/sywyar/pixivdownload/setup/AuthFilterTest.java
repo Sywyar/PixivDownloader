@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.TestGalleryPlugin;
+import top.sywyar.pixivdownload.plugin.TestNovelGalleryPlugin;
 import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
@@ -80,6 +81,15 @@ class AuthFilterTest {
     private AuthFilter authFilterWithGallery() {
         var plugins = new java.util.ArrayList<>(BuiltInPlugins.createAll());
         plugins.add(new TestGalleryPlugin());
+        PluginRegistry registry = new PluginRegistry(plugins);
+        return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
+                localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider,
+                new RouteAccessRegistry(registry), new StartupRouteRegistry(registry), new LandingRegistry(registry));
+    }
+
+    private AuthFilter authFilterWithNovel() {
+        var plugins = new java.util.ArrayList<>(BuiltInPlugins.createAll());
+        plugins.add(new TestNovelGalleryPlugin());
         PluginRegistry registry = new PluginRegistry(plugins);
         return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
                 localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider,
@@ -477,8 +487,9 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("GET /api/novel/{id}/downloaded 本地 IP 应直接放行")
+        @DisplayName("novel 插件已安装时 GET /api/novel/{id}/downloaded 本地 IP 应直接放行")
         void shouldAllowLocalNovelDownloadedCheck() throws Exception {
+            authFilter = authFilterWithNovel();
             request.setMethod("GET");
             request.setRequestURI("/api/novel/12345/downloaded");
             request.setRemoteAddr("127.0.0.1");
@@ -491,6 +502,7 @@ class AuthFilterTest {
         @Test
         @DisplayName("小说下载判重豁免不应波及其它 /api/novel 端点（本地无 session 仍按声明路由判定）")
         void shouldStillProtectOtherNovelGalleryApis() throws Exception {
+            authFilter = authFilterWithNovel();
             request.setMethod("GET");
             request.setRequestURI("/api/novel/12345");
             request.setRemoteAddr("127.0.0.1");
@@ -879,8 +891,9 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("多人模式非管理员可调用小说下载判重端点（按 /api/downloaded/{id} 同等放行）")
+        @DisplayName("novel 插件已安装时多人模式非管理员可调用小说下载判重端点")
         void shouldAllowNovelDownloadedCheckForAnonymousMultiUser() throws Exception {
+            authFilter = authFilterWithNovel();
             request.setMethod("GET");
             request.setRequestURI("/api/novel/12345/downloaded");
             request.setRemoteAddr("192.168.1.100");
@@ -1265,6 +1278,11 @@ class AuthFilterTest {
 
         // 新址下载 / 状态 + 旧址兼容垫片：访问行为应与插画下载 /api/download/pixiv 完全对称
         //（VISITOR 为纯归属声明、AuthFilter 不派生任何清单、命中后落默认会话/访客分支）。
+
+        @BeforeEach
+        void useNovelRoutes() {
+            authFilter = authFilterWithNovel();
+        }
 
         @ParameterizedTest
         @CsvSource({

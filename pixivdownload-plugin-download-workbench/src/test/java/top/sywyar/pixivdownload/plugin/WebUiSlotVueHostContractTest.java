@@ -10,11 +10,6 @@ import java.nio.file.NoSuchFileException;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
-import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
-import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 
 /**
  * 下载页 Web UiSlot 槽位「主路径 Vue 渲染 + 命令式回退」契约的静态守卫：保证页面初始化后每个已开出的
@@ -31,8 +26,8 @@ import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
  *   <li>{@code batch-queue-types.js} 的 {@code renderSlots} 为 async、由 {@code bootstrap} {@code await}（init 时序安全），
  *       **主路径经 {@code window.PixivVue.mount} 把片段作为 Vue 组件 template 渲染**，命令式 {@code insertAdjacentHTML}
  *       仅在挂载未成功时回退，且**不把 target 拼进选择器**（固定字面 {@code template[data-qt-slot]} + getAttribute）；</li>
- *   <li>{@code pixiv-batch.html} 加载 {@code /js/pixiv-vue.js}，且为 {@code /api/download/extensions} 暴露的每个
- *       novel UI 槽位 target 都开了对应 {@code <template data-qt-slot>} 锚点（端点 ↔ 页面锚点一致）；</li>
+ *   <li>{@code pixiv-batch.html} 加载 {@code /js/pixiv-vue.js}，且为 novel 插件可贡献的每个 UI 槽位 target 都开了
+ *       对应 {@code <template data-qt-slot>} 锚点；</li>
  *   <li>{@code pixiv-batch.css}：非空宿主 {@code [data-vue-slot] { display:contents }}（Vue 内容作为父容器真实子节点
  *       参与布局），空宿主 {@code [data-vue-slot]:empty { display:none }}；{@code .kind-switcher} 分隔线 {@code :not(:first-child)}
  *       且为 display:contents 宿主内的 kind 选项 label 补左分隔线（与命令式视觉一致）。</li>
@@ -160,23 +155,24 @@ class WebUiSlotVueHostContractTest {
     }
 
     @Test
-    @DisplayName("pixiv-batch.html 加载 /js/pixiv-vue.js 且为每个 novel UI 槽位 target 开了 data-qt-slot 锚点(端点↔页面一致)")
+    @DisplayName("pixiv-batch.html 加载 /js/pixiv-vue.js 且保留 novel UI 槽位锚点")
     void downloadPageAnchorsMatchExposedUiSlots() throws IOException {
         String html = read(BATCH_HTML);
         assertThat(html).as("下载页必须加载共享 Vue helper").contains("src=\"/js/pixiv-vue.js\"");
 
-        // 端点实际暴露的 novel UI 槽位 target（与 DownloadExtensionControllerTest.builtInNovelUiSlotsExposed 同源）。
-        PluginRegistry registry = new PluginRegistry(BuiltInPlugins.createAll());
-        DownloadExtensionController controller = new DownloadExtensionController(
-                new QueueTypeRegistry(registry), new DownloadTabRegistry(registry), new WebUiSlotRegistry(registry));
-        List<String> targets = controller.extensions().uiSlots().stream()
-                .map(DownloadExtensionController.UiSlotView::target)
-                .toList();
+        List<String> targets = List.of(
+                "kind-option-user",
+                "kind-option-search",
+                "kind-option-quick",
+                "quick-actions-bookmarks",
+                "quick-actions-mine",
+                "import-hint",
+                "search-filter",
+                "settings-card");
 
-        assertThat(targets).as("应暴露下载页 8 个 UI 槽位 target").hasSize(8);
         for (String target : targets) {
             assertThat(html)
-                    .as("/api/download/extensions 暴露的槽位 target '" + target
+                    .as("novel 插件可贡献的槽位 target '" + target
                             + "' 必须在 pixiv-batch.html 有对应 <template data-qt-slot> 锚点")
                     .contains("data-qt-slot=\"" + target + "\"");
         }

@@ -33,7 +33,7 @@ class StaticResourceRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置插件静态资源（核心公共库 + novel 下载行为模块 + 插件市场；gallery/novel-gallery/download-workbench/stats/duplicate 已外置）")
+    @DisplayName("构造时从 PluginRegistry 收集全部内置插件静态资源（核心公共库 + 插件市场；novel 等可选能力已外置）")
     void collectsFromBuiltInPlugins() {
         StaticResourceRegistry registry =
                 new StaticResourceRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
@@ -41,7 +41,6 @@ class StaticResourceRegistryTest {
                 .extracting(registered -> registered.contribution().publicPathPrefix())
                 .containsExactlyInAnyOrder(
                         "/js/", "/css/", "/vendor/",
-                        "/pixiv-novel-download/",
                         "/plugin-market/");
         assertThat(registry.resources())
                 .filteredOn(registered -> registered.contribution().publicPathPrefix().equals("/js/"))

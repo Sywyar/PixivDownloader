@@ -23,13 +23,17 @@ class QueueTypeRegistryTest {
     }
 
     @Test
-    @DisplayName("core-only 内置插件清单只携带 novel 作品类型，illust 随外置 download-workbench 提供")
+    @DisplayName("core-only 内置插件清单不携带作品类型，novel 作品类型由外置 novel 插件提供")
     void collectsQueueTypesFromBuiltInPlugins() {
         QueueTypeRegistry registry = new QueueTypeRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        assertThat(registry.queueTypes())
+        assertThat(registry.queueTypes()).isEmpty();
+
+        QueueTypeRegistry withNovel = new QueueTypeRegistry(
+                new PluginRegistry(List.of(new TestNovelGalleryPlugin())));
+        assertThat(withNovel.queueTypes())
                 .extracting(registered -> registered.queueType().type())
                 .containsExactlyInAnyOrder("novel");
-        assertThat(registry.queueTypes())
+        assertThat(withNovel.queueTypes())
                 .filteredOn(registered -> registered.queueType().type().equals("novel"))
                 .singleElement()
                 .satisfies(registered -> {

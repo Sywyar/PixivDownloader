@@ -128,7 +128,7 @@ class DuplicateExternalPluginBootContextTest {
     void pluginRegistryBeanContainsDuplicateAsExternal() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder(
-                        "core", "novel", "plugin-market", "duplicate");
+                        "core", "plugin-market", "duplicate");
         assertThat(pluginRegistry.source("duplicate")).contains(PluginSource.EXTERNAL);
         assertThat(externalDuplicateClassLoader()).isNotSameAs(getClass().getClassLoader());
     }

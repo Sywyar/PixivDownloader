@@ -450,7 +450,7 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
-        @DisplayName("DatabaseInitializer + NovelDatabase.init() 后由其管理的所有表都应与受管 schema 完全匹配")
+        @DisplayName("DatabaseInitializer 后核心小说长期表应与受管 schema 完全匹配")
         void shouldMatchNovelProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -458,27 +458,18 @@ class DatabaseSchemaInspectorTest {
             ds.setUrl("jdbc:sqlite::memory:");
             ds.setSuppressClose(true);
 
-            org.apache.ibatis.mapping.Environment env = new org.apache.ibatis.mapping.Environment(
-                    "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
-            org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
-            config.setMapUnderscoreToCamelCase(true);
-            config.addMapper(top.sywyar.pixivdownload.novel.db.NovelMapper.class);
-            org.apache.ibatis.session.SqlSessionFactory factory =
-                    new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
-
-            try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
-                top.sywyar.pixivdownload.novel.db.NovelMapper mapper =
-                        session.getMapper(top.sywyar.pixivdownload.novel.db.NovelMapper.class);
+            try {
                 DatabaseInitializer initializer = newInitializer(ds);
                 initializer.initialize();
-                top.sywyar.pixivdownload.novel.db.NovelDatabase database =
-                        new top.sywyar.pixivdownload.novel.db.NovelDatabase(mapper, null, null, initializer, null);
-                database.init();
+                new org.springframework.jdbc.core.JdbcTemplate(ds)
+                        .execute("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')");
 
-                // 仅比对 NovelDatabase.init() 实际建的表；共享 tags 表由 PixivDatabase 负责。
                 Set<String> initManaged = Set.of(
                         "novels", "novel_series", "novel_tags", "novel_series_tags",
-                        "novel_collections", "novel_images");
+                        "novel_collections", "novel_images", "novel_translations",
+                        "novel_series_title_translations", "novel_glossaries",
+                        "novel_glossary_entries", "novel_narration_casts",
+                        "novel_narration_voices", "novel_narration_scripts");
                 ManagedDatabaseSchema.DatabaseSchema sub = specSubset(initManaged);
 
                 try (Connection c = ds.getConnection()) {
@@ -490,7 +481,7 @@ class DatabaseSchemaInspectorTest {
                                     .filter(d -> d.kind() != DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE)
                                     .toList();
                     assertThat(drift)
-                            .as("init() 创建的小说表与受管 schema 之间不应有漂移：%s", drift)
+                            .as("核心初始化创建的小说长期表与受管 schema 之间不应有漂移：%s", drift)
                             .isEmpty();
                 }
             } finally {

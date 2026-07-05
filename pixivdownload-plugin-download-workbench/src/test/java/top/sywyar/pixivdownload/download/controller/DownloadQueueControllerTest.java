@@ -10,12 +10,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.IllustQueueOperations;
-import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
-import top.sywyar.pixivdownload.novel.download.NovelQueueOperations;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.util.List;
@@ -28,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * {@link DownloadQueueController} 单元测试。控制器经核心队列宿主注册中心
  * {@link QueueOperationRegistry} 跨类型派发，不再直接依赖具体下载服务——这里用真实操作适配器
- *（{@link IllustQueueOperations} / {@link NovelQueueOperations}）包裹 mock 执行器装配注册中心，
+ *（插画侧 {@link IllustQueueOperations} + 小说侧中性 {@link QueueOperations} fake）装配注册中心，
  * 验证取消 / 清空经注册中心落到对应执行器，且 solo / multi 归属语义逐字保持。
  */
 @ExtendWith(MockitoExtension.class)
@@ -41,7 +40,7 @@ class DownloadQueueControllerTest {
     @Mock
     private SetupService setupService;
     @Mock
-    private NovelDownloadService novelDownloadService;
+    private QueueOperations novelQueueOperations;
 
     /** 用真实操作适配器（插画 + 小说）包裹 mock 执行器建注册中心，再装配控制器。 */
     private MockMvc mockMvcWith(QueueOperationRegistry registry) {
@@ -54,14 +53,16 @@ class DownloadQueueControllerTest {
     private QueueOperationRegistry illustAndNovelRegistry() {
         return new QueueOperationRegistry(List.of(
                 new IllustQueueOperations(artworkDownloadExecutor),
-                new NovelQueueOperations(novelDownloadService)));
+                novelQueueOperations));
     }
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
+        when(novelQueueOperations.queueType()).thenReturn("novel");
         mockMvc = mockMvcWith(illustAndNovelRegistry());
+        clearInvocations(novelQueueOperations);
     }
 
     // ========== POST /api/cancel/{artworkId} ==========
@@ -75,9 +76,10 @@ class DownloadQueueControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("下载任务已取消"));
 
-        // 插画适配器把 admin 作用域取消转发到执行器三参重载；小说无单项取消（默认空实现），不触达小说服务。
+        // 插画适配器把 admin 作用域取消转发到执行器三参重载；其他已注册队列也收到中性取消通知。
         verify(artworkDownloadExecutor).cancelDownload(12345L, null, true);
-        verifyNoInteractions(novelDownloadService);
+        verify(novelQueueOperations).cancel(12345L, null, true);
+        verifyNoMoreInteractions(novelQueueOperations);
     }
 
     @Test
@@ -87,7 +89,7 @@ class DownloadQueueControllerTest {
         when(setupService.getMode()).thenReturn("multi");
         when(setupService.isAdminLoggedIn(any())).thenReturn(false);
         when(artworkDownloadExecutor.forceClearDownloadsForOwner(ownerUuid)).thenReturn(2);
-        when(novelDownloadService.forceClearDownloadsForOwner(ownerUuid)).thenReturn(1);
+        when(novelQueueOperations.clearForOwner(ownerUuid)).thenReturn(1);
 
         mockMvc.perform(post("/api/download/queue/clear")
                         .header("X-User-UUID", ownerUuid)
@@ -96,9 +98,9 @@ class DownloadQueueControllerTest {
                 .andExpect(jsonPath("$.success").value(true));
 
         verify(artworkDownloadExecutor).forceClearDownloadsForOwner(ownerUuid);
-        verify(novelDownloadService).forceClearDownloadsForOwner(ownerUuid);
+        verify(novelQueueOperations).clearForOwner(ownerUuid);
         verify(artworkDownloadExecutor, never()).forceClearDownloads();
-        verify(novelDownloadService, never()).forceClearDownloads();
+        verify(novelQueueOperations, never()).clearAll();
     }
 
     @Test
@@ -106,16 +108,16 @@ class DownloadQueueControllerTest {
     void shouldClearAllDownloadsInSoloMode() throws Exception {
         when(setupService.getMode()).thenReturn("solo");
         when(artworkDownloadExecutor.forceClearDownloads()).thenReturn(2);
-        when(novelDownloadService.forceClearDownloads()).thenReturn(1);
+        when(novelQueueOperations.clearAll()).thenReturn(1);
 
         mockMvc.perform(post("/api/download/queue/clear").locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
         verify(artworkDownloadExecutor).forceClearDownloads();
-        verify(novelDownloadService).forceClearDownloads();
+        verify(novelQueueOperations).clearAll();
         verify(artworkDownloadExecutor, never()).forceClearDownloadsForOwner(any());
-        verify(novelDownloadService, never()).forceClearDownloadsForOwner(any());
+        verify(novelQueueOperations, never()).clearForOwner(any());
     }
 
     @Test
@@ -132,6 +134,6 @@ class DownloadQueueControllerTest {
                 .andExpect(jsonPath("$.success").value(true));
 
         verify(artworkDownloadExecutor).forceClearDownloads();
-        verifyNoInteractions(novelDownloadService);
+        verifyNoInteractions(novelQueueOperations);
     }
 }

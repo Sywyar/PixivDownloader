@@ -60,8 +60,8 @@
     "officialRequired": false,
     "changeNotes": ["首个外置版本"]
   },
-  "novel-gallery": {
-    "description": { "zh": "提供小说画廊、小说详情与系列页面，基于核心小说下载事实、正文、元数据和翻译状态展示历史小说。", "en": "Provides the novel gallery, novel detail, and series pages backed by core novel download facts, content, metadata, and translation state." },
+  "novel": {
+    "description": { "zh": "提供小说下载、Pixiv 小说 API、计划任务小说执行、翻译、合订、AI 听书协作、小说画廊与阅读页。", "en": "Provides novel downloading, Pixiv novel APIs, scheduled novel execution, translation, merge, AI narration collaboration, the novel gallery, and the reader page." },
     "author": "Sywyar",
     "sourceType": "official",
     "category": "gallery",
@@ -70,7 +70,7 @@
     "license": "AGPL-3.0-only",
     "recommended": true,
     "officialRequired": false,
-    "changeNotes": ["首个外置版本"]
+    "changeNotes": ["合并小说下载核心与小说展示层为官方可选插件"]
   },
   "notification": {
     "description": { "zh": "提供通知场景开关和中性通知级别文案，不发送邮件或推送；邮件与推送插件依赖它共享通知语义。", "en": "Provides notification scenario toggles and neutral severity labels without sending mail or push messages; mail and push plugins depend on it for shared notification semantics." },

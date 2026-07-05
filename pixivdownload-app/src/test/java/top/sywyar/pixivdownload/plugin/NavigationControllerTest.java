@@ -154,12 +154,12 @@ class NavigationControllerTest {
     // ========== 来源层级 + placement 内 priority 排序 ==========
 
     @Test
-    @DisplayName("gallery/novel-gallery 已安装时管理员的 app.top placement 顺序：内置入口在前，外置插件追加")
+    @DisplayName("gallery/novel 已安装时管理员的 app.top placement 顺序：内置入口在前，外置插件追加")
     void adminAppTopPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
 
-        // gallery/novel-gallery 已是外置插件，不再按内置来源排序；同一 placement 下追加在内置入口之后。
+        // gallery/novel 已是外置插件，不再按内置来源排序；同一 placement 下追加在内置入口之后。
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
                 .containsExactly("plugin-manage", "gallery", "novel-gallery");
     }
@@ -223,10 +223,10 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("禁用小说画廊：画廊页类型切换的小说入口消失（gallery.type-switch placement 空）")
+    @DisplayName("禁用 novel：画廊页类型切换的小说入口消失（gallery.type-switch placement 空）")
     void disablingNovelRemovesGalleryTypeSwitchEntry() {
         NavigationController controller = controllerFor(new NavigationRegistry(
-                new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("novel-gallery"))));
+                new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("novel"))));
         MockHttpServletRequest admin = adminRequest();
 
         assertThat(idsInPlacement(controller, admin, "gallery.type-switch")).isEmpty();

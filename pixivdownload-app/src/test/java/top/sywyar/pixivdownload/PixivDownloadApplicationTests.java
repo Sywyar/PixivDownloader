@@ -9,7 +9,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,18 +59,15 @@ class PixivDownloadApplicationTests {
     }
 
     /**
-     * 内置 novel 下载 controller 经 {@code @PluginManagedBean} 排除出根包扫描、由插件
-     * Configuration 以 {@code @Bean} 提供。这里锁定小说下载入口仍在 context 中恰好一个
-     * （既没被扫描重复注册、也没因排除过滤器配置错误而丢失），且 Spring MVC 仍能识别其 handler 方法。
-     * gallery / novel-gallery 已外置，不在 core shell 根上下文中断言。
+     * novel 下载 controller 已随 novel 外置插件离开 core shell。core-only 上下文不应注册
+     * 小说下载 handler；安装 novel 插件后由插件子上下文贡献。
      */
     @Test
-    @DisplayName("内置 novel 下载 controller 恰好注册一次且 MVC 映射不变")
-    void pluginManagedControllerRegisteredExactlyOnce() {
-        assertThat(applicationContext.getBeanNamesForType(NovelDownloadController.class)).hasSize(1);
+    @DisplayName("core-only 不注册 novel 下载 controller")
+    void novelControllerAbsentWhenExternalPluginMissing() {
         RequestMappingHandlerMapping handlerMapping = applicationContext
                 .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
-        assertThat(mappedPatterns(handlerMapping, "/api/novel/download")).isTrue();
+        assertThat(mappedPatterns(handlerMapping, "/api/novel/download")).isFalse();
     }
 
     private static boolean mappedPatterns(RequestMappingHandlerMapping handlerMapping, String pattern) {

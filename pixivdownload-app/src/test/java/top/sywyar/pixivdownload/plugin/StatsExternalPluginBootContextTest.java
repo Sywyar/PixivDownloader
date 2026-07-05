@@ -58,7 +58,7 @@ import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
  *   <li>{@code pixivdownload.plugins-dir} → {@link RuntimeFiles#pluginsDirectory()} →
  *       {@code PluginRuntimeConfiguration} 的 {@link PluginRuntimeManager} / {@link PluginRuntimeStatus} /
  *       {@link PluginDiscoveryResult} Bean → 双来源 {@link PluginRegistry} Bean；</li>
- *   <li>{@link PluginRegistry} Bean 同时含三个内置插件与外置 {@code stats}，{@code stats} 来源为
+ *   <li>{@link PluginRegistry} Bean 同时含内置插件与外置 {@code stats}，{@code stats} 来源为
  *       {@link PluginSource#EXTERNAL}、解析 classloader 是外置插件自己的（非核心壳应用 classloader）；</li>
  *   <li>下游注册中心 Bean（{@code @Component} 的 {@link RouteAccessRegistry} / {@link NavigationRegistry} /
  *       {@link StaticResourceRegistry} / {@link WebI18nBundleRegistry}）都能看到 stats 的 route / navigation /
@@ -182,11 +182,11 @@ class StatsExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("双来源 PluginRegistry Bean：三内置 + 外置 stats，stats 来源 EXTERNAL、classloader 为外置插件 loader")
+    @DisplayName("双来源 PluginRegistry Bean：内置 + 外置 stats，stats 来源 EXTERNAL、classloader 为外置插件 loader")
     void pluginRegistryBeanContainsStatsAsExternal() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder(
-                        "core", "novel", "plugin-market", "stats");
+                        "core", "plugin-market", "stats");
         assertThat(pluginRegistry.source("stats")).contains(PluginSource.EXTERNAL);
         assertThat(externalStatsClassLoader()).isNotSameAs(getClass().getClassLoader());
         // 内置插件来源仍为内置（外置接入不改内置语义）。

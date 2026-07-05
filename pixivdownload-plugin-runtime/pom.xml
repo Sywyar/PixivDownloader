@@ -43,6 +43,11 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
         </dependency>
+        <!-- 子插件 ApplicationContext 的 @Transactional 注解处理基础设施 -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+        </dependency>
         <!-- @ConfigurationProperties + Binder（条件在 Bean 注册期读环境的宽松绑定） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

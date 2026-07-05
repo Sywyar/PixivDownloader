@@ -71,10 +71,10 @@ class StaticResourceConfigTest {
     }
 
     @Test
-    @DisplayName("内置 novel 下载行为模块 /pixiv-novel-download/*.js 经 contribution handler 返回 200")
-    void servesPluginPageStaticResource() throws Exception {
+    @DisplayName("core-only 不服务外置 novel 下载行为模块")
+    void externalNovelStaticResourceIsAbsentInCoreOnlyContext() throws Exception {
         mockMvc.perform(get("/pixiv-novel-download/novel-queue-type.js"))
-                .andExpect(status().isOk());
+                .andExpect(status().isNotFound());
     }
 
     @Test

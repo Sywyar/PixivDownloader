@@ -6,9 +6,9 @@ import top.sywyar.pixivdownload.core.db.schema.contribution.ArtworkSchemaContrib
 import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.core.db.schema.contribution.FileNameSchemaContribution;
 import top.sywyar.pixivdownload.core.db.schema.contribution.ImageHashSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.NovelSchemaContribution;
 import top.sywyar.pixivdownload.core.db.schema.contribution.StatisticsSchemaContribution;
 import top.sywyar.pixivdownload.core.db.schema.contribution.TagSchemaContribution;
-import top.sywyar.pixivdownload.novel.db.NovelSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;

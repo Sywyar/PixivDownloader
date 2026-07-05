@@ -47,7 +47,7 @@ class LandingRegistryTest {
     }
 
     @Test
-    @DisplayName("gallery 已安装时：受邀访客 gallery(priority 20) 优先于 novel-gallery(priority 30) → 画廊落点")
+    @DisplayName("gallery 已安装时：受邀访客 gallery(priority 20) 优先于 novel(priority 30) → 画廊落点")
     void builtInResolvesInvitedGuestToGallery() {
         LandingRegistry registry = new LandingRegistry(
                 new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll())));
@@ -62,7 +62,7 @@ class LandingRegistryTest {
         assertThat(registry.resolve(Audience.INVITED_GUEST)).contains("/pixiv-novel-gallery.html");
         assertThat(registry.landings())
                 .extracting(LandingRegistry.RegisteredLanding::pluginId)
-                .doesNotContain("gallery").contains("novel-gallery");
+                .doesNotContain("gallery").contains("novel");
     }
 
     @Test
@@ -70,7 +70,7 @@ class LandingRegistryTest {
     void emptyWhenBothDisabled() {
         LandingRegistry registry = new LandingRegistry(
                 new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll()),
-                        disabling("gallery", "novel-gallery")));
+                        disabling("gallery", "novel")));
         assertThat(registry.resolve(Audience.INVITED_GUEST)).isEmpty();
     }
 

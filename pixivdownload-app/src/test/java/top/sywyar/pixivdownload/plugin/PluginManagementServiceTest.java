@@ -39,7 +39,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 @DisplayName("PluginManagementService 插件管理后端服务")
 class PluginManagementServiceTest {
 
-    private static final String BUILT_IN_ID = "novel";     // 真实内置插件 id（BuiltInPlugins.isBuiltIn 为真）
+    private static final String BUILT_IN_ID = "core";      // 真实内置插件 id（BuiltInPlugins.isBuiltIn 为真）
     private static final String EXTERNAL_ID = "demo-ext";  // 非内置：视作外置
     private static final String REQUIRED_EXTERNAL_ID = "req-ext";
     private static final String MISSING_ID = "missing-one";
@@ -119,7 +119,7 @@ class PluginManagementServiceTest {
     }
 
     @Test
-    @DisplayName("官方外置插件展示元数据：管理 DTO 对九个官方 descriptor 原样投影 canonical key/token")
+    @DisplayName("官方外置插件展示元数据：管理 DTO 对官方 descriptor 原样投影 canonical key/token")
     void listProjectsOfficialCanonicalDisplayMetadata() {
         PluginStatusService status = mock(PluginStatusService.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
@@ -127,6 +127,7 @@ class PluginManagementServiceTest {
         List<PluginDescriptor> descriptors = List.of(
                 official("download-workbench", "batch", "download", "pixiv"),
                 official("gallery", "gallery", "gallery", "green"),
+                official("novel", "novel", "book", "amber"),
                 official("gui-theme", "gui-theme", "palette", "blue"),
                 official("stats", "stats", "chart-line", "green"),
                 official("notification", "notification", "bell", "teal"),

@@ -136,7 +136,7 @@ class GalleryExternalPluginBootContextTest {
     @DisplayName("双来源 PluginRegistry Bean：三内置 + 外置 gallery，gallery 来源 EXTERNAL")
     void pluginRegistryBeanContainsGalleryAsExternal() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
-                .containsExactlyInAnyOrder("core", "novel", "plugin-market", "gallery");
+                .containsExactlyInAnyOrder("core", "plugin-market", "gallery");
         assertThat(pluginRegistry.source("gallery")).contains(PluginSource.EXTERNAL);
         assertThat(externalGalleryClassLoader()).isNotSameAs(getClass().getClassLoader());
     }

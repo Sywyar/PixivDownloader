@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.plugin;
 
-import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.market.PluginMarketPlugin;
 
@@ -15,7 +14,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
  * <p>
  * 必须与各 {@code XxxPluginConfiguration} 注册进 {@link PluginRegistry} 的内置插件集合
  * 保持一致（由 {@code RegisteredPluginsTest} 的镜像用例守护）。<b>仅含随 boot jar 编译进来的内置插件</b>；
- * 外置插件（如 download-workbench / gallery / stats / duplicate）从 {@code plugins/} 目录由 PF4J 加载、
+ * 外置插件（如 download-workbench / gallery / novel / stats / duplicate）从 {@code plugins/} 目录由 PF4J 加载、
  * 经发现桥接接入 {@link PluginRegistry}（来源 {@code EXTERNAL}），不在本清单内。
  */
 public final class BuiltInPlugins {
@@ -26,7 +25,6 @@ public final class BuiltInPlugins {
     public static List<PixivFeaturePlugin> createAll() {
         return List.of(
                 new CorePlugin(),
-                new NovelPlugin(),
                 new PluginMarketPlugin());
     }
 

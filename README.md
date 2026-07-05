@@ -71,12 +71,12 @@
 当前发布包采用外置插件布局：
 
 - `download-workbench` 是 required 外置插件，提供下载页、下载 API、队列、userscript 入口、Pixiv 插画代理和计划任务宿主。Windows 安装包与离线全量包会随包携带它；缺失、损坏、不兼容或验签失败时，程序进入恢复路径，只开放登录、插件管理和安装修复入口。
-- `stats`、`duplicate`、`gallery`、`novel-gallery`、`tts`、`ai`、`push`、`mail`、`gui-theme`、`notification` 是官方可选插件。安装并启用后对应页面、API、静态资源、i18n、导航、GUI 配置字段或能力贡献可用；缺失或禁用时这些入口自然缺席，不会触发恢复路径。
+- `stats`、`duplicate`、`gallery`、`novel`、`tts`、`ai`、`push`、`mail`、`gui-theme`、`notification` 是官方可选插件。安装并启用后对应页面、API、静态资源、i18n、导航、GUI 配置字段或能力贡献可用；缺失或禁用时这些入口自然缺席，不会触发恢复路径。
 - GitHub Release 仅提供 Windows 安装包和 full-offline package（离线全量包）。独立核心壳 JAR 与默认下载器包仍用于构建 / 恢复流程，不作为普通下载附件发布。
 - Windows 安装包携带 required `download-workbench`，并可在附加功能页从签名官方清单安装可选插件；full-offline package（离线全量包）在此基础上携带全部官方可选插件与离线验签所需文件。
 - `duplicate` 缺失或禁用不影响下载完成后的图片 Hash 写入，也不会删除历史 Hash 数据。
 - `gallery` 缺失或禁用只影响本地画廊、作品详情、展示 API、导航和相关静态资源；下载页、下载 API、userscript、Pixiv 插画代理、计划任务宿主、作品元数据、下载事实、Hash 与本地资源索引仍正常保留。
-- `novel-gallery` 缺失或禁用只影响小说画廊、小说阅读页、展示 API、导航、静态资源和 i18n；小说下载核心、正文保存、翻译状态、系列合订、计划任务小说执行器、TTS / AI 能力降级与历史数据可读性不依赖它。
+- `novel` 缺失或禁用时，小说下载、小说 Pixiv 代理、小说核心 API、计划任务小说执行器、翻译 / 合订 / 正文保存入口、小说画廊、小说阅读页、导航、静态资源和 i18n 均缺席；历史小说正文、翻译状态、narration 数据、合订结果与元数据保留，重新安装后继续可读。
 - TTS / AI / push / mail 插件缺失时，对应能力会显示为不可用或跳过；不会回退到核心内置实现。
 
 ### 启动

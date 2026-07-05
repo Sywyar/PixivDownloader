@@ -22,8 +22,10 @@ import java.util.Objects;
  *   <li><b>继承父 context 的环境属性。</b>{@code setParent} 会把父环境的属性源合并进子环境，使
  *       {@code @ConditionalOnPluginEnabled} 等条件、属性解析与父一致（须早于注册配置类，故先 {@code setParent}
  *       再 {@code register}）；据此被禁用插件的条件托管 Bean 在子 context 中同样缺席。</li>
- *   <li><b>纯附加、不触碰核心壳。</b>子 context 只实例化插件声明的配置类，不引入 Spring Boot 自动装配、不向父
- *       context 的请求分发 / 注册中心注册任何东西（controller 等的动态注册是另行处理的后续接线）。</li>
+ *   <li><b>统一启用事务注解处理。</b>子 context 注册通用基础设施配置，使插件内 {@code @Transactional}
+ *       Bean 由子 context 自己创建代理；事务管理器仍从父 context 解析。</li>
+ *   <li><b>纯附加、不触碰核心壳。</b>子 context 只实例化插件声明的配置类和通用基础设施，不引入 Spring Boot
+ *       自动装配、不向父 context 的请求分发 / 注册中心注册任何东西。</li>
  * </ul>
  *
  * <p>本类是无状态 POJO（不带 Spring 注解），由核心壳侧装配为 Bean 并按外置插件生命周期调用。它<b>不</b>持有所创建
@@ -54,6 +56,7 @@ public final class PluginApplicationContextFactory {
         // 先挂父 context：合并父环境属性源（供条件 / 属性解析）+ 让子 context 找不到的依赖向父解析核心 API/服务 Bean。
         // 须早于 register（@Configuration 条件评估在注册与刷新期进行）。
         child.setParent(parent);
+        child.register(PluginContextInfrastructureConfiguration.class);
         for (Class<?> configurationClass : module.configurationClasses()) {
             child.register(configurationClass);
         }

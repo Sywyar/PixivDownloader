@@ -26,7 +26,7 @@ class WebI18nBundleRegistryTest {
     private static final ClassLoader LOADER = WebI18nBundleRegistryTest.class.getClassLoader();
 
     /**
-     * namespace → baseName 基线：内置共 12 条（download-workbench/gallery/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
+     * namespace → baseName 基线：内置共 10 条（download-workbench/gallery/novel/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
      * 保证「所有页面 i18n 行为不变」。新增 namespace 时同步本基线。
      */
     private static final Map<String, String> LEGACY_NAMESPACE_BASENAMES = legacyBaseNames();
@@ -37,8 +37,6 @@ class WebI18nBundleRegistryTest {
         map.put("setup", "i18n.web.setup");
         map.put("login", "i18n.web.login");
         map.put("intro", "i18n.web.intro");
-        map.put("novel", "i18n.web.novel");
-        map.put("narration", "i18n.web.narration");
         map.put("monitor", "i18n.web.monitor");
         map.put("invite", "i18n.web.invite");
         map.put("tour", "i18n.web.tour");
@@ -61,7 +59,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（12 条；download-workbench/gallery/stats/duplicate/translate 已外置）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（10 条；download-workbench/gallery/novel/stats/duplicate/translate 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 
@@ -85,18 +83,18 @@ class WebI18nBundleRegistryTest {
         assertThat(ownerOf(registry, "maintenance")).isEqualTo("core");
         assertThat(registry.resolve("gallery")).isNull();
         assertThat(registry.resolve("artwork")).isNull();
-        assertThat(ownerOf(registry, "novel")).isEqualTo("novel");
-        assertThat(ownerOf(registry, "narration")).isEqualTo("novel");
+        assertThat(registry.resolve("novel")).isNull();
+        assertThat(registry.resolve("narration")).isNull();
     }
 
     @Test
     @DisplayName("resolve 携带声明方插件的 ClassLoader（bundle 解析用）")
     void resolveCarriesDeclaringClassLoader() {
         WebI18nBundleRegistry registry = builtInRegistry();
-        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("novel");
+        WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("common");
         assertThat(bundle).isNotNull();
         assertThat(bundle.classLoader())
-                .isSameAs(top.sywyar.pixivdownload.novel.NovelPlugin.class.getClassLoader());
+                .isSameAs(top.sywyar.pixivdownload.plugin.CorePlugin.class.getClassLoader());
     }
 
     @Test
@@ -267,6 +265,24 @@ class WebI18nBundleRegistryTest {
         assertThat(ownerOf(registry, "artwork")).isEqualTo("gallery");
         assertThat(ownerOf(registry, "showcase")).isEqualTo("gallery");
         assertThat(ownerOf(registry, "series")).isEqualTo("gallery");
+    }
+
+    @Test
+    @DisplayName("novel / narration / novel-gallery namespace 可由外置 novel 插件注册，不属于内置快照")
+    void novelNamespacesCanBeProvidedByExternalPlugin() {
+        WebI18nBundleRegistry registry = builtInRegistry();
+        assertThat(registry.resolve("novel")).isNull();
+        assertThat(registry.resolve("narration")).isNull();
+        assertThat(registry.resolve("novel-gallery")).isNull();
+
+        registry.register("novel", LOADER, List.of(
+                new I18nContribution("novel", "i18n.web.novel", 12),
+                new I18nContribution("novel-gallery", "i18n.web.novel-gallery", 12),
+                new I18nContribution("narration", "i18n.web.narration", 14)));
+
+        assertThat(ownerOf(registry, "novel")).isEqualTo("novel");
+        assertThat(ownerOf(registry, "narration")).isEqualTo("novel");
+        assertThat(ownerOf(registry, "novel-gallery")).isEqualTo("novel");
     }
 
     @Test
