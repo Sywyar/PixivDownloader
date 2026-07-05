@@ -7,6 +7,7 @@ import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactLoadPlan;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactMaterializer;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
@@ -26,11 +27,13 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
@@ -129,13 +132,29 @@ public class PluginRuntimeManager {
         }
 
         ensureManager();
-        List<PluginLoadFailure> failures = new ArrayList<>();
-        for (Path candidate : candidates) {
+        PluginArtifactLoadPlan loadPlan = PluginArtifactLoadPlan.create(candidates);
+        List<PluginLoadFailure> failures = new ArrayList<>(loadPlan.failures());
+        for (PluginLoadFailure failure : loadPlan.failures()) {
+            log.error("Failed to prepare plugin package {}: {}", failure.source(), failure.reason());
+        }
+        Set<String> failedPluginIds = new LinkedHashSet<>(loadPlan.skippedPluginIds());
+        for (PluginArtifactLoadPlan.Entry candidate : loadPlan.orderedEntries()) {
+            Optional<PluginLoadFailure> blocked =
+                    loadPlan.blockedByFailedRequiredDependency(candidate, failedPluginIds);
+            if (blocked.isPresent()) {
+                failures.add(blocked.get());
+                failedPluginIds.add(candidate.pluginId());
+                log.error("Skipped plugin package {}: {}",
+                        blocked.get().source(), blocked.get().reason());
+                continue;
+            }
             try {
-                loadPlugin(candidate);
+                loadPlugin(candidate.artifactPath());
             } catch (RuntimeException e) {
-                failures.add(new PluginLoadFailure(candidate.getFileName().toString(), describe(e)));
-                log.error("Failed to load plugin package {}: {}", candidate.getFileName(), describe(e));
+                failedPluginIds.add(candidate.pluginId());
+                failures.add(new PluginLoadFailure(candidate.artifactPath().getFileName().toString(), describe(e)));
+                log.error("Failed to load plugin package {}: {}",
+                        candidate.artifactPath().getFileName(), describe(e));
             }
         }
         for (String packageId : List.copyOf(entries.keySet())) {

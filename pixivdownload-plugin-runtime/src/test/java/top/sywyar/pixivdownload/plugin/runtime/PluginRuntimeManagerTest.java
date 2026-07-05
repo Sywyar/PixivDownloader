@@ -7,6 +7,8 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifac
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbeFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.DependencyOrderProbeFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.DependencyOrderProbePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -263,6 +265,63 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("启动扫描：按 plugin.dependencies 拓扑排序，依赖的依赖先于依赖方加载")
+    void startupOrdersRootArtifactsByTransitiveDependencies() throws IOException {
+        Path plugins = tempDir.resolve("ordered-root-artifacts");
+        Files.createDirectories(plugins);
+        writeDependencyOrderProbeJar(plugins.resolve("mail-1.0.0.jar"), "mail",
+                List.of(new PluginDependencyRef("notification", "1.0", false)));
+        writeDependencyOrderProbeJar(plugins.resolve("notification-1.0.0.jar"), "notification",
+                List.of(new PluginDependencyRef("base", "1.0", false)));
+        writeDependencyOrderProbeJar(plugins.resolve("zz-base-1.0.0.jar"), "base", List.of());
+        writeLocalProvenance(plugins, plugins.resolve("mail-1.0.0.jar"), "mail", PROBE_VERSION);
+        writeLocalProvenance(plugins, plugins.resolve("notification-1.0.0.jar"), "notification", PROBE_VERSION);
+        writeLocalProvenance(plugins, plugins.resolve("zz-base-1.0.0.jar"), "base", PROBE_VERSION);
+        Path marker = tempDir.resolve("dependency-order-marker.txt");
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        String previousMarker = System.getProperty("dependency.order.probe.marker");
+        try {
+            System.setProperty("dependency.order.probe.marker", marker.toString());
+
+            PluginRuntimeStatus status = manager.start();
+
+            assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
+            assertThat(status.failures()).isEmpty();
+            assertThat(status.loadedPluginIds()).containsExactly("base", "notification", "mail");
+            assertThat(status.startedPluginIds()).containsExactly("base", "notification", "mail");
+            assertThat(Files.readAllLines(marker, StandardCharsets.UTF_8))
+                    .containsSubsequence("load:base", "load:notification", "load:mail")
+                    .containsSubsequence("start:base", "start:notification", "start:mail");
+        } finally {
+            manager.shutdown();
+            restoreProperty("dependency.order.probe.marker", previousMarker);
+        }
+    }
+
+    @Test
+    @DisplayName("启动扫描：缺少必需依赖时跳过依赖方，不把半加载包交给 PF4J")
+    void startupSkipsPluginWithMissingRequiredDependencyBeforePf4jLoad() throws IOException {
+        Path plugins = tempDir.resolve("missing-required-dependency");
+        Files.createDirectories(plugins);
+        writeDependencyOrderProbeJar(plugins.resolve("mail-1.0.0.jar"), "mail",
+                List.of(new PluginDependencyRef("notification", "1.0", false)));
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
+        assertThat(status.loadedPluginIds()).isEmpty();
+        assertThat(status.startedPluginIds()).isEmpty();
+        assertThat(status.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.source()).isEqualTo("mail-1.0.0.jar");
+            assertThat(failure.reason()).contains("missing required dependency: notification");
+        });
+        assertThat(manager.pluginManager()).isPresent();
+        assertThat(manager.pluginManager().orElseThrow().getPlugin("mail")).isNull();
+        manager.shutdown();
+    }
+
+    @Test
     @DisplayName("重新扫描 POPULATED→EMPTY：清理陈旧 PF4J 实例，pluginManager() 与发现结果均为空")
     void rescanFromPopulatedToEmptyClearsStaleManager() throws IOException {
         Path broken = tempDir.resolve("broken-plugin.jar");
@@ -451,6 +510,17 @@ class PluginRuntimeManagerTest {
         }
     }
 
+    private static void writeDependencyOrderProbeJar(Path jar, String pluginId,
+                                                     List<PluginDependencyRef> dependencies) throws IOException {
+        Files.createDirectories(jar.getParent());
+        try (OutputStream out = Files.newOutputStream(jar);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
+            addDependencyOrderDescriptor(zos, pluginId, dependencies);
+            addClassEntry(zos, DependencyOrderProbePlugin.class, "");
+            addClassEntry(zos, DependencyOrderProbeFeaturePlugin.class, "");
+        }
+    }
+
     private static void writeProbeClassesDirectory(Path classesDirectory, boolean privateLib) throws IOException {
         Files.createDirectories(classesDirectory);
         String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
@@ -496,6 +566,34 @@ class PluginRuntimeManagerTest {
         zos.closeEntry();
     }
 
+    private static void addDependencyOrderDescriptor(ZipOutputStream zos, String pluginId,
+                                                     List<PluginDependencyRef> dependencies) throws IOException {
+        StringBuilder props = new StringBuilder()
+                .append("plugin.id=").append(pluginId).append('\n')
+                .append("plugin.version=").append(PROBE_VERSION).append('\n')
+                .append("plugin.requires=1.0\n")
+                .append("plugin.class=").append(DependencyOrderProbePlugin.class.getName()).append('\n')
+                .append("plugin.provider=test\n")
+                .append("plugin.description=").append(pluginId).append(" probe\n");
+        if (!dependencies.isEmpty()) {
+            props.append("plugin.dependencies=");
+            for (int i = 0; i < dependencies.size(); i++) {
+                PluginDependencyRef dependency = dependencies.get(i);
+                if (i > 0) {
+                    props.append(',');
+                }
+                props.append(dependency.pluginId());
+                if (dependency.optional()) {
+                    props.append('?');
+                }
+                props.append('@').append(dependency.versionSupport());
+            }
+        }
+        zos.putNextEntry(new ZipEntry("plugin.properties"));
+        zos.write(props.toString().getBytes(StandardCharsets.UTF_8));
+        zos.closeEntry();
+    }
+
     private static void addClassEntry(ZipOutputStream zos, Class<?> type, String prefix) throws IOException {
         String entry = prefix + type.getName().replace('.', '/') + ".class";
         byte[] bytes;
@@ -520,8 +618,13 @@ class PluginRuntimeManagerTest {
     }
 
     private static void writeLocalProvenance(Path pluginsDir, Path artifact) throws IOException {
+        writeLocalProvenance(pluginsDir, artifact, PROBE_ID, PROBE_VERSION);
+    }
+
+    private static void writeLocalProvenance(Path pluginsDir, Path artifact, String pluginId, String version)
+            throws IOException {
         VerificationResult result = new VerificationResult(VerificationStatus.UNSIGNED_ALLOWED,
-                PROBE_ID, PROBE_VERSION, null, null, null, null, Instant.now(), Files.size(artifact),
+                pluginId, version, null, null, null, null, Instant.now(), Files.size(artifact),
                 PluginPackageIntegrity.sha256Hex(artifact), "UNSIGNED_ALLOWED");
         new PluginProvenanceStore(pluginsDir).write(artifact, PluginPackageOrigin.localUpload(), result);
     }
