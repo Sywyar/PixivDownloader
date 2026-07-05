@@ -87,7 +87,7 @@
         /* ── Reset / Base ──────────────────────────────────────── */
         *, *::before, *::after { box-sizing: border-box; }
 
-        html { scroll-behavior: smooth; }
+        html { scroll-behavior: smooth; min-width: 0; }
 
         body {
             background-color: var(--bg);
@@ -100,6 +100,13 @@
             font-size: 13px;
             overflow-x: hidden;
             min-height: 100vh;
+        }
+
+        button,
+        input,
+        select,
+        textarea {
+            max-width: 100%;
         }
 
         ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -1160,6 +1167,68 @@
             .stat-value { font-size: 1.6rem; }
             .header-title { font-size: 1rem; }
             .artwork-title { max-width: 120px; }
+
+            .site-header .d-flex.justify-content-between {
+                align-items: flex-start !important;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .header-status {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .app-nav {
+                align-items: stretch;
+                flex-wrap: wrap;
+                gap: 0.35rem;
+            }
+
+            .app-nav-brand {
+                flex: 1 1 100%;
+                margin-right: 0;
+                padding-right: 0;
+                border-right: none;
+            }
+
+            .app-nav-link {
+                flex: 1 1 140px;
+                justify-content: center;
+                min-height: 34px;
+                padding: 0.45rem 0.55rem;
+                text-align: center;
+            }
+
+            .app-nav-spacer {
+                display: none;
+            }
+
+            .app-nav-actions {
+                width: 100%;
+                margin-left: 0;
+                justify-content: flex-end;
+            }
+
+            .panel-header {
+                align-items: stretch;
+                flex-direction: column;
+                gap: 0.6rem;
+            }
+
+            .panel-header .d-flex {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .search-box {
+                flex: 1 1 100%;
+                max-width: none;
+            }
+
+            .btn-refresh {
+                flex: 1 1 40px;
+            }
         }
 
         /* ── App Navigation ─────────────────────────────────────── */

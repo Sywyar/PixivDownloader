@@ -84,11 +84,24 @@
             padding: 0;
         }
 
+        html {
+            min-width: 0;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: var(--page-bg);
             color: var(--text);
             font-size: 14px;
+            line-height: 1.4;
+            overflow-x: hidden;
+        }
+
+        button,
+        input,
+        select,
+        textarea {
+            max-width: 100%;
         }
 
         header {
@@ -124,6 +137,7 @@
             box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
             padding: 16px;
             margin-bottom: 14px;
+            min-width: 0;
         }
 
         .card-title {
@@ -478,8 +492,10 @@
             cursor: pointer;
             font-size: 13px;
             font-weight: bold;
+            line-height: 1.25;
             color: white;
             transition: opacity .15s;
+            white-space: normal;
         }
 
         .btn:hover {
@@ -3187,6 +3203,29 @@ html[data-theme="dark"] .tools-body > .card {
 }
 
 /* ---- 响应式：窄屏堆叠，无横向溢出，主操作可点 ---- */
+@media (max-width: 1280px) {
+    .app-nav {
+        padding: 0 14px;
+    }
+
+    .app-nav-brand {
+        margin-right: 12px;
+    }
+
+    .app-nav-link {
+        padding: 0 10px;
+    }
+
+    .wb-shell {
+        padding-inline: 12px;
+    }
+
+    .stat-card {
+        min-width: 100px;
+        padding: 11px 16px;
+    }
+}
+
 @media (max-width: 1200px) {
     .wb-shell {
         grid-template-columns: 190px minmax(0, 1fr);
@@ -3200,6 +3239,21 @@ html[data-theme="dark"] .tools-body > .card {
 
     .mode-rail {
         position: static;
+    }
+
+    .queue-rail {
+        display: grid;
+        grid-template-columns: minmax(0, .72fr) minmax(300px, 1fr);
+        align-items: start;
+    }
+
+    .queue-rail #download-progress-area {
+        min-width: 0;
+    }
+
+    #queue-list,
+    .schedule-queue-list {
+        max-height: min(46vh, 340px);
     }
 }
 
@@ -3215,6 +3269,34 @@ html[data-theme="dark"] .tools-body > .card {
             "footer";
     }
 
+    .app-nav {
+        height: auto;
+        min-height: 50px;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        padding-block: 7px;
+    }
+
+    .app-nav-brand {
+        flex: 1 1 220px;
+    }
+
+    .app-nav-link {
+        height: 34px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .app-nav-spacer {
+        display: none;
+    }
+
+    .app-nav-actions {
+        margin-right: 0;
+        margin-left: auto;
+    }
+
     /* 窄屏：模式 rail 改横向流式，标题独占一行 */
     .tabs {
         flex-direction: row;
@@ -3225,8 +3307,362 @@ html[data-theme="dark"] .tools-body > .card {
         width: 100%;
     }
 
+    .tab {
+        flex: 1 1 150px;
+        text-align: center;
+    }
+
+    .dash-inner {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .dash-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-right: 0;
+    }
+
     .dash-stats .stat-card {
+        min-width: 0;
+    }
+
+    .dash-run,
+    .quick-preview-actions,
+    .schedule-form-actions,
+    .schedule-card-actions,
+    .schedule-meta-actions,
+    .schedule-overuse-actions {
+        width: 100%;
+    }
+
+    .dash-run .btn,
+    .quick-preview-actions .btn,
+    .schedule-form-actions .btn,
+    .schedule-card-actions .btn,
+    .schedule-meta-actions .btn,
+    .schedule-overuse-actions .btn {
+        flex: 1 1 150px;
+    }
+
+    .cookie-row,
+    .schedule-cookie-input-row {
+        flex-wrap: wrap;
+    }
+
+    .cookie-row input,
+    .schedule-cookie-input-row input[type="text"],
+    .schedule-cookie-input-row input[type="password"],
+    .quick-search-input {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .cookie-row button,
+    .userscript-card-actions .btn,
+    .userscript-card-actions .userscript-card-btn {
+        flex: 1 1 128px;
+    }
+
+    .settings-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .setting-item {
+        align-items: center;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .setting-item label {
+        white-space: normal;
+    }
+
+    .filename-setting,
+    .filename-help {
+        grid-column: 1 / -1;
+    }
+
+    #s-file-name-template {
+        min-width: 0;
+        max-width: none;
+    }
+
+    .search-controls input[type=text] {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .search-controls .btn,
+    .search-action-group .btn,
+    .wb-actions .btn {
+        flex: 1 1 150px;
+    }
+
+    .search-extra-actions .btn {
+        width: 100%;
+    }
+
+    .quick-preview-toolbar {
+        align-items: stretch;
+    }
+
+    .quick-preview-title {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .queue-rail {
+        display: flex;
+    }
+
+    .schedule-card-head {
+        flex-direction: column;
+    }
+
+    .schedule-status-light {
+        max-width: none;
+        width: 100%;
+    }
+
+    .schedule-form .setting-item label {
+        min-width: 0;
+    }
+}
+
+@media (max-width: 560px) {
+    .wb-shell {
+        padding-inline: 10px;
+        padding-bottom: 28px;
+        row-gap: 10px;
+    }
+
+    .card {
+        padding: 12px;
+    }
+
+    .app-nav {
+        padding-inline: 10px;
+    }
+
+    .app-nav-brand {
+        flex-basis: 100%;
+        margin-right: 0;
+        font-size: 16px;
+    }
+
+    .app-nav-link {
+        flex: 1 1 calc(50% - 6px);
+        justify-content: center;
+        padding-inline: 8px;
+        font-size: 13px;
+    }
+
+    .app-nav-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .app-nav-login,
+    .app-nav-logout {
         flex: 1 1 auto;
+        min-height: 34px;
+    }
+
+    .tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .mode-rail-title {
+        grid-column: 1 / -1;
+        width: auto;
+    }
+
+    .tab {
+        padding: 9px 6px;
+        font-size: 12px;
+    }
+
+    .dash-strip {
+        padding: 10px 0;
+    }
+
+    .dash-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .stat-card {
+        padding: 9px 10px;
+    }
+
+    .stat-card .stat-num {
+        font-size: 24px;
+    }
+
+    .stat-card .stat-label,
+    .stat-speed .stat-speed-unit {
+        font-size: 11px;
+    }
+
+    .dash-run .btn,
+    .search-controls .btn,
+    .search-action-group .btn,
+    .quick-preview-actions .btn,
+    .schedule-form-actions .btn,
+    .wb-actions .btn {
+        flex-basis: 100%;
+    }
+
+    .tools-summary {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .tools-summary-toggle {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .settings-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .setting-item {
+        align-items: flex-start;
+    }
+
+    .setting-item input[type=number] {
+        width: 72px;
+    }
+
+    .kind-switcher,
+    .quick-kind-switcher {
+        display: flex;
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .kind-switcher label,
+    .quick-kind-switcher label {
+        flex: 1 1 50%;
+        text-align: center;
+    }
+
+    .search-grid {
+        grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+        gap: 8px;
+    }
+
+    .novel-search-grid,
+    .quick-actions,
+    .quick-following-grid,
+    .quick-collection-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .novel-series-card {
+        grid-template-columns: 72px minmax(0, 1fr);
+        gap: 10px;
+        min-height: 0;
+    }
+
+    .novel-series-cover {
+        width: 72px;
+    }
+
+    .quick-mixed-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .quick-mixed-grid .search-thumb,
+    .quick-mixed-grid .novel-search-card {
+        width: auto;
+    }
+
+    #quota-bar .qb-row,
+    .prog-label {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    #quota-bar .qb-label {
+        white-space: normal;
+    }
+
+    #queue-list,
+    .schedule-queue-list {
+        max-height: min(52vh, 320px);
+    }
+
+    .more-menu {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .more-summary {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .more-menu-panel {
+        left: 0;
+        right: auto;
+        width: min(100%, calc(100vw - 20px));
+    }
+
+    .schedule-form {
+        padding: 10px;
+    }
+
+    .schedule-form input[type="text"],
+    .schedule-form input[type="number"],
+    .schedule-form select,
+    .schedule-override-footer-actions .btn {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .schedule-override-footer-actions {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 380px) {
+    .tabs,
+    .dash-stats,
+    .quick-mixed-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .app-nav-link {
+        flex-basis: 100%;
+    }
+
+    .cookie-row button,
+    .userscript-card-actions .btn,
+    .userscript-card-actions .userscript-card-btn,
+    .quick-preview-actions .btn,
+    .schedule-card-actions .btn,
+    .schedule-meta-actions .btn {
+        flex-basis: 100%;
+    }
+
+    .novel-series-card {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .novel-series-cover {
+        width: 100%;
+        max-height: 220px;
     }
 }
 

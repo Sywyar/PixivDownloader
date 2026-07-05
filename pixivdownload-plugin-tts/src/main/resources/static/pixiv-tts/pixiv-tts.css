@@ -112,7 +112,60 @@
             color: var(--muted);
         }
         @media (max-width: 600px) {
+            .tts-bar,
+            .narration-bar {
+                left: 12px;
+                right: 12px;
+                bottom: 12px;
+                width: auto;
+                max-width: none;
+                transform: none;
+                border-radius: 10px;
+            }
+            .tts-bar-main,
+            .narration-bar-main {
+                flex-wrap: wrap;
+            }
+            .tts-progress,
+            .narration-progress,
+            .narration-subtitle {
+                flex: 1 1 100%;
+                order: -1;
+                white-space: normal;
+                text-align: left;
+            }
+            .tts-icon-btn,
+            .narration-icon-btn {
+                flex: 1 1 42px;
+            }
+            .tts-close,
+            .narration-close {
+                margin-left: 0;
+            }
+            .tts-settings,
+            .narration-settings {
+                align-items: stretch;
+                gap: 8px;
+            }
+            .tts-field,
+            .narration-field,
+            .tts-field.tts-checkbox-field {
+                flex: 1 1 100%;
+                align-items: stretch;
+                flex-wrap: wrap;
+            }
+            .tts-field label,
+            .narration-field label,
+            .tts-field.tts-checkbox-field span {
+                white-space: normal;
+            }
             .tts-field select { max-width: 150px; }
+            .tts-field select,
+            .tts-field input[type="number"],
+            .narration-field select {
+                flex: 1 1 160px;
+                max-width: none;
+            }
             .tts-field-rate input[type="range"] { width: 80px; }
         }
 
@@ -367,7 +420,30 @@
         .narration-voice-ref-editor-actions { display: flex; gap: 6px; }
         .btn.btn-sm { padding: 4px 10px; font-size: 12px; height: auto; }
         @media (max-width: 600px) {
-            .narration-field select { max-width: 150px; }
+            .narration-cast-modal {
+                max-width: none;
+            }
+            .narration-conflict-head,
+            .narration-voice-head,
+            .narration-voice-ref,
+            .narration-voice-edit-actions,
+            .narration-voice-ref-editor-actions {
+                align-items: stretch;
+                flex-direction: column;
+            }
+            .narration-voice-head .narration-voice-actions,
+            .narration-voice-ref-actions {
+                width: 100%;
+                margin-left: 0;
+            }
+            .narration-voice-head .narration-voice-actions .btn,
+            .narration-voice-ref-actions .btn,
+            .narration-voice-edit-actions .btn,
+            .narration-voice-ref-editor-actions .btn,
+            .narration-conflict-actions .btn {
+                flex: 1 1 130px;
+                justify-content: center;
+            }
         }
 
         /* 「显示分析出的说话人」复选框（设置面板内，与其它 tts-field 对齐） */

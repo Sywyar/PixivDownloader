@@ -47,16 +47,27 @@ body {
     min-height: 100%;
 }
 
+html {
+    min-width: 0;
+}
+
 body {
     margin: 0;
     color: var(--text);
     background: var(--bg);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+    overflow-x: hidden;
 }
 
 button,
 input {
     font: inherit;
+    max-width: 100%;
+}
+
+select,
+textarea {
+    max-width: 100%;
 }
 
 a {
@@ -518,6 +529,12 @@ input[type="range"] {
 
     .action-row {
         justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .action-row .primary-button,
+    .action-row .secondary-button {
+        flex: 1 1 160px;
     }
 }
 
@@ -539,8 +556,62 @@ input[type="range"] {
         grid-template-columns: 1fr;
     }
 
+    .page-nav,
+    .switcher-anchor,
+    .tool-panel {
+        width: 100%;
+    }
+
+    .page-nav .primary-button,
+    .page-nav .secondary-button {
+        flex: 1 1 140px;
+    }
+
+    .tool-panel {
+        padding: 14px;
+    }
+
+    .range-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .number-input {
+        width: 100%;
+    }
+
+    .group-head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .group-head-left {
+        width: 100%;
+    }
+
+    .scope-tag,
+    .distance-badge {
+        white-space: normal;
+    }
+
     .dup-tile {
         flex: 1 1 calc(50% - 7px);
         width: auto;
+    }
+
+    .pager {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .pager .secondary-button,
+    .pager-info {
+        flex: 1 1 120px;
+        min-width: 0;
+    }
+}
+
+@media (max-width: 360px) {
+    .dup-tile {
+        flex-basis: 100%;
     }
 }

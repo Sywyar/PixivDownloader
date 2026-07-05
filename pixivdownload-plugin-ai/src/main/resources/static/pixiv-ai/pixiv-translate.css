@@ -369,3 +369,57 @@
     color: var(--muted, #888);
     line-height: 1.55;
 }
+
+@media (max-width: 560px) {
+    .pt-backdrop {
+        align-items: flex-start;
+        padding: 12px;
+    }
+
+    .pt-modal,
+    .pt-glossary-backdrop .pt-modal,
+    .pt-lang-mapping-backdrop .pt-modal,
+    .pt-progress-backdrop .pt-modal {
+        max-width: none;
+        border-radius: 10px;
+    }
+
+    .pt-head,
+    .pt-body,
+    .pt-foot,
+    .pt-progress-body {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+
+    .pt-foot,
+    .pt-glossary-row,
+    .pt-glang-add,
+    .pt-lm-row {
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+
+    .pt-btn,
+    .pt-glang-edit,
+    .pt-glang-remove,
+    .pt-glang-add-btn,
+    .pt-glossary-edit,
+    .pt-lm-del {
+        flex: 1 1 130px;
+    }
+
+    .pt-lm-source,
+    .pt-lm-target {
+        flex: 1 1 100%;
+    }
+
+    .pt-lm-arrow {
+        align-self: center;
+        text-align: center;
+    }
+
+    .pt-lang-select {
+        max-width: 100%;
+    }
+}

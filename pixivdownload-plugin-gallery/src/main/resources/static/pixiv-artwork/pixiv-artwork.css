@@ -41,10 +41,15 @@
             min-height: 100%;
         }
 
+        html {
+            min-width: 0;
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
             color: var(--text);
             background: var(--bg);
+            overflow-x: hidden;
         }
 
         a {
@@ -54,6 +59,13 @@
 
         button {
             font-family: inherit;
+            max-width: 100%;
+        }
+
+        input,
+        select,
+        textarea {
+            max-width: 100%;
         }
 
         .topbar {
@@ -1018,5 +1030,95 @@
         html[data-theme="dark"] .form-input {
             border-color: var(--line);
             color: var(--text);
+        }
+
+        @media (max-width: 640px) {
+            .topbar {
+                align-items: stretch;
+                flex-wrap: wrap;
+                gap: 10px;
+                padding: 12px 14px;
+            }
+
+            .back-btn {
+                flex: 1 1 130px;
+                justify-content: center;
+            }
+
+            .topbar-title {
+                flex: 1 1 100%;
+                order: -1;
+                min-width: 0;
+            }
+
+            .topbar-actions {
+                width: 100%;
+                margin-left: 0;
+                justify-content: flex-end;
+            }
+
+            .wrapper {
+                padding: 14px;
+                gap: 14px;
+            }
+
+            .panel {
+                padding: 16px 14px;
+                border-radius: 8px;
+            }
+
+            .viewer-actions,
+            .viewer-series-nav {
+                align-items: stretch;
+            }
+
+            .viewer-actions .expand-btn,
+            .viewer-actions .heart-btn,
+            .viewer-actions .delete-btn,
+            .viewer-series-nav .expand-btn {
+                flex: 1 1 150px;
+                justify-content: center;
+            }
+
+            .meta-info {
+                flex: 1 1 100%;
+                margin-left: 0;
+            }
+
+            .related-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .modal {
+                max-width: calc(100vw - 24px);
+            }
+
+            .modal-head,
+            .modal-body,
+            .modal-foot {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .modal-foot {
+                flex-wrap: wrap;
+            }
+
+            .modal-foot .btn {
+                flex: 1 1 120px;
+                justify-content: center;
+            }
+
+            .form-field [style*="display:flex"],
+            .icon-upload-wrap {
+                align-items: stretch !important;
+                flex-direction: column;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .related-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
         }
     

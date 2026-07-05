@@ -73,10 +73,15 @@
             height: 100%;
         }
 
+        html {
+            min-width: 0;
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
             color: var(--text);
             background: var(--bg);
+            overflow-x: hidden;
         }
 
         a {
@@ -86,6 +91,13 @@
 
         button {
             font-family: inherit;
+            max-width: 100%;
+        }
+
+        input,
+        select,
+        textarea {
+            max-width: 100%;
         }
 
         .app-shell {
@@ -2332,6 +2344,9 @@
 
             .topbar {
                 padding: 12px 16px;
+                align-items: stretch;
+                flex-wrap: wrap;
+                gap: 10px;
             }
 
             .filter-panel {
@@ -2340,6 +2355,67 @@
 
             .mobile-menu-btn {
                 display: flex !important;
+            }
+
+            .search-type-select {
+                flex: 1 1 140px;
+                min-width: 0;
+            }
+
+            .search-box {
+                order: 2;
+                flex: 1 1 100%;
+                max-width: none;
+                min-width: 0;
+            }
+
+            .filter-btn,
+            .gallery-type-switch,
+            .batch-manage-btn {
+                flex: 1 1 140px;
+                justify-content: center;
+                margin-left: 0;
+            }
+
+            .gallery-type-switch {
+                width: 100%;
+            }
+
+            .topbar-actions {
+                order: 3;
+                width: 100%;
+                margin-left: 0;
+                justify-content: flex-end;
+            }
+
+            .filter-row {
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .filter-row-label {
+                flex: 1 1 100%;
+            }
+
+            .filter-chip-list,
+            .filter-tags-main,
+            .filter-tags-controls,
+            .filter-mode-group {
+                width: 100%;
+            }
+
+            .filter-tags-controls > *,
+            .tag-search-box,
+            .filter-mode-btn,
+            .chip {
+                flex: 1 1 150px;
+                justify-content: center;
+            }
+
+            .tag-search-box input {
+                flex: 1;
+                width: auto;
+                min-width: 0;
             }
 
             .gallery-type-option { min-width: 0; padding: 0 10px; font-size: 12px; }
@@ -2353,6 +2429,65 @@
                 width: 100%;
                 max-width: none;
                 padding-right: 0;
+            }
+
+            .pagination {
+                flex-wrap: wrap;
+            }
+
+            .batch-action-bar {
+                left: 12px;
+                right: 12px;
+                bottom: 12px;
+                max-width: none;
+                transform: translateY(140%);
+            }
+
+            .batch-action-bar.open {
+                transform: translateY(0);
+            }
+
+            .batch-action-bar .btn,
+            .batch-menu-wrap,
+            .batch-count {
+                flex: 1 1 140px;
+                justify-content: center;
+                text-align: center;
+            }
+
+            .batch-menu {
+                left: auto;
+                right: 0;
+                transform: translateY(4px);
+            }
+
+            .batch-menu.open {
+                transform: translateY(0);
+            }
+
+            .modal {
+                max-width: calc(100vw - 24px);
+            }
+
+            .modal-head,
+            .modal-body,
+            .modal-foot {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .modal-foot {
+                flex-wrap: wrap;
+            }
+
+            .modal-foot .btn {
+                flex: 1 1 120px;
+                justify-content: center;
+            }
+
+            .icon-upload-wrap {
+                align-items: stretch;
+                flex-direction: column;
             }
         }
     

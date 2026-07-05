@@ -33,13 +33,15 @@
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { min-height: 100%; }
+        html { min-width: 0; }
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
             color: var(--text);
             background: var(--bg);
+            overflow-x: hidden;
         }
         a { color: inherit; text-decoration: none; }
-        button { font-family: inherit; }
+        button, input, select, textarea { font-family: inherit; max-width: 100%; }
 
         .topbar {
             background: var(--surface);
@@ -430,5 +432,78 @@
         @keyframes toastIn {
             from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 640px) {
+            .topbar {
+                align-items: stretch;
+                flex-wrap: wrap;
+                gap: 10px;
+                padding: 12px 14px;
+            }
+
+            .topbar > .btn,
+            .topbar-slot,
+            .topbar-slot [data-vue-slot] {
+                flex: 1 1 140px;
+                justify-content: center;
+            }
+
+            .topbar-actions {
+                width: 100%;
+                margin-left: 0;
+                justify-content: flex-end;
+            }
+
+            .main {
+                padding: 16px 12px 36px;
+            }
+
+            .meta-card,
+            .content-card {
+                padding: 16px 14px;
+                border-radius: 8px;
+            }
+
+            .title {
+                font-size: 20px;
+            }
+
+            .series-nav {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .content-card {
+                font-size: 14px;
+                line-height: 1.75;
+            }
+
+            .content-card .novel-image {
+                padding: 10px;
+            }
+
+            .content-card .novel-image img {
+                max-width: 100%;
+            }
+
+            .modal {
+                max-width: calc(100vw - 24px);
+            }
+
+            .modal-head,
+            .modal-body,
+            .modal-foot {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .modal-foot {
+                flex-wrap: wrap;
+            }
+
+            .modal-foot .btn {
+                flex: 1 1 120px;
+                justify-content: center;
+            }
         }
 

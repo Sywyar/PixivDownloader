@@ -94,6 +94,15 @@ body {
     color: var(--text);
     font-size: 14px;
     min-height: 100vh;
+    overflow-x: hidden;
+    line-height: 1.4;
+}
+
+button,
+input,
+select,
+textarea {
+    max-width: 100%;
 }
 
 ::-webkit-scrollbar {
@@ -1234,13 +1243,116 @@ body {
 
 /* ── 响应式 ── */
 @media (max-width: 860px) {
+    .app-nav {
+        height: auto;
+        min-height: 52px;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 14px;
+    }
+
+    .app-nav-brand-wrap {
+        flex: 1 1 220px;
+        margin-right: 8px;
+    }
+
+    .app-nav-links {
+        order: 3;
+        flex: 1 1 100%;
+        height: auto;
+        flex-wrap: wrap;
+        align-items: stretch;
+    }
+
+    .app-nav-link {
+        flex: 1 1 150px;
+        justify-content: center;
+        min-height: 34px;
+        height: auto;
+        padding: 8px 10px;
+        border-radius: var(--radius-xs);
+        background: rgba(255, 255, 255, .08);
+    }
+
+    .app-nav-spacer {
+        display: none;
+    }
+
+    .app-nav-actions {
+        margin-left: auto;
+        margin-right: 0;
+    }
+
     .pm-stats { grid-template-columns: repeat(2, 1fr); }
     .pm-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
-    .pm-tabs { flex-wrap: wrap; }
-    .pm-tab { flex: 1 1 40%; }
+    .app-nav-brand-wrap {
+        flex-basis: 100%;
+        margin-right: 0;
+    }
+
+    .app-nav-actions {
+        margin-left: 0;
+    }
+
+    .app-nav-logout {
+        flex: 1 1 auto;
+        min-height: 32px;
+    }
+
+    .pm-page {
+        margin: 16px auto;
+        padding: 0 12px 36px;
+        gap: 14px;
+    }
+
+    .pm-title {
+        font-size: 21px;
+    }
+
+    .pm-titlebar-actions,
+    .pm-toolbar-search,
+    .pm-search,
+    .pm-modal-foot {
+        width: 100%;
+    }
+
+    .pm-titlebar-actions .pm-btn,
+    .pm-modal-foot .pm-btn {
+        flex: 1 1 150px;
+    }
+
+    .pm-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pm-tabs { flex-wrap: wrap; width: 100%; }
+    .pm-tab { flex: 1 1 40%; justify-content: center; }
+
+    .pm-toolbar {
+        align-items: stretch;
+    }
+
+    .pm-card,
+    .pm-modal-card {
+        border-radius: var(--radius-md);
+    }
+
+    .pm-card-main,
+    .pm-card-head,
+    .pm-card-foot,
+    .pm-card-actions,
+    .pm-file {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .pm-card-actions .pm-btn,
+    .pm-file-btn {
+        width: 100%;
+    }
 }
 
 /* ── 语言切换（绿色导航栏变体）+ 主题切换（与下载页同款） ── */

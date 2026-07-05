@@ -31,6 +31,7 @@
             background: var(--bg);
             overflow: hidden;
             height: 100vh;
+            min-width: 0;
         }
 
         a {
@@ -40,6 +41,13 @@
 
         button {
             font-family: inherit;
+            max-width: 100%;
+        }
+
+        input,
+        select,
+        textarea {
+            max-width: 100%;
         }
 
         .scroll-container {
@@ -1890,6 +1898,59 @@
         }
 
         @media (max-width: 640px) {
+            .scroll-container {
+                scroll-snap-type: none;
+            }
+
+            .section {
+                height: auto;
+                min-height: 100vh;
+                overflow: visible;
+                padding: 72px 0 40px;
+            }
+
+            .section-inner {
+                height: auto;
+                min-height: calc(100vh - 112px);
+            }
+
+            .side-nav {
+                display: none;
+            }
+
+            .top-bar {
+                height: auto;
+                min-height: 56px;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 10px 14px;
+            }
+
+            .top-bar-logo {
+                flex: 1 1 180px;
+            }
+
+            .top-bar-actions {
+                width: 100%;
+                justify-content: flex-end;
+                flex-wrap: wrap;
+            }
+
+            .top-bar-controls {
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
+            .top-bar-btn {
+                flex: 1 1 120px;
+                justify-content: center;
+            }
+
+            .hero-content,
+            .artist-layout {
+                padding: 28px 16px;
+            }
+
             .hero-artwork {
                 width: 220px;
                 height: 220px;
@@ -1897,6 +1958,28 @@
 
             .hero-title {
                 font-size: 22px;
+            }
+
+            .details-layout {
+                min-height: auto;
+            }
+
+            .details-visual {
+                height: 34vh;
+                min-height: 220px;
+            }
+
+            .details-info,
+            .related-layout,
+            .pages-content {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .details-stats,
+            .artist-stats-row,
+            .pages-actions {
+                flex-wrap: wrap;
             }
 
             .related-grid {
@@ -1908,7 +1991,15 @@
                 grid-template-columns: repeat(2, 1fr);
             }
 
-            .top-bar {
-                padding: 0 16px;
+            .pages-strip {
+                max-width: 100%;
+                overflow-x: auto;
+                justify-content: flex-start;
+                padding-bottom: 4px;
+            }
+
+            .pages-btn {
+                flex: 1 1 150px;
+                justify-content: center;
             }
         }

@@ -99,6 +99,15 @@ body {
     color: var(--text);
     font-size: 14px;
     min-height: 100vh;
+    overflow-x: hidden;
+    line-height: 1.4;
+}
+
+button,
+input,
+select,
+textarea {
+    max-width: 100%;
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -667,6 +676,46 @@ body {
 
 /* ── 响应式 ── */
 @media (max-width: 960px) {
+    .app-nav {
+        height: auto;
+        min-height: 52px;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 14px;
+    }
+
+    .app-nav-brand-wrap {
+        flex: 1 1 220px;
+        margin-right: 8px;
+    }
+
+    .app-nav-links {
+        order: 3;
+        flex: 1 1 100%;
+        height: auto;
+        flex-wrap: wrap;
+        align-items: stretch;
+    }
+
+    .app-nav-link {
+        flex: 1 1 150px;
+        justify-content: center;
+        min-height: 34px;
+        height: auto;
+        padding: 8px 10px;
+        border-radius: var(--radius-xs);
+        background: rgba(255, 255, 255, .08);
+    }
+
+    .app-nav-spacer {
+        display: none;
+    }
+
+    .app-nav-actions {
+        margin-left: auto;
+        margin-right: 0;
+    }
+
     .pmk-body { flex-direction: column; }
     .pmk-sidebar { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; }
     .pmk-side-card { flex: 1; min-width: 220px; }
@@ -676,11 +725,34 @@ body {
 
 @media (max-width: 600px) {
     .pmk-page { padding: 0 14px 40px; }
+    .app-nav-brand-wrap { flex-basis: 100%; margin-right: 0; }
+    .app-nav-actions { margin-left: 0; }
+    .app-nav-logout { flex: 1 1 auto; min-height: 32px; }
     .pmk-grid { grid-template-columns: 1fr; }
     .pmk-titlebar { align-items: flex-start; }
+    .pmk-title { font-size: 21px; }
+    .pmk-titlebar-actions,
+    .pmk-toolbar,
+    .pmk-toolbar-actions,
+    .pmk-repo-row,
+    .pmk-modal-foot,
+    .pmk-install-result-head {
+        width: 100%;
+    }
     .pmk-search { width: 100%; }
+    .pmk-btn,
+    .pmk-repo-tab,
+    .pmk-modal-foot .pmk-btn {
+        flex: 1 1 140px;
+    }
     .pmk-toolbar-head { width: 100%; }
     .pmk-modal { padding: 20px 12px; }
+    .pmk-modal-card { border-radius: var(--radius-md); }
+    .pmk-modal-foot,
+    .pmk-install-result-head {
+        flex-wrap: wrap;
+        justify-content: stretch;
+    }
     .pmk-sidebar { flex-direction: column; }
     .pmk-side-card, .pmk-version-card { min-width: 0; }
 }
