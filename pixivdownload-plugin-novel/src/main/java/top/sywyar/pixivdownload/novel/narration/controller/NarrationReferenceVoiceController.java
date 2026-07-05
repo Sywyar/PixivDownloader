@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
+import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidator;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
@@ -26,7 +27,6 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 
 /**
  * 多角色朗读「参考音 / 标准音」管理端点：生成自动标准音、上传真人参考音、删除、试听。全部挂在 {@code /api/narration/}
@@ -42,6 +42,7 @@ public class NarrationReferenceVoiceController {
 
     /** 上传参考音字节上限（VoxCPM 推荐参考音 ≤50s，留足余量）。 */
     private static final long MAX_UPLOAD_BYTES = 8L * 1024 * 1024;
+    private static final String X_CONTENT_TYPE_OPTIONS = "X-Content-Type-Options";
 
     private final NovelNarrationCastService castService;
     private final NarrationReferenceVoiceService referenceVoiceService;
@@ -95,24 +96,30 @@ public class NarrationReferenceVoiceController {
         if (file.getSize() > MAX_UPLOAD_BYTES) {
             return badRequest("narration.error.ref-too-large");
         }
-        String ext = resolveUploadExt(file);
-        if (ext == null) {
-            return badRequest("narration.error.ref-invalid-file");
-        }
+        byte[] data;
         try {
-            NovelNarrationVoiceRef ref = referenceVoiceService.saveUpload(
-                    castId, characterId, file.getBytes(), ext, refText);
-            if (ref == null) {
-                // 角色不在该花名册中（且非旁白）：服务已拒绝落盘，返回明确 404 而非 500。
-                return ResponseEntity.status(404)
-                        .body(new ErrorResponse(messages.get("narration.error.ref-character-not-found")));
-            }
-            return ResponseEntity.ok(status(ref));
+            data = file.getBytes();
         } catch (IOException e) {
-            log.warn("narration reference voice upload failed: castId={}, characterId={}, err={}",
+            log.warn("read narration reference voice upload failed: castId={}, characterId={}, err={}",
                     castId, characterId, e.getMessage());
             return badRequest("narration.error.ref-invalid-file");
         }
+        UploadedAudioValidator.Result audio = UploadedAudioValidator.validate(data);
+        String declaredExt = UploadedAudioValidator.declaredExtension(
+                file.getContentType(),
+                file.getOriginalFilename()
+        );
+        if (audio == null || (declaredExt != null && !declaredExt.equals(audio.extension()))) {
+            return badRequest("narration.error.ref-invalid-file");
+        }
+        NovelNarrationVoiceRef ref = referenceVoiceService.saveUpload(
+                castId, characterId, data, audio.extension(), refText);
+        if (ref == null) {
+            // 角色不在该花名册中（且非旁白）：服务已拒绝落盘，返回明确 404 而非 500。
+            return ResponseEntity.status(404)
+                    .body(new ErrorResponse(messages.get("narration.error.ref-character-not-found")));
+        }
+        return ResponseEntity.ok(status(ref));
     }
 
     /** 删除某角色的参考音。 */
@@ -141,6 +148,7 @@ public class NarrationReferenceVoiceController {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.valueOf(NarrationReferenceVoiceService.mimeForExt(ref.ext())));
             headers.setCacheControl(CacheControl.noStore());
+            headers.add(X_CONTENT_TYPE_OPTIONS, "nosniff");
             return ResponseEntity.ok().headers(headers).body(audio);
         } catch (IOException e) {
             log.warn("read narration reference voice failed: castId={}, characterId={}, err={}",
@@ -158,18 +166,4 @@ public class NarrationReferenceVoiceController {
                 ref.text() != null && !ref.text().isBlank());
     }
 
-    /** 校验上传文件为 wav / mp3（按 content-type + 扩展名宽松判断），返回受支持扩展名或 {@code null}。 */
-    private static String resolveUploadExt(MultipartFile file) {
-        String ct = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
-        String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
-        boolean wav = ct.contains("wav") || ct.equals("audio/x-wav") || name.endsWith(".wav");
-        boolean mp3 = ct.contains("mpeg") || ct.contains("mp3") || name.endsWith(".mp3");
-        if (wav) {
-            return "wav";
-        }
-        if (mp3) {
-            return "mp3";
-        }
-        return null;
-    }
 }

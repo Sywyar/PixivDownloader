@@ -31,6 +31,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CollectionController {
 
+    private static final String X_CONTENT_TYPE_OPTIONS = "X-Content-Type-Options";
+
     private final CollectionService collectionService;
     private final CollectionIconService iconService;
     private final GalleryRepository galleryRepository;
@@ -88,7 +90,7 @@ public class CollectionController {
         if (file.getSize() > CollectionIconService.MAX_ICON_BYTES) {
             throw LocalizedException.badRequest("collection.icon.size.exceeded", "图标超出大小限制");
         }
-        Collection updated = collectionService.setIcon(id, file.getOriginalFilename(), file.getBytes());
+        Collection updated = collectionService.setIcon(id, file.getBytes());
         return ResponseEntity.ok(updated);
     }
 
@@ -113,6 +115,7 @@ public class CollectionController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(iconService.contentType(c.iconExt())))
                 .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
                 .body(bytes);
     }
 

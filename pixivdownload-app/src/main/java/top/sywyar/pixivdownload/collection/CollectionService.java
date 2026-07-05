@@ -132,10 +132,10 @@ public class CollectionService {
         log.info(message("collection.log.deleted", id));
     }
 
-    public Collection setIcon(long id, String originalFilename, byte[] data) {
+    public Collection setIcon(long id, byte[] data) {
         requireExists(id);
         try {
-            String ext = iconService.saveIcon(id, originalFilename, data);
+            String ext = iconService.saveIcon(id, data);
             collectionMapper.updateIconExt(id, ext);
         } catch (java.io.IOException e) {
             throw new LocalizedException(

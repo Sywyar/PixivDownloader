@@ -4,9 +4,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
@@ -15,6 +17,8 @@ import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,6 +45,8 @@ class CollectionControllerTest {
     private GalleryRepository galleryRepository;
     @Mock
     private GuestAccessGuard guestAccessGuard;
+    @TempDir
+    private Path tempDir;
 
     private CollectionController controller;
 
@@ -115,6 +121,24 @@ class CollectionControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         verifyNoInteractions(galleryRepository);
+    }
+
+    @Test
+    @DisplayName("收藏夹图标下载响应带 nosniff")
+    void downloadIconAddsNosniffHeader() throws IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        Path icon = tempDir.resolve("7.png");
+        Files.write(icon, new byte[]{1, 2, 3});
+        when(collectionService.get(7L)).thenReturn(new Collection(
+                7L, "收藏夹", "png", null, 0, 1L, 0, 0));
+        when(iconService.findExistingIcon(7L, "png")).thenReturn(icon);
+        when(iconService.contentType("png")).thenReturn("image/png");
+
+        ResponseEntity<byte[]> response = controller.downloadIcon(7L, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL)).isEqualTo("public, max-age=3600");
     }
 
     private MockHttpServletRequest guestRequest() {
