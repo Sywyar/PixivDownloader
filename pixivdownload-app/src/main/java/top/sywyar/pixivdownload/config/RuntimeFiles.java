@@ -33,6 +33,7 @@ public final class RuntimeFiles {
     public static final String DEFAULT_DATA_DIR = "data";
     public static final String DEFAULT_PLUGINS_DIR = "plugins";
     public static final String DEFAULT_DOWNLOAD_ROOT = "pixiv-download";
+    public static final String PLUGIN_CONFIG_DIR = "plugins";
     private static final String WINDOWS_INSTANCE_ROOT_ENV = "LOCALAPPDATA";
     private static final String WINDOWS_INSTANCE_APP_DIR = AppInfo.LEGACY_ARTIFACT_NAME;
     private static final String NON_WINDOWS_INSTANCE_APP_DIR = AppInfo.HIDDEN_DIRECTORY_NAME;
@@ -63,6 +64,24 @@ public final class RuntimeFiles {
 
     public static Path configDirectory() {
         return resolveDirectory(CONFIG_DIR_PROPERTY, DEFAULT_CONFIG_DIR);
+    }
+
+    public static Path pluginConfigDirectory() {
+        Path target = configDirectory().resolve(PLUGIN_CONFIG_DIR);
+        try {
+            Files.createDirectories(target);
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
+        }
+        return target.normalize();
+    }
+
+    public static Path resolvePluginConfigPath(String pluginId, String extension) {
+        String safePluginId = safePathToken(pluginId, "pluginId");
+        String safeExtension = safePathToken(
+                extension == null ? null : extension.startsWith(".") ? extension.substring(1) : extension,
+                "extension");
+        return pluginConfigDirectory().resolve(safePluginId + "." + safeExtension).normalize();
     }
 
     public static Path stateDirectory() {
@@ -333,6 +352,27 @@ public final class RuntimeFiles {
         } catch (IOException e) {
             throw new UncheckedIOException(message("runtime.error.resolve-file.failed", target), e);
         }
+    }
+
+    private static String safePathToken(String value, String label) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(label + " must not be blank");
+        }
+        String normalized = value.trim();
+        if (".".equals(normalized) || "..".equals(normalized)) {
+            throw new IllegalArgumentException(label + " must not be a relative path segment");
+        }
+        for (int i = 0; i < normalized.length(); i++) {
+            char ch = normalized.charAt(i);
+            boolean allowed = ch >= 'a' && ch <= 'z'
+                    || ch >= 'A' && ch <= 'Z'
+                    || ch >= '0' && ch <= '9'
+                    || ch == '-' || ch == '_' || ch == '.';
+            if (!allowed) {
+                throw new IllegalArgumentException(label + " contains unsupported path character: " + ch);
+            }
+        }
+        return normalized;
     }
 
     private static void adoptLegacyFile(Path target, Path legacy, List<String> companionSuffixes) throws IOException {

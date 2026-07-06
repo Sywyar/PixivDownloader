@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
@@ -32,6 +33,9 @@ import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 
+import javax.swing.JButton;
+import java.awt.Component;
+import java.awt.Container;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -41,6 +45,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,6 +59,7 @@ class GuiConfigContributionAggregatorTest {
     @AfterEach
     void resetLocale() {
         GuiMessages.clearLocaleOverride();
+        System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
     }
 
     @Test
@@ -768,6 +774,154 @@ class GuiConfigContributionAggregatorTest {
         assertThat(panel.findSpec("fixture.panel")).isNotNull();
     }
 
+    @Test
+    @DisplayName("ConfigPanel 保存插件贡献字段到插件自有 properties")
+    void configPanelSavesPluginFieldsToPluginProperties() throws Exception {
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, "server.port: 6999\n", StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
+                        "fixture.panel.label", GuiConfigFieldType.STRING)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        panel.setFieldValue("fixture.panel", "custom-value");
+        clickButton(panel, GuiMessages.get("gui.button.save"));
+
+        Path pluginConfig = RuntimeFiles.resolvePluginConfigPath("fixture", "properties");
+        Properties properties = loadProperties(pluginConfig);
+        assertThat(properties.getProperty("fixture.panel")).isEqualTo("custom-value");
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).doesNotContain("fixture.panel");
+    }
+
+    @Test
+    @DisplayName("ConfigPanel 迁移旧 config.yaml 插件字段并移除旧键")
+    void configPanelMigratesLegacyPluginFieldsFromConfigYaml() throws Exception {
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, String.join("\n",
+                "server.port: 6999",
+                "fixture.panel: legacy-value",
+                ""), StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
+                        "fixture.panel.label", GuiConfigFieldType.STRING)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        Path pluginConfig = RuntimeFiles.resolvePluginConfigPath("fixture", "properties");
+        Properties properties = loadProperties(pluginConfig);
+        assertThat(panel.currentFieldValue("fixture.panel")).isEqualTo("legacy-value");
+        assertThat(properties.getProperty("fixture.panel")).isEqualTo("legacy-value");
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).doesNotContain("fixture.panel");
+    }
+
+    @Test
+    @DisplayName("ConfigPanel 迁移插件字段时应保持旧值原样")
+    void configPanelMigratesLegacyPluginFieldsWithoutChangingValue() throws Exception {
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());
+        Path configYaml = tempDir.resolve("config.yaml");
+        String legacyValue = "  legacy # value  ";
+        Files.writeString(configYaml, String.join("\n",
+                "server.port: 6999",
+                "fixture.panel: \"  legacy # value  \"",
+                ""), StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
+                        "fixture.panel.label", GuiConfigFieldType.STRING)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        Path pluginConfig = RuntimeFiles.resolvePluginConfigPath("fixture", "properties");
+        Properties properties = loadProperties(pluginConfig);
+        assertThat(panel.currentFieldValue("fixture.panel")).isEqualTo(legacyValue.trim());
+        assertThat(properties.getProperty("fixture.panel")).isEqualTo(legacyValue);
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).doesNotContain("fixture.panel");
+    }
+
+    @Test
+    @DisplayName("ConfigPanel 发现插件配置与旧 config.yaml 值冲突时应保留旧键")
+    void configPanelKeepsLegacyYamlWhenPluginValueConflicts() throws Exception {
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());
+        Path pluginConfig = tempDir.resolve("runtime-config").resolve("plugins").resolve("fixture.properties");
+        Files.createDirectories(pluginConfig.getParent());
+        Files.writeString(pluginConfig, "fixture.panel=plugin-value\n", StandardCharsets.UTF_8);
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, String.join("\n",
+                "server.port: 6999",
+                "fixture.panel: legacy-value",
+                ""), StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
+                        "fixture.panel.label", GuiConfigFieldType.STRING)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        assertThat(panel.currentFieldValue("fixture.panel")).isEqualTo("plugin-value");
+        assertThat(loadProperties(pluginConfig).getProperty("fixture.panel")).isEqualTo("plugin-value");
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).contains("fixture.panel: legacy-value");
+    }
+
+    @Test
+    @DisplayName("ConfigPanel 迁移写入失败时应回退到旧 config.yaml 值且不删除旧键")
+    void configPanelFallsBackToLegacyYamlWhenMigrationWriteFails() throws Exception {
+        Path runtimeConfig = tempDir.resolve("runtime-config");
+        Files.createDirectories(runtimeConfig);
+        Files.writeString(runtimeConfig.resolve("plugins"), "not-a-directory", StandardCharsets.UTF_8);
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, runtimeConfig.toString());
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, String.join("\n",
+                "server.port: 6999",
+                "fixture.panel: legacy-value",
+                ""), StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
+                        "fixture.panel.label", GuiConfigFieldType.STRING)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        assertThat(panel.currentFieldValue("fixture.panel")).isEqualTo("legacy-value");
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).contains("fixture.panel: legacy-value");
+        assertThat(runtimeConfig.resolve("plugins")).isRegularFile();
+    }
+
+    @Test
+    @DisplayName("ConfigPanel 保存非法配置值时不应写入插件 properties")
+    void configPanelRejectsUnsafePluginConfigValueOnSave() throws Exception {
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, "server.port: 6999\n", StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(field("fixture.panel", GuiConfigGroups.PLUGINS,
+                        "fixture.panel.label", GuiConfigFieldType.STRING)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        panel.setFieldValue("fixture.panel", "bad\0value");
+        clickButton(panel, GuiMessages.get("gui.button.save"));
+
+        Path pluginConfig = RuntimeFiles.resolvePluginConfigPath("fixture", "properties");
+        assertThat(loadProperties(pluginConfig).getProperty("fixture.panel")).isEmpty();
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).doesNotContain("bad");
+    }
+
     private static GuiConfigFieldContribution field(String key, String groupId,
                                                     String labelKey, GuiConfigFieldType type) {
         return new GuiConfigFieldContribution(key, groupId, labelKey, type, "", 10);
@@ -806,6 +960,26 @@ class GuiConfigContributionAggregatorTest {
                 .filter(spec -> spec.key().equals(key))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private static Properties loadProperties(Path path) throws Exception {
+        Properties properties = new Properties();
+        try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        return properties;
+    }
+
+    private static void clickButton(Container container, String text) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JButton button && text.equals(button.getText())) {
+                button.doClick();
+                return;
+            }
+            if (component instanceof Container child) {
+                clickButton(child, text);
+            }
+        }
     }
 
     private static PluginToggleProperties toggles(String pluginId, boolean enabled) {

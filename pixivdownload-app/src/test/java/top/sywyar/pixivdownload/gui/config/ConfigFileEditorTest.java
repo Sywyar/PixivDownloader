@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("ConfigFileEditor 安全往返单元测试")
 class ConfigFileEditorTest {
@@ -92,6 +93,31 @@ class ConfigFileEditorTest {
         assertThat(editor.read("push.wecom.key")).isEqualTo(value);
         Map<String, Object> parsed = new Yaml().load(Files.readString(file, StandardCharsets.UTF_8));
         assertThat(flatten(parsed)).containsEntry("push.wecom.key", value);
+    }
+
+    @Test
+    @DisplayName("双引号值首尾空格应原样读回")
+    void quotedValueSpacesAreReadBackExactly() throws IOException {
+        String value = "  abc # hash  ";
+        Path file = writeTemplate("push.wecom.key: \"  abc # hash  \"");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThat(editor.read("push.wecom.key")).isEqualTo(value);
+        assertThat(editor.readAll(List.of("push.wecom.key"))).containsEntry("push.wecom.key", value);
+    }
+
+    @Test
+    @DisplayName("非法配置 key 被拒绝且不改写文件")
+    void unsafeKeyIsRejectedWithoutChangingFile() throws IOException {
+        Path file = writeTemplate("server.port: 6999");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThatThrownBy(() -> editor.write("bad:key", "1"))
+                .isInstanceOf(IOException.class);
+
+        assertThat(Files.readString(file, StandardCharsets.UTF_8))
+                .contains("server.port: 6999")
+                .doesNotContain("bad:key");
     }
 
     @SuppressWarnings("unchecked")

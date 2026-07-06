@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.config;
 
-import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
-import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -180,12 +178,6 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "schedule.pending-max-attempts: 5", "config.template.schedule.pending-max-attempts.comment");
         appendSetting(config, messages, "schedule.overuse-defer-default-minutes: 60", "config.template.schedule.overuse-defer-default-minutes.comment");
         appendBlankLine(config);
-        appendSection(config, messages, "config.template.section.notification");
-        for (NotificationScenario scenario : NotificationScenario.values()) {
-            appendSetting(config, messages,
-                    NotificationConfigKeys.scenarioEnabledKey(scenario.id()) + ": true",
-                    "config.template.notification.scenario.enabled.comment");
-        }
 
         return config.toString();
     }

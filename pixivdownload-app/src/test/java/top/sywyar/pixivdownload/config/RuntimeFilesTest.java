@@ -232,6 +232,15 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("插件自有配置路径应落在 config/plugins 下并创建目录")
+    void shouldResolvePluginConfigPathUnderConfigPlugins() {
+        Path resolved = RuntimeFiles.resolvePluginConfigPath("douyin", "properties");
+
+        assertThat(resolved).isEqualTo(configDir.resolve("plugins").resolve("douyin.properties"));
+        assertThat(resolved.getParent()).isDirectory();
+    }
+
+    @Test
     @DisplayName("should prefer explicitly configured single-instance directory")
     void shouldPreferConfiguredSingleInstanceDirectory() {
         Path instanceDir = tempDir.resolve("instance");

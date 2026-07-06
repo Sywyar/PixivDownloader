@@ -89,6 +89,7 @@ public class RuntimeConfigReloadService {
         for (PropertySource<?> source : loaded) {
             sources.addLast(source);
         }
+        PluginConfigPropertySourceLoader.load().ifPresent(sources::addLast);
         return new Binder(ConfigurationPropertySources.from(sources));
     }
 

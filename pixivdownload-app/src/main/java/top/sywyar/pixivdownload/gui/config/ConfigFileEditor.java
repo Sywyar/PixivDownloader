@@ -2,8 +2,10 @@ package top.sywyar.pixivdownload.gui.config;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -26,6 +28,8 @@ public class ConfigFileEditor {
     /** 作为裸标量首字符时不安全的 YAML 指示符。 */
     private static final String UNSAFE_LEADING = "#&*!|>'\"%@`,?:-[]{}";
 
+    private static final Pattern SAFE_KEY = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
+
     private final Path configPath;
 
     public ConfigFileEditor(Path configPath) {
@@ -39,10 +43,11 @@ public class ConfigFileEditor {
      * 若 key 不存在或被注释掉则返回 null；调用方应自行回退到字段默认值。
      */
     public String read(String key) throws IOException {
+        String safeKey = requireSafeKey(key);
         for (String line : readLines()) {
             String trimmed = line.trim();
-            if (matchesActiveKey(trimmed, key)) {
-                return extractValue(trimmed);
+            if (matchesActiveKey(trimmed, safeKey)) {
+                return requireSafeValue(extractValue(trimmed));
             }
         }
         return null;
@@ -50,12 +55,13 @@ public class ConfigFileEditor {
 
     /** 批量读取，仅匹配活跃行（未注释），返回 key→value 的 Map（不存在的 key 不包含在结果中）。 */
     public Map<String, String> readAll(Collection<String> keys) throws IOException {
+        Set<String> keySet = validatedKeySet(keys);
         Map<String, String> result = new LinkedHashMap<>();
         for (String line : readLines()) {
             String trimmed = line.trim();
-            for (String key : keys) {
+            for (String key : keySet) {
                 if (!result.containsKey(key) && matchesActiveKey(trimmed, key)) {
-                    result.put(key, extractValue(trimmed));
+                    result.put(key, requireSafeValue(extractValue(trimmed)));
                 }
             }
         }
@@ -73,19 +79,21 @@ public class ConfigFileEditor {
      * </ul>
      */
     public synchronized void write(String key, String value) throws IOException {
+        String safeKey = requireSafeKey(key);
+        String safeValue = requireSafeValue(value);
         List<String> lines = new ArrayList<>(readLines());
         boolean found = false;
         for (int i = 0; i < lines.size(); i++) {
-            if (matchesKey(lines.get(i).trim(), key)) {
-                lines.set(i, buildLine(lines.get(i), key, value));
+            if (matchesKey(lines.get(i).trim(), safeKey)) {
+                lines.set(i, buildLine(lines.get(i), safeKey, safeValue));
                 found = true;
                 break;
             }
         }
         if (!found) {
-            lines.add(key + ": " + formatValue(value));
+            lines.add(safeKey + ": " + formatValue(safeValue));
         }
-        Files.write(configPath, lines, StandardCharsets.UTF_8);
+        writeLinesAtomically(lines);
     }
 
     /**
@@ -93,12 +101,16 @@ public class ConfigFileEditor {
      * 所有 key 均写为活跃行，值为空时写入 "key: "（不注释）。
      */
     public synchronized void writeAll(Map<String, String> values) throws IOException {
+        Map<String, String> safeValues = validatedValues(values);
+        if (safeValues.isEmpty()) {
+            return;
+        }
         List<String> lines = new ArrayList<>(readLines());
         Set<String> written = new HashSet<>();
 
         for (int i = 0; i < lines.size(); i++) {
             String trimmed = lines.get(i).trim();
-            for (Map.Entry<String, String> entry : values.entrySet()) {
+            for (Map.Entry<String, String> entry : safeValues.entrySet()) {
                 String key = entry.getKey();
                 if (!written.contains(key) && matchesKey(trimmed, key)) {
                     lines.set(i, buildLine(lines.get(i), key, entry.getValue()));
@@ -109,14 +121,60 @@ public class ConfigFileEditor {
         }
 
         // 追加文件中不存在的 key（含 value 为空的字段，均写为活跃行）
-        for (Map.Entry<String, String> entry : values.entrySet()) {
+        for (Map.Entry<String, String> entry : safeValues.entrySet()) {
             String key = entry.getKey();
             if (!written.contains(key)) {
                 lines.add(key + ": " + formatValue(entry.getValue()));
             }
         }
 
-        Files.write(configPath, lines, StandardCharsets.UTF_8);
+        writeLinesAtomically(lines);
+    }
+
+    /**
+     * 批量删除活跃配置行，保留其它注释、空行和未知配置。
+     */
+    public synchronized void removeAll(Collection<String> keys) throws IOException {
+        Set<String> keySet = validatedKeySet(keys);
+        if (keySet.isEmpty() || !Files.exists(configPath)) {
+            return;
+        }
+        List<String> lines = new ArrayList<>(readLines());
+        List<String> kept = new ArrayList<>(lines.size());
+        boolean removed = false;
+        for (String line : lines) {
+            String trimmed = line.trim();
+            boolean match = false;
+            for (String key : keySet) {
+                if (matchesActiveKey(trimmed, key)) {
+                    match = true;
+                    break;
+                }
+            }
+            if (match) {
+                removed = true;
+            } else {
+                kept.add(line);
+            }
+        }
+        if (removed) {
+            writeLinesAtomically(kept);
+        }
+    }
+
+    public synchronized FileSnapshot snapshot() throws IOException {
+        return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
+    }
+
+    public synchronized void restore(FileSnapshot snapshot) throws IOException {
+        if (snapshot == null) {
+            throw new IOException("Cannot restore config file without a snapshot");
+        }
+        if (!snapshot.existed()) {
+            Files.deleteIfExists(configPath);
+            return;
+        }
+        writeLinesAtomically(snapshot.lines());
     }
 
     // ── 私有工具方法 ──────────────────────────────────────────────────────────────
@@ -127,6 +185,29 @@ public class ConfigFileEditor {
             return List.of();
         }
         return Files.readAllLines(configPath, StandardCharsets.UTF_8);
+    }
+
+    private void writeLinesAtomically(List<String> lines) throws IOException {
+        Path target = configPath.toAbsolutePath().normalize();
+        Path parent = target.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path temp = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
+        try {
+            Files.write(temp, lines, StandardCharsets.UTF_8);
+            moveReplacing(temp, target);
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+    }
+
+    static void moveReplacing(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     /**
@@ -263,6 +344,47 @@ public class ConfigFileEditor {
         return needsQuoting(v) ? yamlDoubleQuote(v) : v;
     }
 
+    public static Set<String> validatedKeySet(Collection<String> keys) throws IOException {
+        if (keys == null || keys.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> safe = new LinkedHashSet<>();
+        for (String key : keys) {
+            safe.add(requireSafeKey(key));
+        }
+        return safe;
+    }
+
+    public static Map<String, String> validatedValues(Map<String, String> values) throws IOException {
+        if (values == null || values.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> safe = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            safe.put(requireSafeKey(entry.getKey()), requireSafeValue(entry.getValue()));
+        }
+        return safe;
+    }
+
+    public static String requireSafeKey(String key) throws IOException {
+        if (key == null || key.isBlank()) {
+            throw new IOException("Config key must not be blank");
+        }
+        String normalized = key.trim();
+        if (!SAFE_KEY.matcher(normalized).matches()) {
+            throw new IOException("Unsupported config key: " + normalized);
+        }
+        return normalized;
+    }
+
+    public static String requireSafeValue(String value) throws IOException {
+        String safe = value == null ? "" : value;
+        if (safe.indexOf('\0') >= 0) {
+            throw new IOException("Config value contains unsupported NUL character");
+        }
+        return safe;
+    }
+
     /** 值是否需要双引号包裹才能安全作为 YAML 裸标量、且不破坏本类的行尾注释识别。 */
     private static boolean needsQuoting(String v) {
         if (v.isEmpty()) {
@@ -306,5 +428,11 @@ public class ConfigFileEditor {
         }
         sb.append('"');
         return sb.toString();
+    }
+
+    public record FileSnapshot(boolean existed, List<String> lines) {
+        public FileSnapshot {
+            lines = lines == null ? List.of() : List.copyOf(lines);
+        }
     }
 }

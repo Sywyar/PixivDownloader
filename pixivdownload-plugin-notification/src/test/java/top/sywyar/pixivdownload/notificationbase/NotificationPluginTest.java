@@ -97,6 +97,7 @@ class NotificationPluginTest {
     @DisplayName("插件 id 与展示命名空间为 notification")
     void usesNeutralNotificationIdentity() {
         assertThat(plugin.id()).isEqualTo(NotificationPlugin.ID);
+        assertThat(plugin.id()).isEqualTo(NotificationConfigKeys.OWNER_PLUGIN_ID);
         assertThat(plugin.id()).isEqualTo("notification");
         assertThat(plugin.kind()).isEqualTo(PluginKind.FEATURE);
         assertThat(plugin.i18n()).singleElement().satisfies(i18n -> {

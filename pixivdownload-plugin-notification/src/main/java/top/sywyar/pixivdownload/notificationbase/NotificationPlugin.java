@@ -22,7 +22,7 @@ import java.util.List;
  */
 public class NotificationPlugin implements PixivFeaturePlugin {
 
-    public static final String ID = "notification";
+    public static final String ID = NotificationConfigKeys.OWNER_PLUGIN_ID;
 
     @Override
     public String id() {

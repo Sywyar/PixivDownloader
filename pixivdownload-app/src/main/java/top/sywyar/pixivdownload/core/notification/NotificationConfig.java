@@ -10,8 +10,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 通知<b>类型开关</b>配置，映射 config.yaml 中的 {@code notification.scenario.<id>.enabled}
- * （{@code <id>} 为 {@link NotificationScenario#id()}）。
+ * 通知<b>类型开关</b>配置，映射插件配置中的 {@code notification.scenario.<id>.enabled}
+ * （{@code <id>} 为 {@link NotificationScenario#id()}），并兼容旧 {@code config.yaml} 同名键。
  * <p>
  * 某场景被关闭后，{@link NotificationService#notify} 会跳过该场景的<b>全部</b>介质（邮件 + 推送）——
  * 即「不发送这个通知类型的通知」。未在配置中出现的场景<b>默认视为启用</b>，因此新增场景或旧配置缺项时

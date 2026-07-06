@@ -32,8 +32,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
 /**
- * "配置" 标签页：Schema 驱动的字段渲染，按 group 分为子标签页。保存时调用 ConfigFileEditor 行内替换，
- * 保留注释和格式。
+ * "配置" 标签页：Schema 驱动的字段渲染，按 group 分为子标签页。宿主字段保存到 config.yaml，
+ * 插件贡献字段保存到各自的 config/plugins/<id>.properties。
  * <p>
  * 普通分组「字段平铺」由 {@code ConfigFieldRegistry} 的 {@link ConfigFieldSpec} 声明式渲染；带自定义控件 /
  * 异步测试的特殊分组拆成 {@code gui.panel.configtab} 下的 {@link ConfigSection} 实现，
@@ -52,6 +52,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final Path configPath;
     private final int serverPort;
     private final ConfigFileEditor editor;
+    private final Map<String, PropertiesConfigFileEditor> pluginConfigEditors = new HashMap<>();
     private final String currentMode;
     /** Web 页 URL 构造器（scheme 按 SSL、主机名按域名推导），供「打开 Web 插件市场」入口复用。 */
     private final Function<String, String> webUrlProvider;
@@ -682,13 +683,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 数据加载 ──────────────────────────────────────────────────────────────────
 
     /**
-     * 从 config.yaml 加载当前值并填充控件；key 不存在或被注释时回退到字段默认值，
-     * 并将所有缺失的 key 连同默认值自动补全到 config.yaml（与 AppConfigGenerator 效果一致）。
+     * 从宿主 config.yaml 与插件自有 properties 加载当前值并填充控件；key 不存在或被注释时回退到字段默认值，
+     * 并将所有缺失的 key 连同默认值自动补全到所属配置文件。
      */
     private void loadCurrentValues() {
-        if (!configPath.toFile().exists()) return;
         try {
-            Map<String, String> values = editor.readAll(renderedFields.keySet());
+            Map<String, String> values = readStoredValues(allFields);
             Map<String, String> missing = new LinkedHashMap<>();
 
             for (ConfigFieldSpec spec : allFields) {
@@ -703,10 +703,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
             }
 
-            // 自动将缺失的 key 补全到 config.yaml
+            // 自动将缺失的 key 补全到所属配置文件
             if (!missing.isEmpty()) {
                 try {
-                    editor.writeAll(missing);
+                    writeStoredValues(missing);
                     log.info(logMessage("gui.config.log.missing-keys.completed",
                             missing.size(), String.join(", ", missing.keySet())));
                 } catch (IOException ex) {
@@ -781,15 +781,22 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 保存 ─────────────────────────────────────────────────────────────────────
 
     private void saveConfig() {
-        // 验证（仅验证可见且已启用的字段）
+        // 验证最终会按原值保存的字段；隐藏且无需保留的字段仍可按空值写出。
         clearValidationErrors();
         List<String> errors = new ArrayList<>();
         FieldRenderer.RenderedField firstInvalidField = null;
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
-            if (rf == null || !rf.panel().isVisible() || !rf.control().isEnabled()) continue;
+            if (rf == null) {
+                continue;
+            }
+            boolean validate = rf.panel().isVisible() && rf.control().isEnabled()
+                    || !rf.panel().isVisible() && shouldPreserveHiddenValue(spec);
+            if (!validate) {
+                continue;
+            }
             String val = rf.getValue().get();
-            String err = spec.validator().validate(val);
+            String err = validateFieldValueForSave(spec, val);
             if (err != null) {
                 String message = spec.label() + "：" + err;
                 errors.add(message);
@@ -812,7 +819,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         Map<String, String> before;
         try {
-            before = editor.readAll(allFields.stream().map(ConfigFieldSpec::key).toList());
+            before = readStoredValues(allFields);
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
             GuiErrorDialog.show(this,
@@ -844,7 +851,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         try {
-            editor.writeAll(values);
+            writeStoredValues(values);
             // 各 section 持久化自有的非字段网格状态（如插件市场仓库列表）；任一写入改动均为需重启项。
             boolean sectionRestartChange = false;
             for (ConfigSection s : sections) {
@@ -957,6 +964,276 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return changed;
     }
 
+    private String validateFieldValueForSave(ConfigFieldSpec spec, String value) {
+        try {
+            ConfigFileEditor.requireSafeKey(spec.key());
+            ConfigFileEditor.requireSafeValue(value);
+        } catch (IOException e) {
+            return message("gui.config.validation.storage-safe");
+        }
+        String typeError = validateFieldTypeValue(spec, value);
+        if (typeError != null) {
+            return typeError;
+        }
+        try {
+            return spec.validator().validate(value == null ? "" : value);
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.config.log.validation-failed",
+                    spec.key() + ": " + safeMessage(e)), e);
+            return message("gui.config.validation.storage-safe");
+        }
+    }
+
+    private static String validateFieldTypeValue(ConfigFieldSpec spec, String value) {
+        String safe = value == null ? "" : value;
+        return switch (spec.type()) {
+            case BOOL -> "true".equalsIgnoreCase(safe) || "false".equalsIgnoreCase(safe)
+                    ? null
+                    : message("gui.config.validation.valid-boolean");
+            case ENUM -> spec.enumValues().isEmpty() || spec.enumValues().contains(safe)
+                    ? null
+                    : message("gui.config.validation.valid-enum");
+            case INT -> {
+                try {
+                    Integer.parseInt(safe);
+                    yield null;
+                } catch (NumberFormatException e) {
+                    yield message("gui.config.validation.valid-int");
+                }
+            }
+            case PORT -> {
+                try {
+                    int port = Integer.parseInt(safe);
+                    yield port >= 1 && port <= 65535
+                            ? null
+                            : message("gui.config.validation.port-range");
+                } catch (NumberFormatException e) {
+                    yield message("gui.config.validation.valid-port");
+                }
+            }
+            case PATH_DIR, PATH_FILE, STRING, PASSWORD -> null;
+        };
+    }
+
+    private Map<String, String> readStoredValues(Collection<ConfigFieldSpec> specs) throws IOException {
+        StoredSpecIndex index = storedSpecIndex(specs);
+        Map<String, String> result = new LinkedHashMap<>();
+        if (!index.coreKeys().isEmpty()) {
+            result.putAll(editor.readAll(index.coreKeys()));
+        }
+        Map<String, String> legacyPluginValues = index.allPluginKeys().isEmpty()
+                ? Map.of()
+                : editor.readAll(index.allPluginKeys());
+        for (Map.Entry<String, List<String>> entry : index.pluginKeys().entrySet()) {
+            String pluginId = entry.getKey();
+            PropertiesConfigFileEditor pluginEditor = null;
+            try {
+                pluginEditor = pluginConfigEditor(pluginId);
+            } catch (RuntimeException e) {
+                log.warn(logMessage("gui.config.log.plugin-config-migration.failed",
+                        pluginId, safeMessage(e)), e);
+            }
+            Map<String, String> pluginValues = pluginEditor == null
+                    ? Map.of()
+                    : pluginEditor.readAll(entry.getValue());
+            result.putAll(pluginValues);
+            Map<String, String> migratedPluginValues = new LinkedHashMap<>();
+            Set<String> removableYamlPluginKeys = new LinkedHashSet<>();
+            for (String key : entry.getValue()) {
+                if (!legacyPluginValues.containsKey(key)) {
+                    continue;
+                }
+                String legacyValue = legacyPluginValues.get(key);
+                if (!pluginValues.containsKey(key)) {
+                    result.put(key, legacyValue);
+                    migratedPluginValues.put(key, legacyValue);
+                    removableYamlPluginKeys.add(key);
+                } else if (Objects.equals(pluginValues.get(key), legacyValue)) {
+                    removableYamlPluginKeys.add(key);
+                } else {
+                    log.warn(logMessage("gui.config.log.plugin-config-migration.conflict", pluginId, key));
+                }
+            }
+            if (!migratedPluginValues.isEmpty() || !removableYamlPluginKeys.isEmpty()) {
+                try {
+                    migrateLegacyPluginValues(pluginId, migratedPluginValues, removableYamlPluginKeys);
+                } catch (IOException | RuntimeException e) {
+                    log.warn(logMessage("gui.config.log.plugin-config-migration.failed",
+                            pluginId, safeMessage(e)), e);
+                }
+            }
+        }
+        return result;
+    }
+
+    private void writeStoredValues(Map<String, String> values) throws IOException {
+        StoredValuesSplit split = splitStoredValues(values);
+        if (split.empty()) {
+            return;
+        }
+        List<ConfigFileRollback> rollbacks = new ArrayList<>();
+        try {
+            if (!split.coreValues().isEmpty()) {
+                ConfigFileEditor.FileSnapshot snapshot = editor.snapshot();
+                rollbacks.add(new ConfigFileRollback("config.yaml", () -> editor.restore(snapshot)));
+            }
+            for (Map.Entry<String, Map<String, String>> entry : split.pluginValues().entrySet()) {
+                if (!entry.getValue().isEmpty()) {
+                    PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(entry.getKey());
+                    PropertiesConfigFileEditor.FileSnapshot snapshot = pluginEditor.snapshot();
+                    rollbacks.add(new ConfigFileRollback(
+                            "config/plugins/" + entry.getKey() + ".properties",
+                            () -> pluginEditor.restore(snapshot)));
+                }
+            }
+
+            if (!split.coreValues().isEmpty()) {
+                editor.writeAll(split.coreValues());
+            }
+            for (Map.Entry<String, Map<String, String>> entry : split.pluginValues().entrySet()) {
+                pluginConfigEditor(entry.getKey()).writeAll(entry.getValue());
+            }
+        } catch (IOException | RuntimeException e) {
+            IOException failure = asIOException(e);
+            rollbackConfigWrites(rollbacks, failure);
+            throw failure;
+        }
+    }
+
+    private void migrateLegacyPluginValues(String pluginId,
+                                           Map<String, String> pluginValues,
+                                           Set<String> yamlKeysToRemove) throws IOException {
+        if ((pluginValues == null || pluginValues.isEmpty())
+                && (yamlKeysToRemove == null || yamlKeysToRemove.isEmpty())) {
+            return;
+        }
+        Map<String, String> safePluginValues = ConfigFileEditor.validatedValues(pluginValues);
+        Set<String> safeYamlKeys = ConfigFileEditor.validatedKeySet(yamlKeysToRemove);
+        PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(pluginId);
+        List<ConfigFileRollback> rollbacks = new ArrayList<>();
+        try {
+            if (!safePluginValues.isEmpty()) {
+                PropertiesConfigFileEditor.FileSnapshot pluginSnapshot = pluginEditor.snapshot();
+                rollbacks.add(new ConfigFileRollback(
+                        "config/plugins/" + pluginId + ".properties",
+                        () -> pluginEditor.restore(pluginSnapshot)));
+            }
+            if (!safeYamlKeys.isEmpty()) {
+                ConfigFileEditor.FileSnapshot yamlSnapshot = editor.snapshot();
+                rollbacks.add(new ConfigFileRollback("config.yaml", () -> editor.restore(yamlSnapshot)));
+            }
+
+            if (!safePluginValues.isEmpty()) {
+                pluginEditor.writeAll(safePluginValues);
+                Map<String, String> reread = pluginEditor.readAll(safePluginValues.keySet());
+                for (Map.Entry<String, String> entry : safePluginValues.entrySet()) {
+                    if (!Objects.equals(entry.getValue(), reread.get(entry.getKey()))) {
+                        throw new IOException("Plugin config migration verification failed for key: "
+                                + entry.getKey());
+                    }
+                }
+            }
+            if (!safeYamlKeys.isEmpty()) {
+                editor.removeAll(safeYamlKeys);
+                Map<String, String> remaining = editor.readAll(safeYamlKeys);
+                if (!remaining.isEmpty()) {
+                    throw new IOException("Legacy config key removal verification failed: "
+                            + String.join(", ", remaining.keySet()));
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            IOException failure = asIOException(e);
+            rollbackConfigWrites(rollbacks, failure);
+            throw failure;
+        }
+    }
+
+    private StoredValuesSplit splitStoredValues(Map<String, String> values) throws IOException {
+        if (values == null || values.isEmpty()) {
+            return new StoredValuesSplit(Map.of(), Map.of());
+        }
+        StoredSpecIndex index = storedSpecIndex(allFields);
+        Map<String, String> coreValues = new LinkedHashMap<>();
+        Map<String, Map<String, String>> pluginValues = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            String key = ConfigFileEditor.requireSafeKey(entry.getKey());
+            ConfigFieldSpec spec = index.specsByKey().get(key);
+            if (spec == null) {
+                throw new IOException("Unknown config field key: " + key);
+            }
+            String value = ConfigFileEditor.requireSafeValue(entry.getValue());
+            if (spec.pluginContributed()) {
+                pluginValues.computeIfAbsent(spec.ownerPluginId(), ignored -> new LinkedHashMap<>())
+                        .put(key, value);
+            } else {
+                coreValues.put(key, value);
+            }
+        }
+        return new StoredValuesSplit(coreValues, pluginValues);
+    }
+
+    private StoredSpecIndex storedSpecIndex(Collection<ConfigFieldSpec> specs) throws IOException {
+        List<String> coreKeys = new ArrayList<>();
+        Map<String, List<String>> pluginKeys = new LinkedHashMap<>();
+        List<String> allPluginKeys = new ArrayList<>();
+        Map<String, ConfigFieldSpec> specsByKey = new LinkedHashMap<>();
+        if (specs == null) {
+            return new StoredSpecIndex(List.of(), Map.of(), List.of(), Map.of());
+        }
+        for (ConfigFieldSpec spec : specs) {
+            if (spec == null) {
+                continue;
+            }
+            String key = ConfigFileEditor.requireSafeKey(spec.key());
+            if (specsByKey.putIfAbsent(key, spec) != null) {
+                throw new IOException("Duplicate config field key: " + key);
+            }
+            if (spec.pluginContributed()) {
+                String ownerPluginId = ConfigFileEditor.requireSafeKey(spec.ownerPluginId());
+                pluginKeys.computeIfAbsent(ownerPluginId, ignored -> new ArrayList<>()).add(key);
+                allPluginKeys.add(key);
+            } else {
+                coreKeys.add(key);
+            }
+        }
+        return new StoredSpecIndex(
+                List.copyOf(coreKeys),
+                copyPluginKeys(pluginKeys),
+                List.copyOf(allPluginKeys),
+                Map.copyOf(specsByKey));
+    }
+
+    private static Map<String, List<String>> copyPluginKeys(Map<String, List<String>> pluginKeys) {
+        Map<String, List<String>> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : pluginKeys.entrySet()) {
+            copy.put(entry.getKey(), List.copyOf(entry.getValue()));
+        }
+        return Collections.unmodifiableMap(copy);
+    }
+
+    private void rollbackConfigWrites(List<ConfigFileRollback> rollbacks, IOException failure) {
+        ListIterator<ConfigFileRollback> iterator = rollbacks.listIterator(rollbacks.size());
+        while (iterator.hasPrevious()) {
+            ConfigFileRollback rollback = iterator.previous();
+            try {
+                rollback.restore().restore();
+            } catch (IOException rollbackError) {
+                failure.addSuppressed(rollbackError);
+                log.error(logMessage("gui.config.log.rollback-failed",
+                        rollback.label(), rollbackError.getMessage()), rollbackError);
+            }
+        }
+    }
+
+    private static IOException asIOException(Exception e) {
+        return e instanceof IOException io ? io : new IOException(e.getMessage(), e);
+    }
+
+    private PropertiesConfigFileEditor pluginConfigEditor(String pluginId) {
+        return pluginConfigEditors.computeIfAbsent(pluginId, id ->
+                new PropertiesConfigFileEditor(RuntimeFiles.resolvePluginConfigPath(id, "properties")));
+    }
+
     private boolean hasChangedField(Set<String> changedKeys, boolean requiresRestart) {
         for (ConfigFieldSpec spec : allFields) {
             if (spec.requiresRestart() == requiresRestart && changedKeys.contains(spec.key())) {
@@ -1058,14 +1335,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 字段漂移检查 ──────────────────────────────────────────────────────────────
 
     /**
-     * 对比字段快照与 config.yaml 中实际存在的 key，漂移时打日志警告。
+     * 对比字段快照与所属配置文件中实际存在的 key，漂移时打日志警告。
      */
     private void checkFieldDrift() {
-        if (!configPath.toFile().exists()) return;
         try {
-            Map<String, String> existing = editor.readAll(
-                    allFields.stream()
-                            .map(ConfigFieldSpec::key).toList());
+            Map<String, String> existing = readStoredValues(allFields);
             for (ConfigFieldSpec spec : allFields) {
                 if (!existing.containsKey(spec.key())) {
                     log.warn(logMessage("gui.config.log.field-drift", spec.key()));
@@ -1188,6 +1462,27 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                                Set<String> hostGroupIds,
                                boolean pluginCategory,
                                boolean showGroupHeadings) {
+    }
+
+    private record StoredSpecIndex(List<String> coreKeys,
+                                   Map<String, List<String>> pluginKeys,
+                                   List<String> allPluginKeys,
+                                   Map<String, ConfigFieldSpec> specsByKey) {
+    }
+
+    private record StoredValuesSplit(Map<String, String> coreValues,
+                                     Map<String, Map<String, String>> pluginValues) {
+        private boolean empty() {
+            return coreValues.isEmpty() && pluginValues.values().stream().allMatch(Map::isEmpty);
+        }
+    }
+
+    private record ConfigFileRollback(String label, RestoreAction restore) {
+    }
+
+    @FunctionalInterface
+    private interface RestoreAction {
+        void restore() throws IOException;
     }
 
     private enum ConfigScope {

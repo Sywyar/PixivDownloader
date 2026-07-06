@@ -64,7 +64,7 @@ class ConfigItemTemplateCoverageGuardTest {
      * App 侧仅保留调用门面 / 运行期选择状态，模板与 GUI 字段由外置官方插件贡献的前缀。
      * 这些前缀不能重新塞回核心默认模板，否则插件缺失 / 禁用时 GUI 字段无法自然消失。
      */
-    private static final Set<String> EXTERNAL_PLUGIN_OWNED_PREFIXES = Set.of("narration-tts");
+    private static final Set<String> EXTERNAL_PLUGIN_OWNED_PREFIXES = Set.of("narration-tts", "notification");
 
     @Test
     @DisplayName("每个 @ConfigurationProperties 前缀在 config.yaml 模板中至少有一个键")
@@ -106,6 +106,17 @@ class ConfigItemTemplateCoverageGuardTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("notification 场景开关不再写入核心默认模板")
+    void notificationScenarioKeysAreExcludedFromCoreTemplate() {
+        Set<String> notificationKeys = java.util.Arrays.stream(NotificationScenario.values())
+                .map(NotificationScenario::id)
+                .map(NotificationConfigKeys::scenarioEnabledKey)
+                .collect(Collectors.toCollection(TreeSet::new));
+
+        assertThat(templateKeys()).doesNotContainAnyElementsOf(notificationKeys);
+    }
+
     // ---- helpers --------------------------------------------------------------
 
     /** 解析默认模板文本，提取全部配置键（忽略空行 / 注释行，取每行 {@code :} 之前的部分）。 */
@@ -127,15 +138,7 @@ class ConfigItemTemplateCoverageGuardTest {
     private static Set<String> templateKeysWithoutGuiField() {
         Set<String> keys = new TreeSet<>(TEMPLATE_KEYS_WITHOUT_GUI_FIELD);
         keys.addAll(pluginToggleKeysWithoutGuiField());
-        keys.addAll(notificationScenarioKeysWithoutCoreGuiField());
         return keys;
-    }
-
-    private static Set<String> notificationScenarioKeysWithoutCoreGuiField() {
-        return java.util.Arrays.stream(NotificationScenario.values())
-                .map(NotificationScenario::id)
-                .map(NotificationConfigKeys::scenarioEnabledKey)
-                .collect(Collectors.toCollection(TreeSet::new));
     }
 
     private static Set<String> pluginToggleKeysWithoutGuiField() {
