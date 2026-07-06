@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 
 import java.util.List;
@@ -19,7 +21,11 @@ class QueueTypeRegistryTest {
     }
 
     private static QueueTypeContribution type(String type) {
-        return new QueueTypeContribution("demo", type, "demo", "label." + type, 10, null);
+        return type("demo", type);
+    }
+
+    private static QueueTypeContribution type(String pluginId, String type) {
+        return new QueueTypeContribution(pluginId, type, "demo", "label." + type, 10, null);
     }
 
     @Test
@@ -78,8 +84,8 @@ class QueueTypeRegistryTest {
     @DisplayName("作品类型 id 全局冲突立即抛出（同一类型只能由一个插件声明）")
     void duplicateTypeAcrossPluginsRejected() {
         QueueTypeRegistry registry = emptyRegistry();
-        registry.register("a", List.of(type("shared")));
-        assertThatThrownBy(() -> registry.register("b", List.of(type("shared"))))
+        registry.register("a", List.of(type("a", "shared")));
+        assertThatThrownBy(() -> registry.register("b", List.of(type("b", "shared"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("shared");
     }
@@ -119,6 +125,81 @@ class QueueTypeRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", List.of(
                 new QueueTypeContribution("demo", "b", " ", "label", 0, null))))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("pluginId 不一致或 moduleUrl 非同源绝对路径立即抛出")
+    void pluginIdAndModuleUrlRejected() {
+        QueueTypeRegistry registry = emptyRegistry();
+        assertThatThrownBy(() -> registry.register("real", List.of(type("other", "a"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("pluginId mismatch");
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new QueueTypeContribution("demo", "a", "ns", "label", 0, "https://example.test/a.js"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("moduleUrl");
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new QueueTypeContribution("demo", "a", "ns", "label", 0, "//example.test/a.js"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("moduleUrl");
+    }
+
+    @Test
+    @DisplayName("descriptor 与 queueType 的 type/display/order/moduleUrl 不一致立即抛出")
+    void descriptorMismatchRejected() {
+        QueueTypeRegistry registry = emptyRegistry();
+        DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+                "demo",
+                "other",
+                "ns",
+                "label",
+                0,
+                "video",
+                "red",
+                "/demo.js",
+                List.of(DownloadAcquisitionMode.SINGLE_IMPORT),
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                "ns",
+                null);
+
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new QueueTypeContribution("demo", "a", "ns", "label", 0, "/demo.js", descriptor))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("type mismatch");
+    }
+
+    @Test
+    @DisplayName("descriptor 内重复 mode / filter / setting / uiSlot 立即抛出")
+    void descriptorDuplicateCapabilitiesRejected() {
+        QueueTypeRegistry registry = emptyRegistry();
+        DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+                "demo",
+                "a",
+                "ns",
+                "label",
+                0,
+                "video",
+                "red",
+                "/demo.js",
+                List.of(DownloadAcquisitionMode.SINGLE_IMPORT, DownloadAcquisitionMode.SINGLE_IMPORT),
+                null,
+                null,
+                List.of("f"),
+                List.of("s"),
+                List.of("slot"),
+                "ns",
+                null);
+
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new QueueTypeContribution("demo", "a", "ns", "label", 0, "/demo.js", descriptor))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("duplicate acquisition mode");
     }
 
     @Test

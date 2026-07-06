@@ -19,6 +19,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * @param labelI18nKey   子模式（kind 单选）标签的 i18n key（<b>纯 key</b>，不带 namespace、不直接携带文案）
  * @param order          子模式渲染顺序，越小越靠前
  * @param moduleUrl      前端行为模块 URL（内置类型为 {@code null}：宿主内联注册）
+ * @param descriptor     下载类型稳定 descriptor；旧构造器会生成最小兼容 descriptor，新类型应显式声明完整能力
  */
 public record QueueTypeContribution(
         String pluginId,
@@ -26,6 +27,17 @@ public record QueueTypeContribution(
         String labelNamespace,
         String labelI18nKey,
         int order,
-        String moduleUrl
+        String moduleUrl,
+        DownloadTypeDescriptor descriptor
 ) {
+
+    public QueueTypeContribution(String pluginId,
+                                 String type,
+                                 String labelNamespace,
+                                 String labelI18nKey,
+                                 int order,
+                                 String moduleUrl) {
+        this(pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl,
+                DownloadTypeDescriptor.legacy(pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl));
+    }
 }

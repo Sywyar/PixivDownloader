@@ -2,9 +2,11 @@ package top.sywyar.pixivdownload.plugin.registry;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -91,6 +93,10 @@ public class QueueTypeRegistry {
         if (queueType == null) {
             throw new IllegalStateException("null queue type contribution (plugin: " + pluginId + ")");
         }
+        if (!pluginId.equals(queueType.pluginId())) {
+            throw new IllegalStateException("queue type pluginId mismatch: declared "
+                    + queueType.pluginId() + " under plugin " + pluginId);
+        }
         if (queueType.type() == null || queueType.type().isBlank()) {
             throw new IllegalStateException("queue type without type id (plugin: " + pluginId + ")");
         }
@@ -104,5 +110,125 @@ public class QueueTypeRegistry {
             throw new IllegalStateException("queue type without label namespace: "
                     + queueType.type() + " (plugin: " + pluginId + ")");
         }
+        if (queueType.moduleUrl() != null && !isSameOriginAbsolutePath(queueType.moduleUrl())) {
+            throw new IllegalStateException("queue type moduleUrl must be a same-origin absolute path starting with '/' "
+                    + "(no scheme / protocol-relative): " + queueType.moduleUrl()
+                    + " (type: " + queueType.type() + ", plugin: " + pluginId + ")");
+        }
+        validateDescriptor(queueType.descriptor(), queueType, pluginId);
+    }
+
+    private static void validateDescriptor(DownloadTypeDescriptor descriptor,
+                                           QueueTypeContribution queueType,
+                                           String pluginId) {
+        if (descriptor == null) {
+            throw new IllegalStateException("queue type without descriptor: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        if (descriptor.contractVersion() != DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION) {
+            throw new IllegalStateException("unsupported download type descriptor version: "
+                    + descriptor.contractVersion() + " (type: " + queueType.type()
+                    + ", plugin: " + pluginId + ")");
+        }
+        if (!pluginId.equals(descriptor.pluginId())) {
+            throw new IllegalStateException("download type descriptor pluginId mismatch: declared "
+                    + descriptor.pluginId() + " under plugin " + pluginId);
+        }
+        if (!queueType.type().equals(descriptor.type())) {
+            throw new IllegalStateException("download type descriptor type mismatch: declared "
+                    + descriptor.type() + " for queue type " + queueType.type()
+                    + " (plugin: " + pluginId + ")");
+        }
+        if (!queueType.labelNamespace().equals(descriptor.displayNamespace())
+                || !queueType.labelI18nKey().equals(descriptor.displayI18nKey())) {
+            throw new IllegalStateException("download type descriptor display mismatch: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        if (queueType.order() != descriptor.order()) {
+            throw new IllegalStateException("download type descriptor order mismatch: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        if (!equalsNullable(queueType.moduleUrl(), descriptor.moduleUrl())) {
+            throw new IllegalStateException("download type descriptor moduleUrl mismatch: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        if (descriptor.moduleUrl() != null && !isSameOriginAbsolutePath(descriptor.moduleUrl())) {
+            throw new IllegalStateException("download type descriptor moduleUrl must be a same-origin absolute path: "
+                    + descriptor.moduleUrl() + " (type: " + queueType.type()
+                    + ", plugin: " + pluginId + ")");
+        }
+        if (descriptor.i18nNamespace() == null || descriptor.i18nNamespace().isBlank()) {
+            throw new IllegalStateException("download type descriptor without i18n namespace: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        if (descriptor.acquisitionModes().isEmpty()) {
+            throw new IllegalStateException("download type descriptor without acquisition modes: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        rejectDuplicatesAndNulls(descriptor.acquisitionModes(), "acquisition mode", queueType.type(), pluginId);
+        rejectBlankOrDuplicateStrings(descriptor.filters(), "filter", queueType.type(), pluginId);
+        rejectBlankOrDuplicateStrings(descriptor.settings(), "setting", queueType.type(), pluginId);
+        rejectBlankOrDuplicateStrings(descriptor.uiSlots(), "ui slot", queueType.type(), pluginId);
+        if (descriptor.queue() == null) {
+            throw new IllegalStateException("download type descriptor without queue capabilities: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        if (descriptor.schedule() == null) {
+            throw new IllegalStateException("download type descriptor without schedule capabilities: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+        if (descriptor.gallery() == null) {
+            throw new IllegalStateException("download type descriptor without gallery capabilities: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
+    }
+
+    private static <T> void rejectDuplicatesAndNulls(Collection<T> values,
+                                                     String label,
+                                                     String type,
+                                                     String pluginId) {
+        Set<T> seen = new HashSet<>();
+        for (T value : values) {
+            if (value == null) {
+                throw new IllegalStateException("download type descriptor has null " + label + ": "
+                        + type + " (plugin: " + pluginId + ")");
+            }
+            if (!seen.add(value)) {
+                throw new IllegalStateException("download type descriptor has duplicate " + label + ": "
+                        + value + " (type: " + type + ", plugin: " + pluginId + ")");
+            }
+        }
+    }
+
+    private static void rejectBlankOrDuplicateStrings(Collection<String> values,
+                                                      String label,
+                                                      String type,
+                                                      String pluginId) {
+        Set<String> seen = new HashSet<>();
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                throw new IllegalStateException("download type descriptor has blank " + label + ": "
+                        + type + " (plugin: " + pluginId + ")");
+            }
+            if (!seen.add(value)) {
+                throw new IllegalStateException("download type descriptor has duplicate " + label + ": "
+                        + value + " (type: " + type + ", plugin: " + pluginId + ")");
+            }
+        }
+    }
+
+    private static boolean equalsNullable(String left, String right) {
+        return left == null ? right == null : left.equals(right);
+    }
+
+    private static boolean isSameOriginAbsolutePath(String value) {
+        if (value.isEmpty() || value.charAt(0) != '/') {
+            return false;
+        }
+        if (value.length() >= 2) {
+            char second = value.charAt(1);
+            return second != '/' && second != '\\';
+        }
+        return true;
     }
 }
