@@ -17,15 +17,19 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
+const STATIC = path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
 const QT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue-types.js'), 'utf8');
 const SI_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'single-import.js'), 'utf8');
+const DOUYIN_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-douyin', 'src', 'main', 'resources', 'static',
+    'pixiv-douyin-download', 'douyin-queue-type.js'), 'utf8');
 
 // ---- 最小 DOM（够 batch-queue-types 的 bootstrap/renderSlots + single-import 读 textarea 用）----
 function makeDocument(textareaValue) {
     const textarea = {value: textareaValue};
     const noopEl = () => ({
-        setAttribute() {}, getAttribute() {}, appendChild() {}, remove() {},
+        setAttribute() {}, getAttribute() {}, appendChild() {}, remove() {}, addEventListener() {},
         insertAdjacentHTML() {}, querySelectorAll: () => [], style: {}, children: []
     });
     return {
@@ -57,22 +61,54 @@ function novelImportDescriptor() {
     };
 }
 
-// 在沙箱里加载真实 registry + 真实 single-import，按 novelEnabled 装配后跑 parseSingleImport。
+function structuredImportDescriptor() {
+    return {
+        pluginId: 'structured', type: 'structured', display: 'd',
+        process() {},
+        import: {
+            sectionType: 'structured',
+            matchUrl(line) {
+                const m = String(line).match(/https?:\/\/example\.test\/works\/([A-Za-z0-9_-]+)/);
+                return m ? {id: m[1], url: m[0]} : null;
+            },
+            buildItem(match, title, line) {
+                return {
+                    id: 's' + match.id,
+                    workId: match.id,
+                    url: match.url,
+                    line,
+                    kind: 'structured',
+                    title: title || ('结构化 ' + match.id)
+                };
+            },
+            source: 'single-import-structured'
+        }
+    };
+}
+
+// 在沙箱里加载真实 registry + 真实 single-import，按启用类型装配后跑 parseSingleImport。
 // 返回捕获的 setStatus / addItemsToQueue 调用，供断言。
-async function runParse(textareaValue, {novelEnabled}) {
+async function runParse(textareaValue, {novelEnabled, douyinEnabled = false}) {
     const enqueued = [];   // [{ids, items, source}]
     let status = null;     // {message, level}
     const document = makeDocument(textareaValue);
-    const queueTypesData = novelEnabled
-        ? [{type: 'illust', order: 1}, {type: 'novel', order: 2}]
-        : [{type: 'illust', order: 1}];
+    const queueTypesData = [{type: 'illust', order: 1}];
+    if (novelEnabled) {
+        queueTypesData.push({type: 'novel', order: 2}, {type: 'structured', order: 3});
+    }
+    if (douyinEnabled) queueTypesData.push({type: 'douyin', order: 4});
+    const localStorageMap = new Map();
     const sandbox = {
-        window: {},
+        window: {addEventListener() {}, dispatchEvent() {}},
         document,
         BASE: '',
         pageI18n: {apply() {}},
         console: {warn() {}, log() {}, error() {}},
-        setTimeout, clearTimeout, Promise,
+        setTimeout, clearTimeout, Promise, URL,
+        localStorage: {
+            getItem: key => localStorageMap.get(key) || null,
+            setItem: (key, value) => localStorageMap.set(key, String(value || ''))
+        },
         fetch: () => Promise.resolve({ok: true, json: () => Promise.resolve({queueTypes: queueTypesData, tabs: []})}),
         // —— 宿主工具函数桩 ——
         SINGLE_IMPORT_MODE: 'single-import',
@@ -89,6 +125,8 @@ async function runParse(textareaValue, {novelEnabled}) {
     const qt = sandbox.window.PixivBatch.queueTypes;
     qt.register('illust', {pluginId: 'download-workbench', type: 'illust', process() {}});  // 内置插画：无 import 钩子
     if (novelEnabled) qt.register('novel', novelImportDescriptor());
+    if (novelEnabled) qt.register('structured', structuredImportDescriptor());
+    if (douyinEnabled) vm.runInContext(DOUYIN_SOURCE, sandbox);
     await qt.bootstrap();   // 据 queueTypesData 设 enabledTypes/orderedTypes/bootstrapped
     vm.runInContext(SI_SOURCE, sandbox);
     sandbox.window.PixivBatch.modes.singleImport.parseSingleImport();
@@ -100,6 +138,8 @@ function ok(label, cond) { assert.ok(cond, label); passed++; }
 const bySource = (enqueued, source) => { const b = enqueued.find(e => e.source === source); return b ? b.items : []; };
 const novelItems = enqueued => bySource(enqueued, 'single-import-novel');
 const illustItems = enqueued => bySource(enqueued, 'single-import');
+const structuredItems = enqueued => bySource(enqueued, 'single-import-structured');
+const douyinItems = enqueued => bySource(enqueued, 'single-import-douyin');
 
 (async function () {
     // ===== a) novel 可用：`novel:` 区段裸 ID + 显式 novel URL → novel 队列项 =====
@@ -164,7 +204,25 @@ const illustItems = enqueued => bySource(enqueued, 'single-import');
         ok('f: unsupported Pixiv URLs keep old error level', !!status && status.level === 'error');
     }
 
-    console.log(`\nsingle-import.test.js: ${passed} assertions passed (6 scenarios) ✓`);
+    {
+        const {enqueued, status} = await runParse(
+            'https://example.test/works/abc_123 | 标题', {novelEnabled: true});
+        const si = structuredItems(enqueued);
+        ok('g: 结构化 matchUrl 结果可入队', si.length === 1 && si[0].id === 'sabc_123');
+        ok('g: buildItem 收到原 URL', si[0].url === 'https://example.test/works/abc_123');
+        ok('g: 结构化解析仍走成功汇总', !!status && status.message === 'status.parsed-summary' && status.level === 'success');
+    }
+
+    {
+        const {enqueued, status} = await runParse(
+            'https://v.douyin.com/XUyPmdu7naU/', {novelEnabled: false, douyinEnabled: true});
+        const di = douyinItems(enqueued);
+        ok('h: Douyin 短链可通过单作品导入入队', di.length === 1 && di[0].id === 'dshort-XUyPmdu7naU');
+        ok('h: Douyin 短链保留原始作品标识', di[0].douyinId === 'XUyPmdu7naU' && di[0].kind === 'douyin');
+        ok('h: Douyin 短链解析走成功汇总', !!status && status.message === 'status.parsed-summary' && status.level === 'success');
+    }
+
+    console.log(`\nsingle-import.test.js: ${passed} assertions passed (8 scenarios) ✓`);
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);
     process.exit(1);

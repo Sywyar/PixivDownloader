@@ -47,6 +47,8 @@
         <module>pixivdownload-plugin-mail</module>
         <module>pixivdownload-plugin-tts</module>
         <module>pixivdownload-plugin-ai</module>
+        <!-- Douyin 外置 PF4J 插件：用于新增下载类型 SDK 的真实验证插件。默认不进入用户发行包。 -->
+        <module>pixivdownload-plugin-douyin</module>
         <!-- 最小外置插件（id=recovery-sentinel），只依赖 plugin-api / PF4J（均 provided），不贡献任何功能；打成 thin 外置
              PF4J 插件 jar，放入 plugins/ 由运行时加载——不进 boot jar、app 不依赖。声明在 app 之前，使其 target/classes 在
              app 测试期已就绪，供恢复模式端到端集成测试组装临时插件 jar 做真实加载验证 -->

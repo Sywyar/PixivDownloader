@@ -61,6 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DistributionPackagingBoundaryTest {
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
+    private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String GALLERY_CLASSES_PROPERTY = "gallery.plugin.classes";
     private static final String NOVEL_CLASSES_PROPERTY = "novel.plugin.classes";
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
@@ -75,7 +76,7 @@ class DistributionPackagingBoundaryTest {
     private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
 
     @Test
-    @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置 download-workbench / gallery / novel / stats / duplicate / recovery-sentinel 的类与资源")
+    @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置下载类型 / 画廊 / 通知等插件的类与资源")
     void bootJarExcludesExternalPluginClassesAndResources() {
         ClassLoader host = getClass().getClassLoader();
 
@@ -90,6 +91,10 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 download-workbench 插件主类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin"))
                 .as("外置 download-workbench 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.douyin.DouyinPf4jPlugin"))
+                .as("外置 douyin 插件主类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.douyin.DouyinPlugin"))
+                .as("外置 douyin 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsPf4jPlugin"))
                 .as("外置 stats 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.stats.StatsPlugin"))
@@ -144,6 +149,10 @@ class DistributionPackagingBoundaryTest {
                 .as("download-workbench i18n 不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/userscript.properties"))
                 .as("download-workbench userscript i18n 不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-douyin-download/douyin-queue-type.js"))
+                .as("douyin 下载行为模块不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/douyin.properties"))
+                .as("douyin i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-stats/pixiv-stats.css"))
                 .as("stats 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/stats.properties"))
@@ -227,10 +236,12 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/top/sywyar/pixivdownload/novel/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/novelgallery/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
+                "BOOT-INF/classes/top/sywyar/pixivdownload/douyin/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/download/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
                 "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
                 "BOOT-INF/classes/static/pixiv-batch",
+                "BOOT-INF/classes/static/pixiv-douyin-download",
                 "BOOT-INF/classes/static/userscripts/",
                 "BOOT-INF/classes/static/pixiv-stats/",
                 "BOOT-INF/classes/static/pixiv-duplicates",
@@ -246,6 +257,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/static/pixiv-ai/",
                 "BOOT-INF/classes/i18n/web/batch",
                 "BOOT-INF/classes/i18n/web/userscript",
+                "BOOT-INF/classes/i18n/web/douyin",
                 "BOOT-INF/classes/i18n/web/stats",
                 "BOOT-INF/classes/i18n/web/duplicates",
                 "BOOT-INF/classes/i18n/web/gallery",
@@ -294,6 +306,13 @@ class DistributionPackagingBoundaryTest {
     void downloadWorkbenchPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(DOWNLOAD_WORKBENCH_CLASSES_PROPERTY, "pixivdownload-plugin-download-workbench",
                 "top/sywyar/pixivdownload/download/DownloadWorkbenchPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("douyin 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void douyinPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(DOUYIN_CLASSES_PROPERTY, "pixivdownload-plugin-douyin",
+                "top/sywyar/pixivdownload/douyin/DouyinPf4jPlugin.class");
     }
 
     @Test

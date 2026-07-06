@@ -227,6 +227,30 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("app 生产代码与 POM 不得依赖 douyin 外置插件模块")
+    void appDoesNotDependOnDouyinPluginModule() throws IOException {
+        Path pom = Path.of("pixivdownload-app/pom.xml");
+        if (!Files.exists(pom)) {
+            pom = Path.of("pom.xml");
+        }
+        assertThat(Files.readString(pom, StandardCharsets.UTF_8))
+                .doesNotContain("<artifactId>pixivdownload-plugin-douyin</artifactId>");
+
+        Path sourceRoot = Path.of("pixivdownload-app/src/main/java");
+        if (!Files.exists(sourceRoot)) {
+            sourceRoot = Path.of("src/main/java");
+        }
+        try (var paths = Files.walk(sourceRoot)) {
+            assertThat(paths
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> contains(path, "top.sywyar.pixivdownload.douyin"))
+                    .map(Path::toString)
+                    .toList())
+                    .isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("核心 Hash 写入服务 ArtworkHashService 是核心 Bean：不得标 @PluginManagedBean")
     void artworkHashServiceIsCoreNotPluginManaged() {
         classes()
