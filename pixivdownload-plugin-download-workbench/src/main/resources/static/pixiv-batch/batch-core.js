@@ -5,6 +5,7 @@ window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 ['quick','singleImport','user','search','series','schedule'].forEach(function(k){ window.PixivBatch.modes[k] = window.PixivBatch.modes[k] || {}; });
     let pageI18n = null;
+    const BATCH_I18N_NAMESPACES = ['batch', 'common', 'novel', 'ai', 'tour'];
     function interpolate(template, vars) {
         if (!vars) {
             return String(template);
@@ -96,8 +97,31 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         renderFooterInfo();
     }
 
+    function addI18nNamespace(out, seen, value) {
+        const namespace = value == null ? '' : String(value).trim();
+        if (!namespace || seen.has(namespace)) return;
+        seen.add(namespace);
+        out.push(namespace);
+    }
+
+    async function batchI18nNamespaces() {
+        const out = [];
+        const seen = new Set();
+        BATCH_I18N_NAMESPACES.forEach(ns => addI18nNamespace(out, seen, ns));
+        const qt = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (qt && typeof qt.i18nNamespaces === 'function') {
+            try {
+                const dynamicNamespaces = await qt.i18nNamespaces();
+                (dynamicNamespaces || []).forEach(ns => addI18nNamespace(out, seen, ns));
+            } catch (e) {
+                console.warn('[batch] 读取下载类型 i18n namespace 失败：', e);
+            }
+        }
+        return out;
+    }
+
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['batch', 'common', 'novel', 'ai', 'tour']});
+        pageI18n = await PixivI18n.create({namespaces: await batchI18nNamespaces()});
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,

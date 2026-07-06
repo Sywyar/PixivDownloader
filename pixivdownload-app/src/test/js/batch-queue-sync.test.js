@@ -18,7 +18,8 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
+const STATIC = path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
 const QUEUE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue.js'), 'utf8');
 
 // 在沙箱里加载真实 batch-queue.js，返回 facade + 四个 sync 的调用计数器。
@@ -92,13 +93,18 @@ const noneFired = c => c.search === 0 && c.series === 0 && c.user === 0 && c.qui
     ok('4: 未发生任何预览同步', noneFired(calls));
 }
 
-// ===== 5) addItemsToQueue 入队后同步全部四个预览 =====
+// ===== 5) addItemsToQueue 入队后同步全部四个预览，并保留类型私有队列数据 =====
 {
     const {sandbox, queue, calls} = load();
     resetCalls(calls);
-    const added = queue.addItemsToQueue(['333', '444'], [{}, {}], 'search', '', null, '');
+    const added = queue.addItemsToQueue(['333', '444'], [
+        {typeData: {input: 'https://example.test/work/333', token: 'abc'}},
+        {}
+    ], 'search', '', null, '');
     ok('5: 新增 2 项', added === 2);
     ok('5: 队列含 2 项', sandbox.state.queue.length === 2);
+    ok('5: 保留类型私有队列数据', sandbox.state.queue[0].typeData.input === 'https://example.test/work/333'
+        && sandbox.state.queue[0].typeData.token === 'abc');
     ok('5: 四个 sync 各被回调一次（含 quick）', allFour(calls));
 }
 

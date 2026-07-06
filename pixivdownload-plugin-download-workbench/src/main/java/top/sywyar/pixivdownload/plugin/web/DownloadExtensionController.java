@@ -4,6 +4,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -48,6 +53,13 @@ public class DownloadExtensionController {
                 .map(item -> new QueueTypeView(
                         item.type(), item.labelNamespace(), item.labelI18nKey(), item.order(), item.moduleUrl()))
                 .toList();
+        List<DownloadTypeView> downloadTypes = queueTypeRegistry.queueTypes().stream()
+                .map(QueueTypeRegistry.RegisteredQueueType::queueType)
+                .sorted(Comparator.comparingInt(QueueTypeContribution::order)
+                        .thenComparing(QueueTypeContribution::type))
+                .map(QueueTypeContribution::descriptor)
+                .map(DownloadTypeView::from)
+                .toList();
         List<TabView> tabs = downloadTabRegistry.tabs().stream()
                 .map(DownloadTabRegistry.RegisteredTab::tab)
                 .sorted(Comparator.comparingInt(TabContribution::order)
@@ -61,11 +73,14 @@ public class DownloadExtensionController {
                 .map(item -> new UiSlotView(
                         item.slotId(), item.target(), item.moduleUrl(), item.order(), item.metadata()))
                 .toList();
-        return new DownloadExtensionsView(queueTypes, tabs, uiSlots);
+        return new DownloadExtensionsView(queueTypes, downloadTypes, tabs, uiSlots);
     }
 
     /** 下载页扩展点对外视图：已启用的作品类型、获取方式标签页与 Web UI 槽位。 */
-    public record DownloadExtensionsView(List<QueueTypeView> queueTypes, List<TabView> tabs, List<UiSlotView> uiSlots) {
+    public record DownloadExtensionsView(List<QueueTypeView> queueTypes,
+                                          List<DownloadTypeView> downloadTypes,
+                                          List<TabView> tabs,
+                                          List<UiSlotView> uiSlots) {
     }
 
     /** 作品类型对外视图：刻意不含 {@code pluginId}（内部归属）。 */
@@ -78,5 +93,81 @@ public class DownloadExtensionController {
 
     /** UI 槽位对外视图：槽位 id / 宿主锚点 / 渲染模块 / 排序 / 元数据；刻意不含 {@code pluginId}（内部归属）。 */
     public record UiSlotView(String slotId, String target, String moduleUrl, int order, Map<String, String> metadata) {
+    }
+
+    /** 下载类型稳定 descriptor 视图：供前端行为模块按版本化契约自检能力与错误语义。 */
+    public record DownloadTypeView(
+            int contractVersion,
+            String pluginId,
+            String type,
+            String displayNamespace,
+            String displayI18nKey,
+            int order,
+            String iconKey,
+            String colorToken,
+            String moduleUrl,
+            List<String> acquisitionModes,
+            QueueCapabilitiesView queue,
+            ScheduleCapabilitiesView schedule,
+            List<String> filters,
+            List<String> settings,
+            List<String> uiSlots,
+            String i18nNamespace,
+            GalleryCapabilitiesView gallery
+    ) {
+
+        static DownloadTypeView from(DownloadTypeDescriptor descriptor) {
+            return new DownloadTypeView(
+                    descriptor.contractVersion(),
+                    descriptor.pluginId(),
+                    descriptor.type(),
+                    descriptor.displayNamespace(),
+                    descriptor.displayI18nKey(),
+                    descriptor.order(),
+                    descriptor.iconKey(),
+                    descriptor.colorToken(),
+                    descriptor.moduleUrl(),
+                    descriptor.acquisitionModes().stream().map(DownloadAcquisitionMode::code).toList(),
+                    QueueCapabilitiesView.from(descriptor.queue()),
+                    ScheduleCapabilitiesView.from(descriptor.schedule()),
+                    descriptor.filters(),
+                    descriptor.settings(),
+                    descriptor.uiSlots(),
+                    descriptor.i18nNamespace(),
+                    GalleryCapabilitiesView.from(descriptor.gallery()));
+        }
+    }
+
+    public record QueueCapabilitiesView(boolean clearAll, boolean clearForOwner, boolean cancel) {
+        static QueueCapabilitiesView from(DownloadQueueCapabilities capabilities) {
+            return new QueueCapabilitiesView(
+                    capabilities.clearAll(),
+                    capabilities.clearForOwner(),
+                    capabilities.cancel());
+        }
+    }
+
+    public record ScheduleCapabilitiesView(boolean saveable,
+                                           boolean sourceSerializable,
+                                           boolean suspendWhenExecutorMissing) {
+        static ScheduleCapabilitiesView from(DownloadScheduleCapabilities capabilities) {
+            return new ScheduleCapabilitiesView(
+                    capabilities.saveable(),
+                    capabilities.sourceSerializable(),
+                    capabilities.suspendWhenExecutorMissing());
+        }
+    }
+
+    public record GalleryCapabilitiesView(boolean unifiedGallery,
+                                          boolean independentPage,
+                                          String reasonNamespace,
+                                          String reasonI18nKey) {
+        static GalleryCapabilitiesView from(DownloadGalleryCapabilities capabilities) {
+            return new GalleryCapabilitiesView(
+                    capabilities.unifiedGallery(),
+                    capabilities.independentPage(),
+                    capabilities.reasonNamespace(),
+                    capabilities.reasonI18nKey());
+        }
     }
 }

@@ -150,6 +150,20 @@
         }
 
         /* ---- Cookie ---- */
+        .cookie-card-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .cookie-type-card {
+            border: 1px solid var(--line, #ddd);
+            border-radius: 7px;
+            background: var(--surface-muted, #fafafa);
+            padding: 11px;
+            min-width: 0;
+        }
+
         .cookie-row {
             display: flex;
             gap: 8px;
@@ -183,10 +197,46 @@
             display: none;
         }
 
+        .plugin-cookie-block,
+        .plugin-cookie-card {
+            border: 1px solid var(--line, #ddd);
+            border-radius: 7px;
+            background: var(--surface-muted, #fafafa);
+            padding: 11px;
+            min-width: 0;
+        }
+
+        .plugin-cookie-title {
+            margin-bottom: 8px;
+            color: var(--heading, #555);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .plugin-cookie-row input {
+            min-width: 0;
+        }
+
+        .plugin-cookie-status.is-ok {
+            color: var(--status-green, #22a447);
+        }
+
+        .plugin-cookie-status.is-warning {
+            color: var(--status-yellow, #e0a106);
+        }
+
+        .plugin-cookie-status.is-error {
+            color: var(--status-red, #dc3545);
+        }
+
+        .plugin-cookie-hint {
+            color: var(--muted-2, #888);
+        }
+
         .cookie-fmt {
             display: flex;
             gap: 0;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
         }
 
         .cookie-fmt button {

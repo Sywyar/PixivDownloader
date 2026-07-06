@@ -18,6 +18,10 @@
             if (res.ok) {
                 const data = await res.json();
                 serverState = data.state ?? {};
+                try {
+                    window.dispatchEvent(new CustomEvent('pixivbatch:storageloaded', {detail: {mode: appMode}}));
+                } catch {
+                }
             }
         } catch {
         }

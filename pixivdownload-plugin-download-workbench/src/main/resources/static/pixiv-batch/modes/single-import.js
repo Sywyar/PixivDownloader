@@ -18,6 +18,22 @@
         const importTypes = qt.contributionsOf('import');
         const importTypeFor = token =>
             importTypes.find(t => String(t.sectionType || '').toLowerCase() === token.toLowerCase()) || null;
+        const normalizeImportMatch = match => {
+            if (match && typeof match === 'object') {
+                const id = match.id ?? match.workId ?? match.value;
+                return id == null ? null : Object.assign({}, match, {id: String(id)});
+            }
+            return {id: String(match)};
+        };
+        const buildImportItem = (it, match, titleRaw, line) => {
+            if (!it.buildItem) return null;
+            const structuredMatch = match && typeof match === 'object';
+            const normalized = normalizeImportMatch(match);
+            if (!normalized) return null;
+            return (structuredMatch || it.buildItem.length >= 3)
+                ? it.buildItem(normalized, titleRaw, line)
+                : it.buildItem(String(normalized.id), titleRaw);
+        };
         // 区段头命名了一个当前不可用 / 未知类型时的哨兵区段：唯一 Symbol，绝不与任何字符串区段类型相撞。
         const UNAVAILABLE_SECTION = Symbol('unavailable-section');
         // 按类型聚合解析结果；保持「插画在前、其余类型按贡献序在后」的旧入队顺序。
@@ -41,11 +57,14 @@
             // 显式 URL 始终按其自身类型解析，无视所在区段。先试各可用类型贡献的链接匹配。
             let matchedUrl = false;
             for (const it of importTypes) {
-                const id = it.matchUrl ? it.matchUrl(ln) : null;
-                if (id != null) {
+                const match = it.matchUrl ? it.matchUrl(ln) : null;
+                if (match != null) {
                     const titleRaw = (ln.split('|')[1] || '').trim();
-                    bucket(it.type, it.source).items.push(it.buildItem(String(id), titleRaw));
-                    matchedUrl = true;
+                    const item = buildImportItem(it, match, titleRaw, ln);
+                    if (item) {
+                        bucket(it.type, item.source || it.source).items.push(item);
+                        matchedUrl = true;
+                    }
                     break;
                 }
             }
@@ -73,7 +92,10 @@
                     skippedUnavailable++;   // 区段头命名了不可用类型：跳过、不入队、不报错
                 } else {
                     const it = importTypeFor(currentSection);
-                    if (it) bucket(it.type, it.source).items.push(it.buildItem(id, titleRaw));
+                    if (it) {
+                        const item = buildImportItem(it, id, titleRaw, ln);
+                        if (item) bucket(it.type, item.source || it.source).items.push(item);
+                    }
                     else skippedUnavailable++;
                 }
             }

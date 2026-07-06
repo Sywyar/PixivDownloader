@@ -50,6 +50,16 @@ class DownloadExtensionControllerTest {
 
         // queueType / tab 仍正常暴露（回归）
         assertThat(view.queueTypes()).extracting(DownloadExtensionController.QueueTypeView::type).containsExactly("demo");
+        assertThat(view.downloadTypes()).extracting(DownloadExtensionController.DownloadTypeView::type)
+                .containsExactly("demo");
+        assertThat(view.downloadTypes()).singleElement()
+                .satisfies(type -> {
+                    assertThat(type.pluginId()).isEqualTo("demo");
+                    assertThat(type.contractVersion()).isEqualTo(1);
+                    assertThat(type.acquisitionModes()).contains("single-import", "user", "series", "search", "quick");
+                    assertThat(type.queue().clearAll()).isTrue();
+                    assertThat(type.schedule().suspendWhenExecutorMissing()).isTrue();
+                });
         assertThat(view.tabs()).extracting(DownloadExtensionController.TabView::tabId).containsExactly("demo-tab");
     }
 

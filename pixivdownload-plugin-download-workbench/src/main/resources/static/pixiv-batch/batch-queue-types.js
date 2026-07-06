@@ -32,22 +32,86 @@
 // ============================================================
 window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.queueTypes = (function () {
+    const CONTRACT_VERSION = 1;
     const behaviors = new Map();    // type -> descriptor { pluginId, type, display, slots, process }
+    const backendDescriptors = new Map(); // type -> /api/download/extensions downloadTypes descriptor
     const loadedModules = new Set(); // 已加载的行为模块 URL（去重）
+    let extensionData = null;        // /api/download/extensions 成功响应缓存；i18n 预取与 bootstrap 共用
+    let extensionDataPromise = null;
     let enabledTypes = new Set();   // 后端报告为已启用的作品类型
     let orderedTypes = [];          // 已启用作品类型按贡献 order 排序（slots 渲染与子模式顺序据此）
     let tabMeta = [];               // [{tabId, order, supportedQueueTypes}]
     let uiSlotsManifest = [];       // 后端声明的 UI 槽位清单（/api/download/extensions 的 uiSlots，按 order 已排序）
     let bootstrapped = false;       // 是否已拿到 /api/download/extensions 权威数据
 
-    // 注册一个作品类型的行为 + UI 贡献。descriptor 至少含 process(item)（下载行为）；
-    // 可选 pluginId / type / display（子模式标签 i18n key）/ slots（DOM 片段贡献）。
-    function register(type, descriptor) {
+    function warnInvalid(type, reason) {
+        console.warn('[queueTypes] 忽略无效的作品类型注册：', type, reason || '');
+    }
+
+    function isPlainObject(value) {
+        return !!value && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    // 前端行为模块 descriptor 契约：
+    // {
+    //   contractVersion?: 1,
+    //   pluginId, type, display,
+    //   process(item),
+    //   import?: { sectionType, matchUrl(line), buildItem(matchOrId, title, line), source },
+    //   acquisition?: { user?, series?, search?, quick? },
+    //   filters?: object,
+    //   settings?: object,
+    //   slots|uiSlots?: object
+    // }
+    // 无效模块不抛出到页面主流程，只 warning 并跳过，使插件损坏 / 前端不可用时下载页不白屏。
+    function validateDescriptor(type, descriptor) {
         if (!type || !descriptor || typeof descriptor.process !== 'function') {
-            console.warn('[queueTypes] 忽略无效的作品类型注册：', type);
-            return;
+            return 'missing process(item)';
         }
-        behaviors.set(type, descriptor);
+        const version = descriptor.contractVersion || CONTRACT_VERSION;
+        if (version !== CONTRACT_VERSION) {
+            return 'unsupported contractVersion=' + version;
+        }
+        if (descriptor.type && descriptor.type !== type) {
+            return 'descriptor.type mismatch: ' + descriptor.type;
+        }
+        if (descriptor.import) {
+            if (!isPlainObject(descriptor.import)) return 'import must be an object';
+            if (descriptor.import.matchUrl && typeof descriptor.import.matchUrl !== 'function') {
+                return 'import.matchUrl must be a function';
+            }
+            if (descriptor.import.buildItem && typeof descriptor.import.buildItem !== 'function') {
+                return 'import.buildItem must be a function';
+            }
+        }
+        if (descriptor.acquisition) {
+            if (!isPlainObject(descriptor.acquisition)) return 'acquisition must be an object';
+            for (const mode of ['user', 'series', 'search', 'quick']) {
+                if (descriptor.acquisition[mode] && !isPlainObject(descriptor.acquisition[mode])) {
+                    return 'acquisition.' + mode + ' must be an object';
+                }
+            }
+        }
+        if (descriptor.filters && !isPlainObject(descriptor.filters)) return 'filters must be an object';
+        if (descriptor.settings && !isPlainObject(descriptor.settings)) return 'settings must be an object';
+        if (descriptor.slots && !isPlainObject(descriptor.slots)) return 'slots must be an object';
+        if (descriptor.uiSlots && !isPlainObject(descriptor.uiSlots)) return 'uiSlots must be an object';
+        return null;
+    }
+
+    // 注册一个作品类型的行为 + UI 贡献。descriptor 至少含 process(item)（下载行为）。
+    function register(type, descriptor) {
+        const reason = validateDescriptor(type, descriptor);
+        if (reason) {
+            warnInvalid(type, reason);
+            return false;
+        }
+        const normalized = Object.assign({}, descriptor);
+        normalized.contractVersion = normalized.contractVersion || CONTRACT_VERSION;
+        normalized.type = normalized.type || type;
+        normalized.slots = normalized.slots || normalized.uiSlots || {};
+        behaviors.set(type, normalized);
+        return true;
     }
 
     function get(type) {
@@ -150,6 +214,11 @@ window.PixivBatch.queueTypes = (function () {
         return uiSlotsManifest.slice();
     }
 
+    // 后端声明的下载类型 descriptor 清单（来自 /api/download/extensions 的 downloadTypes，已按 order 排序）。
+    function downloadTypes() {
+        return Array.from(backendDescriptors.values()).map(item => Object.assign({}, item));
+    }
+
     function loadModule(url) {
         if (!url || loadedModules.has(url)) return Promise.resolve();
         loadedModules.add(url);
@@ -166,20 +235,62 @@ window.PixivBatch.queueTypes = (function () {
         });
     }
 
+    async function fetchExtensionData() {
+        if (extensionData) return extensionData;
+        if (extensionDataPromise) return extensionDataPromise;
+        extensionDataPromise = (async function () {
+            try {
+                const res = await fetch(BASE + '/api/download/extensions', {credentials: 'same-origin'});
+                if (res.ok) {
+                    extensionData = await res.json();
+                    return extensionData;
+                }
+            } catch (e) {
+                console.warn('[queueTypes] 拉取下载页扩展点失败：', e);
+            } finally {
+                if (!extensionData) extensionDataPromise = null;
+            }
+            return null;
+        })();
+        return extensionDataPromise;
+    }
+
+    function addNamespace(out, seen, value) {
+        const namespace = value == null ? '' : String(value).trim();
+        if (!namespace || seen.has(namespace)) return;
+        seen.add(namespace);
+        out.push(namespace);
+    }
+
+    async function i18nNamespaces() {
+        const data = await fetchExtensionData();
+        if (!data) return [];
+        const out = [];
+        const seen = new Set();
+        (data.queueTypes || []).forEach(item => addNamespace(out, seen, item && item.labelNamespace));
+        (data.downloadTypes || []).forEach(item => {
+            addNamespace(out, seen, item && item.displayNamespace);
+            addNamespace(out, seen, item && item.i18nNamespace);
+            const gallery = item && item.gallery;
+            addNamespace(out, seen, gallery && gallery.reasonNamespace);
+        });
+        return out;
+    }
+
     // 拉取并装配下载页扩展点：登记已启用类型 + 标签页元数据，加载各类型行为模块，再据其 slots 贡献
     // 把取得侧控件注入宿主锚点。拉取失败：保持 bootstrapped=false（isEnabled 恒真）→ 维持页面 HTML 默认、
     // 不注入任何插件 slot（插画内置行为照常可用，仅外部类型的入口缺席——优雅降级）。
     async function bootstrap() {
-        let data = null;
-        try {
-            const res = await fetch(BASE + '/api/download/extensions', {credentials: 'same-origin'});
-            if (res.ok) data = await res.json();
-        } catch (e) {
-            console.warn('[queueTypes] 拉取下载页扩展点失败：', e);
-        }
+        const data = await fetchExtensionData();
         if (!data) return;
         const queueTypes = (data.queueTypes || []).slice()
             .sort((a, b) => (a.order - b.order) || String(a.type).localeCompare(String(b.type)));
+        const downloadTypeList = (data.downloadTypes || []).slice()
+            .sort((a, b) => (a.order - b.order) || String(a.type).localeCompare(String(b.type)));
+        backendDescriptors.clear();
+        downloadTypeList.forEach(item => {
+            if (item && item.type) backendDescriptors.set(item.type, item);
+        });
         enabledTypes = new Set(queueTypes.map(t => t.type));
         orderedTypes = queueTypes.map(t => t.type);
         tabMeta = data.tabs || [];
@@ -191,6 +302,9 @@ window.PixivBatch.queueTypes = (function () {
         await Promise.all(uiSlotsManifest
             .filter(slot => slot && slot.moduleUrl)
             .map(slot => loadModule(slot.moduleUrl)));
+        queueTypes
+            .filter(t => t && t.type && t.moduleUrl && !behaviors.has(t.type))
+            .forEach(t => console.warn('[queueTypes] 作品类型行为模块未注册：', t.type, t.moduleUrl));
         // await：renderSlots 主路径走 Vue（异步挂载），需在此 await 完成后下载页 init 才读取 kind 单选 /
         // 设置卡 / 专属筛选等控件（init `await bootstrap()`）——保证控件就位、无「尚未注入」竞态。
         await renderSlots();
@@ -282,8 +396,9 @@ window.PixivBatch.queueTypes = (function () {
     }
 
     return {
-        register, get, has, isEnabled, bootstrap, uiSlots,
+        register, get, has, isEnabled, bootstrap, uiSlots, downloadTypes,
         isTypeAvailable, resolveType, normalizeSelectedType, descriptor,
-        acquisition, acquisitionList, filtersFor, settingsFor, quickActionsFor, contributionsOf
+        acquisition, acquisitionList, filtersFor, settingsFor, quickActionsFor, contributionsOf,
+        i18nNamespaces
     };
 })();

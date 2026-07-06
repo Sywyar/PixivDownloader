@@ -26,14 +26,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>{@code batch-queue-types.js} 的 {@code renderSlots} 为 async、由 {@code bootstrap} {@code await}（init 时序安全），
  *       **主路径经 {@code window.PixivVue.mount} 把片段作为 Vue 组件 template 渲染**，命令式 {@code insertAdjacentHTML}
  *       仅在挂载未成功时回退，且**不把 target 拼进选择器**（固定字面 {@code template[data-qt-slot]} + getAttribute）；</li>
- *   <li>{@code pixiv-batch.html} 加载 {@code /js/pixiv-vue.js}，且为 novel 插件可贡献的每个 UI 槽位 target 都开了
+ *   <li>{@code pixiv-batch.html} 加载 {@code /js/pixiv-vue.js}，且为作品类型插件可贡献的每个 UI 槽位 target 都开了
  *       对应 {@code <template data-qt-slot>} 锚点；</li>
  *   <li>{@code pixiv-batch.css}：非空宿主 {@code [data-vue-slot] { display:contents }}（Vue 内容作为父容器真实子节点
  *       参与布局），空宿主 {@code [data-vue-slot]:empty { display:none }}；{@code .kind-switcher} 分隔线 {@code :not(:first-child)}
  *       且为 display:contents 宿主内的 kind 选项 label 补左分隔线（与命令式视觉一致）。</li>
  * </ul>
  */
-@DisplayName("Web UiSlot Vue 契约守卫：8 槽位主路径 Vue 渲染 + 命令式回退 + 失败不吞 fallback")
+@DisplayName("Web UiSlot Vue 契约守卫：9 槽位主路径 Vue 渲染 + 命令式回退 + 失败不吞 fallback")
 class WebUiSlotVueHostContractTest {
 
     private static final String STATIC_ROOT = "static/";
@@ -155,12 +155,13 @@ class WebUiSlotVueHostContractTest {
     }
 
     @Test
-    @DisplayName("pixiv-batch.html 加载 /js/pixiv-vue.js 且保留 novel UI 槽位锚点")
+    @DisplayName("pixiv-batch.html 加载 /js/pixiv-vue.js 且保留下载类型 UI 槽位锚点")
     void downloadPageAnchorsMatchExposedUiSlots() throws IOException {
         String html = read(BATCH_HTML);
         assertThat(html).as("下载页必须加载共享 Vue helper").contains("src=\"/js/pixiv-vue.js\"");
 
         List<String> targets = List.of(
+                "cookie-tools",
                 "kind-option-user",
                 "kind-option-search",
                 "kind-option-quick",
@@ -172,7 +173,7 @@ class WebUiSlotVueHostContractTest {
 
         for (String target : targets) {
             assertThat(html)
-                    .as("novel 插件可贡献的槽位 target '" + target
+                    .as("下载类型插件可贡献的槽位 target '" + target
                             + "' 必须在 pixiv-batch.html 有对应 <template data-qt-slot> 锚点")
                     .contains("data-qt-slot=\"" + target + "\"");
         }

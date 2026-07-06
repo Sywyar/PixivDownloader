@@ -8,8 +8,8 @@
  * 组件挂载后出现在该 slot 的真实位置——**不再**统一 append 到父容器末尾（旧实现会把 settings-card
  * 等挪到容器末尾、偏离原槽位）。
  *
- * 覆盖下载页全部 8 个 UI 槽位（与 /api/download/extensions 暴露的 target 一一对应）：
- *   quick-actions-bookmarks / quick-actions-mine / kind-option-quick / import-hint /
+ * 覆盖下载页全部 9 个 UI 槽位（与 /api/download/extensions 暴露的 target 一一对应）：
+ *   cookie-tools / quick-actions-bookmarks / quick-actions-mine / kind-option-quick / import-hint /
  *   kind-option-user / kind-option-search / search-filter / settings-card。
  *
  * 守住的不变量：
@@ -142,9 +142,9 @@ function hostsFor(parent, target) {
     return parent.children.filter(c => c.getAttribute('data-vue-slot') === target);
 }
 
-// 构造贴近下载页真实结构的 DOM：覆盖全部 8 个 data-qt-slot 槽位，且每个槽位都带可辨识的两侧邻居。
+// 构造贴近下载页真实结构的 DOM：覆盖全部 9 个 data-qt-slot 槽位，且每个槽位都带可辨识的两侧邻居。
 // 槽位在容器中的位置严格镜像 pixiv-batch.html：
-//   - quick-actions（flex）夹在按钮之间；import-format-box 夹在两 div 之间；
+//   - cookie-card 夹在 Pixiv Cookie 状态与提示之间；quick-actions（flex）夹在按钮之间；import-format-box 夹在两 div 之间；
 //   - .kind-switcher#user-kind-switcher 的 kind-option-user 夹在「插画」「约稿」两 label 之间（相邻选择器关键用例）；
 //   - .kind-switcher#search-kind-switcher 的 kind-option-search 与 .quick-kind-switcher 的 kind-option-quick 在容器末尾；
 //   - search-extra-grid（grid）夹在两 item 之间；settings-card 直接位于页面块流、夹在 下载设置卡 与 存为计划任务卡 之间。
@@ -160,7 +160,15 @@ function buildDom() {
     }
     function appendAll(parent, nodes) { nodes.forEach(n => parent.appendChild(n)); return parent; }
 
-    // 1) .quick-actions（flex）：两个槽位分别夹在按钮之间
+    // 1) #cookie-card：模板夹在 Pixiv Cookie 状态与提示之间
+    refs.cookieCard = new Node('div'); refs.cookieCard.setAttribute('id', 'cookie-card');
+    refs.cookieStatus = withId('div', 'cookie-status');
+    refs.tplCookieTools = tpl('cookie-tools');
+    refs.cookieHint = withId('div', 'cookie-hint');
+    appendAll(refs.cookieCard, [refs.cookieStatus, refs.tplCookieTools, refs.cookieHint]);
+    body.appendChild(refs.cookieCard);
+
+    // 2) .quick-actions（flex）：两个槽位分别夹在按钮之间
     refs.quickActions = new Node('div'); refs.quickActions.setAttribute('class', 'quick-actions');
     refs.qaBmHide = withId('button', 'qa-bm-hide', { 'data-quick': 'my-illust-bookmarks-hide' });
     refs.tplQaBookmarks = tpl('quick-actions-bookmarks');
@@ -170,7 +178,7 @@ function buildDom() {
     appendAll(refs.quickActions, [refs.qaBmHide, refs.tplQaBookmarks, refs.qaMine, refs.tplQaMine, refs.qaRequest]);
     body.appendChild(refs.quickActions);
 
-    // 2) .quick-kind-switcher：模板在末尾（illust label 之后）
+    // 3) .quick-kind-switcher：模板在末尾（illust label 之后）
     refs.quickKind = new Node('span');
     refs.quickKind.setAttribute('class', 'quick-kind-switcher'); refs.quickKind.setAttribute('id', 'quick-inner-kind-switcher');
     refs.quickKindIllust = new Node('label'); refs.quickKindIllust.setAttribute('data-quick-kind', 'illust');
@@ -178,7 +186,7 @@ function buildDom() {
     appendAll(refs.quickKind, [refs.quickKindIllust, refs.tplKindQuick]);
     body.appendChild(refs.quickKind);
 
-    // 3) .import-format-box：模板夹在两 div 之间
+    // 4) .import-format-box：模板夹在两 div 之间
     refs.importBox = new Node('div'); refs.importBox.setAttribute('class', 'import-format-box');
     refs.importExample = withId('div', 'import-example');
     refs.tplImportHint = tpl('import-hint');
@@ -186,7 +194,7 @@ function buildDom() {
     appendAll(refs.importBox, [refs.importExample, refs.tplImportHint, refs.importBareId]);
     body.appendChild(refs.importBox);
 
-    // 4) .kind-switcher#user-kind-switcher：模板夹在 illust / request 两 label 之间（相邻选择器关键用例）
+    // 5) .kind-switcher#user-kind-switcher：模板夹在 illust / request 两 label 之间（相邻选择器关键用例）
     refs.userKind = new Node('div');
     refs.userKind.setAttribute('class', 'kind-switcher'); refs.userKind.setAttribute('id', 'user-kind-switcher');
     refs.userIllust = new Node('label'); refs.userIllust.setAttribute('data-kind', 'illust');
@@ -195,7 +203,7 @@ function buildDom() {
     appendAll(refs.userKind, [refs.userIllust, refs.tplKindUser, refs.userRequest]);
     body.appendChild(refs.userKind);
 
-    // 5) .kind-switcher#search-kind-switcher：模板在末尾（illust label 之后）
+    // 6) .kind-switcher#search-kind-switcher：模板在末尾（illust label 之后）
     refs.searchKind = new Node('div');
     refs.searchKind.setAttribute('class', 'kind-switcher'); refs.searchKind.setAttribute('id', 'search-kind-switcher');
     refs.searchIllust = new Node('label'); refs.searchIllust.setAttribute('data-kind', 'illust');
@@ -203,7 +211,7 @@ function buildDom() {
     appendAll(refs.searchKind, [refs.searchIllust, refs.tplKindSearch]);
     body.appendChild(refs.searchKind);
 
-    // 6) .search-extra-grid（grid）：模板夹在两 item 之间
+    // 7) .search-extra-grid（grid）：模板夹在两 item 之间
     refs.grid = new Node('div'); refs.grid.setAttribute('class', 'search-extra-grid');
     refs.sfBefore = withId('div', 'sf-before', { 'class': 'search-illust-only' });
     refs.tplSearchFilter = tpl('search-filter');
@@ -211,14 +219,15 @@ function buildDom() {
     appendAll(refs.grid, [refs.sfBefore, refs.tplSearchFilter, refs.sfAfter]);
     body.appendChild(refs.grid);
 
-    // 7) settings-card：直接位于页面块流（这里用 body），夹在 下载设置卡 与 存为计划任务卡 之间
+    // 8) settings-card：直接位于页面块流（这里用 body），夹在 下载设置卡 与 存为计划任务卡 之间
     refs.downloadSettingsCard = withId('div', 'download-settings-card', { 'class': 'card' });
     refs.tplSettings = tpl('settings-card');
     refs.saveScheduleCard = withId('div', 'save-as-schedule-card', { 'class': 'card' });
     appendAll(body, [refs.downloadSettingsCard, refs.tplSettings, refs.saveScheduleCard]);
 
-    // 8 个槽位的 [target, 容器, 期望左邻, 期望右邻]（renderSlots 移除模板后的最终原位邻居；末尾槽右邻为 null）
+    // 9 个槽位的 [target, 容器, 期望左邻, 期望右邻]（renderSlots 移除模板后的最终原位邻居；末尾槽右邻为 null）
     refs.slots = [
+        ['cookie-tools',           refs.cookieCard,   refs.cookieStatus,        refs.cookieHint],
         ['quick-actions-bookmarks', refs.quickActions, refs.qaBmHide,            refs.qaMine],
         ['quick-actions-mine',      refs.quickActions, refs.qaMine,              refs.qaRequest],
         ['kind-option-quick',       refs.quickKind,    refs.quickKindIllust,     null],
@@ -229,6 +238,7 @@ function buildDom() {
         ['settings-card',           refs.body,         refs.downloadSettingsCard, refs.saveScheduleCard]
     ];
     refs.templatesByTarget = {
+        'cookie-tools': refs.tplCookieTools,
         'quick-actions-bookmarks': refs.tplQaBookmarks,
         'quick-actions-mine': refs.tplQaMine,
         'kind-option-quick': refs.tplKindQuick,
@@ -272,7 +282,7 @@ async function main() {
         const { PixivVue } = loadHelper(dom);
         ok('PixivVue 暴露 prepareSlotHosts', typeof PixivVue.prepareSlotHosts === 'function');
         const made = PixivVue.prepareSlotHosts();   // 默认 root = document
-        ok('为全部 8 个 data-qt-slot 槽位各备 1 个宿主', made.length === 8
+        ok('为全部 9 个 data-qt-slot 槽位各备 1 个宿主', made.length === 9
             && dom.slots.every(([target, parent]) => hostsFor(parent, target).length === 1));
         // 每个宿主紧邻在其模板**之前**（insertBefore 语义 → 模板原位）。
         let allBeforeTemplate = true;
@@ -289,7 +299,7 @@ async function main() {
             && dom.body.lastElementChild() !== settingsHost);
     }
 
-    // ===== 场景 2：走完 renderSlots 顺序（备宿主 → 移除模板）后，8 个宿主都停在该槽位的真实原位邻居 =====
+    // ===== 场景 2：走完 renderSlots 顺序（备宿主 → 移除模板）后，9 个宿主都停在该槽位的真实原位邻居 =====
     {
         const dom = buildDom();
         const { PixivVue } = loadHelper(dom);
@@ -491,7 +501,7 @@ async function main() {
             userHost.children.length === 1 && userHost.children[0] === fb2);
     }
 
-    console.log(`\npixiv-vue.test.js: ${passed} assertions passed (9 scenarios, 8 slots) ✓`);
+    console.log(`\npixiv-vue.test.js: ${passed} assertions passed (9 scenarios, 9 slots) ✓`);
 }
 
 main().catch(err => {

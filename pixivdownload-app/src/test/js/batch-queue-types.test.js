@@ -15,7 +15,8 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const QT_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch', 'batch-queue-types.js');
+const QT_PATH = path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch', 'batch-queue-types.js');
 const SOURCE = fs.readFileSync(QT_PATH, 'utf8');
 
 // ---- 最小 DOM 实现（够 renderSlots / loadModule 用）----
@@ -96,6 +97,7 @@ function makeDom(slotNames) {
 // window.PixivVue（供 renderSlots 走 Vue 主路径）；不给则 window.PixivVue 缺失 → renderSlots 命令式回退。
 function loadRegistry(extensionsData, slotNames, pixivVue) {
     const {document, body} = makeDom(slotNames);
+    const requests = [];
     const sandbox = {
         window: {},
         document,
@@ -105,15 +107,18 @@ function loadRegistry(extensionsData, slotNames, pixivVue) {
         setTimeout,
         clearTimeout,
         Promise,
-        fetch: () => Promise.resolve({
-            ok: extensionsData !== null,
-            json: () => Promise.resolve(extensionsData)
-        })
+        fetch: url => {
+            requests.push(String(url));
+            return Promise.resolve({
+                ok: extensionsData !== null,
+                json: () => Promise.resolve(extensionsData)
+            });
+        }
     };
     if (pixivVue) sandbox.window.PixivVue = pixivVue;
     vm.createContext(sandbox);
     vm.runInContext(SOURCE, sandbox);
-    return {qt: sandbox.window.PixivBatch.queueTypes, document, body};
+    return {qt: sandbox.window.PixivBatch.queueTypes, document, body, requests};
 }
 
 // PixivVue 桩（供「Vue 主路径」场景）：记录 prepareSlotHosts / mount 调用；mount 默认成功，置 mountFails=true 模拟挂载失败。
@@ -169,13 +174,30 @@ function ok(label, cond) {
 
 // ========== 场景 A：novel 启用 ==========
 (async function scenarioEnabled() {
-    const {qt, document, body} = loadRegistry(
-        {queueTypes: [{type: 'illust', order: 1}, {type: 'novel', order: 2, moduleUrl: '/x.js'}], tabs: []},
+    const {qt, document, body, requests} = loadRegistry(
+        {
+            queueTypes: [{type: 'illust', order: 1}, {type: 'novel', order: 2, moduleUrl: '/x.js'}],
+            downloadTypes: [{
+                contractVersion: 1,
+                pluginId: 'novel',
+                type: 'novel',
+                order: 2,
+                displayNamespace: 'novel',
+                i18nNamespace: 'novel',
+                gallery: {reasonNamespace: 'gallery'}
+            }],
+            tabs: []
+        },
         SLOT_NAMES);
+    const namespaces = await qt.i18nNamespaces();
+    ok('A: descriptor i18n namespace 可在页面 i18n 初始化前预取', namespaces.includes('novel'));
+    ok('A: gallery reason namespace 也随 descriptor 暴露给页面 i18n', namespaces.includes('gallery'));
+    ok('A: 重复 namespace 去重', namespaces.filter(ns => ns === 'novel').length === 1);
     // 插画内置 + novel 行为模块（此处直接 register 模拟模块已加载注册）
     qt.register('illust', {pluginId: 'download-workbench', type: 'illust', process() {}});
     qt.register('novel', novelDescriptor());
     await qt.bootstrap();
+    ok('A: i18n 预取后 bootstrap 复用扩展点响应', requests.length === 1);
 
     ok('A: illust 可用', qt.isTypeAvailable('illust') === true);
     ok('A: novel 可用', qt.isTypeAvailable('novel') === true);
@@ -270,8 +292,22 @@ function ok(label, cond) {
         ok('E: Vue 挂载失败 → 命令式回退注入 search-filter', injected.some(h => /search-novel-only/.test(h)));
         ok('E: 锚点仍一律移除', remainingTemplates(document).length === 0);
     })
+    // ========== 场景 F：无效行为模块 descriptor 明确跳过，不污染可用行为 ==========
+    .then(async function scenarioInvalidDescriptorSkipped() {
+        const {qt} = loadRegistry(
+            {queueTypes: [{type: 'illust', order: 1}, {type: 'broken', order: 2, moduleUrl: '/broken.js'}],
+                downloadTypes: [{contractVersion: 1, pluginId: 'broken', type: 'broken', order: 2, acquisitionModes: ['single-import']}],
+                tabs: []},
+            SLOT_NAMES);
+        qt.register('illust', {pluginId: 'download-workbench', type: 'illust', process() {}});
+        const registered = qt.register('broken', {pluginId: 'broken', type: 'broken', contractVersion: 99, process() {}});
+        await qt.bootstrap();
+        ok('F: contractVersion 不支持时 register 返回 false', registered === false);
+        ok('F: broken 行为未进入 registry', qt.has('broken') === false);
+        ok('F: 后端 downloadTypes descriptor 可读取', qt.downloadTypes().some(d => d.type === 'broken' && d.contractVersion === 1));
+    })
     .then(() => {
-        console.log(`\nbatch-queue-types.test.js: ${passed} assertions passed (5 scenarios) ✓`);
+        console.log(`\nbatch-queue-types.test.js: ${passed} assertions passed (6 scenarios) ✓`);
     })
     .catch(err => {
         console.error('TEST FAILED:', err && err.message ? err.message : err);

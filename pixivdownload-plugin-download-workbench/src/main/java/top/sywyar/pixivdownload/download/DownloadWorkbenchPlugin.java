@@ -4,6 +4,11 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
+import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
@@ -168,7 +173,30 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         // 小说等其它类型由各自插件经 queueTypes() 贡献、附带 moduleUrl 指向其行为模块。
         // 插画子模式标签复用小说插件的 batch.user.kind-illust 文案（历史沿用 novel namespace，故标签 namespace 为 novel）。
         return List.of(new QueueTypeContribution(
-                ID, "illust", "novel", "batch.user.kind-illust", 10, null));
+                ID, "illust", "novel", "batch.user.kind-illust", 10, null,
+                new DownloadTypeDescriptor(
+                        DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+                        ID,
+                        "illust",
+                        "novel",
+                        "batch.user.kind-illust",
+                        10,
+                        "image",
+                        "pixiv",
+                        null,
+                        List.of(
+                                DownloadAcquisitionMode.SINGLE_IMPORT,
+                                DownloadAcquisitionMode.USER_PROFILE,
+                                DownloadAcquisitionMode.SERIES_COLLECTION,
+                                DownloadAcquisitionMode.SEARCH,
+                                DownloadAcquisitionMode.QUICK),
+                        DownloadQueueCapabilities.full(),
+                        DownloadScheduleCapabilities.saveableSource(),
+                        List.of("illust-extra"),
+                        List.of(),
+                        List.of(),
+                        "batch",
+                        new DownloadGalleryCapabilities(true, true, null, null))));
     }
 
     @Override

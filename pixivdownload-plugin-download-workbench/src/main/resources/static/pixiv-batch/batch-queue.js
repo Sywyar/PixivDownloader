@@ -374,6 +374,18 @@
         return uniqueItems;
     }
 
+    function cloneQueueTypeData(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        try {
+            const json = JSON.stringify(value);
+            if (!json || json.length > 4096) return null;
+            const parsed = JSON.parse(json);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
     function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, defaultAuthorName) {
         const existing = new Set(state.queue.map(q => q.id));
         let added = 0;
@@ -384,9 +396,11 @@
             const m = meta[i] || {};
             const authorId = normalizeAuthorId(m.authorId ?? defaultAuthorId);
             const authorName = m.authorName || defaultAuthorName || '';
+            const typeData = cloneQueueTypeData(m.typeData || m.pluginData);
             state.queue.push({
                 id,
                 kind: m.kind || 'illust',
+                typeData,
                 novelId: m.novelId || null,
                 mergeAfterSeriesId: m.mergeAfterSeriesId || null,
                 // title 存原始字符串（可为空），fallback 文案由渲染层 queueItemDisplayTitle(q) 派生，避免跨语言切换显示旧译。

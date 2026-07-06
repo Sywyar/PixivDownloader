@@ -26,26 +26,53 @@
     /* ============================================================
        API
     ============================================================ */
+    const COOKIE_FORMATS = new Set(['header', 'json', 'netscape']);
+
+    function normalizeCookieType(type) {
+        const value = String(type || 'pixiv').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '');
+        return value || 'pixiv';
+    }
+
+    function cookieStorageKey(type) {
+        const normalized = normalizeCookieType(type);
+        return normalized === 'pixiv' ? 'pixiv_cookie' : 'pixiv_' + normalized + '_cookie';
+    }
+
+    function normalizeCookieFormat(fmt) {
+        const value = String(fmt || '').trim().toLowerCase();
+        return COOKIE_FORMATS.has(value) ? value : 'header';
+    }
+
     function getCookieFmt() {
-        return storeGet('pixiv_cookie_fmt') || 'header';
+        return normalizeCookieFormat(storeGet('pixiv_cookie_fmt') || 'header');
     }
 
     function setCookieFmt(fmt) {
-        storeSet('pixiv_cookie_fmt', fmt);
+        const normalized = normalizeCookieFormat(fmt);
+        storeSet('pixiv_cookie_fmt', normalized);
         ['header', 'json', 'netscape'].forEach(f => {
-            document.getElementById('fmt-' + f).classList.toggle('active', f === fmt);
+            const button = document.getElementById('fmt-' + f);
+            if (button) button.classList.toggle('active', f === normalized);
         });
         applyCookieDependentUi();
+        try {
+            window.dispatchEvent(new CustomEvent('pixivbatch:cookieformatchanged', {
+                detail: {format: normalized}
+            }));
+        } catch (e) {
+            // Older browsers without CustomEvent still keep the selected format in storage.
+        }
     }
 
     function parseCookieToHeaderString(raw, fmt) {
         if (!raw) return '';
+        const format = normalizeCookieFormat(fmt);
         try {
-            if (fmt === 'json') {
+            if (format === 'json') {
                 const obj = JSON.parse(raw);
-                return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
+                return Object.entries(obj).map(([k, v]) => `${k}=${String(v)}`).join('; ');
             }
-            if (fmt === 'netscape') {
+            if (format === 'netscape') {
                 return raw.split('\n')
                     .filter(l => l.trim() && !l.trim().startsWith('#'))
                     .map(l => {
@@ -62,14 +89,29 @@
         return raw;
     }
 
+    function getStoredCookie(type) {
+        return storeGet(cookieStorageKey(type)) || '';
+    }
+
+    function setStoredCookie(type, raw) {
+        storeSet(cookieStorageKey(type), raw || '');
+    }
+
+    function removeStoredCookie(type) {
+        storeRemove(cookieStorageKey(type));
+    }
+
+    function getCookieHeaderStringFor(type) {
+        return parseCookieToHeaderString(getStoredCookie(type), getCookieFmt());
+    }
+
     function getCookie() {
-        const raw = storeGet('pixiv_cookie') || '';
-        return parseCookieToHeaderString(raw, getCookieFmt());
+        return getCookieHeaderStringFor('pixiv');
     }
 
     function getCookieInputHeaderString() {
         const input = document.getElementById('cookie-input');
-        const raw = input ? input.value.trim() : (storeGet('pixiv_cookie') || '');
+        const raw = input ? input.value.trim() : getStoredCookie('pixiv');
         return parseCookieToHeaderString(raw, getCookieFmt());
     }
 
@@ -149,7 +191,7 @@
                 const obj = JSON.parse(raw);
                 if (typeof obj !== 'object' || Array.isArray(obj) || obj === null)
                     throw new Error(bt('cookie.error.invalid-json', '需要 JSON 对象格式 {"key":"value",...}'));
-                headerString = Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
+                headerString = Object.entries(obj).map(([k, v]) => `${k}=${String(v)}`).join('; ');
             } else if (fmt === 'netscape') {
                 const lines = raw.split('\n')
                     .filter(l => l.trim() && !l.trim().startsWith('#'))
@@ -357,4 +399,19 @@
 
 // ---- PixivBatch facade ----
 window.PixivBatch.cookie = window.PixivBatch.cookie || {};
-window.PixivBatch.cookie = Object.assign(window.PixivBatch.cookie, { getCookie, getCookieInputHeaderString, pixivHeader, cookieHasPhpsessid, applyCookieDependentUi, setCookieFmt, getCookieFmt, validateAndParseCookie, parseCookieToHeaderString });
+window.PixivBatch.cookie = Object.assign(window.PixivBatch.cookie, {
+    getCookie,
+    getCookieInputHeaderString,
+    pixivHeader,
+    cookieHasPhpsessid,
+    applyCookieDependentUi,
+    setCookieFmt,
+    getCookieFmt,
+    validateAndParseCookie,
+    parseCookieToHeaderString,
+    cookieStorageKey,
+    getStoredCookie,
+    setStoredCookie,
+    removeStoredCookie,
+    getCookieHeaderStringFor
+});
