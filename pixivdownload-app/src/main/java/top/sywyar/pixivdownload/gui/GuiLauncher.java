@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
+import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.GuiConfigContributionAggregator;
 import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
@@ -265,6 +266,8 @@ public class GuiLauncher {
                 () -> buildGuiConfigContributionSnapshot(pluginSession);
         final Supplier<GuiWebEntrySnapshot> guiWebEntries = () -> buildGuiWebEntrySnapshot(pluginSession);
         final GuiOnboardingSnapshot guiOnboarding = buildGuiOnboardingSnapshot(pluginSession);
+        final ManagedDatabaseSchema.DatabaseSchema startupManagedSchema =
+                buildStartupManagedSchema(pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
         pluginSession.releaseStartupSnapshot();
 
         final int port = serverPort;
@@ -291,7 +294,7 @@ public class GuiLauncher {
                 if (!startupLaunch || !trayInstalled) {
                     frame.showWindow();
                 }
-                maybeScheduleStartupBackfillFlow(frame, configPath, root);
+                maybeScheduleStartupBackfillFlow(frame, configPath, root, startupManagedSchema);
             } catch (Throwable t) {
                 // 没有这层兜底，异常只会打到不可见的 stderr，EDT 随即收摊、
                 // JVM 静默退出，日志永远停在启动那两行。务必先落盘再退出。
@@ -414,13 +417,14 @@ public class GuiLauncher {
         }
     }
 
-    private static void maybeScheduleStartupBackfillFlow(MainFrame frame, Path configPath, String rootFolder) {
+    private static void maybeScheduleStartupBackfillFlow(MainFrame frame, Path configPath, String rootFolder,
+                                                         ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
         ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder);
         Path databasePath = Path.of(options.dbPath());
 
         Thread worker = new Thread(() -> {
             try {
-                runStartupSchemaBackfill(frame, databasePath, options);
+                runStartupSchemaBackfill(frame, databasePath, options, expectedSchema);
             } catch (Throwable fatal) {
                 log.error(logMessage("gui.launcher.log.startup.schema-backfill-flow.unexpected"), fatal);
                 BackendLifecycleManager.startAsync();
@@ -431,7 +435,8 @@ public class GuiLauncher {
     }
 
     private static void runStartupSchemaBackfill(MainFrame frame, Path databasePath,
-                                                 ArtworksBackFill.Options options) {
+                                                 ArtworksBackFill.Options options,
+                                                 ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
         if (!hasInspectableDatabase(databasePath)) {
             log.info(logMessage("gui.launcher.log.startup.schema-check.skipped", databasePath.toAbsolutePath()));
             BackendLifecycleManager.startAsync();
@@ -440,8 +445,7 @@ public class GuiLauncher {
 
         DatabaseSchemaInspector.SchemaComparison comparison;
         try {
-            comparison = DatabaseSchemaInspector.compare(databasePath,
-                    DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema());
+            comparison = DatabaseSchemaInspector.compare(databasePath, expectedSchema);
         } catch (Throwable error) {
             log.warn(logMessage("gui.launcher.log.startup.schema-check.compare-failed"), error);
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
@@ -839,6 +843,12 @@ public class GuiLauncher {
         return new PluginRegistry(BuiltInPlugins.createAll(),
                 togglesFromSnapshot(pluginSession.enabledSnapshot()),
                 discovery);
+    }
+
+    static ManagedDatabaseSchema.DatabaseSchema buildStartupManagedSchema(PluginEnabledSnapshot enabledSnapshot,
+                                                                          PluginDiscoveryResult discovery) {
+        return new DatabaseSchemaRegistry(new PluginRegistry(BuiltInPlugins.createAll(),
+                togglesFromSnapshot(enabledSnapshot), discovery)).mergedSchema();
     }
 
     private static PluginToggleProperties togglesFromSnapshot(PluginEnabledSnapshot snapshot) {

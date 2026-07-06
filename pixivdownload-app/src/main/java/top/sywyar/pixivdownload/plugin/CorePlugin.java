@@ -36,10 +36,10 @@ import top.sywyar.pixivdownload.plugin.web.PageSectionController;
 /**
  * 核心插件：承载核心层（schema、公共静态资源、基础路由等）的 contribution 声明。
  * <p>
- * 受管 schema 按领域拆成独立 contribution 类、但全部由核心声明——按「卸载投影测试」
- * （主人插件未安装时其他部件仍需要的表归核心），现存全部长期事实表的 ownerPluginId
- * 一律为 core；功能插件的 {@code schema()} 目前为空，插件私有表只在未来出现
- * 交互状态 / 临时队列 / 可重建缓存时才产生。
+ * 受管 schema 按领域拆成独立 contribution 类。宿主共享长期事实表由核心声明，
+ * ownerPluginId 为 core；插件自有长期事实表由对应功能插件通过 {@code schema()}
+ * 声明，ownerPluginId 使用插件 id。运行期 registry 从安装态插件合并 schema，
+ * 插件禁用不会导致其已声明的受管表缺席。
  */
 public class CorePlugin implements PixivFeaturePlugin {
 
