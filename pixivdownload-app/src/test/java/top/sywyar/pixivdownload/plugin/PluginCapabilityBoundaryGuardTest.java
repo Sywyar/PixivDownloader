@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Runtime capability 边界守卫：生命周期核心只认识中性 adapter 契约，
  * 不把具体能力类型列表写回中心注册器。
  */
-@DisplayName("runtime capability 边界守卫")
+@DisplayName("运行期能力边界守卫")
 class PluginCapabilityBoundaryGuardTest {
 
     private static final List<String> FORBIDDEN_CENTRAL_TOKENS = List.of(
@@ -26,10 +26,12 @@ class PluginCapabilityBoundaryGuardTest {
             "AiChatClient",
             "AiChatClientRegistry",
             "NarrationVoiceEngine",
-            "NarrationEngineRegistry");
+            "NarrationEngineRegistry",
+            "GalleryDataProvider",
+            "GalleryProviderRegistry");
 
     @Test
-    @DisplayName("生命周期核心不得硬编码具体能力类型或 registry")
+    @DisplayName("生命周期核心不得硬编码具体能力类型或注册中心")
     void lifecycleCoreDoesNotHardcodeConcreteCapabilityTypes() throws IOException {
         Path root = sourceRoot().resolve("top/sywyar/pixivdownload/plugin/lifecycle");
         try (var paths = Files.walk(root)) {
@@ -47,7 +49,7 @@ class PluginCapabilityBoundaryGuardTest {
     }
 
     @Test
-    @DisplayName("中心注册器只依赖中性能力 adapter 列表")
+    @DisplayName("中心注册器只依赖中性能力适配器列表")
     void registrarUsesNeutralAdapterList() throws IOException {
         Path registrar = sourceRoot().resolve(
                 "top/sywyar/pixivdownload/plugin/lifecycle/PluginCapabilityContributionRegistrar.java");

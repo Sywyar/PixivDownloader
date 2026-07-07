@@ -5,6 +5,8 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.core.gallery.GalleryDataProvider;
+import top.sywyar.pixivdownload.core.gallery.model.GallerySourceDescriptor;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 
@@ -35,6 +37,7 @@ class CoreApiDependencyGuardTest {
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.ai..",
                         "top.sywyar.pixivdownload.config..",
+                        "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.stats..",
                         "top.sywyar.pixivdownload.i18n..",
                         "top.sywyar.pixivdownload.notification..",
@@ -91,5 +94,12 @@ class CoreApiDependencyGuardTest {
     void coreApiContainsStatsApiTypes() {
         assertThat(CLASSES.contain(StatsQueryStore.class.getName())).isTrue();
         assertThat(CLASSES.contain(StatsAggregates.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含中性画廊 provider 与 source descriptor")
+    void coreApiContainsGalleryApiTypes() {
+        assertThat(CLASSES.contain(GalleryDataProvider.class.getName())).isTrue();
+        assertThat(CLASSES.contain(GallerySourceDescriptor.class.getName())).isTrue();
     }
 }
