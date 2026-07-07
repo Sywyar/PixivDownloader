@@ -86,7 +86,7 @@ public class DoubaoNarrationEngine extends AbstractHttpNarrationEngine implement
 
         String encoding = normalizeEncoding(doubao.getEncoding());
         String accessToken = doubao.getAccessToken();
-        boolean useProxy = doubao.isUseProxy();
+        boolean useProxy = doubao.getUseProxy();
         String emotion = resolveEmotion(req.delivery(), doubao.getEmotion());
         DoubaoTtsRequest.App app = new DoubaoTtsRequest.App(doubao.getAppId(), accessToken, doubao.getCluster());
         DoubaoTtsRequest.Audio audio = new DoubaoTtsRequest.Audio(

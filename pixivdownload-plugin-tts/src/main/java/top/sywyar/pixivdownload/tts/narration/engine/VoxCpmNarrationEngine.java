@@ -112,7 +112,7 @@ public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implement
         if (apiKey != null && !apiKey.isBlank()) {
             headers.setBearerAuth(apiKey.trim());
         }
-        RestTemplate restTemplate = vox.isUseProxy() ? proxyProbeRestTemplate : directProbeRestTemplate;
+        RestTemplate restTemplate = vox.getUseProxy() ? proxyProbeRestTemplate : directProbeRestTemplate;
         String url = modelsUrl(vox.getBaseUrl());
         try {
             ResponseEntity<Void> response =
@@ -160,7 +160,7 @@ public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implement
         String format = normalizeFormat(vox.getResponseFormat());
         String voice = resolveVoice(vox.getVoice());
         String apiKey = vox.getApiKey();
-        boolean useProxy = vox.isUseProxy();
+        boolean useProxy = vox.getUseProxy();
         Integer maxNewTokens = cappedMaxNewTokens(text, vox.getMaxNewTokens());
         VoxCpmSpeechRequest body = switch (effective) {
             case VOICE_DESIGN -> VoxCpmSpeechRequest.voiceDesign(vox.getModel(), input, voice, format, maxNewTokens);
@@ -187,7 +187,7 @@ public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implement
      */
     static NarrationVoiceMode resolveMode(NarrationVoiceMode requested, NarrationVoiceRequest req,
                                           TtsPluginConfig.Voxcpm vox) {
-        boolean haveRef = req.hasReferenceVoice() && vox.isEnableClone();
+        boolean haveRef = req.hasReferenceVoice() && vox.getEnableClone();
         if (!haveRef || requested == NarrationVoiceMode.VOICE_DESIGN) {
             return NarrationVoiceMode.VOICE_DESIGN;
         }

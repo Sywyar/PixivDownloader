@@ -72,7 +72,7 @@ public class FishNarrationEngine extends AbstractHttpNarrationEngine implements 
 
         String format = normalizeFormat(fish.getFormat());
         String apiKey = fish.getApiKey();
-        boolean useProxy = fish.isUseProxy();
+        boolean useProxy = fish.getUseProxy();
         String input = withDeliveryMarker(text, req.delivery());
         FishTtsRequest body = new FishTtsRequest(input, NarrationSpeechText.blankToNull(fish.getReferenceId()), format);
 

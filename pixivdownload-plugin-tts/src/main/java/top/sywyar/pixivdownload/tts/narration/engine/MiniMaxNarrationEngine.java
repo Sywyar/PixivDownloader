@@ -83,7 +83,7 @@ public class MiniMaxNarrationEngine extends AbstractHttpNarrationEngine implemen
 
         String format = normalizeFormat(mm.getFormat());
         String apiKey = mm.getApiKey();
-        boolean useProxy = mm.isUseProxy();
+        boolean useProxy = mm.getUseProxy();
         String emotion = resolveEmotion(req.delivery(), mm.getEmotion());
         MiniMaxTtsRequest.VoiceSetting voiceSetting =
                 new MiniMaxTtsRequest.VoiceSetting(NarrationSpeechText.blankToNull(mm.getVoiceId()), emotion);

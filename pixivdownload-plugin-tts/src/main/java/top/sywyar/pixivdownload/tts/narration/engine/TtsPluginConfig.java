@@ -117,13 +117,13 @@ public class TtsPluginConfig {
          * {@link top.sywyar.pixivdownload.config.ProxyConfig} 的 host:port）。VoxCPM 通常是本机 / 内网服务，
          * 默认 {@code false} 直连；独立于全局 {@code proxy.enabled}。
          */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
 
         /**
          * 是否启用<b>参考音克隆</b>（角色配了标准音 / 参考音时用其音色克隆）。默认 {@code true}；置 {@code false} 时
          * 即便角色已有参考音也忽略、退回内联 voice-design（全局开关）。
          */
-        private volatile boolean enableClone = true;
+        private volatile Boolean enableClone = true;
 
         /**
          * 克隆模式（仅在 {@link #enableClone} 开启且角色配了参考音时生效）：
@@ -142,7 +142,19 @@ public class TtsPluginConfig {
          * 克隆停止符可能不触发）。<b>克隆与 voice-design 请求都下发</b>；{@code <=0} 表示不下发（不设上限）。默认
          * {@code 4096}：足够覆盖单句朗读，又能避免跑飞；若长句被截断可调高。
          */
-        private volatile int maxNewTokens = 4096;
+        private volatile Integer maxNewTokens = 4096;
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
+
+        public Boolean getEnableClone() {
+            return !Boolean.FALSE.equals(enableClone);
+        }
+
+        public Integer getMaxNewTokens() {
+            return maxNewTokens == null ? 4096 : maxNewTokens;
+        }
     }
 
     /**
@@ -175,10 +187,18 @@ public class TtsPluginConfig {
         private volatile String responseFormat = "wav";
 
         /** 本引擎请求是否走 HTTP 代理（地址取 {@code proxy.host:port}）。MiMo 为云服务，默认 {@code false} 直连，独立于全局 {@code proxy.enabled}。 */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
 
         /** 是否启用参考音克隆（角色配了参考音时用克隆模型复刻音色）；关闭则即便有参考音也退回描述音色。 */
-        private volatile boolean enableClone = true;
+        private volatile Boolean enableClone = true;
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
+
+        public Boolean getEnableClone() {
+            return !Boolean.FALSE.equals(enableClone);
+        }
     }
 
     /**
@@ -205,10 +225,18 @@ public class TtsPluginConfig {
         private volatile String responseFormat = "wav";
 
         /** 本引擎请求是否走 HTTP 代理。CosyVoice 多为本机 / 内网服务，默认 {@code false} 直连，独立于全局 {@code proxy.enabled}。 */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
 
         /** 是否启用参考音克隆（以 {@code reference_audio} 送参考音 base64 + 可选 {@code reference_text}）；关闭则退回 instruct 描述。 */
-        private volatile boolean enableClone = true;
+        private volatile Boolean enableClone = true;
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
+
+        public Boolean getEnableClone() {
+            return !Boolean.FALSE.equals(enableClone);
+        }
     }
 
     /**
@@ -235,7 +263,11 @@ public class TtsPluginConfig {
         private volatile String format = "mp3";
 
         /** 本引擎请求是否走 HTTP 代理（地址取 {@code proxy.host:port}）。默认 {@code false}，独立于全局 {@code proxy.enabled}。 */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
     }
 
     /**
@@ -275,10 +307,18 @@ public class TtsPluginConfig {
         private volatile String format = "mp3";
 
         /** 采样率（{@code audio_setting.sample_rate}，默认 {@code 32000}）。 */
-        private volatile int sampleRate = 32000;
+        private volatile Integer sampleRate = 32000;
 
         /** 本引擎请求是否走 HTTP 代理（地址取 {@code proxy.host:port}）。默认 {@code false}，独立于全局 {@code proxy.enabled}。 */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
+
+        public Integer getSampleRate() {
+            return sampleRate == null ? 32000 : sampleRate;
+        }
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
     }
 
     /**
@@ -305,7 +345,11 @@ public class TtsPluginConfig {
         private volatile String outputFormat = "mp3_44100_128";
 
         /** 本引擎请求是否走 HTTP 代理（地址取 {@code proxy.host:port}）。默认 {@code false}，独立于全局 {@code proxy.enabled}。 */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
     }
 
     /**
@@ -333,7 +377,11 @@ public class TtsPluginConfig {
         private volatile String languageType = "";
 
         /** 本引擎请求是否走 HTTP 代理（地址取 {@code proxy.host:port}）。默认 {@code false}，独立于全局 {@code proxy.enabled}。 */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
     }
 
     /**
@@ -370,6 +418,10 @@ public class TtsPluginConfig {
         private volatile String emotion = "";
 
         /** 本引擎请求是否走 HTTP 代理（地址取 {@code proxy.host:port}）。默认 {@code false}，独立于全局 {@code proxy.enabled}。 */
-        private volatile boolean useProxy = false;
+        private volatile Boolean useProxy = false;
+
+        public Boolean getUseProxy() {
+            return Boolean.TRUE.equals(useProxy);
+        }
     }
 }

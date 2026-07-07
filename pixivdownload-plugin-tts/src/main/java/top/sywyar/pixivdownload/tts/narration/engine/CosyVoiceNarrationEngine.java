@@ -70,10 +70,10 @@ public class CosyVoiceNarrationEngine extends AbstractHttpNarrationEngine implem
             throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
         }
 
-        boolean clone = req.hasReferenceVoice() && cosy.isEnableClone() && mode != NarrationVoiceMode.VOICE_DESIGN;
+        boolean clone = req.hasReferenceVoice() && cosy.getEnableClone() && mode != NarrationVoiceMode.VOICE_DESIGN;
         String format = normalizeFormat(cosy.getResponseFormat());
         String apiKey = cosy.getApiKey();
-        boolean useProxy = cosy.isUseProxy();
+        boolean useProxy = cosy.getUseProxy();
         CosyVoiceSpeechRequest body;
         if (clone) {
             // 克隆：音色取自参考音，instruct 只放 delivery（切勿再塞基底画像，会与参考音打架）。

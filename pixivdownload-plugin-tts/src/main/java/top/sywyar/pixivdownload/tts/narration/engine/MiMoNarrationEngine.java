@@ -90,7 +90,7 @@ public class MiMoNarrationEngine extends AbstractHttpNarrationEngine implements 
         NarrationVoiceMode effective = resolveMode(mode, req, mimo);
         String format = normalizeFormat(mimo.getResponseFormat());
         String apiKey = mimo.getApiKey();
-        boolean useProxy = mimo.isUseProxy();
+        boolean useProxy = mimo.getUseProxy();
         MiMoTtsRequest body = buildRequest(effective, req, mimo, text, format);
 
         RestTemplate restTemplate = useProxy ? proxyRestTemplate : directRestTemplate;
@@ -112,7 +112,7 @@ public class MiMoNarrationEngine extends AbstractHttpNarrationEngine implements 
      */
     static NarrationVoiceMode resolveMode(NarrationVoiceMode requested, NarrationVoiceRequest req,
                                           TtsPluginConfig.Mimo mimo) {
-        boolean haveRef = req.hasReferenceVoice() && mimo.isEnableClone();
+        boolean haveRef = req.hasReferenceVoice() && mimo.getEnableClone();
         return (!haveRef || requested == NarrationVoiceMode.VOICE_DESIGN)
                 ? NarrationVoiceMode.VOICE_DESIGN : NarrationVoiceMode.CLONE;
     }

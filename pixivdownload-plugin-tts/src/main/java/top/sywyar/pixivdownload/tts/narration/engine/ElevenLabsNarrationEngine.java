@@ -79,7 +79,7 @@ public class ElevenLabsNarrationEngine extends AbstractHttpNarrationEngine imple
 
         String outputFormat = normalizeOutputFormat(el.getOutputFormat());
         String apiKey = el.getApiKey();
-        boolean useProxy = el.isUseProxy();
+        boolean useProxy = el.getUseProxy();
         String input = withDeliveryTag(text, req.delivery());
         ElevenLabsTtsRequest body = new ElevenLabsTtsRequest(input, NarrationSpeechText.blankToNull(el.getModel()));
 

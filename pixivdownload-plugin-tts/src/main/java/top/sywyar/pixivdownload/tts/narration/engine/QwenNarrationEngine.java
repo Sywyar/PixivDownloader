@@ -75,7 +75,7 @@ public class QwenNarrationEngine extends AbstractHttpNarrationEngine implements 
         }
 
         String apiKey = qwen.getApiKey();
-        boolean useProxy = qwen.isUseProxy();
+        boolean useProxy = qwen.getUseProxy();
         QwenTtsRequest.Input input = new QwenTtsRequest.Input(
                 text, NarrationSpeechText.blankToNull(qwen.getVoice()), NarrationSpeechText.blankToNull(qwen.getLanguageType()));
         QwenTtsRequest body = new QwenTtsRequest(qwen.getModel(), input);
