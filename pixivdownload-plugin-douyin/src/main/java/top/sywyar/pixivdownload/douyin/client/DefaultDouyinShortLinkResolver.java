@@ -58,7 +58,7 @@ public class DefaultDouyinShortLinkResolver implements DouyinShortLinkResolver {
                 if (!isAllowedFinalHost(next.getHost())) {
                     log.info("Douyin short URL rejected non-Douyin redirect target: host={}", safeHost(next));
                     throw new DouyinClientException(DouyinClientErrorCode.NON_DOUYIN_TARGET,
-                            "Douyin short URL redirected to a non-Douyin target");
+                            "Douyin short URL redirected to a non-Douyin target: host=" + safeHost(next));
                 }
                 current = next;
                 continue;
@@ -73,7 +73,7 @@ public class DefaultDouyinShortLinkResolver implements DouyinShortLinkResolver {
             }
             if (!isAllowedFinalHost(current.getHost())) {
                 throw new DouyinClientException(DouyinClientErrorCode.NON_DOUYIN_TARGET,
-                        "Douyin short URL final target is outside Douyin");
+                        "Douyin short URL final target is outside Douyin: host=" + safeHost(current));
             }
             Optional<DouyinParsedInput> parsed = parser.parse(current.toString());
             if (parsed.isPresent() && parsed.get().kind() != top.sywyar.pixivdownload.douyin.model.DouyinParsedKind.SHORT_LINK) {

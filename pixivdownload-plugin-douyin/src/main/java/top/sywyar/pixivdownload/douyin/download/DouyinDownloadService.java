@@ -255,7 +255,8 @@ public class DouyinDownloadService {
             status.phase = DouyinDownloadPhase.FAILED;
             status.errorCode = e.code().name();
             status.messageKey = messageKey(e.code());
-            log.info("Douyin download failed: statusId={}, code={}", status.id, e.code());
+            log.info("Douyin download failed: statusId={}, code={}, message={}",
+                    status.id, e.code(), e.getMessage());
         } catch (IOException e) {
             status.phase = DouyinDownloadPhase.FAILED;
             status.errorCode = DouyinClientErrorCode.NETWORK_ERROR.name();

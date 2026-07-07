@@ -207,8 +207,9 @@ public class DouyinMediaDownloader {
                     "Unsupported Douyin media URL scheme");
         }
         if (!mediaHostAllowed.test(uri.getHost())) {
+            log.info("Douyin media URL rejected non-Douyin target: host={}", safeHost(uri));
             throw new DouyinClientException(DouyinClientErrorCode.NON_DOUYIN_TARGET,
-                    "Douyin media URL host is not allowed");
+                    "Douyin media URL host is not allowed: host=" + safeHost(uri));
         }
     }
 

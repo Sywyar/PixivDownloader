@@ -58,8 +58,11 @@ class DefaultDouyinShortLinkResolverTest {
                 .redirect("https://example.test/video/1");
         var resolver = new DefaultDouyinShortLinkResolver(new DouyinUrlParser(), client);
 
-        assertCode(() -> resolver.resolve("https://v.douyin.com/AbCd123/", null),
-                DouyinClientErrorCode.NON_DOUYIN_TARGET);
+        assertThatThrownBy(() -> resolver.resolve("https://v.douyin.com/AbCd123/", null))
+                .isInstanceOf(DouyinClientException.class)
+                .hasMessageContaining("host=example.test")
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.NON_DOUYIN_TARGET);
     }
 
     @Test

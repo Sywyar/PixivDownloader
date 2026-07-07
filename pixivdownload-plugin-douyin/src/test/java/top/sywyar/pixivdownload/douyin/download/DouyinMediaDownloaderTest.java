@@ -127,6 +127,19 @@ class DouyinMediaDownloaderTest {
         }
     }
 
+    @Test
+    @DisplayName("媒体 URL 非白名单 host 时返回错误并带安全 host")
+    void rejectsNonDouyinMediaHostWithHostMessage() {
+        DouyinMedia media = new DouyinMedia("m", DouyinMediaType.VIDEO,
+                URI.create("https://cdn.example.test/video.mp4"), "video", "mp4", null, null);
+
+        assertThatThrownBy(() -> downloader().download(List.of(media), tempDir, null, () -> false))
+                .isInstanceOf(DouyinClientException.class)
+                .hasMessageContaining("host=cdn.example.test")
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.NON_DOUYIN_TARGET);
+    }
+
     private DouyinMediaDownloader downloader() {
         return new DouyinMediaDownloader(new RestTemplate(), host -> "127.0.0.1".equals(host));
     }
