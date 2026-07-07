@@ -798,6 +798,42 @@ class GuiConfigContributionAggregatorTest {
     }
 
     @Test
+    @DisplayName("ConfigPanel 保存时应保留隐藏的插件字段")
+    void configPanelPreservesHiddenPluginFieldsOnSave() throws Exception {
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, "server.port: 6999\n", StandardCharsets.UTF_8);
+        Path pluginConfig = tempDir.resolve("runtime-config").resolve("plugins").resolve("fixture.properties");
+        Files.createDirectories(pluginConfig.getParent());
+        Files.writeString(pluginConfig, String.join("\n",
+                "fixture.mode=one",
+                "fixture.enabled=",
+                ""), StandardCharsets.UTF_8);
+        GuiConfigCondition hidden = GuiConfigCondition.equalsTo("fixture.mode", "two");
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(List.of(
+                new GuiConfigFieldContribution(
+                        "fixture.mode", GuiConfigGroups.PLUGINS, "fixture.mode.label", "",
+                        null, GuiConfigFieldType.ENUM, "one", 10,
+                        false, false, List.of("one", "two"), List.of(), List.of(), null, null),
+                new GuiConfigFieldContribution(
+                        "fixture.enabled", GuiConfigGroups.PLUGINS, "fixture.enabled.label", "",
+                        null, GuiConfigFieldType.BOOL, "true", 20,
+                        false, false, List.of(), List.of(hidden), List.of(hidden), null, null)
+        ))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        assertThat(panel.currentFieldValue("fixture.enabled")).isEqualTo("true");
+
+        clickButton(panel, GuiMessages.get("gui.button.save"));
+
+        Properties properties = loadProperties(pluginConfig);
+        assertThat(properties.getProperty("fixture.enabled")).isEqualTo("true");
+    }
+
+    @Test
     @DisplayName("ConfigPanel 迁移旧 config.yaml 插件字段并移除旧键")
     void configPanelMigratesLegacyPluginFieldsFromConfigYaml() throws Exception {
         System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());

@@ -695,7 +695,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
                 if (rf == null) continue;
                 if (values.containsKey(spec.key())) {
-                    rf.setValue().accept(values.get(spec.key()));
+                    rf.setValue().accept(displayValueForLoad(spec, values.get(spec.key())));
                 } else {
                     // key 不存在或被注释掉：用默认值填充控件，并记录待补全
                     rf.setValue().accept(spec.defaultValue());
@@ -828,7 +828,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return;
         }
 
-        // 收集所有值：隐藏字段写入空值，Spring Boot 对空值不加载对应证书
+        // 收集所有值：核心隐藏字段保持既有语义；插件字段按 contribution 当前值保存，避免卡片切换清空其它插件配置。
         Map<String, String> values = new LinkedHashMap<>();
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
@@ -1247,9 +1247,24 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return value == null ? "" : value.trim();
     }
 
+    private static String displayValueForLoad(ConfigFieldSpec spec, String storedValue) {
+        String safe = storedValue == null ? "" : storedValue;
+        if (safe.isBlank() && shouldUseDefaultForBlankStoredValue(spec)) {
+            return spec.defaultValue();
+        }
+        return safe;
+    }
+
+    private static boolean shouldUseDefaultForBlankStoredValue(ConfigFieldSpec spec) {
+        return switch (spec.type()) {
+            case BOOL, ENUM, INT, PORT -> true;
+            case PATH_DIR, PATH_FILE, STRING, PASSWORD -> false;
+        };
+    }
+
     private static boolean shouldPreserveHiddenValue(ConfigFieldSpec spec) {
         // debug.enabled 在未解锁时隐藏，但其值仍应原样保留（写空会清掉用户已有的调试开关）
-        return isMaintenanceDayTimeKey(spec.key()) || "debug.enabled".equals(spec.key());
+        return spec.pluginContributed() || isMaintenanceDayTimeKey(spec.key()) || "debug.enabled".equals(spec.key());
     }
 
     private static boolean isMaintenanceDayEnabledKey(String key) {
