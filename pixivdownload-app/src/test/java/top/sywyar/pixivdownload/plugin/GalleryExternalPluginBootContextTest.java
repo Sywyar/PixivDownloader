@@ -12,6 +12,10 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.gallery.GalleryProviderRegistry;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldCapability;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldStrategy;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -97,6 +101,8 @@ class GalleryExternalPluginBootContextTest {
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
     private WebApplicationContext applicationContext;
+    @Autowired
+    private GalleryProviderRegistry galleryProviderRegistry;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -207,6 +213,29 @@ class GalleryExternalPluginBootContextTest {
     }
 
     @Test
+    @DisplayName("gallery 子上下文贡献 pixiv IMAGE 数据 provider 并进入运行期注册中心")
+    void galleryDataProviderIsRegisteredFromExternalChildContext() {
+        assertThat(galleryProviderRegistry.snapshot().sources())
+                .filteredOn(source -> source.sourceId().equals("pixiv"))
+                .singleElement()
+                .satisfies(source -> {
+                    assertThat(source.providerId()).isEqualTo("pixiv-image");
+                    assertThat(source.kinds()).containsExactly(GalleryKind.IMAGE);
+                    assertThat(source.displayNamespace()).isEqualTo("gallery");
+                    assertThat(source.displayI18nKey()).isEqualTo("source.pixiv");
+                    assertThat(source.fieldStrategies())
+                            .extracting(GalleryFieldStrategy::field, GalleryFieldStrategy::capability)
+                            .containsExactly(
+                                    org.assertj.core.api.Assertions.tuple("r18", GalleryFieldCapability.SUPPORTED),
+                                    org.assertj.core.api.Assertions.tuple("ai", GalleryFieldCapability.SUPPORTED));
+                });
+        assertThat(galleryProviderRegistry.snapshot().providers())
+                .extracting(GalleryProviderRegistry.RegisteredProvider::providerId)
+                .contains("pixiv-image");
+        assertThat(galleryProviderRegistry.snapshot().diagnostics()).isEmpty();
+    }
+
+    @Test
     @DisplayName("gallery 子 ApplicationContext 托管 service/controller，controller 动态注册进父分发表")
     void externalGalleryChildContextHostsBeansAndControllerMapping() throws Exception {
         ConfigurableApplicationContext child = externalPluginContextManager.contextFor("gallery").orElseThrow();
@@ -217,11 +246,14 @@ class GalleryExternalPluginBootContextTest {
         Class<?> serviceClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryService");
         Class<?> batchServiceClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryBatchService");
         Class<?> controllerClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryController");
+        Class<?> providerClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.PixivImageGalleryDataProvider");
 
         assertThat(child.getBeanNamesForType(serviceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(batchServiceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(controllerClass)).isNotEmpty();
+        assertThat(child.getBeanNamesForType(providerClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
         assertThat(galleryArtworksHandlerBean()).isSameAs(child.getBean(controllerClass));
     }
 

@@ -204,6 +204,19 @@ class GalleryProviderRegistryTest {
     }
 
     @Test
+    @DisplayName("数据提供方缺席时查询中介返回空页且保留分页语义")
+    void queryBrokerReturnsEmptyPageWhenProviderIsAbsent() {
+        GalleryQueryBroker broker = new GalleryQueryBroker(new GalleryProviderRegistry(List.of()));
+        GalleryPage page = broker.query(new GalleryQuery(GalleryKind.IMAGE, "pixiv", List.of(), Map.of(), 12, 6));
+
+        assertThat(page.items()).isEmpty();
+        assertThat(page.total()).isZero();
+        assertThat(page.offset()).isEqualTo(12);
+        assertThat(page.limit()).isEqualTo(6);
+        assertThat(page.diagnostics()).isEmpty();
+    }
+
+    @Test
     @DisplayName("多个数据提供方的全部来源分页返回诊断且不超过限制")
     void allSourcePageAcrossMultipleProvidersRequiresSource() {
         CountingProvider first = provider("first-provider",

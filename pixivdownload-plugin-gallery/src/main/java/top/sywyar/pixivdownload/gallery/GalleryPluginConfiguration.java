@@ -42,6 +42,13 @@ public class GalleryPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("gallery")
+    public PixivImageGalleryDataProvider pixivImageGalleryDataProvider(WorkQueryService workQueryService,
+                                                                       WorkMetadataRepository workMetadataRepository) {
+        return new PixivImageGalleryDataProvider(workQueryService, workMetadataRepository);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("gallery")
     public GalleryBatchService galleryBatchService(GalleryService galleryService,
                                                    WorkMetadataRepository workMetadataRepository,
                                                    WorkAssetService workAssetService,
