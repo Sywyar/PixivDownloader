@@ -6,6 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.gallery.GalleryQueryBroker;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryPage;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryQuery;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
@@ -15,6 +19,9 @@ import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -61,6 +68,8 @@ class NovelPluginDisabledContextTest {
     private DatabaseSchemaRegistry databaseSchemaRegistry;
     @Autowired
     private ArtworkHashService artworkHashService;
+    @Autowired
+    private GalleryQueryBroker galleryQueryBroker;
 
     @Test
     @DisplayName("novel 未安装时不进入活动 / 安装 / 禁用快照")
@@ -101,5 +110,18 @@ class NovelPluginDisabledContextTest {
                 .contains("core", "plugin-market")
                 .doesNotContain("novel");
         assertThat(artworkHashService).isNotNull();
+    }
+
+    @Test
+    @DisplayName("novel provider 缺席时 broker 返回空 NOVEL 页并保留分页语义")
+    void galleryBrokerReturnsEmptyNovelPageWhenProviderMissing() {
+        GalleryPage page = galleryQueryBroker.query(new GalleryQuery(
+                GalleryKind.NOVEL, "pixiv", List.of(), Map.of(), 4, 8));
+
+        assertThat(page.items()).isEmpty();
+        assertThat(page.total()).isZero();
+        assertThat(page.offset()).isEqualTo(4);
+        assertThat(page.limit()).isEqualTo(8);
+        assertThat(page.diagnostics()).isEmpty();
     }
 }

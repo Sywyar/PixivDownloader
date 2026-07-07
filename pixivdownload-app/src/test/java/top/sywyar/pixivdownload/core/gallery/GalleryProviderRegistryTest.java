@@ -164,6 +164,24 @@ class GalleryProviderRegistryTest {
     }
 
     @Test
+    @DisplayName("同一来源标识可分别服务 IMAGE 与 NOVEL")
+    void sameSourceIdCanServeDifferentGalleryKinds() {
+        GalleryProviderRegistry registry = new GalleryProviderRegistry(List.of(
+                provider("pixiv-image", source("pixiv-image", "pixiv", GalleryKind.IMAGE)),
+                provider("pixiv-novel", source("pixiv-novel", "pixiv", GalleryKind.NOVEL))));
+
+        assertThat(registry.snapshot().sources())
+                .extracting(GallerySourceDescriptor::sourceId)
+                .containsExactly("pixiv", "pixiv");
+        assertThat(registry.resolve(GalleryKind.IMAGE, "pixiv"))
+                .extracting(GalleryProviderRegistry.RegisteredProvider::providerId)
+                .containsExactly("pixiv-image");
+        assertThat(registry.resolve(GalleryKind.NOVEL, "pixiv"))
+                .extracting(GalleryProviderRegistry.RegisteredProvider::providerId)
+                .containsExactly("pixiv-novel");
+    }
+
+    @Test
     @DisplayName("来源声明异常被隔离并进入诊断")
     void providerSourcesFailureIsIsolated() {
         GalleryProviderRegistry registry = new GalleryProviderRegistry(List.of(

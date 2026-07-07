@@ -13,6 +13,10 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.gallery.GalleryProviderRegistry;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldCapability;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldStrategy;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -39,6 +43,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -95,6 +100,8 @@ class NovelExternalPluginBootContextTest {
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
     private WebApplicationContext applicationContext;
+    @Autowired
+    private GalleryProviderRegistry galleryProviderRegistry;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -201,6 +208,32 @@ class NovelExternalPluginBootContextTest {
     }
 
     @Test
+    @DisplayName("novel 子上下文贡献 pixiv NOVEL 数据 provider 并进入运行期注册中心")
+    void novelDataProviderIsRegisteredFromExternalChildContext() {
+        assertThat(galleryProviderRegistry.snapshot().sources())
+                .filteredOn(source -> source.sourceId().equals("pixiv"))
+                .singleElement()
+                .satisfies(source -> {
+                    assertThat(source.providerId()).isEqualTo("pixiv-novel");
+                    assertThat(source.kinds()).containsExactly(GalleryKind.NOVEL);
+                    assertThat(source.displayNamespace()).isEqualTo("novel-gallery");
+                    assertThat(source.displayI18nKey()).isEqualTo("source.pixiv");
+                    assertThat(source.fieldStrategies())
+                            .extracting(GalleryFieldStrategy::field, GalleryFieldStrategy::capability)
+                            .containsExactly(
+                                    tuple("r18", GalleryFieldCapability.SUPPORTED),
+                                    tuple("ai", GalleryFieldCapability.SUPPORTED),
+                                    tuple("language", GalleryFieldCapability.SUPPORTED),
+                                    tuple("wordCount", GalleryFieldCapability.SUPPORTED),
+                                    tuple("pageCount", GalleryFieldCapability.SUPPORTED));
+                });
+        assertThat(galleryProviderRegistry.snapshot().providers())
+                .extracting(GalleryProviderRegistry.RegisteredProvider::providerId)
+                .contains("pixiv-novel");
+        assertThat(galleryProviderRegistry.snapshot().diagnostics()).isEmpty();
+    }
+
+    @Test
     @DisplayName("novel 子 ApplicationContext 托管下载和展示 service/controller，controller 动态注册进父分发表")
     void externalNovelChildContextHostsBeansAndControllerMapping() throws Exception {
         ConfigurableApplicationContext child = externalPluginContextManager.contextFor("novel").orElseThrow();
@@ -215,13 +248,17 @@ class NovelExternalPluginBootContextTest {
         Class<?> batchServiceClass = externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.NovelBatchService");
         Class<?> controllerClass =
                 externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController");
+        Class<?> providerClass =
+                externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryDataProvider");
 
         assertThat(child.getBeanNamesForType(downloadServiceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(downloadControllerClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(serviceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(batchServiceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(controllerClass)).isNotEmpty();
+        assertThat(child.getBeanNamesForType(providerClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
         assertThat(novelGalleryListHandlerBean()).isSameAs(child.getBean(controllerClass));
     }
 
