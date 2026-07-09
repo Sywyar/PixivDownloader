@@ -12,10 +12,8 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.gallery.GalleryProviderRegistry;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldCapability;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldStrategy;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -102,7 +100,7 @@ class GalleryExternalPluginBootContextTest {
     @Autowired
     private WebApplicationContext applicationContext;
     @Autowired
-    private GalleryProviderRegistry galleryProviderRegistry;
+    private GalleryCapabilityRegistry galleryCapabilityRegistry;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -220,26 +218,25 @@ class GalleryExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("gallery 子上下文贡献 pixiv IMAGE 数据 provider 并进入运行期注册中心")
+    @DisplayName("gallery 子上下文原子贡献 pixiv IMAGE 投影与 artwork 详情能力")
     void galleryDataProviderIsRegisteredFromExternalChildContext() {
-        assertThat(galleryProviderRegistry.snapshot().sources())
-                .filteredOn(source -> source.sourceId().equals("pixiv"))
+        assertThat(galleryCapabilityRegistry.snapshot().projections())
+                .filteredOn(projection -> projection.sourceId().equals("pixiv"))
                 .singleElement()
-                .satisfies(source -> {
-                    assertThat(source.providerId()).isEqualTo("pixiv-image");
-                    assertThat(source.kinds()).containsExactly(GalleryKind.IMAGE);
-                    assertThat(source.displayNamespace()).isEqualTo("gallery");
-                    assertThat(source.displayI18nKey()).isEqualTo("source.pixiv");
-                    assertThat(source.fieldStrategies())
-                            .extracting(GalleryFieldStrategy::field, GalleryFieldStrategy::capability)
-                            .containsExactly(
-                                    org.assertj.core.api.Assertions.tuple("r18", GalleryFieldCapability.SUPPORTED),
-                                    org.assertj.core.api.Assertions.tuple("ai", GalleryFieldCapability.SUPPORTED));
+                .satisfies(projection -> {
+                    assertThat(projection.kind()).isEqualTo(GalleryKind.IMAGE);
+                    assertThat(projection.displayNamespace()).isEqualTo("gallery");
+                    assertThat(projection.displayI18nKey()).isEqualTo("source.pixiv");
                 });
-        assertThat(galleryProviderRegistry.snapshot().providers())
-                .extracting(GalleryProviderRegistry.RegisteredProvider::providerId)
-                .contains("pixiv-image");
-        assertThat(galleryProviderRegistry.snapshot().diagnostics()).isEmpty();
+        assertThat(galleryCapabilityRegistry.snapshot().projectionProviders())
+                .extracting(GalleryCapabilityRegistry.RegisteredProjectionProvider::providerId)
+                .contains("pixiv-image-capability");
+        assertThat(galleryCapabilityRegistry.snapshot().works())
+                .anySatisfy(work -> {
+                    assertThat(work.sourceId()).isEqualTo("pixiv");
+                    assertThat(work.sourceWorkNamespace()).isEqualTo("artwork");
+                });
+        assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
     }
 
     @Test

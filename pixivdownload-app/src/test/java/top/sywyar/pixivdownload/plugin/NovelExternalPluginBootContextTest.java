@@ -13,10 +13,8 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.gallery.GalleryProviderRegistry;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldCapability;
-import top.sywyar.pixivdownload.core.gallery.model.GalleryFieldStrategy;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -43,7 +41,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.tuple;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -101,7 +98,7 @@ class NovelExternalPluginBootContextTest {
     @Autowired
     private WebApplicationContext applicationContext;
     @Autowired
-    private GalleryProviderRegistry galleryProviderRegistry;
+    private GalleryCapabilityRegistry galleryCapabilityRegistry;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -208,29 +205,25 @@ class NovelExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("novel 子上下文贡献 pixiv NOVEL 数据 provider 并进入运行期注册中心")
+    @DisplayName("novel 子上下文原子贡献 pixiv NOVEL 投影与 novel 详情能力")
     void novelDataProviderIsRegisteredFromExternalChildContext() {
-        assertThat(galleryProviderRegistry.snapshot().sources())
-                .filteredOn(source -> source.sourceId().equals("pixiv"))
+        assertThat(galleryCapabilityRegistry.snapshot().projections())
+                .filteredOn(projection -> projection.sourceId().equals("pixiv"))
                 .singleElement()
-                .satisfies(source -> {
-                    assertThat(source.providerId()).isEqualTo("pixiv-novel");
-                    assertThat(source.kinds()).containsExactly(GalleryKind.NOVEL);
-                    assertThat(source.displayNamespace()).isEqualTo("novel-gallery");
-                    assertThat(source.displayI18nKey()).isEqualTo("source.pixiv");
-                    assertThat(source.fieldStrategies())
-                            .extracting(GalleryFieldStrategy::field, GalleryFieldStrategy::capability)
-                            .containsExactly(
-                                    tuple("r18", GalleryFieldCapability.SUPPORTED),
-                                    tuple("ai", GalleryFieldCapability.SUPPORTED),
-                                    tuple("language", GalleryFieldCapability.SUPPORTED),
-                                    tuple("wordCount", GalleryFieldCapability.SUPPORTED),
-                                    tuple("pageCount", GalleryFieldCapability.SUPPORTED));
+                .satisfies(projection -> {
+                    assertThat(projection.kind()).isEqualTo(GalleryKind.NOVEL);
+                    assertThat(projection.displayNamespace()).isEqualTo("novel-gallery");
+                    assertThat(projection.displayI18nKey()).isEqualTo("source.pixiv");
                 });
-        assertThat(galleryProviderRegistry.snapshot().providers())
-                .extracting(GalleryProviderRegistry.RegisteredProvider::providerId)
-                .contains("pixiv-novel");
-        assertThat(galleryProviderRegistry.snapshot().diagnostics()).isEmpty();
+        assertThat(galleryCapabilityRegistry.snapshot().projectionProviders())
+                .extracting(GalleryCapabilityRegistry.RegisteredProjectionProvider::providerId)
+                .contains("pixiv-novel-capability");
+        assertThat(galleryCapabilityRegistry.snapshot().works())
+                .anySatisfy(work -> {
+                    assertThat(work.sourceId()).isEqualTo("pixiv");
+                    assertThat(work.sourceWorkNamespace()).isEqualTo("novel");
+                });
+        assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
     }
 
     @Test
