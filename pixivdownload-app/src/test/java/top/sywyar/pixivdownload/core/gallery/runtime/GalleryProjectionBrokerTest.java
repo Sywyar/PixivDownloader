@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryProjectionKey;
 import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
 import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjection;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
@@ -82,8 +83,30 @@ class GalleryProjectionBrokerTest {
                 .containsExactly("source-a", "source-b");
     }
 
+    @Test
+    @DisplayName("默认排除管理数据且显式管理查询可以纳入")
+    void filtersAdministrativeDatasetsWithoutSourceSpecificKnowledge() {
+        GalleryProjectionProvider shared = provider("shared", "source-a",
+                List.of(projection("source-a", "shared", 10)), GalleryDataAccess.SHARED);
+        GalleryProjectionProvider admin = provider("admin", "source-b",
+                List.of(projection("source-b", "admin", 20)), GalleryDataAccess.ADMIN_ONLY);
+        GalleryProjectionBroker broker = new GalleryProjectionBroker(
+                new GalleryCapabilityRegistry(List.of(shared, admin), List.of()));
+
+        assertThat(ids(broker.page(query(null, 10)))).containsExactly("shared");
+        assertThat(ids(broker.page(query(null, 10),
+                Set.of(GalleryDataAccess.SHARED, GalleryDataAccess.ADMIN_ONLY))))
+                .containsExactly("admin", "shared");
+    }
+
     private static GalleryProjectionProvider provider(String id, String sourceId,
                                                        List<GalleryProjection> projections) {
+        return provider(id, sourceId, projections, GalleryDataAccess.SHARED);
+    }
+
+    private static GalleryProjectionProvider provider(String id, String sourceId,
+                                                       List<GalleryProjection> projections,
+                                                       GalleryDataAccess dataAccess) {
         return new GalleryProjectionProvider() {
             @Override
             public String providerId() {
@@ -93,7 +116,8 @@ class GalleryProjectionBrokerTest {
             @Override
             public List<GalleryProjectionDescriptor> projections() {
                 return List.of(new GalleryProjectionDescriptor(
-                        sourceId, GalleryKind.IMAGE, "gallery", "source.test", 0, Map.of()));
+                        sourceId, GalleryKind.IMAGE, "gallery", "source.test", 0,
+                        dataAccess, Map.of()));
             }
 
             @Override

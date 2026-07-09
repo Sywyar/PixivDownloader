@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.core.gallery.facet.GalleryFacet;
 import top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetPage;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjection;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
@@ -36,12 +37,16 @@ public class GalleryProjectionBroker {
     }
 
     public GalleryProjectionPage page(GalleryProjectionQuery query) {
+        return page(query, Set.of(GalleryDataAccess.SHARED));
+    }
+
+    public GalleryProjectionPage page(GalleryProjectionQuery query, Set<GalleryDataAccess> allowedAccess) {
         if (query == null) {
             return new GalleryProjectionPage(List.of(), null, false, List.of(new GalleryDiagnostic(
                     null, null, null, "gallery-query-null", "Gallery projection query must not be null")));
         }
         List<GalleryDiagnostic> diagnostics = new ArrayList<>(registry.snapshot().diagnostics());
-        List<Route> routes = routes(query);
+        List<Route> routes = routes(query, allowedAccess);
         Cursor cursor = decodeCursor(query, routes, query.cursor());
         Comparator<Candidate> comparator = (left, right) -> compare(
                 left.projection(), right.projection(), query.sortField(), query.sortDirection());
@@ -70,9 +75,13 @@ public class GalleryProjectionBroker {
     }
 
     public GalleryCountResult count(GalleryProjectionQuery query) {
+        return count(query, Set.of(GalleryDataAccess.SHARED));
+    }
+
+    public GalleryCountResult count(GalleryProjectionQuery query, Set<GalleryDataAccess> allowedAccess) {
         List<GalleryDiagnostic> diagnostics = new ArrayList<>(registry.snapshot().diagnostics());
         long count = 0;
-        for (Route route : routes(query)) {
+        for (Route route : routes(query, allowedAccess)) {
             try {
                 count = Math.addExact(count, route.provider().count(forRoute(query, route, null, query.limit())));
             } catch (RuntimeException failure) {
@@ -83,9 +92,13 @@ public class GalleryProjectionBroker {
     }
 
     public GalleryFacetPage facets(GalleryProjectionQuery query) {
+        return facets(query, Set.of(GalleryDataAccess.SHARED));
+    }
+
+    public GalleryFacetPage facets(GalleryProjectionQuery query, Set<GalleryDataAccess> allowedAccess) {
         List<GalleryDiagnostic> diagnostics = new ArrayList<>(registry.snapshot().diagnostics());
         List<GalleryFacet> facets = new ArrayList<>();
-        for (Route route : routes(query)) {
+        for (Route route : routes(query, allowedAccess)) {
             try {
                 GalleryFacetPage page = route.provider().facets(forRoute(query, route, null, query.limit()));
                 if (page == null) {
@@ -101,7 +114,8 @@ public class GalleryProjectionBroker {
         return new GalleryFacetPage(facets, diagnostics);
     }
 
-    private List<Route> routes(GalleryProjectionQuery query) {
+    private List<Route> routes(GalleryProjectionQuery query, Set<GalleryDataAccess> allowedAccess) {
+        Set<GalleryDataAccess> allowed = allowedAccess == null ? Set.of() : Set.copyOf(allowedAccess);
         List<Route> routes = new ArrayList<>();
         for (GalleryCapabilityRegistry.RegisteredProjectionProvider registered
                 : registry.resolveProjections(query.kind(), query.sourceId())) {
@@ -110,6 +124,9 @@ public class GalleryProjectionBroker {
                     continue;
                 }
                 if (query.sourceId() != null && !query.sourceId().equals(descriptor.sourceId())) {
+                    continue;
+                }
+                if (!allowed.contains(descriptor.dataAccess())) {
                     continue;
                 }
                 routes.add(new Route(registered.providerId(), descriptor.sourceId(), registered.provider()));
