@@ -11,8 +11,11 @@ import org.springframework.boot.context.properties.source.ConfigurationPropertyS
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.env.CompositePropertySource;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
@@ -47,6 +50,7 @@ import java.util.regex.Pattern;
 public class RuntimeConfigReloadService {
 
     private static final Pattern SAFE_CONFIG_KEY = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
+    private static final String RUNTIME_CONFIG_PROPERTY_SOURCE = "pixivdownloadRuntimeConfig";
 
     private final DownloadConfig downloadConfig;
     private final MultiModeConfig multiModeConfig;
@@ -59,6 +63,7 @@ public class RuntimeConfigReloadService {
     private final NarrationTtsConfig narrationTtsConfig;
     private final NotificationConfig notificationConfig;
     private final ObjectProvider<PluginLifecycleService> pluginLifecycleService;
+    private final ConfigurableEnvironment environment;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
         return reloadHotConfig(List.of());
@@ -104,13 +109,28 @@ public class RuntimeConfigReloadService {
         }
 
         YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
-        MutablePropertySources sources = new MutablePropertySources();
         List<PropertySource<?>> loaded = loader.load("runtime-config", new FileSystemResource(configPath));
-        for (PropertySource<?> source : loaded) {
-            sources.addLast(source);
+        refreshEnvironment(loaded);
+        return new Binder(ConfigurationPropertySources.from(environment.getPropertySources()));
+    }
+
+    private void refreshEnvironment(List<PropertySource<?>> loadedYamlSources) {
+        MutablePropertySources sources = environment.getPropertySources();
+        sources.remove(RUNTIME_CONFIG_PROPERTY_SOURCE);
+        sources.remove(PluginConfigPropertySourceLoader.PROPERTY_SOURCE_NAME);
+
+        CompositePropertySource runtimeConfig = new CompositePropertySource(RUNTIME_CONFIG_PROPERTY_SOURCE);
+        loadedYamlSources.forEach(runtimeConfig::addPropertySource);
+        if (sources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
+            sources.addAfter(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, runtimeConfig);
+        } else if (sources.contains(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME)) {
+            sources.addAfter(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, runtimeConfig);
+        } else {
+            sources.addFirst(runtimeConfig);
         }
-        PluginConfigPropertySourceLoader.load().ifPresent(sources::addLast);
-        return new Binder(ConfigurationPropertySources.from(sources));
+
+        PluginConfigPropertySourceLoader.load()
+                .ifPresent(pluginConfig -> sources.addBefore(RUNTIME_CONFIG_PROPERTY_SOURCE, pluginConfig));
     }
 
     private <T> T bind(Binder binder, String prefix, Supplier<T> fallback, Class<T> type) {

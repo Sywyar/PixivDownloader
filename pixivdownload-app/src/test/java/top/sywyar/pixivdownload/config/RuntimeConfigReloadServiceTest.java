@@ -6,13 +6,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.core.notification.NotificationConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
@@ -22,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -70,7 +79,7 @@ class RuntimeConfigReloadServiceTest {
             when(lifecycleService.servingPluginIds()).thenReturn(Set.of("fixture"));
             when(lifecycleService.contextFor("fixture")).thenReturn(Optional.of(child));
 
-            RuntimeConfigReloadService service = newService(provider(lifecycleService));
+            RuntimeConfigReloadService service = newService(provider(lifecycleService), new StandardEnvironment());
 
             RuntimeConfigReloadService.ReloadResult result =
                     service.reloadHotConfig(List.of("fixture.endpoint"));
@@ -82,19 +91,104 @@ class RuntimeConfigReloadServiceTest {
         }
     }
 
-    private RuntimeConfigReloadService newService(ObjectProvider<PluginLifecycleService> lifecycleService) {
+    @Test
+    @DisplayName("热重载从活动 Environment 绑定并保持命令行、系统属性与环境变量优先级")
+    void reloadBindsFromActiveEnvironmentWithStandardPrecedence() throws IOException {
+        Path configDir = useTempConfigDir();
+        Files.createDirectories(configDir);
+        Files.writeString(configDir.resolve(RuntimeFiles.CONFIG_YAML), """
+                proxy.host: yaml-host
+                proxy.port: 7000
+                ssl.domain: yaml.example
+                """, StandardCharsets.UTF_8);
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().addFirst(new MapPropertySource("commandLineArgs", Map.of(
+                "proxy.host", "command-host")));
+        environment.getPropertySources().replace(
+                StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME,
+                new MapPropertySource(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, Map.of(
+                        "proxy.port", "7100")));
+        environment.getPropertySources().replace(
+                StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                new SystemEnvironmentPropertySource(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                        Map.of("SSL_DOMAIN", "environment.example")));
+        ProxyConfig proxyConfig = new ProxyConfig();
+        SslConfig sslConfig = new SslConfig();
+        RuntimeConfigReloadService service = newService(
+                RuntimeConfigReloadServiceTest.<PluginLifecycleService>provider(null),
+                environment, proxyConfig, sslConfig);
+
+        service.reloadHotConfig();
+
+        assertThat(proxyConfig.getHost()).isEqualTo("command-host");
+        assertThat(proxyConfig.getPort()).isEqualTo(7100);
+        assertThat(sslConfig.getDomain()).isEqualTo("environment.example");
+        assertThat(environment.getProperty("proxy.host")).isEqualTo("command-host");
+        assertThat(environment.getProperty("proxy.port")).isEqualTo("7100");
+        assertThat(environment.getProperty("ssl.domain")).isEqualTo("environment.example");
+    }
+
+    @Test
+    @DisplayName("热重载后的插件新子 context 读取活动 Environment 的同一有效值")
+    void restartedPluginContextReadsReloadedEnvironmentValue() throws IOException {
+        Path configDir = useTempConfigDir();
+        Files.createDirectories(configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR));
+        Files.writeString(configDir.resolve(RuntimeFiles.CONFIG_YAML),
+                "download.user-flat-folder: false\n", StandardCharsets.UTF_8);
+        Path pluginConfigPath = configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR).resolve("fixture.properties");
+        Files.writeString(pluginConfigPath, "fixture.endpoint=before-reload\n", StandardCharsets.UTF_8);
+        StandardEnvironment environment = new StandardEnvironment();
+        RuntimeConfigReloadService service = newService(
+                RuntimeConfigReloadServiceTest.<PluginLifecycleService>provider(null), environment);
+        service.reloadHotConfig();
+
+        try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            parent.setEnvironment(environment);
+            parent.refresh();
+            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginContextModule module = new PluginContextModule(
+                    "fixture", getClass().getClassLoader(), List.of(FixturePluginConfiguration.class));
+            var firstChild = factory.create(parent, module);
+            assertThat(firstChild.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("before-reload");
+            firstChild.close();
+
+            Files.writeString(pluginConfigPath, "fixture.endpoint=after-reload\n", StandardCharsets.UTF_8);
+            service.reloadHotConfig(List.of("fixture.endpoint"));
+
+            var restartedChild = factory.create(parent, module);
+            try {
+                assertThat(restartedChild.getBean(FixturePluginConfig.class).getEndpoint())
+                        .isEqualTo("after-reload");
+                assertThat(restartedChild.getEnvironment().getProperty("fixture.endpoint"))
+                        .isEqualTo("after-reload");
+            } finally {
+                restartedChild.close();
+            }
+        }
+    }
+
+    private RuntimeConfigReloadService newService(ObjectProvider<PluginLifecycleService> lifecycleService,
+                                                  ConfigurableEnvironment environment) {
+        return newService(lifecycleService, environment, new ProxyConfig(), new SslConfig());
+    }
+
+    private RuntimeConfigReloadService newService(ObjectProvider<PluginLifecycleService> lifecycleService,
+                                                  ConfigurableEnvironment environment,
+                                                  ProxyConfig proxyConfig,
+                                                  SslConfig sslConfig) {
         return new RuntimeConfigReloadService(
                 new DownloadConfig(),
                 new MultiModeConfig(),
                 new GuestInviteConfig(),
                 new SetupProperties(),
-                new SslConfig(),
+                sslConfig,
                 new MaintenanceProperties(),
-                new ProxyConfig(),
+                proxyConfig,
                 new UpdateConfig(),
                 new NarrationTtsConfig(),
                 new NotificationConfig(),
-                lifecycleService);
+                lifecycleService,
+                environment);
     }
 
     private Path useTempConfigDir() {
@@ -135,5 +229,10 @@ class RuntimeConfigReloadServiceTest {
         public void setEndpoint(String endpoint) {
             this.endpoint = endpoint;
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableConfigurationProperties(FixturePluginConfig.class)
+    static class FixturePluginConfiguration {
     }
 }
