@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gallery</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/unified-gallery/unified-gallery.css">
+</head>
+<body>
+<main class="gallery-shell">
+    <header class="gallery-header">
+        <div>
+            <p class="eyebrow" data-i18n="unified.eyebrow">Gallery</p>
+            <h1 data-i18n="unified.title">Unified gallery</h1>
+        </div>
+        <div id="themeAnchor"></div>
+    </header>
+    <nav class="kind-tabs" aria-label="Gallery views" data-i18n-aria-label="unified.tabs-label">
+        <button type="button" data-kind="IMAGE" data-i18n="unified.kind.image">Images</button>
+        <button type="button" data-kind="VIDEO" data-i18n="unified.kind.video">Videos</button>
+        <button type="button" data-kind="NOVEL" data-i18n="unified.kind.novel">Novels</button>
+    </nav>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <section id="galleryGrid" class="gallery-grid" aria-label="Gallery results"
+             data-i18n-aria-label="unified.results"></section>
+    <button id="loadMore" class="load-more" type="button" data-i18n="unified.load-more">Load more</button>
+</main>
+<dialog id="detailDialog" class="detail-dialog">
+    <button id="closeDetail" class="close-detail" type="button" data-i18n-aria-label="unified.close"
+            aria-label="Close">×</button>
+    <article id="detailContent"></article>
+</dialog>
+<script src="/unified-gallery/unified-gallery-core.js"></script>
+<script src="/unified-gallery/unified-gallery-views.js"></script>
+<script src="/unified-gallery/unified-gallery-init.js"></script>
+</body>
+</html>

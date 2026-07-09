@@ -57,6 +57,16 @@ public class GalleryPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("gallery")
+    public UnifiedGalleryController unifiedGalleryController(
+            top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry registry,
+            top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker projectionBroker,
+            top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker workBroker,
+            top.sywyar.pixivdownload.setup.SetupService setupService) {
+        return new UnifiedGalleryController(registry, projectionBroker, workBroker, setupService);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("gallery")
     public GalleryBatchService galleryBatchService(GalleryService galleryService,
                                                    WorkMetadataRepository workMetadataRepository,
                                                    WorkAssetService workAssetService,
