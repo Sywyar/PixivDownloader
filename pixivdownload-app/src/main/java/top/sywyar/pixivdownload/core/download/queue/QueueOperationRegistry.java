@@ -31,7 +31,10 @@ public class QueueOperationRegistry {
      * 单个不可变快照：{@code queueType → 操作适配器}（保持注册顺序，{@code all()} 据此遍历）。读侧只读
      * {@code snapshot} 引用一次即拿到一致视图。{@code byType} 由构造期一次性建立的不可变保序映射承载。
      */
-    private record Snapshot(Map<String, QueueOperations> byType) {
+    private record OwnedOperations(String ownerPluginId, QueueOperations operations) {
+    }
+
+    private record Snapshot(Map<String, OwnedOperations> byType) {
 
         static final Snapshot EMPTY = new Snapshot(Map.of());
     }
@@ -52,18 +55,38 @@ public class QueueOperationRegistry {
      * 注册一批操作适配器。{@code queueType} 与已注册项冲突、适配器非法都立即抛出；失败时既有快照保持不变。
      */
     public void register(List<QueueOperations> operations) {
-        if (operations == null || operations.isEmpty()) {
-            return;
+        registerOwned(null, operations);
+    }
+
+    /**
+     * 原子替换某外置插件从子 context 贡献的全部队列操作。owner 只用于生命周期精准注销，不参与 queueType 路由。
+     * 任一新操作与其它 owner 冲突时，既有快照保持不变。
+     */
+    public void register(String ownerPluginId, List<QueueOperations> operations) {
+        if (ownerPluginId == null || ownerPluginId.isBlank()) {
+            throw new IllegalStateException("queue operations without owner plugin id");
         }
+        registerOwned(ownerPluginId, operations);
+    }
+
+    private void registerOwned(String ownerPluginId, List<QueueOperations> operations) {
         synchronized (lock) {
-            Map<String, QueueOperations> next = new LinkedHashMap<>(snapshot.byType());
+            Map<String, OwnedOperations> next = new LinkedHashMap<>(snapshot.byType());
+            if (ownerPluginId != null) {
+                next.entrySet().removeIf(entry -> ownerPluginId.equals(entry.getValue().ownerPluginId()));
+            }
+            if (operations == null || operations.isEmpty()) {
+                snapshot = new Snapshot(Collections.unmodifiableMap(next));
+                return;
+            }
             for (QueueOperations ops : operations) {
                 validate(ops);
-                QueueOperations clash = next.putIfAbsent(ops.queueType(), ops);
+                OwnedOperations candidate = new OwnedOperations(ownerPluginId, ops);
+                OwnedOperations clash = next.putIfAbsent(ops.queueType(), candidate);
                 if (clash != null) {
                     throw new IllegalStateException("duplicate queue operations type: " + ops.queueType()
                             + " (" + ops.getClass().getName()
-                            + "; already registered: " + clash.getClass().getName() + ")");
+                            + "; already registered: " + clash.operations().getClass().getName() + ")");
                 }
             }
             // next 是构造期一次性建立、此后只读的保序映射；包成 unmodifiable 后整体替换引用（保留注册顺序）。
@@ -80,9 +103,23 @@ public class QueueOperationRegistry {
             if (!snapshot.byType().containsKey(queueType)) {
                 return;
             }
-            Map<String, QueueOperations> next = new LinkedHashMap<>(snapshot.byType());
+            Map<String, OwnedOperations> next = new LinkedHashMap<>(snapshot.byType());
             next.remove(queueType);
             snapshot = new Snapshot(Collections.unmodifiableMap(next));
+        }
+    }
+
+    /** 精准注销某插件贡献的全部队列操作；不会移除其它插件或父 context 的同类能力。 */
+    public void unregisterOwner(String ownerPluginId) {
+        if (ownerPluginId == null || ownerPluginId.isBlank()) {
+            return;
+        }
+        synchronized (lock) {
+            Map<String, OwnedOperations> next = new LinkedHashMap<>(snapshot.byType());
+            boolean changed = next.entrySet().removeIf(entry -> ownerPluginId.equals(entry.getValue().ownerPluginId()));
+            if (changed) {
+                snapshot = new Snapshot(Collections.unmodifiableMap(next));
+            }
         }
     }
 
@@ -91,12 +128,12 @@ public class QueueOperationRegistry {
         if (queueType == null || queueType.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(snapshot.byType().get(queueType));
+        return Optional.ofNullable(snapshot.byType().get(queueType)).map(OwnedOperations::operations);
     }
 
     /** 按注册顺序返回全部操作适配器的不可变快照，供跨类型批量操作（如清空全部队列）遍历。 */
     public List<QueueOperations> all() {
-        return List.copyOf(snapshot.byType().values());
+        return snapshot.byType().values().stream().map(OwnedOperations::operations).toList();
     }
 
     private static void validate(QueueOperations ops) {
