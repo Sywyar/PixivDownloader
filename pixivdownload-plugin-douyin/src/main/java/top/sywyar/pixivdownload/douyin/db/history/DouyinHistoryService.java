@@ -103,6 +103,20 @@ public class DouyinHistoryService {
         return repository.findFilesByWorkId(workId.trim());
     }
 
+    @Transactional(readOnly = true)
+    public DouyinHistoryPage search(DouyinHistoryQuery query) {
+        return repository.search(query);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DouyinAuthorSummary> authorFacets(DouyinHistoryQuery query) {
+        return repository.authorFacets(query);
+    }
+
+    public List<DouyinAuthorSummary> authorFacets(String search, int limit) {
+        return authorFacets(new DouyinHistoryQuery(0, limit, null, null, search, List.of(), List.of()));
+    }
+
     public boolean hasWork(String workId) {
         return !isBlank(workId) && repository.hasWork(workId.trim());
     }

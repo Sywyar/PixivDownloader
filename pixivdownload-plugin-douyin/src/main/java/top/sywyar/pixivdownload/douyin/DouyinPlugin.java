@@ -71,6 +71,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         return List.of(
+                WebRouteContribution.admin("/api/douyin/history/**"),
                 WebRouteContribution.visitor("/api/douyin/**"),
                 WebRouteContribution.visitor("/pixiv-douyin-download/**"));
     }
@@ -109,11 +110,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                         List.of(),
                         UI_SLOT_TARGETS,
                         "douyin",
-                        new DownloadGalleryCapabilities(
-                                false,
-                                false,
-                                "douyin",
-                                "gallery.unavailable"))));
+                        new DownloadGalleryCapabilities(true, false, null, null))));
     }
 
     @Override

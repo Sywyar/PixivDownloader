@@ -29,6 +29,25 @@ public class DouyinHistoryRepository {
         return rows == null ? List.of() : rows;
     }
 
+    public DouyinHistoryPage search(DouyinHistoryQuery query) {
+        DouyinHistoryQuery safeQuery = query == null
+                ? new DouyinHistoryQuery(0, 50, null, null, null, List.of(), List.of())
+                : query;
+        List<DouyinWorkRecord> rows = mapper.findActivePage(safeQuery);
+        List<DouyinWorkRecord> resolved = rows == null ? List.of() : rows.stream()
+                .map(this::resolve)
+                .toList();
+        return new DouyinHistoryPage(resolved, mapper.countActive(safeQuery));
+    }
+
+    public List<DouyinAuthorSummary> authorFacets(DouyinHistoryQuery query) {
+        DouyinHistoryQuery safeQuery = query == null
+                ? new DouyinHistoryQuery(0, 500, null, null, null, List.of(), List.of())
+                : query;
+        List<DouyinAuthorSummary> rows = mapper.findAuthorFacets(safeQuery);
+        return rows == null ? List.of() : rows;
+    }
+
     public int insertWork(DouyinWorkRecord record) {
         return mapper.insertWork(record.withFolder(encodeFolder(record.folder())).withDeleted(false));
     }
@@ -88,4 +107,5 @@ public class DouyinHistoryRepository {
     private static String stripTrailingSlash(String path) {
         return path == null ? null : path.replaceAll("[/\\\\]+$", "");
     }
+
 }

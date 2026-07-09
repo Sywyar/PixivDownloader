@@ -33,6 +33,111 @@ public interface DouyinHistoryMapper {
     @Select(SELECT_FILE + " WHERE work_id = #{workId} ORDER BY file_index")
     List<DouyinWorkFileRecord> findFilesByWorkId(@Param("workId") String workId);
 
+    @Select({
+            "<script>",
+            SELECT_WORK,
+            "WHERE deleted = 0",
+            "<if test='search != null'>",
+            "AND (work_id LIKE '%' || #{search} || '%'",
+            "OR title LIKE '%' || #{search} || '%'",
+            "OR item_title LIKE '%' || #{search} || '%'",
+            "OR caption LIKE '%' || #{search} || '%'",
+            "OR description LIKE '%' || #{search} || '%'",
+            "OR author_name LIKE '%' || #{search} || '%')",
+            "</if>",
+            "<if test='authorIds != null and authorIds.size() > 0'>",
+            "AND author_id IN",
+            "<foreach item='authorId' collection='authorIds' open='(' separator=',' close=')'>",
+            "#{authorId}",
+            "</foreach>",
+            "</if>",
+            "<if test='requiredMediaTypes != null and requiredMediaTypes.size() > 0'>",
+            "AND EXISTS (SELECT 1 FROM douyin_work_files gallery_file",
+            "WHERE gallery_file.work_id = douyin_works.work_id AND gallery_file.media_type IN",
+            "<foreach item='mediaType' collection='requiredMediaTypes' open='(' separator=',' close=')'>",
+            "#{mediaType}",
+            "</foreach>)",
+            "</if>",
+            "ORDER BY",
+            "<choose>",
+            "<when test='sort == \"title\"'>LOWER(COALESCE(NULLIF(title, ''), work_id))</when>",
+            "<when test='sort == \"publishTime\"'>publish_time</when>",
+            "<when test='sort == \"authorName\"'>LOWER(COALESCE(NULLIF(author_name, ''), author_id, ''))</when>",
+            "<when test='sort == \"collectionOrder\"'>collection_order</when>",
+            "<otherwise>time</otherwise>",
+            "</choose>",
+            "<choose>",
+            "<when test='order == \"asc\"'>ASC</when>",
+            "<otherwise>DESC</otherwise>",
+            "</choose>, time DESC, work_id ASC",
+            "LIMIT #{limit} OFFSET #{offset}",
+            "</script>"
+    })
+    List<DouyinWorkRecord> findActivePage(DouyinHistoryQuery query);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(*) FROM douyin_works WHERE deleted = 0",
+            "<if test='search != null'>",
+            "AND (work_id LIKE '%' || #{search} || '%'",
+            "OR title LIKE '%' || #{search} || '%'",
+            "OR item_title LIKE '%' || #{search} || '%'",
+            "OR caption LIKE '%' || #{search} || '%'",
+            "OR description LIKE '%' || #{search} || '%'",
+            "OR author_name LIKE '%' || #{search} || '%')",
+            "</if>",
+            "<if test='authorIds != null and authorIds.size() > 0'>",
+            "AND author_id IN",
+            "<foreach item='authorId' collection='authorIds' open='(' separator=',' close=')'>",
+            "#{authorId}",
+            "</foreach>",
+            "</if>",
+            "<if test='requiredMediaTypes != null and requiredMediaTypes.size() > 0'>",
+            "AND EXISTS (SELECT 1 FROM douyin_work_files gallery_file",
+            "WHERE gallery_file.work_id = douyin_works.work_id AND gallery_file.media_type IN",
+            "<foreach item='mediaType' collection='requiredMediaTypes' open='(' separator=',' close=')'>",
+            "#{mediaType}",
+            "</foreach>)",
+            "</if>",
+            "</script>"
+    })
+    long countActive(DouyinHistoryQuery query);
+
+    @Select({
+            "<script>",
+            "SELECT author_id AS authorId,",
+            "COALESCE(NULLIF(TRIM(author_name), ''), author_id) AS name,",
+            "COUNT(*) AS workCount",
+            "FROM douyin_works",
+            "WHERE deleted = 0 AND author_id IS NOT NULL AND TRIM(author_id) != ''",
+            "<if test='search != null'>",
+            "AND (work_id LIKE '%' || #{search} || '%'",
+            "OR title LIKE '%' || #{search} || '%'",
+            "OR item_title LIKE '%' || #{search} || '%'",
+            "OR caption LIKE '%' || #{search} || '%'",
+            "OR description LIKE '%' || #{search} || '%'",
+            "OR author_name LIKE '%' || #{search} || '%')",
+            "</if>",
+            "<if test='authorIds != null and authorIds.size() > 0'>",
+            "AND author_id IN",
+            "<foreach item='authorId' collection='authorIds' open='(' separator=',' close=')'>",
+            "#{authorId}",
+            "</foreach>",
+            "</if>",
+            "<if test='requiredMediaTypes != null and requiredMediaTypes.size() > 0'>",
+            "AND EXISTS (SELECT 1 FROM douyin_work_files gallery_file",
+            "WHERE gallery_file.work_id = douyin_works.work_id AND gallery_file.media_type IN",
+            "<foreach item='mediaType' collection='requiredMediaTypes' open='(' separator=',' close=')'>",
+            "#{mediaType}",
+            "</foreach>)",
+            "</if>",
+            "GROUP BY author_id, COALESCE(NULLIF(TRIM(author_name), ''), author_id)",
+            "ORDER BY workCount DESC, LOWER(COALESCE(NULLIF(TRIM(author_name), ''), author_id)) ASC, author_id ASC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<DouyinAuthorSummary> findAuthorFacets(DouyinHistoryQuery query);
+
     @Insert("INSERT OR IGNORE INTO douyin_works"
             + " (work_id, title, folder, count, extensions, time, deleted, kind,"
             + " source_url, canonical_url, thumbnail_url, author_id, author_name, description,"

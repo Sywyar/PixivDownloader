@@ -47,9 +47,9 @@ class DouyinPluginContributionTest {
         assertThat(queueType.descriptor().uiSlots()).containsExactly(
                 "import-hint",
                 "cookie-tools");
-        assertThat(queueType.descriptor().gallery().unifiedGallery()).isFalse();
+        assertThat(queueType.descriptor().gallery().unifiedGallery()).isTrue();
         assertThat(queueType.descriptor().gallery().independentPage()).isFalse();
-        assertThat(queueType.descriptor().gallery().reasonI18nKey()).isEqualTo("gallery.unavailable");
+        assertThat(queueType.descriptor().gallery().reasonI18nKey()).isNull();
     }
 
     @Test
@@ -122,6 +122,8 @@ class DouyinPluginContributionTest {
         assertThat(routes.isDeclared("/api/douyin/resolve", HttpMethod.GET)).isTrue();
         assertThat(routes.resolve("/api/douyin/resolve", HttpMethod.GET))
                 .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+        assertThat(routes.resolve("/api/douyin/history/7351/media/0", HttpMethod.GET))
+                .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
         assertThat(statics.resources()).anyMatch(resource -> resource.pluginId().equals("douyin"));
         assertThat(i18n.resolve("douyin")).isNotNull();
         assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(2);

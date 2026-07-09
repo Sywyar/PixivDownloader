@@ -19,12 +19,14 @@ import top.sywyar.pixivdownload.douyin.client.DouyinRestTemplateFactory;
 import top.sywyar.pixivdownload.douyin.client.DouyinShortLinkResolver;
 import top.sywyar.pixivdownload.douyin.client.RestTemplateDouyinRedirectClient;
 import top.sywyar.pixivdownload.douyin.controller.DouyinController;
+import top.sywyar.pixivdownload.douyin.controller.DouyinHistoryMediaController;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryMapper;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryRepository;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
 import top.sywyar.pixivdownload.douyin.download.DouyinMediaDownloader;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
 import top.sywyar.pixivdownload.douyin.download.DouyinQueueOperations;
+import top.sywyar.pixivdownload.douyin.gallery.DouyinGalleryDataProvider;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
@@ -59,6 +61,12 @@ public class DouyinPluginConfiguration {
     @ConditionalOnPluginEnabled("douyin")
     public DouyinHistoryService douyinHistoryService(DouyinHistoryRepository repository) {
         return new DouyinHistoryService(repository);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinGalleryDataProvider douyinGalleryDataProvider(DouyinHistoryService historyService) {
+        return new DouyinGalleryDataProvider(historyService);
     }
 
     @Bean
@@ -246,5 +254,11 @@ public class DouyinPluginConfiguration {
     public DouyinController douyinController(DouyinDownloadService downloadService,
                                              SetupService setupService) {
         return new DouyinController(downloadService, setupService);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinHistoryMediaController douyinHistoryMediaController(DouyinHistoryService historyService) {
+        return new DouyinHistoryMediaController(historyService);
     }
 }
