@@ -120,6 +120,24 @@ class PluginPackageReaderTest {
     }
 
     @Test
+    @DisplayName("替代解析：pixiv.replaces 映射为已签名包内的精确身份列表")
+    void parsesReplacementPluginIds() {
+        String properties = PluginPackageFixtures.pluginProperties(
+                "novel", "1.0.0", "1.0", "com.example.NovelPlugin")
+                + PluginPackageReader.KEY_PIXIV_REPLACES + "=novel-gallery, legacy-novel\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("replacement.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        PluginDescriptor descriptor = PluginPackageReader.inspect(zip).descriptor();
+
+        assertThat(descriptor.replaces()).containsExactly("novel-gallery", "legacy-novel");
+        assertThat(descriptor.externalValidationErrors()).isEmpty();
+    }
+
+    @Test
     @DisplayName("展示元数据：pixiv.* canonical 字段映射为包级描述符，供已安装未启动状态使用")
     void mapsCanonicalDisplayMetadata() {
         String properties = PluginPackageReader.KEY_ID + "=mail\n"

@@ -204,8 +204,11 @@ public class ExternalPluginInstaller {
             }
 
             PluginDescriptor descriptor = validated.descriptor();
-            List<InstalledPlugin> sameId = listInstalled().stream()
+            List<InstalledPlugin> installed = listInstalled();
+            List<InstalledPlugin> sameId = installed.stream()
                     .filter(plugin -> descriptor.id().equals(plugin.id())).toList();
+            List<InstalledPlugin> replaced = installed.stream()
+                    .filter(plugin -> descriptor.replaces().contains(plugin.id())).toList();
             InstalledPlugin highest = sameId.stream()
                     .max(Comparator.comparing(plugin -> PluginPackageVersion.parse(plugin.version())))
                     .orElse(null);
@@ -246,7 +249,8 @@ public class ExternalPluginInstaller {
             PluginInstallResult result = new PluginInstallResult(outcome, descriptor, target, previousVersion,
                     List.of(outcome + " " + descriptor.id() + " " + descriptor.version()));
             PreparedPluginTransaction prepared = new PreparedPluginTransaction(transactionId, result, transaction,
-                    staged, target, sameId.stream().map(InstalledPlugin::path).toList());
+                    staged, target, Stream.concat(sameId.stream(), replaced.stream())
+                    .map(InstalledPlugin::path).toList());
             writeManifest(prepared, PluginTransactionState.PREPARED, List.of());
             return prepared;
         } catch (IOException e) {
@@ -314,8 +318,10 @@ public class ExternalPluginInstaller {
     }
 
     private List<Path> verifyCurrentArtifactsExclusive(PreparedPluginTransaction prepared) {
+        List<String> affectedIds = new ArrayList<>(prepared.result().descriptor().replaces());
+        affectedIds.add(prepared.result().pluginId());
         List<Path> current = listInstalled().stream()
-                .filter(plugin -> prepared.result().pluginId().equals(plugin.id()))
+                .filter(plugin -> affectedIds.contains(plugin.id()))
                 .map(InstalledPlugin::path).map(path -> path.toAbsolutePath().normalize()).sorted().toList();
         List<Path> expected = prepared.expectedCurrentArtifacts().stream()
                 .map(path -> path.toAbsolutePath().normalize()).sorted().toList();
@@ -520,8 +526,9 @@ public class ExternalPluginInstaller {
         }
 
         // 5. 重复 / 升级 / 降级判定
+        List<InstalledPlugin> installedPlugins = listInstalled();
         List<InstalledPlugin> sameId = new ArrayList<>();
-        for (InstalledPlugin installed : listInstalled()) {
+        for (InstalledPlugin installed : installedPlugins) {
             if (installed.id().equals(descriptor.id())) {
                 sameId.add(installed);
             }
@@ -573,7 +580,9 @@ public class ExternalPluginInstaller {
 
         // 6. 提交（原子、失败清暂存）
         try {
-            return commit(packagePath, inspection, descriptor, outcome, sameId, target, previousVersion,
+            List<InstalledPlugin> superseded = Stream.concat(sameId.stream(), installedPlugins.stream()
+                    .filter(installed -> descriptor.replaces().contains(installed.id()))).distinct().toList();
+            return commit(packagePath, inspection, descriptor, outcome, superseded, target, previousVersion,
                     origin, verification);
         } catch (IOException e) {
             log.error("Failed to install plugin package {}: {}", packagePath.getFileName(), e.toString());
@@ -643,7 +652,7 @@ public class ExternalPluginInstaller {
 
     private PluginInstallResult commit(Path packagePath, PluginPackageInspection inspection,
                                        PluginDescriptor descriptor, PluginInstallOutcome outcome,
-                                       List<InstalledPlugin> sameId, Path target, String previousVersion,
+                                       List<InstalledPlugin> supersededCandidates, Path target, String previousVersion,
                                        PluginPackageOrigin origin, VerificationResult verification)
             throws IOException {
         Files.createDirectories(pluginsDir); // 目录创建归安装流程
@@ -652,7 +661,7 @@ public class ExternalPluginInstaller {
         Files.createDirectories(staging);
 
         // 本次安装必须让安装目录里同 id 旧包从可识别文件中消失（规范目标自身除外）——纳入提交事务、失败可回滚
-        List<InstalledPlugin> superseded = supersededExcluding(sameId, target);
+        List<InstalledPlugin> superseded = supersededExcluding(supersededCandidates, target);
         Path backupDir = staging.resolve(BACKUP_SUBDIR);
         List<Backup> backups = new ArrayList<>();
         List<String> removedNames = new ArrayList<>();

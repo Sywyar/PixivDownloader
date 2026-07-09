@@ -35,6 +35,7 @@ import java.util.regex.Pattern;
  * @param iconKey          展示图标的受控 token（来自 {@link PixivFeaturePlugin#iconKey()} 或包描述符 {@code pixiv.icon-key}；可空，由消费端回退默认）
  * @param colorToken       卡片强调色的受控 token（来自 {@link PixivFeaturePlugin#colorToken()} 或包描述符 {@code pixiv.color-token}；可空，由消费端回退默认）
  * @param kind             插件类别
+ * @param replaces         安装新包后精确替代的旧插件包 id；仅外置包描述符声明，内置插件为空
  */
 public record PluginDescriptor(
         String id,
@@ -48,7 +49,8 @@ public record PluginDescriptor(
         String description,
         String iconKey,
         String colorToken,
-        PluginKind kind) {
+        PluginKind kind,
+        List<String> replaces) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
@@ -71,6 +73,15 @@ public record PluginDescriptor(
     public PluginDescriptor {
         requires = requires != null ? requires : PluginApiRequirement.unspecified();
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
+        replaces = replaces != null ? List.copyOf(replaces) : List.of();
+    }
+
+    public PluginDescriptor(String id, String sourcePluginId, String version, PluginApiRequirement requires,
+                            List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
+                            String displayName, String description, String iconKey, String colorToken,
+                            PluginKind kind) {
+        this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
+                description, iconKey, colorToken, kind, List.of());
     }
 
     /**
@@ -92,7 +103,8 @@ public record PluginDescriptor(
                 plugin.description(),
                 plugin.iconKey(),
                 plugin.colorToken(),
-                plugin.kind());
+                plugin.kind(),
+                List.of());
     }
 
     /** 该描述符声明的核心 API 版本要求是否被当前核心满足（{@code requires} 兼容性）。 */
@@ -125,6 +137,16 @@ public record PluginDescriptor(
             if (dependency.pluginId() == null || !ID_PATTERN.matcher(dependency.pluginId()).matches()) {
                 errors.add("invalid dependency plugin id: " + dependency.pluginId());
             }
+        }
+        for (String replacedId : replaces) {
+            if (replacedId == null || !ID_PATTERN.matcher(replacedId).matches()) {
+                errors.add("invalid replaced plugin id: " + replacedId);
+            } else if (Objects.equals(id, replacedId)) {
+                errors.add("plugin must not replace itself: " + replacedId);
+            }
+        }
+        if (replaces.stream().distinct().count() != replaces.size()) {
+            errors.add("replaced plugin ids must be unique");
         }
         return errors;
     }

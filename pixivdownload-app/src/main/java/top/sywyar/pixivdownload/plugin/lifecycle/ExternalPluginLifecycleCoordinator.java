@@ -184,17 +184,19 @@ public class ExternalPluginLifecycleCoordinator {
                 ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
         if (StartupOnlyPlugins.isStartupOnly(packageId)) {
             return withLock(packageId, operation, prepared.transactionId(), () ->
-                    commitStartupOnly(prepared));
+                    withReplacementLocks(prepared, operation, () -> commitStartupOnly(prepared)));
         }
         return withLock(packageId, operation, prepared.transactionId(), () ->
-                activatePrepared(prepared));
+                withReplacementLocks(prepared, operation, () -> activatePrepared(prepared)));
     }
 
     private PluginActivationResult commitStartupOnly(PreparedPluginTransaction prepared) {
         String packageId = prepared.result().pluginId();
         CommittedPluginTransaction committed = null;
+        List<RetiredRuntime> retired = List.of();
         try {
             installer.verifyCurrentArtifacts(prepared);
+            retired = retireReplacedPackages(prepared.result().descriptor().replaces());
             committed = installer.commitTransaction(prepared);
             installer.markActivated(committed);
             installer.completeTransaction(committed);
@@ -203,16 +205,18 @@ public class ExternalPluginLifecycleCoordinator {
                     operationFor(prepared.result()), currentPhase(packageId));
         } catch (RuntimeException failure) {
             boolean rolledBack = committed != null && installer.rollbackTransaction(committed);
+            boolean runtimeRestored = restoreRetiredRuntimes(retired);
             if (committed == null) {
                 installer.discardPrepared(prepared);
             }
             PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
                     prepared.result().descriptor(), null, prepared.result().previousVersion(),
                     List.of("startup-only commit failed: " + failure.getMessage(),
-                            rolledBack ? "previous version restored" : "previous version recovery failed"));
+                            rolledBack && runtimeRestored
+                                    ? "previous version restored" : "previous version recovery failed"));
             recoveryModeService.refresh();
             return new PluginActivationResult(prepared.transactionId(), failed, false, rolledBack,
-                    rolledBack ? prepared.result().previousVersion() : null,
+                    rolledBack && runtimeRestored ? prepared.result().previousVersion() : null,
                     operationFor(prepared.result()), currentPhase(packageId));
         }
     }
@@ -239,9 +243,11 @@ public class ExternalPluginLifecycleCoordinator {
         Path previousArtifact = runtimeManager.artifactPath(packageId).orElse(null);
         String previousVersion = prepared.result().previousVersion();
         CommittedPluginTransaction committed = null;
+        List<RetiredRuntime> retired = List.of();
         try {
             // 下载 / 预校验不持包锁；进入停机窗口后先复核安装态，避免过期事务先卸下新 generation。
             installer.verifyCurrentArtifacts(prepared);
+            retired = retireReplacedPackages(prepared.result().descriptor().replaces());
             if (wasLoaded) {
                 unloadExclusive(packageId);
             }
@@ -265,6 +271,7 @@ public class ExternalPluginLifecycleCoordinator {
                 runtimeRestored = restoreOldRuntime(packageId,
                         previousArtifact != null ? previousArtifact : installedArtifact(packageId));
             }
+            runtimeRestored = restoreRetiredRuntimes(retired) && runtimeRestored;
             if (committed == null) {
                 installer.discardPrepared(prepared);
             }
@@ -286,6 +293,73 @@ public class ExternalPluginLifecycleCoordinator {
     private static ExternalPluginOperation operationFor(PluginInstallResult result) {
         return result.previousVersion() == null
                 ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
+    }
+
+    private List<RetiredRuntime> retireReplacedPackages(List<String> replacedIds) {
+        List<RetiredRuntime> retired = new java.util.ArrayList<>();
+        try {
+            for (String replacedId : replacedIds) {
+                Path artifact = installer.listInstalled().stream()
+                        .filter(plugin -> replacedId.equals(plugin.id()))
+                        .map(InstalledPlugin::path)
+                        .findFirst()
+                        .orElse(null);
+                boolean wasLoaded = runtimeManager.packagePhases().containsKey(replacedId);
+                if (wasLoaded) {
+                    unloadExclusive(replacedId);
+                }
+                retired.add(new RetiredRuntime(replacedId, artifact, wasLoaded));
+            }
+            return List.copyOf(retired);
+        } catch (RuntimeException failure) {
+            if (!restoreRetiredRuntimes(retired)) {
+                failure.addSuppressed(new PluginLifecycleException(
+                        "replaced plugin runtime recovery failed"));
+            }
+            throw failure;
+        }
+    }
+
+    private boolean restoreRetiredRuntimes(List<RetiredRuntime> retired) {
+        boolean restored = true;
+        for (RetiredRuntime runtime : retired) {
+            if (runtime.wasLoaded() && runtime.artifact() != null) {
+                restored = restoreOldRuntime(runtime.packageId(), runtime.artifact()) && restored;
+            }
+        }
+        return restored;
+    }
+
+    private <T> T withReplacementLocks(PreparedPluginTransaction prepared,
+                                       ExternalPluginOperation operation,
+                                       Operation<T> action) {
+        List<String> ids = prepared.result().descriptor().replaces().stream().sorted().toList();
+        List<ReentrantLock> acquired = new java.util.ArrayList<>();
+        try {
+            for (String id : ids) {
+                ReentrantLock lock = locks.computeIfAbsent(id, ignored -> new ReentrantLock());
+                if (!lock.tryLock()) {
+                    throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                            "operation already in progress for plugin package '" + id + "'");
+                }
+                acquired.add(lock);
+                operations.put(id, new ExternalPluginOperationSnapshot(id, operation,
+                        prepared.transactionId(), null));
+            }
+            return action.run();
+        } finally {
+            for (int i = ids.size() - 1; i >= 0; i--) {
+                String id = ids.get(i);
+                if (i < acquired.size()) {
+                    operations.put(id, new ExternalPluginOperationSnapshot(id,
+                            ExternalPluginOperation.IDLE, prepared.transactionId(), null));
+                    acquired.get(i).unlock();
+                }
+            }
+        }
+    }
+
+    private record RetiredRuntime(String packageId, Path artifact, boolean wasLoaded) {
     }
 
     private PluginRuntimePhase currentPhase(String packageId) {

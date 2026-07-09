@@ -80,6 +80,57 @@ class ExternalPluginTransactionTest {
     }
 
     @Test
+    @DisplayName("新包验证后仅隔离精确替代身份并随回滚恢复其 artifact 与 provenance")
+    void replacementTransactionTargetsExactRetiredIdentity() {
+        Path plugins = temp.resolve("plugins-replacement");
+        ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
+        installer.install(packageFile("retired.zip", "novel-gallery", "1.0.0", null));
+        installer.install(packageFile("third-party.zip", "novel-gallery-plus", "1.0.0", null));
+        Path retired = plugins.resolve("novel-gallery-1.0.0.zip");
+        Path unrelated = plugins.resolve("novel-gallery-plus-1.0.0.zip");
+
+        PreparedPluginTransaction prepared = installer.prepareTransaction(
+                packageFile("novel.zip", "novel", "1.0.0", "novel-gallery"), false,
+                PluginPackageOrigin.localUpload());
+
+        assertThat(prepared.readyToCommit()).isTrue();
+        assertThat(retired).exists();
+        assertThat(sidecar(plugins, retired)).exists();
+        assertThat(unrelated).exists();
+
+        CommittedPluginTransaction committed = installer.commitTransaction(prepared);
+        assertThat(retired).doesNotExist();
+        assertThat(sidecar(plugins, retired)).doesNotExist();
+        assertThat(unrelated).exists();
+        assertThat(sidecar(plugins, unrelated)).exists();
+        assertThat(prepared.target()).exists();
+
+        assertThat(installer.rollbackTransaction(committed)).isTrue();
+        assertThat(retired).exists();
+        assertThat(sidecar(plugins, retired)).exists();
+        assertThat(unrelated).exists();
+        assertThat(prepared.target()).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("替代包描述符校验失败时保留旧 artifact 与 provenance")
+    void rejectedReplacementLeavesRetiredArtifactUntouched() {
+        Path plugins = temp.resolve("plugins-replacement-rejected");
+        ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
+        installer.install(packageFile("retired-invalid.zip", "novel-gallery", "1.0.0", null));
+        Path retired = plugins.resolve("novel-gallery-1.0.0.zip");
+
+        PreparedPluginTransaction prepared = installer.prepareTransaction(
+                packageFile("invalid-novel.zip", "novel", "1.0", "novel-gallery"), false,
+                PluginPackageOrigin.localUpload());
+
+        assertThat(prepared.readyToCommit()).isFalse();
+        assertThat(prepared.result().outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INVALID);
+        assertThat(retired).exists();
+        assertThat(sidecar(plugins, retired)).exists();
+    }
+
+    @Test
     @DisplayName("NEW_PLACED 崩溃恢复优先恢复旧包，避免同 id 新旧包同时暴露")
     void recoverNewPlacedRestoresOld() {
         Path plugins = temp.resolve("plugins-recover-old");
@@ -173,6 +224,18 @@ class ExternalPluginTransactionTest {
 
     private Path packageFile(String name, String version) {
         return PluginPackageFixtures.explodedZip(temp.resolve(name), "demo", version, "1.0", "demo.Plugin");
+    }
+
+    private Path packageFile(String name, String id, String version, String replaces) {
+        String properties = PluginPackageFixtures.pluginProperties(id, version, "1.0", "demo.Plugin");
+        if (replaces != null) {
+            properties += "pixiv.replaces=" + replaces + "\n";
+        }
+        Path file = temp.resolve(name);
+        PluginPackageFixtures.writeZip(file, java.util.Map.of(
+                PluginPackageFixtures.PLUGIN_PROPERTIES, PluginPackageFixtures.bytes(properties),
+                "classes/Marker.class", PluginPackageFixtures.bytes("marker")));
+        return file;
     }
 
     private static Path sidecar(Path plugins, Path artifact) {

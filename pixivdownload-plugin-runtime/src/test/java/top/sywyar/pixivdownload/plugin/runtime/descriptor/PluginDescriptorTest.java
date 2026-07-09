@@ -128,6 +128,20 @@ class PluginDescriptorTest {
         assertThat(descriptor.validationErrors()).anyMatch(e -> e.contains("dependency plugin id"));
     }
 
+    @Test
+    @DisplayName("替代声明拒绝非法 id、自替代和重复身份")
+    void rejectsInvalidReplacementIds() {
+        PluginDescriptor descriptor = new PluginDescriptor("novel", "novel", "1.0.0",
+                PluginApiRequirement.parse("1.0"), List.of(), "com.example.NovelPlugin", null,
+                "novel.label", null, null, null, PluginKind.FEATURE,
+                List.of("Bad_Id", "novel", "novel-gallery", "novel-gallery"));
+
+        assertThat(descriptor.validationErrors())
+                .anyMatch(error -> error.contains("invalid replaced plugin id"))
+                .anyMatch(error -> error.contains("must not replace itself"))
+                .anyMatch(error -> error.contains("must be unique"));
+    }
+
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,
                                              String displayName, PluginKind kind, List<PluginDependencyRef> deps) {
         return new PluginDescriptor(id, id + "-pack", version, PluginApiRequirement.parse(requires),

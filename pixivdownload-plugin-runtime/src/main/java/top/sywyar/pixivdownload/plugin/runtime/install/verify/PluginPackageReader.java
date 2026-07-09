@@ -76,6 +76,7 @@ public final class PluginPackageReader {
     static final String KEY_PIXIV_DESCRIPTION_KEY = "pixiv.description-key";
     static final String KEY_PIXIV_ICON_KEY = "pixiv.icon-key";
     static final String KEY_PIXIV_COLOR_TOKEN = "pixiv.color-token";
+    static final String KEY_PIXIV_REPLACES = "pixiv.replaces";
 
     private PluginPackageReader() {
     }
@@ -333,15 +334,23 @@ public final class PluginPackageReader {
         String description = trimToNull(properties.getProperty(KEY_PIXIV_DESCRIPTION_KEY));
         String iconKey = trimToNull(properties.getProperty(KEY_PIXIV_ICON_KEY));
         String colorToken = trimToNull(properties.getProperty(KEY_PIXIV_COLOR_TOKEN));
+        List<String> replaces = parsePluginIds(properties.getProperty(KEY_PIXIV_REPLACES));
         if (displayName == null) {
             displayName = (pf4jDescription != null) ? pf4jDescription : id;
         }
         return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
-                displayName, description, iconKey, colorToken, PluginKind.FEATURE);
+                displayName, description, iconKey, colorToken, PluginKind.FEATURE, replaces);
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {
         return PluginDependencyRef.parseList(raw);
+    }
+
+    private static List<String> parsePluginIds(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return List.of(raw.split(",")).stream().map(String::trim).toList();
     }
 
     private static String trimToNull(String value) {
