@@ -1,15 +1,15 @@
 <#
 .SYNOPSIS
     Per-plugin, version-gated build + publish / repair: for each official required or optional plugin, create the
-    GitHub Release when missing, supplement missing release assets for the current plugin.version, or
-    force rebuild and replace release assets.
+    GitHub Release when missing, or supplement missing checksum/signature companions from immutable artifact bytes.
 
 .DESCRIPTION
     Version is the immutability key. For each plugin:
       - read plugin.version from its source plugin.properties (no build needed to decide);
       - if release `<id>-v<version>` already exists and already has artifact + .sha256 + .sig -> SKIP;
-      - if release exists but misses assets -> supplement only the missing assets. When the artifact already exists,
-        checksum / signature are regenerated from the published artifact bytes, not from a rebuild;
+      - if release exists and the artifact is present but companions are missing -> regenerate only those companions
+        from the published artifact bytes;
+      - if release exists without the artifact -> FAIL and require a new plugin.version;
       - else build ONLY that module (`mvn -pl <module> -am package` - its dep subtree, not the whole reactor
         nor other plugins), verify its official artifact format, then create the release and upload the artifact
         + .sha256 + .sig.
@@ -19,18 +19,12 @@
     The market manifest is generated separately (generate-market-manifest.ps1) from the published releases.
     ASCII source; runs under Windows PowerShell / pwsh. Needs gh + GH_TOKEN and Maven (mvnw / mvn).
 
-    With -Force/-f, every official plugin is rebuilt for the source plugin.version. Existing expected release
-    assets (artifact + .sha256 + .sig) are deleted before the freshly built files are uploaded, so a manual
-    repair can replace an already-published asset set without changing the release tag.
-
 .PARAMETER Repo
     owner/repo of the plugin distribution repository. Default Sywyar/PixivDownloader-plugins.
 
 .PARAMETER ProjectRoot
     Repo root. Default = parent of this script's dir.
 
-.PARAMETER Force
-    Rebuild every official plugin and replace existing expected release assets for the current plugin.version.
 #>
 [CmdletBinding()]
 param(
@@ -38,9 +32,7 @@ param(
     [string]$ProjectRoot,
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
-    [string]$SignatureToolJar,
-    [Alias("f")]
-    [switch]$Force
+    [string]$SignatureToolJar
 )
 
 $ErrorActionPreference = "Stop"
@@ -189,25 +181,6 @@ function Upload-ReleaseAssetFiles {
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $Tag." }
 }
 
-function Remove-ExistingReleaseAssets {
-    param(
-        [Parameter(Mandatory = $true)][string]$Tag,
-        [Parameter(Mandatory = $true)][string[]]$AssetNames,
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyCollection()]
-        [string[]]$ExistingAssetNames
-    )
-
-    foreach ($assetName in $AssetNames) {
-        if ($ExistingAssetNames -notcontains $assetName) {
-            continue
-        }
-        Write-Host "==> Deleting existing asset $assetName from $Tag before force upload."
-        gh release delete-asset $Tag $assetName --repo $Repo --yes
-        if ($LASTEXITCODE -ne 0) { throw "gh release delete-asset failed for $Tag asset $assetName." }
-    }
-}
-
 $mvn = Get-MavenCommand $ProjectRoot
 $stageDir = Join-Path $ProjectRoot "build/release-plugins"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
@@ -224,28 +197,6 @@ foreach ($plugin in $plugins) {
     $release = Get-ReleaseAssetState $tag
     $assetNames = @($release.AssetNames)
 
-    if ($Force) {
-        if ($release.Exists) {
-            Write-Host "==> Force publishing $tag; rebuilding and replacing expected assets."
-        } else {
-            Write-Host "==> Force publishing $tag; release does not exist yet."
-        }
-
-        $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
-        $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
-
-        if ($release.Exists) {
-            Remove-ExistingReleaseAssets -Tag $tag -AssetNames $expectedAssets -ExistingAssetNames $assetNames
-        } else {
-            gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version"
-            if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
-        }
-
-        Upload-ReleaseAssetFiles -Tag $tag -Paths @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
-        $published += "$tag (forced)"
-        continue
-    }
-
     if ($release.Exists) {
         $missingAssets = @($expectedAssets | Where-Object { $assetNames -notcontains $_ })
         if ($missingAssets.Count -eq 0) {
@@ -258,7 +209,7 @@ foreach ($plugin in $plugins) {
         if ($artifactAssetExists) {
             $stagedArtifact = Download-ReleaseAsset -Tag $tag -AssetName $assetName
         } else {
-            $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
+            throw "Release $tag already exists without $assetName. Bump plugin.version instead of publishing new bytes under an existing tag."
         }
         $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
 

@@ -95,6 +95,12 @@ class PluginReleaseScriptsTest {
                 "gh release upload $Tag $Paths --repo $Repo"
         );
         assertThat(script).doesNotContain("already published; skip (immutable");
+        assertThat(script).contains("Bump plugin.version instead of publishing new bytes under an existing tag");
+        assertThat(script).doesNotContain(
+                "[switch]$Force",
+                "Remove-ExistingReleaseAssets",
+                "gh release delete-asset",
+                "(forced)");
         assertThat(script).doesNotContain("$assetName = \"$($plugin.Module)-$version.jar\"");
         assertThat(script).doesNotContain("Assert-ThinPluginJar $builtJar");
         assertThat(script).doesNotContain("Build-StagedPluginJar");
@@ -415,7 +421,6 @@ class PluginReleaseScriptsTest {
                 "Repo = $env:PLUGINS_REPO",
                 "OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID",
                 "PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
-                "$publishArgs[\"Force\"] = $true",
                 ".\\scripts\\publish-plugin-releases.ps1 @publishArgs",
                 "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",
                 "-PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
@@ -424,9 +429,28 @@ class PluginReleaseScriptsTest {
                 "Cleanup plugin signing private key");
         assertThat(workflow).doesNotContain("tags:");
         assertThat(workflow).doesNotContain("schedule:");
+        assertThat(workflow).doesNotContain("publish_args", "PUBLISH_PLUGIN_ARGS", "[\"Force\"]");
         assertThat(workflow).doesNotContain("-----BEGIN PRIVATE KEY-----");
         assertThat(workflow).doesNotContain("\"-Repo\", $env:PLUGINS_REPO");
         assertThat(workflow).doesNotContain("\"-PrivateKeyFile\", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE");
+    }
+
+    @Test
+    @DisplayName("已发布后变更的官方插件使用新补丁版本且未发布插件保持初始版本")
+    void officialPluginVersionsDoNotReusePublishedAssets() throws Exception {
+        for (String module : List.of(
+                "pixivdownload-plugin-download-workbench", "pixivdownload-plugin-stats",
+                "pixivdownload-plugin-duplicate", "pixivdownload-plugin-gallery",
+                "pixivdownload-plugin-notification", "pixivdownload-plugin-gui-theme",
+                "pixivdownload-plugin-push", "pixivdownload-plugin-mail",
+                "pixivdownload-plugin-tts", "pixivdownload-plugin-ai")) {
+            assertThat(pluginDescriptor(module)).as(module).contains("plugin.version=1.0.1");
+        }
+        assertThat(pluginDescriptor("pixivdownload-plugin-novel")).contains("plugin.version=1.0.0");
+        assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains("plugin.version=1.0.0");
+        assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
+                .contains("plugin.version=1.0.0");
+        assertThat(script("plugin-distribution-common.ps1")).doesNotContain("Id = \"douyin\"");
     }
 
     @Test
