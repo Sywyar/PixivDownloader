@@ -165,7 +165,7 @@ class ConfigItemTemplateCoverageGuardTest {
         Set<String> prefixes = new TreeSet<>();
         for (BeanDefinition def : scanner.findCandidateComponents(BASE_PACKAGE)) {
             String className = def.getBeanClassName();
-            if (className == null) {
+            if (className == null || className.contains("Test$")) {
                 continue;
             }
             try {
