@@ -99,6 +99,19 @@ class PluginQuiesceGateTest {
     }
 
     @Test
+    @DisplayName("带矩阵参数的 quiesce 插件路由仍按规范路径拦截")
+    void blocksQuiescedPluginRouteWithMatrixParameters() throws Exception {
+        quiesceStats();
+        request.setMethod("GET");
+        request.setRequestURI("/api/stats/dashboard;trace=1");
+
+        gate.doFilterInternal(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
     @DisplayName("quiesce 插件的页面路由被拦截：503 提示页")
     void blocksQuiescedPluginPage() throws Exception {
         quiesceStats();

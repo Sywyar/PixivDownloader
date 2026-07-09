@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
@@ -18,6 +19,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * 恢复模式访问拦截（servlet 过滤器，{@code @Order(0)} 早于 {@link top.sywyar.pixivdownload.setup.AuthFilter}）：当
@@ -61,12 +63,16 @@ public class RecoveryModeGate extends OncePerRequestFilter {
             chain.doFilter(req, res);
             return;
         }
-        String path = req.getRequestURI();
-        if ("OPTIONS".equalsIgnoreCase(req.getMethod()) || isAllowedInRecoveryMode(path)) {
+        Optional<String> path = SafeRequestPath.resolve(req);
+        if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
             chain.doFilter(req, res);
             return;
         }
-        block(req, res, path);
+        if (path.isPresent() && isAllowedInRecoveryMode(path.get())) {
+            chain.doFilter(req, res);
+            return;
+        }
+        block(req, res, path.orElse(req.getRequestURI()));
     }
 
     /** 恢复模式下仍放行的最小入口集合（诊断 / 修复 / 健康 / 核心认证与 setup / 基础静态）。 */

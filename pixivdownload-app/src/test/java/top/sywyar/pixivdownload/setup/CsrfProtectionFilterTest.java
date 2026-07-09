@@ -12,6 +12,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
@@ -24,6 +29,8 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("上传写操作 CSRF 同源校验")
@@ -121,6 +128,21 @@ class CsrfProtectionFilterTest {
     }
 
     @Test
+    @DisplayName("真实 MVC 路由会忽略的矩阵参数仍按规范路径执行 CSRF 校验")
+    void matrixParametersCannotBypassProtectionOnRealMvcRoute() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new CollectionIconProbeController())
+                .addFilters(filter)
+                .build();
+
+        mockMvc.perform(post("/api/collections/7/icon;trace=1"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/collections/7/icon;trace=1")
+                        .header(HttpHeaders.ORIGIN, "http://localhost"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("非上传写请求不受该过滤器影响")
     void unprotectedPostPassesThrough() throws Exception {
         MockHttpServletRequest request = request("POST", "/api/download/pixiv");
@@ -150,5 +172,14 @@ class CsrfProtectionFilterTest {
         request.setServerPort(8080);
         request.setRemoteAddr("192.168.1.100");
         return request;
+    }
+
+    @RestController
+    private static final class CollectionIconProbeController {
+
+        @PostMapping("/api/collections/{collectionId}/icon")
+        String upload(@PathVariable long collectionId) {
+            return Long.toString(collectionId);
+        }
     }
 }

@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
@@ -77,7 +78,11 @@ public class PluginQuiesceGate extends OncePerRequestFilter {
         if (method == null) {
             return false;
         }
-        Optional<RouteAccessRegistry.RegisteredRoute> owner = safeResolve(req.getRequestURI(), method);
+        Optional<String> path = SafeRequestPath.resolve(req);
+        if (path.isEmpty()) {
+            return true;
+        }
+        Optional<RouteAccessRegistry.RegisteredRoute> owner = safeResolve(path.get(), method);
         return owner.isPresent() && lifecycleState.isQuiesced(owner.get().pluginId());
     }
 
@@ -107,7 +112,7 @@ public class PluginQuiesceGate extends OncePerRequestFilter {
         res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
         res.setHeader(HttpHeaders.RETRY_AFTER, "30");
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        String path = req.getRequestURI();
+        String path = SafeRequestPath.resolve(req).orElse(req.getRequestURI());
         if (path != null && path.startsWith("/api/")) {
             res.setContentType(MediaType.APPLICATION_JSON_VALUE);
             res.getWriter().write(objectMapper.writeValueAsString(new ErrorResponse(message)));

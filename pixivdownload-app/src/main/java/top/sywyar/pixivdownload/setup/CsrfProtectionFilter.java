@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
@@ -59,7 +60,7 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
 
     static boolean requiresSameOriginCheck(HttpServletRequest request) {
         String method = request.getMethod();
-        String path = request.getRequestURI();
+        String path = SafeRequestPath.resolve(request).orElse(null);
         if (method == null || path == null) {
             return false;
         }

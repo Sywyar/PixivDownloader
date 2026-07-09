@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
@@ -275,13 +276,19 @@ public class AuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res,
                                     FilterChain chain) throws IOException, ServletException {
-        String path = req.getRequestURI();
         String method = req.getMethod();
 
         if ("OPTIONS".equalsIgnoreCase(method)) {
             chain.doFilter(req, res);
             return;
         }
+
+        Optional<String> safePath = SafeRequestPath.resolve(req);
+        if (safePath.isEmpty()) {
+            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+        String path = safePath.get();
 
         // 容器探针端点：health / info 永远放行，且置于维护窗口与限流检查之前，
         // 确保维护期间探针不会因 503 而被编排器误判为不健康。仅这两个端点对外暴露

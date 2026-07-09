@@ -153,6 +153,29 @@ class RecoveryModeGateTest {
     }
 
     @Test
+    @DisplayName("恢复入口带矩阵参数时按规范路径放行到后续鉴权")
+    void recoveryEntryWithMatrixParametersUsesCanonicalPath() throws Exception {
+        request.setMethod("GET");
+        request.setRequestURI("/api/plugins/status;trace=1");
+
+        activeGate().doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("编码矩阵分隔符无法安全规范化时恢复模式拒绝请求")
+    void encodedMatrixDelimiterFailsClosed() throws Exception {
+        request.setMethod("GET");
+        request.setRequestURI("/api/plugins/status%3Btrace=1");
+
+        activeGate().doFilterInternal(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
     @DisplayName("恢复模式下 API 油猴脚本入口被拦截：返回 503 JSON")
     void blocksApiUserscriptEntry() throws Exception {
         request.setMethod("GET");
