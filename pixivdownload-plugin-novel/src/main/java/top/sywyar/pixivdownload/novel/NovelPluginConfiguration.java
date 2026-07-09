@@ -58,6 +58,7 @@ import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryDataProvider;
+import top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryCapabilityProvider;
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
@@ -321,6 +322,15 @@ public class NovelPluginConfiguration {
     public PixivNovelGalleryDataProvider pixivNovelGalleryDataProvider(WorkQueryService workQueryService,
                                                                        WorkMetadataRepository workMetadataRepository) {
         return new PixivNovelGalleryDataProvider(workQueryService, workMetadataRepository);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
+    public PixivNovelGalleryCapabilityProvider pixivNovelGalleryCapabilityProvider(
+            PixivNovelGalleryDataProvider legacyProvider,
+            WorkMetadataRepository workMetadataRepository,
+            NovelDatabase novelDatabase) {
+        return new PixivNovelGalleryCapabilityProvider(legacyProvider, workMetadataRepository, novelDatabase);
     }
 
     @Bean
