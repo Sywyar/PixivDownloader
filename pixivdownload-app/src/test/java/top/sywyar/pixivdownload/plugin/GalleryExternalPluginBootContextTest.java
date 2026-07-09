@@ -157,25 +157,30 @@ class GalleryExternalPluginBootContextTest {
                 .extracting(r -> r.route().pathPattern())
                 .containsExactlyInAnyOrder(
                         "/pixiv-gallery.html",
+                        "/unified-gallery.html",
                         "/pixiv-artwork.html",
                         "/pixiv-showcase.html",
                         "/pixiv-series.html",
                         "/pixiv-gallery/**",
+                        "/unified-gallery/**",
                         "/pixiv-artwork/**",
                         "/pixiv-showcase/**",
                         "/pixiv-series/**",
                         "/api/gallery/artwork**",
-                        "/api/gallery/tags**");
+                        "/api/gallery/tags**",
+                        "/api/gallery/unified/**");
         assertThat(staticResourceRegistry.resources())
                 .filteredOn(s -> s.pluginId().equals("gallery"))
                 .allSatisfy(s -> assertThat(s.classLoader()).isSameAs(externalCl))
                 .extracting(s -> s.contribution().publicPathPrefix())
                 .containsExactlyInAnyOrder(
                         "/pixiv-gallery.html",
+                        "/unified-gallery.html",
                         "/pixiv-artwork.html",
                         "/pixiv-showcase.html",
                         "/pixiv-series.html",
                         "/pixiv-gallery/",
+                        "/unified-gallery/",
                         "/pixiv-artwork/",
                         "/pixiv-showcase/",
                         "/pixiv-series/");
@@ -190,6 +195,8 @@ class GalleryExternalPluginBootContextTest {
         assertThat(webI18nBundleRegistry.resolve("series").classLoader()).isSameAs(externalCl);
 
         assertThat(externalCl.getResource("static/pixiv-gallery.html")).isNotNull();
+        assertThat(externalCl.getResource("static/unified-gallery.html")).isNotNull();
+        assertThat(externalCl.getResource("static/unified-gallery/unified-gallery.css")).isNotNull();
         assertThat(externalCl.getResource("static/pixiv-gallery/pixiv-gallery.css")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/gallery.properties")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-gallery.html")).isNull();
@@ -205,11 +212,11 @@ class GalleryExternalPluginBootContextTest {
         assertThat(landingRegistry.landings())
                 .filteredOn(landing -> landing.pluginId().equals("gallery"))
                 .singleElement()
-                .satisfies(landing -> assertThat(landing.landing().href()).isEqualTo("/pixiv-gallery.html"));
+                .satisfies(landing -> assertThat(landing.landing().href()).isEqualTo("/unified-gallery.html"));
         assertThat(startupRouteRegistry.startupRoutes())
                 .filteredOn(route -> route.pluginId().equals("gallery"))
                 .singleElement()
-                .satisfies(route -> assertThat(route.route().path()).isEqualTo("/pixiv-gallery.html"));
+                .satisfies(route -> assertThat(route.route().path()).isEqualTo("/unified-gallery.html"));
     }
 
     @Test
