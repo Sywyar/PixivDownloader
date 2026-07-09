@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
@@ -29,6 +30,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -281,6 +283,55 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("合集下载遍历 20 加 20 加 5 个作品并跨页按作品 ID 去重")
+    void collectionTraversesAllLogicalPagesAndDeduplicatesWorkIds() throws Exception {
+        FakeClient client = new FakeClient();
+        client.mapCollection("MixPaged", "mix-paged");
+        client.seriesPages = List.of(
+                works(1, 20, false),
+                works(21, 20, false),
+                concat(List.of(FakeClient.work("40")), works(41, 5, false)));
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        service.start(new DouyinDownloadRequest("https://v.douyin.com/MixPaged/", "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.seriesListCalls).isEqualTo(3);
+        assertThat(client.downloader.calls).isEqualTo(45);
+    }
+
+    @Test
+    @DisplayName("合集下载遇到只有重复作品的非末页时停止推进")
+    void collectionStopsWhenLogicalPageAddsNoWork() throws Exception {
+        FakeClient client = new FakeClient();
+        client.mapCollection("MixStalled", "mix-stalled");
+        client.seriesPages = List.of(List.of(FakeClient.work("1")), List.of(FakeClient.work("1")));
+        client.seriesNeverLast = true;
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        service.start(new DouyinDownloadRequest("https://v.douyin.com/MixStalled/", "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.seriesListCalls).isEqualTo(2);
+        assertThat(client.downloader.calls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("合集 100 上限按作品数而非媒体文件数计算")
+    void collectionLimitCountsWorksInsteadOfMediaFiles() throws Exception {
+        FakeClient client = new FakeClient();
+        client.mapCollection("MixLarge", "mix-large");
+        client.seriesPages = List.of(
+                works(1, 20, true), works(21, 20, true), works(41, 20, true),
+                works(61, 20, true), works(81, 20, true), works(101, 20, true));
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        service.start(new DouyinDownloadRequest("https://v.douyin.com/MixLarge/", "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.seriesListCalls).isEqualTo(5);
+        assertThat(client.downloader.calls).isEqualTo(100);
+        assertThat(client.downloader.downloadedFiles).isEqualTo(200);
+    }
+
+    @Test
     @DisplayName("媒体下载失败时返回明确错误 key")
     void mediaFailureProducesStatusFailure() throws Exception {
         FakeClient client = new FakeClient();
@@ -502,6 +553,21 @@ class DouyinDownloadServiceTest {
         return new RecordingHistoryService(repository);
     }
 
+    private static List<DouyinWork> works(int first, int count, boolean twoMedia) {
+        List<DouyinWork> works = new ArrayList<>();
+        for (int offset = 0; offset < count; offset++) {
+            String id = Integer.toString(first + offset);
+            works.add(twoMedia ? FakeClient.workWithTwoMedia(id) : FakeClient.work(id));
+        }
+        return List.copyOf(works);
+    }
+
+    private static List<DouyinWork> concat(List<DouyinWork> first, List<DouyinWork> second) {
+        List<DouyinWork> combined = new ArrayList<>(first);
+        combined.addAll(second);
+        return List.copyOf(combined);
+    }
+
     private static final class CapturingExecutor implements TaskExecutor {
         private final java.util.ArrayList<Runnable> tasks = new java.util.ArrayList<>();
 
@@ -522,6 +588,9 @@ class DouyinDownloadServiceTest {
         private final Map<String, String> collectionStableIds = new LinkedHashMap<>();
         private DouyinClientErrorCode resolveFailure;
         private List<DouyinWork> seriesWorks = List.of(work("s-default"));
+        private List<List<DouyinWork>> seriesPages;
+        private boolean seriesNeverLast;
+        private int seriesListCalls;
         private String lastSeriesId;
 
         void mapSingle(String token, String stableId) {
@@ -571,6 +640,16 @@ class DouyinDownloadServiceTest {
         @Override
         public DouyinListing listSeriesWorks(String seriesId, int page, int pageSize, String cookie) {
             lastSeriesId = seriesId;
+            seriesListCalls++;
+            if (seriesPages != null) {
+                List<DouyinWork> items = page > 0 && page <= seriesPages.size()
+                        ? seriesPages.get(page - 1)
+                        : List.of();
+                boolean lastPage = !seriesNeverLast && page >= seriesPages.size();
+                int total = lastPage ? seriesPages.stream().mapToInt(List::size).sum() : 0;
+                return new DouyinListing(items, total, page, pageSize, lastPage,
+                        "series:" + seriesId, seriesId, "owner");
+            }
             return new DouyinListing(seriesWorks, seriesWorks.size(), page, pageSize, true,
                     "series:" + seriesId, seriesId, "owner");
         }
@@ -602,12 +681,25 @@ class DouyinDownloadServiceTest {
             return new DouyinWork(id, "Title " + id, "author", "Author", "https://www.douyin.com/video/" + id,
                     "", URI.create("https://media.example/" + id + ".mp4"));
         }
+
+        private static DouyinWork workWithTwoMedia(String id) {
+            return new DouyinWork(id, "Title " + id, "author", "Author", "https://www.douyin.com/video/" + id,
+                    "", null,
+                    List.of(
+                            new DouyinMedia(id + "-image", DouyinMediaType.IMAGE,
+                                    URI.create("https://media.example/" + id + ".jpg"), id + "-image", "jpg", null, null),
+                            new DouyinMedia(id + "-video", DouyinMediaType.LIVE_PHOTO_VIDEO,
+                                    URI.create("https://media.example/" + id + ".mp4"), id + "-video", "mp4", null, null)),
+                    DouyinWorkKind.LIVE_PHOTO,
+                    null, null, null);
+        }
     }
 
     private static final class FakeMediaDownloader extends DouyinMediaDownloader {
         private Path lastDirectory;
         private Path lastTarget;
         private int calls;
+        private int downloadedFiles;
         private DouyinClientErrorCode failure;
 
         private FakeMediaDownloader() {
@@ -628,13 +720,18 @@ class DouyinDownloadServiceTest {
             }
             lastDirectory = directory;
             Files.createDirectories(directory);
-            DouyinMedia first = media == null || media.isEmpty()
-                    ? new DouyinMedia("fallback", DouyinMediaType.VIDEO,
-                    URI.create("https://media.example/fallback.mp4"), "fallback", "mp4", null, null)
-                    : media.get(0);
-            lastTarget = directory.resolve(first.fileNameStem() + "." + first.extension());
-            Files.writeString(lastTarget, "video-bytes", StandardCharsets.UTF_8);
-            return List.of(new DouyinDownloadedFile(lastTarget, 11));
+            List<DouyinMedia> candidates = media == null || media.isEmpty()
+                    ? List.of(new DouyinMedia("fallback", DouyinMediaType.VIDEO,
+                    URI.create("https://media.example/fallback.mp4"), "fallback", "mp4", null, null))
+                    : media;
+            List<DouyinDownloadedFile> downloaded = new ArrayList<>();
+            for (DouyinMedia candidate : candidates) {
+                lastTarget = directory.resolve(candidate.fileNameStem() + "." + candidate.extension());
+                Files.writeString(lastTarget, "video-bytes", StandardCharsets.UTF_8);
+                downloaded.add(new DouyinDownloadedFile(lastTarget, 11));
+            }
+            downloadedFiles += downloaded.size();
+            return List.copyOf(downloaded);
         }
     }
 

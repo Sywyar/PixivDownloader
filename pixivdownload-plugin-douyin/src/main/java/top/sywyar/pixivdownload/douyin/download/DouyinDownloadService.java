@@ -26,9 +26,11 @@ import top.sywyar.pixivdownload.douyin.settings.DouyinRuntimeSettings;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -305,10 +307,11 @@ public class DouyinDownloadService {
         status.phase = DouyinDownloadPhase.DOWNLOADING;
         status.messageKey = "douyin.status.downloading";
         List<DouyinDownloadedFile> all = new ArrayList<>();
+        Set<String> downloadedWorkIds = new LinkedHashSet<>();
         int page = 1;
         int collectionOrder = 0;
         boolean last = false;
-        while (!last && all.size() < 100) {
+        while (!last && downloadedWorkIds.size() < 100) {
             failIfCancelled(status);
             DouyinListing listing = status.runtime.client().listSeriesWorks(status.workId, page, 20, status.cookie);
             status.collectionId = status.workId;
@@ -316,7 +319,12 @@ public class DouyinDownloadService {
                 status.collectionTitle = listing.title();
                 status.title = listing.title();
             }
+            int downloadedBeforePage = downloadedWorkIds.size();
             for (DouyinWork work : listing.items()) {
+                if (work == null || work.id() == null || work.id().isBlank()
+                        || !downloadedWorkIds.add(work.id())) {
+                    continue;
+                }
                 failIfCancelled(status);
                 Path outputDirectory = outputDirectory(status, work);
                 List<DouyinDownloadedFile> files = status.runtime.mediaDownloader().download(
@@ -325,11 +333,12 @@ public class DouyinDownloadService {
                 recordHistory(status, work, outputDirectory, files, collectionOrder);
                 collectionOrder++;
                 all.addAll(files);
-                if (all.size() >= 100) {
+                if (downloadedWorkIds.size() >= 100) {
                     break;
                 }
             }
-            last = listing.lastPage() || listing.items().isEmpty();
+            last = listing.lastPage() || listing.items().isEmpty()
+                    || downloadedWorkIds.size() == downloadedBeforePage;
             page++;
         }
         return all;

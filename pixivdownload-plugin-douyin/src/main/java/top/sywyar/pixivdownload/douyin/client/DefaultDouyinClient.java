@@ -57,6 +57,7 @@ public class DefaultDouyinClient implements DouyinClient {
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final int DEFAULT_MIX_PAGE_SIZE = 20;
     private static final int MAX_MIX_ITEMS = 100;
+    private static final int MAX_MIX_CURSOR_PAGES = 100;
     private static final List<String> DETAIL_AID_CANDIDATES = List.of("6383", "1128");
 
     private final DouyinUrlParser parser;
@@ -143,49 +144,65 @@ public class DefaultDouyinClient implements DouyinClient {
     @Override
     public DouyinListing listSeriesWorks(String seriesId, int page, int pageSize, String cookie) throws DouyinClientException {
         int safePage = Math.max(1, page);
-        int safePageSize = pageSize > 0 ? Math.min(pageSize, DEFAULT_MIX_PAGE_SIZE) : DEFAULT_MIX_PAGE_SIZE;
+        int safePageSize = pageSize > 0 ? Math.min(pageSize, MAX_MIX_ITEMS) : DEFAULT_MIX_PAGE_SIZE;
         MixInfo mix = fetchMixInfo(seriesId, cookie);
-        List<DouyinWork> works = new ArrayList<>();
+        Map<String, DouyinWork> worksById = new LinkedHashMap<>();
         long cursor = 0L;
         Set<Long> seenCursors = new LinkedHashSet<>();
-        int accepted = 0;
         boolean hasMore = true;
-        while (hasMore && works.size() < Math.min(MAX_MIX_ITEMS, safePage * safePageSize)) {
+        boolean exhausted = false;
+        int fetchedPages = 0;
+        int requestedEnd = (int) Math.min(MAX_MIX_ITEMS, (long) safePage * safePageSize);
+        while (hasMore && worksById.size() < requestedEnd && fetchedPages < MAX_MIX_CURSOR_PAGES) {
             if (!seenCursors.add(cursor)) {
                 log.info("Douyin mix pagination stopped because cursor did not advance: mixId={}", safeId(seriesId));
+                exhausted = true;
                 break;
             }
-            MixPage pageData = fetchMixPage(seriesId, cursor, safePageSize, cookie);
+            MixPage pageData = fetchMixPage(seriesId, cursor, DEFAULT_MIX_PAGE_SIZE, cookie);
+            fetchedPages++;
             for (JsonNode item : pageData.items()) {
                 try {
                     DouyinWork work = workFromAweme(item, "https://www.douyin.com/video/" + text(item, "aweme_id"), mix.id(), mix.title());
-                    works.add(work);
-                    accepted++;
+                    worksById.putIfAbsent(work.id(), work);
                 } catch (DouyinClientException e) {
                     if (e.code() != DouyinClientErrorCode.MEDIA_URL_MISSING
                             && e.code() != DouyinClientErrorCode.UNSUPPORTED_CONTENT) {
                         throw e;
                     }
                 }
-                if (works.size() >= MAX_MIX_ITEMS) {
+                if (worksById.size() >= MAX_MIX_ITEMS) {
                     break;
                 }
             }
             hasMore = pageData.hasMore();
+            if (!hasMore) {
+                exhausted = true;
+                break;
+            }
+            if (pageData.items().isEmpty()) {
+                exhausted = true;
+                break;
+            }
             long next = pageData.nextCursor();
-            if (next <= 0 || next == cursor) {
+            if (next <= 0 || seenCursors.contains(next)) {
+                exhausted = true;
                 break;
             }
             cursor = next;
-            if (pageData.items().isEmpty()) {
-                break;
-            }
         }
-        int from = Math.min((safePage - 1) * safePageSize, works.size());
+        if (hasMore && worksById.size() < requestedEnd && fetchedPages >= MAX_MIX_CURSOR_PAGES) {
+            exhausted = true;
+            log.info("Douyin mix pagination stopped at the cursor page limit: mixId={}", safeId(seriesId));
+        }
+        List<DouyinWork> works = List.copyOf(worksById.values());
+        int from = (int) Math.min((long) (safePage - 1) * safePageSize, works.size());
         int to = Math.min(from + safePageSize, works.size());
         List<DouyinWork> slice = works.subList(from, to);
-        boolean last = !hasMore || to >= works.size() || works.size() >= MAX_MIX_ITEMS;
-        return new DouyinListing(slice, Math.max(accepted, works.size()), safePage, safePageSize, last,
+        boolean capped = works.size() >= MAX_MIX_ITEMS;
+        boolean last = exhausted || capped;
+        int total = last ? works.size() : 0;
+        return new DouyinListing(slice, total, safePage, safePageSize, last,
                 mix.title(), mix.id(), mix.ownerName());
     }
 

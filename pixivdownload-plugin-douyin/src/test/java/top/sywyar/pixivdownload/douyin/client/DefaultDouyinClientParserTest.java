@@ -228,6 +228,66 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
+    @DisplayName("合集逻辑分页以 20 条上游游标遍历并在耗尽前保持未知总数")
+    void mixLogicalPagesTraverseUpstreamChunks() throws Exception {
+        FakeRestTemplate firstPageRest = new FakeRestTemplate();
+        firstPageRest.enqueue(200, mixInfo());
+        firstPageRest.enqueue(200, mixPage(1, 20, true, 20));
+        DefaultDouyinClient firstPageClient = client(firstPageRest);
+
+        var firstPage = firstPageClient.listSeriesWorks("mix1", 1, 20, null);
+
+        assertThat(firstPage.items()).hasSize(20);
+        assertThat(firstPage.total()).isZero();
+        assertThat(firstPage.lastPage()).isFalse();
+        assertThat(firstPageRest.requests().get(1).getRawQuery()).contains("count=20");
+
+        FakeRestTemplate lastPageRest = new FakeRestTemplate();
+        lastPageRest.enqueue(200, mixInfo());
+        lastPageRest.enqueue(200, mixPage(1, 20, true, 20));
+        lastPageRest.enqueue(200, mixPage(21, 20, true, 40));
+        lastPageRest.enqueue(200, mixPage(41, 5, false, 0));
+        DefaultDouyinClient lastPageClient = client(lastPageRest);
+
+        var lastPage = lastPageClient.listSeriesWorks("mix1", 3, 20, null);
+
+        assertThat(lastPage.items()).extracting("id")
+                .containsExactly("8041", "8042", "8043", "8044", "8045");
+        assertThat(lastPage.total()).isEqualTo(45);
+        assertThat(lastPage.lastPage()).isTrue();
+        assertThat(lastPageRest.requests()).hasSize(4);
+        assertThat(lastPageRest.requests().subList(1, 4))
+                .allSatisfy(uri -> assertThat(uri.getRawQuery()).contains("count=20"));
+    }
+
+    @Test
+    @DisplayName("合集分页遇到重复游标或空页时安全终止")
+    void mixPaginationStopsOnStalledCursorOrEmptyPage() throws Exception {
+        FakeRestTemplate stalledRest = new FakeRestTemplate();
+        stalledRest.enqueue(200, mixInfo());
+        stalledRest.enqueue(200, mixPage(1, 1, true, 7));
+        stalledRest.enqueue(200, mixPage(2, 1, true, 7));
+
+        var stalled = client(stalledRest).listSeriesWorks("mix1", 2, 1, null);
+
+        assertThat(stalled.items()).extracting("id").containsExactly("8002");
+        assertThat(stalled.total()).isEqualTo(2);
+        assertThat(stalled.lastPage()).isTrue();
+        assertThat(stalledRest.requests()).hasSize(3);
+
+        FakeRestTemplate emptyRest = new FakeRestTemplate();
+        emptyRest.enqueue(200, mixInfo());
+        emptyRest.enqueue(200, mixPage(1, 0, true, 9));
+
+        var empty = client(emptyRest).listSeriesWorks("mix1", 1, 20, null);
+
+        assertThat(empty.items()).isEmpty();
+        assertThat(empty.total()).isZero();
+        assertThat(empty.lastPage()).isTrue();
+        assertThat(emptyRest.requests()).hasSize(2);
+    }
+
+    @Test
     @DisplayName("短链先经 resolver 展开后再解析最终 URL")
     void resolvesShortLinkBeforeParsing() throws Exception {
         var rest = new FakeRestTemplate();
@@ -290,6 +350,34 @@ class DefaultDouyinClientParserTest {
         DouyinUrlParser parser = new DouyinUrlParser();
         return new DefaultDouyinClient(parser, rest,
                 (input, cookie) -> parser.parse(input).orElseThrow());
+    }
+
+    private static DefaultDouyinClient client(FakeRestTemplate rest) {
+        DouyinUrlParser parser = new DouyinUrlParser();
+        return new DefaultDouyinClient(parser, rest,
+                (input, cookie) -> parser.parse(input).orElseThrow());
+    }
+
+    private static String mixInfo() {
+        return """
+                {"status_code":0,"mix_info":{"mix_name":"Mix title","author":{"nickname":"Owner"}}}
+                """;
+    }
+
+    private static String mixPage(int first, int count, boolean hasMore, long nextCursor) {
+        StringBuilder items = new StringBuilder();
+        for (int index = 0; index < count; index++) {
+            if (!items.isEmpty()) {
+                items.append(',');
+            }
+            int id = 8000 + first + index;
+            items.append("{\"aweme_id\":\"").append(id)
+                    .append("\",\"desc\":\"Work ").append(id)
+                    .append("\",\"video\":{\"play_addr\":{\"url_list\":[\"https://v3.douyinvod.com/")
+                    .append(id).append(".mp4\"]}}}");
+        }
+        return "{\"status_code\":0,\"has_more\":" + (hasMore ? 1 : 0)
+                + ",\"max_cursor\":" + nextCursor + ",\"aweme_list\":[" + items + "]}";
     }
 
     private static String resolveTitle(String awemeJson) throws Exception {
