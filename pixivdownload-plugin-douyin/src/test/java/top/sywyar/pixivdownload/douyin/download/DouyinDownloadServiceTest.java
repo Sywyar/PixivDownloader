@@ -56,7 +56,7 @@ class DouyinDownloadServiceTest {
 
         var response = service.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/7351234567890123456", "", VALID_COOKIE), "owner-a");
-        DouyinDownloadSnapshot status = service.status(response.id()).orElseThrow();
+        DouyinDownloadSnapshot status = service.status(response.id(), "owner-a", false).orElseThrow();
 
         assertThat(response.workId()).isEqualTo("7351234567890123456");
         assertThat(response.id()).isNotEqualTo("d7351234567890123456");
@@ -79,11 +79,12 @@ class DouyinDownloadServiceTest {
 
         assertThat(response.workId()).isEqualTo("7351234567890123456");
         assertThat(response.workId()).doesNotContain("XUyPmdu7naU");
-        assertThat(service.status(response.id()).orElseThrow().workId()).isEqualTo("7351234567890123456");
+        assertThat(service.status(response.id(), "owner-a", false).orElseThrow().workId())
+                .isEqualTo("7351234567890123456");
     }
 
     @Test
-    @DisplayName("普通链接和短链解析到同一 aweme_id 时共享同一状态")
+    @DisplayName("同一 owner 的普通链接和短链解析到同一 aweme_id 时共享状态")
     void normalAndShortUrlShareSameRunningStatus() throws Exception {
         FakeClient client = new FakeClient();
         client.mapSingle("ShortSame", "10001");
@@ -93,7 +94,7 @@ class DouyinDownloadServiceTest {
         var first = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-a");
         var second = service.start(new DouyinDownloadRequest("https://v.douyin.com/ShortSame/", "", VALID_COOKIE),
-                "owner-b");
+                "owner-a");
 
         assertThat(second.id()).isEqualTo(first.id());
         assertThat(second.workId()).isEqualTo("10001");
@@ -102,8 +103,8 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
-    @DisplayName("两个 owner 同时提交同一 aweme_id 只触发一次媒体下载")
-    void twoOwnersShareOneMediaDownload() throws Exception {
+    @DisplayName("不同 owner 同时提交同一 aweme_id 时状态与下载相互隔离")
+    void twoOwnersUseIndependentDownloads() throws Exception {
         FakeClient client = new FakeClient();
         CapturingExecutor executor = new CapturingExecutor();
         DouyinDownloadService service = service(client, executor);
@@ -113,15 +114,18 @@ class DouyinDownloadServiceTest {
         var second = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-b");
 
-        assertThat(second.id()).isEqualTo(first.id());
+        assertThat(second.id()).isNotEqualTo(first.id());
+        assertThat(service.status(first.id(), "owner-b", false)).isEmpty();
+        assertThat(service.status(second.id(), "owner-a", false)).isEmpty();
         executor.runAll();
-        assertThat(client.downloader.calls).isEqualTo(1);
-        assertThat(service.status(first.id()).orElseThrow().phase()).isEqualTo(DouyinDownloadPhase.COMPLETED);
+        assertThat(client.downloader.calls).isEqualTo(2);
+        assertThat(service.status(first.id(), "owner-a", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.COMPLETED);
     }
 
     @Test
-    @DisplayName("第二个参与者取消只移除参与关系，不取消底层下载")
-    void participantCancelDoesNotCancelUnderlyingDownload() throws Exception {
+    @DisplayName("一个 owner 取消同作品任务不影响另一 owner 的下载")
+    void ownerCancelDoesNotAffectAnotherOwner() throws Exception {
         FakeClient client = new FakeClient();
         CapturingExecutor executor = new CapturingExecutor();
         DouyinDownloadService service = service(client, executor);
@@ -129,7 +133,7 @@ class DouyinDownloadServiceTest {
 
         var first = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-a");
-        service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
+        var second = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-b");
 
         queue.cancel(10001L, "owner-b", false);
@@ -138,11 +142,14 @@ class DouyinDownloadServiceTest {
         assertThat(service.active("owner-a", false)).extracting(DouyinDownloadSnapshot::id).containsExactly(first.id());
         executor.runAll();
         assertThat(client.downloader.calls).isEqualTo(1);
-        assertThat(service.status(first.id()).orElseThrow().phase()).isEqualTo(DouyinDownloadPhase.COMPLETED);
+        assertThat(service.status(first.id(), "owner-a", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.COMPLETED);
+        assertThat(service.status(second.id(), "owner-b", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.CANCELLED);
     }
 
     @Test
-    @DisplayName("发起者或管理员取消会取消底层下载")
+    @DisplayName("owner 只能取消自身任务而管理员可取消任意任务")
     void initiatorOrAdminCancelCancelsUnderlyingDownload() throws Exception {
         FakeClient initiatorClient = new FakeClient();
         CapturingExecutor initiatorExecutor = new CapturingExecutor();
@@ -150,15 +157,18 @@ class DouyinDownloadServiceTest {
         DouyinQueueOperations initiatorQueue = new DouyinQueueOperations(initiatorService);
         var initiatorResponse = initiatorService.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/10001", "", VALID_COOKIE), "owner-a");
-        initiatorService.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
+        var otherOwnerResponse = initiatorService.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-b");
 
         initiatorQueue.cancel(10001L, "owner-a", false);
         initiatorExecutor.runAll();
 
-        assertThat(initiatorClient.downloader.calls).isZero();
-        assertThat(initiatorService.status(initiatorResponse.id()).orElseThrow().phase())
+        assertThat(initiatorClient.downloader.calls).isEqualTo(1);
+        assertThat(initiatorService.status(initiatorResponse.id(), "owner-a", false).orElseThrow().phase())
                 .isEqualTo(DouyinDownloadPhase.CANCELLED);
+        assertThat(initiatorService.status(otherOwnerResponse.id(), "owner-b", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.COMPLETED);
 
         FakeClient adminClient = new FakeClient();
         CapturingExecutor adminExecutor = new CapturingExecutor();
@@ -171,12 +181,12 @@ class DouyinDownloadServiceTest {
         adminExecutor.runAll();
 
         assertThat(adminClient.downloader.calls).isZero();
-        assertThat(adminService.status(adminResponse.id()).orElseThrow().phase())
+        assertThat(adminService.status(adminResponse.id(), null, true).orElseThrow().phase())
                 .isEqualTo(DouyinDownloadPhase.CANCELLED);
     }
 
     @Test
-    @DisplayName("共享任务终态后从运行索引移除，再次提交创建新状态")
+    @DisplayName("同一 owner 的任务终态后从运行索引移除，再次提交创建新状态")
     void terminalJobIsRemovedFromRunningIndex() throws Exception {
         FakeClient client = new FakeClient();
         DouyinDownloadService service = service(client, Runnable::run);
@@ -184,24 +194,26 @@ class DouyinDownloadServiceTest {
         var first = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-a");
         var second = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
-                "owner-b");
+                "owner-a");
 
-        assertThat(service.status(first.id()).orElseThrow().phase()).isEqualTo(DouyinDownloadPhase.COMPLETED);
+        assertThat(service.status(first.id(), "owner-a", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.COMPLETED);
         assertThat(second.id()).isNotEqualTo(first.id());
         assertThat(second.workId()).isEqualTo("10001");
         assertThat(client.downloader.calls).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("active 只向普通 owner 返回参与任务，管理员返回所有运行任务")
-    void activeFiltersByParticipantsUnlessAdmin() throws Exception {
+    @DisplayName("active 只向普通 owner 返回自身任务，管理员返回全部任务")
+    void activeFiltersByOwnerUnlessAdmin() throws Exception {
         FakeClient client = new FakeClient();
         CapturingExecutor executor = new CapturingExecutor();
         DouyinDownloadService service = service(client, executor);
 
         var shared = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-a");
-        service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
+        var sameWorkOtherOwner = service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-b");
         var other = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10002", "", VALID_COOKIE),
                 "owner-c");
@@ -209,12 +221,12 @@ class DouyinDownloadServiceTest {
         assertThat(service.active("owner-a", false)).extracting(DouyinDownloadSnapshot::id)
                 .containsExactly(shared.id());
         assertThat(service.active("owner-b", false)).extracting(DouyinDownloadSnapshot::id)
-                .containsExactly(shared.id());
+                .containsExactly(sameWorkOtherOwner.id());
         assertThat(service.active("owner-c", false)).extracting(DouyinDownloadSnapshot::id)
                 .containsExactly(other.id());
         assertThat(service.active("owner-x", false)).isEmpty();
         assertThat(service.active(null, true)).extracting(DouyinDownloadSnapshot::id)
-                .containsExactlyInAnyOrder(shared.id(), other.id());
+                .containsExactlyInAnyOrder(shared.id(), sameWorkOtherOwner.id(), other.id());
     }
 
     @Test
@@ -227,7 +239,7 @@ class DouyinDownloadServiceTest {
 
         var response = service.start(new DouyinDownloadRequest(originalInput, "", VALID_COOKIE),
                 "owner-sensitive");
-        DouyinDownloadSnapshot snapshot = service.status(response.id()).orElseThrow();
+        DouyinDownloadSnapshot snapshot = service.status(response.id(), "owner-sensitive", false).orElseThrow();
 
         assertThat(List.of(DouyinDownloadSnapshot.class.getRecordComponents())
                 .stream()
@@ -277,7 +289,7 @@ class DouyinDownloadServiceTest {
 
         var response = service.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/7351234567890123456", "", VALID_COOKIE), "owner-a");
-        DouyinDownloadSnapshot status = service.status(response.id()).orElseThrow();
+        DouyinDownloadSnapshot status = service.status(response.id(), "owner-a", false).orElseThrow();
 
         assertThat(status.phase()).isEqualTo(DouyinDownloadPhase.FAILED);
         assertThat(status.errorCode()).isEqualTo("NETWORK_ERROR");
@@ -327,10 +339,11 @@ class DouyinDownloadServiceTest {
 
         queue.cancel(10001L, "owner-a", false);
         executor.runAll();
-        assertThat(service.status(first.id()).orElseThrow().phase()).isEqualTo(DouyinDownloadPhase.CANCELLED);
+        assertThat(service.status(first.id(), "owner-a", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.CANCELLED);
 
         assertThat(queue.clearForOwner("owner-b")).isEqualTo(1);
-        assertThat(service.status(second.id())).isEmpty();
+        assertThat(service.status(second.id(), "owner-b", false)).isEmpty();
 
         service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10003", "third", VALID_COOKIE), "owner-a");
         assertThat(queue.clearAll()).isGreaterThanOrEqualTo(1);
@@ -471,7 +484,7 @@ class DouyinDownloadServiceTest {
 
         var response = service.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/7351234567890123456", "", VALID_COOKIE), "owner-a");
-        DouyinDownloadSnapshot status = service.status(response.id()).orElseThrow();
+        DouyinDownloadSnapshot status = service.status(response.id(), "owner-a", false).orElseThrow();
 
         assertThat(status.phase()).isEqualTo(DouyinDownloadPhase.COMPLETED);
         assertThat(status.completed()).isTrue();

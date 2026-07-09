@@ -54,7 +54,8 @@ public class DouyinController {
                                       HttpServletRequest httpRequest) {
         try {
             requireSecureCredentialTransport(httpRequest, request == null ? null : request.cookie());
-            String ownerUuid = UuidUtils.extractOrGenerateUuid(httpRequest);
+            String ownerUuid = setupService.hasAdminScope(httpRequest)
+                    ? null : UuidUtils.extractOrGenerateUuid(httpRequest);
             DouyinStartResponse response = downloadService.start(request, ownerUuid);
             return ResponseEntity.accepted().body(response);
         } catch (DouyinClientException e) {
@@ -63,8 +64,11 @@ public class DouyinController {
     }
 
     @GetMapping("/status/{id}")
-    public ResponseEntity<DouyinDownloadSnapshot> status(@PathVariable String id) {
-        return downloadService.status(id)
+    public ResponseEntity<DouyinDownloadSnapshot> status(@PathVariable String id,
+                                                         HttpServletRequest request) {
+        boolean admin = setupService.hasAdminScope(request);
+        String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
+        return downloadService.status(id, ownerUuid, admin)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }

@@ -29,7 +29,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -49,7 +48,7 @@ public class DouyinDownloadService {
     private final DouyinPluginSettingsService settingsService;
     private final DouyinHistoryService historyService;
     private final ConcurrentMap<String, MutableStatus> statuses = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, String> runningStatusIds = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskIdentity, String> runningStatusIds = new ConcurrentHashMap<>();
     private final Object runningLock = new Object();
 
     public DouyinDownloadService(DouyinUrlParser parser,
@@ -133,20 +132,21 @@ public class DouyinDownloadService {
         DouyinRuntimeSettings runtimeSettings = settingsService.runtimeSettings();
         RuntimePair runtime = runtimeFor(runtimeSettings.proxyMode());
         DouyinCanonicalDownload canonical = runtime.client().resolveDownload(input, cookie);
+        String ownerScope = normalizeOwnerScope(ownerUuid);
+        TaskIdentity identity = new TaskIdentity(ownerScope, canonical.stableKey());
         MutableStatus status;
         synchronized (runningLock) {
-            String runningStatusId = runningStatusIds.get(canonical.stableKey());
+            String runningStatusId = runningStatusIds.get(identity);
             MutableStatus running = runningStatusId == null ? null : statuses.get(runningStatusId);
             if (running != null && running.isRunning()) {
-                running.addParticipant(ownerUuid);
                 return new DouyinStartResponse(true, running.id, running.workId, running.messageKey);
             }
             if (runningStatusId != null) {
-                runningStatusIds.remove(canonical.stableKey(), runningStatusId);
+                runningStatusIds.remove(identity, runningStatusId);
             }
             String statusId = UUID.randomUUID().toString();
-            status = new MutableStatus(statusId, canonical.stableKey(), canonical.kind(),
-                    canonical.stableId(), ownerUuid, numericId(canonical.stableId()));
+            status = new MutableStatus(statusId, identity, canonical.kind(),
+                    canonical.stableId(), numericId(canonical.stableId()));
             status.title = safeTitle(request == null ? null : request.title(), canonical.stableId());
             status.originalInput = input;
             status.canonicalUrl = canonical.canonicalUrl();
@@ -159,21 +159,23 @@ public class DouyinDownloadService {
             status.runtime = runtime;
             status.downloadDirectory = runtimeSettings.downloadDirectory();
             statuses.put(statusId, status);
-            runningStatusIds.put(canonical.stableKey(), statusId);
+            runningStatusIds.put(identity, statusId);
         }
         downloadTaskExecutor.execute(() -> run(status));
         return new DouyinStartResponse(true, status.id, status.workId, "douyin.status.queued");
     }
 
-    public Optional<DouyinDownloadSnapshot> status(String id) {
+    public Optional<DouyinDownloadSnapshot> status(String id, String ownerUuid, boolean admin) {
         MutableStatus status = statuses.get(id);
-        return status == null ? Optional.empty() : Optional.of(status.snapshot());
+        return status == null || (!admin && !status.ownedBy(normalizeOwnerScope(ownerUuid)))
+                ? Optional.empty()
+                : Optional.of(status.snapshot());
     }
 
     public List<DouyinDownloadSnapshot> active(String ownerUuid, boolean admin) {
         return statuses.values().stream()
                 .filter(MutableStatus::isRunning)
-                .filter(status -> admin || status.hasParticipant(ownerUuid))
+                .filter(status -> admin || status.ownedBy(normalizeOwnerScope(ownerUuid)))
                 .map(MutableStatus::snapshot)
                 .toList();
     }
@@ -208,25 +210,27 @@ public class DouyinDownloadService {
     }
 
     public int clearForOwner(String ownerUuid) {
+        String ownerScope = normalizeOwnerScope(ownerUuid);
         int cleared = 0;
         for (MutableStatus status : List.copyOf(statuses.values())) {
-            if (!status.hasParticipant(ownerUuid)) {
+            if (!status.ownedBy(ownerScope)) {
                 continue;
             }
             cleared++;
-            if (status.clearForOwner(ownerUuid)) {
-                removeStatus(status);
-            }
+            status.cancel();
+            removeStatus(status);
         }
         return cleared;
     }
 
     public void cancel(long numericWorkId, String ownerUuid, boolean admin) {
+        String ownerScope = normalizeOwnerScope(ownerUuid);
         statuses.values().stream()
                 .filter(status -> status.numericId == numericWorkId)
                 .forEach(status -> {
-                    if (status.cancelFor(ownerUuid, admin)) {
-                        runningStatusIds.remove(status.stableKey, status.id);
+                    if (admin || status.ownedBy(ownerScope)) {
+                        status.cancel();
+                        runningStatusIds.remove(status.identity, status.id);
                     }
                 });
     }
@@ -271,7 +275,7 @@ public class DouyinDownloadService {
             status.messageKey = "douyin.error.unknown";
             log.warn("Douyin download failed unexpectedly: statusId={}", status.id, e);
         } finally {
-            runningStatusIds.remove(status.stableKey, status.id);
+            runningStatusIds.remove(status.identity, status.id);
         }
     }
 
@@ -348,9 +352,7 @@ public class DouyinDownloadService {
     }
 
     private Path outputDirectory(MutableStatus status, DouyinWork work) {
-        String owner = status.initiatorOwnerUuid == null || status.initiatorOwnerUuid.isBlank()
-                ? "admin"
-                : sanitize(status.initiatorOwnerUuid);
+        String owner = sanitize(status.identity.ownerScope());
         Path ownerDirectory = status.downloadDirectory.resolve(owner).normalize();
         String collectionTitle = firstNonBlank(status.collectionTitle, work.collectionTitle());
         if (collectionTitle != null) {
@@ -428,11 +430,14 @@ public class DouyinDownloadService {
 
     private void removeStatus(MutableStatus status) {
         statuses.remove(status.id, status);
-        runningStatusIds.remove(status.stableKey, status.id);
+        runningStatusIds.remove(status.identity, status.id);
     }
 
-    private static boolean equalsNullable(String left, String right) {
-        return left == null ? right == null : left.equals(right);
+    private static String normalizeOwnerScope(String ownerUuid) {
+        return ownerUuid == null || ownerUuid.isBlank() ? "admin" : ownerUuid.trim();
+    }
+
+    private record TaskIdentity(String ownerScope, String stableKey) {
     }
 
     private record RuntimePair(DouyinClient client, DouyinMediaDownloader mediaDownloader) {
@@ -446,11 +451,9 @@ public class DouyinDownloadService {
 
     private static final class MutableStatus {
         private final String id;
-        private final String stableKey;
+        private final TaskIdentity identity;
         private final DouyinCanonicalKind kind;
         private final String workId;
-        private final String initiatorOwnerUuid;
-        private final Set<String> participants = ConcurrentHashMap.newKeySet();
         private final long numericId;
         private volatile String originalInput;
         private volatile String canonicalUrl;
@@ -468,18 +471,15 @@ public class DouyinDownloadService {
         private volatile boolean cancelled;
 
         private MutableStatus(String id,
-                              String stableKey,
+                              TaskIdentity identity,
                               DouyinCanonicalKind kind,
                               String workId,
-                              String initiatorOwnerUuid,
                               long numericId) {
             this.id = id;
-            this.stableKey = stableKey;
+            this.identity = identity;
             this.kind = kind;
             this.workId = workId;
-            this.initiatorOwnerUuid = initiatorOwnerUuid;
             this.numericId = numericId;
-            addParticipant(initiatorOwnerUuid);
         }
 
         private void cancel() {
@@ -490,46 +490,8 @@ public class DouyinDownloadService {
             }
         }
 
-        private boolean cancelFor(String ownerUuid, boolean admin) {
-            if (admin || isInitiator(ownerUuid)) {
-                cancel();
-                return true;
-            }
-            if (removeParticipant(ownerUuid) && participants.isEmpty()) {
-                cancel();
-                return true;
-            }
-            return false;
-        }
-
-        private boolean clearForOwner(String ownerUuid) {
-            boolean removed = removeParticipant(ownerUuid);
-            if (!removed) {
-                return false;
-            }
-            if (isInitiator(ownerUuid) || participants.isEmpty()) {
-                cancel();
-                return true;
-            }
-            return false;
-        }
-
-        private void addParticipant(String ownerUuid) {
-            if (ownerUuid != null && !ownerUuid.isBlank()) {
-                participants.add(ownerUuid);
-            }
-        }
-
-        private boolean removeParticipant(String ownerUuid) {
-            return ownerUuid != null && !ownerUuid.isBlank() && participants.remove(ownerUuid);
-        }
-
-        private boolean hasParticipant(String ownerUuid) {
-            return ownerUuid != null && !ownerUuid.isBlank() && participants.contains(ownerUuid);
-        }
-
-        private boolean isInitiator(String ownerUuid) {
-            return equalsNullable(initiatorOwnerUuid, ownerUuid);
+        private boolean ownedBy(String ownerScope) {
+            return identity.ownerScope().equals(ownerScope);
         }
 
         private boolean isRunning() {
