@@ -809,6 +809,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         if (!errors.isEmpty()) {
             log.warn(logMessage("gui.config.log.validation-failed", String.join("; ", errors)));
             showNotice(message("gui.config.notice.validation-failed"));
+            JOptionPane.showMessageDialog(this,
+                    message("gui.config.dialog.validation-failed.message", String.join("\n", errors)),
+                    message("gui.config.dialog.validation-failed.title"),
+                    JOptionPane.WARNING_MESSAGE);
             if (firstInvalidField != null) {
                 firstInvalidField.control().requestFocusInWindow();
                 firstInvalidField.panel().scrollRectToVisible(new Rectangle(
@@ -839,7 +843,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         Set<String> changedKeys = changedKeys(before, values);
-        boolean hasHotReloadChanges = hasChangedField(changedKeys, false);
+        Set<String> hotReloadKeys = changedFieldKeys(changedKeys, false);
+        boolean hasHotReloadChanges = !hotReloadKeys.isEmpty();
         boolean hasRestartRequiredChanges = hasChangedField(changedKeys, true);
 
         // 下载根目录原本以符号根（跟随软件目录）方式记录时，改目录前必须先把旧记录固定为绝对路径，
@@ -863,7 +868,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             log.info(logMessage("gui.config.log.saved", configPath));
             if (hasHotReloadChanges) {
                 showNotice(message("gui.config.notice.hot-reloading"));
-                reloadHotConfigAsync(restartRequired);
+                reloadHotConfigAsync(restartRequired, hotReloadKeys);
             } else {
                 showNotice(message(restartRequired
                         ? "gui.config.notice.saved"
@@ -1235,12 +1240,17 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private boolean hasChangedField(Set<String> changedKeys, boolean requiresRestart) {
+        return !changedFieldKeys(changedKeys, requiresRestart).isEmpty();
+    }
+
+    private Set<String> changedFieldKeys(Set<String> changedKeys, boolean requiresRestart) {
+        Set<String> keys = new LinkedHashSet<>();
         for (ConfigFieldSpec spec : allFields) {
             if (spec.requiresRestart() == requiresRestart && changedKeys.contains(spec.key())) {
-                return true;
+                keys.add(spec.key());
             }
         }
-        return false;
+        return keys;
     }
 
     private static String normalizeValue(String value) {
@@ -1284,11 +1294,18 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return false;
     }
 
-    private void reloadHotConfigAsync(boolean hasRestartRequiredChanges) {
+    private void reloadHotConfigAsync(boolean hasRestartRequiredChanges, Set<String> hotReloadKeys) {
         SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
             @Override
             protected Boolean doInBackground() {
-                return testClient.post("config/reload", 5000);
+                try {
+                    GuiConfigTestClient.Response response = testClient.postJson("config/reload",
+                            MAPPER.writeValueAsBytes(Map.of("changedKeys", hotReloadKeys)), 5000);
+                    return response.reachable() && response.is2xx();
+                } catch (IOException e) {
+                    log.warn(logMessage("gui.config.log.hot-reload-failed", e.getMessage()));
+                    return false;
+                }
             }
 
             @Override

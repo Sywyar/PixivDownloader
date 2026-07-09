@@ -138,13 +138,16 @@ public class GuiStatusController {
     }
 
     @PostMapping("/config/reload")
-    public ResponseEntity<GuiConfigReloadResponse> reloadConfig(HttpServletRequest req) {
+    public ResponseEntity<GuiConfigReloadResponse> reloadConfig(
+            @RequestBody(required = false) GuiConfigReloadRequest body,
+            HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
         try {
-            RuntimeConfigReloadService.ReloadResult result = runtimeConfigReloadService.reloadHotConfig();
+            RuntimeConfigReloadService.ReloadResult result = runtimeConfigReloadService.reloadHotConfig(
+                    body == null ? List.of() : body.changedKeys());
             return ResponseEntity.ok(new GuiConfigReloadResponse(true, result.appliedKeys(), "ok"));
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.hot-reload-failed", e.getMessage()));
@@ -259,6 +262,9 @@ public class GuiStatusController {
     }
 
     public record GuiChangePasswordResponse(boolean success, String error) {
+    }
+
+    public record GuiConfigReloadRequest(List<String> changedKeys) {
     }
 
     public record PixivConnectivityResponse(

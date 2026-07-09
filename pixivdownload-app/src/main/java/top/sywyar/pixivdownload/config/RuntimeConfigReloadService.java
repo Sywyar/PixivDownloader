@@ -2,10 +2,15 @@ package top.sywyar.pixivdownload.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.FileSystemResource;
@@ -19,6 +24,8 @@ import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;
@@ -26,14 +33,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.DayOfWeek;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RuntimeConfigReloadService {
+
+    private static final Pattern SAFE_CONFIG_KEY = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
     private final DownloadConfig downloadConfig;
     private final MultiModeConfig multiModeConfig;
@@ -45,8 +58,14 @@ public class RuntimeConfigReloadService {
     private final UpdateConfig updateConfig;
     private final NarrationTtsConfig narrationTtsConfig;
     private final NotificationConfig notificationConfig;
+    private final ObjectProvider<PluginLifecycleService> pluginLifecycleService;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
+        return reloadHotConfig(List.of());
+    }
+
+    public synchronized ReloadResult reloadHotConfig(List<String> changedKeys) throws IOException {
+        List<String> requestedChangedKeys = normalizeChangedKeys(changedKeys);
         Binder binder = loadBinder();
         DownloadConfig nextDownload = bind(binder, "download", DownloadConfig::new, DownloadConfig.class);
         MultiModeConfig nextMultiMode = bind(binder, "multi-mode", MultiModeConfig::new, MultiModeConfig.class);
@@ -70,9 +89,10 @@ public class RuntimeConfigReloadService {
         applyUpdateConfig(nextUpdate, applied);
         applyNarrationTtsConfig(nextNarrationTts, applied);
         applyNotificationConfig(nextNotification, applied);
+        rebindPluginConfig(binder, requestedChangedKeys, applied);
 
         if (!applied.isEmpty()) {
-            log.info("Hot reloaded config keys: {}", applied);
+            log.info(message("gui.config.log.hot-reloaded", applied));
         }
         return new ReloadResult(List.copyOf(applied));
     }
@@ -315,7 +335,100 @@ public class RuntimeConfigReloadService {
             return;
         }
         apply.run();
-        applied.add(key);
+        addAppliedKey(applied, key);
+    }
+
+    private void rebindPluginConfig(Binder binder, List<String> requestedChangedKeys, List<String> applied) {
+        if (requestedChangedKeys.isEmpty()) {
+            return;
+        }
+        PluginLifecycleService lifecycleService = pluginLifecycleService.getIfAvailable();
+        if (lifecycleService == null) {
+            return;
+        }
+
+        Set<String> reboundKeys = new LinkedHashSet<>();
+        for (String pluginId : lifecycleService.servingPluginIds()) {
+            lifecycleService.contextFor(pluginId)
+                    .ifPresent(context -> rebindPluginContext(binder, context, requestedChangedKeys, reboundKeys));
+        }
+        for (String key : requestedChangedKeys) {
+            if (reboundKeys.contains(key)) {
+                addAppliedKey(applied, key);
+            }
+        }
+    }
+
+    private static void rebindPluginContext(Binder binder,
+                                            ConfigurableApplicationContext context,
+                                            List<String> requestedChangedKeys,
+                                            Set<String> reboundKeys) {
+        if (context == null || !context.isActive()) {
+            return;
+        }
+        Map<String, Object> beans = context.getBeansWithAnnotation(ConfigurationProperties.class);
+        for (Object bean : beans.values()) {
+            String prefix = configurationPrefix(bean);
+            if (prefix == null) {
+                continue;
+            }
+            List<String> matchingKeys = requestedChangedKeys.stream()
+                    .filter(key -> keyMatchesPrefix(key, prefix))
+                    .toList();
+            if (matchingKeys.isEmpty()) {
+                continue;
+            }
+            binder.bind(prefix, Bindable.ofInstance(bean));
+            reboundKeys.addAll(matchingKeys);
+        }
+    }
+
+    private static String configurationPrefix(Object bean) {
+        if (bean == null) {
+            return null;
+        }
+        Class<?> targetClass = AopUtils.getTargetClass(bean);
+        ConfigurationProperties annotation =
+                AnnotatedElementUtils.findMergedAnnotation(targetClass, ConfigurationProperties.class);
+        if (annotation == null) {
+            return null;
+        }
+        String prefix = annotation.prefix();
+        if (prefix == null || prefix.isBlank()) {
+            prefix = annotation.value();
+        }
+        return prefix == null || prefix.isBlank() ? null : prefix.trim();
+    }
+
+    private static boolean keyMatchesPrefix(String key, String prefix) {
+        return key.equals(prefix) || key.startsWith(prefix + ".");
+    }
+
+    private static List<String> normalizeChangedKeys(List<String> changedKeys) {
+        if (changedKeys == null || changedKeys.isEmpty()) {
+            return List.of();
+        }
+        Set<String> safeKeys = new LinkedHashSet<>();
+        for (String key : changedKeys) {
+            if (key == null) {
+                continue;
+            }
+            String normalized = key.trim();
+            if (!normalized.isEmpty() && SAFE_CONFIG_KEY.matcher(normalized).matches()) {
+                safeKeys.add(normalized);
+            }
+        }
+        return List.copyOf(safeKeys);
+    }
+
+    private static void addAppliedKey(List<String> applied, String key) {
+        if (!applied.contains(key)) {
+            applied.add(key);
+        }
+    }
+
+    private static String message(String code, Object... args) {
+        return MessageBundles.get(code, args);
     }
 
     public record ReloadResult(List<String> appliedKeys) {}
