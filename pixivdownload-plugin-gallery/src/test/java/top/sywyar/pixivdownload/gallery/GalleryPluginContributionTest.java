@@ -29,7 +29,7 @@ class GalleryPluginContributionTest {
                 .singleElement()
                 .satisfies(route -> {
                     assertThat(route.pluginId()).isEqualTo("gallery");
-                    assertThat(route.path()).isEqualTo("/pixiv-gallery.html");
+                    assertThat(route.path()).isEqualTo("/unified-gallery.html");
                     assertThat(route.preferredContexts()).containsExactly(StartupRouteContext.SOLO);
                 });
     }
@@ -50,7 +50,7 @@ class GalleryPluginContributionTest {
                             NavigationPlacements.GUI_TRAY_ACTIONS);
                     assertThat(nav.labelNamespace()).isEqualTo("gallery");
                     assertThat(nav.labelI18nKey()).isEqualTo("gui.action.open");
-                    assertThat(nav.href()).isEqualTo("/pixiv-gallery.html");
+                    assertThat(nav.href()).isEqualTo("/unified-gallery.html");
                 });
         assertThat(plugin.navigation())
                 .filteredOn(nav -> nav.id().equals("gallery-invite-manage-back"))
@@ -59,7 +59,7 @@ class GalleryPluginContributionTest {
                     assertThat(nav.placements()).containsExactly(NavigationPlacements.INVITE_MANAGE_BACK);
                     assertThat(nav.labelNamespace()).isEqualTo("gallery");
                     assertThat(nav.labelI18nKey()).isEqualTo("invite.manage.back");
-                    assertThat(nav.href()).isEqualTo("/pixiv-gallery.html?view=all");
+                    assertThat(nav.href()).isEqualTo("/unified-gallery.html");
                 });
     }
 

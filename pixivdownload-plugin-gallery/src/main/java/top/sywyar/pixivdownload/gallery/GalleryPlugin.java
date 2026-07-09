@@ -167,12 +167,12 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                 new NavigationContribution(
                         "gallery-gui-open",
                         Set.of(NavigationPlacements.GUI_STATUS_ACTIONS, NavigationPlacements.GUI_TRAY_ACTIONS),
-                        "gallery", "gui.action.open", "/pixiv-gallery.html", "images",
+                        "gallery", "gui.action.open", "/unified-gallery.html", "images",
                         AccessPolicy.INVITED_GUEST, 33),
                 new NavigationContribution(
                         "gallery-invite-manage-back",
                         Set.of(NavigationPlacements.INVITE_MANAGE_BACK),
-                        "gallery", "invite.manage.back", "/pixiv-gallery.html?view=all", "images",
+                        "gallery", "invite.manage.back", "/unified-gallery.html", "images",
                         AccessPolicy.INVITED_GUEST, 33));
     }
 
