@@ -49,19 +49,25 @@ public class DouyinMediaDownloader {
 
     private final RestTemplate restTemplate;
     private final Predicate<String> mediaHostAllowed;
+    private final boolean allowHttpForTests;
 
     public DouyinMediaDownloader(RestTemplate restTemplate) {
-        this(restTemplate, DouyinMediaDownloader::defaultMediaHostAllowed);
+        this(restTemplate, DouyinMediaDownloader::defaultMediaHostAllowed, false);
     }
 
     DouyinMediaDownloader(RestTemplate restTemplate, Predicate<String> mediaHostAllowed) {
+        this(restTemplate, mediaHostAllowed, true);
+    }
+
+    private DouyinMediaDownloader(RestTemplate restTemplate, Predicate<String> mediaHostAllowed,
+                                  boolean allowHttpForTests) {
         this.restTemplate = restTemplate;
         this.mediaHostAllowed = mediaHostAllowed;
+        this.allowHttpForTests = allowHttpForTests;
     }
 
     public List<DouyinDownloadedFile> download(List<DouyinMedia> media,
                                                Path directory,
-                                               String cookie,
                                                BooleanSupplier cancellationRequested)
             throws IOException, DouyinClientException {
         if (media == null || media.isEmpty()) {
@@ -72,7 +78,7 @@ public class DouyinMediaDownloader {
         List<DouyinDownloadedFile> files = new ArrayList<>();
         for (int i = 0; i < media.size(); i++) {
             ensureNotCancelled(cancellationRequested);
-            files.add(downloadOne(media.get(i), i + 1, directory, cookie, cancellationRequested));
+            files.add(downloadOne(media.get(i), i + 1, directory, cancellationRequested));
         }
         return files;
     }
@@ -80,7 +86,6 @@ public class DouyinMediaDownloader {
     private DouyinDownloadedFile downloadOne(DouyinMedia media,
                                              int index,
                                              Path directory,
-                                             String cookie,
                                              BooleanSupplier cancellationRequested)
             throws IOException, DouyinClientException {
         validateMediaUrl(media.url());
@@ -93,7 +98,7 @@ public class DouyinMediaDownloader {
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 ensureNotCancelled(cancellationRequested);
                 try {
-                    DownloadResult result = executeDownload(media, tmp, cookie, cancellationRequested);
+                    DownloadResult result = executeDownload(media, tmp, cancellationRequested);
                     Path finalPath = safeOutputPath(directory, fileName(media, index, result.extension()));
                     Files.move(tmp, finalPath, StandardCopyOption.REPLACE_EXISTING);
                     return new DouyinDownloadedFile(finalPath, result.bytes());
@@ -122,12 +127,11 @@ public class DouyinMediaDownloader {
 
     private DownloadResult executeDownload(DouyinMedia media,
                                            Path tmp,
-                                           String cookie,
                                            BooleanSupplier cancellationRequested)
             throws DouyinClientException {
         try {
             HttpHeaders headers = new HttpHeaders();
-            DouyinRequestHeaders.apply(headers, cookie);
+            DouyinRequestHeaders.applyStandard(headers);
             headers.set(HttpHeaders.REFERER, DouyinRequestHeaders.REFERER);
             return restTemplate.execute(media.url(), HttpMethod.GET, request -> {
                 request.getHeaders().putAll(headers);
@@ -202,9 +206,10 @@ public class DouyinMediaDownloader {
                     "Douyin media URL is missing");
         }
         String scheme = uri.getScheme();
-        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
+        if (!"https".equalsIgnoreCase(scheme)
+                && !(allowHttpForTests && "http".equalsIgnoreCase(scheme))) {
             throw new DouyinClientException(DouyinClientErrorCode.INVALID_URL,
-                    "Unsupported Douyin media URL scheme");
+                    "Douyin media URL must use HTTPS");
         }
         if (!mediaHostAllowed.test(uri.getHost())) {
             log.info("Douyin media URL rejected non-Douyin target: host={}", safeHost(uri));

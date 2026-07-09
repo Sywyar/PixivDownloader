@@ -41,10 +41,10 @@ public class RestTemplateDouyinRedirectClient implements DouyinRedirectClient {
     }
 
     @Override
-    public DouyinRedirectResponse get(URI uri, String cookie) {
+    public DouyinRedirectResponse get(URI uri) {
         return restTemplate.execute(uri, HttpMethod.GET, request -> {
             PixivRequestHeaders.applyBrowserDefaults(request.getHeaders(), uri, HttpMethod.GET);
-            DouyinRequestHeaders.apply(request.getHeaders(), cookie);
+            DouyinRequestHeaders.applyStandard(request.getHeaders());
         }, RestTemplateDouyinRedirectClient::toResponse);
     }
 

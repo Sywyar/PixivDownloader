@@ -52,6 +52,7 @@ public final class DouyinRestTemplateFactory {
                 .setConnectionRequestTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .build();
         var builder = HttpClients.custom()
+                .disableRedirectHandling()
                 .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(requestConfig);
         if (routePlanner != null) {

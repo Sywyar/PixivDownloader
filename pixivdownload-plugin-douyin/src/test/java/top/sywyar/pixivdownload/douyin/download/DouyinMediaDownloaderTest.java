@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,11 +45,15 @@ class DouyinMediaDownloaderTest {
     @DisplayName("Content-Length 匹配时写入最终文件并清理 tmp")
     void downloadsWhenContentLengthMatches() throws Exception {
         startServer();
-        serve("/ok.mp4", 200, "video-bytes".getBytes(StandardCharsets.UTF_8), -1);
+        AtomicReference<String> cookie = new AtomicReference<>();
+        server.createContext("/ok.mp4", exchange -> {
+            cookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
+            send(exchange, 200, "video-bytes".getBytes(StandardCharsets.UTF_8), -1);
+        });
         DouyinMediaDownloader downloader = downloader();
 
         List<DouyinDownloadedFile> files = downloader.download(List.of(media("/ok.mp4", "video", "mp4")),
-                tempDir, "sid=explicit", () -> false);
+                tempDir, () -> false);
 
         assertThat(files).singleElement().satisfies(file -> {
             assertThat(file.path().getFileName().toString()).isEqualTo("video.mp4");
@@ -56,6 +61,7 @@ class DouyinMediaDownloaderTest {
         });
         assertThat(Files.readString(tempDir.resolve("video.mp4"), StandardCharsets.UTF_8)).isEqualTo("video-bytes");
         assertThat(Files.exists(tempDir.resolve("video.mp4.tmp"))).isFalse();
+        assertThat(cookie.get()).isNull();
     }
 
     @Test
@@ -66,7 +72,7 @@ class DouyinMediaDownloaderTest {
         DouyinMediaDownloader downloader = downloader();
 
         assertThatThrownBy(() -> downloader.download(List.of(media("/bad.mp4", "bad", "mp4")),
-                tempDir, null, () -> false))
+                tempDir, () -> false))
                 .isInstanceOf(DouyinClientException.class)
                 .extracting(error -> ((DouyinClientException) error).code())
                 .isEqualTo(DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH);
@@ -82,7 +88,7 @@ class DouyinMediaDownloaderTest {
         DouyinMediaDownloader downloader = downloader();
 
         List<DouyinDownloadedFile> files = downloader.download(List.of(media("/image.bin", "image", "bin")),
-                tempDir, null, () -> false);
+                tempDir, () -> false);
 
         assertThat(files).singleElement()
                 .satisfies(file -> assertThat(file.path().getFileName().toString()).isEqualTo("image.jpg"));
@@ -105,7 +111,7 @@ class DouyinMediaDownloaderTest {
         DouyinMediaDownloader downloader = downloader();
 
         List<DouyinDownloadedFile> files = downloader.download(List.of(media("/retry.mp4", "retry", "mp4")),
-                tempDir, null, () -> false);
+                tempDir, () -> false);
 
         assertThat(files).singleElement().satisfies(file -> assertThat(file.bytes()).isEqualTo(2L));
         assertThat(count.get()).isEqualTo(2);
@@ -118,7 +124,7 @@ class DouyinMediaDownloaderTest {
         DouyinMediaDownloader downloader = downloader();
 
         assertThatThrownBy(() -> downloader.download(List.of(media("/ok.mp4", "cancelled", "mp4")),
-                tempDir, null, () -> true))
+                tempDir, () -> true))
                 .isInstanceOf(DouyinClientException.class)
                 .extracting(error -> ((DouyinClientException) error).code())
                 .isEqualTo(DouyinClientErrorCode.CANCELLED);
@@ -133,11 +139,24 @@ class DouyinMediaDownloaderTest {
         DouyinMedia media = new DouyinMedia("m", DouyinMediaType.VIDEO,
                 URI.create("https://cdn.example.test/video.mp4"), "video", "mp4", null, null);
 
-        assertThatThrownBy(() -> downloader().download(List.of(media), tempDir, null, () -> false))
+        assertThatThrownBy(() -> downloader().download(List.of(media), tempDir, () -> false))
                 .isInstanceOf(DouyinClientException.class)
                 .hasMessageContaining("host=cdn.example.test")
                 .extracting(error -> ((DouyinClientException) error).code())
                 .isEqualTo(DouyinClientErrorCode.NON_DOUYIN_TARGET);
+    }
+
+    @Test
+    @DisplayName("生产下载器拒绝 HTTP 媒体 URL")
+    void rejectsHttpMediaUrl() {
+        DouyinMedia media = new DouyinMedia("m", DouyinMediaType.VIDEO,
+                URI.create("http://www.douyin.com/video.mp4"), "video", "mp4", null, null);
+
+        assertThatThrownBy(() -> new DouyinMediaDownloader(new RestTemplate())
+                .download(List.of(media), tempDir, () -> false))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.INVALID_URL);
     }
 
     private DouyinMediaDownloader downloader() {

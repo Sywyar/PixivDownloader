@@ -66,6 +66,16 @@ class DefaultDouyinShortLinkResolverTest {
     }
 
     @Test
+    @DisplayName("拒绝 HTTP 短链入口和跳转降级")
+    void rejectsHttpInputAndRedirectDowngrade() {
+        assertCode(() -> resolver(new FakeRedirectClient()).resolve("http://v.douyin.com/A/", "secret=sentinel"),
+                DouyinClientErrorCode.INVALID_SHORT_URL);
+        assertCode(() -> resolver(new FakeRedirectClient().redirect("http://www.douyin.com/video/7351234567890123456"))
+                        .resolve("https://v.douyin.com/A/", "secret=sentinel"),
+                DouyinClientErrorCode.SHORT_LINK_UNRESOLVED);
+    }
+
+    @Test
     @DisplayName("403 与 429 返回独立错误")
     void classifiesForbiddenAndRateLimited() {
         assertCode(() -> resolver(new FakeRedirectClient().status(403)).resolve("https://v.douyin.com/A/", null),
@@ -150,7 +160,7 @@ class DefaultDouyinShortLinkResolverTest {
         }
 
         @Override
-        public DouyinRedirectResponse get(URI uri, String cookie) throws IOException {
+        public DouyinRedirectResponse get(URI uri) throws IOException {
             if (timeout) {
                 throw new SocketTimeoutException("timeout");
             }

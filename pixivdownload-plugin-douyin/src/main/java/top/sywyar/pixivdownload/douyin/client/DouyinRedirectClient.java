@@ -5,5 +5,5 @@ import java.net.URI;
 
 public interface DouyinRedirectClient {
 
-    DouyinRedirectResponse get(URI uri, String cookie) throws IOException;
+    DouyinRedirectResponse get(URI uri) throws IOException;
 }

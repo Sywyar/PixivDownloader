@@ -375,7 +375,7 @@ public class DefaultDouyinClient implements DouyinClient {
     private byte[] fetchBytes(URI uri, String cookie) throws DouyinClientException {
         try {
             HttpHeaders headers = new HttpHeaders();
-            DouyinRequestHeaders.apply(headers, cookie);
+            DouyinRequestHeaders.applyCredentials(headers, uri, cookie);
             ResponseEntity<byte[]> response = downloadRestTemplate.exchange(
                     uri, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
             byte[] body = response.getBody();

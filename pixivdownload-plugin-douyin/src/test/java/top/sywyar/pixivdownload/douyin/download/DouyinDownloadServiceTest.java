@@ -64,7 +64,6 @@ class DouyinDownloadServiceTest {
         assertThat(status.completed()).isTrue();
         assertThat(status.fileName()).isEqualTo("7351234567890123456.mp4");
         assertThat(Files.readString(client.downloader.lastTarget, StandardCharsets.UTF_8)).isEqualTo("video-bytes");
-        assertThat(client.downloader.lastCookie).isEqualTo(VALID_COOKIE);
         assertThat(client.downloader.lastDirectory.normalize().startsWith(tempDir.resolve("owner-a").normalize())).isTrue();
     }
 
@@ -595,7 +594,6 @@ class DouyinDownloadServiceTest {
     private static final class FakeMediaDownloader extends DouyinMediaDownloader {
         private Path lastDirectory;
         private Path lastTarget;
-        private String lastCookie;
         private int calls;
         private DouyinClientErrorCode failure;
 
@@ -606,7 +604,6 @@ class DouyinDownloadServiceTest {
         @Override
         public List<DouyinDownloadedFile> download(List<DouyinMedia> media,
                                                    Path directory,
-                                                   String cookie,
                                                    BooleanSupplier cancellationRequested)
                 throws java.io.IOException, DouyinClientException {
             if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
@@ -617,7 +614,6 @@ class DouyinDownloadServiceTest {
                 throw new DouyinClientException(failure, failure.name());
             }
             lastDirectory = directory;
-            lastCookie = cookie;
             Files.createDirectories(directory);
             DouyinMedia first = media == null || media.isEmpty()
                     ? new DouyinMedia("fallback", DouyinMediaType.VIDEO,

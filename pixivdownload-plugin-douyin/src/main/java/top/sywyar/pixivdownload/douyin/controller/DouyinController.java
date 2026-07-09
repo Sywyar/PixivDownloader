@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.UuidUtils;
+import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
+import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadSnapshot;
@@ -51,6 +53,7 @@ public class DouyinController {
     public ResponseEntity<?> download(@RequestBody DouyinDownloadRequest request,
                                       HttpServletRequest httpRequest) {
         try {
+            requireSecureCredentialTransport(httpRequest, request == null ? null : request.cookie());
             String ownerUuid = UuidUtils.extractOrGenerateUuid(httpRequest);
             DouyinStartResponse response = downloadService.start(request, ownerUuid);
             return ResponseEntity.accepted().body(response);
@@ -77,8 +80,10 @@ public class DouyinController {
     public ResponseEntity<?> userIds(@PathVariable String userId,
                                      @RequestParam(defaultValue = "0") int offset,
                                      @RequestParam(defaultValue = "24") int limit,
-                                     @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie) {
+                                     @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                     HttpServletRequest request) {
         try {
+            requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.listUserWorks(userId, offset, limit, cookie);
             return ResponseEntity.ok(new IdsView(listing.items().stream().map(DouyinWork::id).toList()));
         } catch (DouyinClientException e) {
@@ -89,8 +94,10 @@ public class DouyinController {
     @GetMapping("/user/{userId}/works/cards")
     public ResponseEntity<?> userCards(@PathVariable String userId,
                                        @RequestParam(name = "ids", required = false) List<String> ids,
-                                       @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie) {
+                                       @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                       HttpServletRequest request) {
         try {
+            requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.listUserWorks(userId, 0, 100, cookie);
             List<DouyinWorkView> items = listing.items().stream()
                     .filter(work -> ids == null || ids.isEmpty() || ids.contains(work.id()))
@@ -106,8 +113,10 @@ public class DouyinController {
     public ResponseEntity<?> series(@PathVariable String seriesId,
                                     @RequestParam(defaultValue = "1") int page,
                                     @RequestParam(defaultValue = "24") int pageSize,
-                                    @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie) {
+                                    @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                    HttpServletRequest request) {
         try {
+            requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.listSeriesWorks(seriesId, page, pageSize, cookie);
             return ResponseEntity.ok(new SeriesPageView(
                     new SeriesMetaView(
@@ -127,8 +136,10 @@ public class DouyinController {
     public ResponseEntity<?> search(@RequestParam("word") String word,
                                     @RequestParam(defaultValue = "1") int page,
                                     @RequestParam(defaultValue = "24") int pageSize,
-                                    @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie) {
+                                    @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                    HttpServletRequest request) {
         try {
+            requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.searchPublic(word, page, pageSize, cookie);
             return ResponseEntity.ok(new ItemsView(
                     listing.items().stream().map(DouyinWorkView::from).toList(),
@@ -143,8 +154,10 @@ public class DouyinController {
                                          @RequestParam(defaultValue = "1") int startPage,
                                          @RequestParam(defaultValue = "1") int endPage,
                                          @RequestParam(defaultValue = "24") int pageSize,
-                                         @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie) {
+                                         @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                         HttpServletRequest request) {
         try {
+            requireSecureCredentialTransport(request, cookie);
             int safeStart = Math.max(1, startPage);
             int safeEnd = Math.max(safeStart, endPage);
             List<DouyinWorkView> items = new java.util.ArrayList<>();
@@ -166,8 +179,10 @@ public class DouyinController {
     @GetMapping("/quick/public")
     public ResponseEntity<?> quickPublic(@RequestParam(defaultValue = "1") int page,
                                          @RequestParam(defaultValue = "24") int pageSize,
-                                         @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie) {
+                                         @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                         HttpServletRequest request) {
         try {
+            requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.quickPublic(page, pageSize, cookie);
             return ResponseEntity.ok(new ItemsView(
                     listing.items().stream().map(DouyinWorkView::from).toList(),
@@ -189,6 +204,15 @@ public class DouyinController {
             case CANCELLED -> HttpStatus.CONFLICT;
         };
         return ResponseEntity.status(status).body(new ErrorView(false, e.code().name(), errorKey(e), e.getMessage()));
+    }
+
+    private static void requireSecureCredentialTransport(HttpServletRequest request, String cookie)
+            throws DouyinClientException {
+        if (cookie != null && !cookie.isBlank() && request != null && !request.isSecure()
+                && !NetworkUtils.isLocalRequest(request)) {
+            throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN,
+                    "Douyin credentials require HTTPS for non-loopback clients");
+        }
     }
 
     private static String errorKey(DouyinClientException e) {

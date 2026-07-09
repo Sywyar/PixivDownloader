@@ -287,7 +287,7 @@ public class DouyinDownloadService {
         status.messageKey = "douyin.status.downloading";
         Path outputDirectory = outputDirectory(status, work);
         List<DouyinDownloadedFile> files = status.runtime.mediaDownloader().download(work.media(), outputDirectory,
-                status.cookie, status::isCancelled);
+                status::isCancelled);
         failIfCancelled(status);
         recordHistory(status, work, outputDirectory, files, null);
         return files;
@@ -316,7 +316,7 @@ public class DouyinDownloadService {
                 failIfCancelled(status);
                 Path outputDirectory = outputDirectory(status, work);
                 List<DouyinDownloadedFile> files = status.runtime.mediaDownloader().download(
-                        work.media(), outputDirectory, status.cookie, status::isCancelled);
+                        work.media(), outputDirectory, status::isCancelled);
                 failIfCancelled(status);
                 recordHistory(status, work, outputDirectory, files, collectionOrder);
                 collectionOrder++;
