@@ -41,6 +41,8 @@ import static org.mockito.Mockito.when;
 @DisplayName("运行期配置热重载")
 class RuntimeConfigReloadServiceTest {
 
+    private static final String FAKE_CREDENTIAL = "fixture-credential-7f4c2a91";
+
     @TempDir
     Path tempDir;
 
@@ -167,6 +169,35 @@ class RuntimeConfigReloadServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("热重载只向所属插件子 context 注入专用凭证")
+    void reloadsCredentialIntoOwnerChildContextOnly() throws IOException {
+        Path configDir = useTempConfigDir();
+        Files.createDirectories(configDir);
+        Files.writeString(configDir.resolve(RuntimeFiles.CONFIG_YAML),
+                "download.user-flat-folder: false\n", StandardCharsets.UTF_8);
+        new PluginCredentialStore().update("fixture", Map.of("fixture.api-key", FAKE_CREDENTIAL));
+        FixturePluginConfig pluginConfig = new FixturePluginConfig();
+        AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
+        child.registerBean(FixturePluginConfig.class, () -> pluginConfig);
+        child.refresh();
+        try {
+            PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
+            when(lifecycleService.servingPluginIds()).thenReturn(Set.of("fixture"));
+            when(lifecycleService.contextFor("fixture")).thenReturn(Optional.of(child));
+            StandardEnvironment parentEnvironment = new StandardEnvironment();
+            RuntimeConfigReloadService service = newService(provider(lifecycleService), parentEnvironment);
+
+            service.reloadHotConfig(List.of("fixture.api-key"));
+
+            assertThat(pluginConfig.getApiKey()).isEqualTo(FAKE_CREDENTIAL);
+            assertThat(child.getEnvironment().getProperty("fixture.api-key")).isEqualTo(FAKE_CREDENTIAL);
+            assertThat(parentEnvironment.getProperty("fixture.api-key")).isNull();
+        } finally {
+            child.close();
+        }
+    }
+
     private RuntimeConfigReloadService newService(ObjectProvider<PluginLifecycleService> lifecycleService,
                                                   ConfigurableEnvironment environment) {
         return newService(lifecycleService, environment, new ProxyConfig(), new SslConfig());
@@ -188,7 +219,8 @@ class RuntimeConfigReloadServiceTest {
                 new NarrationTtsConfig(),
                 new NotificationConfig(),
                 lifecycleService,
-                environment);
+                environment,
+                new PluginCredentialStore());
     }
 
     private Path useTempConfigDir() {
@@ -221,6 +253,7 @@ class RuntimeConfigReloadServiceTest {
     @ConfigurationProperties(prefix = "fixture")
     public static class FixturePluginConfig {
         private volatile String endpoint = "";
+        private volatile String apiKey = "";
 
         public String getEndpoint() {
             return endpoint;
@@ -228,6 +261,14 @@ class RuntimeConfigReloadServiceTest {
 
         public void setEndpoint(String endpoint) {
             this.endpoint = endpoint;
+        }
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
         }
     }
 

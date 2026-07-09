@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.PluginCredentialStore;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
@@ -181,7 +182,16 @@ public class PluginRuntimeConfiguration {
      * 子 context 的生命周期由 {@link ExternalPluginContextManager} 持有并与外置插件启停对齐。
      */
     @Bean
-    public PluginApplicationContextFactory pluginApplicationContextFactory() {
-        return new PluginApplicationContextFactory();
+    public PluginApplicationContextFactory pluginApplicationContextFactory(PluginCredentialStore credentialStore) {
+        return new PluginApplicationContextFactory(ownerPluginId -> {
+            try {
+                Map<String, Object> scoped = new java.util.LinkedHashMap<>();
+                scoped.putAll(credentialStore.readAll(ownerPluginId));
+                return scoped;
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException(
+                        "Failed to load plugin credentials for owner: " + ownerPluginId, e);
+            }
+        });
     }
 }

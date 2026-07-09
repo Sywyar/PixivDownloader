@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui.panel;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.config.PluginCredentialStore;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.AutoStartManager;
 import top.sywyar.pixivdownload.gui.DebugUnlockState;
@@ -52,6 +53,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final Path configPath;
     private final int serverPort;
     private final ConfigFileEditor editor;
+    private final PluginCredentialStore credentialStore = new PluginCredentialStore();
     private final Map<String, PropertiesConfigFileEditor> pluginConfigEditors = new HashMap<>();
     private final String currentMode;
     /** Web 页 URL 构造器（scheme 按 SSL、主机名按域名推导），供「打开 Web 插件市场」入口复用。 */
@@ -809,10 +811,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         if (!errors.isEmpty()) {
             log.warn(logMessage("gui.config.log.validation-failed", String.join("; ", errors)));
             showNotice(message("gui.config.notice.validation-failed"));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.config.dialog.validation-failed.message", String.join("\n", errors)),
-                    message("gui.config.dialog.validation-failed.title"),
-                    JOptionPane.WARNING_MESSAGE);
+            if (isShowing()) {
+                JOptionPane.showMessageDialog(this,
+                        message("gui.config.dialog.validation-failed.message", String.join("\n", errors)),
+                        message("gui.config.dialog.validation-failed.title"),
+                        JOptionPane.WARNING_MESSAGE);
+            }
             if (firstInvalidField != null) {
                 firstInvalidField.control().requestFocusInWindow();
                 firstInvalidField.panel().scrollRectToVisible(new Rectangle(
@@ -837,6 +841,15 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
             if (rf == null) continue;
+            if (isPluginCredential(spec)) {
+                String entered = rf.getValue().get();
+                if (rf.credentialClearRequested()) {
+                    values.put(spec.key(), "");
+                } else if (entered != null && !entered.isBlank()) {
+                    values.put(spec.key(), entered);
+                }
+                continue;
+            }
             values.put(spec.key(), rf.panel().isVisible() || shouldPreserveHiddenValue(spec)
                     ? rf.getValue().get()
                     : "");
@@ -1031,6 +1044,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 : editor.readAll(index.allPluginKeys());
         for (Map.Entry<String, List<String>> entry : index.pluginKeys().entrySet()) {
             String pluginId = entry.getKey();
+            Set<String> credentialKeys = new LinkedHashSet<>(
+                    index.pluginCredentialKeys().getOrDefault(pluginId, List.of()));
             PropertiesConfigFileEditor pluginEditor = null;
             try {
                 pluginEditor = pluginConfigEditor(pluginId);
@@ -1041,10 +1056,17 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             Map<String, String> pluginValues = pluginEditor == null
                     ? Map.of()
                     : pluginEditor.readAll(entry.getValue());
-            result.putAll(pluginValues);
+            pluginValues.forEach((key, value) -> {
+                if (!credentialKeys.contains(key)) {
+                    result.put(key, value);
+                }
+            });
             Map<String, String> migratedPluginValues = new LinkedHashMap<>();
             Set<String> removableYamlPluginKeys = new LinkedHashSet<>();
             for (String key : entry.getValue()) {
+                if (credentialKeys.contains(key)) {
+                    continue;
+                }
                 if (!legacyPluginValues.containsKey(key)) {
                     continue;
                 }
@@ -1056,7 +1078,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 } else if (Objects.equals(pluginValues.get(key), legacyValue)) {
                     removableYamlPluginKeys.add(key);
                 } else {
-                    log.warn(logMessage("gui.config.log.plugin-config-migration.conflict", pluginId, key));
+                    removableYamlPluginKeys.add(key);
                 }
             }
             if (!migratedPluginValues.isEmpty() || !removableYamlPluginKeys.isEmpty()) {
@@ -1065,6 +1087,43 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 } catch (IOException | RuntimeException e) {
                     log.warn(logMessage("gui.config.log.plugin-config-migration.failed",
                             pluginId, safeMessage(e)), e);
+                }
+            }
+            if (!credentialKeys.isEmpty()) {
+                Map<String, String> storedCredentials = credentialStore.readAll(pluginId);
+                Map<String, String> credentialUpdates = new LinkedHashMap<>();
+                Set<String> removablePropertyKeys = new LinkedHashSet<>();
+                Set<String> removableYamlCredentialKeys = new LinkedHashSet<>();
+                for (String key : credentialKeys) {
+                    String effective = storedCredentials.get(key);
+                    if (effective == null && pluginValues.containsKey(key)) {
+                        effective = pluginValues.get(key);
+                    }
+                    if (effective == null && legacyPluginValues.containsKey(key)) {
+                        effective = legacyPluginValues.get(key);
+                    }
+                    if (effective != null) {
+                        result.put(key, effective);
+                    }
+                    if (!storedCredentials.containsKey(key) && effective != null && !effective.isBlank()) {
+                        credentialUpdates.put(key, effective);
+                    }
+                    if (pluginValues.containsKey(key)) {
+                        removablePropertyKeys.add(key);
+                    }
+                    if (legacyPluginValues.containsKey(key)) {
+                        removableYamlCredentialKeys.add(key);
+                    }
+                }
+                if (!credentialUpdates.isEmpty() || !removablePropertyKeys.isEmpty()
+                        || !removableYamlCredentialKeys.isEmpty()) {
+                    try {
+                        migrateLegacyPluginCredentials(pluginId, credentialUpdates,
+                                removablePropertyKeys, removableYamlCredentialKeys);
+                    } catch (IOException | RuntimeException e) {
+                        log.warn(logMessage("gui.config.log.plugin-config-migration.failed",
+                                pluginId, safeMessage(e)), e);
+                    }
                 }
             }
         }
@@ -1078,17 +1137,36 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
         List<ConfigFileRollback> rollbacks = new ArrayList<>();
         try {
-            if (!split.coreValues().isEmpty()) {
+            boolean credentialChanges = split.credentialValues().values().stream().anyMatch(map -> !map.isEmpty());
+            if (!split.coreValues().isEmpty() || credentialChanges) {
                 ConfigFileEditor.FileSnapshot snapshot = editor.snapshot();
                 rollbacks.add(new ConfigFileRollback("config.yaml", () -> editor.restore(snapshot)));
             }
+            Set<String> snapshottedPluginOwners = new LinkedHashSet<>();
             for (Map.Entry<String, Map<String, String>> entry : split.pluginValues().entrySet()) {
                 if (!entry.getValue().isEmpty()) {
                     PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(entry.getKey());
                     PropertiesConfigFileEditor.FileSnapshot snapshot = pluginEditor.snapshot();
+                    snapshottedPluginOwners.add(entry.getKey());
                     rollbacks.add(new ConfigFileRollback(
                             "config/plugins/" + entry.getKey() + ".properties",
                             () -> pluginEditor.restore(snapshot)));
+                }
+            }
+            for (Map.Entry<String, Map<String, String>> entry : split.credentialValues().entrySet()) {
+                if (entry.getValue().isEmpty()) {
+                    continue;
+                }
+                String pluginId = entry.getKey();
+                PluginCredentialStore.Snapshot credentialSnapshot = credentialStore.snapshot(pluginId);
+                rollbacks.add(new ConfigFileRollback("plugin credentials: " + pluginId,
+                        () -> credentialStore.restore(pluginId, credentialSnapshot)));
+                if (snapshottedPluginOwners.add(pluginId)) {
+                    PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(pluginId);
+                    PropertiesConfigFileEditor.FileSnapshot pluginSnapshot = pluginEditor.snapshot();
+                    rollbacks.add(new ConfigFileRollback(
+                            "config/plugins/" + pluginId + ".properties",
+                            () -> pluginEditor.restore(pluginSnapshot)));
                 }
             }
 
@@ -1097,6 +1175,27 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
             for (Map.Entry<String, Map<String, String>> entry : split.pluginValues().entrySet()) {
                 pluginConfigEditor(entry.getKey()).writeAll(entry.getValue());
+            }
+            Set<String> credentialYamlKeys = new LinkedHashSet<>();
+            for (Map.Entry<String, Map<String, String>> entry : split.credentialValues().entrySet()) {
+                if (entry.getValue().isEmpty()) {
+                    continue;
+                }
+                credentialStore.update(entry.getKey(), entry.getValue());
+                Set<String> keys = entry.getValue().keySet();
+                PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(entry.getKey());
+                pluginEditor.removeAll(keys);
+                if (!pluginEditor.readAll(keys).isEmpty()) {
+                    throw new IOException("Plugin credential cleanup verification failed for owner: "
+                            + entry.getKey());
+                }
+                credentialYamlKeys.addAll(keys);
+            }
+            if (!credentialYamlKeys.isEmpty()) {
+                editor.removeAll(credentialYamlKeys);
+                if (!editor.readAll(credentialYamlKeys).isEmpty()) {
+                    throw new IOException("YAML credential cleanup verification failed");
+                }
             }
         } catch (IOException | RuntimeException e) {
             IOException failure = asIOException(e);
@@ -1153,13 +1252,63 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
     }
 
+    private void migrateLegacyPluginCredentials(String pluginId,
+                                                Map<String, String> credentialUpdates,
+                                                Set<String> propertyKeysToRemove,
+                                                Set<String> yamlKeysToRemove) throws IOException {
+        Map<String, String> safeUpdates = ConfigFileEditor.validatedValues(credentialUpdates);
+        Set<String> safePropertyKeys = ConfigFileEditor.validatedKeySet(propertyKeysToRemove);
+        Set<String> safeYamlKeys = ConfigFileEditor.validatedKeySet(yamlKeysToRemove);
+        PropertiesConfigFileEditor pluginEditor = pluginConfigEditor(pluginId);
+        List<ConfigFileRollback> rollbacks = new ArrayList<>();
+        try {
+            if (!safeUpdates.isEmpty()) {
+                PluginCredentialStore.Snapshot snapshot = credentialStore.snapshot(pluginId);
+                rollbacks.add(new ConfigFileRollback("plugin credentials: " + pluginId,
+                        () -> credentialStore.restore(pluginId, snapshot)));
+            }
+            if (!safePropertyKeys.isEmpty()) {
+                PropertiesConfigFileEditor.FileSnapshot snapshot = pluginEditor.snapshot();
+                rollbacks.add(new ConfigFileRollback("config/plugins/" + pluginId + ".properties",
+                        () -> pluginEditor.restore(snapshot)));
+            }
+            if (!safeYamlKeys.isEmpty()) {
+                ConfigFileEditor.FileSnapshot snapshot = editor.snapshot();
+                rollbacks.add(new ConfigFileRollback("config.yaml", () -> editor.restore(snapshot)));
+            }
+
+            if (!safeUpdates.isEmpty()) {
+                credentialStore.update(pluginId, safeUpdates);
+            }
+            if (!safePropertyKeys.isEmpty()) {
+                pluginEditor.removeAll(safePropertyKeys);
+                if (!pluginEditor.readAll(safePropertyKeys).isEmpty()) {
+                    throw new IOException("Legacy plugin credential removal verification failed for owner: "
+                            + pluginId);
+                }
+            }
+            if (!safeYamlKeys.isEmpty()) {
+                editor.removeAll(safeYamlKeys);
+                if (!editor.readAll(safeYamlKeys).isEmpty()) {
+                    throw new IOException("Legacy YAML credential removal verification failed for owner: "
+                            + pluginId);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            IOException failure = asIOException(e);
+            rollbackConfigWrites(rollbacks, failure);
+            throw failure;
+        }
+    }
+
     private StoredValuesSplit splitStoredValues(Map<String, String> values) throws IOException {
         if (values == null || values.isEmpty()) {
-            return new StoredValuesSplit(Map.of(), Map.of());
+            return new StoredValuesSplit(Map.of(), Map.of(), Map.of());
         }
         StoredSpecIndex index = storedSpecIndex(allFields);
         Map<String, String> coreValues = new LinkedHashMap<>();
         Map<String, Map<String, String>> pluginValues = new LinkedHashMap<>();
+        Map<String, Map<String, String>> credentialValues = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : values.entrySet()) {
             String key = ConfigFileEditor.requireSafeKey(entry.getKey());
             ConfigFieldSpec spec = index.specsByKey().get(key);
@@ -1167,23 +1316,27 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 throw new IOException("Unknown config field key: " + key);
             }
             String value = ConfigFileEditor.requireSafeValue(entry.getValue());
-            if (spec.pluginContributed()) {
+            if (isPluginCredential(spec)) {
+                credentialValues.computeIfAbsent(spec.ownerPluginId(), ignored -> new LinkedHashMap<>())
+                        .put(key, value);
+            } else if (spec.pluginContributed()) {
                 pluginValues.computeIfAbsent(spec.ownerPluginId(), ignored -> new LinkedHashMap<>())
                         .put(key, value);
             } else {
                 coreValues.put(key, value);
             }
         }
-        return new StoredValuesSplit(coreValues, pluginValues);
+        return new StoredValuesSplit(coreValues, pluginValues, credentialValues);
     }
 
     private StoredSpecIndex storedSpecIndex(Collection<ConfigFieldSpec> specs) throws IOException {
         List<String> coreKeys = new ArrayList<>();
         Map<String, List<String>> pluginKeys = new LinkedHashMap<>();
+        Map<String, List<String>> pluginCredentialKeys = new LinkedHashMap<>();
         List<String> allPluginKeys = new ArrayList<>();
         Map<String, ConfigFieldSpec> specsByKey = new LinkedHashMap<>();
         if (specs == null) {
-            return new StoredSpecIndex(List.of(), Map.of(), List.of(), Map.of());
+            return new StoredSpecIndex(List.of(), Map.of(), Map.of(), List.of(), Map.of());
         }
         for (ConfigFieldSpec spec : specs) {
             if (spec == null) {
@@ -1196,6 +1349,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             if (spec.pluginContributed()) {
                 String ownerPluginId = ConfigFileEditor.requireSafeKey(spec.ownerPluginId());
                 pluginKeys.computeIfAbsent(ownerPluginId, ignored -> new ArrayList<>()).add(key);
+                if (isPluginCredential(spec)) {
+                    pluginCredentialKeys.computeIfAbsent(ownerPluginId, ignored -> new ArrayList<>()).add(key);
+                }
                 allPluginKeys.add(key);
             } else {
                 coreKeys.add(key);
@@ -1204,6 +1360,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return new StoredSpecIndex(
                 List.copyOf(coreKeys),
                 copyPluginKeys(pluginKeys),
+                copyPluginKeys(pluginCredentialKeys),
                 List.copyOf(allPluginKeys),
                 Map.copyOf(specsByKey));
     }
@@ -1258,6 +1415,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private static String displayValueForLoad(ConfigFieldSpec spec, String storedValue) {
+        if (isPluginCredential(spec)) {
+            return "";
+        }
         String safe = storedValue == null ? "" : storedValue;
         if (safe.isBlank() && shouldUseDefaultForBlankStoredValue(spec)) {
             return spec.defaultValue();
@@ -1275,6 +1435,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private static boolean shouldPreserveHiddenValue(ConfigFieldSpec spec) {
         // debug.enabled 在未解锁时隐藏，但其值仍应原样保留（写空会清掉用户已有的调试开关）
         return spec.pluginContributed() || isMaintenanceDayTimeKey(spec.key()) || "debug.enabled".equals(spec.key());
+    }
+
+    private static boolean isPluginCredential(ConfigFieldSpec spec) {
+        return spec != null && spec.pluginContributed() && spec.type() == FieldType.PASSWORD;
     }
 
     private static boolean isMaintenanceDayEnabledKey(String key) {
@@ -1498,14 +1662,18 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private record StoredSpecIndex(List<String> coreKeys,
                                    Map<String, List<String>> pluginKeys,
+                                   Map<String, List<String>> pluginCredentialKeys,
                                    List<String> allPluginKeys,
                                    Map<String, ConfigFieldSpec> specsByKey) {
     }
 
     private record StoredValuesSplit(Map<String, String> coreValues,
-                                     Map<String, Map<String, String>> pluginValues) {
+                                     Map<String, Map<String, String>> pluginValues,
+                                     Map<String, Map<String, String>> credentialValues) {
         private boolean empty() {
-            return coreValues.isEmpty() && pluginValues.values().stream().allMatch(Map::isEmpty);
+            return coreValues.isEmpty()
+                    && pluginValues.values().stream().allMatch(Map::isEmpty)
+                    && credentialValues.values().stream().allMatch(Map::isEmpty);
         }
     }
 
@@ -1730,6 +1898,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         FieldRenderer.RenderedField rf = renderedFields.get(key);
         if (rf != null) {
             rf.setValue().accept(value);
+        }
+    }
+
+    public void requestCredentialClear(String key) {
+        FieldRenderer.RenderedField rf = renderedFields.get(key);
+        ConfigFieldSpec spec = findSpec(key);
+        if (rf != null && isPluginCredential(spec)) {
+            rf.requestCredentialClear();
         }
     }
 

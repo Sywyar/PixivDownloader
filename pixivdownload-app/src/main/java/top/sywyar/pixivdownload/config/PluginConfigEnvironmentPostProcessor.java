@@ -7,6 +7,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.StandardEnvironment;
 
 public class PluginConfigEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
@@ -24,8 +25,12 @@ public class PluginConfigEnvironmentPostProcessor implements EnvironmentPostProc
     private static void addOrReplace(MutablePropertySources sources, MapPropertySource source) {
         if (sources.contains(source.getName())) {
             sources.replace(source.getName(), source);
+        } else if (sources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
+            sources.addAfter(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, source);
+        } else if (sources.contains(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME)) {
+            sources.addAfter(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, source);
         } else {
-            sources.addLast(source);
+            sources.addFirst(source);
         }
     }
 }

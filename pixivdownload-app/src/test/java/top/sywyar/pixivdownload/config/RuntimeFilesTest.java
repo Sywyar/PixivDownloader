@@ -241,6 +241,17 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("插件凭证路径应按 owner 落在独立 credentials 目录")
+    void shouldResolveOwnerScopedPluginCredentialPath() {
+        Path resolved = RuntimeFiles.resolvePluginCredentialPath("fixture");
+
+        assertThat(resolved).isEqualTo(RuntimeFiles.configDirectory()
+                .resolve(RuntimeFiles.PLUGIN_CREDENTIAL_DIR)
+                .resolve("fixture.properties")
+                .normalize());
+    }
+
+    @Test
     @DisplayName("should prefer explicitly configured single-instance directory")
     void shouldPreferConfiguredSingleInstanceDirectory() {
         Path instanceDir = tempDir.resolve("instance");

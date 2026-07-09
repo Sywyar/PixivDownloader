@@ -4,6 +4,8 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
@@ -19,6 +21,7 @@ import java.util.function.Supplier;
  */
 public final class FieldRenderer {
 
+    private static final String CREDENTIAL_CLEAR_REQUESTED = "pixivdownload.credential.clearRequested";
     private static final double LABEL_WIDTH_RATIO = 0.25;
     private static final int MIN_LABEL_WIDTH = 96;
     private static final int MIN_DESCRIPTION_WIDTH = 120;
@@ -42,6 +45,16 @@ public final class FieldRenderer {
             validationError.setVisible(hasError);
             panel.revalidate();
             panel.repaint();
+        }
+
+        public boolean credentialClearRequested() {
+            return Boolean.TRUE.equals(control.getClientProperty(CREDENTIAL_CLEAR_REQUESTED));
+        }
+
+        public void requestCredentialClear() {
+            control.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.TRUE);
+            setValue.accept("");
+            control.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.TRUE);
         }
     }
 
@@ -142,10 +155,42 @@ public final class FieldRenderer {
 
     private static RenderedField renderPassword(ConfigFieldSpec spec) {
         JPasswordField pf = new JPasswordField(24);
-        RenderedPanel p = renderFieldPanel(spec, pf);
+        pf.getDocument().addDocumentListener(new DocumentListener() {
+            private void changed() {
+                pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
+            }
+
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                changed();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                changed();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                changed();
+            }
+        });
+        JButton clear = new JButton(message("gui.button.clear-credential"));
+        clear.addActionListener(event -> {
+            pf.setText("");
+            pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.TRUE);
+        });
+        JPanel row = new JPanel(new BorderLayout(4, 0));
+        row.setOpaque(false);
+        row.add(pf, BorderLayout.CENTER);
+        row.add(clear, BorderLayout.EAST);
+        RenderedPanel p = renderFieldPanel(spec, row);
         return new RenderedField(p.panel(),
                 () -> new String(pf.getPassword()).trim(),
-                v -> pf.setText(v == null ? "" : v),
+                v -> {
+                    pf.setText(v == null ? "" : v);
+                    pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
+                },
                 pf,
                 p.validationError());
     }

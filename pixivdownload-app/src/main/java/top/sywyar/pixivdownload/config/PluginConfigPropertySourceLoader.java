@@ -100,8 +100,30 @@ public final class PluginConfigPropertySourceLoader {
                 log.warn(message("runtime.log.plugin-config.host-key-skipped", file, key));
                 continue;
             }
+            if (isCredentialLikeKey(key)) {
+                continue;
+            }
             values.put(key, value);
         }
+    }
+
+    static boolean isCredentialLikeKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        String normalized = key.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.endsWith(".password")
+                || normalized.endsWith(".passwd")
+                || normalized.endsWith(".api-key")
+                || normalized.endsWith(".apikey")
+                || normalized.endsWith(".access-token")
+                || normalized.endsWith(".token")
+                || normalized.endsWith(".secret")
+                || normalized.endsWith(".cookie")
+                || normalized.endsWith(".device-key")
+                || normalized.endsWith(".webhook-key")
+                || normalized.endsWith(".send-key")
+                || normalized.endsWith(".key");
     }
 
     private static Set<String> defaultTemplateKeys() {

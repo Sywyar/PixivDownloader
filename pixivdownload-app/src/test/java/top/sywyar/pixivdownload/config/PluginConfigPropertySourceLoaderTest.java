@@ -9,6 +9,7 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.StandardEnvironment;
 import top.sywyar.pixivdownload.core.notification.NotificationConfig;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 
@@ -25,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("插件 properties 属性源")
 class PluginConfigPropertySourceLoaderTest {
+
+    private static final String FAKE_CREDENTIAL = "fixture-credential-7f4c2a91";
 
     @TempDir
     Path tempDir;
@@ -45,14 +48,15 @@ class PluginConfigPropertySourceLoaderTest {
     }
 
     @Test
-    @DisplayName("读取插件 properties 并作为低优先级兜底绑定")
-    void loadsPluginPropertiesAsLowPrecedenceFallback() throws IOException {
+    @DisplayName("普通插件 properties 作为权威值绑定且凭证键不进入父属性源")
+    void loadsOrdinaryPluginPropertiesWithoutCredentials() throws IOException {
         Path configDir = useTempConfigDir();
         Path pluginDir = configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR);
         Files.createDirectories(pluginDir);
         Files.writeString(pluginDir.resolve("notification.properties"), String.join("\n",
                 NotificationConfigKeys.scenarioEnabledKey("run-summary") + "=false",
                 NotificationConfigKeys.scenarioEnabledKey("run-failed") + "=false",
+                "notification.api-key=" + FAKE_CREDENTIAL,
                 "server.port=1234",
                 ""), StandardCharsets.UTF_8);
 
@@ -60,16 +64,17 @@ class PluginConfigPropertySourceLoaderTest {
         assertThat(pluginSource.getProperty(NotificationConfigKeys.scenarioEnabledKey("run-summary")))
                 .isEqualTo("false");
         assertThat(pluginSource.getProperty("server.port")).isNull();
+        assertThat(pluginSource.getProperty("notification.api-key")).isNull();
 
         MutablePropertySources sources = new MutablePropertySources();
+        sources.addLast(pluginSource);
         sources.addLast(new MapPropertySource("yaml", Map.of(
                 NotificationConfigKeys.scenarioEnabledKey("run-summary"), "true")));
-        sources.addLast(pluginSource);
         NotificationConfig config = new Binder(ConfigurationPropertySources.from(sources))
                 .bind("notification", Bindable.of(NotificationConfig.class))
                 .orElseGet(NotificationConfig::new);
 
-        assertThat(config.isScenarioEnabled("run-summary")).isTrue();
+        assertThat(config.isScenarioEnabled("run-summary")).isFalse();
         assertThat(config.isScenarioEnabled("run-failed")).isFalse();
     }
 
@@ -79,6 +84,26 @@ class PluginConfigPropertySourceLoaderTest {
         useTempConfigDir();
 
         assertThat(PluginConfigPropertySourceLoader.load()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("启动属性源以插件 properties 覆盖旧 YAML 且保留命令行优先级")
+    void environmentPostProcessorUsesAuthoritativePluginValueBelowExternalOverrides() throws IOException {
+        Path configDir = useTempConfigDir();
+        Path pluginDir = configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR);
+        Files.createDirectories(pluginDir);
+        Files.writeString(pluginDir.resolve("fixture.properties"),
+                "fixture.mode=plugin\n", StandardCharsets.UTF_8);
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().addLast(new MapPropertySource("yaml", Map.of(
+                "fixture.mode", "yaml")));
+
+        new PluginConfigEnvironmentPostProcessor().postProcessEnvironment(environment, null);
+
+        assertThat(environment.getProperty("fixture.mode")).isEqualTo("plugin");
+        environment.getPropertySources().addFirst(new MapPropertySource("commandLineArgs", Map.of(
+                "fixture.mode", "command")));
+        assertThat(environment.getProperty("fixture.mode")).isEqualTo("command");
     }
 
     @Test

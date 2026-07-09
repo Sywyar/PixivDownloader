@@ -25,7 +25,7 @@ class DouyinControllerSecurityTest {
         when(request.getRemoteAddr()).thenReturn("203.0.113.10");
 
         var response = controller.download(
-                new DouyinDownloadRequest("https://www.douyin.com/video/1", "title", "unique-sentinel"),
+                new DouyinDownloadRequest("https://www.douyin.com/video/1", "title", "fixture-credential-7f4c2a91"),
                 request);
 
         assertThat(response.getStatusCode().value()).isEqualTo(403);

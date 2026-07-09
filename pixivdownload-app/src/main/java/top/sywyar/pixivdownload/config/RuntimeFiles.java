@@ -34,6 +34,7 @@ public final class RuntimeFiles {
     public static final String DEFAULT_PLUGINS_DIR = "plugins";
     public static final String DEFAULT_DOWNLOAD_ROOT = "pixiv-download";
     public static final String PLUGIN_CONFIG_DIR = "plugins";
+    public static final String PLUGIN_CREDENTIAL_DIR = "credentials";
     private static final String WINDOWS_INSTANCE_ROOT_ENV = "LOCALAPPDATA";
     private static final String WINDOWS_INSTANCE_APP_DIR = AppInfo.LEGACY_ARTIFACT_NAME;
     private static final String NON_WINDOWS_INSTANCE_APP_DIR = AppInfo.HIDDEN_DIRECTORY_NAME;
@@ -82,6 +83,17 @@ public final class RuntimeFiles {
                 extension == null ? null : extension.startsWith(".") ? extension.substring(1) : extension,
                 "extension");
         return pluginConfigDirectory().resolve(safePluginId + "." + safeExtension).normalize();
+    }
+
+    public static Path resolvePluginCredentialPath(String pluginId) {
+        String safePluginId = safePathToken(pluginId, "pluginId");
+        Path directory = configDirectory().resolve(PLUGIN_CREDENTIAL_DIR).normalize();
+        try {
+            Files.createDirectories(directory);
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", directory), e);
+        }
+        return directory.resolve(safePluginId + ".properties").normalize();
     }
 
     public static Path stateDirectory() {

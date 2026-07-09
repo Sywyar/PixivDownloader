@@ -68,10 +68,10 @@ class DefaultDouyinShortLinkResolverTest {
     @Test
     @DisplayName("拒绝 HTTP 短链入口和跳转降级")
     void rejectsHttpInputAndRedirectDowngrade() {
-        assertCode(() -> resolver(new FakeRedirectClient()).resolve("http://v.douyin.com/A/", "secret=sentinel"),
+        assertCode(() -> resolver(new FakeRedirectClient()).resolve("http://v.douyin.com/A/", "fixture-credential-7f4c2a91"),
                 DouyinClientErrorCode.INVALID_SHORT_URL);
         assertCode(() -> resolver(new FakeRedirectClient().redirect("http://www.douyin.com/video/7351234567890123456"))
-                        .resolve("https://v.douyin.com/A/", "secret=sentinel"),
+                        .resolve("https://v.douyin.com/A/", "fixture-credential-7f4c2a91"),
                 DouyinClientErrorCode.SHORT_LINK_UNRESOLVED);
     }
 

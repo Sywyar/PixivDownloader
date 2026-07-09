@@ -15,6 +15,7 @@ import org.springframework.transaction.support.DefaultTransactionStatus;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -84,6 +85,28 @@ class PluginApplicationContextFactoryTest {
             assertThat(child.getBeanFactory().getBeanClassLoader()).isSameAs(pluginClassLoader);
 
             child.close();
+        }
+    }
+
+    @Test
+    @DisplayName("owner 属性源只进入对应插件子 context 且不进入父 context")
+    void scopedPropertiesRemainInsideMatchingChildContext() {
+        PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(owner ->
+                Map.of("fixture.owner", owner));
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext first = scopedFactory.create(parent, new PluginContextModule(
+                    "first", getClass().getClassLoader(), List.of(PluginConfig.class)));
+            ConfigurableApplicationContext second = scopedFactory.create(parent, new PluginContextModule(
+                    "second", getClass().getClassLoader(), List.of(PluginConfig.class)));
+            try {
+                assertThat(first.getEnvironment().getProperty("fixture.owner")).isEqualTo("first");
+                assertThat(second.getEnvironment().getProperty("fixture.owner")).isEqualTo("second");
+                assertThat(parent.getEnvironment().getProperty("fixture.owner")).isNull();
+            } finally {
+                first.close();
+                second.close();
+            }
         }
     }
 

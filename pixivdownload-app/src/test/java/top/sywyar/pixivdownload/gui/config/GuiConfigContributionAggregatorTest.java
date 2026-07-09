@@ -53,6 +53,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("GUI 配置字段 contribution 聚合")
 class GuiConfigContributionAggregatorTest {
 
+    private static final String FAKE_CREDENTIAL = "fixture-credential-7f4c2a91";
+
     @TempDir
     Path tempDir;
 
@@ -885,8 +887,8 @@ class GuiConfigContributionAggregatorTest {
     }
 
     @Test
-    @DisplayName("ConfigPanel 发现插件配置与旧 config.yaml 值冲突时应保留旧键")
-    void configPanelKeepsLegacyYamlWhenPluginValueConflicts() throws Exception {
+    @DisplayName("ConfigPanel 以插件 properties 为权威并移除冲突的旧 YAML 键")
+    void configPanelUsesPluginPropertiesAndRemovesConflictingYaml() throws Exception {
         System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, tempDir.resolve("runtime-config").toString());
         Path pluginConfig = tempDir.resolve("runtime-config").resolve("plugins").resolve("fixture.properties");
         Files.createDirectories(pluginConfig.getParent());
@@ -907,7 +909,46 @@ class GuiConfigContributionAggregatorTest {
 
         assertThat(panel.currentFieldValue("fixture.panel")).isEqualTo("plugin-value");
         assertThat(loadProperties(pluginConfig).getProperty("fixture.panel")).isEqualTo("plugin-value");
-        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).contains("fixture.panel: legacy-value");
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).doesNotContain("fixture.panel");
+    }
+
+    @Test
+    @DisplayName("ConfigPanel 将 PASSWORD 字段迁移到专用存储且空白保持、显式清除")
+    void configPanelMigratesAndExplicitlyClearsPluginCredential() throws Exception {
+        Path runtimeConfig = tempDir.resolve("runtime-config");
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, runtimeConfig.toString());
+        Path pluginConfig = runtimeConfig.resolve("plugins").resolve("fixture.properties");
+        Files.createDirectories(pluginConfig.getParent());
+        Files.writeString(pluginConfig, "fixture.api-key=" + FAKE_CREDENTIAL + "\n", StandardCharsets.UTF_8);
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, String.join("\n",
+                "server.port: 6999",
+                "fixture.api-key: obsolete-value",
+                ""), StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(field("fixture.api-key", GuiConfigGroups.PLUGINS,
+                        "fixture.api-key.label", GuiConfigFieldType.PASSWORD)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+
+        ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                path -> "http://localhost:6999" + path, snapshot);
+
+        assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+        assertThat(new top.sywyar.pixivdownload.config.PluginCredentialStore().readAll("fixture"))
+                .containsEntry("fixture.api-key", FAKE_CREDENTIAL);
+        assertThat(loadProperties(pluginConfig)).doesNotContainKey("fixture.api-key");
+        assertThat(Files.readString(configYaml, StandardCharsets.UTF_8)).doesNotContain("fixture.api-key");
+
+        clickButton(panel, GuiMessages.get("gui.button.save"));
+        assertThat(new top.sywyar.pixivdownload.config.PluginCredentialStore().readAll("fixture"))
+                .containsEntry("fixture.api-key", FAKE_CREDENTIAL);
+
+        panel.requestCredentialClear("fixture.api-key");
+        clickButton(panel, GuiMessages.get("gui.button.save"));
+
+        assertThat(new top.sywyar.pixivdownload.config.PluginCredentialStore().readAll("fixture")).isEmpty();
+        assertThat(RuntimeFiles.resolvePluginCredentialPath("fixture")).doesNotExist();
     }
 
     @Test

@@ -5,7 +5,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.StandardEnvironment;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -34,6 +39,17 @@ import java.util.Objects;
 public final class PluginApplicationContextFactory {
 
     private static final Logger log = LoggerFactory.getLogger(PluginApplicationContextFactory.class);
+    public static final String SCOPED_PROPERTY_SOURCE_PREFIX = "pixivdownloadPluginScoped:";
+
+    private final PluginContextPropertySourceProvider propertySourceProvider;
+
+    public PluginApplicationContextFactory() {
+        this(PluginContextPropertySourceProvider.EMPTY);
+    }
+
+    public PluginApplicationContextFactory(PluginContextPropertySourceProvider propertySourceProvider) {
+        this.propertySourceProvider = Objects.requireNonNull(propertySourceProvider, "propertySourceProvider");
+    }
 
     /**
      * 为一个外置插件包建立并刷新子 {@code ApplicationContext}。返回的 context 已 {@code refresh()}、可用；
@@ -56,6 +72,8 @@ public final class PluginApplicationContextFactory {
         // 先挂父 context：合并父环境属性源（供条件 / 属性解析）+ 让子 context 找不到的依赖向父解析核心 API/服务 Bean。
         // 须早于 register（@Configuration 条件评估在注册与刷新期进行）。
         child.setParent(parent);
+        replaceScopedPropertySource(child.getEnvironment(), module.sourcePluginId(),
+                propertySourceProvider.propertiesFor(module.sourcePluginId()));
         child.register(PluginContextInfrastructureConfiguration.class);
         for (Class<?> configurationClass : module.configurationClasses()) {
             child.register(configurationClass);
@@ -65,5 +83,29 @@ public final class PluginApplicationContextFactory {
         log.info("Plugin context started for '{}': {} configuration class(es), {} bean definition(s).",
                 module.sourcePluginId(), module.configurationClasses().size(), child.getBeanDefinitionCount());
         return child;
+    }
+
+    public static void replaceScopedPropertySource(ConfigurableEnvironment environment,
+                                                   String ownerPluginId,
+                                                   Map<String, ?> properties) {
+        Objects.requireNonNull(environment, "environment");
+        String owner = Objects.requireNonNull(ownerPluginId, "ownerPluginId").trim();
+        if (owner.isEmpty()) {
+            throw new IllegalArgumentException("ownerPluginId must not be blank");
+        }
+        String sourceName = SCOPED_PROPERTY_SOURCE_PREFIX + owner;
+        MutablePropertySources sources = environment.getPropertySources();
+        sources.remove(sourceName);
+        if (properties == null || properties.isEmpty()) {
+            return;
+        }
+        MapPropertySource scoped = new MapPropertySource(sourceName, Map.copyOf(properties));
+        if (sources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
+            sources.addAfter(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, scoped);
+        } else if (sources.contains(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME)) {
+            sources.addAfter(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, scoped);
+        } else {
+            sources.addFirst(scoped);
+        }
     }
 }

@@ -74,6 +74,20 @@ public class PropertiesConfigFileEditor {
         writeLinesAtomically(lines);
     }
 
+    public synchronized void removeAll(Collection<String> keys) throws IOException {
+        Set<String> safeKeys = ConfigFileEditor.validatedKeySet(keys);
+        if (safeKeys.isEmpty() || !Files.exists(configPath)) {
+            return;
+        }
+        List<String> lines = new ArrayList<>(readLines());
+        rejectDuplicateManagedKeys(lines, safeKeys);
+        lines.removeIf(line -> {
+            String key = activeKey(line);
+            return key != null && safeKeys.contains(key);
+        });
+        writeLinesAtomically(lines);
+    }
+
     public synchronized FileSnapshot snapshot() throws IOException {
         return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
     }

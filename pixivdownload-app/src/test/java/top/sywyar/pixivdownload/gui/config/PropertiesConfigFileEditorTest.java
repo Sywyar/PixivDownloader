@@ -71,4 +71,24 @@ class PropertiesConfigFileEditorTest {
 
         assertThat(file).doesNotExist();
     }
+
+    @Test
+    @DisplayName("移除托管 key 时保留其它 properties 内容")
+    void shouldRemoveManagedKeysOnly() throws Exception {
+        Path file = tempDir.resolve("fixture.properties");
+        Files.writeString(file, String.join("\n",
+                "# keep comment",
+                "fixture.api-key=legacy",
+                "fixture.mode=direct",
+                ""), StandardCharsets.UTF_8);
+        PropertiesConfigFileEditor editor = new PropertiesConfigFileEditor(file);
+
+        editor.removeAll(Map.of("fixture.api-key", "").keySet());
+
+        assertThat(editor.readAll(Map.of("fixture.api-key", "").keySet())).isEmpty();
+        assertThat(Files.readString(file, StandardCharsets.UTF_8))
+                .contains("# keep comment")
+                .contains("fixture.mode=direct")
+                .doesNotContain("fixture.api-key");
+    }
 }

@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;
@@ -64,6 +65,7 @@ public class RuntimeConfigReloadService {
     private final NotificationConfig notificationConfig;
     private final ObjectProvider<PluginLifecycleService> pluginLifecycleService;
     private final ConfigurableEnvironment environment;
+    private final PluginCredentialStore credentialStore;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
         return reloadHotConfig(List.of());
@@ -94,7 +96,7 @@ public class RuntimeConfigReloadService {
         applyUpdateConfig(nextUpdate, applied);
         applyNarrationTtsConfig(nextNarrationTts, applied);
         applyNotificationConfig(nextNotification, applied);
-        rebindPluginConfig(binder, requestedChangedKeys, applied);
+        rebindPluginConfig(requestedChangedKeys, applied);
 
         if (!applied.isEmpty()) {
             log.info(message("gui.config.log.hot-reloaded", applied));
@@ -358,7 +360,7 @@ public class RuntimeConfigReloadService {
         addAppliedKey(applied, key);
     }
 
-    private void rebindPluginConfig(Binder binder, List<String> requestedChangedKeys, List<String> applied) {
+    private void rebindPluginConfig(List<String> requestedChangedKeys, List<String> applied) throws IOException {
         if (requestedChangedKeys.isEmpty()) {
             return;
         }
@@ -370,12 +372,41 @@ public class RuntimeConfigReloadService {
         Set<String> reboundKeys = new LinkedHashSet<>();
         for (String pluginId : lifecycleService.servingPluginIds()) {
             lifecycleService.contextFor(pluginId)
-                    .ifPresent(context -> rebindPluginContext(binder, context, requestedChangedKeys, reboundKeys));
+                    .ifPresent(context -> {
+                        refreshPluginConfigSource(context.getEnvironment());
+                        PluginApplicationContextFactory.replaceScopedPropertySource(
+                                context.getEnvironment(), pluginId, credentialStoreValues(pluginId));
+                        Binder childBinder = new Binder(
+                                ConfigurationPropertySources.from(context.getEnvironment().getPropertySources()));
+                        rebindPluginContext(childBinder, context, requestedChangedKeys, reboundKeys);
+                    });
         }
         for (String key : requestedChangedKeys) {
             if (reboundKeys.contains(key)) {
                 addAppliedKey(applied, key);
             }
+        }
+    }
+
+    private static void refreshPluginConfigSource(ConfigurableEnvironment childEnvironment) {
+        MutablePropertySources sources = childEnvironment.getPropertySources();
+        sources.remove(PluginConfigPropertySourceLoader.PROPERTY_SOURCE_NAME);
+        PluginConfigPropertySourceLoader.load().ifPresent(source -> {
+            if (sources.contains(RUNTIME_CONFIG_PROPERTY_SOURCE)) {
+                sources.addBefore(RUNTIME_CONFIG_PROPERTY_SOURCE, source);
+            } else {
+                sources.addLast(source);
+            }
+        });
+    }
+
+    private Map<String, Object> credentialStoreValues(String pluginId) {
+        try {
+            Map<String, Object> scoped = new java.util.LinkedHashMap<>();
+            scoped.putAll(credentialStore.readAll(pluginId));
+            return scoped;
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
         }
     }
 
