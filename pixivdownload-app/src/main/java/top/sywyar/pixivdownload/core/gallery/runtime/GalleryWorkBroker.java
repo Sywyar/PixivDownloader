@@ -3,9 +3,11 @@ package top.sywyar.pixivdownload.core.gallery.runtime;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic;
 import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /** Resolves complete work details by source and namespace without list-kind coupling. */
 @Component
@@ -18,8 +20,12 @@ public class GalleryWorkBroker {
     }
 
     public GalleryWorkResult find(GalleryWorkKey key) {
+        return find(key, Set.of(GalleryDataAccess.SHARED));
+    }
+
+    public GalleryWorkResult find(GalleryWorkKey key, Set<GalleryDataAccess> allowedAccess) {
         List<GalleryDiagnostic> diagnostics = new ArrayList<>(registry.snapshot().diagnostics());
-        var registered = registry.resolveWork(key.sourceId(), key.sourceWorkNamespace());
+        var registered = registry.resolveWork(key.sourceId(), key.sourceWorkNamespace(), allowedAccess);
         if (registered.isEmpty()) {
             return new GalleryWorkResult(java.util.Optional.empty(), diagnostics);
         }

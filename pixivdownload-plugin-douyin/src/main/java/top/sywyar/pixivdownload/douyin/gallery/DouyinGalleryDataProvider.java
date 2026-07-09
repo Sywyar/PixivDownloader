@@ -83,7 +83,7 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
 
     @Override
     public List<GalleryWorkDescriptor> works() {
-        return List.of(new GalleryWorkDescriptor(SOURCE_ID, WORK_NAMESPACE));
+        return List.of(new GalleryWorkDescriptor(SOURCE_ID, WORK_NAMESPACE, GalleryDataAccess.ADMIN_ONLY));
     }
 
     @Override

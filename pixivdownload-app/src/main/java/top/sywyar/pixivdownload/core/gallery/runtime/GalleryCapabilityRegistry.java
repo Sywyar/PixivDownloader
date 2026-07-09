@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor;
 
 import java.util.ArrayList;
@@ -138,10 +139,17 @@ public class GalleryCapabilityRegistry {
     }
 
     public Optional<RegisteredWorkProvider> resolveWork(String sourceId, String namespace) {
+        return resolveWork(sourceId, namespace, Set.of(GalleryDataAccess.SHARED));
+    }
+
+    public Optional<RegisteredWorkProvider> resolveWork(String sourceId, String namespace,
+                                                        Set<GalleryDataAccess> allowedAccess) {
+        Set<GalleryDataAccess> allowed = allowedAccess == null ? Set.of() : Set.copyOf(allowedAccess);
         return snapshot.workProviders().stream()
                 .filter(registered -> registered.descriptors().stream().anyMatch(descriptor ->
                         descriptor.sourceId().equals(sourceId)
-                                && descriptor.sourceWorkNamespace().equals(namespace)))
+                                && descriptor.sourceWorkNamespace().equals(namespace)
+                                && allowed.contains(descriptor.dataAccess())))
                 .findFirst();
     }
 
