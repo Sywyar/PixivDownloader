@@ -29,6 +29,8 @@ class PluginCapabilityBoundaryGuardTest {
             "NarrationEngineRegistry",
             "GalleryProjectionProvider",
             "GalleryWorkProvider",
+            "GalleryFrontendProvider",
+            "GalleryFrontendContribution",
             "GalleryCapabilityRegistry");
 
     @Test

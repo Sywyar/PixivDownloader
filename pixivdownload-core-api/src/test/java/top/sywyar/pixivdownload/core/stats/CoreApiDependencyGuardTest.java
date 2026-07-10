@@ -6,6 +6,8 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.gallery.GalleryDataProvider;
+import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
+import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendProvider;
 import top.sywyar.pixivdownload.core.gallery.model.GallerySourceDescriptor;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
@@ -101,5 +103,7 @@ class CoreApiDependencyGuardTest {
     void coreApiContainsGalleryApiTypes() {
         assertThat(CLASSES.contain(GalleryDataProvider.class.getName())).isTrue();
         assertThat(CLASSES.contain(GallerySourceDescriptor.class.getName())).isTrue();
+        assertThat(CLASSES.contain(GalleryFrontendContribution.class.getName())).isTrue();
+        assertThat(CLASSES.contain(GalleryFrontendProvider.class.getName())).isTrue();
     }
 }

@@ -7,5 +7,6 @@ public enum GalleryMediaKind {
     LIVE_PHOTO_VIDEO,
     UGOIRA,
     COVER,
-    TEXT
+    TEXT,
+    UNKNOWN
 }

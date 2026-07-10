@@ -61,6 +61,12 @@ class GalleryContractTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    @DisplayName("未知媒体类型有显式枚举值供前端安全回退")
+    void unknownMediaKindIsExplicit() {
+        assertThat(GalleryMediaKind.valueOf("UNKNOWN")).isEqualTo(GalleryMediaKind.UNKNOWN);
+    }
+
     private static GalleryMediaAsset asset(GalleryWorkKey workKey, String mediaId, GalleryMediaKind kind) {
         return new GalleryMediaAsset(new GalleryMediaKey(workKey, mediaId), kind, null, null, null, null, Map.of());
     }
