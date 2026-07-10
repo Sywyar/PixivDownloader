@@ -205,12 +205,12 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
 
     private static GalleryMediaKind mediaKind(DouyinWorkFileRecord file) {
         if (file.mediaType() == null) {
-            return GalleryMediaKind.VIDEO;
+            return GalleryMediaKind.UNKNOWN;
         }
         try {
             return GalleryMediaKind.valueOf(file.mediaType().trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ignored) {
-            return GalleryMediaKind.VIDEO;
+            return GalleryMediaKind.UNKNOWN;
         }
     }
 

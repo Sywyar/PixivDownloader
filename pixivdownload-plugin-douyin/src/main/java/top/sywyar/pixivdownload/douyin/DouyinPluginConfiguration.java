@@ -27,6 +27,7 @@ import top.sywyar.pixivdownload.douyin.download.DouyinMediaDownloader;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
 import top.sywyar.pixivdownload.douyin.download.DouyinQueueOperations;
 import top.sywyar.pixivdownload.douyin.gallery.DouyinGalleryDataProvider;
+import top.sywyar.pixivdownload.douyin.gallery.frontend.DouyinGalleryFrontendProvider;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
@@ -67,6 +68,12 @@ public class DouyinPluginConfiguration {
     @ConditionalOnPluginEnabled("douyin")
     public DouyinGalleryDataProvider douyinGalleryDataProvider(DouyinHistoryService historyService) {
         return new DouyinGalleryDataProvider(historyService);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinGalleryFrontendProvider douyinGalleryFrontendProvider() {
+        return new DouyinGalleryFrontendProvider();
     }
 
     @Bean

@@ -184,11 +184,14 @@ class NovelExternalPluginBootContextTest {
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "小说");
 
         assertThat(externalCl.getResource("static/pixiv-novel-download/novel-queue-type.js")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-novel-gallery/novel-gallery-frontend.js")).isNotNull();
         assertThat(externalCl.getResource("static/pixiv-novel-gallery.html")).isNotNull();
         assertThat(externalCl.getResource("static/pixiv-novel/pixiv-novel-render.js")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/novel.properties")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/novel-gallery.properties")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-novel-gallery.html")).isNull();
+        assertThat(getClass().getClassLoader()
+                .getResource("static/pixiv-novel-gallery/novel-gallery-frontend.js")).isNull();
     }
 
     @Test
@@ -223,6 +226,10 @@ class NovelExternalPluginBootContextTest {
                     assertThat(work.sourceId()).isEqualTo("pixiv");
                     assertThat(work.sourceWorkNamespace()).isEqualTo("novel");
                 });
+        assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
+                .filteredOn(frontend -> frontend.ownerPluginId().equals("novel"))
+                .extracting(frontend -> frontend.contribution().contributionId())
+                .containsExactlyInAnyOrder("novel.view", "novel.text-renderer", "novel.detail-actions");
         assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
     }
 
@@ -243,6 +250,8 @@ class NovelExternalPluginBootContextTest {
                 externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController");
         Class<?> providerClass =
                 externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryDataProvider");
+        Class<?> frontendProviderClass = externalCl.loadClass(
+                "top.sywyar.pixivdownload.novelgallery.frontend.NovelGalleryFrontendProvider");
 
         assertThat(child.getBeanNamesForType(downloadServiceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(downloadControllerClass)).isNotEmpty();
@@ -250,8 +259,10 @@ class NovelExternalPluginBootContextTest {
         assertThat(child.getBeanNamesForType(batchServiceClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(controllerClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(providerClass)).isNotEmpty();
+        assertThat(child.getBeanNamesForType(frontendProviderClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
         assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(frontendProviderClass)).isEmpty();
         assertThat(novelGalleryListHandlerBean()).isSameAs(child.getBean(controllerClass));
     }
 

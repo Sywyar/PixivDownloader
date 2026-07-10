@@ -106,6 +106,20 @@ class DouyinGalleryDataProviderTest {
         assertThat(detail.orElseThrow().media().get(3).key().mediaId()).isEqualTo("index-3");
     }
 
+    @Test
+    @DisplayName("未识别媒体类型显式映射为 UNKNOWN 而不冒充视频")
+    void unknownMediaTypeMapsToUnknown() {
+        when(historyService.findById("7351")).thenReturn(java.util.Optional.of(work("7351")));
+        when(historyService.findFilesByWorkId("7351")).thenReturn(List.of(
+                file("7351", 0, "future", "FUTURE_MEDIA")));
+
+        var detail = provider.find(new GalleryWorkKey("douyin", "aweme", "7351"));
+
+        assertThat(detail).isPresent();
+        assertThat(detail.orElseThrow().media()).singleElement()
+                .satisfies(asset -> assertThat(asset.kind()).isEqualTo(GalleryMediaKind.UNKNOWN));
+    }
+
     private static GalleryProjectionQuery query(GalleryKind kind) {
         return new GalleryProjectionQuery(kind, "douyin", List.of(), GallerySortField.DOWNLOADED_AT,
                 GallerySortDirection.DESC, null, 20);

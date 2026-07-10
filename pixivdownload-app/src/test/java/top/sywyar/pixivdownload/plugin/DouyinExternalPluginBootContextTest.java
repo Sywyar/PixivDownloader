@@ -162,6 +162,11 @@ class DouyinExternalPluginBootContextTest {
         assertThat(galleryCapabilityRegistry.snapshot().workProviders())
                 .extracting(GalleryCapabilityRegistry.RegisteredWorkProvider::providerId)
                 .contains("douyin-gallery");
+        assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
+                .filteredOn(frontend -> frontend.ownerPluginId().equals("douyin"))
+                .extracting(frontend -> frontend.contribution().contributionId())
+                .containsExactlyInAnyOrder(
+                        "douyin.image-view", "douyin.video-view", "douyin.card", "douyin.media");
         assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
     }
 
@@ -175,9 +180,13 @@ class DouyinExternalPluginBootContextTest {
 
         Class<?> providerClass =
                 externalCl.loadClass("top.sywyar.pixivdownload.douyin.gallery.DouyinGalleryDataProvider");
+        Class<?> frontendProviderClass = externalCl.loadClass(
+                "top.sywyar.pixivdownload.douyin.gallery.frontend.DouyinGalleryFrontendProvider");
 
         assertThat(child.getBeanNamesForType(providerClass)).isNotEmpty();
+        assertThat(child.getBeanNamesForType(frontendProviderClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(frontendProviderClass)).isEmpty();
     }
 
     @Test
@@ -189,6 +198,13 @@ class DouyinExternalPluginBootContextTest {
         assertThat(bundle.classLoader()).isSameAs(externalDouyinClassLoader());
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("source.douyin", "抖音");
         assertThat(bundle.load(Locale.ENGLISH)).containsEntry("source.douyin", "Douyin");
+        assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE))
+                .containsEntry("frontend.view.image", "抖音图片")
+                .containsEntry("frontend.view.video", "抖音视频");
+        assertThat(externalDouyinClassLoader()
+                .getResource("static/pixiv-douyin-download/douyin-gallery-frontend.js")).isNotNull();
+        assertThat(getClass().getClassLoader()
+                .getResource("static/pixiv-douyin-download/douyin-gallery-frontend.js")).isNull();
     }
 
     private ClassLoader externalDouyinClassLoader() {
