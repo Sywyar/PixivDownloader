@@ -18,7 +18,9 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -45,21 +47,31 @@ public class PluginStatusService {
     private final PluginRegistry pluginRegistry;
     private final Supplier<PluginInventory> pluginInventory;
     private final Supplier<List<InstalledPlugin>> installedArtifacts;
+    private final Supplier<Map<String, PluginDescriptor>> loadedDescriptors;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final PluginStatusEvaluator evaluator = new PluginStatusEvaluator();
 
     public PluginStatusService(PluginRegistry pluginRegistry, PluginInventory pluginInventory,
                                RequiredPluginPolicy requiredPluginPolicy) {
-        this(pluginRegistry, () -> pluginInventory, List::of, requiredPluginPolicy);
+        this(pluginRegistry, () -> pluginInventory, List::of, Map::of, requiredPluginPolicy);
     }
 
     public PluginStatusService(PluginRegistry pluginRegistry,
                                Supplier<PluginInventory> pluginInventory,
                                Supplier<List<InstalledPlugin>> installedArtifacts,
                                RequiredPluginPolicy requiredPluginPolicy) {
+        this(pluginRegistry, pluginInventory, installedArtifacts, Map::of, requiredPluginPolicy);
+    }
+
+    public PluginStatusService(PluginRegistry pluginRegistry,
+                               Supplier<PluginInventory> pluginInventory,
+                               Supplier<List<InstalledPlugin>> installedArtifacts,
+                               Supplier<Map<String, PluginDescriptor>> loadedDescriptors,
+                               RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
         this.pluginInventory = pluginInventory;
         this.installedArtifacts = installedArtifacts;
+        this.loadedDescriptors = loadedDescriptors;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
@@ -71,6 +83,7 @@ public class PluginStatusService {
         this.pluginRegistry = pluginRegistry;
         this.pluginInventory = runtimeManager::inspectPlugins;
         this.installedArtifacts = installer::listInstalled;
+        this.loadedDescriptors = runtimeManager::loadedDescriptors;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
@@ -96,9 +109,14 @@ public class PluginStatusService {
         }
         Set<String> observedExternalPackages = inventory.installations().stream()
                 .map(installation -> installation.descriptor().sourcePluginId())
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (PluginDescriptor descriptor : loadedDescriptors.get().values()) {
+            if (descriptor != null && observedExternalPackages.add(descriptor.sourcePluginId())) {
+                observed.add(new ObservedPlugin(descriptor, PluginStatus.INSTALLED));
+            }
+        }
         for (InstalledPlugin installed : installedArtifacts.get()) {
-            if (!observedExternalPackages.contains(installed.id())) {
+            if (observedExternalPackages.add(installed.id())) {
                 observed.add(new ObservedPlugin(installed.descriptor(), PluginStatus.INSTALLED));
             }
         }

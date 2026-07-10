@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
 import java.util.List;
+import java.util.Map;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,6 +116,21 @@ class PluginStatusServiceTest {
         assertInstalledDisplayMetadata(report, "mail", "mail", "mail", "green");
         assertInstalledDisplayMetadata(report, "ai", "ai", "sparkles", "teal");
         assertInstalledDisplayMetadata(report, "tts", "tts", "audio-lines", "amber");
+    }
+
+    @Test
+    @DisplayName("停止的开发插件仍通过已加载描述符出现在状态报告")
+    void stoppedDevelopmentPluginRemainsVisibleFromLoadedDescriptor() {
+        PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties());
+        PluginDescriptor descriptor = external("dev-ext", "1.0.0", PluginApiRequirement.unspecified());
+
+        PluginStatusReport report = new PluginStatusService(
+                registry, PluginInventory::empty, List::of,
+                () -> Map.of("dev-ext", descriptor), RequiredPluginPolicy.empty()).report();
+
+        PluginDiagnostic diagnostic = report.byId("dev-ext").orElseThrow();
+        assertThat(diagnostic.status()).isEqualTo(PluginStatus.INSTALLED);
+        assertThat(diagnostic.descriptor()).isEqualTo(descriptor);
     }
 
     private static PluginStatus statusOf(PluginStatusReport report, String id) {

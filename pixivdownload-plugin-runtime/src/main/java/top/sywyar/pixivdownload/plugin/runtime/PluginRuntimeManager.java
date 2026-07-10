@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactMaterializ
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
@@ -176,7 +177,8 @@ public class PluginRuntimeManager {
         PluginPackageInspection inspection = verifyBeforeLoad(artifactPath);
         PluginArtifactMaterializer.MaterializedPluginArtifact materialized =
                 materializer.materialize(artifactPath, inspection);
-        return loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot);
+        return loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot,
+                inspection.descriptor());
     }
 
     private PluginRuntimeStatus startDevelopmentMode(Path productionDirectory) {
@@ -214,7 +216,7 @@ public class PluginRuntimeManager {
                 : PluginDevelopmentArtifacts.dependencyOrder(materializedPlugins)) {
             try {
                 loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
-                        discovery.cacheRoot());
+                        discovery.cacheRoot(), materialized.descriptor());
             } catch (RuntimeException e) {
                 failures.add(new PluginLoadFailure(materialized.descriptor().id(), describe(e)));
                 log.error("Failed to load development plugin module {}",
@@ -274,7 +276,8 @@ public class PluginRuntimeManager {
         System.err.println(ANSI_RED_BOLD + message + ANSI_RESET);
     }
 
-    private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot) {
+    private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
+                                                   PluginDescriptor packageDescriptor) {
         ensureManager(pluginManagerRoot);
         String packageId;
         try {
@@ -297,11 +300,12 @@ public class PluginRuntimeManager {
         long generation = generations.merge(packageId, 1L, Long::sum);
         RuntimeEntry entry = new RuntimeEntry(packageId,
                 artifactPath.toAbsolutePath().normalize(), pf4jLoadPath.toAbsolutePath().normalize(),
-                wrapper.getDescriptor().getVersion(), generation, PluginRuntimePackagePhase.LOADED);
+                wrapper.getDescriptor().getVersion(), generation, PluginRuntimePackagePhase.LOADED,
+                packageDescriptor);
         entries.put(packageId, entry);
         try {
             LoadedPluginPackage loaded = snapshot(entry, true);
-            validateReleaseShape(loaded);
+            entry.descriptor = validateReleaseShape(loaded);
             refreshStatus();
             return loaded;
         } catch (RuntimeException failure) {
@@ -405,6 +409,19 @@ public class PluginRuntimeManager {
     public synchronized Optional<Path> artifactPath(String packageId) {
         RuntimeEntry entry = entries.get(packageId);
         return entry == null ? Optional.empty() : Optional.of(entry.artifactPath);
+    }
+
+    /** 当前已加载 generation 的纯值描述符；停止服务不移除，物理卸载时随 runtime entry 一并释放。 */
+    public synchronized Optional<PluginDescriptor> loadedDescriptor(String packageId) {
+        RuntimeEntry entry = entries.get(packageId);
+        return entry == null ? Optional.empty() : Optional.of(entry.descriptor);
+    }
+
+    /** 全部已加载 generation 的纯值描述符快照，包含 LOADED / STARTED / STOPPED。 */
+    public synchronized Map<String, PluginDescriptor> loadedDescriptors() {
+        Map<String, PluginDescriptor> result = new LinkedHashMap<>();
+        entries.forEach((id, entry) -> result.put(id, entry.descriptor));
+        return Map.copyOf(result);
     }
 
     /** 当前已加载的非可选反向依赖包。 */
@@ -523,7 +540,7 @@ public class PluginRuntimeManager {
     }
 
     /** 当前发布格式要求一个物理包只贡献一个同 id 功能插件和至多一个 Spring 模块。 */
-    private static void validateReleaseShape(LoadedPluginPackage loaded) {
+    private static PluginDescriptor validateReleaseShape(LoadedPluginPackage loaded) {
         List<PluginInstallation> registrable = loaded.inventory().installations().stream()
                 .filter(PluginInstallation::registrable)
                 .toList();
@@ -540,6 +557,7 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException("external package " + loaded.packageId()
                     + " declared a context module for another package");
         }
+        return registrable.get(0).descriptor();
     }
 
     private void ensureManager() {
@@ -660,15 +678,17 @@ public class PluginRuntimeManager {
         private final String version;
         private final long generation;
         private PluginRuntimePackagePhase phase;
+        private PluginDescriptor descriptor;
 
         private RuntimeEntry(String packageId, Path artifactPath, Path pf4jLoadPath, String version,
-                             long generation, PluginRuntimePackagePhase phase) {
+                             long generation, PluginRuntimePackagePhase phase, PluginDescriptor descriptor) {
             this.packageId = packageId;
             this.artifactPath = artifactPath;
             this.pf4jLoadPath = pf4jLoadPath;
             this.version = version;
             this.generation = generation;
             this.phase = phase;
+            this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
         }
     }
 }

@@ -172,6 +172,11 @@ class PluginRuntimeManagerTest {
             assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/plugin/runtime/bootstrap/"
                     + "BootstrapProbePlugin.class")).exists();
             assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
+            assertThat(manager.loadedDescriptor(PROBE_ID)).get()
+                    .extracting(PluginDescriptor::id).isEqualTo(PROBE_ID);
+            manager.stopPlugin(PROBE_ID);
+            assertThat(manager.loadedDescriptors()).containsKey(PROBE_ID);
+            manager.startPlugin(PROBE_ID);
         } finally {
             manager.shutdown();
             restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);

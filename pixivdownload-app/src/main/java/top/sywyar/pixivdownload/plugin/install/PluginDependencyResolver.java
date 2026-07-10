@@ -65,6 +65,19 @@ public class PluginDependencyResolver {
                 .findFirst();
     }
 
+    /**
+     * 指定受管插件当前可用于运行期激活校验的描述符。正常安装优先读取安装清单；显式开发模式没有落盘安装包，
+     * 此时读取当前已加载 generation 保留的纯值描述符。
+     */
+    public Optional<PluginDescriptor> activationDescriptor(String pluginId) {
+        Optional<PluginDescriptor> installed = installedDescriptor(pluginId);
+        if (installed.isPresent() || pluginId == null || lifecycleService == null) {
+            return installed;
+        }
+        return lifecycleService.descriptor(pluginId)
+                .filter(descriptor -> pluginId.equals(descriptor.id()));
+    }
+
     /** 当前安装态中指定依赖是否已满足。 */
     public boolean installedDependencySatisfied(PluginDependencyRef dependency) {
         return problems(new PluginDescriptor("dependency-check", "dependency-check", "0.0.0",
@@ -136,6 +149,14 @@ public class PluginDependencyResolver {
             boolean active = phase == PluginRuntimePhase.STARTED;
             targets.put(installed.id(), new DependencyTarget(installed.descriptor(), active,
                     phase != null ? phase.name() : "INSTALLED"));
+        }
+        for (String pluginId : lifecycleService.managedPluginIds()) {
+            activationDescriptor(pluginId).ifPresent(descriptor -> {
+                PluginRuntimePhase phase = lifecycleService.phase(pluginId).orElse(null);
+                boolean active = phase == PluginRuntimePhase.STARTED;
+                targets.put(pluginId, new DependencyTarget(descriptor, active,
+                        phase != null ? phase.name() : "LOADED"));
+            });
         }
         return targets;
     }

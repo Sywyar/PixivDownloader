@@ -367,7 +367,7 @@ public class ExternalPluginLifecycleCoordinator {
     }
 
     private void requireActivationDependencies(String packageId) {
-        var descriptor = dependencyResolver.installedDescriptor(packageId)
+        var descriptor = dependencyResolver.activationDescriptor(packageId)
                 .orElseThrow(() -> new ClassifiedPluginLifecycleException(PluginManagementErrorCode.UNKNOWN_PLUGIN,
                         "installed artifact not found: " + packageId));
         List<PluginDependencyProblem> problems = dependencyResolver.activationProblems(descriptor);

@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -314,6 +315,11 @@ public class PluginLifecycleService {
     /** 当前运行时已加载外置插件的 artifact 路径快照。 */
     public Optional<Path> artifactPath(String packageId) {
         return pluginRuntimeManager.artifactPath(packageId);
+    }
+
+    /** 当前已加载 generation 的纯值包描述符；STOPPED 时仍在，物理卸载后消失。 */
+    public Optional<PluginDescriptor> descriptor(String packageId) {
+        return pluginRuntimeManager.loadedDescriptor(packageId);
     }
 
     /** 磁盘包删除后移除纯值生命周期记录。 */
