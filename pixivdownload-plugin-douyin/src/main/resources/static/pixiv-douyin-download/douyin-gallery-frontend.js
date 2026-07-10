@@ -23,7 +23,7 @@
     }
 
     function actorName(work) {
-        const actor = work && work.actor;
+        const actor = work && work.author;
         const value = actor && (actor.displayName || actor.name);
         return value == null ? '' : String(value);
     }

@@ -66,6 +66,7 @@ class DouyinGalleryFrontendProviderTest {
                 .contains("id: 'douyin.card'")
                 .contains("id: 'douyin.media'")
                 .contains("mediaKinds: ['IMAGE', 'VIDEO', 'LIVE_PHOTO_VIDEO', 'COVER']")
+                .contains("work.author")
                 .contains("context.t")
                 .contains("textContent")
                 .doesNotContain("innerHTML", "outerHTML", "insertAdjacentHTML", "eval(");
