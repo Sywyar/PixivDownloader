@@ -1,6 +1,7 @@
 'use strict';
 
     let galleryStatusModel = null;
+    let galleryLoadRevision = 0;
 
     function setGalleryStatus(code, values) {
         galleryStatusModel = {code, values: values || {}};
@@ -23,6 +24,7 @@
 
     // ---------- Gallery ----------
     async function loadGallery() {
+        const requestRevision = ++galleryLoadRevision;
         persistGalleryState();
         // IDs mode remains page-scoped; filter mode survives pagination while the filter snapshot stays unchanged.
         if (batch.active) {
@@ -56,6 +58,7 @@
         setGalleryStatus('loading');
         try {
             const result = await api('/api/gallery/artworks?' + params.toString());
+            if (requestRevision !== galleryLoadRevision) return;
             state.totalPages = result.totalPages || 0;
             state.totalElements = result.totalElements || 0;
             // 先更新计数文案，确保即使列表为空也不会停留在「加载中…」
@@ -71,6 +74,7 @@
             // 仅在存在有效搜索/筛选条件时才把搜索框与筛选按钮标红
             setSearchEmptyState(state.totalElements === 0 && hasActiveGalleryFilters());
         } catch (e) {
+            if (requestRevision !== galleryLoadRevision) return;
             state.totalElements = 0;
             setGalleryStatus('failure', {message: e.message});
             document.getElementById('galleryGrid').innerHTML = '';

@@ -87,6 +87,26 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
+    @DisplayName("旧画廊只允许最新筛选请求更新结果")
+    void staleGalleryResponsesCannotOverwriteNewerFilters() throws IOException {
+        String views = read("static/pixiv-gallery/gallery-views.js");
+
+        int request = views.indexOf("const result = await api('/api/gallery/artworks?'");
+        int successGuard = views.indexOf("if (requestRevision !== galleryLoadRevision) return;", request);
+        int render = views.indexOf("renderGallery(result.content || []);", successGuard);
+        int failure = views.indexOf("} catch (e) {", render);
+        int failureGuard = views.indexOf("if (requestRevision !== galleryLoadRevision) return;", failure);
+        int failureRender = views.indexOf("setGalleryStatus('failure'", failureGuard);
+
+        assertThat(views).contains("let galleryLoadRevision = 0;",
+                "const requestRevision = ++galleryLoadRevision;");
+        assertThat(successGuard).isGreaterThan(request);
+        assertThat(render).isGreaterThan(successGuard);
+        assertThat(failureGuard).isGreaterThan(failure);
+        assertThat(failureRender).isGreaterThan(failureGuard);
+    }
+
+    @Test
     @DisplayName("旧画廊壳提供中性前端契约且不硬编码来源模块")
     void genericFrontendRuntimeKeepsPluginNeutralBoundary() throws IOException {
         String runtime = read("static/pixiv-gallery/gallery-frontend-runtime.js");
