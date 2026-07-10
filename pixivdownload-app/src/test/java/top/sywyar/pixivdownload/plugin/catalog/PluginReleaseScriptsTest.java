@@ -440,12 +440,13 @@ class PluginReleaseScriptsTest {
     void officialPluginVersionsDoNotReusePublishedAssets() throws Exception {
         for (String module : List.of(
                 "pixivdownload-plugin-download-workbench", "pixivdownload-plugin-stats",
-                "pixivdownload-plugin-duplicate", "pixivdownload-plugin-gallery",
+                "pixivdownload-plugin-duplicate",
                 "pixivdownload-plugin-notification", "pixivdownload-plugin-gui-theme",
                 "pixivdownload-plugin-push", "pixivdownload-plugin-mail",
                 "pixivdownload-plugin-tts", "pixivdownload-plugin-ai")) {
             assertThat(pluginDescriptor(module)).as(module).contains("plugin.version=1.0.1");
         }
+        assertThat(pluginDescriptor("pixivdownload-plugin-gallery")).contains("plugin.version=1.0.2");
         assertThat(pluginDescriptor("pixivdownload-plugin-novel")).contains("plugin.version=1.0.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains("plugin.version=1.0.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
