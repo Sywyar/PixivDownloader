@@ -71,6 +71,7 @@
                 <span class="nav-label" data-i18n="nav.series">按系列漫画查看</span>
             </a>
         </nav>
+        <nav class="sidebar-nav gallery-frontend-nav" id="galleryFrontendNav" hidden></nav>
 
         <div class="sidebar-divider"></div>
 
@@ -281,6 +282,7 @@
         </div>
 
         <div class="gallery-wrapper">
+            <section class="gallery-generic-filters" id="galleryGenericFilters" hidden></section>
             <div class="filter-summary-bar" id="tagFilterBar">
                 <span class="label" data-i18n="summary.tags">标签筛选：</span>
                 <span class="name" id="tagFilterName"></span>
@@ -301,6 +303,7 @@
             <nav class="pagination" id="pagination"></nav>
             <section class="author-view" id="authorView"></section>
             <nav class="pagination" id="authorPagination"></nav>
+            <section class="gallery-generic-detail" id="galleryGenericDetail" hidden></section>
         </div>
     </main>
 </div>
@@ -483,6 +486,8 @@
 <script src="/pixiv-gallery/gallery-collections.js"></script>
 <script src="/pixiv-gallery/gallery-batch.js"></script>
 <script src="/pixiv-gallery/gallery-views.js"></script>
+<script src="/pixiv-gallery/gallery-frontend-runtime.js"></script>
+<script src="/pixiv-gallery/gallery-generic-view.js"></script>
 <script src="/pixiv-gallery/gallery-sidebar.js"></script>
 <script src="/pixiv-gallery/gallery-init.js"></script>
 </body>

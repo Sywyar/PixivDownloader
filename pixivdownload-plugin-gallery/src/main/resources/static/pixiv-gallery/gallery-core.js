@@ -227,6 +227,14 @@ window.PixivGallery = window.PixivGallery || {};
                 window.PixivInvitesI18n = nextClient;
                 applyStaticPageTranslations();
                 if (window.PixivNav) PixivNav.refresh();
+                const frontend = window.PixivGalleryFrontend;
+                const frontendLanguageReady = frontend && typeof frontend.setLanguage === 'function'
+                    ? frontend.setLanguage(nextClient.lang) : Promise.resolve();
+                if (frontend && typeof frontend.isGenericRequest === 'function'
+                    && frontend.isGenericRequest(location.search)) {
+                    frontendLanguageReady.then(() => frontend.rerenderGeneric());
+                    return;
+                }
                 renderCollections();
                 renderTagChips();
                 renderSeriesFilterChips();

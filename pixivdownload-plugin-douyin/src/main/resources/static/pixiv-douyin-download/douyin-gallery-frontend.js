@@ -12,16 +12,6 @@
         return context && typeof context.t === 'function' ? context.t(key, params) : key;
     }
 
-    function sameOriginUrl(value) {
-        if (typeof value !== 'string' || !value.startsWith('/')) return null;
-        try {
-            const resolved = new URL(value, window.location.origin);
-            return resolved.origin === window.location.origin ? resolved.href : null;
-        } catch (failure) {
-            return null;
-        }
-    }
-
     function actorName(work) {
         const actor = work && work.author;
         const value = actor && (actor.displayName || actor.name);
@@ -46,48 +36,19 @@
         return fragment;
     }
 
-    function mediaLabel(context, kind) {
-        const keys = {
-            IMAGE: 'douyin:frontend.media.image',
-            VIDEO: 'douyin:frontend.media.video',
-            LIVE_PHOTO_VIDEO: 'douyin:frontend.media.live-photo',
-            COVER: 'douyin:frontend.media.cover'
-        };
-        return translate(context, keys[kind] || 'douyin:source.douyin');
-    }
-
     function renderMedia(context) {
-        const media = context && context.media;
+        const renderer = window.PixivGalleryFrontend.renderStandardMedia;
+        if (typeof renderer !== 'function') return null;
+        const media = renderer({
+            work: context && context.work,
+            media: context && context.media,
+            host: context && context.host
+        });
         if (!media) return null;
-        const url = sameOriginUrl(media.url);
-        if (!url) return null;
-
-        const doc = ownerDocument(context);
-        const kind = String(media.kind || '');
-        const figure = doc.createElement('figure');
-        figure.className = 'gallery-media gallery-media-douyin gallery-media-' + kind.toLowerCase();
-
-        if (kind === 'VIDEO' || kind === 'LIVE_PHOTO_VIDEO') {
-            const video = doc.createElement('video');
-            video.controls = true;
-            video.preload = 'metadata';
-            video.src = url;
-            const poster = sameOriginUrl(media.thumbnailUrl);
-            if (poster) video.poster = poster;
-            video.setAttribute('aria-label', mediaLabel(context, kind));
-            figure.appendChild(video);
-            return figure;
-        }
-
-        if (kind === 'IMAGE' || kind === 'COVER') {
-            const image = doc.createElement('img');
-            image.loading = 'lazy';
-            image.src = url;
-            image.alt = mediaLabel(context, kind);
-            figure.appendChild(image);
-            return figure;
-        }
-        return null;
+        const container = ownerDocument(context).createElement('figure');
+        container.className = 'gallery-media-source gallery-media-douyin';
+        container.appendChild(media);
+        return container;
     }
 
     window.PixivGalleryFrontend.registerModule(MODULE_URL, function (api) {

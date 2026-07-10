@@ -13,6 +13,9 @@ import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
+import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
+import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
 import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker;
@@ -26,6 +29,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 
 @DisplayName("统一画廊只读 API")
 class UnifiedGalleryControllerTest {
@@ -63,8 +68,7 @@ class UnifiedGalleryControllerTest {
         assertThat(frontend.displayI18nKey()).isEqualTo("gallery.view.shared");
         assertThat(frontend.iconToken()).isEqualTo("images");
         assertThat(frontend.order()).isEqualTo(10);
-        assertThat(response.diagnostics()).extracting(GalleryDiagnostic::code)
-                .containsExactly("registry-warning");
+        assertThat(response.diagnostics()).isEmpty();
     }
 
     @Test
@@ -87,6 +91,35 @@ class UnifiedGalleryControllerTest {
                 .containsExactly("shared", "admin");
         assertThat(response.frontends()).extracting(GalleryFrontendContribution::contributionId)
                 .containsExactly("shared.view", "admin.view");
+        assertThat(response.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.code()).isEqualTo("registry-warning");
+            assertThat(diagnostic.message()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("只读 API 诊断不返回 provider 异常原文")
+    void publicDiagnosticsDropProviderFailureMessages() {
+        GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
+        when(registry.snapshot()).thenReturn(snapshot());
+        GalleryProjectionBroker projectionBroker = mock(GalleryProjectionBroker.class);
+        when(projectionBroker.page(any(), anySet())).thenReturn(new GalleryProjectionPage(
+                List.of(), null, false, List.of(new GalleryDiagnostic(
+                        "shared-projection", "shared", GalleryKind.IMAGE,
+                        "gallery-provider-page-failed", "SQLException: password=secret"))));
+        SetupService setup = mock(SetupService.class);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        UnifiedGalleryController controller = new UnifiedGalleryController(registry,
+                projectionBroker, mock(GalleryWorkBroker.class), setup);
+
+        GalleryProjectionPage response = controller.projections(
+                GalleryKind.IMAGE, "shared", null, null, null, null, null,
+                GallerySortField.DOWNLOADED_AT, GallerySortDirection.DESC, null, 50, request);
+
+        assertThat(response.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.code()).isEqualTo("gallery-provider-page-failed");
+            assertThat(diagnostic.message()).isNull();
+        });
     }
 
     private static GalleryCapabilityRegistry.Snapshot snapshot() {

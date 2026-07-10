@@ -27,7 +27,9 @@ class PixivGalleryPageGuardTest {
                         "id=\"filterTagChips\"", "id=\"filterAuthorChips\"",
                         "id=\"collectionList\"", "id=\"batchManageBtn\"", "id=\"batchActionBar\"",
                         "id=\"galleryStatus\"", "id=\"galleryGrid\"", "id=\"pagination\"",
-                        "id=\"authorView\"", "id=\"authorPagination\"", "id=\"mobileOverlay\"");
+                        "id=\"authorView\"", "id=\"authorPagination\"", "id=\"mobileOverlay\"",
+                        "id=\"galleryFrontendNav\"", "id=\"galleryGenericFilters\"",
+                        "id=\"galleryGenericDetail\"");
         assertThat(html)
                 .contains("value=\"authorId\"", "value=\"tagExact\"", "data-sort=\"series\"", "data-r18=\"r18g\"",
                         "data-ai=\"yes\"", "data-format=\"webp\"",
@@ -45,6 +47,8 @@ class PixivGalleryPageGuardTest {
                 "/pixiv-gallery/gallery-collections.js",
                 "/pixiv-gallery/gallery-batch.js",
                 "/pixiv-gallery/gallery-views.js",
+                "/pixiv-gallery/gallery-frontend-runtime.js",
+                "/pixiv-gallery/gallery-generic-view.js",
                 "/pixiv-gallery/gallery-sidebar.js",
                 "/pixiv-gallery/gallery-init.js");
 
@@ -55,7 +59,39 @@ class PixivGalleryPageGuardTest {
             previous = current;
         }
         assertThat(read("static/pixiv-gallery/gallery-init.js"))
-                .contains("(async function init()", "wireBatchManage();");
+                .contains("(async function init()", "wireBatchManage();",
+                        "frontend.bootstrap({", "frontend.startDataFlow({",
+                        "frontend.refreshGeneric()",
+                        "#galleryViewNav .active, #galleryViewNav [aria-current]");
+    }
+
+    @Test
+    @DisplayName("旧画廊壳提供中性前端契约且不硬编码来源模块")
+    void genericFrontendRuntimeKeepsPluginNeutralBoundary() throws IOException {
+        String runtime = read("static/pixiv-gallery/gallery-frontend-runtime.js");
+        String genericView = read("static/pixiv-gallery/gallery-generic-view.js");
+
+        assertThat(runtime)
+                .contains("registerFilterExtension(definition)",
+                        "registerCardExtension(definition)",
+                        "registerMediaRenderer(definition)",
+                        "registerDetailAction(definition)",
+                        "renderStandardMedia: galleryFrontendRenderStandardMedia",
+                        "'/api/gallery/unified/descriptors'",
+                        "'LIVE_PHOTO_VIDEO'", "'UNKNOWN'",
+                        "image: '▧'", "video: '▶'", "book: '▤'", "grid: '▦'")
+                .doesNotContain("failure.message", "String(failure)");
+        assertThat(genericView)
+                .contains("'/api/gallery/unified/projections?'",
+                        "'/api/gallery/unified/works/'",
+                        "filters: filterContext.filters",
+                        "setFilter: filterContext.setFilter",
+                        "detailHint.preferredMediaId")
+                .doesNotContain("douyin-gallery-frontend.js",
+                        "novel-gallery-frontend.js",
+                        "pixiv-gallery-frontend.js",
+                        "sourceId === 'pixiv'",
+                        "sourceId === 'douyin'");
     }
 
     @Test

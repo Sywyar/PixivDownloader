@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
@@ -53,6 +54,12 @@ public class GalleryPluginConfiguration {
             PixivImageGalleryDataProvider legacyProvider,
             WorkMetadataRepository workMetadataRepository) {
         return new PixivImageGalleryCapabilityProvider(legacyProvider, workMetadataRepository);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("gallery")
+    public PixivGalleryFrontendProvider pixivGalleryFrontendProvider() {
+        return new PixivGalleryFrontendProvider();
     }
 
     @Bean

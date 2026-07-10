@@ -73,6 +73,242 @@
             height: 100%;
         }
 
+        .gallery-frontend-icon-token {
+            display: inline-grid;
+            width: 1.25em;
+            height: 1.25em;
+            place-items: center;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        body.gallery-generic-mode #searchType,
+        body.gallery-generic-mode .search-box,
+        body.gallery-generic-mode #filterToggle,
+        body.gallery-generic-mode #filterPanel,
+        body.gallery-generic-mode .gallery-type-switch,
+        body.gallery-generic-mode #batchManageBtn,
+        body.gallery-generic-mode #batchActionBar,
+        body.gallery-generic-mode #tagFilterBar,
+        body.gallery-generic-mode #authorFilterBar,
+        body.gallery-generic-mode #seriesFilterBar,
+        body.gallery-generic-mode #authorView,
+        body.gallery-generic-mode #authorPagination {
+            display: none !important;
+        }
+
+        body.gallery-generic-mode .topbar {
+            justify-content: flex-end;
+        }
+
+        .gallery-generic-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 18px;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: var(--card-radius);
+            background: var(--surface);
+        }
+
+        .gallery-generic-filters[hidden],
+        .gallery-generic-detail[hidden] {
+            display: none;
+        }
+
+        .gallery-generic-card {
+            min-width: 0;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: var(--card-radius);
+            background: var(--surface);
+        }
+
+        .gallery-generic-card-open {
+            display: flex;
+            width: 100%;
+            min-width: 0;
+            flex-direction: column;
+            color: var(--text);
+            border: 0;
+            background: transparent;
+            font: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .gallery-generic-card-open:focus-visible,
+        .gallery-detail-action:focus-visible,
+        .gallery-generic-back:focus-visible,
+        .gallery-generic-load-more:focus-visible {
+            outline: 2px solid var(--brand);
+            outline-offset: 2px;
+        }
+
+        .gallery-generic-card .gallery-generic-thumb {
+            display: grid;
+            width: 100%;
+            aspect-ratio: 1;
+            place-items: center;
+            overflow: hidden;
+            background: var(--thumb-loading-bg);
+        }
+
+        .gallery-generic-card .gallery-generic-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 1;
+        }
+
+        .gallery-generic-thumb-placeholder {
+            padding: 12px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        .gallery-generic-card-body {
+            display: flex;
+            min-width: 0;
+            flex-direction: column;
+            gap: 7px;
+            padding: 12px;
+        }
+
+        .gallery-generic-card-title,
+        .gallery-generic-card-author {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .gallery-generic-card-author {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .gallery-generic-card-kinds,
+        .gallery-generic-card-extensions,
+        .gallery-generic-detail-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .gallery-generic-card-kinds {
+            margin-top: 2px;
+        }
+
+        .gallery-generic-kind-badge,
+        .gallery-card-meta {
+            padding: 3px 7px;
+            color: var(--text-secondary);
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: var(--control-muted-bg);
+            font-size: 12px;
+        }
+
+        .gallery-generic-card-extensions {
+            padding: 0 12px 12px;
+        }
+
+        .gallery-generic-detail {
+            width: 100%;
+            min-width: 0;
+            padding: 22px;
+            border: 1px solid var(--line);
+            border-radius: var(--card-radius);
+            background: var(--surface);
+        }
+
+        .gallery-generic-detail-toolbar,
+        .gallery-generic-detail-header,
+        .gallery-generic-detail-actions {
+            margin-bottom: 18px;
+        }
+
+        .gallery-generic-detail-header h1 {
+            overflow-wrap: anywhere;
+            font-size: clamp(22px, 3vw, 34px);
+        }
+
+        .gallery-generic-detail-author,
+        .gallery-generic-detail-description {
+            margin-top: 8px;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+        }
+
+        .gallery-detail-action {
+            display: inline-flex;
+            align-items: center;
+            min-height: 38px;
+            padding: 8px 14px;
+            color: var(--brand);
+            border: 1px solid var(--brand);
+            border-radius: var(--card-radius);
+            background: var(--surface);
+        }
+
+        .gallery-generic-detail-media {
+            display: grid;
+            gap: 20px;
+        }
+
+        .gallery-generic-media-host {
+            min-width: 0;
+            overflow: hidden;
+            border-radius: var(--card-radius);
+            background: var(--control-muted-bg);
+        }
+
+        .gallery-generic-media-preferred {
+            outline: 2px solid var(--brand);
+            outline-offset: 3px;
+        }
+
+        .gallery-media {
+            display: block;
+            width: 100%;
+            max-height: 80vh;
+            object-fit: contain;
+        }
+
+        .gallery-media-source {
+            min-width: 0;
+            margin: 0;
+        }
+
+        .gallery-media-text,
+        .gallery-media-fallback {
+            padding: 18px;
+            color: var(--text);
+        }
+
+        .gallery-media-machine-kind {
+            display: inline-block;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+
+        .gallery-media-text-content,
+        .gallery-media-fallback pre {
+            max-width: 100%;
+            overflow: auto;
+            color: inherit;
+            font: inherit;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        @media (max-width: 640px) {
+            .gallery-generic-detail {
+                padding: 14px;
+            }
+        }
+
         html {
             min-width: 0;
         }

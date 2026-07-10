@@ -9,9 +9,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendScope;
+import top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetPage;
+import top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilter;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterField;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterMode;
@@ -19,6 +22,7 @@ import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCountResult;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
@@ -28,11 +32,15 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/gallery/unified")
 @PluginManagedBean
 public class UnifiedGalleryController {
+
+    private static final Pattern PUBLIC_ID = Pattern.compile("[a-z][a-z0-9-]{0,79}");
+    private static final Pattern PUBLIC_CODE = Pattern.compile("[a-z][a-z0-9-]{0,95}");
 
     private final GalleryCapabilityRegistry registry;
     private final GalleryProjectionBroker projectionBroker;
@@ -53,16 +61,21 @@ public class UnifiedGalleryController {
     public DescriptorResponse descriptors(HttpServletRequest request) {
         Set<GalleryDataAccess> access = access(request);
         var snapshot = registry.snapshot();
+        var projections = snapshot.projections().stream()
+                .filter(item -> access.contains(item.dataAccess())).toList();
+        var works = snapshot.works().stream()
+                .filter(item -> access.contains(item.dataAccess())).toList();
         return new DescriptorResponse(
                 snapshot.generation(),
-                snapshot.projections().stream().filter(item -> access.contains(item.dataAccess())).toList(),
-                snapshot.works().stream().filter(item -> access.contains(item.dataAccess())).toList(),
+                projections,
+                works,
                 visibleFrontends(snapshot, access),
-                snapshot.diagnostics());
+                access.contains(GalleryDataAccess.ADMIN_ONLY)
+                        ? publicDiagnostics(snapshot.diagnostics()) : List.of());
     }
 
     @GetMapping("/projections")
-    public Object projections(@RequestParam GalleryKind kind,
+    public GalleryProjectionPage projections(@RequestParam GalleryKind kind,
                               @RequestParam(required = false) String sourceId,
                               @RequestParam(required = false) List<String> author,
                               @RequestParam(required = false) List<String> tag,
@@ -74,12 +87,14 @@ public class UnifiedGalleryController {
                               @RequestParam(required = false) String cursor,
                               @RequestParam(defaultValue = "50") int limit,
                               HttpServletRequest request) {
-        return projectionBroker.page(query(kind, sourceId, author, tag, ai, rating, media,
+        GalleryProjectionPage page = projectionBroker.page(query(kind, sourceId, author, tag, ai, rating, media,
                 sort, direction, cursor, limit), access(request));
+        return new GalleryProjectionPage(page.projections(), page.nextCursor(), page.hasMore(),
+                publicDiagnostics(page.diagnostics()));
     }
 
     @GetMapping("/count")
-    public Object count(@RequestParam GalleryKind kind,
+    public GalleryCountResult count(@RequestParam GalleryKind kind,
                         @RequestParam(required = false) String sourceId,
                         @RequestParam(required = false) List<String> author,
                         @RequestParam(required = false) List<String> tag,
@@ -87,12 +102,13 @@ public class UnifiedGalleryController {
                         @RequestParam(required = false) List<String> rating,
                         @RequestParam(required = false) List<String> media,
                         HttpServletRequest request) {
-        return projectionBroker.count(query(kind, sourceId, author, tag, ai, rating, media,
+        GalleryCountResult result = projectionBroker.count(query(kind, sourceId, author, tag, ai, rating, media,
                 GallerySortField.DOWNLOADED_AT, GallerySortDirection.DESC, null, 1), access(request));
+        return new GalleryCountResult(result.count(), publicDiagnostics(result.diagnostics()));
     }
 
     @GetMapping("/facets")
-    public Object facets(@RequestParam GalleryKind kind,
+    public GalleryFacetPage facets(@RequestParam GalleryKind kind,
                          @RequestParam(required = false) String sourceId,
                          @RequestParam(required = false) List<String> author,
                          @RequestParam(required = false) List<String> tag,
@@ -100,8 +116,9 @@ public class UnifiedGalleryController {
                          @RequestParam(required = false) List<String> rating,
                          @RequestParam(required = false) List<String> media,
                          HttpServletRequest request) {
-        return projectionBroker.facets(query(kind, sourceId, author, tag, ai, rating, media,
+        GalleryFacetPage result = projectionBroker.facets(query(kind, sourceId, author, tag, ai, rating, media,
                 GallerySortField.DOWNLOADED_AT, GallerySortDirection.DESC, null, 500), access(request));
+        return new GalleryFacetPage(result.facets(), publicDiagnostics(result.diagnostics()));
     }
 
     @GetMapping("/works/{sourceId}/{namespace}/{workId}")
@@ -111,7 +128,7 @@ public class UnifiedGalleryController {
                                   HttpServletRequest request) {
         var result = workBroker.find(new GalleryWorkKey(sourceId, namespace, workId), access(request));
         return result.work().<ResponseEntity<?>>map(work -> ResponseEntity.ok(
-                new WorkResponse(work, result.diagnostics())))
+                new WorkResponse(work, publicDiagnostics(result.diagnostics()))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -216,6 +233,24 @@ public class UnifiedGalleryController {
         return expected.isEmpty() || expected.contains(actual);
     }
 
+    private static List<GalleryDiagnostic> publicDiagnostics(List<GalleryDiagnostic> diagnostics) {
+        if (diagnostics == null || diagnostics.isEmpty()) return List.of();
+        return diagnostics.stream().filter(java.util.Objects::nonNull).map(item ->
+                new GalleryDiagnostic(
+                        safeMachineValue(item.providerId(), PUBLIC_ID),
+                        safeMachineValue(item.sourceId(), PUBLIC_ID),
+                        item.kind(),
+                        java.util.Objects.requireNonNullElse(
+                                safeMachineValue(item.code(), PUBLIC_CODE), "gallery-diagnostic"),
+                        null)).toList();
+    }
+
+    private static String safeMachineValue(String value, Pattern pattern) {
+        if (value == null) return null;
+        String normalized = value.trim();
+        return pattern.matcher(normalized).matches() ? normalized : null;
+    }
+
     private static GalleryProjectionQuery query(GalleryKind kind, String sourceId,
                                                 List<String> authors, List<String> tags,
                                                 List<String> ai, List<String> ratings,
@@ -252,9 +287,9 @@ public class UnifiedGalleryController {
             List<top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor> projections,
             List<top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor> works,
             List<GalleryFrontendContribution> frontends,
-            List<top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic> diagnostics) { }
+            List<GalleryDiagnostic> diagnostics) { }
 
     public record WorkResponse(
             top.sywyar.pixivdownload.core.gallery.model.work.GalleryWork work,
-            List<top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic> diagnostics) { }
+            List<GalleryDiagnostic> diagnostics) { }
 }
