@@ -451,6 +451,8 @@ class PluginLifecycleServiceTest {
                 plugin, PluginSource.EXTERNAL, OrderHarness.class.getClassLoader());
         final PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
         final QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
+        final PluginCapabilityContributionRegistrar capabilityRegistrar =
+                mock(PluginCapabilityContributionRegistrar.class);
         final PluginLifecycleService service;
 
         OrderHarness() {
@@ -459,16 +461,17 @@ class PluginLifecycleServiceTest {
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
                     new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    capabilityRegistrar(), registry, state, queueRegistry, streamRegistry);
+                    capabilityRegistrar, registry, state, queueRegistry, streamRegistry);
             service.startAll(); // 纯贡献插件登记为 STARTED
         }
 
-        /** 断言 schedule 注销（停派发）→ 关 SSE → drain 队列 的相对调用顺序（schedule 注销可发生多次，只校验首次在前）。 */
+        /** 断言 schedule 注销（停派发）→ 关 SSE → drain 队列 → 注销运行期能力的相对调用顺序。 */
         void verifyShieldThenDrain() {
-            InOrder ord = inOrder(scheduleRegistrar, streamRegistry, queueRegistry);
+            InOrder ord = inOrder(scheduleRegistrar, streamRegistry, queueRegistry, capabilityRegistrar);
             ord.verify(scheduleRegistrar).unregister("ext-demo");   // ① 先停新计划任务派发（注销来源 / 执行器）
             ord.verify(streamRegistry).closeForPlugin("ext-demo");  // ② 再关闭 SSE 推流
             ord.verify(queueRegistry).resolve("ext-illust");        // ③ 再 drain 在途下载队列
+            ord.verify(capabilityRegistrar).unregister("ext-demo"); // ④ drain 完成后才注销 owner-aware 队列能力
         }
     }
 
