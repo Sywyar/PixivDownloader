@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
@@ -29,9 +30,22 @@ class GalleryPluginContributionTest {
                 .singleElement()
                 .satisfies(route -> {
                     assertThat(route.pluginId()).isEqualTo("gallery");
-                    assertThat(route.path()).isEqualTo("/unified-gallery.html");
+                    assertThat(route.path()).isEqualTo("/pixiv-gallery.html");
                     assertThat(route.preferredContexts()).containsExactly(StartupRouteContext.SOLO);
                 });
+    }
+
+    @Test
+    @DisplayName("gallery 只注册成熟画廊页面资源并保留中性只读 API")
+    void pageRoutesAndStaticResourcesUseMatureGalleryOnly() {
+        assertThat(plugin.routes())
+                .extracting(route -> route.pathPattern())
+                .contains("/pixiv-gallery.html", "/pixiv-gallery/**", "/api/gallery/unified/**")
+                .doesNotContain("/unified-gallery.html", "/unified-gallery/**");
+        assertThat(plugin.staticResources())
+                .extracting(resource -> resource.publicPathPrefix())
+                .contains("/pixiv-gallery.html", "/pixiv-gallery/")
+                .doesNotContain("/unified-gallery.html", "/unified-gallery/");
     }
 
     @Test
@@ -40,7 +54,10 @@ class GalleryPluginContributionTest {
         assertThat(plugin.navigation())
                 .filteredOn(nav -> nav.id().equals("gallery"))
                 .singleElement()
-                .satisfies(nav -> assertThat(nav.markers()).containsExactly(NavigationMarkers.FIRST_DOWNLOAD_RESULT));
+                .satisfies(nav -> {
+                    assertThat(nav.href()).isEqualTo("/pixiv-gallery.html?view=all");
+                    assertThat(nav.markers()).containsExactly(NavigationMarkers.FIRST_DOWNLOAD_RESULT);
+                });
         assertThat(plugin.navigation())
                 .filteredOn(nav -> nav.id().equals("gallery-gui-open"))
                 .singleElement()
@@ -50,7 +67,7 @@ class GalleryPluginContributionTest {
                             NavigationPlacements.GUI_TRAY_ACTIONS);
                     assertThat(nav.labelNamespace()).isEqualTo("gallery");
                     assertThat(nav.labelI18nKey()).isEqualTo("gui.action.open");
-                    assertThat(nav.href()).isEqualTo("/unified-gallery.html");
+                    assertThat(nav.href()).isEqualTo("/pixiv-gallery.html");
                 });
         assertThat(plugin.navigation())
                 .filteredOn(nav -> nav.id().equals("gallery-invite-manage-back"))
@@ -59,7 +76,18 @@ class GalleryPluginContributionTest {
                     assertThat(nav.placements()).containsExactly(NavigationPlacements.INVITE_MANAGE_BACK);
                     assertThat(nav.labelNamespace()).isEqualTo("gallery");
                     assertThat(nav.labelI18nKey()).isEqualTo("invite.manage.back");
-                    assertThat(nav.href()).isEqualTo("/unified-gallery.html");
+                    assertThat(nav.href()).isEqualTo("/pixiv-gallery.html?view=all");
+                });
+    }
+
+    @Test
+    @DisplayName("gallery 为邀请访客声明成熟画廊落点")
+    void invitedGuestLandingUsesMatureGallery() {
+        assertThat(plugin.landings())
+                .singleElement()
+                .satisfies(landing -> {
+                    assertThat(landing.audience()).isEqualTo(Audience.INVITED_GUEST);
+                    assertThat(landing.href()).isEqualTo("/pixiv-gallery.html");
                 });
     }
 
