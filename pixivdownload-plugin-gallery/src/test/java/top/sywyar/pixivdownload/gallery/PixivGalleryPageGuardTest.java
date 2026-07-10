@@ -66,6 +66,27 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
+    @DisplayName("动态结果状态在静态国际化重渲染后保持当前语义")
+    void dynamicGalleryStatusSurvivesStaticI18nRendering() throws IOException {
+        String core = read("static/pixiv-gallery/gallery-core.js");
+        String views = read("static/pixiv-gallery/gallery-views.js");
+
+        int staticRendering = core.indexOf("pageI18n.apply(document.body);");
+        int dynamicRendering = core.indexOf("renderGalleryStatus();", staticRendering);
+        assertThat(staticRendering).isGreaterThanOrEqualTo(0);
+        assertThat(dynamicRendering).isGreaterThan(staticRendering);
+        assertThat(views)
+                .contains("galleryStatusModel = {code, values: values || {}};",
+                        "if (galleryStatusModel.code === 'range')",
+                        "status.textContent = t('status.gallery-range'",
+                        "galleryStatusModel.code === 'failure'",
+                        "status.textContent = t('status.load-failed'",
+                        "setGalleryStatus('loading');",
+                        "setGalleryStatus('range', {",
+                        "setGalleryStatus('failure', {message: e.message});");
+    }
+
+    @Test
     @DisplayName("旧画廊壳提供中性前端契约且不硬编码来源模块")
     void genericFrontendRuntimeKeepsPluginNeutralBoundary() throws IOException {
         String runtime = read("static/pixiv-gallery/gallery-frontend-runtime.js");

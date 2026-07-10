@@ -210,6 +210,7 @@ window.PixivGallery = window.PixivGallery || {};
         document.title = t('page.title', 'Pixiv Gallery');
         if (pageI18n) {
             pageI18n.apply(document.body);
+            if (typeof renderGalleryStatus === 'function') renderGalleryStatus();
         }
         updateSearchPlaceholder();
         updateOrderToggleLabel();
