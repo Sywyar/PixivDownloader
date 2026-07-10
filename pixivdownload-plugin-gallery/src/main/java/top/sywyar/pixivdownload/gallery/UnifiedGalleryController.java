@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
+import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendScope;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
@@ -52,8 +54,10 @@ public class UnifiedGalleryController {
         Set<GalleryDataAccess> access = access(request);
         var snapshot = registry.snapshot();
         return new DescriptorResponse(
+                snapshot.generation(),
                 snapshot.projections().stream().filter(item -> access.contains(item.dataAccess())).toList(),
                 snapshot.works().stream().filter(item -> access.contains(item.dataAccess())).toList(),
+                visibleFrontends(snapshot, access),
                 snapshot.diagnostics());
     }
 
@@ -117,6 +121,101 @@ public class UnifiedGalleryController {
                 : Set.of(GalleryDataAccess.SHARED);
     }
 
+    private static List<GalleryFrontendContribution> visibleFrontends(
+            GalleryCapabilityRegistry.Snapshot snapshot,
+            Set<GalleryDataAccess> access) {
+        return snapshot.frontendContributions().stream()
+                .filter(frontend -> isFrontendVisible(frontend, snapshot, access))
+                .map(GalleryCapabilityRegistry.RegisteredFrontendContribution::contribution)
+                .toList();
+    }
+
+    private static boolean isFrontendVisible(
+            GalleryCapabilityRegistry.RegisteredFrontendContribution frontend,
+            GalleryCapabilityRegistry.Snapshot snapshot,
+            Set<GalleryDataAccess> access) {
+        String owner = frontend.ownerPluginId();
+        GalleryFrontendScope scope = frontend.contribution().scope();
+        var projections = snapshot.projectionProviders().stream()
+                .filter(provider -> owner.equals(provider.ownerPluginId()))
+                .flatMap(provider -> provider.descriptors().stream())
+                .filter(descriptor -> matches(scope.sourceIds(), descriptor.sourceId()))
+                .filter(descriptor -> matches(scope.galleryKinds(), descriptor.kind()))
+                .toList();
+        var works = snapshot.workProviders().stream()
+                .filter(provider -> owner.equals(provider.ownerPluginId()))
+                .flatMap(provider -> provider.descriptors().stream())
+                .filter(descriptor -> matches(scope.sourceIds(), descriptor.sourceId()))
+                .filter(descriptor -> matches(
+                        scope.sourceWorkNamespaces(), descriptor.sourceWorkNamespace()))
+                .toList();
+
+        if (!provesScope(scope, projections, works)) {
+            return false;
+        }
+        Set<GalleryDataAccess> authoritativeAccess = new LinkedHashSet<>();
+        projections.forEach(descriptor -> authoritativeAccess.add(descriptor.dataAccess()));
+        works.forEach(descriptor -> authoritativeAccess.add(descriptor.dataAccess()));
+        return !authoritativeAccess.isEmpty() && access.containsAll(authoritativeAccess);
+    }
+
+    private static boolean provesScope(
+            GalleryFrontendScope scope,
+            List<top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor> projections,
+            List<top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor> works) {
+        if (!scope.galleryKinds().isEmpty()) {
+            for (GalleryKind kind : scope.galleryKinds()) {
+                if (scope.sourceIds().isEmpty()) {
+                    if (projections.stream().noneMatch(descriptor -> descriptor.kind() == kind)) {
+                        return false;
+                    }
+                } else {
+                    for (String sourceId : scope.sourceIds()) {
+                        if (projections.stream().noneMatch(descriptor ->
+                                descriptor.sourceId().equals(sourceId) && descriptor.kind() == kind)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        if (!scope.sourceWorkNamespaces().isEmpty()) {
+            for (String namespace : scope.sourceWorkNamespaces()) {
+                if (scope.sourceIds().isEmpty()) {
+                    if (works.stream().noneMatch(descriptor ->
+                            descriptor.sourceWorkNamespace().equals(namespace))) {
+                        return false;
+                    }
+                } else {
+                    for (String sourceId : scope.sourceIds()) {
+                        if (works.stream().noneMatch(descriptor ->
+                                descriptor.sourceId().equals(sourceId)
+                                        && descriptor.sourceWorkNamespace().equals(namespace))) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        if (scope.galleryKinds().isEmpty() && scope.sourceWorkNamespaces().isEmpty()
+                && !scope.sourceIds().isEmpty()) {
+            for (String sourceId : scope.sourceIds()) {
+                boolean projected = projections.stream()
+                        .anyMatch(descriptor -> descriptor.sourceId().equals(sourceId));
+                boolean resolved = works.stream()
+                        .anyMatch(descriptor -> descriptor.sourceId().equals(sourceId));
+                if (!projected && !resolved) {
+                    return false;
+                }
+            }
+        }
+        return !projections.isEmpty() || !works.isEmpty();
+    }
+
+    private static <T> boolean matches(Set<T> expected, T actual) {
+        return expected.isEmpty() || expected.contains(actual);
+    }
+
     private static GalleryProjectionQuery query(GalleryKind kind, String sourceId,
                                                 List<String> authors, List<String> tags,
                                                 List<String> ai, List<String> ratings,
@@ -149,8 +248,10 @@ public class UnifiedGalleryController {
     }
 
     public record DescriptorResponse(
+            long generation,
             List<top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor> projections,
             List<top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor> works,
+            List<GalleryFrontendContribution> frontends,
             List<top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic> diagnostics) { }
 
     public record WorkResponse(
