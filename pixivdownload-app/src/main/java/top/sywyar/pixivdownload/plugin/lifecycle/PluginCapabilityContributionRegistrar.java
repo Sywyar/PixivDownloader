@@ -49,22 +49,34 @@ public class PluginCapabilityContributionRegistrar {
                 registerOne(pluginId, context, adapter);
             }
             for (PluginContextCapabilityContributionAdapter adapter : contextAdapters) {
-                registeredContexts.add(adapter);
                 adapter.register(pluginId, context);
+                registeredContexts.add(adapter);
             }
         } catch (RuntimeException e) {
-            rollbackContexts(pluginId, registeredContexts);
-            rollback(pluginId, registered);
+            rollbackContexts(pluginId, registeredContexts, e);
+            rollback(pluginId, registered, e);
             throw e;
         }
     }
 
     public void unregister(String pluginId) {
+        RuntimeException failure = null;
         for (PluginCapabilityContributionAdapter<?> adapter : adapters) {
-            adapter.unregister(pluginId);
+            try {
+                adapter.unregister(pluginId);
+            } catch (RuntimeException adapterFailure) {
+                failure = appendUnregisterFailure(pluginId, failure, adapterFailure);
+            }
         }
         for (PluginContextCapabilityContributionAdapter adapter : contextAdapters) {
-            adapter.unregister(pluginId);
+            try {
+                adapter.unregister(pluginId);
+            } catch (RuntimeException adapterFailure) {
+                failure = appendUnregisterFailure(pluginId, failure, adapterFailure);
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 
@@ -85,19 +97,40 @@ public class PluginCapabilityContributionRegistrar {
         adapter.register(pluginId, beans(context, adapter.beanType()));
     }
 
-    private static void rollback(String pluginId, List<PluginCapabilityContributionAdapter<?>> registered) {
+    private static void rollback(String pluginId, List<PluginCapabilityContributionAdapter<?>> registered,
+                                 RuntimeException registrationFailure) {
         ListIterator<PluginCapabilityContributionAdapter<?>> iterator = registered.listIterator(registered.size());
         while (iterator.hasPrevious()) {
-            iterator.previous().unregister(pluginId);
+            try {
+                iterator.previous().unregister(pluginId);
+            } catch (RuntimeException rollbackFailure) {
+                registrationFailure.addSuppressed(rollbackFailure);
+            }
         }
     }
 
     private static void rollbackContexts(
-            String pluginId, List<PluginContextCapabilityContributionAdapter> registered) {
+            String pluginId, List<PluginContextCapabilityContributionAdapter> registered,
+            RuntimeException registrationFailure) {
         ListIterator<PluginContextCapabilityContributionAdapter> iterator =
                 registered.listIterator(registered.size());
         while (iterator.hasPrevious()) {
-            iterator.previous().unregister(pluginId);
+            try {
+                iterator.previous().unregister(pluginId);
+            } catch (RuntimeException rollbackFailure) {
+                registrationFailure.addSuppressed(rollbackFailure);
+            }
         }
+    }
+
+    private static RuntimeException appendUnregisterFailure(
+            String pluginId, RuntimeException aggregate, RuntimeException adapterFailure) {
+        if (aggregate == null) {
+            return new IllegalStateException(
+                    "failed to unregister one or more runtime capabilities for plugin '" + pluginId + "'",
+                    adapterFailure);
+        }
+        aggregate.addSuppressed(adapterFailure);
+        return aggregate;
     }
 }

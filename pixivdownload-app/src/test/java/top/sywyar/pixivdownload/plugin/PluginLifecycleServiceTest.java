@@ -521,6 +521,8 @@ class PluginLifecycleServiceTest {
         final PluginWebContributionRegistrar webRegistrar = mock(PluginWebContributionRegistrar.class);
         final PluginRegistry registry = mock(PluginRegistry.class);
         final PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
+        final PluginCapabilityContributionRegistrar capabilityRegistrar =
+                mock(PluginCapabilityContributionRegistrar.class);
         final PluginLifecycleState state = new PluginLifecycleState();
         final RecordingPlugin plugin = new RecordingPlugin("ext-demo");
         final PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
@@ -533,7 +535,7 @@ class PluginLifecycleServiceTest {
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                    controllerRegistrar, webRegistrar, emptyScheduleRegistrar(), capabilityRegistrar(), registry, state,
+                    controllerRegistrar, webRegistrar, emptyScheduleRegistrar(), capabilityRegistrar, registry, state,
                     new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
         }
 
@@ -603,6 +605,22 @@ class PluginLifecycleServiceTest {
             assertThat(h.service.contextCount()).isZero();
             verify(h.controllerRegistrar).unregisterControllers("ext-demo");               // controller 足迹回滚
             verify(h.webRegistrar).unregister(eq("ext-demo"), any());                      // web 贡献回滚
+        }
+    }
+
+    @Test
+    @DisplayName("能力注册失败时沿用 registrar 内部回滚且不再次注销原子旧快照")
+    void capabilityRegistrationFailureIsNotUnregisteredAgain() {
+        try (ContextHarness h = new ContextHarness()) {
+            doThrow(new IllegalStateException("capability failed"))
+                    .when(h.capabilityRegistrar).register(eq("ext-demo"), any());
+
+            h.service.startAll();
+
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(h.service.contextFor("ext-demo")).isEmpty();
+            verify(h.capabilityRegistrar).register(eq("ext-demo"), any());
+            verify(h.capabilityRegistrar, never()).unregister("ext-demo");
         }
     }
 

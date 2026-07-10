@@ -532,7 +532,7 @@ public class PluginLifecycleService {
             } catch (RuntimeException e) {
                 log.error("Failed to register schedule contributions for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record);
+                rollBackBringUp(record, false);
                 lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
                 return;
             }
@@ -544,7 +544,7 @@ public class PluginLifecycleService {
             } catch (RuntimeException e) {
                 log.error("Failed to register runtime capability contributions for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record);
+                rollBackBringUp(record, false);
                 lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
                 return;
             }
@@ -556,7 +556,7 @@ public class PluginLifecycleService {
             } catch (Exception e) {
                 log.error("Failed to register controllers for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record);
+                rollBackBringUp(record, true);
                 lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
                 return;
             }
@@ -568,7 +568,7 @@ public class PluginLifecycleService {
             } catch (RuntimeException e) {
                 log.error("Plugin '{}' start() failed: {} - rolling back its service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record);
+                rollBackBringUp(record, true);
                 lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
                 return;
             }
@@ -689,22 +689,25 @@ public class PluginLifecycleService {
     }
 
     /**
-     * 回滚本次 {@link #bringUpServing} 已建立的服务足迹：<b>注销 controller → 注销 schedule 贡献 → 关闭子 context →
-     * 撤回 web 贡献</b>（bring-up 顺序的逆序）。用于 schedule 贡献注册失败 / controller 注册失败 / 插件 {@code start()}
-     * 失败。各步幂等（对未接入项为安全 no-op，故同一回滚助手覆盖三种失败点）。<b>不</b>调用插件 {@code stop()}——
+     * 回滚本次 {@link #bringUpServing} 已建立的服务足迹：<b>注销 controller → 按成功标记注销 runtime capability →
+     * 注销 schedule 贡献 → 关闭子 context → 撤回 web 贡献</b>（bring-up 顺序的逆序）。能力注册本身失败时由
+     * {@link PluginCapabilityContributionRegistrar} 完成内部回滚，此处不再二次注销原子旧快照。用于 schedule 贡献注册失败 /
+     * capability 注册失败 / controller 注册失败 / 插件 {@code start()} 失败。各步幂等。<b>不</b>调用插件 {@code stop()}——
      * {@code start()} 未成功、插件未进入运行态，按 footprint 维度回退即可；每步隔离、异常只记日志。
      */
-    private void rollBackBringUp(ManagedPlugin record) {
+    private void rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered) {
         try {
             controllerRegistrar.unregisterControllers(record.pluginId);
         } catch (RuntimeException e) {
             log.warn("Error rolling back controllers for plugin '{}': {}", record.pluginId, e.toString());
         }
-        try {
-            capabilityContributionRegistrar.unregister(record.pluginId);
-        } catch (RuntimeException e) {
-            log.warn("Error rolling back runtime capability contributions for plugin '{}': {}",
-                    record.pluginId, e.toString());
+        if (capabilitiesRegistered) {
+            try {
+                capabilityContributionRegistrar.unregister(record.pluginId);
+            } catch (RuntimeException e) {
+                log.warn("Error rolling back runtime capability contributions for plugin '{}': {}",
+                        record.pluginId, e.toString());
+            }
         }
         try {
             scheduleContributionRegistrar.unregister(record.pluginId);
