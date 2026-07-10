@@ -1,1 +1,61 @@
-(function(global){'use strict';const state={kind:'IMAGE',cursor:null,hasMore:false,loading:false,items:[],i18n:null};function t(key,fallback){return state.i18n?state.i18n.t(key):fallback}async function json(url){const response=await fetch(url,{credentials:'same-origin'});if(!response.ok)throw new Error(String(response.status));return response.json()}function queryUrl(){const params=new URLSearchParams({kind:state.kind,limit:'40'});if(state.cursor)params.set('cursor',state.cursor);return '/api/gallery/unified/projections?'+params}async function load(reset){if(state.loading)return;state.loading=true;global.UnifiedGalleryViews.status(t('unified.loading','Loading…'));try{if(reset){state.cursor=null;state.items=[]}const page=await json(queryUrl());state.items.push(...page.projections);state.cursor=page.nextCursor;state.hasMore=page.hasMore;global.UnifiedGalleryViews.render(state)}catch(error){global.UnifiedGalleryViews.status(t('unified.error','Unable to load gallery'))}finally{state.loading=false}}async function detail(key){const url='/api/gallery/unified/works/'+[key.sourceId,key.sourceWorkNamespace,key.sourceWorkId].map(encodeURIComponent).join('/');const response=await json(url);global.UnifiedGalleryViews.detail(response.work,state)}async function initI18n(){state.i18n=await PixivI18n.create({namespaces:['gallery','common']});state.i18n.apply(document);document.title=t('unified.title','Unified gallery')}global.UnifiedGallery={state,t,load,detail,initI18n}})(window);
+'use strict';
+
+const unifiedGalleryState = {kind: 'IMAGE', cursor: null, hasMore: false, loading: false, items: [], i18n: null};
+
+function unifiedGalleryText(key) {
+    return unifiedGalleryState.i18n ? unifiedGalleryState.i18n.t(key) : key;
+}
+
+async function unifiedGalleryJson(url) {
+    const response = await fetch(url, {credentials: 'same-origin'});
+    if (!response.ok) throw new Error(String(response.status));
+    return response.json();
+}
+
+function unifiedGalleryQueryUrl() {
+    const params = new URLSearchParams({kind: unifiedGalleryState.kind, limit: '40'});
+    if (unifiedGalleryState.cursor) params.set('cursor', unifiedGalleryState.cursor);
+    return '/api/gallery/unified/projections?' + params;
+}
+
+async function loadUnifiedGallery(reset) {
+    if (unifiedGalleryState.loading) return;
+    unifiedGalleryState.loading = true;
+    UnifiedGalleryViews.status(unifiedGalleryText('unified.loading'));
+    try {
+        if (reset) {
+            unifiedGalleryState.cursor = null;
+            unifiedGalleryState.items = [];
+        }
+        const page = await unifiedGalleryJson(unifiedGalleryQueryUrl());
+        unifiedGalleryState.items.push(...page.projections);
+        unifiedGalleryState.cursor = page.nextCursor;
+        unifiedGalleryState.hasMore = page.hasMore;
+        UnifiedGalleryViews.render(unifiedGalleryState);
+    } catch (error) {
+        UnifiedGalleryViews.status(unifiedGalleryText('unified.error'));
+    } finally {
+        unifiedGalleryState.loading = false;
+    }
+}
+
+async function loadUnifiedGalleryDetail(key) {
+    const url = '/api/gallery/unified/works/'
+            + [key.sourceId, key.sourceWorkNamespace, key.sourceWorkId].map(encodeURIComponent).join('/');
+    const response = await unifiedGalleryJson(url);
+    UnifiedGalleryViews.detail(response.work);
+}
+
+async function initUnifiedGalleryI18n() {
+    unifiedGalleryState.i18n = await PixivI18n.create({namespaces: ['gallery', 'common']});
+    unifiedGalleryState.i18n.apply(document);
+    document.title = unifiedGalleryText('unified.title');
+}
+
+window.UnifiedGallery = {
+    state: unifiedGalleryState,
+    t: unifiedGalleryText,
+    load: loadUnifiedGallery,
+    detail: loadUnifiedGalleryDetail,
+    initI18n: initUnifiedGalleryI18n
+};
