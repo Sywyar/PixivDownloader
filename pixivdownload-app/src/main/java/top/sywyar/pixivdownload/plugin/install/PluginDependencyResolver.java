@@ -66,16 +66,21 @@ public class PluginDependencyResolver {
     }
 
     /**
-     * 指定受管插件当前可用于运行期激活校验的描述符。正常安装优先读取安装清单；显式开发模式没有落盘安装包，
-     * 此时读取当前已加载 generation 保留的纯值描述符。
+     * 指定受管插件当前可用于运行期激活校验的描述符。当前已加载 generation 是实际运行来源，优先于可能被
+     * 开发模式忽略的同 id 磁盘包；插件尚未加载时再回退安装清单。
      */
     public Optional<PluginDescriptor> activationDescriptor(String pluginId) {
-        Optional<PluginDescriptor> installed = installedDescriptor(pluginId);
-        if (installed.isPresent() || pluginId == null || lifecycleService == null) {
-            return installed;
+        if (pluginId == null) {
+            return Optional.empty();
         }
-        return lifecycleService.descriptor(pluginId)
-                .filter(descriptor -> pluginId.equals(descriptor.id()));
+        if (lifecycleService != null) {
+            Optional<PluginDescriptor> loaded = lifecycleService.descriptor(pluginId)
+                    .filter(descriptor -> pluginId.equals(descriptor.id()));
+            if (loaded.isPresent()) {
+                return loaded;
+            }
+        }
+        return installedDescriptor(pluginId);
     }
 
     /** 当前安装态中指定依赖是否已满足。 */

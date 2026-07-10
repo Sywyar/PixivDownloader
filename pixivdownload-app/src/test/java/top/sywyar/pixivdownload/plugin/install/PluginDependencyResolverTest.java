@@ -10,7 +10,9 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -28,10 +30,12 @@ class PluginDependencyResolverTest {
         PluginDescriptor dependency = descriptor("dev-dependency", List.of());
         PluginDescriptor target = descriptor("dev-target",
                 List.of(new PluginDependencyRef("dev-dependency", "1.0", false)));
+        PluginDescriptor staleInstalledTarget = descriptor("dev-target", List.of());
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
         PluginRegistry registry = mock(PluginRegistry.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
-        when(installer.listInstalled()).thenReturn(List.of());
+        when(installer.listInstalled()).thenReturn(List.of(
+                new InstalledPlugin(staleInstalledTarget, Path.of("plugins", "dev-target.jar"))));
         when(registry.plugins()).thenReturn(List.of());
         when(lifecycle.managedPluginIds()).thenReturn(Set.of("dev-dependency", "dev-target"));
         when(lifecycle.descriptor("dev-dependency")).thenReturn(Optional.of(dependency));
@@ -42,6 +46,7 @@ class PluginDependencyResolverTest {
 
         var descriptor = resolver.activationDescriptor("dev-target").orElseThrow();
 
+        assertThat(descriptor).isSameAs(target);
         assertThat(descriptor.dependencies()).singleElement()
                 .satisfies(ref -> assertThat(ref.pluginId()).isEqualTo("dev-dependency"));
         assertThat(resolver.activationProblems(descriptor)).isEmpty();
