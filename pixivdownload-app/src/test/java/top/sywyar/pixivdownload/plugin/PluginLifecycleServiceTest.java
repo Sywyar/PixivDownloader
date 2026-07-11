@@ -54,6 +54,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStream;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
@@ -229,7 +230,8 @@ class PluginLifecycleServiceTest {
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
                     new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    capabilityRegistrar(), registry, state, queueRegistry, streamRegistry);
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    capabilityRegistrar(), registry, state);
             service.startAll(); // 纯贡献插件登记为 STARTED
             // 注册一条该插件拥有的 SSE 推流（验证 quiesce / 卸载时被关闭）。
             streamRegistry.register("ext-demo", "conn-1", stream);
@@ -461,7 +463,8 @@ class PluginLifecycleServiceTest {
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
                     new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    capabilityRegistrar, registry, state, queueRegistry, streamRegistry);
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    capabilityRegistrar, registry, state);
             service.startAll(); // 纯贡献插件登记为 STARTED
         }
 
@@ -534,9 +537,13 @@ class PluginLifecycleServiceTest {
                     "ext-demo", ContextHarness.class.getClassLoader(), List.of(PluginConfig.class));
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
+            PluginScheduleContributionRegistrar scheduleRegistrar = emptyScheduleRegistrar();
+            PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+            QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
             service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                    controllerRegistrar, webRegistrar, emptyScheduleRegistrar(), capabilityRegistrar, registry, state,
-                    new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
+                    controllerRegistrar, webRegistrar, scheduleRegistrar,
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    capabilityRegistrar, registry, state);
         }
 
         @Override
@@ -791,10 +798,20 @@ class PluginLifecycleServiceTest {
     // ============================ 夹具 ============================
 
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
+        PluginScheduleContributionRegistrar scheduleRegistrar = emptyScheduleRegistrar();
+        PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+        QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
         return new PluginLifecycleService(parent, runtimeReturning(modules), new PluginApplicationContextFactory(),
-                emptyControllerRegistrar(), emptyWebRegistrar(), emptyScheduleRegistrar(), capabilityRegistrar(),
-                new PluginRegistry(List.of()), new PluginLifecycleState(), new QueueOperationRegistry(List.of()),
-                new PluginStreamRegistry());
+                emptyControllerRegistrar(), emptyWebRegistrar(), scheduleRegistrar,
+                runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry), capabilityRegistrar(),
+                new PluginRegistry(List.of()), new PluginLifecycleState());
+    }
+
+    private static PluginRuntimeTaskQuiescer runtimeTaskQuiescer(
+            PluginScheduleContributionRegistrar scheduleRegistrar,
+            PluginStreamRegistry streamRegistry,
+            QueueOperationRegistry queueRegistry) {
+        return new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
     }
 
     private static PluginScheduleContributionRegistrar emptyScheduleRegistrar() {
@@ -1004,9 +1021,12 @@ class PluginLifecycleServiceTest {
                     "ext-sched", ScheduleHarness.class.getClassLoader(), List.of(ScheduleContribConfig.class));
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
+            PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+            QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
             service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                    controllerRegistrar, webRegistrar, scheduleRegistrar, capabilityRegistrar(), registry, state,
-                    new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
+                    controllerRegistrar, webRegistrar, scheduleRegistrar,
+                    runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
+                    capabilityRegistrar(), registry, state);
         }
 
         @Override

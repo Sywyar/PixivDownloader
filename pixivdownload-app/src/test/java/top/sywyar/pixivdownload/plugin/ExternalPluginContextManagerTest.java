@@ -27,6 +27,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
@@ -113,9 +114,13 @@ class ExternalPluginContextManagerTest {
         PluginScheduleContributionRegistrar scheduleRegistrar = new PluginScheduleContributionRegistrar(
                 new ScheduledSourceRegistry(empty), new ScheduledWorkRunnerRegistry(List.of()));
         PluginCapabilityContributionRegistrar capabilityRegistrar = new PluginCapabilityContributionRegistrar(List.of());
+        PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+        QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
+        PluginRuntimeTaskQuiescer taskQuiescer =
+                new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
         return new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                controllerRegistrar, webRegistrar, scheduleRegistrar, capabilityRegistrar, empty,
-                new PluginLifecycleState(), new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
+                controllerRegistrar, webRegistrar, scheduleRegistrar, taskQuiescer, capabilityRegistrar, empty,
+                new PluginLifecycleState());
     }
 
     interface CoreApiService {
