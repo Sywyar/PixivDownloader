@@ -1,0 +1,372 @@
+{
+  "version": 1,
+  "policy": "Existing debt may decrease but must never increase; new files start at zero.",
+  "files": {
+    "pixivdownload-app/src/main/resources/static/css/pixiv-side-modules.css": {
+      "hardcodedColors": 32,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/css/pixiv-tour.css": {
+      "hardcodedColors": 4,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/intro.html": {
+      "hardcodedColors": 8,
+      "inlineStyles": 20,
+      "inlineHandlers": 1,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/intro/intro.css": {
+      "hardcodedColors": 396,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/js/invite-modals.js": {
+      "hardcodedColors": 47,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/js/pixiv-lang-switcher.js": {
+      "hardcodedColors": 3,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/login.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 2,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/maintenance/maintenance.css": {
+      "hardcodedColors": 1,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/monitor.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 32,
+      "inlineHandlers": 9,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/monitor/monitor-chart.js": {
+      "hardcodedColors": 5,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/monitor/monitor-detail.js": {
+      "hardcodedColors": 4,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 3
+    },
+    "pixivdownload-app/src/main/resources/static/monitor/monitor-filters.js": {
+      "hardcodedColors": 1,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/monitor/monitor-table.js": {
+      "hardcodedColors": 3,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/monitor/monitor.css": {
+      "hardcodedColors": 56,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/pixiv-invite-detail/invite-detail-actions.js": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 1
+    },
+    "pixivdownload-app/src/main/resources/static/pixiv-invite-detail/invite-detail-chart.js": {
+      "hardcodedColors": 6,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/pixiv-invite-detail/pixiv-invite-detail.css": {
+      "hardcodedColors": 5,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/pixiv-invite-manage/pixiv-invite-manage.css": {
+      "hardcodedColors": 13,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/pixiv-invite-manage/pixiv-invite-manage.js": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 2
+    },
+    "pixivdownload-app/src/main/resources/static/plugin-manage.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 1,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/plugin-manage/plugin-manage.css": {
+      "hardcodedColors": 29,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/plugin-market.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 1,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/plugin-market/plugin-market.css": {
+      "hardcodedColors": 46,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/setup.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 4,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-app/src/main/resources/static/setup/setup.css": {
+      "hardcodedColors": 7,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-ai/src/main/resources/static/pixiv-ai/pixiv-translate.css": {
+      "hardcodedColors": 43,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-ai/src/main/resources/static/pixiv-ai/pixiv-translate.js": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 1
+    },
+    "pixivdownload-plugin-douyin/src/main/resources/static/pixiv-douyin-download/douyin-queue-type.js": {
+      "hardcodedColors": 2,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-douyin/src/main/resources/static/pixiv-douyin-gallery/pixiv-douyin-gallery.css": {
+      "hardcodedColors": 10,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-douyin/src/main/resources/static/pixiv-douyin/pixiv-douyin.css": {
+      "hardcodedColors": 3,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch.html": {
+      "hardcodedColors": 10,
+      "inlineStyles": 62,
+      "inlineHandlers": 86,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-cookie.js": {
+      "hardcodedColors": 1,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-core.js": {
+      "hardcodedColors": 5,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-queue.js": {
+      "hardcodedColors": 40,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/quick-fetch.js": {
+      "hardcodedColors": 8,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/schedule.js": {
+      "hardcodedColors": 4,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/search.js": {
+      "hardcodedColors": 11,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/series.js": {
+      "hardcodedColors": 8,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/user.js": {
+      "hardcodedColors": 10,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/pixiv-batch-layout-classic.css": {
+      "hardcodedColors": 1,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/pixiv-batch.css": {
+      "hardcodedColors": 265,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-duplicate/src/main/resources/static/pixiv-duplicates.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 1,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-artwork.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 18,
+      "inlineHandlers": 7,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-artwork/artwork-viewer.js": {
+      "hardcodedColors": 3,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-artwork/pixiv-artwork.css": {
+      "hardcodedColors": 51,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-gallery.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 10,
+      "inlineHandlers": 7,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-gallery/gallery-init.js": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 2
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-gallery/pixiv-gallery.css": {
+      "hardcodedColors": 109,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-series.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 6,
+      "inlineHandlers": 1,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-series/pixiv-series.css": {
+      "hardcodedColors": 22,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-showcase/pixiv-showcase.css": {
+      "hardcodedColors": 82,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-showcase/showcase-collections.js": {
+      "hardcodedColors": 1,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-gallery/src/main/resources/static/pixiv-showcase/showcase-hero.js": {
+      "hardcodedColors": 27,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel-download/novel-queue-type.js": {
+      "hardcodedColors": 6,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel-gallery.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 8,
+      "inlineHandlers": 2,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel-gallery/pixiv-novel-gallery.css": {
+      "hardcodedColors": 79,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel.html": {
+      "hardcodedColors": 0,
+      "inlineStyles": 8,
+      "inlineHandlers": 2,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel/pixiv-novel.css": {
+      "hardcodedColors": 20,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-stats/src/main/resources/static/pixiv-stats/pixiv-stats.css": {
+      "hardcodedColors": 4,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    },
+    "pixivdownload-plugin-tts/src/main/resources/static/pixiv-tts/pixiv-novel-narration.js": {
+      "hardcodedColors": 0,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 4
+    },
+    "pixivdownload-plugin-tts/src/main/resources/static/pixiv-tts/pixiv-tts.css": {
+      "hardcodedColors": 2,
+      "inlineStyles": 0,
+      "inlineHandlers": 0,
+      "nativeDialogs": 0
+    }
+  }
+}

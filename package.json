@@ -1,0 +1,8 @@
+{
+  "name": "pixivdownloader-web-tests",
+  "private": true,
+  "scripts": {
+    "test:js": "node --test \"**/src/test/js/*.test.js\"",
+    "test:web-standards": "node scripts/check-web-standards.mjs"
+  }
+}
