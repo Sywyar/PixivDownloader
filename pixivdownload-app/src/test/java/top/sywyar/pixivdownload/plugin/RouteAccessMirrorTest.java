@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
@@ -33,20 +35,36 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 class RouteAccessMirrorTest {
 
     private static final RouteAccessRegistry REGISTRY =
-            new RouteAccessRegistry(new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll())));
+            new RouteAccessRegistry(new PluginRegistry(withExternalRouteFixtures(BuiltInPlugins.createAll())));
 
     /** AuthFilter 派生口径：monitor 受保护 ← ADMIN 或 INVITED_GUEST。 */
     private static boolean isMonitorPolicy(AccessPolicy policy) {
         return policy == AccessPolicy.ADMIN || policy == AccessPolicy.INVITED_GUEST;
     }
 
-    private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> withGalleryAndNovelGallery(
-            List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> plugins) {
-        java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> out =
-                new java.util.ArrayList<>(plugins);
+    private static List<PixivFeaturePlugin> withExternalRouteFixtures(List<PixivFeaturePlugin> plugins) {
+        java.util.ArrayList<PixivFeaturePlugin> out = new java.util.ArrayList<>(plugins);
         out.add(new TestGalleryPlugin());
         out.add(new TestNovelGalleryPlugin());
+        out.add(douyinRouteFixture());
         return out;
+    }
+
+    private static PixivFeaturePlugin douyinRouteFixture() {
+        return new PixivFeaturePlugin() {
+            @Override public String id() { return "douyin"; }
+            @Override public String displayName() { return "plugin.name"; }
+            @Override public String description() { return "plugin.summary"; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public List<WebRouteContribution> routes() {
+                return List.of(
+                        WebRouteContribution.admin("/pixiv-douyin-gallery.html"),
+                        WebRouteContribution.admin("/pixiv-douyin-gallery/**"),
+                        WebRouteContribution.admin("/pixiv-douyin.html"),
+                        WebRouteContribution.admin("/pixiv-douyin/**"),
+                        WebRouteContribution.admin("/api/douyin/gallery/**"));
+            }
+        };
     }
 
     /** AuthFilter 派生口径：访客邀请白名单 ← INVITED_GUEST 或 VISITOR_AND_INVITED_GUEST。 */
@@ -231,6 +249,11 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/gallery/novel/**", "novel", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/gallery/novels/**", "novel", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/gallery/novels", "novel", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/pixiv-douyin-gallery.html", "douyin", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/pixiv-douyin-gallery/**", "douyin", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/pixiv-douyin.html", "douyin", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/pixiv-douyin/**", "douyin", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/douyin/gallery/**", "douyin", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/pixiv/novel/**", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/pixiv/novel-search**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/pixiv/user/*/novels", "novel", AccessPolicy.VISITOR);

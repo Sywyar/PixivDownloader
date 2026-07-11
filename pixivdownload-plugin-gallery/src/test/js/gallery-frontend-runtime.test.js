@@ -262,7 +262,7 @@ function cardContext(env, item) {
 }
 
 async function main() {
-    // 1. 默认 URL 只装配 descriptors/VIEW_ENTRY，仍调用旧数据流，不触碰 neutral broker。
+    // 1. 默认 URL 只装配 descriptors，仍调用旧数据流，不触碰 neutral broker。
     {
         const descriptor = snapshot(1, [projectionDescriptor('alpha', 'IMAGE')], []);
         descriptor.diagnostics = [{
@@ -273,8 +273,7 @@ async function main() {
             search: '?view=all',
             descriptor
         });
-        const nav = env.document.createElement('nav');
-        await env.api.bootstrap({navigationHost: nav, existingHrefs: []});
+        await env.api.bootstrap();
         let legacyCalls = 0;
         await env.api.startDataFlow({
             search: '?view=all',
@@ -283,8 +282,8 @@ async function main() {
         ok('默认 URL 调用既有 loadGallery 路径', legacyCalls === 1);
         ok('默认 URL 仅请求 descriptors，不请求 projections/works',
             env.calls.length === 1 && env.calls[0].includes('/descriptors'));
-        ok('无专属 module 的 projection 仍生成 fallback 入口',
-            env.api.viewEntries().some(entry => entry.href === '/gallery.html?galleryKind=IMAGE&sourceId=alpha'));
+        ok('前端运行时不再暴露 VIEW_ENTRY 侧栏导航 API',
+            typeof env.api.viewEntries === 'undefined' && typeof env.api.renderViewEntries === 'undefined');
         ok('服务端诊断只保留受控字段，不暴露 message 或 DTO',
             !JSON.stringify(env.api.diagnostics()).includes('descriptor-secret-token')
             && !Object.prototype.hasOwnProperty.call(env.api.diagnostics()[0], 'payload'));
@@ -305,7 +304,7 @@ async function main() {
             detail: env.document.createElement('section'),
             filters: env.document.createElement('section')
         };
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         let legacyCalls = 0;
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha',
@@ -347,7 +346,7 @@ async function main() {
             detail: env.document.createElement('section'),
             filters: env.document.createElement('section')
         };
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha',
             loadLegacy() {},
@@ -395,7 +394,7 @@ async function main() {
             detail: env.document.createElement('section'),
             filters: env.document.createElement('section')
         };
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha',
             loadLegacy() {},
@@ -412,19 +411,21 @@ async function main() {
         ok('详情保留 projection 当前 galleryKind 提示', mediaRoot.dataset.galleryKind === 'IMAGE');
     }
 
-    // 5. 模块加载失败 fail-soft，入口/标准卡片仍可用。
+    // 5. 模块加载失败 fail-soft，标准卡片仍可用。
     {
         const contribution = frontend('alpha.card', '/missing.js', ['CARD_EXTENSION'],
             scope(['alpha'], ['work'], ['IMAGE'], []));
         const env = makeEnvironment({
             descriptor: snapshot(3, [projectionDescriptor('alpha', 'IMAGE')], [contribution])
         });
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         ok('模块加载失败形成安全诊断',
             env.api.diagnostics().some(item => item.code === 'module-load-failed'));
         ok('模块加载失败诊断不泄漏第三方异常原文',
             !JSON.stringify(env.api.diagnostics()).includes('missing module'));
-        ok('模块加载失败仍保留 projection fallback 入口', env.api.viewEntries().length === 1);
+        const fallbackCard = env.api.renderStandardCard(
+            cardContext(env, projection('alpha', 'IMAGE', 'Fallback')));
+        ok('模块加载失败仍可渲染标准卡片', fallbackCard && fallbackCard.nodeType === 1);
     }
 
     // 6. 异步执行的 module 必须自报当前正在加载的 URL，不能冒充另一个本地模块。
@@ -440,7 +441,7 @@ async function main() {
                 }
             }
         });
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         ok('异步 module 自报不同 URL 被拒绝',
             env.api.diagnostics().some(item => item.code === 'module-url-mismatch'));
         ok('冒充 module 不会成为当前模块定义',
@@ -471,7 +472,7 @@ async function main() {
                 }
             }
         });
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         const context = cardContext(env, projection('alpha', 'IMAGE', 'x'));
         env.api.renderCardExtensions(context);
         ok('重复 id 仅保留首个 handler', context.host.textContent === 'first');
@@ -498,7 +499,7 @@ async function main() {
                 }
             }
         });
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         const context = cardContext(env, projection('alpha', 'IMAGE', 'x'));
         env.api.renderCardExtensions(context);
         ok('initializer 抛错后不残留部分注册的 handler', context.host.children.length === 0);
@@ -531,7 +532,7 @@ async function main() {
                 }
             }
         });
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         const media = {kind: 'LIVE_PHOTO_VIDEO', url: '/media/live.mp4', thumbnailUrl: '/thumb/live'};
         const host = env.document.createElement('div');
         const node = env.api.renderMedia({
@@ -606,7 +607,7 @@ async function main() {
                 }
             }
         });
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         const before = cardContext(env, projection('alpha', 'IMAGE', 'x'));
         env.api.renderCardExtensions(before);
         env.state.descriptor = snapshot(8, [projectionDescriptor('alpha', 'IMAGE')], []);
@@ -632,7 +633,7 @@ async function main() {
             detail: env.document.createElement('section'),
             filters: env.document.createElement('section')
         };
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha', loadLegacy() {}, generic: hosts
         });
@@ -675,7 +676,7 @@ async function main() {
             detail: env.document.createElement('section'),
             filters: env.document.createElement('section')
         };
-        await env.api.bootstrap({navigationHost: env.document.createElement('nav'), existingHrefs: []});
+        await env.api.bootstrap();
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha', loadLegacy() {}, generic: hosts
         });
@@ -692,29 +693,13 @@ async function main() {
             && hosts.status.textContent.includes('frontend.status.unavailable'));
     }
 
-    // 14. VIEW_ENTRY 直接由 descriptor 生成且与 projection fallback 去重；context.t 支持 namespace:key。
+    // 14. context.t 支持 namespace:key，动态模块仍只注册声明过的运行时 hook。
     {
         const moduleUrl = '/extensions/i18n.js';
-        const view = frontend('alpha.view', moduleUrl, ['VIEW_ENTRY'],
-            scope(['alpha'], ['work'], ['IMAGE'], []), {
-                viewHref: '/gallery.html?galleryKind=IMAGE&sourceId=alpha',
-                displayNamespace: 'alpha',
-                displayI18nKey: 'view.image',
-                iconToken: 'image'
-            });
         const card = frontend('alpha.card', moduleUrl, ['CARD_EXTENSION'],
             scope(['alpha'], ['work'], ['IMAGE'], []));
-        const videoView = frontend('beta.video-view', moduleUrl, ['VIEW_ENTRY'],
-            scope(['beta'], ['work'], ['VIDEO'], []), {
-                viewHref: '/gallery.html?galleryKind=VIDEO&sourceId=beta',
-                displayNamespace: 'alpha',
-                displayI18nKey: 'view.video',
-                iconToken: 'video'
-            });
         const env = makeEnvironment({
-            descriptor: snapshot(9, [
-                projectionDescriptor('alpha', 'IMAGE'), projectionDescriptor('beta', 'VIDEO')
-            ], [view, card, videoView]),
+            descriptor: snapshot(9, [projectionDescriptor('alpha', 'IMAGE')], [card]),
             moduleScripts: {
                 [moduleUrl](window) {
                     window.PixivGalleryFrontend.registerModule(moduleUrl, api => {
@@ -727,20 +712,10 @@ async function main() {
                 }
             }
         });
-        const navigation = env.document.createElement('nav');
-        await env.api.bootstrap({navigationHost: navigation, existingHrefs: []});
+        await env.api.bootstrap();
         const context = cardContext(env, projection('alpha', 'IMAGE', 'x'));
         env.api.renderCardExtensions(context);
-        ok('VIEW_ENTRY 与同 source/kind projection fallback 去重',
-            env.api.viewEntries().filter(entry => entry.sourceId === 'alpha').length === 1);
-        ok('VIEW_ENTRY 不要求 JS handler', env.api.viewEntries()[0].contributionId === 'alpha.view');
         ok('context.t 支持 namespace:key', context.host.textContent === 'T:alpha:card.label');
-        const imageGlyph = navigation.children[0].children[0].children[0];
-        const videoGlyph = navigation.children[1].children[0].children[0];
-        ok('合法 iconToken 映射为不同的受控图标',
-            imageGlyph.dataset.iconToken === 'image'
-            && videoGlyph.dataset.iconToken === 'video'
-            && imageGlyph.textContent !== videoGlyph.textContent);
     }
 
     // 15. 标准卡片只用 textContent，恶意标题不会成为 HTML，缩略图拒绝编码路径穿越。

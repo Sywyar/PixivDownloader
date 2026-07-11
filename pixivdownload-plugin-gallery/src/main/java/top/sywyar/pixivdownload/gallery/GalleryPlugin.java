@@ -126,9 +126,9 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         //（duplicates.header-icons）。priority 30（功能区段首位）。href 由贡献方完整声明为 /pixiv-gallery.html?view=all
         //（与历史入口一致）——前端公共导航渲染器不再为内置插件 id 补默认 query。
         //
-        // 类型切换入口：向小说画廊页的「小说↔画廊」类型切换（novel.type-switch）注册指向画廊的「漫画」tab——
-        // 取代小说页此前硬编码 /pixiv-gallery.html + data-nav-requires 的做法（label 用类型名 nav.type-illust=漫画，
-        // 非页面名 nav.label=画廊）。该 slot 为 label-only tab，忽略 icon；href 显式带 ?view=all。
+        // 类型切换入口：向画廊家族共享的 gallery.type-switch 注册本插件自己的「漫画」tab。各画廊页面只声明
+        // 同一个空 slot，不硬编码当前类型或其它插件；导航渲染器按 pathname 标记活动项。label 使用类型名
+        // nav.type-illust=漫画而非页面名 nav.label=画廊，href 显式带 ?view=all。
         //
         // 统计页画廊视图快捷入口：向 stats.gallery-links 注册「全部 / 按作者 / 按系列」三条画廊视图链接——
         // 取代统计页此前硬编码这些 href 的做法。这三条链接作为「视图」区块（见 pageSections()）内嵌导航 slot 的内容；
@@ -142,7 +142,7 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                         AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT)),
                 new NavigationContribution(
                         "gallery-type-switch",
-                        Set.of(NavigationPlacements.NOVEL_TYPE_SWITCH),
+                        Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
                         "gallery", "nav.type-illust", "/pixiv-gallery.html?view=all", "images",
                         AccessPolicy.INVITED_GUEST, 30),
                 new NavigationContribution(

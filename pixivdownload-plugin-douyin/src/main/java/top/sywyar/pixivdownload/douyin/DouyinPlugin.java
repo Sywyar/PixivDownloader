@@ -10,12 +10,15 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -23,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class DouyinPlugin implements PixivFeaturePlugin {
 
@@ -71,6 +75,11 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         return List.of(
+                WebRouteContribution.admin("/pixiv-douyin-gallery.html"),
+                WebRouteContribution.admin("/pixiv-douyin-gallery/**"),
+                WebRouteContribution.admin("/pixiv-douyin.html"),
+                WebRouteContribution.admin("/pixiv-douyin/**"),
+                WebRouteContribution.admin("/api/douyin/gallery/**"),
                 WebRouteContribution.admin("/api/douyin/history/**"),
                 WebRouteContribution.visitor("/api/douyin/**"),
                 WebRouteContribution.visitor("/pixiv-douyin-download/**"));
@@ -78,8 +87,17 @@ public class DouyinPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<StaticResourceContribution> staticResources() {
-        return List.of(new StaticResourceContribution(
-                ID, "classpath:/static/pixiv-douyin-download/", "/pixiv-douyin-download/"));
+        return List.of(
+                new StaticResourceContribution(
+                        ID, "classpath:/static/", "/pixiv-douyin-gallery.html", true),
+                new StaticResourceContribution(
+                        ID, "classpath:/static/", "/pixiv-douyin.html", true),
+                new StaticResourceContribution(
+                        ID, "classpath:/static/pixiv-douyin-gallery/", "/pixiv-douyin-gallery/"),
+                new StaticResourceContribution(
+                        ID, "classpath:/static/pixiv-douyin/", "/pixiv-douyin/"),
+                new StaticResourceContribution(
+                        ID, "classpath:/static/pixiv-douyin-download/", "/pixiv-douyin-download/"));
     }
 
     @Override
@@ -110,7 +128,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                         List.of(),
                         UI_SLOT_TARGETS,
                         "douyin",
-                        new DownloadGalleryCapabilities(true, false, null, null))));
+                        new DownloadGalleryCapabilities(true, true, null, null))));
     }
 
     @Override
@@ -137,6 +155,15 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     @Override
     public List<I18nContribution> i18n() {
         return List.of(new I18nContribution("douyin", "i18n.web.douyin", 18));
+    }
+
+    @Override
+    public List<NavigationContribution> navigation() {
+        return List.of(new NavigationContribution(
+                "douyin-gallery-type-switch",
+                Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
+                "douyin", "nav.gallery", "/pixiv-douyin-gallery.html?view=all", "video",
+                AccessPolicy.ADMIN, 50));
     }
 
     private static GuiConfigFieldContribution path(String key, String keyPrefix, int order) {

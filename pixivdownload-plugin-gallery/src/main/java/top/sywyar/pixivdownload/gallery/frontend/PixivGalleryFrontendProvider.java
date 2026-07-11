@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import java.util.List;
 import java.util.Set;
 
-/** Declares the mature Pixiv image view and its source-owned gallery enhancements. */
+/** Declares source-owned Pixiv card, media and detail enhancements. */
 @PluginManagedBean
 public final class PixivGalleryFrontendProvider implements GalleryFrontendProvider {
 
@@ -24,16 +24,6 @@ public final class PixivGalleryFrontendProvider implements GalleryFrontendProvid
     @Override
     public List<GalleryFrontendContribution> frontendContributions() {
         return List.of(
-                new GalleryFrontendContribution(
-                        "pixiv.image-view",
-                        MODULE_URL,
-                        scope(Set.of(GalleryMediaKind.IMAGE, GalleryMediaKind.UGOIRA)),
-                        Set.of(GalleryFrontendHook.VIEW_ENTRY),
-                        "/pixiv-gallery.html?view=all",
-                        "gallery",
-                        "frontend.view.image",
-                        "image",
-                        10),
                 new GalleryFrontendContribution(
                         "pixiv.card",
                         MODULE_URL,

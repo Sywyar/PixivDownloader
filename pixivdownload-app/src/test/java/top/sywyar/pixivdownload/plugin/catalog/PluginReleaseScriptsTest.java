@@ -448,7 +448,7 @@ class PluginReleaseScriptsTest {
         }
         assertThat(pluginDescriptor("pixivdownload-plugin-gallery")).contains("plugin.version=1.0.2");
         assertThat(pluginDescriptor("pixivdownload-plugin-novel")).contains("plugin.version=1.0.0");
-        assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains("plugin.version=1.0.0");
+        assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains("plugin.version=1.0.1");
         assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
                 .contains("plugin.version=1.0.0");
         assertThat(script("plugin-distribution-common.ps1")).doesNotContain("Id = \"douyin\"");

@@ -3,14 +3,11 @@
     function setupGalleryCrossPageHandoff() {
         // 类型切换链接由 /js/pixiv-navigation.js 异步渲染进 slot，渲染时机不确定：
         //  · 点击：用事件委托（监听 document），无论链接何时生成都能在跳转前写入跨页交接；
-        //  · href：监听 'pixivnav:rendered'，每次导航渲染完成后把当前 view 同步进 slot 内链接
-        //    （slot 重新生成会覆盖 href，故需重新同步），不特判对方页面路径。
+        // 入口各自声明目标页默认分类；跨类型时不把当前页面的分类名写进其它类型 URL。
         document.addEventListener('click', e => {
             const link = e.target.closest && e.target.closest('.gallery-type-switch a[href]');
             if (link) writeGalleryCrossTransfer();
         });
-        window.addEventListener('pixivnav:rendered', syncGalleryTypeSwitchHrefs);
-        syncGalleryTypeSwitchHrefs();
     }
 
     // 个性化称呼：拉取后端保存的称呼，写入侧边栏底部用户卡片（替换占位 “Pixiv User”）。
@@ -422,14 +419,8 @@
         restoreSidebarState();
 
         const frontend = window.PixivGalleryFrontend;
-        const frontendNavigationHost = document.getElementById('galleryFrontendNav');
-        const existingViewHrefs = Array.from(document.querySelectorAll('#galleryViewNav a[href]'))
-            .map(link => link.getAttribute('href')).filter(Boolean);
         const frontendReady = frontend && typeof frontend.bootstrap === 'function'
-            ? frontend.bootstrap({
-                navigationHost: frontendNavigationHost,
-                existingHrefs: existingViewHrefs
-            })
+            ? frontend.bootstrap()
             : Promise.resolve(null);
 
         if (frontend && typeof frontend.isGenericRequest === 'function'

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="douyin:detail.page-title">Douyin work details</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/lang-theme-switcher.css">
+    <link rel="stylesheet" href="/pixiv-douyin/pixiv-douyin.css">
+</head>
+<body>
+<header class="topbar">
+    <div class="topbar-navigation">
+        <button class="button" id="backButton" type="button" data-i18n="douyin:detail.action.back">Back</button>
+        <a class="button" id="galleryLink" href="/pixiv-douyin-gallery.html?view=all"
+           data-i18n="douyin:detail.action.gallery">Gallery</a>
+    </div>
+    <div class="topbar-title-wrap">
+        <span class="source-mark" aria-hidden="true">D</span>
+        <span class="topbar-title" id="topbarTitle" data-i18n="douyin:detail.page-title">Douyin work details</span>
+        <span class="admin-badge" data-i18n="douyin:detail.admin-only">Administrator</span>
+    </div>
+    <div class="topbar-actions" id="langSwitcherAnchor"></div>
+</header>
+
+<main class="page-shell" aria-labelledby="workTitle">
+    <section class="status-card" id="detailStatus" role="status" aria-live="polite">
+        <span data-i18n="douyin:detail.status.loading">Loading work details...</span>
+    </section>
+
+    <div class="detail-layout" id="detailRoot" hidden>
+        <section class="panel media-panel" aria-labelledby="mediaHeading">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow" data-i18n="douyin:source.douyin">Douyin</p>
+                    <h2 id="mediaHeading" data-i18n="douyin:detail.section.media">Media</h2>
+                </div>
+                <span class="media-count" id="mediaCount"></span>
+            </div>
+            <div class="media-list" id="mediaList"></div>
+        </section>
+
+        <aside class="panel metadata-panel">
+            <div class="work-heading">
+                <h1 id="workTitle"></h1>
+                <p class="author" id="workAuthor" hidden></p>
+            </div>
+
+            <div class="work-actions" id="workActions" hidden></div>
+            <p class="description" id="workDescription" hidden></p>
+
+            <section class="metadata-section" id="timeSection" hidden>
+                <h2 data-i18n="douyin:detail.section.time">Time</h2>
+                <dl class="summary-list" id="timeSummary"></dl>
+            </section>
+
+            <section class="metadata-section" id="tagSection" hidden>
+                <h2 data-i18n="douyin:detail.section.tags">Tags</h2>
+                <div class="tag-list" id="tagList"></div>
+            </section>
+
+            <section class="metadata-section" id="attributeSection" hidden>
+                <h2 data-i18n="douyin:detail.section.attributes">Details</h2>
+                <dl class="summary-list" id="attributeSummary"></dl>
+            </section>
+        </aside>
+    </div>
+</main>
+
+<script src="/pixiv-douyin/douyin-core.js"></script>
+<script src="/pixiv-douyin/douyin-render.js"></script>
+<script src="/pixiv-douyin/douyin-init.js"></script>
+</body>
+</html>

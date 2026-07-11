@@ -229,7 +229,7 @@ class NovelExternalPluginBootContextTest {
         assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
                 .filteredOn(frontend -> frontend.ownerPluginId().equals("novel"))
                 .extracting(frontend -> frontend.contribution().contributionId())
-                .containsExactlyInAnyOrder("novel.view", "novel.text-renderer", "novel.detail-actions");
+                .containsExactlyInAnyOrder("novel.text-renderer", "novel.detail-actions");
         assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
     }
 

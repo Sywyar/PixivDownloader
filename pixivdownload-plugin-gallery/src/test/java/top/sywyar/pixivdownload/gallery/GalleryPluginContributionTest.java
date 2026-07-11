@@ -59,6 +59,15 @@ class GalleryPluginContributionTest {
                     assertThat(nav.markers()).containsExactly(NavigationMarkers.FIRST_DOWNLOAD_RESULT);
                 });
         assertThat(plugin.navigation())
+                .filteredOn(nav -> nav.id().equals("gallery-type-switch"))
+                .singleElement()
+                .satisfies(nav -> {
+                    assertThat(nav.placements()).containsExactly(NavigationPlacements.GALLERY_TYPE_SWITCH);
+                    assertThat(nav.labelNamespace()).isEqualTo("gallery");
+                    assertThat(nav.labelI18nKey()).isEqualTo("nav.type-illust");
+                    assertThat(nav.href()).isEqualTo("/pixiv-gallery.html?view=all");
+                });
+        assertThat(plugin.navigation())
                 .filteredOn(nav -> nav.id().equals("gallery-gui-open"))
                 .singleElement()
                 .satisfies(nav -> {

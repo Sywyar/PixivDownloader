@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.douyin.client.DouyinRestTemplateFactory;
 import top.sywyar.pixivdownload.douyin.client.DouyinShortLinkResolver;
 import top.sywyar.pixivdownload.douyin.client.RestTemplateDouyinRedirectClient;
 import top.sywyar.pixivdownload.douyin.controller.DouyinController;
+import top.sywyar.pixivdownload.douyin.controller.DouyinGalleryController;
 import top.sywyar.pixivdownload.douyin.controller.DouyinHistoryMediaController;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryMapper;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryRepository;
@@ -74,6 +75,13 @@ public class DouyinPluginConfiguration {
     @ConditionalOnPluginEnabled("douyin")
     public DouyinGalleryFrontendProvider douyinGalleryFrontendProvider() {
         return new DouyinGalleryFrontendProvider();
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinGalleryController douyinGalleryController(DouyinHistoryService historyService,
+                                                           DouyinGalleryDataProvider dataProvider) {
+        return new DouyinGalleryController(historyService, dataProvider);
     }
 
     @Bean

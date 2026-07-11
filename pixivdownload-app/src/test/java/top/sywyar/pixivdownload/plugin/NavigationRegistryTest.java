@@ -43,6 +43,13 @@ class NavigationRegistryTest {
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "gallery-gui-open", "gallery-invite-manage-back",
                         "novel-gallery", "novel-type-switch");
+        for (String id : List.of("gallery-type-switch", "novel-type-switch")) {
+            assertThat(registry.navigation())
+                    .filteredOn(registered -> registered.navigation().id().equals(id))
+                    .singleElement()
+                    .satisfies(registered -> assertThat(registered.navigation().placements())
+                            .containsExactly(NavigationPlacements.GALLERY_TYPE_SWITCH));
+        }
         // 画廊主入口归 gallery 插件、INVITED_GUEST 可见、进入顶部栏 + 中立主侧栏 + 画廊侧栏 + 疑似重复图标区四个 placement。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("gallery"))

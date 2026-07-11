@@ -205,7 +205,7 @@ class NavigationControllerTest {
     // ========== placement 随插件禁用消失 ==========
 
     @Test
-    @DisplayName("禁用画廊：其全部 placement 入口消失（含疑似重复页画廊图标、统计页画廊视图、小说页类型切换的画廊入口）")
+    @DisplayName("禁用画廊：其全部入口消失，共享类型切换仍保留小说入口")
     void disablingGalleryRemovesAllItsPlacements() {
         NavigationController controller = controllerFor(new NavigationRegistry(
                 new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("gallery"))));
@@ -214,8 +214,8 @@ class NavigationControllerTest {
         assertThat(controller.navigation(admin)).extracting(NavigationController.NavigationView::id)
                 .doesNotContain("gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series");
-        // 小说页的「画廊↔小说」类型切换由画廊插件供给画廊入口；禁用画廊后该 placement 空。
-        assertThat(idsInPlacement(controller, admin, "novel.type-switch")).isEmpty();
+        assertThat(idsInPlacement(controller, admin, "gallery.type-switch"))
+                .containsExactly("novel-type-switch");
         // 统计页画廊视图 placement 空。
         assertThat(idsInPlacement(controller, admin, "stats.gallery-links")).isEmpty();
         // 疑似重复页图标区为空：画廊图标已随画廊禁用消失，统计图标因 stats 已外置、未安装而不在内置集合。
@@ -223,13 +223,14 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("禁用 novel：画廊页类型切换的小说入口消失（gallery.type-switch placement 空）")
+    @DisplayName("禁用 novel：共享类型切换移除小说入口并保留画廊入口")
     void disablingNovelRemovesGalleryTypeSwitchEntry() {
         NavigationController controller = controllerFor(new NavigationRegistry(
                 new PluginRegistry(builtInWithGalleryAndNovelGallery(), disabling("novel"))));
         MockHttpServletRequest admin = adminRequest();
 
-        assertThat(idsInPlacement(controller, admin, "gallery.type-switch")).isEmpty();
+        assertThat(idsInPlacement(controller, admin, "gallery.type-switch"))
+                .containsExactly("gallery-type-switch");
         assertThat(controller.navigation(admin)).extracting(NavigationController.NavigationView::id)
                 .doesNotContain("novel-gallery", "novel-type-switch")
                 .contains("gallery");

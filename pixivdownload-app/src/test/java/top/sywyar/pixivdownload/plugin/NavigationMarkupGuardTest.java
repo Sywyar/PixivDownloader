@@ -28,15 +28,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>每个已适配页面声明其预期 placement slot（{@code data-nav-slot="<placement>"}）；</li>
  *   <li>已适配页面不再使用 {@code data-nav-include} / {@code data-nav-exclude} / {@code data-nav-requires}；</li>
  *   <li>已适配页面不得硬编码其它插件的入口 href（监控 / 统计 / 疑似重复 / 邀请码管理 / 画廊 / 小说画廊，按页面身份判定）；</li>
- *   <li>类型切换的对方入口（画廊页的「小说」、小说页的「漫画」）必须是 slot、不得硬编码对方 href。</li>
+ *   <li>画廊家族类型切换必须使用同一个共享 slot，页面不得硬编码当前类型或其它插件入口。</li>
  * </ul>
  * 同插件内的页面自有链接不在禁止之列：画廊 / 系列页指向画廊视图的链接（{@code /pixiv-gallery.html?view=...}）是
  * 画廊家族页面的内部入口。统计页（pixiv-stats.html）与疑似重复页（pixiv-duplicates.html）已随对应插件外置，
  * 其页面守卫随静态资源一起迁到对应插件模块。
  * <p>
  * 另含两条与「跨插件未知」前提配套的渲染器守卫：公共导航渲染器不得为内置插件 id 硬编码默认 query
- * （{@link #navigationRendererHasNoBuiltInDefaultQuery()}）；类型切换跨页交接必须走 PixivNav 渲染生命周期事件、
- * 不依赖异步 slot 链接同步存在，也不特判对方插件页面路径（{@link #typeSwitchHandoffUsesRenderLifecycle()}）。
+ * （{@link #navigationRendererHasNoBuiltInDefaultQuery()}）；类型切换跨页交接必须使用事件委托，不依赖异步 slot 链接
+ * 在初始化时已存在，也不特判对方插件页面路径（{@link #typeSwitchHandoffUsesDelegatedClickHandling()}）。
  */
 @DisplayName("前端导航静态守卫：已适配页面只声明空 slot、不硬编码跨插件入口")
 class NavigationMarkupGuardTest {
@@ -58,14 +58,14 @@ class NavigationMarkupGuardTest {
             "plugin-manage.html", List.of(NavigationPlacements.APP_TOP),
             "plugin-market.html", List.of(NavigationPlacements.APP_TOP),
             "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
-            "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.NOVEL_TYPE_SWITCH),
+            "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
             "pixiv-series.html", List.of(NavigationPlacements.GALLERY_SIDEBAR));
 
     /** 全部已知 placement（HTML slot 值必须取自此集合，确保前端 slot 与后端 contribution 名一致）。 */
     private static final Set<String> KNOWN_PLACEMENTS = Set.of(
             NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
             NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
-            NavigationPlacements.GALLERY_TYPE_SWITCH, NavigationPlacements.NOVEL_TYPE_SWITCH,
+            NavigationPlacements.GALLERY_TYPE_SWITCH,
             NavigationPlacements.DUPLICATES_HEADER_ICONS, NavigationPlacements.STATS_GALLERY_LINKS,
             NavigationPlacements.PLUGINS_SEGMENT);
 
@@ -151,14 +151,15 @@ class NavigationMarkupGuardTest {
     }
 
     @Test
-    @DisplayName("类型切换对方入口为 slot：画廊页声明 gallery.type-switch、小说页声明 novel.type-switch（不硬编码对方 href）")
-    void typeSwitchEntriesAreSlots() throws IOException {
-        assertThat(read("pixiv-gallery.html"))
-                .as("画廊页应以 slot 承载「小说」类型切换入口")
-                .contains("data-nav-slot=\"" + NavigationPlacements.GALLERY_TYPE_SWITCH + "\"");
-        assertThat(read("pixiv-novel-gallery.html"))
-                .as("小说画廊页应以 slot 承载「漫画」类型切换入口")
-                .contains("data-nav-slot=\"" + NavigationPlacements.NOVEL_TYPE_SWITCH + "\"");
+    @DisplayName("画廊与小说页的类型切换只声明共享 slot，不硬编码当前类型按钮")
+    void typeSwitchEntriesUseSharedSlotOnly() throws IOException {
+        for (String page : List.of("pixiv-gallery.html", "pixiv-novel-gallery.html")) {
+            assertThat(read(page))
+                    .as("页面 %s 应只由共享 slot 承载全部画廊类型入口", page)
+                    .contains("data-nav-slot=\"" + NavigationPlacements.GALLERY_TYPE_SWITCH + "\"")
+                    .doesNotContain("data-nav-slot=\"novel.type-switch\"")
+                    .doesNotContain("<button type=\"button\" class=\"gallery-type-option");
+        }
     }
 
     @Test
@@ -188,24 +189,21 @@ class NavigationMarkupGuardTest {
     }
 
     @Test
-    @DisplayName("类型切换跨页交接走 PixivNav 渲染生命周期事件、不依赖 slot 链接同步存在、不特判对方插件路径")
-    void typeSwitchHandoffUsesRenderLifecycle() throws IOException {
-        // 渲染器每次渲染（含失败降级）后派发稳定事件，供宿主在动态链接就位后再处理。
-        assertThat(read("js/pixiv-navigation.js"))
-                .as("pixiv-navigation.js 应在每次渲染后派发 pixivnav:rendered 生命周期事件")
-                .contains("pixivnav:rendered");
-        // 画廊 / 小说页交接监听该事件做 href 同步（而非 init 时一次性遍历当时尚未生成的 slot 链接逐个绑定）。
+    @DisplayName("类型切换跨页交接使用插槽链接事件委托、不依赖链接同步存在、不特判对方插件路径")
+    void typeSwitchHandoffUsesDelegatedClickHandling() throws IOException {
+        // 画廊 / 小说页通过 document 事件委托接住异步生成的类型链接，无需监听导航渲染生命周期。
         for (String initJs : List.of("pixiv-gallery/gallery-init.js", "pixiv-novel-gallery/novel-gallery-init.js")) {
             assertThat(read(initJs))
-                    .as("%s 应监听 pixivnav:rendered，在动态类型切换链接生成后再同步 view / 登记交接", initJs)
-                    .contains("pixivnav:rendered");
+                    .as("%s 应委托处理动态生成的共享类型切换链接", initJs)
+                    .contains("document.addEventListener('click'", ".gallery-type-switch a[href]")
+                    .doesNotContain("pixivnav:rendered");
         }
-        // 类型切换 href 同步不得特判「对方插件页面路径」（应对 slot 内全部链接统一处理）。
+        // 类型切换交接不得特判「对方插件页面路径」（应对 slot 内全部链接统一处理）。
         assertThat(read("pixiv-gallery/gallery-state.js"))
-                .as("画廊类型切换 href 同步不应特判小说页路径")
+                .as("画廊类型切换交接不应特判小说页路径")
                 .doesNotContain("/pixiv-novel-gallery.html\"]");
         assertThat(read("pixiv-novel-gallery/novel-gallery-core.js"))
-                .as("小说类型切换 href 同步不应特判画廊页路径")
+                .as("小说类型切换交接不应特判画廊页路径")
                 .doesNotContain("/pixiv-gallery.html\"]");
     }
 }

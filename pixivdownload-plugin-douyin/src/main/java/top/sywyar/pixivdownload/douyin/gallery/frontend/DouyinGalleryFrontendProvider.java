@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import java.util.List;
 import java.util.Set;
 
-/** Declares Douyin image/video views and source-owned card/media enhancements. */
+/** Declares source-owned card/media enhancements for neutral gallery consumers. */
 @PluginManagedBean
 public final class DouyinGalleryFrontendProvider implements GalleryFrontendProvider {
 
@@ -23,13 +23,6 @@ public final class DouyinGalleryFrontendProvider implements GalleryFrontendProvi
     @Override
     public List<GalleryFrontendContribution> frontendContributions() {
         return List.of(
-                view("douyin.image-view", GalleryKind.IMAGE, Set.of(GalleryMediaKind.IMAGE),
-                        "/pixiv-gallery.html?galleryKind=IMAGE&sourceId=douyin",
-                        "frontend.view.image", "image", 30),
-                view("douyin.video-view", GalleryKind.VIDEO,
-                        Set.of(GalleryMediaKind.VIDEO, GalleryMediaKind.LIVE_PHOTO_VIDEO),
-                        "/pixiv-gallery.html?galleryKind=VIDEO&sourceId=douyin",
-                        "frontend.view.video", "video", 31),
                 new GalleryFrontendContribution(
                         "douyin.card",
                         MODULE_URL,
@@ -50,25 +43,6 @@ public final class DouyinGalleryFrontendProvider implements GalleryFrontendProvi
                         Set.of(GalleryFrontendHook.MEDIA_RENDERER),
                         null, null, null, null,
                         30));
-    }
-
-    private static GalleryFrontendContribution view(String contributionId,
-                                                     GalleryKind galleryKind,
-                                                     Set<GalleryMediaKind> mediaKinds,
-                                                     String viewHref,
-                                                     String displayI18nKey,
-                                                     String iconToken,
-                                                     int order) {
-        return new GalleryFrontendContribution(
-                contributionId,
-                MODULE_URL,
-                scope(Set.of(galleryKind), mediaKinds),
-                Set.of(GalleryFrontendHook.VIEW_ENTRY),
-                viewHref,
-                "douyin",
-                displayI18nKey,
-                iconToken,
-                order);
     }
 
     private static GalleryFrontendScope scope(Set<GalleryKind> galleryKinds,

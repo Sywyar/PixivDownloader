@@ -17,9 +17,14 @@ import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterField;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
@@ -78,6 +83,12 @@ class DouyinExternalPluginBootContextTest {
     @Autowired
     private PluginRegistry pluginRegistry;
     @Autowired
+    private RouteAccessRegistry routeAccessRegistry;
+    @Autowired
+    private StaticResourceRegistry staticResourceRegistry;
+    @Autowired
+    private NavigationRegistry navigationRegistry;
+    @Autowired
     private ExternalPluginContextManager externalPluginContextManager;
     @Autowired
     private WebApplicationContext applicationContext;
@@ -118,6 +129,9 @@ class DouyinExternalPluginBootContextTest {
         assertThat(pluginDiscoveryResult.hasFailures()).isFalse();
         assertThat(pluginDiscoveryResult.discovered())
                 .extracting(DiscoveredFeaturePlugin::featurePluginId).contains("douyin");
+        assertThat(pluginRuntimeManager.loadedDescriptor("douyin"))
+                .get()
+                .satisfies(descriptor -> assertThat(descriptor.version()).isEqualTo("1.0.1"));
     }
 
     @Test
@@ -165,8 +179,7 @@ class DouyinExternalPluginBootContextTest {
         assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
                 .filteredOn(frontend -> frontend.ownerPluginId().equals("douyin"))
                 .extracting(frontend -> frontend.contribution().contributionId())
-                .containsExactlyInAnyOrder(
-                        "douyin.image-view", "douyin.video-view", "douyin.card", "douyin.media");
+                .containsExactlyInAnyOrder("douyin.card", "douyin.media");
         assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
     }
 
@@ -199,12 +212,50 @@ class DouyinExternalPluginBootContextTest {
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("source.douyin", "抖音");
         assertThat(bundle.load(Locale.ENGLISH)).containsEntry("source.douyin", "Douyin");
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE))
-                .containsEntry("frontend.view.image", "抖音图片")
-                .containsEntry("frontend.view.video", "抖音视频");
+                .containsEntry("nav.gallery", "抖音")
+                .containsEntry("gallery.page.title", "抖音画廊")
+                .containsEntry("detail.page-title", "抖音作品详情");
         assertThat(externalDouyinClassLoader()
                 .getResource("static/pixiv-douyin-download/douyin-gallery-frontend.js")).isNotNull();
         assertThat(getClass().getClassLoader()
                 .getResource("static/pixiv-douyin-download/douyin-gallery-frontend.js")).isNull();
+    }
+
+    @Test
+    @DisplayName("douyin 管理员画廊路由、静态资源与类型切换导航经外置 classloader 注册")
+    void douyinGalleryWebContributionsAreClassloaderAware() {
+        ClassLoader externalCl = externalDouyinClassLoader();
+        List<String> adminRoutes = List.of(
+                "/pixiv-douyin-gallery.html", "/pixiv-douyin-gallery/**",
+                "/pixiv-douyin.html", "/pixiv-douyin/**", "/api/douyin/gallery/**");
+
+        assertThat(routeAccessRegistry.routes())
+                .filteredOn(route -> route.pluginId().equals("douyin")
+                        && adminRoutes.contains(route.route().pathPattern()))
+                .hasSize(adminRoutes.size())
+                .allSatisfy(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
+        assertThat(staticResourceRegistry.resources())
+                .filteredOn(resource -> resource.pluginId().equals("douyin"))
+                .allSatisfy(resource -> assertThat(resource.classLoader()).isSameAs(externalCl))
+                .extracting(resource -> resource.contribution().publicPathPrefix())
+                .containsExactlyInAnyOrder(
+                        "/pixiv-douyin-gallery.html", "/pixiv-douyin.html",
+                        "/pixiv-douyin-gallery/", "/pixiv-douyin/", "/pixiv-douyin-download/");
+        assertThat(navigationRegistry.navigation())
+                .filteredOn(item -> item.pluginId().equals("douyin"))
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.navigation().id()).isEqualTo("douyin-gallery-type-switch");
+                    assertThat(item.navigation().placements())
+                            .containsExactly(NavigationPlacements.GALLERY_TYPE_SWITCH);
+                    assertThat(item.navigation().visibleTo()).isEqualTo(AccessPolicy.ADMIN);
+                    assertThat(item.navigation().href()).isEqualTo("/pixiv-douyin-gallery.html?view=all");
+                });
+        assertThat(externalCl.getResource("static/pixiv-douyin-gallery.html")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-douyin-gallery/pixiv-douyin-gallery.css")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-douyin.html")).isNotNull();
+        assertThat(externalCl.getResource("static/pixiv-douyin/pixiv-douyin.css")).isNotNull();
+        assertThat(getClass().getClassLoader().getResource("static/pixiv-douyin.html")).isNull();
     }
 
     private ClassLoader externalDouyinClassLoader() {
@@ -226,7 +277,7 @@ class DouyinExternalPluginBootContextTest {
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("douyin-plugin.jar");
             zipDirectoryAsJar(classes, jar);
-            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "douyin", "1.0.0");
+            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "douyin", "1.0.1");
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

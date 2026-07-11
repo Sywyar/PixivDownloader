@@ -14,14 +14,6 @@ const GALLERY_FRONTEND_FAILURE_TYPES = new Set([
     'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'URIError',
     'EvalError', 'AbortError', 'NetworkError', 'GalleryHttpError'
 ]);
-const GALLERY_FRONTEND_ICON_GLYPHS = Object.freeze({
-    image: '▧',
-    video: '▶',
-    book: '▤',
-    grid: '▦',
-    file: '▯',
-    question: '?'
-});
 
 let galleryFrontendSnapshot = {
     generation: -1,
@@ -31,11 +23,8 @@ let galleryFrontendSnapshot = {
     diagnostics: []
 };
 let galleryFrontendDiagnostics = [];
-let galleryFrontendEntries = [];
 let galleryFrontendI18n = null;
 let galleryFrontendLanguage = null;
-let galleryFrontendNavigationHost = null;
-let galleryFrontendExistingHrefs = new Set();
 let galleryFrontendActivation = 0;
 let galleryFrontendPendingModuleUrl = null;
 let galleryFrontendRefreshPromise = null;
@@ -392,106 +381,6 @@ function galleryFrontendLoadModule(moduleUrl, activation) {
     });
 }
 
-function galleryFrontendEntryIdentity(sourceId, kind) {
-    return String(sourceId || '') + '\u0000' + String(kind || '');
-}
-
-function galleryFrontendViewEntries(snapshot) {
-    const entries = [];
-    const hrefs = new Set();
-    const covered = new Set();
-    snapshot.frontends.filter(item => galleryFrontendContributionHasHook(item, 'VIEW_ENTRY'))
-        .forEach(item => {
-            const href = galleryFrontendNormalizeLocalUrl(item.viewHref);
-            if (!href || hrefs.has(href)) return;
-            const itemScope = galleryFrontendScope(item);
-            snapshot.projections.forEach(projection => {
-                if (galleryFrontendDimensionMatches(itemScope.sourceIds, projection.sourceId)
-                    && galleryFrontendDimensionMatches(itemScope.galleryKinds, projection.kind)) {
-                    covered.add(galleryFrontendEntryIdentity(projection.sourceId, projection.kind));
-                }
-            });
-            hrefs.add(href);
-            entries.push({
-                contributionId: item.contributionId,
-                href,
-                sourceId: itemScope.sourceIds.length === 1 ? itemScope.sourceIds[0] : null,
-                galleryKind: itemScope.galleryKinds.length === 1 ? itemScope.galleryKinds[0] : null,
-                displayNamespace: item.displayNamespace,
-                displayI18nKey: item.displayI18nKey,
-                iconToken: item.iconToken,
-                order: Number(item.order || 0),
-                fallback: false
-            });
-        });
-    snapshot.projections.forEach(item => {
-        const identity = galleryFrontendEntryIdentity(item.sourceId, item.kind);
-        if (covered.has(identity)) return;
-        const href = window.location.pathname + '?galleryKind=' + encodeURIComponent(String(item.kind))
-            + '&sourceId=' + encodeURIComponent(String(item.sourceId));
-        if (hrefs.has(href)) return;
-        hrefs.add(href);
-        entries.push({
-            contributionId: null,
-            href,
-            sourceId: item.sourceId,
-            galleryKind: item.kind,
-            displayNamespace: item.displayNamespace,
-            displayI18nKey: item.displayI18nKey,
-            iconToken: 'grid',
-            order: Number(item.order || 0),
-            fallback: true
-        });
-    });
-    return entries.sort((left, right) => left.order - right.order
-        || String(left.contributionId || left.href).localeCompare(String(right.contributionId || right.href)));
-}
-
-function galleryFrontendEntryLabel(entry) {
-    const key = entry.displayNamespace && entry.displayI18nKey
-        ? entry.displayNamespace + ':' + entry.displayI18nKey : null;
-    const fallback = [entry.sourceId, entry.galleryKind].filter(Boolean).join(' · ') || entry.href;
-    return key ? galleryFrontendTranslate(key, null, fallback) : fallback;
-}
-
-function galleryFrontendRenderEntries(host, existingHrefs) {
-    if (!host || typeof host.replaceChildren !== 'function') return;
-    const existing = new Set(galleryFrontendArray(existingHrefs)
-        .map(galleryFrontendNormalizeLocalUrl).filter(Boolean));
-    host.replaceChildren();
-    galleryFrontendEntries.forEach(entry => {
-        if (existing.has(galleryFrontendNormalizeLocalUrl(entry.href))) return;
-        const link = host.ownerDocument.createElement('a');
-        link.className = 'nav-item gallery-frontend-nav-item';
-        link.href = entry.href;
-        if (entry.contributionId) link.dataset.contributionId = entry.contributionId;
-        const current = galleryFrontendNormalizeLocalUrl(window.location.pathname + window.location.search);
-        if (current === galleryFrontendNormalizeLocalUrl(entry.href)) {
-            link.classList.add('active');
-            link.setAttribute('aria-current', 'page');
-        }
-        const icon = host.ownerDocument.createElement('span');
-        icon.className = 'nav-icon gallery-frontend-nav-icon';
-        const glyph = host.ownerDocument.createElement('span');
-        glyph.className = 'gallery-frontend-icon-token';
-        const requestedIcon = /^[a-z][a-z0-9-]{0,39}$/.test(String(entry.iconToken || ''))
-            ? String(entry.iconToken) : 'question';
-        const iconToken = Object.prototype.hasOwnProperty.call(GALLERY_FRONTEND_ICON_GLYPHS, requestedIcon)
-            ? requestedIcon : 'question';
-        glyph.dataset.iconToken = iconToken;
-        glyph.setAttribute('aria-hidden', 'true');
-        glyph.textContent = GALLERY_FRONTEND_ICON_GLYPHS[iconToken];
-        icon.appendChild(glyph);
-        const label = host.ownerDocument.createElement('span');
-        label.className = 'nav-label';
-        label.textContent = galleryFrontendEntryLabel(entry);
-        link.appendChild(icon);
-        link.appendChild(label);
-        host.appendChild(link);
-    });
-    host.hidden = host.children.length === 0;
-}
-
 function galleryFrontendClearRuntime() {
     Object.values(galleryFrontendHandlers).forEach(registry => registry.clear());
     galleryFrontendModuleDefinitions.clear();
@@ -506,9 +395,6 @@ async function galleryFrontendActivateSnapshot(rawSnapshot, options) {
     galleryFrontendDiagnostics = next.diagnostics.map(item => Object.assign({}, item));
     await galleryFrontendLoadI18n(next, options && options.language);
     if (activation !== galleryFrontendActivation) return galleryFrontendSnapshot;
-    galleryFrontendEntries = galleryFrontendViewEntries(next);
-    galleryFrontendRenderEntries(galleryFrontendNavigationHost,
-        Array.from(galleryFrontendExistingHrefs));
 
     const moduleUrls = [];
     next.frontends.forEach(item => {
@@ -540,10 +426,6 @@ async function galleryFrontendRequestDescriptors() {
 
 async function galleryFrontendBootstrap(options) {
     const config = options || {};
-    if (config.navigationHost) galleryFrontendNavigationHost = config.navigationHost;
-    if (Array.isArray(config.existingHrefs)) {
-        galleryFrontendExistingHrefs = new Set(config.existingHrefs);
-    }
     try {
         const next = config.snapshot || await galleryFrontendRequestDescriptors();
         return await galleryFrontendActivateSnapshot(next, config);
@@ -723,8 +605,6 @@ function galleryFrontendRenderMedia(context) {
 async function galleryFrontendSetLanguage(language) {
     galleryFrontendLanguage = language || galleryFrontendLanguage;
     await galleryFrontendLoadI18n(galleryFrontendSnapshot, galleryFrontendLanguage);
-    galleryFrontendRenderEntries(galleryFrontendNavigationHost,
-        Array.from(galleryFrontendExistingHrefs));
     return galleryFrontendI18n;
 }
 
@@ -738,8 +618,6 @@ window.PixivGalleryFrontend = Object.assign(window.PixivGalleryFrontend || {}, {
     renderDetailActions: galleryFrontendRenderDetailActions,
     renderMedia: galleryFrontendRenderMedia,
     renderStandardMedia: galleryFrontendRenderStandardMedia,
-    renderViewEntries: galleryFrontendRenderEntries,
-    viewEntries: () => galleryFrontendEntries.slice(),
     diagnostics: () => galleryFrontendDiagnostics.slice(),
     generation: () => galleryFrontendSnapshot.generation,
     snapshot: () => galleryFrontendSnapshot,

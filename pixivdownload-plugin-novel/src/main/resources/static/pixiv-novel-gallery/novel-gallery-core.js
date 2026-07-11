@@ -47,24 +47,6 @@ function syncViewNavigationHrefs() {
             el.setAttribute('href', buildGalleryPageHref('/pixiv-novel-gallery.html', el.dataset.view));
         }
     });
-    syncNovelTypeSwitchHrefs();
-}
-
-// 类型切换 slot 内指向「对方画廊」的链接由 /js/pixiv-navigation.js 异步渲染：不特判对方页面路径，
-// 对 slot 内所有链接统一处理——保留链接原 path/search，只把当前 view 同步进 view 参数。
-function syncNovelTypeSwitchHrefs() {
-    document.querySelectorAll('.gallery-type-switch a[href]').forEach(link => {
-        const raw = link.getAttribute('href');
-        if (!raw) return;
-        let url;
-        try {
-            url = new URL(raw, location.origin);
-        } catch (_) {
-            return;
-        }
-        url.searchParams.set('view', normalizeView(state.view));
-        link.setAttribute('href', url.pathname + url.search + url.hash);
-    });
 }
 
 let pageI18n;

@@ -92,7 +92,7 @@ class NovelPluginContributionTest {
     }
 
     @Test
-    @DisplayName("novel-gallery 导航入口和画廊类型切换入口由插件声明")
+    @DisplayName("novel-gallery 导航入口和共享画廊类型切换入口由插件声明")
     void navigationIsOwnedByPlugin() {
         assertThat(plugin.navigation())
                 .filteredOn(nav -> nav.id().equals("novel-gallery"))
@@ -111,6 +111,7 @@ class NovelPluginContributionTest {
                     assertThat(nav.placements()).containsExactly(NavigationPlacements.GALLERY_TYPE_SWITCH);
                     assertThat(nav.labelNamespace()).isEqualTo("novel-gallery");
                     assertThat(nav.labelI18nKey()).isEqualTo("nav.type-novel");
+                    assertThat(nav.href()).isEqualTo("/pixiv-novel-gallery.html?view=all");
                 });
     }
 

@@ -6,7 +6,7 @@ import java.util.Set;
  * 插件声明的导航项。{@code /api/navigation} 按当前用户可见性过滤后返回。
  * <p>
  * 每条导航项显式声明它要进入的一个或多个 <b>placement</b>（slot id，如 {@code app.top} /
- * {@code gallery.sidebar} / {@code novel.type-switch}）。页面只声明空 slot（{@code data-nav-slot="<placement>"}），
+ * {@code gallery.sidebar} / {@code gallery.type-switch}）。页面只声明空 slot（{@code data-nav-slot="<placement>"}），
  * slot 的内容完全来自匹配该 placement 的导航贡献——页面不再用 include/exclude 过滤 id 来模拟 slot。
  * 同一逻辑入口可属于多个 placement（如下载工作台同时进入顶部栏与各侧栏），由 {@link #placements()} 表达，
  * 故无需为同一入口重复声明多条。

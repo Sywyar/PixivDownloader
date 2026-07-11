@@ -17,6 +17,8 @@ class GalleryEntryBoundaryGuardTest {
 
     private static final List<String> FORBIDDEN_ENTRY_TOKENS = List.of(
             "pixiv-gallery.html",
+            "pixiv-douyin-gallery.html",
+            "pixiv-douyin.html",
             "gallery-guide-done",
             "galleryGuideCompleted",
             "galleryVisited",

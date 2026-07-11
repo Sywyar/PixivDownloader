@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import java.util.List;
 import java.util.Set;
 
-/** Declares the novel plugin's mature gallery entry and neutral detail enhancements. */
+/** Declares the novel plugin's neutral media and detail enhancements. */
 @PluginManagedBean
 public final class NovelGalleryFrontendProvider implements GalleryFrontendProvider {
 
@@ -24,16 +24,6 @@ public final class NovelGalleryFrontendProvider implements GalleryFrontendProvid
     @Override
     public List<GalleryFrontendContribution> frontendContributions() {
         return List.of(
-                new GalleryFrontendContribution(
-                        "novel.view",
-                        MODULE_URL,
-                        scope(Set.of(GalleryMediaKind.TEXT, GalleryMediaKind.COVER)),
-                        Set.of(GalleryFrontendHook.VIEW_ENTRY),
-                        "/pixiv-novel-gallery.html?view=all",
-                        "novel-gallery",
-                        "frontend.view.novel",
-                        "book",
-                        40),
                 new GalleryFrontendContribution(
                         "novel.text-renderer",
                         MODULE_URL,

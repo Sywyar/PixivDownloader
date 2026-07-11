@@ -20,22 +20,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DouyinGalleryFrontendProviderTest {
 
     @Test
-    @DisplayName("分别声明图片视频入口并由同一模块扩展卡片和完整媒体集合")
-    void contributesImageVideoViewsAndSharedRenderers() {
+    @DisplayName("不再贡献侧栏视图入口并保留卡片和完整媒体扩展")
+    void contributesSharedRenderersWithoutSidebarViews() {
         Map<String, GalleryFrontendContribution> contributions =
                 new DouyinGalleryFrontendProvider().frontendContributions().stream()
                         .collect(Collectors.toMap(
                                 GalleryFrontendContribution::contributionId, Function.identity()));
 
-        assertThat(contributions).containsOnlyKeys(
-                "douyin.image-view", "douyin.video-view", "douyin.card", "douyin.media");
+        assertThat(contributions).containsOnlyKeys("douyin.card", "douyin.media");
         assertThat(contributions.values()).extracting(GalleryFrontendContribution::moduleUrl)
                 .containsOnly("/pixiv-douyin-download/douyin-gallery-frontend.js");
-
-        assertView(contributions.get("douyin.image-view"), GalleryKind.IMAGE,
-                "/pixiv-gallery.html?galleryKind=IMAGE&sourceId=douyin", "frontend.view.image", "image");
-        assertView(contributions.get("douyin.video-view"), GalleryKind.VIDEO,
-                "/pixiv-gallery.html?galleryKind=VIDEO&sourceId=douyin", "frontend.view.video", "video");
 
         GalleryFrontendContribution card = contributions.get("douyin.card");
         assertThat(card.hooks()).containsExactly(GalleryFrontendHook.CARD_EXTENSION);
@@ -72,21 +66,6 @@ class DouyinGalleryFrontendProviderTest {
                 .contains("context.t")
                 .contains("textContent")
                 .doesNotContain("innerHTML", "outerHTML", "insertAdjacentHTML", "eval(");
-    }
-
-    private static void assertView(GalleryFrontendContribution contribution,
-                                   GalleryKind kind,
-                                   String href,
-                                   String i18nKey,
-                                   String iconToken) {
-        assertThat(contribution.hooks()).containsExactly(GalleryFrontendHook.VIEW_ENTRY);
-        assertThat(contribution.viewHref()).isEqualTo(href);
-        assertThat(contribution.displayNamespace()).isEqualTo("douyin");
-        assertThat(contribution.displayI18nKey()).isEqualTo(i18nKey);
-        assertThat(contribution.iconToken()).isEqualTo(iconToken);
-        assertThat(contribution.scope().sourceIds()).containsExactly("douyin");
-        assertThat(contribution.scope().sourceWorkNamespaces()).containsExactly("aweme");
-        assertThat(contribution.scope().galleryKinds()).containsExactly(kind);
     }
 
     private static String resource(String path) throws IOException {

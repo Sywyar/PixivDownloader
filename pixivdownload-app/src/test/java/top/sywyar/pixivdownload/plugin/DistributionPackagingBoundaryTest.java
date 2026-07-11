@@ -151,6 +151,14 @@ class DistributionPackagingBoundaryTest {
                 .as("download-workbench userscript i18n 不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-douyin-download/douyin-queue-type.js"))
                 .as("douyin 下载行为模块不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-douyin-gallery.html"))
+                .as("douyin 画廊页不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-douyin-gallery/pixiv-douyin-gallery.css"))
+                .as("douyin 画廊静态资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-douyin.html"))
+                .as("douyin 作品详情页不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-douyin/pixiv-douyin.css"))
+                .as("douyin 作品详情静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/douyin.properties"))
                 .as("douyin i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-stats/pixiv-stats.css"))
@@ -242,6 +250,9 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
                 "BOOT-INF/classes/static/pixiv-batch",
                 "BOOT-INF/classes/static/pixiv-douyin-download",
+                "BOOT-INF/classes/static/pixiv-douyin-gallery",
+                "BOOT-INF/classes/static/pixiv-douyin.html",
+                "BOOT-INF/classes/static/pixiv-douyin/",
                 "BOOT-INF/classes/static/userscripts/",
                 "BOOT-INF/classes/static/pixiv-stats/",
                 "BOOT-INF/classes/static/pixiv-duplicates",

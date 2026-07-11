@@ -24,27 +24,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PixivGalleryFrontendProviderTest {
 
     @Test
-    @DisplayName("声明成熟图片入口并为 Pixiv artwork 提供卡片媒体和详情扩展")
-    void contributesMatureImageViewAndArtworkEnhancements() {
+    @DisplayName("为 Pixiv artwork 提供卡片、媒体和详情扩展且不再声明侧栏入口")
+    void contributesArtworkRuntimeEnhancementsWithoutSidebarEntry() {
         Map<String, GalleryFrontendContribution> contributions =
                 new PixivGalleryFrontendProvider().frontendContributions().stream()
                         .collect(Collectors.toMap(
                                 GalleryFrontendContribution::contributionId, Function.identity()));
 
-        assertThat(contributions).containsOnlyKeys(
-                "pixiv.image-view", "pixiv.card", "pixiv.media", "pixiv.detail-actions");
+        assertThat(contributions).containsOnlyKeys("pixiv.card", "pixiv.media", "pixiv.detail-actions");
         assertThat(contributions.values()).extracting(GalleryFrontendContribution::moduleUrl)
                 .containsOnly("/pixiv-gallery/pixiv-gallery-frontend.js");
-
-        GalleryFrontendContribution view = contributions.get("pixiv.image-view");
-        assertThat(view.hooks()).containsExactly(GalleryFrontendHook.VIEW_ENTRY);
-        assertThat(view.viewHref()).isEqualTo("/pixiv-gallery.html?view=all");
-        assertThat(view.displayNamespace()).isEqualTo("gallery");
-        assertThat(view.displayI18nKey()).isEqualTo("frontend.view.image");
-        assertThat(view.iconToken()).isEqualTo("image");
-        assertScope(view);
-        assertThat(view.scope().mediaKinds()).containsExactlyInAnyOrder(
-                GalleryMediaKind.IMAGE, GalleryMediaKind.UGOIRA);
 
         GalleryFrontendContribution card = contributions.get("pixiv.card");
         assertThat(card.hooks()).containsExactly(GalleryFrontendHook.CARD_EXTENSION);

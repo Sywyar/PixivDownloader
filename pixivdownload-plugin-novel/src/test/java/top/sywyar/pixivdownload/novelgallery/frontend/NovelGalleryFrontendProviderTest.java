@@ -20,36 +20,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelGalleryFrontendProviderTest {
 
     @Test
-    @DisplayName("声明成熟小说画廊入口、正文 renderer 与详情操作")
-    void contributesNovelViewTextRendererAndDetailActions() {
+    @DisplayName("声明正文 renderer 与详情操作且不再声明侧栏入口")
+    void contributesTextRendererAndDetailActionsWithoutSidebarEntry() {
         Map<String, GalleryFrontendContribution> contributions =
                 new NovelGalleryFrontendProvider().frontendContributions().stream()
                         .collect(Collectors.toMap(
                                 GalleryFrontendContribution::contributionId, Function.identity()));
 
-        assertThat(contributions).containsOnlyKeys(
-                "novel.view", "novel.text-renderer", "novel.detail-actions");
-
-        GalleryFrontendContribution view = contributions.get("novel.view");
-        assertThat(view.moduleUrl()).isEqualTo("/pixiv-novel-gallery/novel-gallery-frontend.js");
-        assertThat(view.hooks()).containsExactly(GalleryFrontendHook.VIEW_ENTRY);
-        assertThat(view.viewHref()).isEqualTo("/pixiv-novel-gallery.html?view=all");
-        assertThat(view.displayNamespace()).isEqualTo("novel-gallery");
-        assertThat(view.displayI18nKey()).isEqualTo("frontend.view.novel");
-        assertThat(view.scope().sourceIds()).containsExactly("pixiv");
-        assertThat(view.scope().sourceWorkNamespaces()).containsExactly("novel");
-        assertThat(view.scope().galleryKinds()).containsExactly(GalleryKind.NOVEL);
-        assertThat(view.scope().mediaKinds())
-                .containsExactlyInAnyOrder(GalleryMediaKind.TEXT, GalleryMediaKind.COVER);
+        assertThat(contributions).containsOnlyKeys("novel.text-renderer", "novel.detail-actions");
+        assertThat(contributions.values()).extracting(GalleryFrontendContribution::moduleUrl)
+                .containsOnly("/pixiv-novel-gallery/novel-gallery-frontend.js");
 
         GalleryFrontendContribution renderer = contributions.get("novel.text-renderer");
         assertThat(renderer.hooks()).containsExactly(GalleryFrontendHook.MEDIA_RENDERER);
+        assertScope(renderer);
         assertThat(renderer.scope().mediaKinds()).containsExactly(GalleryMediaKind.TEXT);
 
         GalleryFrontendContribution actions = contributions.get("novel.detail-actions");
         assertThat(actions.hooks()).containsExactly(GalleryFrontendHook.DETAIL_ACTION);
+        assertScope(actions);
         assertThat(actions.scope().mediaKinds())
                 .containsExactlyInAnyOrder(GalleryMediaKind.TEXT, GalleryMediaKind.COVER);
+    }
+
+    private static void assertScope(GalleryFrontendContribution contribution) {
+        assertThat(contribution.scope().sourceIds()).containsExactly("pixiv");
+        assertThat(contribution.scope().sourceWorkNamespaces()).containsExactly("novel");
+        assertThat(contribution.scope().galleryKinds()).containsExactly(GalleryKind.NOVEL);
     }
 
     @Test

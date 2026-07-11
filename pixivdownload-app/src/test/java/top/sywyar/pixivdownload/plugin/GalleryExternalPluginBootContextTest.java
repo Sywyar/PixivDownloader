@@ -12,7 +12,6 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendHook;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
@@ -254,19 +253,9 @@ class GalleryExternalPluginBootContextTest {
                 });
         assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
                 .extracting(frontend -> frontend.contribution().contributionId())
-                .contains("pixiv.image-view", "pixiv.card", "pixiv.media", "pixiv.detail-actions");
+                .containsExactlyInAnyOrder("pixiv.card", "pixiv.media", "pixiv.detail-actions");
         assertThat(galleryCapabilityRegistry.snapshot().frontendContributions())
-                .filteredOn(frontend -> frontend.contribution().contributionId().equals("pixiv.image-view"))
-                .singleElement()
-                .satisfies(registered -> {
-                    assertThat(registered.ownerPluginId()).isEqualTo("gallery");
-                    var frontend = registered.contribution();
-                    assertThat(frontend.moduleUrl())
-                            .isEqualTo("/pixiv-gallery/pixiv-gallery-frontend.js");
-                    assertThat(frontend.hooks()).containsExactly(GalleryFrontendHook.VIEW_ENTRY);
-                    assertThat(frontend.viewHref()).isEqualTo("/pixiv-gallery.html?view=all");
-                    assertThat(frontend.iconToken()).isEqualTo("image");
-                });
+                .allSatisfy(frontend -> assertThat(frontend.ownerPluginId()).isEqualTo("gallery"));
         assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
     }
 

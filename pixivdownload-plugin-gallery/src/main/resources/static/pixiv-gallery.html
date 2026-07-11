@@ -71,7 +71,6 @@
                 <span class="nav-label" data-i18n="nav.series">按系列漫画查看</span>
             </a>
         </nav>
-        <nav class="sidebar-nav gallery-frontend-nav" id="galleryFrontendNav" hidden></nav>
 
         <div class="sidebar-divider"></div>
 
@@ -93,8 +92,8 @@
             <span class="section-title" data-i18n="section.navigation">导航</span>
         </div>
         <!-- 跨插件导航 slot（gallery.sidebar placement）：由 /js/pixiv-navigation.js 据 /api/navigation 动态渲染
-             （禁用插件后其入口自然消失，admin-only 入口对受邀访客不返回）。小说不属于本 placement —— 画廊↔小说
-             切换由下方「画廊类型切换」slot 承载；当前项按 pathname 自动识别为画廊（current 不可点击）。 -->
+             （禁用插件后其入口自然消失，admin-only 入口对受邀访客不返回）。跨画廊类型的入口不属于本 placement，
+             统一由下方「画廊类型切换」slot 承载；当前项按 pathname 自动识别。 -->
         <nav class="sidebar-nav" data-nav-slot="gallery.sidebar"
              data-nav-link-class="nav-item" data-nav-active-class="current"
              data-nav-icon-wrap-class="nav-icon" data-nav-label-class="nav-label"
@@ -161,9 +160,7 @@
                 <span class="filter-badge" id="filterBadge">0</span>
             </button>
             <div class="gallery-type-switch" role="tablist" data-i18n-aria-label="nav.type-switch" aria-label="切换画廊类型">
-                <button type="button" class="gallery-type-option active" data-view="all" role="tab" aria-selected="true" data-i18n="nav.type-illust">漫画</button>
-                <!-- 切到小说画廊 slot（gallery.type-switch placement）：「小说」入口由小说插件向该 placement 注册，
-                     禁用小说后自然消失。label-only tab（data-nav-no-icon + role=tab），由 /js/pixiv-navigation.js 渲染。 -->
+                <!-- 画廊家族共享类型 slot：每个插件只贡献自己的入口，停用后对应 tab 自然消失。 -->
                 <span data-nav-slot="gallery.type-switch" data-nav-link-class="gallery-type-option"
                       data-nav-no-icon data-nav-item-role="tab" style="display:contents"></span>
             </div>

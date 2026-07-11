@@ -94,7 +94,7 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
         }
         DouyinHistoryPage page = historyService.search(spec.historyQuery(query.limit()));
         List<GalleryProjection> projections = page.works().stream()
-                .map(work -> toProjection(work, query.kind()))
+                .map(work -> projection(work, query.kind()))
                 .toList();
         int nextOffset = spec.offset() + projections.size();
         boolean hasMore = nextOffset < page.total();
@@ -130,7 +130,8 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
         return historyService.findById(key.sourceWorkId()).map(work -> toWork(key, work));
     }
 
-    private GalleryProjection toProjection(DouyinWorkRecord work, GalleryKind kind) {
+    /** Builds the source-owned card projection used by the independent Douyin gallery page. */
+    public GalleryProjection projection(DouyinWorkRecord work, GalleryKind kind) {
         GalleryWorkKey workKey = new GalleryWorkKey(SOURCE_ID, WORK_NAMESPACE, work.workId());
         List<DouyinWorkFileRecord> files = historyService.findFilesByWorkId(work.workId());
         Set<GalleryMediaKind> mediaKinds = new LinkedHashSet<>();
@@ -138,11 +139,17 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
         String preferredMediaId = files.stream()
                 .filter(file -> projectionContains(kind, mediaKind(file)))
                 .findFirst().map(DouyinGalleryDataProvider::mediaId).orElse(null);
+        String thumbnailUrl = files.stream()
+                .filter(file -> mediaKind(file) == GalleryMediaKind.IMAGE
+                        || mediaKind(file) == GalleryMediaKind.COVER)
+                .findFirst()
+                .map(file -> mediaUrl(work.workId(), file.fileIndex()))
+                .orElse(null);
         return new GalleryProjection(
                 new GalleryProjectionKey(workKey, kind),
                 firstNonBlank(work.title(), work.itemTitle(), work.caption(), work.workId()),
                 firstNonBlank(work.description(), work.caption()),
-                work.thumbnailUrl(),
+                thumbnailUrl,
                 actor(work),
                 List.of(),
                 instant(work.publishTime()),
@@ -153,6 +160,14 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
                 GalleryAiStatus.UNKNOWN,
                 preferredMediaId,
                 attributes(work));
+    }
+
+    /** Chooses one stable list category for an unfiltered work without changing its work identity. */
+    public GalleryKind primaryKind(DouyinWorkRecord work) {
+        return historyService.findFilesByWorkId(work.workId()).stream()
+                .map(DouyinGalleryDataProvider::mediaKind)
+                .anyMatch(kind -> kind == GalleryMediaKind.IMAGE)
+                ? GalleryKind.IMAGE : GalleryKind.VIDEO;
     }
 
     private GalleryWork toWork(GalleryWorkKey key, DouyinWorkRecord work) {
@@ -176,7 +191,7 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
 
     private static GalleryMediaAsset toMedia(GalleryWorkKey workKey, DouyinWorkFileRecord file) {
         String id = mediaId(file);
-        String url = "/api/douyin/history/" + workKey.sourceWorkId() + "/media/" + file.fileIndex();
+        String url = mediaUrl(workKey.sourceWorkId(), file.fileIndex());
         Map<String, String> attributes = new LinkedHashMap<>();
         put(attributes, "fileName", file.fileName());
         put(attributes, "extension", file.extension());
@@ -185,6 +200,10 @@ public class DouyinGalleryDataProvider implements GalleryProjectionProvider, Gal
         return new GalleryMediaAsset(new GalleryMediaKey(workKey, id), mediaKind(file), url,
                 mediaKind(file) == GalleryMediaKind.COVER ? url : null,
                 file.contentType(), null, attributes);
+    }
+
+    private static String mediaUrl(String workId, int fileIndex) {
+        return "/api/douyin/history/" + workId + "/media/" + fileIndex;
     }
 
     private static GalleryActor actor(DouyinWorkRecord work) {

@@ -28,12 +28,14 @@ class PixivGalleryPageGuardTest {
                         "id=\"collectionList\"", "id=\"batchManageBtn\"", "id=\"batchActionBar\"",
                         "id=\"galleryStatus\"", "id=\"galleryGrid\"", "id=\"pagination\"",
                         "id=\"authorView\"", "id=\"authorPagination\"", "id=\"mobileOverlay\"",
-                        "id=\"galleryFrontendNav\"", "id=\"galleryGenericFilters\"",
+                        "data-nav-slot=\"gallery.type-switch\"", "id=\"galleryGenericFilters\"",
                         "id=\"galleryGenericDetail\"");
         assertThat(html)
                 .contains("value=\"authorId\"", "value=\"tagExact\"", "data-sort=\"series\"", "data-r18=\"r18g\"",
                         "data-ai=\"yes\"", "data-format=\"webp\"",
-                        "data-action=\"export\"", "data-action=\"collect\"", "data-action=\"delete\"");
+                        "data-action=\"export\"", "data-action=\"collect\"", "data-action=\"delete\"")
+                .doesNotContain("id=\"galleryFrontendNav\"")
+                .doesNotContain("<button type=\"button\" class=\"gallery-type-option");
     }
 
     @Test
@@ -60,9 +62,10 @@ class PixivGalleryPageGuardTest {
         }
         assertThat(read("static/pixiv-gallery/gallery-init.js"))
                 .contains("(async function init()", "wireBatchManage();",
-                        "frontend.bootstrap({", "frontend.startDataFlow({",
+                        "frontend.bootstrap()", "frontend.startDataFlow({",
                         "frontend.refreshGeneric()",
-                        "#galleryViewNav .active, #galleryViewNav [aria-current]");
+                        "#galleryViewNav .active, #galleryViewNav [aria-current]")
+                .doesNotContain("galleryFrontendNav", "navigationHost", "existingHrefs");
     }
 
     @Test
@@ -119,9 +122,9 @@ class PixivGalleryPageGuardTest {
                         "registerDetailAction(definition)",
                         "renderStandardMedia: galleryFrontendRenderStandardMedia",
                         "'/api/gallery/unified/descriptors'",
-                        "'LIVE_PHOTO_VIDEO'", "'UNKNOWN'",
-                        "image: '▧'", "video: '▶'", "book: '▤'", "grid: '▦'")
-                .doesNotContain("failure.message", "String(failure)");
+                        "'LIVE_PHOTO_VIDEO'", "'UNKNOWN'")
+                .doesNotContain("failure.message", "String(failure)",
+                        "renderViewEntries", "viewEntries:", "VIEW_ENTRY");
         assertThat(genericView)
                 .contains("'/api/gallery/unified/projections?'",
                         "'/api/gallery/unified/works/'",

@@ -109,7 +109,7 @@ public final class TestGalleryPlugin implements PixivFeaturePlugin {
                         AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT)),
                 new NavigationContribution(
                         "gallery-type-switch",
-                        Set.of(NavigationPlacements.NOVEL_TYPE_SWITCH),
+                        Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
                         "gallery", "nav.type-illust", "/pixiv-gallery.html?view=all", "images",
                         AccessPolicy.INVITED_GUEST, 30),
                 new NavigationContribution(
