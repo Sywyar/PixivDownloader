@@ -7,7 +7,7 @@ param(
     [Parameter(Mandatory = $true)][string]$SignatureToolJar,
     [Parameter(Mandatory = $true)][string]$JavaPath,
     [string]$ProxyUrl,
-    [string]$CoreApiVersion = "1.0.0"
+    [string]$CoreApiVersion = "1.1.0"
 )
 
 $ErrorActionPreference = "Stop"

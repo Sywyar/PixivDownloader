@@ -248,7 +248,7 @@ class PluginReleaseScriptsTest {
                 "CoreShellOnly and DefaultDownloader cannot be combined.");
         assertThat(windows).contains(
                 "$OfficialPluginCatalogUrl = \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
-                "$InstallerPluginApiVersion = \"1.0.0\"",
+                "$InstallerPluginApiVersion = \"1.1.0\"",
                 "Stage-InstallerPluginCatalogSnapshot",
                 "Write-InstallerPluginCatalogProjection",
                 "Write-InstallerPluginCatalogInclude",

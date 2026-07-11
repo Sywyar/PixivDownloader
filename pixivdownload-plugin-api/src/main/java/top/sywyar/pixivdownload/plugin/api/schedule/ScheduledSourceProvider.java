@@ -12,8 +12,9 @@ import java.util.Set;
  *   <li>{@link #legacyTypeNames()} 列出该来源历史上使用过的类型字符串（{@code scheduled_tasks.type}
  *       列里已存的枚举名，如 {@code USER_NEW}），供调度器把存量任务的 type 兼容映射到本 provider。</li>
  * </ul>
- * 来源的发现 / 派发执行语义（{@code run(...)} 及其上下文 / 结果类型）由调度器承载、不在本接口表达；
- * 本 SPI 仅为来源的身份与 legacy 映射，是对调度能力的纯增量补充。
+ * 来源的发现 / 派发执行语义不在本接口表达；本 SPI 是 1.0 插件继续可加载的兼容面。完整的新来源元数据使用
+ * {@code schedule.source.ScheduledSourceDescriptor}，行为使用 child context 中的
+ * {@code ScheduledSourceExecutor} / {@code ScheduledWorkExecutor}。
  *
  * <p>实现可由下载 / 小说等插件分别贡献，经各插件
  * {@code PixivFeaturePlugin#scheduledSources()} 声明、由核心注册中心合并。为支持 PF4J 热插拔，

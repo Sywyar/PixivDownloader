@@ -2,7 +2,7 @@
 #define AppPublisher "sywyar"
 #define AppExeName "PixivDownload.exe"
 #define FfmpegArchiveUrl "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
-#define PluginApiVersion "1.0.0"
+#define PluginApiVersion "1.1.0"
 
 #ifndef AppVersion
 #define AppVersion "0.0.1-local"

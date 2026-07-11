@@ -18,7 +18,7 @@ param(
     [string]$ManifestUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
     [string]$PluginInputsDir,
     [string]$SignatureToolJar,
-    [string]$CoreApiVersion = "1.0.0",
+    [string]$CoreApiVersion = "1.1.0",
     [switch]$RunTests
 )
 

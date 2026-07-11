@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
@@ -209,8 +210,19 @@ public interface PixivFeaturePlugin {
         return List.of();
     }
 
-    /** 插件贡献的可调度任务来源（由提供该来源的插件声明，经核心注册中心合并）。 */
+    /**
+     * 已发布的轻量计划来源身份 SPI。为保持 1.0 插件二进制兼容继续保留；新执行平台通过
+     * {@link #scheduledSourceDescriptors()} 声明完整纯数据描述符，宿主可为旧 provider 建兼容适配。
+     */
     default List<ScheduledSourceProvider> scheduledSources() {
+        return List.of();
+    }
+
+    /**
+     * 插件声明的完整计划来源描述符。来源、作品、凭证与 Guard 的行为实现由插件 child context 中对应的
+     * schedule executor Bean 提供，不允许把运行 Bean、context 或插件私有对象捕获进 descriptor。
+     */
+    default List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
         return List.of();
     }
 

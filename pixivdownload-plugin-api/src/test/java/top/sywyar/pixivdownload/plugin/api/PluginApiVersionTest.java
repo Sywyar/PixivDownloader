@@ -20,11 +20,11 @@ class PluginApiVersionTest {
     }
 
     @Test
-    @DisplayName("冻结的契约版本是稳定基线：MAJOR≥1，且各段非负")
+    @DisplayName("通用计划任务契约发布为向后兼容的 1.1 版本")
     void frozenContractIsStableAndNonNegative() {
-        assertThat(PluginApiVersion.MAJOR).isGreaterThanOrEqualTo(1);
-        assertThat(PluginApiVersion.MINOR).isGreaterThanOrEqualTo(0);
-        assertThat(PluginApiVersion.PATCH).isGreaterThanOrEqualTo(0);
+        assertThat(PluginApiVersion.MAJOR).isEqualTo(1);
+        assertThat(PluginApiVersion.MINOR).isEqualTo(1);
+        assertThat(PluginApiVersion.PATCH).isEqualTo(0);
     }
 
     @Test

@@ -95,6 +95,18 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("plugin.api.schedule 契约只能依赖 JDK 与 schedule 契约自身")
+    void pluginApiScheduleContractIsPureJdk() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api.schedule..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api.schedule..", "java..")
+                .because("计划来源、作品、凭证、Guard 与网络路由必须跨插件 classloader 稳定，"
+                        + "不得依赖 Servlet、Spring、Jackson、PF4J 或 app 业务类型")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("app 生产代码不得 import PF4J 类型")
     void appProductionCodeDoesNotImportPf4j() throws IOException {
         Path sourceRoot = Path.of("pixivdownload-app/src/main/java");

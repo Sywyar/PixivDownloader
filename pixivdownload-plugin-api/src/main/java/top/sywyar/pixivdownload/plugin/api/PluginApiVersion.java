@@ -24,7 +24,7 @@ public final class PluginApiVersion {
     public static final int MAJOR = 1;
 
     /** 次版本号：向后兼容地新增契约时递增。 */
-    public static final int MINOR = 0;
+    public static final int MINOR = 1;
 
     /** 修订号：兼容性修复时递增，不改变契约面、不参与兼容校验。 */
     public static final int PATCH = 0;
