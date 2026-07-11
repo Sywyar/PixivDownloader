@@ -113,18 +113,11 @@
             letter-spacing: .5px;
         }
 
-        /* 工作台三栏网格容器（顶部统计条满幅 → 左 rail / 中 配置 / 右 队列 rail → 底部 footer 满幅）。 */
+        /* 下载页布局容器：公共盒模型留在基础层，空间编排由独立布局投影提供。 */
         .wb-shell {
-            max-width: 1440px;
             margin: 0 auto;
             padding: 0 16px 40px;
             display: grid;
-            grid-template-columns: 190px minmax(0, 1fr) 350px;
-            grid-template-areas:
-                "strip  strip   strip"
-                "rail   center  queue"
-                "rail   wbset   queue"
-                "footer footer  footer";
             column-gap: 14px;
             row-gap: 14px;
             align-items: start;
@@ -269,11 +262,9 @@
             border-color: #007bff;
         }
 
-        /* ---- 下载模式 rail（原横向 .tabs 标签改为竖向 rail；保留 .tabs / .tab 类供向导 / 新手引导定位） ---- */
+        /* ---- 下载模式：公共外观；方向与对齐由布局投影提供 ---- */
         .tabs {
             display: flex;
-            flex-direction: column;
-            gap: 3px;
             margin-bottom: 0;
             background: var(--surface);
             border: 1px solid var(--line);
@@ -289,7 +280,6 @@
             cursor: pointer;
             font-size: 13px;
             font-weight: 600;
-            text-align: left;
             border-radius: 5px;
             color: var(--heading);
             transition: all .15s;
@@ -980,6 +970,33 @@
             gap: 8px;
             margin-right: 12px;
             flex-shrink: 0;
+        }
+
+        .batch-layout-toggle {
+            min-height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 6px 11px;
+            border: 1px solid currentColor;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--brand-text);
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.2;
+            cursor: pointer;
+        }
+
+        .batch-layout-toggle:hover {
+            opacity: .9;
+        }
+
+        .batch-layout-toggle:focus-visible {
+            outline: 2px solid currentColor;
+            outline-offset: 2px;
         }
 
         .app-nav-login,
@@ -2840,8 +2857,8 @@ body.schedule-modal-open {
 }
 
 /* ===================================================================
-   工作台三栏布局（仪表盘式工作台）
-   网格容器 .wb-shell 见上方「工作台三栏网格容器」；这里是各分区与组件样式 + 响应式。
+   下载页布局共享层
+   稳定区域语义、组件结构与共同响应式留在这里；空间编排由独立布局投影提供。
    =================================================================== */
 
 /* 屏外可见（视觉隐藏、读屏可读）：统计条文本 #stats-bar 与 5 张统计卡同源、仅作可访问性补充。 */
@@ -2909,30 +2926,19 @@ body.schedule-modal-open {
 /* ---- 顶部仪表盘：统计卡 + 主操作条 ---- */
 .dash-strip {
     background: var(--surface);
-    border-bottom: 1px solid var(--line);
-    /* 横向满幅 band：box-shadow 不影响布局 / 滚动；clip-path 仅裁掉纵向外溢（不盖住导航 / 内容） */
-    box-shadow: 0 0 0 100vmax var(--surface);
-    clip-path: inset(0 -100vmax);
-    padding: 12px 0;
 }
 
 .dash-inner {
     display: flex;
-    align-items: center;
     gap: 14px;
     flex-wrap: wrap;
 }
 
 .dash-stats {
-    display: flex;
     gap: 12px;
-    flex-wrap: wrap;
-    margin-right: auto;
 }
 
 .stat-card {
-    min-width: 108px;
-    padding: 12px 20px;
     background: var(--surface-muted);
     border: 1px solid var(--line);
     border-top: 4px solid var(--status-gray);
@@ -3025,13 +3031,6 @@ body.schedule-modal-open {
 
 .dash-run .dash-start-btn {
     font-size: 15px;
-}
-
-/* ---- 左：下载模式 rail ---- */
-.mode-rail {
-    align-self: start;
-    position: sticky;
-    top: 12px;
 }
 
 .mode-rail-title {
@@ -3206,11 +3205,6 @@ body.schedule-modal-open {
     text-align: left;
 }
 
-/* ---- 右：队列 rail ---- */
-.queue-rail {
-    align-self: start;
-}
-
 .queue-rail .queue-card {
     margin: 0;
 }
@@ -3269,38 +3263,21 @@ html[data-theme="dark"] .tools-body > .card {
     .wb-shell {
         padding-inline: 12px;
     }
+}
 
-    .stat-card {
-        min-width: 100px;
-        padding: 11px 16px;
+@media (min-width: 821px) and (max-width: 1280px) {
+    .batch-layout-toggle {
+        width: 38px;
+        flex: 0 0 38px;
+        padding-inline: 0;
+    }
+
+    .batch-layout-toggle-label {
+        display: none;
     }
 }
 
 @media (max-width: 1200px) {
-    .wb-shell {
-        grid-template-columns: 190px minmax(0, 1fr);
-        grid-template-areas:
-            "strip  strip"
-            "rail   center"
-            "rail   wbset"
-            "queue  queue"
-            "footer footer";
-    }
-
-    .mode-rail {
-        position: static;
-    }
-
-    .queue-rail {
-        display: grid;
-        grid-template-columns: minmax(0, .72fr) minmax(300px, 1fr);
-        align-items: start;
-    }
-
-    .queue-rail #download-progress-area {
-        min-width: 0;
-    }
-
     #queue-list,
     .schedule-queue-list {
         max-height: min(46vh, 340px);
@@ -3308,17 +3285,6 @@ html[data-theme="dark"] .tools-body > .card {
 }
 
 @media (max-width: 820px) {
-    .wb-shell {
-        grid-template-columns: minmax(0, 1fr);
-        grid-template-areas:
-            "strip"
-            "rail"
-            "center"
-            "wbset"
-            "queue"
-            "footer";
-    }
-
     .app-nav {
         height: auto;
         min-height: 50px;
@@ -3347,37 +3313,10 @@ html[data-theme="dark"] .tools-body > .card {
         margin-left: auto;
     }
 
-    /* 窄屏：模式 rail 改横向流式，标题独占一行 */
-    .tabs {
-        flex-direction: row;
-        flex-wrap: wrap;
-    }
-
-    .mode-rail-title {
-        width: 100%;
-    }
-
-    .tab {
-        flex: 1 1 150px;
-        text-align: center;
-    }
-
     .dash-inner {
-        align-items: stretch;
         flex-direction: column;
     }
 
-    .dash-stats {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin-right: 0;
-    }
-
-    .dash-stats .stat-card {
-        min-width: 0;
-    }
-
-    .dash-run,
     .quick-preview-actions,
     .schedule-form-actions,
     .schedule-card-actions,
@@ -3465,10 +3404,6 @@ html[data-theme="dark"] .tools-body > .card {
         min-width: 0;
     }
 
-    .queue-rail {
-        display: flex;
-    }
-
     .schedule-card-head {
         flex-direction: column;
     }
@@ -3516,6 +3451,14 @@ html[data-theme="dark"] .tools-body > .card {
         justify-content: space-between;
     }
 
+    #langSwitcherAnchor {
+        flex-wrap: wrap;
+    }
+
+    .batch-layout-toggle {
+        flex: 1 1 180px;
+    }
+
     .app-nav-login,
     .app-nav-logout {
         flex: 1 1 auto;
@@ -3525,12 +3468,10 @@ html[data-theme="dark"] .tools-body > .card {
     .tabs {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px;
     }
 
     .mode-rail-title {
         grid-column: 1 / -1;
-        width: auto;
     }
 
     .tab {
@@ -3538,17 +3479,8 @@ html[data-theme="dark"] .tools-body > .card {
         font-size: 12px;
     }
 
-    .dash-strip {
-        padding: 10px 0;
-    }
-
     .dash-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
-    }
-
-    .stat-card {
-        padding: 9px 10px;
     }
 
     .stat-card .stat-num {
@@ -3688,7 +3620,6 @@ html[data-theme="dark"] .tools-body > .card {
 
 @media (max-width: 380px) {
     .tabs,
-    .dash-stats,
     .quick-mixed-grid {
         grid-template-columns: minmax(0, 1fr);
     }

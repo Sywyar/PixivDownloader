@@ -1,4 +1,6 @@
 'use strict';
+    window.PixivBatch.layout.applyStoredLayout();
+
     /* ============================================================
        UI
     ============================================================ */
@@ -218,6 +220,7 @@
 
     document.addEventListener('DOMContentLoaded', async () => {
         await initPageI18n();
+        window.PixivBatch.layout.bindLayoutToggle();
         loadAppInfo();
         await init();
         setupOnboardingOrTour();

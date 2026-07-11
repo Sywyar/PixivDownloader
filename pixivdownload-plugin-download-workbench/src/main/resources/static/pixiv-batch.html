@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN"
+      data-batch-layout="workbench"
+      data-batch-layout-default="workbench">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,6 +20,12 @@
     <link rel="stylesheet" href="/css/pixiv-tour.css">
     <link rel="stylesheet" href="/css/pixiv-onboarding.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch.css">
+    <link rel="stylesheet"
+          href="/pixiv-batch/pixiv-batch-layout-workbench.css"
+          data-batch-layout-style="workbench">
+    <link rel="stylesheet"
+          href="/pixiv-batch/pixiv-batch-layout-classic.css"
+          data-batch-layout-style="classic">
 </head>
 <body>
 
@@ -30,7 +38,12 @@
           data-nav-active-class="active"
           data-nav-target="_blank" data-nav-rel="noopener" style="display:contents"></span>
     <div class="app-nav-spacer"></div>
-    <div class="app-nav-actions" id="langSwitcherAnchor"></div>
+    <div class="app-nav-actions" id="langSwitcherAnchor">
+        <button type="button" id="batch-layout-toggle" class="batch-layout-toggle" hidden disabled>
+            <i class="fa-solid fa-table-columns" aria-hidden="true"></i>
+            <span class="batch-layout-toggle-label"></span>
+        </button>
+    </div>
     <button id="login-btn" style="display:none;" class="app-nav-login"
             onclick="location.href='/login.html?redirect=/pixiv-batch.html'" data-i18n="auth.login">Login</button>
     <button id="logout-btn" style="display:none;" class="app-nav-logout" onclick="doLogout()" data-i18n="auth.logout">Logout</button>
@@ -704,6 +717,7 @@
 </div><!-- /wb-shell -->
 
 <script src="/pixiv-batch/batch-core.js"></script>
+<script src="/pixiv-batch/batch-layout.js"></script>
 <script src="/pixiv-batch/batch-queue-types.js"></script>
 <script src="/pixiv-batch/batch-state.js"></script>
 <script src="/pixiv-batch/batch-storage.js"></script>

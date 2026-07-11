@@ -1,0 +1,112 @@
+html[data-batch-layout="classic"] .wb-shell {
+    max-width: 1000px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+        "strip"
+        "rail"
+        "center"
+        "wbset"
+        "queue"
+        "footer";
+}
+
+html[data-batch-layout="classic"] .mode-rail {
+    position: static;
+    top: auto;
+    align-self: stretch;
+}
+
+html[data-batch-layout="classic"] .tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 6px;
+}
+
+html[data-batch-layout="classic"] .mode-rail-title {
+    flex: 1 1 100%;
+    width: 100%;
+}
+
+html[data-batch-layout="classic"] .tab {
+    min-width: 0;
+    min-height: 40px;
+    flex: 1 1 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+html[data-batch-layout="classic"] .center-col,
+html[data-batch-layout="classic"] .wb-center,
+html[data-batch-layout="classic"] .queue-rail {
+    width: 100%;
+}
+
+html[data-batch-layout="classic"] .queue-rail {
+    display: flex;
+    align-self: stretch;
+}
+
+html[data-batch-layout="classic"] .queue-rail > * {
+    min-width: 0;
+    max-width: 100%;
+}
+
+html[data-batch-layout="classic"] .dash-strip {
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    box-shadow: none;
+    clip-path: none;
+}
+
+html[data-batch-layout="classic"] .dash-inner {
+    align-items: stretch;
+}
+
+html[data-batch-layout="classic"] .dash-stats {
+    width: 100%;
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-right: 0;
+}
+
+html[data-batch-layout="classic"] .stat-card {
+    min-width: 0;
+    padding: 12px 14px;
+}
+
+html[data-batch-layout="classic"] .dash-run {
+    width: 100%;
+    justify-content: flex-end;
+}
+
+html[data-batch-layout="classic"] .dash-status {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 1280px) {
+    html[data-batch-layout="classic"] .stat-card {
+        padding-block: 11px;
+    }
+}
+
+@media (max-width: 560px) {
+    html[data-batch-layout="classic"] .dash-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    html[data-batch-layout="classic"] .stat-card {
+        padding-block: 9px;
+    }
+}
+
+@media (max-width: 380px) {
+    html[data-batch-layout="classic"] .dash-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

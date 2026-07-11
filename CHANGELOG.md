@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 桌面 GUI 新增插件状态页与插件市场 / 仓库配置入口，可查看已发现插件，并配置官方仓库、自定义仓库、代理策略、大小 / 超时上限和仓库签名密钥。
 - 新增显式插件开发模式：设置 `-Dpixivdownload.plugin-dev.enabled=true` 后会忽略 `plugins/` 目录，自动从仓库插件模块的 `target/classes` 加载已编译代码，并在控制台显示开发模式诊断。
 - `config.yaml` 新增 `plugins.<插件 id>.enabled` 开关，可按插件关闭可选功能；关闭后对应页面、API、导航和后台任务不注册，重新启用后继续使用既有数据。
+- 下载页支持在工作台布局与经典单列布局之间即时切换，并会在当前浏览器中记住选择。
 - 下载页预览结果支持折叠 / 展开，方便在加入队列后减少列表干扰。
 
 ### Changed
