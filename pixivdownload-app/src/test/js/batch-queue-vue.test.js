@@ -23,7 +23,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
+const STATIC = path.join(__dirname, '..', '..', '..', '..', 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
 const VUE_SRC = fs.readFileSync(path.join(STATIC, 'batch-queue-vue.js'), 'utf8');
 const QUEUE_SRC = fs.readFileSync(path.join(STATIC, 'batch-queue.js'), 'utf8');
 
