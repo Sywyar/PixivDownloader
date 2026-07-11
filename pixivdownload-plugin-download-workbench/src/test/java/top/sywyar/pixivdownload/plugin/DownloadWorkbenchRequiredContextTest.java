@@ -105,6 +105,11 @@ class DownloadWorkbenchRequiredContextTest {
         assertThat(queueTypeRegistry.queueTypes())
                 .extracting(item -> item.queueType().type())
                 .containsExactly("illust");
+        assertThat(queueTypeRegistry.queueTypes()).singleElement().satisfies(item -> {
+            assertThat(item.queueType().labelNamespace()).isEqualTo("batch");
+            assertThat(item.queueType().descriptor().displayNamespace()).isEqualTo("batch");
+            assertThat(item.queueType().descriptor().i18nNamespace()).isEqualTo("batch");
+        });
         assertThat(downloadTabRegistry.tabs())
                 .extracting(item -> item.tab().tabId())
                 .containsExactly("quick-fetch", "single-import", "user", "search", "series");

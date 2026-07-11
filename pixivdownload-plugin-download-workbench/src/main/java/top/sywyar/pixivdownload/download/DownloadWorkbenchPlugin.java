@@ -171,14 +171,14 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     public List<QueueTypeContribution> queueTypes() {
         // 插画作品类型：下载工作台内置默认类型，行为由宿主队列引擎内联注册（moduleUrl 为 null、无需外部模块）。
         // 小说等其它类型由各自插件经 queueTypes() 贡献、附带 moduleUrl 指向其行为模块。
-        // 插画子模式标签复用小说插件的 batch.user.kind-illust 文案（历史沿用 novel namespace，故标签 namespace 为 novel）。
+        // 插画子模式是下载工作台的基础能力，展示文案由本插件的 batch namespace 提供。
         return List.of(new QueueTypeContribution(
-                ID, "illust", "novel", "batch.user.kind-illust", 10, null,
+                ID, "illust", "batch", "batch.user.kind-illust", 10, null,
                 new DownloadTypeDescriptor(
                         DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
                         ID,
                         "illust",
-                        "novel",
+                        "batch",
                         "batch.user.kind-illust",
                         10,
                         "image",

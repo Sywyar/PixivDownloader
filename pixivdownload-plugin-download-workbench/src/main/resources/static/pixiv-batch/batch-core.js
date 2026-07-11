@@ -5,7 +5,7 @@ window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 ['quick','singleImport','user','search','series','schedule'].forEach(function(k){ window.PixivBatch.modes[k] = window.PixivBatch.modes[k] || {}; });
     let pageI18n = null;
-    const BATCH_I18N_NAMESPACES = ['batch', 'common', 'novel', 'ai', 'tour'];
+    const BATCH_I18N_NAMESPACES = ['batch', 'common', 'ai', 'tour'];
     function interpolate(template, vars) {
         if (!vars) {
             return String(template);
