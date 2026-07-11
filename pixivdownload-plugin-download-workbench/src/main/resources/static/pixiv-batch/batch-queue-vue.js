@@ -106,6 +106,7 @@
             stats: { pending: 0, success: 0, failed: 0, active: 0, skipped: 0 },
             speed: { value: '0', unit: 'B/s' },
             current: null,   // 当前下载项（浅拷贝快照，便于 reactive 触发）或 null
+            currentRevision: 0,
             items: []        // state.queue 的浅快照（行对象引用，渲染时由 buildQueueItemHtml 读最新字段）
         });
     }
@@ -137,7 +138,10 @@
             setup: function () {
                 return {
                     store: dlStore,
-                    currentHtml: function () { return currentCardHtmlOf(dlStore.current); }
+                    currentHtml: function () {
+                        void dlStore.currentRevision;
+                        return currentCardHtmlOf(dlStore.current);
+                    }
                 };
             },
             template: '<span style="display:contents" v-html="currentHtml()"></span>'
@@ -239,7 +243,11 @@
     }
     function syncDownloadCurrent(item) {
         schedule('dl:current', function () {
-            if (dlStore) { dlStore.current = item ? Object.assign({}, item) : null; }
+            if (dlStore) {
+                dlStore.current = item ? Object.assign({}, item) : null;
+                // 空闲态的值仍是 null；递增 revision 让语言切换等显式刷新也能重新求值当前卡文案。
+                dlStore.currentRevision++;
+            }
         });
     }
     function syncDownloadSpeed(value, unit) {

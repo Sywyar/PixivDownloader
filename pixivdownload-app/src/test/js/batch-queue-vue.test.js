@@ -279,8 +279,10 @@ async function main() {
         ok('5: 速度单位切换写 store', store.speed.value === '1.50' && store.speed.unit === 'MB/s');
         api.syncDownloadCurrent({ id: '7', title: 't' }); api.flush();
         ok('5: 当前项写 store（浅拷贝快照、新引用）', store.current && store.current.id === '7');
+        const revisionBeforeIdle = store.currentRevision;
         api.syncDownloadCurrent(null); api.flush();
-        ok('5: 当前项置空', store.current === null);
+        ok('5: 当前项置空且同为 null 时仍推进刷新 revision（语言切换可重算空闲文案）',
+            store.current === null && store.currentRevision === revisionBeforeIdle + 1);
     }
 
     /* ===== 6) 组件契约：template 镜像结构、行 / 当前卡共用格式化函数、标签经 bt ===== */
@@ -296,6 +298,8 @@ async function main() {
         ok('6: 统计标签经 bt（label）派生而非写死 data-i18n', /label\('dashboard.stat.queued'/.test(stats.template) && stats.template.indexOf('data-i18n') < 0);
         const cur = api.__test.currentComponent();
         ok('6: 当前卡走共享 formatCurrentCardHtml + display:contents v-html', /currentHtml\(\)/.test(cur.template) && /display:contents/.test(cur.template) && /<strong>cur<\/strong>/.test(cur.setup().currentHtml()));
+        ok('6: 当前卡渲染读取 currentRevision（空闲态显式刷新也能触发 Vue 重渲染）',
+            /currentRevision/.test(String(cur.setup().currentHtml)));
     }
 
     /* ===== 7) 集成：renderQueue Vue 激活时不整队列重建 #queue-list（连续 N 次仅合并） ===== */
