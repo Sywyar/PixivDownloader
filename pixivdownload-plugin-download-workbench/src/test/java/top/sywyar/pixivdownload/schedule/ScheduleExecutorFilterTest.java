@@ -8,6 +8,10 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.schedule.source.PageSupplier;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Download;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleWorkFilter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@link ScheduleExecutor} 的服务端逐作品筛选、params 解析、cookie 依赖判定与增量扫描（纯函数，无需 Spring 上下文）。
+ * {@link ScheduleTaskSnapshot}、{@link ScheduleWorkFilter} 与 {@link ScheduleExecutor} 扫描驱动的纯函数测试。
  */
 @DisplayName("ScheduleExecutor 服务端筛选与 params 解析")
 class ScheduleExecutorFilterTest {
@@ -41,13 +45,13 @@ class ScheduleExecutorFilterTest {
                 tags, null, null, null, "content", wordCount, null, null, 1, false, "", "", null, Map.of());
     }
 
-    private static ScheduleExecutor.Filters f(String content, String ai, List<String> exact, List<String> fuzzy,
-                                              String type, Integer pMin, Integer pMax,
-                                              Integer wMin, Integer wMax, Integer bMin, Integer bMax) {
-        return new ScheduleExecutor.Filters(content, ai, exact, fuzzy, type, pMin, pMax, wMin, wMax, bMin, bMax);
+    private static Filters f(String content, String ai, List<String> exact, List<String> fuzzy,
+                             String type, Integer pMin, Integer pMax,
+                             Integer wMin, Integer wMax, Integer bMin, Integer bMax) {
+        return new Filters(content, ai, exact, fuzzy, type, pMin, pMax, wMin, wMax, bMin, bMax);
     }
 
-    private static ScheduleExecutor.Filters passAll() {
+    private static Filters passAll() {
         return f("all", "all", List.of(), List.of(), "all", null, null, null, null, null, null);
     }
 
@@ -58,104 +62,104 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("空筛选（全 all / 无范围）恒通过")
         void passAllAlwaysMatches() {
-            assertThat(ScheduleExecutor.artworkMatches(
+            assertThat(ScheduleWorkFilter.artworkMatches(
                     artwork(0, 0, false, -1, 0, List.of()), passAll())).isTrue();
         }
 
         @Test
         @DisplayName("内容分级 R-18+：xRestrict<1 被排除，>=1 通过")
         void contentR18Plus() {
-            ScheduleExecutor.Filters f = f("r18plus", "all", List.of(), List.of(), "all",
+            Filters f = f("r18plus", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isFalse();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), f)).isTrue();
         }
 
         @Test
         @DisplayName("内容分级 全年龄/仅R-18/仅R-18G：按 xRestrict 精确分档")
         void contentRatingBuckets() {
-            ScheduleExecutor.Filters safe = f("safe", "all", List.of(), List.of(), "all",
+            Filters safe = f("safe", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), safe)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), safe)).isFalse();
-            ScheduleExecutor.Filters r18 = f("r18", "all", List.of(), List.of(), "all",
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), safe)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), safe)).isFalse();
+            Filters r18 = f("r18", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), r18)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 2, false, -1, 0, List.of()), r18)).isFalse();
-            ScheduleExecutor.Filters r18g = f("r18g", "all", List.of(), List.of(), "all",
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), r18)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 2, false, -1, 0, List.of()), r18)).isFalse();
+            Filters r18g = f("r18g", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 2, false, -1, 0, List.of()), r18g)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), r18g)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 2, false, -1, 0, List.of()), r18g)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), r18g)).isFalse();
         }
 
         @Test
         @DisplayName("AI 筛选：exclude 排除 AI 作品，only 仅保留 AI 作品")
         void aiFilter() {
-            ScheduleExecutor.Filters exclude = f("all","exclude", List.of(), List.of(), "all",
+            Filters exclude = f("all","exclude", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
-            ScheduleExecutor.Filters only = f("all","only", List.of(), List.of(), "all",
+            Filters only = f("all","only", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, true, -1, 0, List.of()), exclude)).isFalse();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), exclude)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, true, -1, 0, List.of()), only)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), only)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, true, -1, 0, List.of()), exclude)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), exclude)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, true, -1, 0, List.of()), only)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), only)).isFalse();
         }
 
         @Test
         @DisplayName("作品类型：illust=0 / manga=1 / ugoira=2 精确匹配 illustType")
         void typeFilter() {
-            ScheduleExecutor.Filters manga = f("all","all", List.of(), List.of(), "manga",
+            Filters manga = f("all","all", List.of(), List.of(), "manga",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(1, 0, false, -1, 0, List.of()), manga)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), manga)).isFalse();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(2, 0, false, -1, 0, List.of()), manga)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(1, 0, false, -1, 0, List.of()), manga)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), manga)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(2, 0, false, -1, 0, List.of()), manga)).isFalse();
         }
 
         @Test
         @DisplayName("页数范围：pageCount 在 [min,max] 内通过；pageCount=0（未知）跳过该判定")
         void pageRange() {
-            ScheduleExecutor.Filters f = f("all","all", List.of(), List.of(), "all",
+            Filters f = f("all","all", List.of(), List.of(), "all",
                     2, 5, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 1, List.of()), f)).isFalse();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 3, List.of()), f)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 6, List.of()), f)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 1, List.of()), f)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 3, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 6, List.of()), f)).isFalse();
             // pageCount=0 视为未知，范围判定跳过 → 仍通过
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isTrue();
         }
 
         @Test
         @DisplayName("收藏数范围：bookmarkCount>=0 时按 [min,max] 判定；-1（未返回）跳过该判定")
         void bookmarkRange() {
-            ScheduleExecutor.Filters f = f("all","all", List.of(), List.of(), "all",
+            Filters f = f("all","all", List.of(), List.of(), "all",
                     null, null, null, null, 100, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, 50, 0, List.of()), f)).isFalse();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, 150, 0, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, 50, 0, List.of()), f)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, 150, 0, List.of()), f)).isTrue();
             // -1 表示 Pixiv 未返回收藏数，跳过判定 → 通过
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isTrue();
         }
 
         @Test
         @DisplayName("标签精确匹配：相等命中，且多标签需全部命中（AND）")
         void exactTags() {
-            ScheduleExecutor.Filters one = f("all","all", List.of("原神"), List.of(), "all",
+            Filters one = f("all","all", List.of("原神"), List.of(), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of("原神")), one)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of("genshin")), one)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("原神")), one)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("genshin")), one)).isFalse();
 
-            ScheduleExecutor.Filters both = f("all","all", List.of("a", "b"), List.of(), "all",
+            Filters both = f("all","all", List.of("a", "b"), List.of(), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of("a")), both)).isFalse();
-            assertThat(ScheduleExecutor.artworkMatches(artwork(0, 0, false, -1, 0, List.of("a", "b")), both)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("a")), both)).isFalse();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("a", "b")), both)).isTrue();
         }
 
         @Test
         @DisplayName("标签模糊匹配：子串命中（标签词元已小写）")
         void fuzzyTags() {
-            ScheduleExecutor.Filters f = f("all","all", List.of(), List.of("genshin"), "all",
+            Filters f = f("all","all", List.of(), List.of("genshin"), "all",
                     null, null, null, null, null, null);
-            assertThat(ScheduleExecutor.artworkMatches(
+            assertThat(ScheduleWorkFilter.artworkMatches(
                     artwork(0, 0, false, -1, 0, List.of("genshin impact")), f)).isTrue();
-            assertThat(ScheduleExecutor.artworkMatches(
+            assertThat(ScheduleWorkFilter.artworkMatches(
                     artwork(0, 0, false, -1, 0, List.of("原神")), f)).isFalse();
         }
     }
@@ -167,29 +171,29 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("空筛选恒通过；类型/页数等插画专属项对小说无影响")
         void passAllAlwaysMatches() {
-            assertThat(ScheduleExecutor.novelMatches(
+            assertThat(ScheduleWorkFilter.novelMatches(
                     novel(0, false, -1, null, List.of()), passAll())).isTrue();
         }
 
         @Test
         @DisplayName("字数范围：wordCount 在 [min,max] 内通过；null/0（未知）跳过该判定")
         void wordRange() {
-            ScheduleExecutor.Filters f = f("all","all", List.of(), List.of(), "all",
+            Filters f = f("all","all", List.of(), List.of(), "all",
                     null, null, 1000, 5000, null, null);
-            assertThat(ScheduleExecutor.novelMatches(novel(0, false, -1, 500, List.of()), f)).isFalse();
-            assertThat(ScheduleExecutor.novelMatches(novel(0, false, -1, 3000, List.of()), f)).isTrue();
-            assertThat(ScheduleExecutor.novelMatches(novel(0, false, -1, 6000, List.of()), f)).isFalse();
-            assertThat(ScheduleExecutor.novelMatches(novel(0, false, -1, null, List.of()), f)).isTrue();
-            assertThat(ScheduleExecutor.novelMatches(novel(0, false, -1, 0, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.novelMatches(novel(0, false, -1, 500, List.of()), f)).isFalse();
+            assertThat(ScheduleWorkFilter.novelMatches(novel(0, false, -1, 3000, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.novelMatches(novel(0, false, -1, 6000, List.of()), f)).isFalse();
+            assertThat(ScheduleWorkFilter.novelMatches(novel(0, false, -1, null, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.novelMatches(novel(0, false, -1, 0, List.of()), f)).isTrue();
         }
 
         @Test
         @DisplayName("标签匹配：原名与英文翻译都纳入词元，不区分大小写")
         void tagTokensIncludeTranslation() {
-            ScheduleExecutor.Filters f = f("all","all", List.of("r18"), List.of(), "all",
+            Filters f = f("all","all", List.of("r18"), List.of(), "all",
                     null, null, null, null, null, null);
             // 标签原名 "R-18"、翻译 "r18"：精确匹配 needle "r18" 命中翻译词元
-            assertThat(ScheduleExecutor.novelMatches(
+            assertThat(ScheduleWorkFilter.novelMatches(
                     novel(1, false, -1, null, List.of(new TagDto("R-18", "r18"))), f)).isTrue();
         }
     }
@@ -199,13 +203,29 @@ class ScheduleExecutorFilterTest {
     class ParseParams {
 
         @Test
+        @DisplayName("parse：统一解析作品类型、来源、设置与非负抓取上限")
+        void parseSnapshot() throws Exception {
+            ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.parse(MAPPER, """
+                    {"kind":"NOVEL","source":{"word":"cat","mode":"r18"},
+                     "filters":{"content":"safe"},"download":{"concurrent":3},"fetchLimit":-2}
+                    """);
+
+            assertThat(snapshot.novel()).isTrue();
+            assertThat(snapshot.source().path("word").asText()).isEqualTo("cat");
+            assertThat(snapshot.filters().content()).isEqualTo("safe");
+            assertThat(snapshot.download().concurrent()).isEqualTo(3);
+            assertThat(snapshot.fetchLimit()).isZero();
+            assertThat(snapshot.cookieDependent()).isTrue();
+        }
+
+        @Test
         @DisplayName("parseFilters：字符串数字可解析、标签转小写、缺省项取默认")
         void parseFilters() throws Exception {
             JsonNode node = MAPPER.readTree("""
                     {"content":"r18plus","aiFilter":"exclude","tagsExact":["A","B"],"tagsFuzzy":[],
                      "typeFilter":"manga","pagesMin":"2","pagesMax":5,"bookmarksMin":100}
                     """);
-            ScheduleExecutor.Filters f = ScheduleExecutor.parseFilters(node);
+            Filters f = ScheduleTaskSnapshot.parseFilters(node);
             assertThat(f.content()).isEqualTo("r18plus");
             assertThat(f.aiFilter()).isEqualTo("exclude");
             assertThat(f.tagsExact()).containsExactly("a", "b");
@@ -221,7 +241,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("parseFilters：空对象取全默认（all / 空列表 / null）")
         void parseEmptyFilters() throws Exception {
-            ScheduleExecutor.Filters f = ScheduleExecutor.parseFilters(MAPPER.readTree("{}"));
+            Filters f = ScheduleTaskSnapshot.parseFilters(MAPPER.readTree("{}"));
             assertThat(f.content()).isEqualTo("all");
             assertThat(f.aiFilter()).isEqualTo("all");
             assertThat(f.typeFilter()).isEqualTo("all");
@@ -232,7 +252,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("parseDownload：默认小说格式 txt、合订格式 epub；空模板归一为 null；collectionId 字符串可解析")
         void parseDownload() throws Exception {
-            ScheduleExecutor.Download d0 = ScheduleExecutor.parseDownload(MAPPER.readTree("{}"));
+            Download d0 = ScheduleTaskSnapshot.parseDownload(MAPPER.readTree("{}"));
             assertThat(d0.fileNameTemplate()).isNull();
             assertThat(d0.bookmark()).isFalse();
             assertThat(d0.collectionId()).isNull();
@@ -240,7 +260,7 @@ class ScheduleExecutorFilterTest {
             assertThat(d0.novelMerge()).isFalse();
             assertThat(d0.novelMergeFormat()).isEqualTo("epub");
 
-            ScheduleExecutor.Download d1 = ScheduleExecutor.parseDownload(MAPPER.readTree("""
+            Download d1 = ScheduleTaskSnapshot.parseDownload(MAPPER.readTree("""
                     {"fileNameTemplate":"   ","bookmark":true,"collectionId":"42",
                      "novelFormat":"epub","novelMerge":true,"novelMergeFormat":"txt"}
                     """));
@@ -255,13 +275,13 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("parseDownload：队列调度项默认（并发 1 / 间隔 null / 图片间隔 null / 不校验目录），有值时按毫秒整数解析")
         void parseDownloadQueueSettings() throws Exception {
-            ScheduleExecutor.Download d0 = ScheduleExecutor.parseDownload(MAPPER.readTree("{}"));
+            Download d0 = ScheduleTaskSnapshot.parseDownload(MAPPER.readTree("{}"));
             assertThat(d0.concurrent()).isEqualTo(1);
             assertThat(d0.intervalMs()).isNull();
             assertThat(d0.imageDelayMs()).isNull();
             assertThat(d0.verifyFiles()).isFalse();
 
-            ScheduleExecutor.Download d1 = ScheduleExecutor.parseDownload(MAPPER.readTree("""
+            Download d1 = ScheduleTaskSnapshot.parseDownload(MAPPER.readTree("""
                     {"concurrent":4,"intervalMs":2000,"imageDelayMs":"250","verifyFiles":true}
                     """));
             assertThat(d1.concurrent()).isEqualTo(4);
@@ -270,15 +290,15 @@ class ScheduleExecutorFilterTest {
             assertThat(d1.verifyFiles()).isTrue();
 
             // 并发数下限为 1（0 / 负值归一为 1）
-            assertThat(ScheduleExecutor.parseDownload(MAPPER.readTree("{\"concurrent\":0}")).concurrent())
+            assertThat(ScheduleTaskSnapshot.parseDownload(MAPPER.readTree("{\"concurrent\":0}")).concurrent())
                     .isEqualTo(1);
         }
 
         @Test
         @DisplayName("parseDownload：redownloadDeleted 缺省为 false（旧任务快照按不允许重下已删除作品处理），显式 true 可解析")
         void parseDownloadRedownloadDeleted() throws Exception {
-            assertThat(ScheduleExecutor.parseDownload(MAPPER.readTree("{}")).redownloadDeleted()).isFalse();
-            assertThat(ScheduleExecutor.parseDownload(MAPPER.readTree("{\"redownloadDeleted\":true}"))
+            assertThat(ScheduleTaskSnapshot.parseDownload(MAPPER.readTree("{}")).redownloadDeleted()).isFalse();
+            assertThat(ScheduleTaskSnapshot.parseDownload(MAPPER.readTree("{\"redownloadDeleted\":true}"))
                     .redownloadDeleted()).isTrue();
         }
     }
@@ -288,7 +308,7 @@ class ScheduleExecutorFilterTest {
     class CookieDependent {
 
         private boolean dep(String json) throws Exception {
-            return ScheduleExecutor.isCookieDependent(MAPPER.readTree(json));
+            return ScheduleTaskSnapshot.from(MAPPER.readTree(json)).cookieDependent();
         }
 
         @Test

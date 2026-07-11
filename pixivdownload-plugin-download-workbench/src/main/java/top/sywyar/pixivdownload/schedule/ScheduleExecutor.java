@@ -37,6 +37,10 @@ import top.sywyar.pixivdownload.download.schedule.source.PageSupplier;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSource;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Download;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
+import top.sywyar.pixivdownload.schedule.snapshot.ScheduleWorkFilter;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -93,8 +97,6 @@ public class ScheduleExecutor {
     public static final String STATUS_ERROR = "ERROR";
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final String KIND_NOVEL = "novel";
-
     private final ScheduledTaskStore store;
     /**
      * 计划任务来源注册中心：{@code runTask} 顶部把任务存量 {@code type} 解析到对应来源 provider，
@@ -347,9 +349,9 @@ public class ScheduleExecutor {
                 .map(ScheduledSource.class::cast)
                 .orElseThrow(() -> new ScheduleSourceUnavailableException(task.type().name()));
 
-        JsonNode root = objectMapper.readTree(task.paramsJson() == null ? "{}" : task.paramsJson());
-        boolean novel = KIND_NOVEL.equalsIgnoreCase(root.path("kind").asText("illust"));
-        JsonNode source = root.path("source");
+        ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.parse(objectMapper, task.paramsJson());
+        boolean novel = snapshot.novel();
+        JsonNode source = snapshot.source();
         DiscoveryMode discoveryMode = sourceProvider.mode(source);
 
         // ── 作品类型执行器解析门：本任务要派发的每种作品类型都必须有对应执行器（runner），否则标记不可用、干净
@@ -368,22 +370,22 @@ public class ScheduleExecutor {
                 ? store.findCookieSnapshot(task.id())
                 : null;
 
-        Filters filters = parseFilters(root.path("filters"));
-        Download download = parseDownload(root.path("download"));
+        Filters filters = snapshot.filters();
+        Download download = snapshot.download();
         // 抓取上限（0 = 不限 / 全量）。语义随来源是否「ID 单调可水位线」二分：
         //   · 水位线类（USER_NEW / USER_REQUEST / FOLLOW_LATEST / date_d 翻页到底 SEARCH）：仅<b>首轮</b>（watermark 未建立）封顶，
         //     按进入本轮运行队列的作品数计（已下载 / 筛选跳过也占额度）；随后水位线推进到最新 ID、更老积压永久跳过；
         //   · 非水位线类（MY_BOOKMARKS / COLLECTION / 非 date_d 翻页到底 SEARCH）：作为<b>每轮上限</b>逐轮抽干积压，
         //     只数实际进入派发的新作（已下载跳过免费推进、不占额度；筛选跳过仍占额度以限住每轮元数据请求量）；
         //   · SERIES / 固定页 SEARCH 不应用（前端也隐藏该字段）。
-        int fetchLimit = Math.max(0, root.path("fetchLimit").asInt(0));
+        int fetchLimit = snapshot.fetchLimit();
 
         // ── 轮首检查点：cookie-bound 任务读站内信（过度访问判定 + cookie 存活探测）──────────────
         if (ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())) {
             OveruseWarningService.Result result =
                     overuseWarningService.check(cookie, task.ackWarningTime(), System.currentTimeMillis());
             if (result.isCookieDead()) {
-                if (isCookieDependent(root) || sourceProvider.accountScoped()) {
+                if (snapshot.cookieDependent() || sourceProvider.accountScoped()) {
                     // 账号私有来源（收藏 / 关注新作 / 珍藏集）无法匿名续跑，dead cookie 一律挂起。
                     throw new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
                 }
@@ -490,27 +492,6 @@ public class ScheduleExecutor {
             runner.process(id, p.workId(), true);
             politeDelay.run();
         }
-    }
-
-    /**
-     * 判定任务是否「cookie 依赖型」（满足任一）：
-     * <ul>
-     *   <li>{@code filters.content != "safe"}（注意 {@code "all"} 也算——匿名看不到 R-18，发现阶段静默缩水，
-     *       watermark 会越过当时不可见的 R-18 → 永久遗漏）；</li>
-     *   <li>{@code source.mode == "r18"}；</li>
-     *   <li>{@code download.bookmark == true}（收藏必须登录）。</li>
-     * </ul>
-     * 这类任务遇 dead bound cookie 必须立即挂起、绝不进入发现阶段。
-     */
-    static boolean isCookieDependent(JsonNode root) {
-        String content = root.path("filters").path("content").asText("safe");
-        if (!"safe".equals(content)) {
-            return true;
-        }
-        if ("r18".equals(root.path("source").path("mode").asText(""))) {
-            return true;
-        }
-        return root.path("download").path("bookmark").asBoolean(false);
     }
 
     /**
@@ -878,7 +859,7 @@ public class ScheduleExecutor {
         PixivFetchService.ArtworkMetaCapture capture = pixivFetchService.fetchArtworkMetaCapture(id, cookie);
         PixivFetchService.ArtworkMeta meta = capture.meta();
         run.setMeta(id, meta.title(), meta.xRestrict(), meta.ai());
-        if (!artworkMatches(meta, filters)) {
+        if (!ScheduleWorkFilter.artworkMatches(meta, filters)) {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return null;
         }
@@ -950,7 +931,7 @@ public class ScheduleExecutor {
         PixivFetchService.NovelDetailCapture capture = pixivFetchService.fetchNovelDetailCapture(id, cookie);
         PixivFetchService.NovelDetail d = capture.detail();
         run.setMeta(id, d.title(), d.xRestrict(), d.ai());
-        if (!novelMatches(d, filters)) {
+        if (!ScheduleWorkFilter.novelMatches(d, filters)) {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return null;
         }
@@ -1544,159 +1525,6 @@ public class ScheduleExecutor {
         return epochMs == null ? "-" : formatTime(epochMs.longValue());
     }
 
-    // ── 服务端筛选 ────────────────────────────────────────────────────────────────
-
-    static boolean artworkMatches(PixivFetchService.ArtworkMeta m, Filters f) {
-        if (!contentMatches(f.content(), m.xRestrict())) return false;
-        if ("exclude".equals(f.aiFilter()) && m.ai()) return false;
-        if ("only".equals(f.aiFilter()) && !m.ai()) return false;
-        if (!typeMatches(f.typeFilter(), m.illustType())) return false;
-        if (m.pageCount() > 0) {
-            if (f.pagesMin() != null && m.pageCount() < f.pagesMin()) return false;
-            if (f.pagesMax() != null && m.pageCount() > f.pagesMax()) return false;
-        }
-        if (m.bookmarkCount() >= 0) {
-            if (f.bookmarksMin() != null && m.bookmarkCount() < f.bookmarksMin()) return false;
-            if (f.bookmarksMax() != null && m.bookmarkCount() > f.bookmarksMax()) return false;
-        }
-        List<String> tokens = tagTokens(m.tags());
-        return tagsAllMatch(tokens, f.tagsExact(), false)
-                && tagsAllMatch(tokens, f.tagsFuzzy(), true);
-    }
-
-    static boolean novelMatches(PixivFetchService.NovelDetail d, Filters f) {
-        if (!contentMatches(f.content(), d.xRestrict())) return false;
-        if ("exclude".equals(f.aiFilter()) && d.ai()) return false;
-        if ("only".equals(f.aiFilter()) && !d.ai()) return false;
-        if (d.wordCount() != null && d.wordCount() > 0) {
-            if (f.wordsMin() != null && d.wordCount() < f.wordsMin()) return false;
-            if (f.wordsMax() != null && d.wordCount() > f.wordsMax()) return false;
-        }
-        if (d.bookmarkCount() >= 0) {
-            if (f.bookmarksMin() != null && d.bookmarkCount() < f.bookmarksMin()) return false;
-            if (f.bookmarksMax() != null && d.bookmarkCount() > f.bookmarksMax()) return false;
-        }
-        List<String> tokens = tagTokens(d.tags());
-        return tagsAllMatch(tokens, f.tagsExact(), false)
-                && tagsAllMatch(tokens, f.tagsFuzzy(), true);
-    }
-
-    private static boolean contentMatches(String content, int xRestrict) {
-        if (content == null) return true;
-        return switch (content) {
-            case "safe" -> xRestrict == 0;
-            case "r18plus" -> xRestrict >= 1;
-            case "r18" -> xRestrict == 1;
-            case "r18g" -> xRestrict == 2;
-            default -> true; // all
-        };
-    }
-
-    private static boolean typeMatches(String typeFilter, int illustType) {
-        if (typeFilter == null || "all".equals(typeFilter)) return true;
-        return switch (typeFilter) {
-            case "illust" -> illustType == 0;
-            case "manga" -> illustType == 1;
-            case "ugoira" -> illustType == 2;
-            default -> true;
-        };
-    }
-
-    private static boolean tagsAllMatch(List<String> tokens, List<String> required, boolean fuzzy) {
-        if (required == null || required.isEmpty()) return true;
-        for (String needle : required) {
-            boolean hit = false;
-            for (String tok : tokens) {
-                if (fuzzy ? tok.contains(needle) : tok.equals(needle)) {
-                    hit = true;
-                    break;
-                }
-            }
-            if (!hit) return false;
-        }
-        return true;
-    }
-
-    private static List<String> tagTokens(List<TagDto> tags) {
-        List<String> tokens = new ArrayList<>();
-        if (tags == null) return tokens;
-        for (TagDto tag : tags) {
-            if (tag.getName() != null && !tag.getName().isBlank()) {
-                tokens.add(tag.getName().toLowerCase(Locale.ROOT));
-            }
-            if (tag.getTranslatedName() != null && !tag.getTranslatedName().isBlank()) {
-                tokens.add(tag.getTranslatedName().toLowerCase(Locale.ROOT));
-            }
-        }
-        return tokens;
-    }
-
-    // ── params 解析 ──────────────────────────────────────────────────────────────
-
-    static Filters parseFilters(JsonNode f) {
-        return new Filters(
-                f.path("content").asText("all"),
-                f.path("aiFilter").asText("all"),
-                readLoweredList(f.path("tagsExact")),
-                readLoweredList(f.path("tagsFuzzy")),
-                f.path("typeFilter").asText("all"),
-                intOrNull(f.path("pagesMin")), intOrNull(f.path("pagesMax")),
-                intOrNull(f.path("wordsMin")), intOrNull(f.path("wordsMax")),
-                intOrNull(f.path("bookmarksMin")), intOrNull(f.path("bookmarksMax")));
-    }
-
-    static Download parseDownload(JsonNode d) {
-        String template = d.path("fileNameTemplate").asText("");
-        return new Download(
-                template.isBlank() ? null : template,
-                d.path("bookmark").asBoolean(false),
-                longOrNull(d.path("collectionId")),
-                Math.max(1, d.path("concurrent").asInt(1)),
-                longOrNull(d.path("intervalMs")),
-                intOrNull(d.path("imageDelayMs")),
-                d.path("verifyFiles").asBoolean(false),
-                d.path("redownloadDeleted").asBoolean(false),
-                d.path("novelFormat").asText("txt"),
-                d.path("novelMerge").asBoolean(false),
-                d.path("novelMergeFormat").asText("epub"),
-                d.path("novelAutoTranslate").asBoolean(false),
-                d.path("novelTranslateLanguage").asText(""),
-                intOrNull(d.path("novelTranslateSegmentSize")));
-    }
-
-    private static List<String> readLoweredList(JsonNode arr) {
-        List<String> out = new ArrayList<>();
-        if (arr.isArray()) {
-            for (JsonNode n : arr) {
-                String v = n.asText("").trim().toLowerCase(Locale.ROOT);
-                if (!v.isEmpty()) out.add(v);
-            }
-        }
-        return out;
-    }
-
-    private static Integer intOrNull(JsonNode n) {
-        if (n.isNumber()) return n.asInt();
-        if (n.isTextual() && !n.asText().isBlank()) {
-            try {
-                return Integer.parseInt(n.asText().trim());
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return null;
-    }
-
-    private static Long longOrNull(JsonNode n) {
-        if (n.isNumber()) return n.asLong();
-        if (n.isTextual() && !n.asText().isBlank()) {
-            try {
-                return Long.parseLong(n.asText().trim());
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return null;
-    }
-
     /**
      * 插画去重谓词：按「实际目录检测」开关选 isArtworkDownloaded(verify) 或裸 hasArtwork；小说恒为 hasNovel。
      * 「允许已删除的作品被重新下载」开启时，软删除标记的记录视为未下载（重新下载落库会替换残留行、标记复位）；
@@ -1742,27 +1570,4 @@ public class ScheduleExecutor {
         sleepMs(WATERMARK_PAGE_DELAY_MS);
     }
 
-    /** 任务快照的筛选条件（来自 params_json 的 {@code filters} 段）。 */
-    record Filters(String content, String aiFilter, List<String> tagsExact, List<String> tagsFuzzy,
-                   String typeFilter, Integer pagesMin, Integer pagesMax,
-                   Integer wordsMin, Integer wordsMax, Integer bookmarksMin, Integer bookmarksMax) {
-    }
-
-    /**
-     * 任务快照的下载设置（来自 params_json 的 {@code download} 段）。
-     *
-     * @param concurrent        最大并发数（作品级），实际取 {@code min(该值, 对应下载池大小)}
-     * @param intervalMs        作品间隔（毫秒，礼貌延迟），{@code null} / 0 不延迟
-     * @param imageDelayMs      图片间隔（毫秒，仅插画多图相邻图片间），{@code null} / 0 不延迟
-     * @param verifyFiles       实际目录检测（仅插画）：去重时校验磁盘文件是否存在
-     * @param redownloadDeleted 允许已删除的作品被重新下载：软删除标记的记录视为未下载；
-     *                          关闭（默认）时视为已下载跳过
-     */
-    record Download(String fileNameTemplate, boolean bookmark, Long collectionId,
-                    int concurrent, Long intervalMs, Integer imageDelayMs, boolean verifyFiles,
-                    boolean redownloadDeleted,
-                    String novelFormat, boolean novelMerge, String novelMergeFormat,
-                    boolean novelAutoTranslate, String novelTranslateLanguage,
-                    Integer novelTranslateSegmentSize) {
-    }
 }
