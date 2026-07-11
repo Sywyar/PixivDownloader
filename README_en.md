@@ -134,24 +134,17 @@ configuration, and development guides.**
 
 ---
 
-## Additional Notes
+## Multi-mode Deployment Risks
 
-Honestly, I don't really recommend the multi mode of this tool, because all requests go through the server's network IP.
-Even with different cookies, a large number of requests could lead to IP bans. I'm considering adding a login mechanism
-to multi mode, but that goes against the project's original intention of simplicity. For now, I'll just continue
-refining this project.
+In multi mode, all Pixiv requests still leave through the deployment server's shared egress IP. Separate cookies isolate account sessions, not IP-level risk. High concurrency or request rates may cause Pixiv to restrict an account or the egress IP. Use this mode only in a trusted, small-scale environment, enable per-user quotas and rate limits, choose conservative download intervals, and monitor server logs. Do not expose an unrestricted public download service.
 
-## Friend Links
+## Related Projects
 
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
-If you prefer simplicity and don't want to rely on a backend program, give this script a try.
 
-Features:
+For a browser-script workflow that does not require deploying a separate backend, consider this project:
 
-- Many filtering options
-- Useful auxiliary features like ad removal, quick bookmark, image viewer mode, etc.
-  `(can also serve as a Pixiv helper plugin?)`
-- Download doesn't depend on third-party tools `(the biggest difference from this project! Easy installation!)`
-- Supports multiple languages
-
-## Development Plan
+- Rich filtering options
+- Browser helpers such as ad removal, quick bookmarking, and an image viewer
+- No separate backend deployment
+- Multiple languages
