@@ -1,9 +1,14 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
@@ -949,6 +954,50 @@ class GuiConfigContributionAggregatorTest {
 
         assertThat(new top.sywyar.pixivdownload.config.PluginCredentialStore().readAll("fixture")).isEmpty();
         assertThat(RuntimeFiles.resolvePluginCredentialPath("fixture")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("ConfigPanel 不补全或警告未配置的插件凭证")
+    void configPanelDoesNotMaterializeOrWarnAboutUnsetPluginCredential() throws Exception {
+        Path runtimeConfig = tempDir.resolve("runtime-config");
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, runtimeConfig.toString());
+        Path configYaml = tempDir.resolve("config.yaml");
+        Files.writeString(configYaml, "server.port: 6999\n", StandardCharsets.UTF_8);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(
+                        new GuiConfigFieldContribution(
+                                "fixture.panel", GuiConfigGroups.PLUGINS, "fixture.panel.label",
+                                GuiConfigFieldType.STRING, "default-value", 10),
+                        new GuiConfigFieldContribution(
+                                "fixture.api-key", GuiConfigGroups.PLUGINS, "fixture.api-key.label",
+                                GuiConfigFieldType.PASSWORD, "must-not-persist", 20)))));
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin))));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ConfigPanel.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.setContext(logger.getLoggerContext());
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ConfigPanel panel = new ConfigPanel(configYaml, 6999,
+                    path -> "http://localhost:6999" + path, snapshot);
+
+            assertThat(panel.currentFieldValue("fixture.api-key")).isEmpty();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        Path pluginConfig = RuntimeFiles.resolvePluginConfigPath("fixture", "properties");
+        assertThat(loadProperties(pluginConfig)).containsEntry("fixture.panel", "default-value")
+                .doesNotContainKey("fixture.api-key");
+        assertThat(RuntimeFiles.resolvePluginCredentialPath("fixture")).doesNotExist();
+        List<ILoggingEvent> events = List.copyOf(appender.list);
+        assertThat(events.stream().anyMatch(event -> event.getLevel() == Level.INFO
+                && event.getFormattedMessage().contains("fixture.panel"))).isTrue();
+        assertThat(events.stream().noneMatch(event ->
+                event.getFormattedMessage().contains("fixture.api-key"))).isTrue();
     }
 
     @Test

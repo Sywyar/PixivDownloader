@@ -34,7 +34,7 @@ import java.util.function.Function;
 
 /**
  * "配置" 标签页：Schema 驱动的字段渲染，按 group 分为子标签页。宿主字段保存到 config.yaml，
- * 插件贡献字段保存到各自的 config/plugins/<id>.properties。
+ * 普通插件字段保存到各自的 config/plugins/<id>.properties，插件凭证保存到 owner-scoped 专用存储。
  * <p>
  * 普通分组「字段平铺」由 {@code ConfigFieldRegistry} 的 {@link ConfigFieldSpec} 声明式渲染；带自定义控件 /
  * 异步测试的特殊分组拆成 {@code gui.panel.configtab} 下的 {@link ConfigSection} 实现，
@@ -685,8 +685,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 数据加载 ──────────────────────────────────────────────────────────────────
 
     /**
-     * 从宿主 config.yaml 与插件自有 properties 加载当前值并填充控件；key 不存在或被注释时回退到字段默认值，
-     * 并将所有缺失的 key 连同默认值自动补全到所属配置文件。
+     * 从宿主 config.yaml、插件自有 properties 与插件凭证存储加载当前值并填充控件；key 不存在或被注释时回退到字段默认值，
+     * 并将需要持久化的缺失 key 连同默认值自动补全到所属配置文件。未配置的插件凭证以 key 缺席表示。
      */
     private void loadCurrentValues() {
         try {
@@ -700,8 +700,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     rf.setValue().accept(displayValueForLoad(spec, values.get(spec.key())));
                 } else {
                     // key 不存在或被注释掉：用默认值填充控件，并记录待补全
-                    rf.setValue().accept(spec.defaultValue());
-                    missing.put(spec.key(), spec.defaultValue());
+                    rf.setValue().accept(displayValueForLoad(spec, spec.defaultValue()));
+                    if (requiresStoredKey(spec)) {
+                        missing.put(spec.key(), spec.defaultValue());
+                    }
                 }
             }
 
@@ -1441,6 +1443,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return spec != null && spec.pluginContributed() && spec.type() == FieldType.PASSWORD;
     }
 
+    private static boolean requiresStoredKey(ConfigFieldSpec spec) {
+        return !isPluginCredential(spec);
+    }
+
     private static boolean isMaintenanceDayEnabledKey(String key) {
         return maintenanceDayKey(key, "enabled");
     }
@@ -1531,13 +1537,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 字段漂移检查 ──────────────────────────────────────────────────────────────
 
     /**
-     * 对比字段快照与所属配置文件中实际存在的 key，漂移时打日志警告。
+     * 对比字段快照与所属配置存储中实际存在的 key，漂移时打日志警告。
+     * 未配置的插件凭证以 key 缺席表示，不属于字段漂移。
      */
     private void checkFieldDrift() {
         try {
             Map<String, String> existing = readStoredValues(allFields);
             for (ConfigFieldSpec spec : allFields) {
-                if (!existing.containsKey(spec.key())) {
+                if (requiresStoredKey(spec) && !existing.containsKey(spec.key())) {
                     log.warn(logMessage("gui.config.log.field-drift", spec.key()));
                 }
             }
