@@ -3,6 +3,7 @@ html[data-batch-layout="workbench"] .wb-shell {
     grid-template-columns: 190px minmax(0, 1fr) 350px;
     grid-template-areas:
         "strip  strip   strip"
+        "rail   tools   queue"
         "rail   center  queue"
         "rail   wbset   queue"
         "footer footer  footer";
@@ -61,6 +62,7 @@ html[data-batch-layout="workbench"] .queue-rail {
         grid-template-columns: 190px minmax(0, 1fr);
         grid-template-areas:
             "strip  strip"
+            "rail   tools"
             "rail   center"
             "rail   wbset"
             "queue  queue"
@@ -88,6 +90,7 @@ html[data-batch-layout="workbench"] .queue-rail {
         grid-template-areas:
             "strip"
             "rail"
+            "tools"
             "center"
             "wbset"
             "queue"

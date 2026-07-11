@@ -41,6 +41,11 @@
             display: none;
         }
 
+        .batch-layout-action-host {
+            grid-area: actions;
+            display: none;
+        }
+
         /* 队列行的 Vue reactive 宿主（batch-queue-vue.js 的列表 / 计划队列详情组件每行一个 v-html 宿主）：
            display:contents 使宿主自身不生成盒子，其 v-html 渲染出的 .queue-item 作为 #queue-list /
            .schedule-queue-list 的真实子节点参与布局——与命令式整块渲染（.queue-item 为直接子节点）视觉一致，
@@ -2861,7 +2866,7 @@ body.schedule-modal-open {
    稳定区域语义、组件结构与共同响应式留在这里；空间编排由独立布局投影提供。
    =================================================================== */
 
-/* 屏外可见（视觉隐藏、读屏可读）：统计条文本 #stats-bar 与 5 张统计卡同源、仅作可访问性补充。 */
+/* 屏外可见（视觉隐藏、读屏可读）：统计条文本 #stats-bar 与六张统计卡同源、仅作可访问性补充。 */
 .sr-only {
     position: absolute;
     width: 1px;
@@ -2881,6 +2886,10 @@ body.schedule-modal-open {
 }
 
 /* 各分区落位到网格命名区域。 */
+.tools-drawer {
+    grid-area: tools;
+}
+
 .mode-rail {
     grid-area: rail;
 }

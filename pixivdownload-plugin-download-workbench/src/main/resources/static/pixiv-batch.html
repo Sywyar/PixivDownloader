@@ -54,6 +54,56 @@
      落位；计划任务模式下 switchMode 把它整体 display:none（隐藏统计 / 设置 / 队列，保留左侧模式 rail 与计划面板）。 -->
 <div class="wb-shell">
 
+    <!-- 工具抽屉（Cookie + 油猴脚本）：独立布局区域，默认折叠。 -->
+    <details class="tools-drawer" id="tools-drawer">
+        <summary class="tools-summary">
+            <span class="tools-summary-label">🍪 <span data-i18n="cookie.title">Pixiv Cookie</span> <span class="cookie-status-badge" id="cookie-status-badge" role="img"></span></span>
+            <span class="tools-summary-toggle"><span data-i18n="dashboard.tools">工具</span> <span class="tools-caret" aria-hidden="true">▾</span></span>
+        </summary>
+        <div class="tools-body">
+
+            <!-- Cookie -->
+            <div class="card" id="cookie-card">
+                <div class="card-title" data-i18n="cookie.manager.title">Cookie</div>
+                <div class="cookie-fmt">
+                    <button id="fmt-header" class="active" onclick="setCookieFmt('header')" data-i18n="cookie.format.header">Header String</button>
+                    <button id="fmt-json" onclick="setCookieFmt('json')" data-i18n="cookie.format.json">JSON</button>
+                    <button id="fmt-netscape" onclick="setCookieFmt('netscape')" data-i18n="cookie.format.netscape">Netscape</button>
+                </div>
+                <div class="cookie-card-list">
+                    <section class="cookie-type-card" id="pixiv-cookie-card" data-cookie-type="pixiv">
+                        <div class="plugin-cookie-title" data-i18n="cookie.title">Pixiv Cookie</div>
+                        <div class="cookie-row">
+                            <input type="password" id="cookie-input" data-i18n-placeholder="cookie.placeholder" placeholder="粘贴 Cookie...">
+                            <button class="btn-sm" id="cookie-toggle" data-i18n="cookie.toggle.show">显示</button>
+                            <button class="btn-cookie-save" id="cookie-save" data-i18n="common:button.save">保存</button>
+                            <button class="btn-sm" id="cookie-import" hidden style="background:#e7f0fb;border-color:#1a73e8;" data-i18n="cookie.import">一键导入 Cookie</button>
+                            <button class="btn-cookie-clear" id="cookie-clear" data-i18n="cookie.clear">清除</button>
+                        </div>
+                        <div class="cookie-status" id="cookie-status" role="status" aria-live="polite"></div>
+                        <div class="cookie-hint" id="cookie-import-hint" hidden><span data-i18n="cookie.import-hint.prefix">「一键导入 Cookie」无效（如浏览器/脚本管理器无法读取登录态）时，请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.import-hint.suffix">，按其中步骤手动设置 Cookie。</span></div>
+                        <div class="cookie-hint" id="cookie-hint"><span data-i18n="cookie.hint.prefix">支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。具体获取方法请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.hint.suffix">。</span></div>
+                    </section>
+                    <template data-qt-slot="cookie-tools"></template>
+                </div>
+            </div>
+
+            <!-- Userscripts install card -->
+            <div class="card" id="userscripts-card">
+                <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+                    <span data-i18n="userscripts.title">🧩 油猴脚本</span>
+                    <button class="btn btn-green" style="padding:2px 10px;font-size:12px;" onclick="toggleUserscripts()" data-i18n="userscripts.toggle">展开 / 折叠</button>
+                </div>
+                <div id="userscripts-panel" hidden>
+                    <div id="userscripts-hint" style="font-size:12px;color:#666;margin-bottom:10px;"><span data-i18n="userscripts.hint.prefix">需要先安装</span> <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> <span data-i18n="userscripts.hint.suffix">扩展。点击「安装」后 Tampermonkey 将弹出确认页面。</span></div>
+                    <div id="userscripts-host-hint" style="font-size:12px;color:#17a2b8;margin-bottom:10px;display:none;"></div>
+                    <div id="userscripts-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+                </div>
+            </div>
+
+        </div>
+    </details>
+
     <!-- 左：下载模式 rail（常驻；计划任务模式仍可见）。容器保留 .tabs 类（向导 / 新手引导以 .tabs 定位）。 -->
     <aside class="mode-rail tabs" aria-label="下载模式">
         <div class="mode-rail-title" data-i18n="dashboard.mode-rail">下载模式</div>
@@ -65,58 +115,8 @@
         <div class="tab" id="tab-schedule" style="display:none;" onclick="switchMode('schedule')" data-i18n="mode.schedule">⏰ 计划任务</div>
     </aside>
 
-    <!-- 中：配置区（常驻控件：工具抽屉 / 各模式面板 / 附加筛选）。 -->
+    <!-- 中：配置区（各模式面板 / 附加筛选）。 -->
     <div class="center-col">
-
-        <!-- 工具抽屉（Cookie + 油猴脚本）：默认折叠，点击「工具」展开。 -->
-        <details class="tools-drawer" id="tools-drawer">
-            <summary class="tools-summary">
-                <span class="tools-summary-label">🍪 <span data-i18n="cookie.title">Pixiv Cookie</span> <span class="cookie-status-badge" id="cookie-status-badge" role="img"></span></span>
-                <span class="tools-summary-toggle"><span data-i18n="dashboard.tools">工具</span> <span class="tools-caret" aria-hidden="true">▾</span></span>
-            </summary>
-            <div class="tools-body">
-
-                <!-- Cookie -->
-                <div class="card" id="cookie-card">
-                    <div class="card-title" data-i18n="cookie.manager.title">Cookie</div>
-                    <div class="cookie-fmt">
-                        <button id="fmt-header" class="active" onclick="setCookieFmt('header')" data-i18n="cookie.format.header">Header String</button>
-                        <button id="fmt-json" onclick="setCookieFmt('json')" data-i18n="cookie.format.json">JSON</button>
-                        <button id="fmt-netscape" onclick="setCookieFmt('netscape')" data-i18n="cookie.format.netscape">Netscape</button>
-                    </div>
-                    <div class="cookie-card-list">
-                        <section class="cookie-type-card" id="pixiv-cookie-card" data-cookie-type="pixiv">
-                            <div class="plugin-cookie-title" data-i18n="cookie.title">Pixiv Cookie</div>
-                            <div class="cookie-row">
-                                <input type="password" id="cookie-input" data-i18n-placeholder="cookie.placeholder" placeholder="粘贴 Cookie...">
-                                <button class="btn-sm" id="cookie-toggle" data-i18n="cookie.toggle.show">显示</button>
-                                <button class="btn-cookie-save" id="cookie-save" data-i18n="common:button.save">保存</button>
-                                <button class="btn-sm" id="cookie-import" hidden style="background:#e7f0fb;border-color:#1a73e8;" data-i18n="cookie.import">一键导入 Cookie</button>
-                                <button class="btn-cookie-clear" id="cookie-clear" data-i18n="cookie.clear">清除</button>
-                            </div>
-                            <div class="cookie-status" id="cookie-status" role="status" aria-live="polite"></div>
-                            <div class="cookie-hint" id="cookie-import-hint" hidden><span data-i18n="cookie.import-hint.prefix">「一键导入 Cookie」无效（如浏览器/脚本管理器无法读取登录态）时，请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.import-hint.suffix">，按其中步骤手动设置 Cookie。</span></div>
-                            <div class="cookie-hint" id="cookie-hint"><span data-i18n="cookie.hint.prefix">支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。具体获取方法请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.hint.suffix">。</span></div>
-                        </section>
-                        <template data-qt-slot="cookie-tools"></template>
-                    </div>
-                </div>
-
-                <!-- Userscripts install card -->
-                <div class="card" id="userscripts-card">
-                    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
-                        <span data-i18n="userscripts.title">🧩 油猴脚本</span>
-                        <button class="btn btn-green" style="padding:2px 10px;font-size:12px;" onclick="toggleUserscripts()" data-i18n="userscripts.toggle">展开 / 折叠</button>
-                    </div>
-                    <div id="userscripts-panel" hidden>
-                        <div id="userscripts-hint" style="font-size:12px;color:#666;margin-bottom:10px;"><span data-i18n="userscripts.hint.prefix">需要先安装</span> <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> <span data-i18n="userscripts.hint.suffix">扩展。点击「安装」后 Tampermonkey 将弹出确认页面。</span></div>
-                        <div id="userscripts-host-hint" style="font-size:12px;color:#17a2b8;margin-bottom:10px;display:none;"></div>
-                        <div id="userscripts-list" style="display:flex;flex-direction:column;gap:10px;"></div>
-                    </div>
-                </div>
-
-            </div>
-        </details>
 
         <!-- Quick-fetch panel：基于当前 Cookie 主人 uid 拉取「我的」收藏 / 关注 / 珍藏集 / 作品。
              无 Cookie（缺 PHPSESSID）时禁用所有动作按钮并显示提示。 -->
@@ -474,11 +474,13 @@
                     <div class="stat-card stat-skipped"><span class="stat-num" id="stat-count-skipped">0</span><span class="stat-label" data-i18n="dashboard.stat.skipped">跳过</span></div>
                     <div class="stat-card stat-speed"><span class="stat-num"><span id="stat-speed-value">0</span><span class="stat-speed-unit" id="stat-speed-unit">B/s</span></span><span class="stat-label" data-i18n="dashboard.stat.speed">下载速度</span></div>
                 </div>
-                <!-- 统计条文本（与 5 张卡片同源，updateStats 维护）：视觉隐藏，供读屏与回归保留 -->
+                <!-- 统计条文本（与六张统计卡同源，updateStats 维护）：视觉隐藏，供读屏与回归保留 -->
                 <div id="stats-bar" class="sr-only">队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0</div>
                 <div class="dash-run">
                     <span id="status-bar" class="dash-status" data-i18n="status.ready">准备就绪</span>
+                    <template data-batch-layout-action-origin="btn-start"></template>
                     <button class="btn btn-green dash-start-btn" id="btn-start" onclick="handleStart()" data-i18n="button.start">🚀 开始下载</button>
+                    <template data-batch-layout-action-origin="btn-pause"></template>
                     <button class="btn btn-yellow" id="btn-pause" onclick="handlePause()" disabled data-i18n="button.pause">⏸ 暂停</button>
                 </div>
             </div>
@@ -621,18 +623,27 @@
 
             <!-- 次级动作：重试失败 / 清除队列 为直接按钮，导出全部 / 导出未下载 收进「更多」菜单 -->
             <div class="wb-actions">
+                <template data-batch-layout-action-origin="btn-retry"></template>
                 <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()" data-i18n="button.retry">🔁 重试失败</button>
+                <template data-batch-layout-action-origin="btn-clear"></template>
                 <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
                 <details class="more-menu">
                     <summary class="more-summary"><span data-i18n="dashboard.more">更多</span> <span class="more-caret" aria-hidden="true">▾</span></summary>
                     <div class="more-menu-panel">
+                        <template data-batch-layout-action-origin="btn-export"></template>
                         <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
+                        <template data-batch-layout-action-origin="btn-export-failed"></template>
                         <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
                     </div>
                 </details>
             </div>
 
         </div><!-- /wb-center -->
+
+        <!-- 布局操作投影：复用既有按钮节点，匹配的布局按声明顺序暂存于此。 -->
+        <div class="batch-layout-action-host"
+             data-batch-layout-action-host="classic"
+             data-batch-layout-action-order="btn-start btn-pause btn-retry btn-export btn-export-failed btn-clear"></div>
 
         <!-- 右：常驻下载队列 rail（配额 / 压缩包 / 当前下载 / 队列） -->
         <aside class="queue-rail">

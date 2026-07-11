@@ -2,6 +2,9 @@
 
 const BATCH_LAYOUT_STORAGE_KEY = 'pixiv:batch-layout:v1';
 const BATCH_LAYOUT_TOKEN_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const BATCH_LAYOUT_ACTION_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]*$/;
+const BATCH_LAYOUT_ACTION_HOST_SELECTOR = '[data-batch-layout-action-host]';
+const BATCH_LAYOUT_ACTION_ORIGIN_SELECTOR = '[data-batch-layout-action-origin]';
 let batchLayoutBoundButton = null;
 let batchLayoutClickBound = false;
 let batchLayoutStorageBound = false;
@@ -80,6 +83,147 @@ function nextBatchLayout(current, layouts) {
     const normalized = normalizeBatchLayoutFor(current, layouts);
     const index = layouts.indexOf(normalized);
     return layouts[(index + 1) % layouts.length];
+}
+
+function batchLayoutActionElements(selector) {
+    return typeof document.querySelectorAll === 'function'
+        ? Array.prototype.slice.call(document.querySelectorAll(selector))
+        : [];
+}
+
+function batchLayoutActionOrder(host) {
+    const raw = host && host.getAttribute('data-batch-layout-action-order');
+    if (typeof raw !== 'string' || !raw.trim()) return null;
+    const ids = raw.trim().split(/\s+/);
+    const seen = new Set();
+    for (const id of ids) {
+        if (!BATCH_LAYOUT_ACTION_ID_PATTERN.test(id) || seen.has(id)) return null;
+        seen.add(id);
+    }
+    return ids;
+}
+
+function buildBatchLayoutActionProjection(layout) {
+    const hosts = batchLayoutActionElements(BATCH_LAYOUT_ACTION_HOST_SELECTOR);
+    const origins = batchLayoutActionElements(BATCH_LAYOUT_ACTION_ORIGIN_SELECTOR);
+    if (!hosts.length && !origins.length) {
+        return {hosts: [], actions: [], target: null, targetOrder: []};
+    }
+    if (!hosts.length || !origins.length) return null;
+
+    const originsById = new Map();
+    for (const origin of origins) {
+        const id = origin.getAttribute('data-batch-layout-action-origin');
+        if (typeof id !== 'string' || !BATCH_LAYOUT_ACTION_ID_PATTERN.test(id)
+                || originsById.has(id) || !origin.parentNode) {
+            return null;
+        }
+        originsById.set(id, origin);
+    }
+
+    const idCounts = new Map();
+    for (const element of batchLayoutActionElements('[id]')) {
+        const id = element.getAttribute('id');
+        if (id) idCounts.set(id, (idCounts.get(id) || 0) + 1);
+    }
+
+    const actionsById = new Map();
+    for (const [id, origin] of originsById) {
+        const action = document.getElementById(id);
+        if (!action || idCounts.get(id) !== 1 || !action.parentNode || action === origin) return null;
+        actionsById.set(id, {id, node: action, origin});
+    }
+
+    const hostTokens = new Set();
+    const hostPlans = [];
+    let target = null;
+    for (const host of hosts) {
+        const token = host.getAttribute('data-batch-layout-action-host');
+        const order = batchLayoutActionOrder(host);
+        if (typeof token !== 'string' || !BATCH_LAYOUT_TOKEN_PATTERN.test(token)
+                || hostTokens.has(token) || !order || !host.parentNode
+                || order.length !== actionsById.size
+                || order.some(id => !actionsById.has(id))) {
+            return null;
+        }
+        hostTokens.add(token);
+        const plan = {element: host, token, order};
+        hostPlans.push(plan);
+        if (token === layout) target = plan;
+    }
+
+    return {
+        hosts: hostPlans,
+        actions: Array.from(actionsById.values()),
+        actionsById,
+        target,
+        targetOrder: target ? target.order.map(id => actionsById.get(id)) : []
+    };
+}
+
+function syncBatchLayoutActionProjection(layout) {
+    const plan = buildBatchLayoutActionProjection(layout);
+    if (!plan) return false;
+    if (!plan.actions.length) return true;
+
+    const snapshots = plan.actions.map(action => ({
+        node: action.node,
+        parent: action.node.parentNode,
+        nextSibling: action.node.nextSibling
+    }));
+    const hostStates = plan.hosts.map(host => ({element: host.element, hidden: host.element.hidden}));
+    const focused = plan.actions.some(action => action.node === document.activeElement)
+        ? document.activeElement
+        : null;
+
+    function restoreFocus() {
+        if (!focused || document.activeElement === focused || typeof focused.focus !== 'function') return;
+        try {
+            focused.focus({preventScroll: true});
+        } catch (_) {
+            // 布局已同步；浏览器拒绝恢复焦点时不回滚节点投影。
+        }
+    }
+
+    try {
+        if (plan.target) {
+            const host = plan.target.element;
+            const actionNodes = new Set(plan.actions.map(action => action.node));
+            const current = Array.prototype.filter.call(host.children || [], child => actionNodes.has(child));
+            const alreadyProjected = current.length === plan.targetOrder.length
+                && plan.targetOrder.every((action, index) => action.node.parentNode === host
+                    && current[index] === action.node);
+            if (!alreadyProjected) {
+                plan.targetOrder.forEach(action => host.appendChild(action.node));
+            }
+        } else {
+            plan.actions.forEach(action => {
+                const parent = action.origin.parentNode;
+                const reference = action.origin.nextElementSibling;
+                if (action.node.parentNode !== parent || reference !== action.node) {
+                    parent.insertBefore(action.node, reference);
+                }
+            });
+        }
+        plan.hosts.forEach(host => { host.element.hidden = host !== plan.target; });
+        restoreFocus();
+        return true;
+    } catch (_) {
+        for (let index = snapshots.length - 1; index >= 0; index--) {
+            const snapshot = snapshots[index];
+            try {
+                const reference = snapshot.nextSibling && snapshot.nextSibling.parentNode === snapshot.parent
+                    ? snapshot.nextSibling
+                    : null;
+                snapshot.parent.insertBefore(snapshot.node, reference);
+            } catch (_) {
+                // 已完成完整预检；这里只对意外的浏览器 DOM 异常做尽力回滚。
+            }
+        }
+        hostStates.forEach(state => { state.element.hidden = state.hidden; });
+        restoreFocus();
+        return false;
+    }
 }
 
 function batchLayoutText(key) {
@@ -171,7 +315,27 @@ function applyBatchLayout(layout, options) {
     }
 
     const root = document.documentElement;
-    if (root) root.setAttribute('data-batch-layout', normalized);
+    const previousLayout = root && root.getAttribute('data-batch-layout');
+    const focusedBeforeProjection = document.activeElement;
+    if (!root || !syncBatchLayoutActionProjection(normalized)) {
+        refreshBatchLayoutToggle();
+        return null;
+    }
+    try {
+        root.setAttribute('data-batch-layout', normalized);
+    } catch (_) {
+        syncBatchLayoutActionProjection(previousLayout);
+        refreshBatchLayoutToggle();
+        return null;
+    }
+    if (focusedBeforeProjection && document.activeElement !== focusedBeforeProjection
+            && typeof focusedBeforeProjection.focus === 'function') {
+        try {
+            focusedBeforeProjection.focus({preventScroll: true});
+        } catch (_) {
+            // 根布局已经生效；浏览器拒绝恢复焦点时不回滚布局。
+        }
+    }
     refreshBatchLayoutToggle();
     if (options && options.persist) {
         try {

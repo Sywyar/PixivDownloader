@@ -2,10 +2,12 @@ html[data-batch-layout="classic"] .wb-shell {
     max-width: 1000px;
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-        "strip"
+        "tools"
         "rail"
         "center"
         "wbset"
+        "strip"
+        "actions"
         "queue"
         "footer";
 }
@@ -70,7 +72,7 @@ html[data-batch-layout="classic"] .dash-stats {
     width: 100%;
     flex: 1 1 100%;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     margin-right: 0;
 }
 
@@ -81,17 +83,48 @@ html[data-batch-layout="classic"] .stat-card {
 
 html[data-batch-layout="classic"] .dash-run {
     width: 100%;
-    justify-content: flex-end;
+    justify-content: center;
 }
 
 html[data-batch-layout="classic"] .dash-status {
+    width: 100%;
     min-width: 0;
+    text-align: center;
     overflow-wrap: anywhere;
+}
+
+html[data-batch-layout="classic"] .dash-run .btn,
+html[data-batch-layout="classic"] .wb-actions {
+    display: none;
+}
+
+html[data-batch-layout="classic"] .batch-layout-action-host[data-batch-layout-action-host="classic"] {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+}
+
+html[data-batch-layout="classic"] .batch-layout-action-host[data-batch-layout-action-host="classic"] > .btn {
+    width: 100%;
+    min-width: 0;
 }
 
 @media (max-width: 1280px) {
     html[data-batch-layout="classic"] .stat-card {
         padding-block: 11px;
+    }
+}
+
+@media (max-width: 820px) {
+    html[data-batch-layout="classic"] .dash-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
@@ -103,10 +136,19 @@ html[data-batch-layout="classic"] .dash-status {
     html[data-batch-layout="classic"] .stat-card {
         padding-block: 9px;
     }
+
+    html[data-batch-layout="classic"] .batch-layout-action-host[data-batch-layout-action-host="classic"] {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 12px;
+    }
 }
 
 @media (max-width: 380px) {
     html[data-batch-layout="classic"] .dash-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    html[data-batch-layout="classic"] .batch-layout-action-host[data-batch-layout-action-host="classic"] {
         grid-template-columns: minmax(0, 1fr);
     }
 }

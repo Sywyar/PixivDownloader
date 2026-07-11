@@ -17,6 +17,7 @@ const SOURCE_PATH = path.join(__dirname, '..', '..', '..', '..',
     'batch-layout.js');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 const STORAGE_KEY = 'pixiv:batch-layout:v1';
+const ACTION_IDS = ['btn-start', 'btn-pause', 'btn-retry', 'btn-export', 'btn-export-failed', 'btn-clear'];
 const API_FUNCTIONS = [
     'availableLayouts', 'defaultLayout', 'normalizeLayout', 'readStoredLayout',
     'applyLayout', 'applyStoredLayout', 'toggleLayout', 'bindLayoutToggle',
@@ -114,16 +115,50 @@ class MiniElement extends MiniEventTarget {
     set title(value) { this.setAttribute('title', value); }
     get textContent() { return this._textContent; }
     set textContent(value) { this._textContent = value == null ? '' : String(value); }
+    get nextSibling() {
+        if (!this.parentNode) return null;
+        const index = this.parentNode.children.indexOf(this);
+        return index >= 0 ? this.parentNode.children[index + 1] || null : null;
+    }
+    get nextElementSibling() { return this.nextSibling; }
+    detachChild(child) {
+        if (!child.parentNode) return;
+        const oldParent = child.parentNode;
+        const index = oldParent.children.indexOf(child);
+        if (index >= 0) oldParent.children.splice(index, 1);
+        if (child.ownerDocument && child.ownerDocument.activeElement === child) {
+            child.ownerDocument.activeElement = null;
+        }
+        child.parentNode = null;
+    }
     appendChild(child) {
+        this.detachChild(child);
         child.parentNode = this;
         child.ownerDocument = this.ownerDocument;
         this.children.push(child);
+        return child;
+    }
+    insertBefore(child, reference) {
+        if (reference === child) return child;
+        if (reference != null && reference.parentNode !== this) throw new Error('reference is not a child');
+        this.detachChild(child);
+        const index = reference == null ? this.children.length : this.children.indexOf(reference);
+        child.parentNode = this;
+        child.ownerDocument = this.ownerDocument;
+        this.children.splice(index, 0, child);
+        return child;
+    }
+    removeChild(child) {
+        if (child.parentNode !== this) throw new Error('child is not attached');
+        this.detachChild(child);
         return child;
     }
     matches(selector) {
         if (selector === 'link[data-batch-layout-style]') {
             return this.tagName === 'LINK' && this.hasAttribute('data-batch-layout-style');
         }
+        const attributeOnly = /^\[([a-zA-Z0-9_-]+)]$/.exec(selector);
+        if (attributeOnly) return this.hasAttribute(attributeOnly[1]);
         if (selector.startsWith('#')) return this.id === selector.slice(1);
         if (selector.startsWith('.')) {
             return this.className.split(/\s+/).filter(Boolean).includes(selector.slice(1));
@@ -253,6 +288,67 @@ function buildDocument(options) {
     body.appendChild(button);
     body.appendChild(business);
 
+    const actions = new Map();
+    const origins = new Map();
+    const originalParents = new Map();
+    let actionHost = null;
+    let dashRun = null;
+    let wbActions = null;
+    let moreMenu = null;
+    let morePanel = null;
+    if (options.actionProjection !== false) {
+        dashRun = document.createElement('div');
+        dashRun.className = 'dash-run';
+        const status = document.createElement('span');
+        status.id = 'status-bar';
+        dashRun.appendChild(status);
+
+        wbActions = document.createElement('div');
+        wbActions.className = 'wb-actions';
+        moreMenu = document.createElement('details');
+        moreMenu.className = 'more-menu';
+        moreMenu.open = true;
+        const moreSummary = document.createElement('summary');
+        moreSummary.className = 'more-summary';
+        morePanel = document.createElement('div');
+        morePanel.className = 'more-menu-panel';
+        moreMenu.appendChild(moreSummary);
+        moreMenu.appendChild(morePanel);
+
+        actionHost = document.createElement('div');
+        actionHost.setAttribute('data-batch-layout-action-host', options.actionHostToken || 'classic');
+        actionHost.setAttribute('data-batch-layout-action-order',
+            (options.actionOrder || ACTION_IDS).join(' '));
+        actionHost.hidden = false;
+
+        function addAction(parent, id) {
+            if (options.missingActionOrigin !== id) {
+                const origin = document.createElement('template');
+                origin.setAttribute('data-batch-layout-action-origin', id);
+                parent.appendChild(origin);
+                origins.set(id, origin);
+            }
+            const action = document.createElement('button');
+            action.id = id;
+            action.setAttribute('data-state', id + '-state');
+            if (id === 'btn-pause') action.disabled = true;
+            parent.appendChild(action);
+            actions.set(id, action);
+            originalParents.set(id, parent);
+        }
+
+        addAction(dashRun, 'btn-start');
+        addAction(dashRun, 'btn-pause');
+        addAction(wbActions, 'btn-retry');
+        addAction(wbActions, 'btn-clear');
+        addAction(morePanel, 'btn-export');
+        addAction(morePanel, 'btn-export-failed');
+        wbActions.appendChild(moreMenu);
+        business.appendChild(dashRun);
+        business.appendChild(wbActions);
+        business.appendChild(actionHost);
+    }
+
     function setLayouts(tokens) {
         head.children.forEach(child => { child.parentNode = null; });
         head.children = [];
@@ -265,7 +361,10 @@ function buildDocument(options) {
         });
     }
     setLayouts(layouts);
-    return {document, html, head, body, button, label, business, setLayouts};
+    return {
+        document, html, head, body, button, label, business, setLayouts,
+        actions, origins, originalParents, actionHost, dashRun, wbActions, moreMenu, morePanel
+    };
 }
 
 function createHarness(options) {
@@ -378,6 +477,40 @@ function businessCallCount(calls) {
     return Object.keys(calls).reduce((sum, key) => sum + calls[key], 0);
 }
 
+function actionIdsIn(parent) {
+    return (parent && parent.children ? parent.children : [])
+        .filter(child => ACTION_IDS.includes(child.id))
+        .map(child => child.id);
+}
+
+function actionOccurrenceCount(root, target) {
+    let count = 0;
+    (function walk(node) {
+        if (node === target) count++;
+        (node.children || []).forEach(walk);
+    })(root);
+    return count;
+}
+
+function actionPlacementSnapshot(harness) {
+    return ACTION_IDS.map(id => {
+        const node = harness.dom.actions.get(id);
+        return {id, node, parent: node.parentNode, index: node.parentNode.children.indexOf(node)};
+    });
+}
+
+function actionPlacementsMatch(snapshot) {
+    return snapshot.every(item => item.node.parentNode === item.parent
+        && item.parent.children.indexOf(item.node) === item.index);
+}
+
+function actionsAreAtOrigins(harness) {
+    return ACTION_IDS.every(id => {
+        const origin = harness.dom.origins.get(id);
+        return origin && origin.nextElementSibling === harness.dom.actions.get(id);
+    });
+}
+
 (async function main() {
     // 1) 声明式清单、默认值和首屏应用；i18n ready 前按钮保持隐藏。
     {
@@ -461,7 +594,7 @@ function businessCallCount(calls) {
         eq('classic 的下一目标是 workbench', state.target, 'workbench');
         eq('classic 状态显示 workbench 动作文案', state.text, '切换到工作台布局');
         ok('点击不替换按钮与标签节点', state.button === button && state.label === label);
-        ok('点击不改业务 DOM 子节点', h.dom.body.children.length === bodyChildren.length
+        ok('点击不替换页面顶层 DOM 子节点', h.dom.body.children.length === bodyChildren.length
             && h.dom.body.children.every((node, index) => node === bodyChildren[index]));
         eq('点击保持按钮焦点', h.dom.document.activeElement, button);
         eq('点击不改根节点哨兵属性', h.dom.html.getAttribute('data-sentinel'), 'keep');
@@ -514,6 +647,8 @@ function businessCallCount(calls) {
         h.storage.seed(STORAGE_KEY, 'classic');
         h.api.applyStoredLayout();
         eq('单 workbench 首屏根布局归一', rootLayout(h), 'workbench');
+        ok('单 workbench 六个动作恢复到各自 origin', actionsAreAtOrigins(h));
+        ok('单 workbench 投影 host 保持隐藏', h.dom.actionHost.hidden);
         h.api.bindLayoutToggle();
         h.api.bindLayoutToggle();
         ok('单 workbench 按钮 hidden 且 disabled', buttonState(h).hidden && buttonState(h).disabled);
@@ -549,6 +684,10 @@ function businessCallCount(calls) {
         h.api.applyStoredLayout();
         eq('单 classic 清理旧 workbench 偏好', h.storage.removeCalls.length, 1);
         eq('单 classic 应用唯一布局', rootLayout(h), 'classic');
+        jsonEq('单 classic 按声明顺序投影六个动作', actionIdsIn(h.dom.actionHost), ACTION_IDS);
+        ok('单 classic 六个动作均只有 host 一个父级', ACTION_IDS.every(id =>
+            h.dom.actions.get(id).parentNode === h.dom.actionHost));
+        ok('单 classic 保留暂停按钮 disabled 状态', h.dom.actions.get('btn-pause').disabled);
         h.api.bindLayoutToggle();
         ok('单 classic 按钮 hidden 且 disabled', buttonState(h).hidden && buttonState(h).disabled);
         eq('单 classic 不绑定 click', h.dom.button.listenerCount('click'), 0);
@@ -587,6 +726,8 @@ function businessCallCount(calls) {
         h.dispatchStorage(STORAGE_KEY, 'classic');
         eq('零布局所有操作保留原根属性', rootLayout(h), 'legacy-layout');
         eq('零布局所有操作不访问 storage', h.storage.accessCount(), 0);
+        ok('零布局不移动任何动作节点', actionsAreAtOrigins(h));
+        ok('零布局 host 保持空且由基础 CSS 控制可见性', actionIdsIn(h.dom.actionHost).length === 0);
         ok('零布局按钮保持 hidden 且 disabled', buttonState(h).hidden && buttonState(h).disabled);
         eq('零布局无 click 监听', h.dom.button.listenerCount('click'), 0);
         eq('零布局幂等绑定一个 no-op storage 监听', h.windowEvents.listenerCount('storage'), 1);
@@ -647,14 +788,18 @@ function businessCallCount(calls) {
         eq('storage 忽略其它 key', rootLayout(storageEvent), 'classic');
         storageEvent.dispatchStorage(STORAGE_KEY, null);
         eq('storage null 应用 default', rootLayout(storageEvent), 'workbench');
+        ok('storage null 同步恢复动作 origin', actionsAreAtOrigins(storageEvent));
         storageEvent.api.applyLayout('classic', {persist: false});
+        jsonEq('apply classic 同步动作投影', actionIdsIn(storageEvent.dom.actionHost), ACTION_IDS);
         storageEvent.dispatchStorage(STORAGE_KEY, ' Classic ');
         eq('storage 空白/大小写非法值应用 default', rootLayout(storageEvent), 'workbench');
+        ok('storage 非法值同步恢复动作 origin', actionsAreAtOrigins(storageEvent));
         storageEvent.api.applyLayout('classic', {persist: false});
         storageEvent.dispatchStorage(STORAGE_KEY, 'removed-layout');
         eq('storage 已移除 token 应用 default', rootLayout(storageEvent), 'workbench');
         storageEvent.dispatchStorage(STORAGE_KEY, 'classic');
         eq('storage 合法 token 正常同步', rootLayout(storageEvent), 'classic');
+        jsonEq('storage 合法 classic 同步动作投影', actionIdsIn(storageEvent.dom.actionHost), ACTION_IDS);
         eq('storage 事件从不 setItem', storageEvent.storage.setCalls.length, 0);
         eq('storage 事件从不 removeItem', storageEvent.storage.removeCalls.length, 0);
     }
@@ -686,7 +831,112 @@ function businessCallCount(calls) {
         ok('退化为零布局按钮保持隐藏', buttonState(h).hidden);
     }
 
-    console.log(`\nbatch-layout.test.js: ${passed} assertions passed (9 contract groups) ✓`);
+    // 10) 初始 classic 与反复往返只重排同一批动作节点，并完整保留节点状态。
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench',
+            storage: {[STORAGE_KEY]: 'classic'}
+        });
+        const identities = new Map(ACTION_IDS.map(id => [id, h.dom.actions.get(id)]));
+        const pause = h.dom.actions.get('btn-pause');
+        pause.focus();
+        h.resetBusinessCalls();
+        eq('初始 classic 偏好成功应用', h.api.applyStoredLayout(), 'classic');
+        eq('初始 classic 更新根 token', rootLayout(h), 'classic');
+        jsonEq('初始 classic host 使用声明的旧按钮顺序', actionIdsIn(h.dom.actionHost), ACTION_IDS);
+        ok('初始 classic 显示 action host', !h.dom.actionHost.hidden);
+        eq('初始 classic 不回写已有偏好', h.storage.setCalls.length, 0);
+        eq('投影后恢复动作按钮焦点', h.dom.document.activeElement, pause);
+        ok('投影保留 pause.disabled', pause.disabled);
+        ok('投影保留按钮数据状态', ACTION_IDS.every(id =>
+            identities.get(id).getAttribute('data-state') === id + '-state'));
+        ok('投影不触发任何业务函数或状态读取', businessCallCount(h.calls) === 0);
+
+        eq('classic → workbench 切换成功', h.api.toggleLayout(), 'workbench');
+        ok('workbench 精确恢复六个 origin', actionsAreAtOrigins(h));
+        ok('workbench 隐藏 action host', h.dom.actionHost.hidden);
+        ok('恢复后 more-menu open 状态不变', h.dom.moreMenu.open);
+        eq('恢复后焦点仍在同一 pause 节点', h.dom.document.activeElement, pause);
+
+        for (let index = 0; index < 10; index++) {
+            const expected = index % 2 === 0 ? 'classic' : 'workbench';
+            eq('反复切换 #' + (index + 1) + ' 返回预期布局', h.api.toggleLayout(), expected);
+            ok('反复切换 #' + (index + 1) + ' 保持动作节点身份', ACTION_IDS.every(id =>
+                h.dom.document.getElementById(id) === identities.get(id)));
+            ok('反复切换 #' + (index + 1) + ' 每个动作仅出现一次', ACTION_IDS.every(id =>
+                actionOccurrenceCount(h.dom.html, identities.get(id)) === 1));
+            if (expected === 'classic') {
+                jsonEq('反复切换 #' + (index + 1) + ' classic 顺序正确',
+                    actionIdsIn(h.dom.actionHost), ACTION_IDS);
+            } else {
+                ok('反复切换 #' + (index + 1) + ' workbench origin 正确', actionsAreAtOrigins(h));
+            }
+        }
+        ok('偶数次往返最终恢复 workbench origin', actionsAreAtOrigins(h));
+        ok('所有动作始终只有唯一父级', ACTION_IDS.every(id => !!identities.get(id).parentNode));
+        ok('所有动作最终仍保留 disabled/data 状态', pause.disabled && ACTION_IDS.every(id =>
+            identities.get(id).getAttribute('data-state') === id + '-state'));
+    }
+
+    // 11) 缺少任一 origin 时预检原子失败，不移动节点、不改根布局、不持久化。
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench',
+            missingActionOrigin: 'btn-export'
+        });
+        const placement = actionPlacementSnapshot(h);
+        const hostHidden = h.dom.actionHost.hidden;
+        eq('缺 origin 的 canonical workbench 也拒绝不完整投影契约', h.api.applyStoredLayout(), null);
+        h.api.bindLayoutToggle();
+        h.resetBusinessCalls();
+        eq('缺 origin 时 toggle 返回 null', h.api.toggleLayout(), null);
+        eq('缺 origin 时根布局保持 workbench', rootLayout(h), 'workbench');
+        eq('缺 origin 时不写 localStorage', h.storage.setCalls.length, 0);
+        ok('缺 origin 时没有任何部分移动', actionPlacementsMatch(placement));
+        ok('缺 origin 时 action host 可见状态不变且为空', h.dom.actionHost.hidden === hostHidden
+            && actionIdsIn(h.dom.actionHost).length === 0);
+        ok('缺 origin 时六个节点仍各出现一次', ACTION_IDS.every(id =>
+            actionOccurrenceCount(h.dom.html, h.dom.actions.get(id)) === 1));
+        eq('缺 origin 时不触发业务副作用', businessCallCount(h.calls), 0);
+    }
+
+    // 12) 浏览器 DOM 操作意外抛错时回滚已移动节点，错误布局不得落根或持久化。
+    {
+        const h = createHarness({
+            layouts: ['workbench', 'classic'],
+            defaultLayout: 'workbench',
+            initialLayout: 'workbench'
+        });
+        const placement = actionPlacementSnapshot(h);
+        eq('异常模拟前 canonical workbench 投影同步成功', h.api.applyStoredLayout(), 'workbench');
+        const pause = h.dom.actions.get('btn-pause');
+        pause.focus();
+        const appendChild = h.dom.actionHost.appendChild.bind(h.dom.actionHost);
+        let appendCalls = 0;
+        h.dom.actionHost.appendChild = function (child) {
+            appendCalls++;
+            if (appendCalls === 3) throw new Error('simulated append failure');
+            return appendChild(child);
+        };
+        h.resetBusinessCalls();
+        eq('DOM 中途异常时 applyLayout 返回 null',
+            h.api.applyLayout('classic', {persist: true}), null);
+        eq('DOM 中途异常时根布局保持 workbench', rootLayout(h), 'workbench');
+        eq('DOM 中途异常时不持久化 classic', h.storage.setCalls.length, 0);
+        ok('DOM 中途异常回滚全部动作位置', actionPlacementsMatch(placement));
+        ok('DOM 中途异常后 host 恢复隐藏且为空', h.dom.actionHost.hidden
+            && actionIdsIn(h.dom.actionHost).length === 0);
+        eq('DOM 中途异常后恢复原焦点', h.dom.document.activeElement, pause);
+        ok('DOM 中途异常后所有节点仍唯一', ACTION_IDS.every(id =>
+            actionOccurrenceCount(h.dom.html, h.dom.actions.get(id)) === 1));
+        eq('DOM 中途异常不触发业务副作用', businessCallCount(h.calls), 0);
+    }
+
+    console.log(`\nbatch-layout.test.js: ${passed} assertions passed (12 contract groups) ✓`);
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

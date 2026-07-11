@@ -274,6 +274,10 @@ class BatchLayoutContractTest {
         assertThat(css)
                 .contains("#download-workbench")
                 .contains("display: contents")
+                .contains(".tools-drawer")
+                .contains("grid-area: tools")
+                .contains(".batch-layout-action-host")
+                .contains("grid-area: actions")
                 .contains(".batch-layout-toggle");
     }
 
@@ -286,6 +290,7 @@ class BatchLayoutContractTest {
         assertThat(css)
                 .contains("max-width: 1440px")
                 .contains("grid-template-columns: 190px minmax(0, 1fr) 350px")
+                .contains("\"rail   tools   queue\"")
                 .contains("position: sticky")
                 .contains("box-shadow: 0 0 0 100vmax")
                 .contains("@media (max-width: 1280px)")
@@ -296,7 +301,7 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("classic 投影独立承载单列、横向 tabs、卡片 dashboard 与统计网格")
+    @DisplayName("classic 投影按传统顺序承载工具、模式、六列统计、操作区与队列")
     void classicProjectionIsScopedAndIndependent() throws IOException {
         String css = read(CLASSIC_LAYOUT_CSS);
         assertScopedProjection(css, CLASSIC_SCOPE, "workbench");
@@ -304,11 +309,54 @@ class BatchLayoutContractTest {
         assertThat(css)
                 .contains("max-width: 1000px")
                 .contains("grid-template-columns: minmax(0, 1fr)")
+                .contains("\"tools\"")
+                .contains("\"rail\"")
+                .contains("\"center\"")
+                .contains("\"strip\"")
+                .contains("\"actions\"")
+                .contains("\"queue\"")
                 .contains("position: static")
+                .contains("grid-template-columns: repeat(6, minmax(0, 1fr))")
+                .contains(".batch-layout-action-host[data-batch-layout-action-host=\"classic\"]")
                 .contains("grid-template-columns: repeat(3, minmax(0, 1fr))")
+                .contains("@media (max-width: 820px)")
                 .contains("@media (max-width: 560px)")
                 .contains("@media (max-width: 380px)")
                 .doesNotContain("100vmax");
+
+        String shellRule = sliceBetween(css, CLASSIC_SCOPE + " .wb-shell {", "}");
+        assertThat(shellRule.indexOf("\"tools\"")).isLessThan(shellRule.indexOf("\"rail\""));
+        assertThat(shellRule.indexOf("\"rail\"")).isLessThan(shellRule.indexOf("\"center\""));
+        assertThat(shellRule.indexOf("\"strip\"")).isLessThan(shellRule.indexOf("\"actions\""));
+        assertThat(shellRule.indexOf("\"actions\"")).isLessThan(shellRule.indexOf("\"queue\""));
+    }
+
+    @Test
+    @DisplayName("经典布局声明唯一六按钮投影并在队列前保留全部原位锚点")
+    void classicActionProjectionIsDeclaredOnceBeforeQueue() throws IOException {
+        String html = read(BATCH_HTML);
+        List<String> actionIds = List.of(
+                "btn-start", "btn-pause", "btn-retry",
+                "btn-export", "btn-export-failed", "btn-clear");
+        Matcher hostMatcher = Pattern.compile(
+                "<div\\s+[^>]*data-batch-layout-action-host=\"classic\"[^>]*>",
+                Pattern.CASE_INSENSITIVE).matcher(html);
+
+        assertThat(hostMatcher.find()).as("经典布局必须声明操作投影宿主").isTrue();
+        String host = hostMatcher.group();
+        assertThat(attribute(host, "data-batch-layout-action-order"))
+                .isEqualTo(String.join(" ", actionIds));
+        assertThat(hostMatcher.find()).as("经典布局操作投影宿主必须唯一").isFalse();
+        assertThat(html.indexOf(host)).isLessThan(html.indexOf("<aside class=\"queue-rail\">"));
+
+        for (String id : actionIds) {
+            assertThat(countOccurrences(html, "data-batch-layout-action-origin=\"" + id + "\""))
+                    .as("按钮 " + id + " 必须且只能有一个原位锚点")
+                    .isEqualTo(1);
+            assertThat(countOccurrences(html, "id=\"" + id + "\""))
+                    .as("按钮 " + id + " 必须且只能保留一个真实节点")
+                    .isEqualTo(1);
+        }
     }
 
     @Test
@@ -374,8 +422,8 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("布局控制器从 link 发现布局且无业务或 DOM 重建副作用")
-    void layoutControllerUsesDeclarativeDiscoveryWithoutBusinessSideEffects() throws IOException {
+    @DisplayName("布局控制器从声明发现布局且仅重排既有操作按钮节点")
+    void layoutControllerUsesDeclarativeDiscoveryAndScopedActionProjection() throws IOException {
         String js = read(LAYOUT_JS);
 
         assertThat(js)
@@ -385,13 +433,29 @@ class BatchLayoutContractTest {
         assertNoPattern(js, "布局控制器不得发起 fetch", "\\bfetch\\s*\\(");
         assertNoPattern(js, "布局控制器不得创建 XMLHttpRequest", "\\bXMLHttpRequest\\b");
         assertNoPattern(js, "布局控制器不得 reload / 导航", "\\b(?:window\\s*\\.\\s*)?location\\s*\\.");
-        assertNoPattern(js, "布局控制器不得克隆 / 替换 / 移动 DOM",
-                "\\b(?:cloneNode|replaceWith|replaceChild|replaceChildren|appendChild|insertBefore)\\s*\\(");
+        assertNoPattern(js, "布局控制器不得克隆 / 替换 DOM",
+                "\\b(?:cloneNode|replaceWith|replaceChild|replaceChildren)\\s*\\(");
         assertNoPattern(js, "布局控制器不得用 append/prepend/before/after 移动 DOM",
                 "\\.\\s*(?:append|prepend|before|after)\\s*\\(");
         assertNoPattern(js, "布局控制器不得用 innerHTML/outerHTML 重建 DOM", "\\b(?:innerHTML|outerHTML)\\b");
         assertNoPattern(js, "布局控制器不得创建或操作 Vue app", "\\b(?:PixivVue|Vue|createApp)\\b");
         assertNoPattern(js, "布局控制器不得触发业务 bootstrap", "\\.\\s*bootstrap\\s*\\(");
+        assertThat(js)
+                .contains("[data-batch-layout-action-host]")
+                .contains("[data-batch-layout-action-origin]")
+                .contains("data-batch-layout-action-order");
+
+        int projectionStart = js.indexOf("function syncBatchLayoutActionProjection(");
+        int projectionEnd = js.indexOf("function batchLayoutText(", projectionStart);
+        assertThat(projectionStart).as("源码必须包含专用操作投影函数").isGreaterThanOrEqualTo(0);
+        assertThat(projectionEnd).as("专用操作投影函数必须保持独立职责边界").isGreaterThan(projectionStart);
+        String projection = js.substring(projectionStart, projectionEnd);
+        String outsideProjection = js.substring(0, projectionStart) + js.substring(projectionEnd);
+        assertThat(projection)
+                .contains("appendChild(")
+                .contains("insertBefore(");
+        assertNoPattern(outsideProjection, "操作投影之外不得移动 DOM",
+                "\\b(?:appendChild|insertBefore)\\s*\\(");
         assertThat(js).as("布局 API 应加性挂到 window.PixivBatch.layout")
                 .contains("window.PixivBatch.layout = Object.assign(window.PixivBatch.layout || {}, {");
     }
@@ -435,6 +499,12 @@ class BatchLayoutContractTest {
                 "stat-count-skipped",
                 "stat-speed-value",
                 "stat-speed-unit",
+                "btn-start",
+                "btn-pause",
+                "btn-retry",
+                "btn-export",
+                "btn-export-failed",
+                "btn-clear",
                 "current-card",
                 "queue-list"));
         for (String mode : List.of("quick-fetch", "single-import", "user", "search", "series", "schedule")) {
