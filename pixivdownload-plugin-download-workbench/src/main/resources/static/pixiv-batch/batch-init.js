@@ -104,8 +104,8 @@
             syncCookieToggleLabel();
         });
 
-        document.getElementById('cookie-clear').addEventListener('click', () => {
-            if (!uiConfirmKey('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
+        document.getElementById('cookie-clear').addEventListener('click', async () => {
+            if (!await uiConfirmKey('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
             storeRemove('pixiv_cookie');
             document.getElementById('cookie-input').value = '';
             setCookieStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'success');

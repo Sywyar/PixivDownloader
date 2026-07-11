@@ -563,7 +563,7 @@
     async function addAllSeriesResultsToQueue() {
         if (!seriesState.seriesId || (!seriesState.items.length && !seriesState.allItems.length)) return;
         const loadedPages = seriesState.itemsByPage.size;
-        if (!uiConfirmKey(
+        if (!await uiConfirmKey(
             'dialog.series-add-all-warning',
             '全部加入队列会额外请求该系列的所有分页（漫画每页 12 个，小说每页 30 个），大系列可能耗时并增加 Pixiv 请求量。当前已加载 {loaded} / {total} 页，确认继续？',
             {loaded: loadedPages, total: seriesState.totalPages}

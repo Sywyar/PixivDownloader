@@ -129,7 +129,7 @@
         const rawInput = input.value;
         const userId = parseUserIdInput(rawInput);
         if (!userId) {
-            uiAlertKey('alert.invalid-user-id', '请输入有效的用户 ID 或画师主页链接');
+            await uiAlertKey('alert.invalid-user-id', '请输入有效的用户 ID 或画师主页链接');
             return;
         }
         // 粘贴 .../users/{id}/request/artworks 这类约稿页链接时，自动切到「约稿」类别。
@@ -479,7 +479,7 @@
             return;
         }
         // 有附加筛选：必须逐页拉取卡片元数据做筛选，确认后继续。
-        if (!uiConfirmKey(
+        if (!await uiConfirmKey(
             'dialog.user-add-all-warning',
             '「全部加入队列」会按附加筛选逐页请求该画师的全部 {total} 个作品卡片，作品较多时会增加 Pixiv 请求量并耗时，确认继续？',
             {total: userState.allIds.length}

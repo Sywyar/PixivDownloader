@@ -128,8 +128,8 @@
         );
     }
 
-    function parseSingleImportFresh() {
-        if (!uiConfirmKey('dialog.confirm-reparse', '确认清除当前队列并重新解析？')) return;
+    async function parseSingleImportFresh() {
+        if (!await uiConfirmKey('dialog.confirm-reparse', '确认清除当前队列并重新解析？')) return;
         stopAndClear();
         parseSingleImport();
     }

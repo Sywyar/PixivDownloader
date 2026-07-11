@@ -1,0 +1,139 @@
+.pixiv-feedback-open {
+    overflow: hidden;
+}
+
+.pixiv-feedback-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4, 16px);
+    background: var(--overlay-bg, color-mix(in srgb, CanvasText 55%, transparent));
+}
+
+.pixiv-feedback-dialog {
+    width: min(440px, 100%);
+    max-height: min(80vh, 680px);
+    overflow: auto;
+    padding: var(--space-5, 24px);
+    color: var(--text, CanvasText);
+    background: var(--surface, Canvas);
+    border: 1px solid var(--line, color-mix(in srgb, CanvasText 22%, transparent));
+    border-radius: var(--radius-lg, 12px);
+    box-shadow: var(--shadow-lg, 0 18px 48px color-mix(in srgb, CanvasText 28%, transparent));
+}
+
+.pixiv-feedback-title {
+    margin: 0 0 var(--space-3, 12px);
+    font-size: var(--text-lg, 18px);
+    line-height: 1.35;
+}
+
+.pixiv-feedback-message {
+    color: var(--text, CanvasText);
+    font-size: var(--text-sm, 14px);
+    line-height: 1.65;
+    white-space: pre-wrap;
+}
+
+.pixiv-feedback-input {
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: var(--space-4, 16px);
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    color: var(--text, CanvasText);
+    background: var(--control-bg, Field);
+    border: 1px solid var(--line, color-mix(in srgb, CanvasText 22%, transparent));
+    border-radius: var(--radius-md, 8px);
+    font: inherit;
+}
+
+.pixiv-feedback-input:focus {
+    outline: 2px solid var(--brand, Highlight);
+    outline-offset: 2px;
+}
+
+.pixiv-feedback-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2, 8px);
+    margin-top: var(--space-5, 24px);
+}
+
+.pixiv-feedback-button {
+    min-width: 84px;
+    padding: var(--space-2, 8px) var(--space-4, 16px);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md, 8px);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pixiv-feedback-button:focus-visible {
+    outline: 2px solid var(--brand, Highlight);
+    outline-offset: 2px;
+}
+
+.pixiv-feedback-button--secondary {
+    color: var(--text, ButtonText);
+    background: var(--control-bg, ButtonFace);
+    border-color: var(--line, ButtonBorder);
+}
+
+.pixiv-feedback-button--primary {
+    color: var(--on-brand, HighlightText);
+    background: var(--brand, Highlight);
+}
+
+.pixiv-feedback-button--danger {
+    color: var(--on-danger, HighlightText);
+    background: var(--danger, Mark);
+}
+
+.pixiv-feedback-toast-host {
+    position: fixed;
+    right: var(--space-4, 16px);
+    bottom: var(--space-4, 16px);
+    z-index: 10020;
+    display: grid;
+    width: min(360px, calc(100vw - 32px));
+    gap: var(--space-2, 8px);
+    pointer-events: none;
+}
+
+.pixiv-feedback-toast {
+    padding: var(--space-3, 12px) var(--space-4, 16px);
+    color: var(--text, CanvasText);
+    background: var(--surface, Canvas);
+    border: 1px solid var(--line, color-mix(in srgb, CanvasText 22%, transparent));
+    border-left: 4px solid var(--brand, Highlight);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-md, 0 8px 24px color-mix(in srgb, CanvasText 18%, transparent));
+    transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.pixiv-feedback-toast--success {
+    border-left-color: var(--success, Highlight);
+}
+
+.pixiv-feedback-toast--warning {
+    border-left-color: var(--warning, Mark);
+}
+
+.pixiv-feedback-toast--error {
+    border-left-color: var(--danger, Mark);
+}
+
+.pixiv-feedback-toast--leaving {
+    opacity: 0;
+    transform: translateY(8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pixiv-feedback-toast {
+        transition: none;
+    }
+}

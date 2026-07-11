@@ -572,7 +572,7 @@
             return;
         }
         if (!await checkBackend()) {
-            uiAlertKey('alert.backend-unavailable', '后端服务不可用，请确认后端已启动');
+            await uiAlertKey('alert.backend-unavailable', '后端服务不可用，请确认后端已启动');
             return;
         }
 
@@ -1021,10 +1021,10 @@
         if (state.isPaused) resume(); else pause();
     }
 
-    function handleRetry() {
+    async function handleRetry() {
         const failed = state.queue.filter(q => q.status === 'failed');
         if (!failed.length) {
-            uiAlertKey('alert.no-failed', '当前没有失败的作品');
+            await uiAlertKey('alert.no-failed', '当前没有失败的作品');
             return;
         }
         failed.forEach(q => {
@@ -1036,11 +1036,11 @@
         saveQueue();
         renderQueue();
         syncSettings();
-        start();
+        await start();
     }
 
-    function handleClear() {
-        if (!uiConfirmKey('dialog.confirm-clear-queue', '确认清除队列？')) return;
+    async function handleClear() {
+        if (!await uiConfirmKey('dialog.confirm-clear-queue', '确认清除队列？')) return;
         stopAndClear();
     }
 

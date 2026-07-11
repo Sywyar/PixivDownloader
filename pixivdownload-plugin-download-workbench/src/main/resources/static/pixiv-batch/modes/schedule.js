@@ -308,12 +308,12 @@
         // N=0（全量）风险确认：仅对支持封顶的来源类型提示——首轮全量可能触发 Pixiv 过度访问警告甚至封号。
         if (scheduleTypeSupportsFetchLimit(snap.type, snap.params.source)
             && !(snap.params.fetchLimit > 0)
-            && !uiConfirmKey('schedule.confirm.full-fetch',
+            && !await uiConfirmKey('schedule.confirm.full-fetch',
                 '「首次抓取上限」为 0 表示首次运行会尝试抓取该来源的全部历史作品。作品很多时可能触发 Pixiv 的过度访问警告甚至封号风险。确定要全量抓取吗？')) {
             return;
         }
         // 编辑时取消勾选 = 清除已生效的单独代理 / Cookie：先确认后果再保存。
-        if (!confirmScheduleOverrideClears(ov, prevTask)) {
+        if (!await confirmScheduleOverrideClears(ov, prevTask)) {
             return;
         }
         const triggerKind = document.getElementById('sch-trigger').value;
@@ -482,15 +482,15 @@
     }
 
     // 取消勾选 = 清除已生效的单独设置：弹窗确认后果（回退全局代理 / 解除 Cookie 转受限模式）。
-    function confirmScheduleOverrideClears(ov, prevTask) {
+    async function confirmScheduleOverrideClears(ov, prevTask) {
         if (!prevTask) return true;
         if (!ov.proxyChecked && prevTask.proxy
-            && !uiConfirmKey('schedule.confirm.clear-proxy',
+            && !await uiConfirmKey('schedule.confirm.clear-proxy',
                 '将清除该任务的单独代理，此后该任务回退使用全局代理设置访问 Pixiv。确定吗？')) {
             return false;
         }
         if (!ov.cookieChecked && prevTask.cookieBound
-            && !uiConfirmKey('schedule.confirm.clear-cookie',
+            && !await uiConfirmKey('schedule.confirm.clear-cookie',
                 '将解除该任务绑定的 Cookie，任务转为受限（匿名）模式运行：R-18 等受限内容将无法抓取，「我的收藏 / 已关注用户的新作 / 珍藏集」类任务将无法运行。确定吗？')) {
             return false;
         }
@@ -1247,7 +1247,7 @@
             setScheduleOverrideStatus(error, 'error');
             return;
         }
-        if (!confirmScheduleOverrideClears(ov, task)) {
+        if (!await confirmScheduleOverrideClears(ov, task)) {
             return;
         }
         const result = await applyScheduleOverrides(id, ov, task);
@@ -2246,14 +2246,19 @@
         }
     }
 
-    function resumeScheduleAccountIgnore(accountId) {
-        if (!confirm(bt('schedule.overuse.confirm.ignore',
-            '确定无视过度访问警告并立即继续下载吗？短时间内继续大量下载可能导致账号被封禁。'))) return;
+    async function resumeScheduleAccountIgnore(accountId) {
+        if (!await uiConfirmKey('schedule.overuse.confirm.ignore',
+            '确定无视过度访问警告并立即继续下载吗？短时间内继续大量下载可能导致账号被封禁。')) return;
         resumeScheduleAccount(accountId, 'ignore');
     }
 
-    function resumeScheduleAccountDefer(accountId) {
-        const input = prompt(bt('schedule.overuse.prompt.minutes', '延迟多少分钟后继续？（最低 60）'), '60');
+    async function resumeScheduleAccountDefer(accountId) {
+        const input = await uiPromptKey(
+            'schedule.overuse.prompt.minutes',
+            '延迟多少分钟后继续？（最低 60）',
+            '60',
+            {inputType: 'number', min: 60, step: 1}
+        );
         if (input == null) return;
         let minutes = parseInt(input, 10);
         if (!Number.isFinite(minutes) || minutes < 60) minutes = 60;
@@ -2320,7 +2325,7 @@
     }
 
     async function deleteScheduleTask(id) {
-        if (!confirm(bt('schedule.confirm.delete', '确定删除这个计划任务吗？（绑定的 Cookie 也会被清除）'))) return;
+        if (!await uiConfirmKey('schedule.confirm.delete', '确定删除这个计划任务吗？（绑定的 Cookie 也会被清除）')) return;
         try {
             await fetch(`${BASE}/api/schedule/tasks/${id}`, {method: 'DELETE', credentials: 'same-origin'});
             loadScheduleTasks();

@@ -199,11 +199,42 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     }
 
     function uiAlertKey(key, fallback, vars) {
-        alert(bt(key, fallback, vars));
+        if (typeof PixivFeedback === 'undefined') {
+            console.warn(bt(key, fallback, vars));
+            return Promise.resolve();
+        }
+        return PixivFeedback.alert({
+            title: bt('dialog.title.notice', '提示'),
+            message: bt(key, fallback, vars),
+            confirmLabel: bt('common:button.done', '完成')
+        });
     }
 
     function uiConfirmKey(key, fallback, vars) {
-        return confirm(bt(key, fallback, vars));
+        if (typeof PixivFeedback === 'undefined') return Promise.resolve(false);
+        return PixivFeedback.confirm({
+            title: bt('dialog.title.confirm', '请确认'),
+            message: bt(key, fallback, vars),
+            confirmLabel: bt('common:button.confirm', '确定'),
+            cancelLabel: bt('common:button.cancel', '取消'),
+            danger: true
+        });
+    }
+
+    function uiPromptKey(key, fallback, value, options) {
+        if (typeof PixivFeedback === 'undefined') return Promise.resolve(null);
+        const inputOptions = options || {};
+        return PixivFeedback.prompt({
+            title: bt('dialog.title.input', '请输入'),
+            message: bt(key, fallback, inputOptions.vars),
+            value: value,
+            inputType: inputOptions.inputType,
+            min: inputOptions.min,
+            max: inputOptions.max,
+            step: inputOptions.step,
+            confirmLabel: bt('common:button.confirm', '确定'),
+            cancelLabel: bt('common:button.cancel', '取消')
+        });
     }
 
     const BASE = '';  // 使用相对路径，自动适配访问地址
@@ -329,4 +360,4 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
 
 // ---- PixivBatch facade ----
 window.PixivBatch.core = window.PixivBatch.core || {};
-window.PixivBatch.core = Object.assign(window.PixivBatch.core, { bt, uiLang, interpolate, esc, escHtml, sleep, downloadTxt, formatBytes, formatSeconds, formatDurationMs, uiAlertKey, uiConfirmKey, loadAppInfo, BASE, setStatus, apiGet, checkBackend, togglePreviewCollapse, resetPreviewCollapse });
+window.PixivBatch.core = Object.assign(window.PixivBatch.core, { bt, uiLang, interpolate, esc, escHtml, sleep, downloadTxt, formatBytes, formatSeconds, formatDurationMs, uiAlertKey, uiConfirmKey, uiPromptKey, loadAppInfo, BASE, setStatus, apiGet, checkBackend, togglePreviewCollapse, resetPreviewCollapse });

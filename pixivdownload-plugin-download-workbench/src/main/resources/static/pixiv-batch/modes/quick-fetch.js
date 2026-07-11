@@ -848,7 +848,7 @@
         if (!quickState.rawItems.length && !quickState.allIds.length) return;
         // 「已关注的用户的新作」无总数，从第 1 页逐页抓取直到 hasNext 为 false
         if (quickState.action === 'my-following-new') {
-            if (!uiConfirmKey('quick.confirm.add-all-follow-new',
+            if (!await uiConfirmKey('quick.confirm.add-all-follow-new',
                 '将逐页抓取「已关注的用户的新作」直到没有更多并全部加入队列，请求较多，确认继续？')) return;
             setQuickBtnLoading('quick-add-all', true);
             const ids = [];
@@ -891,7 +891,7 @@
         // 可直接按全量 ID 入队的动作（我的作品 / 我的约稿：无须逐页拉 cards），由动作映射的 allIdsFastPath 标记。
         const allDesc = quickActionMap()[quickState.action];
         if (allDesc && allDesc.allIdsFastPath) {
-            if (!uiConfirmKey('quick.confirm.add-all-my-works',
+            if (!await uiConfirmKey('quick.confirm.add-all-my-works',
                 '将把你的全部 {total} 个作品（含 hide）加入队列，确认继续？',
                 {total: quickState.allIds.length})) return;
             const acq = window.PixivBatch.queueTypes.acquisition(quickState.kind, 'quick');
@@ -911,7 +911,7 @@
         }
         // 其它（书签 / 珍藏集内 / 关注用户作品）：逐页抓取
         const totalPages = Math.max(1, Math.ceil(quickState.total / quickState.pageSize));
-        if (!uiConfirmKey('quick.confirm.add-all-paged',
+        if (!await uiConfirmKey('quick.confirm.add-all-paged',
             '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
             {pages: totalPages, total: quickState.total})) return;
         const ids = [];
@@ -1301,7 +1301,7 @@
         }
         const kind = quickInner.kind;
         const totalPages = Math.max(1, Math.ceil(quickInner.total / quickInner.pageSize));
-        if (!uiConfirmKey('quick.confirm.add-all-paged',
+        if (!await uiConfirmKey('quick.confirm.add-all-paged',
             '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
             {pages: totalPages, total: quickInner.total})) return;
         const ids = [];

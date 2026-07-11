@@ -444,9 +444,9 @@
         return added;
     }
 
-    function handleExport() {
+    async function handleExport() {
         if (!state.queue.length) {
-            uiAlertKey('alert.queue-empty', '队列为空');
+            await uiAlertKey('alert.queue-empty', '队列为空');
             return;
         }
         const lines = state.queue.map(q =>
@@ -455,10 +455,10 @@
         setStatus(bt('status.exported-all', '已导出 {count} 个作品', {count: lines.length}), 'success');
     }
 
-    function handleExportFailed() {
+    async function handleExportFailed() {
         const items = state.queue.filter(q => q.status !== 'completed');
         if (!items.length) {
-            uiAlertKey('alert.no-undownloaded', '没有未下载的作品');
+            await uiAlertKey('alert.no-undownloaded', '没有未下载的作品');
             return;
         }
         const lines = items.map(q =>
