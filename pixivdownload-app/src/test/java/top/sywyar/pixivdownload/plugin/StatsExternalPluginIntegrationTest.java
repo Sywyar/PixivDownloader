@@ -48,8 +48,8 @@ import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
  * </ol>
  *
  * <p>控范围：本测试只验证<b>启动期加载</b>与 contribution 注册。stats {@code @RestController} / {@code @Service}
- * 的 Bean 装配与 {@code /api/stats/**} 处理器注册依赖尚未启用的 Web 动态注册能力，
- * <b>不</b>在此验证——即便 route contribution 已声明，未装配 controller 时该端点仍不命中处理器。
+ * 的 child-context Bean 装配，以及 {@code /api/stats/**} 处理器随生命周期动态注册 / 注销，
+ * 由 {@link StatsExternalPluginBootContextTest} 单独验证，不在本类重复启动父子 Spring context。
  *
  * <p>stats 构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} 传入（指向
  * {@code pixivdownload-plugin-stats/target/classes}，reactor 中先于 app 构建）；未就绪时（如 IDE 未触发 reactor

@@ -19,7 +19,7 @@
     <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>PixivDownloader Parent</name>
-    <description>PixivDownloader 多模块聚合父工程（plugin-api 契约模块 + 主程序 boot 应用）</description>
+    <description>PixivDownloader 多模块聚合父工程（核心壳、共享运行时与官方外置插件）</description>
     <url/>
     <licenses>
         <license/>

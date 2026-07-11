@@ -45,7 +45,7 @@
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
-        <!-- 插件启用运行时：@ConditionalOnPluginEnabled（业务 Bean 随 plugins.stats.enabled 装配 / 缺席，由 Web 动态注册能力消费；provided：宿主提供） -->
+        <!-- 插件启用运行时：@ConditionalOnPluginEnabled（业务 Bean 随 plugins.stats.enabled 在 child context 装配 / 缺席，controller handler 随插件生命周期动态注册；provided：宿主提供） -->
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-runtime</artifactId>
