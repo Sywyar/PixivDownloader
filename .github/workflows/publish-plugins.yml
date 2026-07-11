@@ -18,12 +18,20 @@ env:
   PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07
 
 jobs:
+  quality-gate:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master' }}
+    uses: ./.github/workflows/quality-gate.yml
+
   publish:
+    needs: quality-gate
+    if: ${{ !cancelled() && needs.quality-gate.result == 'success' }}
     # Windows runner：插件分发脚本面向 Windows PowerShell（plugin-distribution-common.ps1 用 System.IO.Compression / Get-FileHash）。
     runs-on: windows-latest
     steps:
       - name: Checkout main repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

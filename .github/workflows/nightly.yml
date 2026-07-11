@@ -22,6 +22,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Resolve next version
@@ -57,6 +58,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up JDK 17
@@ -68,6 +70,13 @@ jobs:
 
       - name: Build JAR
         run: mvn package -DskipTests -Dapp.release.version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Verify packaged distribution boundaries
+        run: |
+          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
+          REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
+          test -n "$REPORT"
+          grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
 
       - name: Stage executable JAR
         run: |
@@ -156,6 +165,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up JDK 17
@@ -225,6 +235,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Download Windows installer artifacts
@@ -314,8 +325,8 @@ jobs:
         shell: bash
         run: |
           cat > RELEASE_BODY.md <<'EOF'
-          > ⚠️ 这是自动构建的每夜版，可能包含未测试的功能和 bug。
-          > This is an automated nightly build. It may contain untested features and bugs.
+          > ⚠️ 这是通过自动化测试的每夜版，但未经正式发布级人工验证，仍可能包含 bug。
+          > This nightly build passed automated tests but has not received release-level manual validation and may still contain bugs.
 
           **构建日期 / Build Date:** ${{ needs.resolve-version.outputs.date }}
           **Commit:** [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})

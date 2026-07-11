@@ -60,6 +60,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("插件分发打包边界：boot jar 不含外置插件类、外置插件独立产物形态")
 class DistributionPackagingBoundaryTest {
 
+    private static final boolean REQUIRE_PACKAGED_ARTIFACTS =
+            Boolean.getBoolean("distribution.packaging.require-artifacts");
+
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final String GALLERY_CLASSES_PROPERTY = "gallery.plugin.classes";
@@ -227,8 +230,8 @@ class DistributionPackagingBoundaryTest {
     @DisplayName("boot jar 条目黑名单：不含外置插件实现包、静态资源、i18n 与私有依赖")
     void bootJarEntriesExcludeExternalPluginPayloads() {
         Path bootJar = locateBootJar();
-        Assumptions.assumeTrue(bootJar != null,
-                "boot jar 尚未生成（需 package 阶段），跳过 jar 条目级边界验证");
+        requireAvailable(bootJar != null,
+                "boot jar 尚未生成（需 package 阶段），无法执行 jar 条目级边界验证");
 
         List<String> entries = jarEntryNames(bootJar);
         List<String> forbiddenPrefixes = List.of(
@@ -404,8 +407,8 @@ class DistributionPackagingBoundaryTest {
     @DisplayName("gui-theme 以 JAR-with-lib 形态打包：根 descriptor + 插件类 + lib/*.jar")
     void guiThemePackagesAsJarWithPrivateLibraries(@TempDir Path tempDir) {
         Path classesDir = locateConfiguredDir(GUI_THEME_CLASSES_PROPERTY);
-        Assumptions.assumeTrue(classesDir != null && Files.isDirectory(classesDir),
-                "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-theme），跳过 JAR-with-lib 形态验证");
+        requireAvailable(classesDir != null && Files.isDirectory(classesDir),
+                "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-theme），无法验证 JAR-with-lib 形态");
 
         assertThat(classesDir.resolve("plugin.properties"))
                 .as("主题插件构建产物根部应含 plugin.properties").exists();
@@ -417,7 +420,7 @@ class DistributionPackagingBoundaryTest {
                 .as("主题插件不得打入 app 核心主题管理类").doesNotExist();
 
         Path jar = locateConfiguredGuiThemeJar(classesDir);
-        if (jar == null) {
+        if (skipMissingPackagedArtifact(jar, "pixivdownload-plugin-gui-theme 的真实插件 JAR 未生成")) {
             return;
         }
         List<String> entries = jarEntryNames(jar);
@@ -442,8 +445,8 @@ class DistributionPackagingBoundaryTest {
 
     private void assertThinExternalPlugin(String classesProperty, String artifactId, String mainClassEntry) {
         Path classesDir = locateConfiguredDir(classesProperty);
-        Assumptions.assumeTrue(classesDir != null && Files.isDirectory(classesDir),
-                () -> "插件构建产物未就绪（需 reactor 先构建 " + artifactId + "），跳过 thin 形态验证");
+        requireAvailable(classesDir != null && Files.isDirectory(classesDir),
+                "插件构建产物未就绪（需 reactor 先构建 " + artifactId + "），无法验证 thin 形态");
 
         // 构建 classes 根部：描述符 + 外置主类在位；不泄漏共享契约（plugin-api）与宿主组合根类。
         assertThat(classesDir.resolve("plugin.properties"))
@@ -457,7 +460,7 @@ class DistributionPackagingBoundaryTest {
 
         // 真实插件 jar 仅在 package 阶段后存在：存在即追加 thin 不变量（根 plugin.properties、无 BOOT-INF、无打入框架类）。
         Path jar = locateModuleJar(classesDir, artifactId);
-        if (jar == null) {
+        if (skipMissingPackagedArtifact(jar, artifactId + " 的真实插件 JAR 未生成")) {
             return;
         }
         List<String> entries = jarEntryNames(jar);
@@ -478,8 +481,8 @@ class DistributionPackagingBoundaryTest {
     private void assertJarWithPrivateLibraries(String classesProperty, String artifactId, String mainClassEntry,
                                                List<String> requiredLibPatterns) {
         Path classesDir = locateConfiguredDir(classesProperty);
-        Assumptions.assumeTrue(classesDir != null && Files.isDirectory(classesDir),
-                () -> "插件构建产物未就绪（需 reactor 先构建 " + artifactId + "），跳过 JAR-with-lib 形态验证");
+        requireAvailable(classesDir != null && Files.isDirectory(classesDir),
+                "插件构建产物未就绪（需 reactor 先构建 " + artifactId + "），无法验证 JAR-with-lib 形态");
 
         assertThat(classesDir.resolve("plugin.properties"))
                 .as("插件构建产物根部应含 plugin.properties").exists();
@@ -491,7 +494,7 @@ class DistributionPackagingBoundaryTest {
                 .as("JAR-with-lib 插件构建产物应携带 lib/ 私有依赖").isDirectory();
 
         Path jar = locateModuleJar(classesDir, artifactId);
-        if (jar == null) {
+        if (skipMissingPackagedArtifact(jar, artifactId + " 的真实插件 JAR 未生成")) {
             return;
         }
         List<String> entries = jarEntryNames(jar);
@@ -508,6 +511,24 @@ class DistributionPackagingBoundaryTest {
     }
 
     // --- helpers ---
+
+    private static void requireAvailable(boolean available, String message) {
+        if (REQUIRE_PACKAGED_ARTIFACTS) {
+            assertThat(available).as(message).isTrue();
+        } else {
+            Assumptions.assumeTrue(available, message);
+        }
+    }
+
+    private static boolean skipMissingPackagedArtifact(Path artifact, String message) {
+        if (artifact != null) {
+            return false;
+        }
+        if (REQUIRE_PACKAGED_ARTIFACTS) {
+            assertThat(artifact).as(message).isNotNull();
+        }
+        return true;
+    }
 
     private static boolean canLoad(ClassLoader loader, String className) {
         try {

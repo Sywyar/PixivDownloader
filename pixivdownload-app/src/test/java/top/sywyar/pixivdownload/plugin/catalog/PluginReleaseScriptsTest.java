@@ -436,6 +436,95 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("质量门禁以同一提交运行完整 Java 与零依赖 JavaScript 测试")
+    void qualityGateRunsJavaAndJavaScriptTestsForTheSameCommit() throws Exception {
+        String workflow = workflow("quality-gate.yml");
+        JsonNode packageJson = new ObjectMapper().readTree(repoRoot().resolve("package.json").toFile());
+
+        assertThat(workflow).contains(
+                "push:",
+                "branches: [master]",
+                "pull_request:",
+                "merge_group:",
+                "workflow_call:",
+                "ref: ${{ github.sha }}",
+                "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
+                "mvn -B -ntp test -Dexec.skip=true",
+                "uses: actions/setup-node@v4",
+                "node-version: '24'",
+                "run: npm run test:js",
+                "run: npm run test:web-standards");
+        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(3);
+        assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
+        assertThat(workflow.indexOf("run: npm run test:web-standards"))
+                .isGreaterThan(workflow.indexOf("run: npm run test:js"));
+        assertThat(packageJson.path("private").asBoolean()).isTrue();
+        assertThat(packageJson.path("scripts").path("test:js").asText())
+                .isEqualTo("node --test \"**/src/test/js/*.test.js\"");
+        assertThat(packageJson.path("scripts").path("test:web-standards").asText())
+                .isEqualTo("node scripts/check-web-standards.mjs");
+        assertThat(packageJson.has("dependencies")).isFalse();
+        assertThat(packageJson.has("devDependencies")).isFalse();
+    }
+
+    @Test
+    @DisplayName("发布与 nightly 在外部写入前依赖同一提交的质量门禁")
+    void releaseWorkflowsRequireQualityGateBeforePublishing() throws Exception {
+        for (String name : List.of("release.yml", "nightly.yml")) {
+            String workflow = workflow(name);
+
+            assertThat(workflow).as(name).contains(
+                    "publish-plugins:",
+                    "uses: ./.github/workflows/publish-plugins.yml",
+                    "needs:",
+                    "publish-plugins",
+                    "ref: ${{ github.sha }}",
+                    "Verify packaged distribution boundaries",
+                    "-Dtest=DistributionPackagingBoundaryTest",
+                    "-Dsurefire.failIfNoSpecifiedTests=false",
+                    "-Ddistribution.packaging.require-artifacts=true",
+                    "*DistributionPackagingBoundaryTest.txt",
+                    "Failures: 0, Errors: 0, Skipped: 0");
+        }
+
+        String release = workflow("release.yml");
+        assertThat(release).contains(
+                "draft-quality-gate:",
+                "uses: ./.github/workflows/quality-gate.yml",
+                "create-draft-release:",
+                "needs: draft-quality-gate",
+                "Verify draft tag targets the tested commit",
+                "test \"$TAG_COMMIT\" = \"$GITHUB_SHA\"",
+                "target_commitish: ${{ github.sha }}");
+        String publish = workflow("publish-plugins.yml");
+        assertThat(publish).contains(
+                "quality-gate:",
+                "uses: ./.github/workflows/quality-gate.yml",
+                "publish:",
+                "needs: quality-gate",
+                "needs.quality-gate.result == 'success'");
+        assertThat(release).doesNotContain("quality_gate_passed");
+        assertThat(workflow("nightly.yml")).doesNotContain("quality_gate_passed");
+    }
+
+    @Test
+    @DisplayName("手动插件发布在签名与跨仓库写入前自行运行质量门禁")
+    void manualPluginPublishingRequiresQualityGate() throws Exception {
+        String workflow = workflow("publish-plugins.yml");
+
+        assertThat(workflow).contains(
+                "quality-gate:",
+                "github.ref == 'refs/heads/master'",
+                "uses: ./.github/workflows/quality-gate.yml",
+                "publish:",
+                "needs: quality-gate",
+                "!cancelled()",
+                "needs.quality-gate.result == 'success'",
+                "ref: ${{ github.sha }}");
+        assertThat(workflow).doesNotContain("quality_gate_passed", "if: ${{ always()");
+    }
+
+    @Test
     @DisplayName("已发布后变更的官方插件使用新补丁版本且未发布插件保持初始版本")
     void officialPluginVersionsDoNotReusePublishedAssets() throws Exception {
         for (String module : List.of(

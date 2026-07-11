@@ -1,0 +1,60 @@
+name: Quality Gate
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  java-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Compile external plugin test fixtures
+        run: mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
+
+      - name: Run Java tests
+        run: mvn -B -ntp test -Dexec.skip=true
+
+  javascript-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run JavaScript tests
+        run: npm run test:js
+
+      - name: Run web standards guard
+        run: npm run test:web-standards
