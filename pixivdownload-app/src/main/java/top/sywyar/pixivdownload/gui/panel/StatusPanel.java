@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
 import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
-import top.sywyar.pixivdownload.gui.GuiTokenHolder;
+import top.sywyar.pixivdownload.gui.client.GuiLocalApiClient;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
@@ -23,21 +23,13 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.io.File;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -57,7 +49,6 @@ public class StatusPanel extends JPanel {
     private static final long PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS = 60_000L;
     private static final String BATCH_PAGE = "/pixiv-batch.html";
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
 
     private static String message(String code, Object... args) {
         return GuiMessages.get(code, args);
@@ -94,8 +85,8 @@ public class StatusPanel extends JPanel {
     private final Runnable onLocaleChanged;
     private final Runnable onConfigChanged;
     private final GuiWebEntrySnapshot guiWebEntries;
+    private final GuiLocalApiClient guiApiClient;
 
-    private volatile String currentScheme = "http";
     private volatile String serverDomain = "localhost";
     private volatile String serverScheme = "http";
     private volatile boolean ffmpegInstalling;
@@ -147,6 +138,7 @@ public class StatusPanel extends JPanel {
         this.onLocaleChanged = onLocaleChanged;
         this.onConfigChanged = onConfigChanged;
         this.guiWebEntries = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
+        this.guiApiClient = new GuiLocalApiClient(serverPort);
         buildUi();
         BackendLifecycleManager.addListener(backendListener);
         startPolling();
@@ -701,46 +693,10 @@ public class StatusPanel extends JPanel {
 
     private void fetchStatus() {
         Thread worker = new Thread(() -> {
-            String[] schemes = "https".equals(currentScheme)
-                    ? new String[]{"https", "http"}
-                    : new String[]{"http", "https"};
-            boolean success = false;
-
-            for (String scheme : schemes) {
-                try {
-                    URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/status").toURL();
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
-                        https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
-                        https.setHostnameVerifier((h, s) -> true);
-                    }
-                    conn.setConnectTimeout(2000);
-                    conn.setReadTimeout(2000);
-                    conn.setRequestMethod("GET");
-                    String guiToken = GuiTokenHolder.get();
-                    if (guiToken != null) {
-                        conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
-                    }
-
-                    // 只要拿到任意 HTTP 响应码（未抛连接级异常），就说明该 scheme 传输层可用：
-                    // 记下它并停止探测，绝不再向另一个 scheme 的端口发起连接。否则在后端可达但
-                    // 非 200 时（典型如维护窗口 AuthFilter 对 /api/gui/status 返回 503），循环会
-                    // 兜底尝试 https，把 TLS 握手字节发到 HTTP 端口，触发 Tomcat
-                    // “Invalid character found in method name” 解析错误。
-                    int code = conn.getResponseCode();
-                    currentScheme = scheme;
-                    if (code == 200) {
-                        success = true;
-                        try (InputStream is = conn.getInputStream()) {
-                            JsonNode node = MAPPER.readTree(is);
-                            SwingUtilities.invokeLater(() -> updateLabels(node));
-                        }
-                    }
-                    break;
-                } catch (Exception ignored) {
-                }
-            }
-            if (!success) {
+            GuiLocalApiClient.StatusResponse response = guiApiClient.fetchStatus();
+            if (response.responseParsed()) {
+                SwingUtilities.invokeLater(() -> updateLabels(response.body()));
+            } else if (!response.successful()) {
                 MaintenanceStatusHolder.Snapshot maintenance = MaintenanceStatusHolder.snapshot();
                 if (maintenance.active()) {
                     // 维护期间后端仍在运行，只是 AuthFilter 把 /api/gui/status 以 503 短路。
@@ -2367,8 +2323,7 @@ public class StatusPanel extends JPanel {
                                           String formBody,
                                           int readTimeoutMs,
                                           String failureLogCode) {
-        return callLocalGuiEndpoint(method, path, formBody,
-                "application/x-www-form-urlencoded", readTimeoutMs, failureLogCode);
+        return guiApiClient.exchangeForm(method, path, formBody, readTimeoutMs, failureLogCode);
     }
 
     /** 同上，但以 {@code application/json} 发送 body。 */
@@ -2377,66 +2332,7 @@ public class StatusPanel extends JPanel {
                                               String jsonBody,
                                               int readTimeoutMs,
                                               String failureLogCode) {
-        return callLocalGuiEndpoint(method, path, jsonBody,
-                "application/json; charset=utf-8", readTimeoutMs, failureLogCode);
-    }
-
-    /**
-     * 调用本机 /api/gui/** 端点的核心实现，参照 {@link #fetchStatus()} 的 scheme 探测策略。
-     * 返回 JSON 节点；HTTP 失败或异常时返回 null。{@code contentType} 仅在 {@code body} 非空时生效。
-     */
-    private JsonNode callLocalGuiEndpoint(String method,
-                                          String path,
-                                          String body,
-                                          String contentType,
-                                          int readTimeoutMs,
-                                          String failureLogCode) {
-        // 优先尝试当前已知可用的 scheme，避免将 TLS 握手字节发送到 HTTP 端口
-        String[] schemes = "https".equals(currentScheme)
-                ? new String[]{"https", "http"}
-                : new String[]{"http", "https"};
-        for (String scheme : schemes) {
-            HttpURLConnection conn = null;
-            try {
-                URL url = new URI(scheme + "://localhost:" + serverPort + path).toURL();
-                conn = (HttpURLConnection) url.openConnection();
-                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
-                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
-                    https.setHostnameVerifier((h, s) -> true);
-                }
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(readTimeoutMs);
-                conn.setRequestMethod(method);
-                String guiToken = GuiTokenHolder.get();
-                if (guiToken != null) {
-                    conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
-                }
-                if (body != null) {
-                    conn.setDoOutput(true);
-                    conn.setRequestProperty("Content-Type", contentType);
-                    try (var os = conn.getOutputStream()) {
-                        os.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    }
-                }
-                int code = conn.getResponseCode();
-                if (code == 204) {
-                    return null;
-                }
-                try (InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream()) {
-                    if (is == null) {
-                        return null;
-                    }
-                    return MAPPER.readTree(is);
-                }
-            } catch (Exception e) {
-                log.debug(logMessage(failureLogCode, path, e.getMessage()));
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
-            }
-        }
-        return null;
+        return guiApiClient.exchangeJson(method, path, jsonBody, readTimeoutMs, failureLogCode);
     }
 
     private static String formatSize(long bytes) {
@@ -2454,23 +2350,6 @@ public class StatusPanel extends JPanel {
         Throwable cause = t.getCause() == null ? t : t.getCause();
         String msg = cause.getMessage();
         return msg == null ? cause.getClass().getSimpleName() : msg;
-    }
-
-    private static SSLContext buildTrustAllSslContext() {
-        try {
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, new TrustManager[]{
-                    new X509TrustManager() {
-                        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                        public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                        public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                    }
-            }, null);
-            return ctx;
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.trust-all-ssl.failed", e.getMessage()));
-            return null;
-        }
     }
 
     private record FfmpegProgress(String stage, long current, long total) {}
