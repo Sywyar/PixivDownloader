@@ -12,6 +12,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,9 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
@@ -41,7 +45,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.lenient;
@@ -87,14 +96,152 @@ class ArtworkDownloadExecutorTest {
     private DownloadedArtworkService downloadedArtworkService;
 
     private ArtworkDownloadExecutor artworkDownloadExecutor;
+    private final TaskExecutor downloadTaskExecutor = Runnable::run;
 
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-        artworkDownloadExecutor = new ArtworkDownloadExecutor(downloadConfig, eventPublisher, pixivDatabase,
-                userQuotaService, downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService,
+        lenient().when(taskScheduler.schedule(any(Runnable.class), any(java.time.Instant.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+        artworkDownloadExecutor = newExecutor(downloadTaskExecutor);
+    }
+
+    private ArtworkDownloadExecutor newExecutor(TaskExecutor taskExecutor) {
+        return new ArtworkDownloadExecutor(downloadConfig, eventPublisher, pixivDatabase,
+                userQuotaService, downloadRestTemplate, taskScheduler, taskExecutor,
+                pixivBookmarkService, ugoiraService,
                 authorService, collectionService, mangaSeriesService, artworkHashService,
                 workMetaCaptureService, downloadStatisticsService, downloadedArtworkService, APP_MESSAGES);
+    }
+
+    @Nested
+    @DisplayName("队列生命周期")
+    class QueueLifecycleTests {
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("提交后状态创建前 quiesce 应取消宿主任务且不发布残留状态")
+        void shouldCancelPendingTaskBeforeStatusCreation() {
+            AtomicReference<Runnable> submitted = new AtomicReference<>();
+            ArtworkDownloadExecutor executor = newExecutor(submitted::set);
+
+            executor.downloadImages(1001L, "title", List.of("https://i.pximg.net/a.jpg"),
+                    "https://www.pixiv.net/artworks/1001", new DownloadRequest.Other(), null, "owner-a");
+            QueueGenerationDrain drain = executor.prepareQuiesceDownloads();
+            executor.cancelQuiescedDownloads();
+            submitted.get().run();
+
+            ConcurrentHashMap<String, DownloadStatus> statuses =
+                    (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                            .getField(executor, "downloadStatusMap");
+            assertThat(drain.isDrained()).isTrue();
+            assertThat(statuses).isEmpty();
+            assertThatThrownBy(() -> executor.downloadImages(1002L, "title", List.of("https://i.pximg.net/b.jpg"),
+                    "https://www.pixiv.net/artworks/1002", new DownloadRequest.Other(), null, "owner-a"))
+                    .isInstanceOf(QueueNotAcceptingException.class)
+                    .satisfies(error -> assertThat(((QueueNotAcceptingException) error).getStatus().value())
+                            .isEqualTo(503));
+        }
+
+        @Test
+        @DisplayName("父执行器拒绝提交时应归还 permit")
+        void shouldReleasePermitWhenExecutorRejects() {
+            RejectedExecutionException rejected = new RejectedExecutionException("full");
+            ArtworkDownloadExecutor executor = newExecutor(task -> { throw rejected; });
+
+            assertThatThrownBy(() -> executor.downloadImages(1003L, "title", List.of("https://i.pximg.net/c.jpg"),
+                    "https://www.pixiv.net/artworks/1003", new DownloadRequest.Other(), null, null))
+                    .isSameAs(rejected);
+
+            QueueGenerationDrain drain = executor.prepareQuiesceDownloads();
+            executor.cancelQuiescedDownloads();
+            assertThat(drain.isDrained()).isTrue();
+        }
+
+        @Test
+        @DisplayName("运行中的插画任务协作取消后必须等执行线程退出")
+        void shouldWaitForRunningDownloadToExit() throws Exception {
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicBoolean blockFirstEvent =
+                    new java.util.concurrent.atomic.AtomicBoolean(true);
+            doAnswer(invocation -> {
+                if (blockFirstEvent.compareAndSet(true, false)) {
+                    entered.countDown();
+                    release.await();
+                }
+                return null;
+            }).when(eventPublisher).publishEvent(any());
+            ArtworkDownloadExecutor executor = newExecutor(task -> {
+                Thread worker = new Thread(task, "illust-drain-test");
+                worker.setDaemon(true);
+                worker.start();
+            });
+
+            executor.downloadImages(1004L, "title", List.of("https://i.pximg.net/d.jpg"),
+                    "https://www.pixiv.net/artworks/1004", new DownloadRequest.Other(), null, null);
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+
+            QueueGenerationDrain drain = executor.prepareQuiesceDownloads();
+            executor.cancelQuiescedDownloads();
+            assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(20))).isFalse();
+
+            release.countDown();
+            assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(2))).isTrue();
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("tracker 致命取消与状态清理普通失败并存时保留致命主失败且完成清理")
+        void shouldPreserveTrackerFatalAcrossStatusCleanupFailure() {
+            QueueTaskTracker tracker = (QueueTaskTracker) ReflectionTestUtils
+                    .getField(artworkDownloadExecutor, "taskTracker");
+            QueueTaskTracker.Task task = tracker.prepareQueued("owner-a");
+            ProbeVmError fatal = new ProbeVmError();
+            task.onCancellation(() -> { throw fatal; });
+            task.bind(() -> { });
+            ConcurrentHashMap<String, DownloadStatus> statuses =
+                    (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                            .getField(artworkDownloadExecutor, "downloadStatusMap");
+            DownloadStatus status = new DownloadStatus(1005L, "title", 1);
+            status.setOwnerUuid("owner-a");
+            statuses.put("owner-a:1005", status);
+            IllegalStateException cleanupFailure = new IllegalStateException("status-publish-failed");
+            doThrow(cleanupFailure).when(eventPublisher).publishEvent(any());
+
+            QueueGenerationDrain drain = artworkDownloadExecutor.prepareQuiesceDownloads();
+            assertThatThrownBy(artworkDownloadExecutor::cancelQuiescedDownloads).isSameAs(fatal);
+
+            assertThat(fatal.getSuppressed()).contains(cleanupFailure);
+            assertThat(statuses).isEmpty();
+            assertThat(drain.isDrained()).isTrue();
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("普通 force clear 在任务取消失败后仍移除状态并保留致命主失败")
+        void ordinaryForceClearStillCleansStatusesAfterCancellationFailure() {
+            QueueTaskTracker tracker = (QueueTaskTracker) ReflectionTestUtils
+                    .getField(artworkDownloadExecutor, "taskTracker");
+            QueueTaskTracker.Task task = tracker.prepareQueued("owner-a");
+            ProbeVmError fatal = new ProbeVmError();
+            task.onCancellation(() -> { throw fatal; });
+            task.bind(() -> { });
+            ConcurrentHashMap<String, DownloadStatus> statuses =
+                    (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                            .getField(artworkDownloadExecutor, "downloadStatusMap");
+            DownloadStatus status = new DownloadStatus(1006L, "title", 1);
+            status.setOwnerUuid("owner-a");
+            statuses.put("owner-a:1006", status);
+            IllegalStateException cleanupFailure = new IllegalStateException("ordinary-clear-publish-failed");
+            doThrow(cleanupFailure).when(eventPublisher).publishEvent(any());
+
+            assertThatThrownBy(artworkDownloadExecutor::forceClearDownloads).isSameAs(fatal);
+
+            assertThat(fatal.getSuppressed()).contains(cleanupFailure);
+            assertThat(statuses).isEmpty();
+            assertThat(tracker.activeTaskCount()).isZero();
+        }
     }
 
     @Nested
@@ -172,6 +319,9 @@ class ArtworkDownloadExecutorTest {
             assertThat(ownerA.isCompleted()).isTrue();
             assertThat(statuses).containsOnlyKeys("owner-b:123");
             assertThat(ownerB.isCancelled()).isFalse();
+            verify(eventPublisher).publishEvent(argThat(event -> event instanceof DownloadProgressEvent progress
+                    && progress.getArtworkId().equals(123L)
+                    && progress.getDownloadStatus().isCancelled()));
         }
     }
 
@@ -693,5 +843,7 @@ class ArtworkDownloadExecutorTest {
                     anyLong(), any(), any(), any(), any(), anyLong(), any(), any(), any());
             verify(downloadStatisticsService, never()).recordStatistics(anyInt());
         }
+    }
+    private static final class ProbeVmError extends VirtualMachineError {
     }
 }

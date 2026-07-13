@@ -52,9 +52,21 @@ class QueueOperationsCapabilityAdapterTest {
 
     private static QueueOperations operations(String type) {
         return new QueueOperations() {
+            private final QueueTaskTracker tracker = new QueueTaskTracker(type);
+
             @Override
             public String queueType() {
                 return type;
+            }
+
+            @Override
+            public QueueGenerationDrain prepareQuiesce() {
+                return tracker.prepareQuiesce();
+            }
+
+            @Override
+            public void cancelQuiescedTasks() {
+                tracker.cancelQuiescedTasks();
             }
 
             @Override

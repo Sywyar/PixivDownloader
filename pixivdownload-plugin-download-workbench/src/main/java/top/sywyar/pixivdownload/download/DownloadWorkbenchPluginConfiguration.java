@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.client.RestTemplate;
@@ -87,6 +88,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            UserQuotaService userQuotaService,
                                                            @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                                            @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+                                                           @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                                            PixivBookmarkService pixivBookmarkService,
                                                            UgoiraService ugoiraService,
                                                            AuthorService authorService,
@@ -98,7 +100,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            DownloadedArtworkService downloadedArtworkService,
                                                            AppMessages messages) {
         return new ArtworkDownloadExecutor(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
-                downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService,
+                downloadRestTemplate, taskScheduler, downloadTaskExecutor,
+                pixivBookmarkService, ugoiraService, authorService,
                 collectionService, mangaSeriesService, artworkHashService, workMetaCaptureService,
                 downloadStatisticsService, downloadedArtworkService, messages);
     }

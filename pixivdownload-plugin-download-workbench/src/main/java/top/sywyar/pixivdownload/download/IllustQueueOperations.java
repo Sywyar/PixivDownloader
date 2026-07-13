@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
 import lombok.RequiredArgsConstructor;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
@@ -22,6 +23,16 @@ public class IllustQueueOperations implements QueueOperations {
     @Override
     public String queueType() {
         return "illust";
+    }
+
+    @Override
+    public QueueGenerationDrain prepareQuiesce() {
+        return artworkDownloadExecutor.prepareQuiesceDownloads();
+    }
+
+    @Override
+    public void cancelQuiescedTasks() {
+        artworkDownloadExecutor.cancelQuiescedDownloads();
     }
 
     @Override

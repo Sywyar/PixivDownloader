@@ -3,11 +3,11 @@ package top.sywyar.pixivdownload.download;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
@@ -22,6 +22,9 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.core.download.queue.QueueStatusRetention;
+import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
@@ -63,6 +66,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private final UserQuotaService userQuotaService;
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
+    private final TaskExecutor downloadTaskExecutor;
     private final PixivBookmarkService pixivBookmarkService;
     private final UgoiraService ugoiraService;
     private final AuthorService authorService;
@@ -76,6 +80,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     // 存储下载状态
     private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
+    private final QueueTaskTracker taskTracker = new QueueTaskTracker("illust");
 
     public ArtworkDownloadExecutor(DownloadConfig downloadConfig,
                                    ApplicationEventPublisher eventPublisher,
@@ -83,6 +88,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    @Nullable UserQuotaService userQuotaService,
                                    @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                    @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+                                   @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                    PixivBookmarkService pixivBookmarkService,
                                    UgoiraService ugoiraService,
                                    AuthorService authorService,
@@ -99,6 +105,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         this.userQuotaService = userQuotaService;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
+        this.downloadTaskExecutor = downloadTaskExecutor;
         this.pixivBookmarkService = pixivBookmarkService;
         this.ugoiraService = ugoiraService;
         this.authorService = authorService;
@@ -112,15 +119,34 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     }
 
     @Override
-    @Async("downloadTaskExecutor")
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
                                String referer, DownloadRequest.Other other, String cookie,
                                String userUuid) {
-        downloadImagesBlocking(artworkId, title, imageUrls, referer, other, cookie, userUuid);
+        QueueTaskTracker.Task task = taskTracker.prepareQueued(userUuid);
+        task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
+                referer, other, cookie, userUuid));
+        try {
+            downloadTaskExecutor.execute(task);
+        } catch (RuntimeException | Error failure) {
+            task.rejectSubmission();
+            throw failure;
+        }
     }
 
     @Override
     public boolean downloadImagesBlocking(Long artworkId, String title, List<String> imageUrls,
+                                          String referer, DownloadRequest.Other other, String cookie,
+                                          String userUuid) {
+        QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
+        try {
+            return downloadImagesTracked(task, artworkId, title, imageUrls, referer, other, cookie, userUuid);
+        } finally {
+            task.completeRunning();
+        }
+    }
+
+    private boolean downloadImagesTracked(QueueTaskTracker.Task task,
+                                          Long artworkId, String title, List<String> imageUrls,
                                           String referer, DownloadRequest.Other other, String cookie,
                                           String userUuid) {
         boolean succeeded = false;
@@ -130,12 +156,16 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         // 初始化下载状态
         DownloadStatus status = new DownloadStatus(artworkId, title, imageUrls.size(), userUuid);
         String statusKey = statusKey(artworkId, userUuid);
-        downloadStatusMap.put(statusKey, status);
+        task.onCancellation(() -> cancelTrackedStatus(statusKey, status));
+        if (!task.publishIfActive(() -> downloadStatusMap.put(statusKey, status))) {
+            return false;
+        }
 
         // 发送初始状态更新
         eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
         try {
+            ensureNotCancelled(status);
             FileNamePlan fileNamePlan = buildFileNamePlan(artworkId, title, imageUrls.size(), other);
             other.setFileNames(fileNamePlan.baseNames());
             String folderName = String.valueOf(artworkId);
@@ -310,11 +340,12 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             status.setEndTime(java.time.LocalDateTime.now());
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } finally {
-            // 下载完成后，保留状态5分钟供查询，然后清理
-            taskScheduler.schedule(
-                    () -> downloadStatusMap.remove(statusKey),
-                    Instant.now().plusSeconds(300)
-            );
+            // 下载完成后保留状态 5 分钟；清理句柄也属于本 queue generation，热停时会被取消并移除。
+            if (downloadStatusMap.get(statusKey) == status) {
+                QueueStatusRetention.schedule(taskTracker, userUuid, taskScheduler,
+                        Instant.now().plusSeconds(300),
+                        () -> downloadStatusMap.remove(statusKey, status));
+            }
         }
         return succeeded;
     }
@@ -571,17 +602,73 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     }
 
     public int forceClearDownloads() {
-        return forceClearDownloads(status -> true);
+        int cancelledTasks = 0;
+        int clearedStatuses = 0;
+        Throwable failure = null;
+        try {
+            cancelledTasks = taskTracker.cancelActive();
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            clearedStatuses = forceClearDownloads(status -> true);
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
+        return clearedStatuses > 0 ? clearedStatuses : cancelledTasks;
     }
 
     public int forceClearDownloadsForOwner(@Nullable String ownerUuid) {
-        return forceClearDownloads(status -> Objects.equals(status.getOwnerUuid(), ownerUuid));
+        int cancelledTasks = 0;
+        int clearedStatuses = 0;
+        Throwable failure = null;
+        try {
+            cancelledTasks = taskTracker.cancelForOwner(ownerUuid);
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            clearedStatuses = forceClearDownloads(
+                    status -> Objects.equals(status.getOwnerUuid(), ownerUuid));
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
+        return clearedStatuses > 0 ? clearedStatuses : cancelledTasks;
+    }
+
+    /** 先停止接收并取得唯一 drain；本方法不执行插件 callback。 */
+    public QueueGenerationDrain prepareQuiesceDownloads() {
+        return taskTracker.prepareQuiesce();
+    }
+
+    /** drain 已由生命周期保存后，再取消本代任务并清理状态。 */
+    public void cancelQuiescedDownloads() {
+        Throwable failure = null;
+        try {
+            taskTracker.cancelQuiescedTasks();
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            forceClearDownloads(status -> true);
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
     }
 
     private int forceClearDownloads(java.util.function.Predicate<DownloadStatus> matcher) {
         AtomicInteger cleared = new AtomicInteger();
-        downloadStatusMap.forEach(10, (key, status) -> {
-            if (status != null && matcher.test(status)) {
+        Throwable failure = null;
+        for (var entry : List.copyOf(downloadStatusMap.entrySet())) {
+            String key = entry.getKey();
+            DownloadStatus status = entry.getValue();
+            try {
+                if (status == null || !matcher.test(status)) {
+                    continue;
+                }
                 status.setCancelled(true);
                 status.setCompleted(true);
                 status.setFailed(false);
@@ -591,9 +678,59 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                     cleared.incrementAndGet();
                 }
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, status.getArtworkId(), status, status.getOwnerUuid()));
+            } catch (Throwable error) {
+                failure = mergeFailure(failure, error);
             }
-        });
+        }
+        rethrow(failure);
         return cleared.get();
+    }
+
+    private void cancelTrackedStatus(String statusKey, DownloadStatus status) {
+        status.setCancelled(true);
+        status.setCompleted(true);
+        status.setFailed(false);
+        status.setEndTime(java.time.LocalDateTime.now());
+        status.setErrorMessage(messages.get("download.cancelled"));
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    private static Throwable mergeFailure(Throwable current, Throwable failure) {
+        if (current == null) {
+            return failure;
+        }
+        if (failureRank(failure) > failureRank(current)) {
+            addSuppressedSafely(failure, current);
+            return failure;
+        }
+        addSuppressedSafely(current, failure);
+        return current;
+    }
+
+    private static int failureRank(Throwable failure) {
+        if (failure instanceof VirtualMachineError || failure instanceof ThreadDeath) {
+            return 2;
+        }
+        return failure instanceof Error ? 1 : 0;
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable failure) {
+        if (target == failure) {
+            return;
+        }
+        try {
+            target.addSuppressed(failure);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖主失败对象。
+        }
     }
 
     private boolean canAccessStatus(DownloadStatus status, String ownerUuid, boolean admin) {

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.douyin.download;
 
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
@@ -15,6 +16,16 @@ public class DouyinQueueOperations implements QueueOperations {
     @Override
     public String queueType() {
         return DouyinDownloadService.QUEUE_TYPE;
+    }
+
+    @Override
+    public QueueGenerationDrain prepareQuiesce() {
+        return downloadService.prepareQuiesceDownloads();
+    }
+
+    @Override
+    public void cancelQuiescedTasks() {
+        downloadService.cancelQuiescedDownloads();
     }
 
     @Override

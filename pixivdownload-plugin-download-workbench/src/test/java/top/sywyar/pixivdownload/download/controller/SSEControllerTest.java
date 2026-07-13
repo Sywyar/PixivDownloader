@@ -30,15 +30,18 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -83,7 +86,8 @@ class SSEControllerTest {
 
         SseEmitter emitter = controller.createSSEConnection(12345L, request);
 
-        String key = "user:" + ownerUuid + ":12345";
+        String key = artworkEmitters().keySet().iterator().next();
+        assertThat(key).startsWith("user:" + ownerUuid + ":12345#");
         assertThat(emitter.getTimeout()).isEqualTo(300000L);
         assertThat(artworkEmitters()).containsKey(key);
         assertThat(subscriptionLocale(artworkEmitters().get(key))).isEqualTo(Locale.SIMPLIFIED_CHINESE);
@@ -257,8 +261,8 @@ class SSEControllerTest {
     }
 
     @Test
-    @DisplayName("发送失败时应清理聚合连接但不再 complete 已损坏的响应")
-    void shouldCleanupAggregatedConnectionWithoutCompleteAfterSendFailure() throws Exception {
+    @DisplayName("进度发送失败时应清理并 complete 聚合连接以释放异步请求")
+    void shouldCleanupAndCompleteAggregatedConnectionAfterSendFailure() throws Exception {
         FailingSseEmitter emitter = new FailingSseEmitter();
         putAggregatedSubscription("broken", emitter, "user-1", false, Locale.US);
         aggregatedHeartbeatTasks().put("broken", heartbeatFuture);
@@ -271,8 +275,32 @@ class SSEControllerTest {
         waitUntil(() -> !aggregatedEmitters().containsKey("broken"));
         assertThat(aggregatedEmitters()).doesNotContainKey("broken");
         assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("broken");
-        assertThat(emitter.completed).isFalse();
+        assertThat(emitter.completed).isTrue();
         verify(heartbeatFuture).cancel(false);
+    }
+
+    @Test
+    @DisplayName("正常关闭事件发送失败时作品级与聚合连接仍 complete")
+    void normalCloseSendFailureStillCompletesBothConnectionKinds() throws Exception {
+        when(setupService.hasAdminScope(any())).thenReturn(true);
+        FailingSseEmitter artwork = new FailingSseEmitter();
+        putArtworkSubscription(781L, artwork, Locale.US);
+        heartbeatTasks().put("admin:781", heartbeatFuture);
+
+        controller.closeSSEConnection(781L, new MockHttpServletRequest());
+
+        FailingSseEmitter aggregated = new FailingSseEmitter();
+        putAggregatedSubscription("close-failed", aggregated, null, true, Locale.US);
+        aggregatedHeartbeatTasks().put("close-failed", heartbeatFuture);
+        when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+        String token = createAggregatedCloseToken("close-failed", null, true);
+        controller.closeAggregatedSSEConnection(token, new MockHttpServletRequest());
+
+        assertThat(artwork.completed).isTrue();
+        assertThat(aggregated.completed).isTrue();
+        assertThat(artworkEmitters()).isEmpty();
+        assertThat(aggregatedEmitters()).isEmpty();
+        verify(heartbeatFuture, times(2)).cancel(false);
     }
 
     @Test
@@ -282,12 +310,12 @@ class SSEControllerTest {
 
         controller.createSSEConnection(111L, new MockHttpServletRequest());
         controller.createAggregatedSSEConnection(new MockHttpServletRequest());
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(3);
 
         // 拥有它的插件 quiesce / 卸载 → 生命周期服务调 closeForPlugin → 关闭全部连接、注册中心不再残留引用
         int closed = pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
 
-        assertThat(closed).isEqualTo(2);
+        assertThat(closed).isEqualTo(3);
         assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isZero();
         assertThat(artworkEmitters()).isEmpty();
         assertThat(aggregatedEmitters()).isEmpty();
@@ -312,15 +340,162 @@ class SSEControllerTest {
     }
 
     @Test
-    @DisplayName("作品级连接正常关闭后从插件推流注册中心注销：closeForPlugin 不再触达它")
+    @DisplayName("同一作品的两个连接使用精确 stream token，quiesce 会同时关闭")
+    void duplicateArtworkConnectionsAreBothClosedOnQuiesce() {
+        when(setupService.hasAdminScope(any())).thenReturn(true);
+        controller.createSSEConnection(779L, new MockHttpServletRequest());
+        controller.createSSEConnection(779L, new MockHttpServletRequest());
+
+        assertThat(artworkEmitters()).hasSize(2);
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(3);
+
+        assertThat(pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID)).isEqualTo(3);
+        assertThat(artworkEmitters()).isEmpty();
+        assertThat(heartbeatTasks()).isEmpty();
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isZero();
+    }
+
+    @Test
+    @DisplayName("旧连接 completion 只注销自己的 token，不会移除同作品新连接")
+    void oldArtworkCompletionDoesNotRemoveNewConnection() throws Exception {
+        when(setupService.hasAdminScope(any())).thenReturn(true);
+        SseEmitter oldEmitter = controller.createSSEConnection(780L, new MockHttpServletRequest());
+        SseEmitter newEmitter = controller.createSSEConnection(780L, new MockHttpServletRequest());
+        var oldEntry = artworkEmitters().entrySet().stream()
+                .filter(entry -> subscriptionEmitter(entry.getValue()) == oldEmitter)
+                .findFirst().orElseThrow();
+
+        ReflectionTestUtils.invokeMethod(
+                controller, "cleanupArtworkEmitter", oldEntry.getKey(), oldEntry.getValue());
+
+        assertThat(artworkEmitters()).hasSize(1);
+        assertThat(subscriptionEmitter(artworkEmitters().values().iterator().next()))
+                .isSameAs(newEmitter);
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+
+        assertThat(pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+        assertThat(artworkEmitters()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("quiesce 等阻塞中的进度 flush 实际退出后才完成后台 drain")
+    void quiesceWaitsForBlockingProgressFlush() throws Exception {
+        BlockingSseEmitter emitter = new BlockingSseEmitter();
+        putAggregatedSubscription("blocking-progress", emitter, "user-1", false, Locale.US);
+        ReflectionTestUtils.invokeMethod(controller, "ensureBackgroundDrainRegistered");
+        DownloadStatus status = new DownloadStatus(782L, "title", 1);
+        status.setDownloadedCount(1);
+        controller.handleDownloadProgressEvent(
+                new DownloadProgressEvent(this, 782L, status, "user-1"));
+        assertThat(emitter.sendEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+        Thread close = new Thread(() -> {
+            try {
+                pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
+            } catch (Throwable failure) {
+                closeFailure.set(failure);
+            }
+        }, "sse-progress-drain-close");
+        close.start();
+        Thread.sleep(30);
+        assertThat(close.isAlive()).isTrue();
+
+        emitter.releaseSend.countDown();
+        close.join(5000);
+
+        assertThat(close.isAlive()).isFalse();
+        assertThat(closeFailure.get()).isNull();
+        ReflectionTestUtils.invokeMethod(controller, "cleanupAggregatedEmitter", "blocking-progress");
+    }
+
+    @Test
+    @DisplayName("quiesce 取消 heartbeat future 并等待已运行 heartbeat 插件栈退出")
+    void quiesceWaitsForBlockingHeartbeatFrame() throws Exception {
+        ReflectionTestUtils.invokeMethod(controller, "ensureBackgroundDrainRegistered");
+        heartbeatTasks().put("blocking-heartbeat", heartbeatFuture);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Throwable> heartbeatFailure = new AtomicReference<>();
+        Thread heartbeat = new Thread(() -> {
+            try {
+                ReflectionTestUtils.invokeMethod(controller, "runTrackedBackground", (Runnable) () -> {
+                    entered.countDown();
+                    try {
+                        if (!release.await(5, TimeUnit.SECONDS)) {
+                            throw new AssertionError("timed out waiting to release heartbeat");
+                        }
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError("heartbeat interrupted");
+                    }
+                });
+            } catch (Throwable failure) {
+                heartbeatFailure.set(failure);
+            }
+        }, "sse-blocking-heartbeat");
+        heartbeat.start();
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+        Thread close = new Thread(() -> {
+            try {
+                pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
+            } catch (Throwable failure) {
+                closeFailure.set(failure);
+            }
+        }, "sse-heartbeat-drain-close");
+        close.start();
+        Thread.sleep(30);
+        assertThat(close.isAlive()).isTrue();
+        verify(heartbeatFuture).cancel(false);
+
+        release.countDown();
+        heartbeat.join(5000);
+        close.join(5000);
+
+        assertThat(heartbeat.isAlive()).isFalse();
+        assertThat(close.isAlive()).isFalse();
+        assertThat(heartbeatFailure.get()).isNull();
+        assertThat(closeFailure.get()).isNull();
+    }
+
+    @Test
+    @DisplayName("插件不可用事件发送失败时作品级与聚合连接仍 complete 并清理心跳")
+    void unavailableSendFailureStillCompletesEmittersAndCancelsHeartbeats() throws Exception {
+        FailingSseEmitter artwork = new FailingSseEmitter();
+        FailingSseEmitter aggregated = new FailingSseEmitter();
+        putArtworkSubscription(778L, artwork, Locale.US);
+        putAggregatedSubscription("broken-aggregate", aggregated, "user-1", false, Locale.US);
+        heartbeatTasks().put("admin:778", heartbeatFuture);
+        aggregatedHeartbeatTasks().put("broken-aggregate", heartbeatFuture);
+        pluginStreamRegistry.register(DownloadWorkbenchPlugin.ID, "admin:778",
+                () -> ReflectionTestUtils.invokeMethod(controller, "closeArtworkStreamUnavailable", "admin:778"));
+        pluginStreamRegistry.register(DownloadWorkbenchPlugin.ID, "broken-aggregate",
+                () -> ReflectionTestUtils.invokeMethod(
+                        controller, "closeAggregatedStreamUnavailable", "broken-aggregate"));
+
+        assertThat(pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+
+        assertThat(artwork.completed).isTrue();
+        assertThat(aggregated.completed).isTrue();
+        assertThat(artworkEmitters()).doesNotContainKey("admin:778");
+        assertThat(aggregatedEmitters()).doesNotContainKey("broken-aggregate");
+        assertThat(heartbeatTasks()).doesNotContainKey("admin:778");
+        assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("broken-aggregate");
+        verify(heartbeatFuture, times(2)).cancel(false);
+    }
+
+    @Test
+    @DisplayName("作品级连接正常关闭后只保留 controller 后台 drain token")
     void normalCloseUnregistersStream() {
         when(setupService.hasAdminScope(any())).thenReturn(true);
         controller.createSSEConnection(222L, new MockHttpServletRequest());
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(1);
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
 
         controller.closeSSEConnection(222L, new MockHttpServletRequest());
 
-        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isZero();
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(1);
     }
 
     @SuppressWarnings("unchecked")
@@ -364,6 +539,7 @@ class SSEControllerTest {
                 .findFirst()
                 .orElseThrow();
         Constructor<?> constructor = Arrays.stream(recordClass.getDeclaredConstructors())
+                .filter(candidate -> candidate.getParameterCount() == args.length)
                 .findFirst()
                 .orElseThrow();
         constructor.setAccessible(true);
@@ -374,6 +550,10 @@ class SSEControllerTest {
         Method accessor = subscription.getClass().getDeclaredMethod("locale");
         accessor.setAccessible(true);
         return (Locale) accessor.invoke(subscription);
+    }
+
+    private SseEmitter subscriptionEmitter(Object subscription) {
+        return ReflectionTestUtils.invokeMethod(subscription, "emitter");
     }
 
     private String subscriptionOwnerUuid(Object subscription) throws Exception {
@@ -450,6 +630,24 @@ class SSEControllerTest {
         public void complete() {
             completed = true;
             super.complete();
+        }
+    }
+
+    private static final class BlockingSseEmitter extends SseEmitter {
+        private final CountDownLatch sendEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseSend = new CountDownLatch(1);
+
+        @Override
+        public void send(SseEventBuilder builder) throws IOException {
+            sendEntered.countDown();
+            try {
+                if (!releaseSend.await(5, TimeUnit.SECONDS)) {
+                    throw new IOException("timed out waiting to release send");
+                }
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new IOException("blocking send interrupted", failure);
+            }
         }
     }
 

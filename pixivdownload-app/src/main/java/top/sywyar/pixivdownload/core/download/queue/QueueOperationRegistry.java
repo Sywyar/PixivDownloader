@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 
@@ -28,10 +29,27 @@ import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 public class QueueOperationRegistry {
 
     /**
+     * 注册时捕获的 queueType 与对应操作实例。生命周期只把此快照用作一次性准备 / 取消调用，绝不长期持有；
+     * queueType 来自宿主已提交快照的键，不在 teardown 时重新调用插件 Bean getter。
+     */
+    public record OwnedQueueOperations(String queueType, QueueOperations operations) {
+        public OwnedQueueOperations {
+            if (queueType == null || queueType.isBlank()) {
+                throw new IllegalStateException("owned queue operations without queueType");
+            }
+            Objects.requireNonNull(operations, "owned queue operations");
+        }
+    }
+
+    /**
      * 单个不可变快照：{@code queueType → 操作适配器}（保持注册顺序，{@code all()} 据此遍历）。读侧只读
      * {@code snapshot} 引用一次即拿到一致视图。{@code byType} 由构造期一次性建立的不可变保序映射承载。
      */
     private record OwnedOperations(String ownerPluginId, QueueOperations operations) {
+    }
+
+    /** 插件 getter 已在 registry lock 外恰好读取一次的待提交值。 */
+    private record CapturedOperations(String queueType, QueueOperations operations) {
     }
 
     private record Snapshot(Map<String, OwnedOperations> byType) {
@@ -55,7 +73,7 @@ public class QueueOperationRegistry {
      * 注册一批操作适配器。{@code queueType} 与已注册项冲突、适配器非法都立即抛出；失败时既有快照保持不变。
      */
     public void register(List<QueueOperations> operations) {
-        registerOwned(null, operations);
+        registerOwned(null, capture(operations));
     }
 
     /**
@@ -66,10 +84,10 @@ public class QueueOperationRegistry {
         if (ownerPluginId == null || ownerPluginId.isBlank()) {
             throw new IllegalStateException("queue operations without owner plugin id");
         }
-        registerOwned(ownerPluginId, operations);
+        registerOwned(ownerPluginId, capture(operations));
     }
 
-    private void registerOwned(String ownerPluginId, List<QueueOperations> operations) {
+    private void registerOwned(String ownerPluginId, List<CapturedOperations> operations) {
         synchronized (lock) {
             Map<String, OwnedOperations> next = new LinkedHashMap<>(snapshot.byType());
             if (ownerPluginId != null) {
@@ -79,12 +97,12 @@ public class QueueOperationRegistry {
                 snapshot = new Snapshot(Collections.unmodifiableMap(next));
                 return;
             }
-            for (QueueOperations ops : operations) {
-                validate(ops);
+            for (CapturedOperations captured : operations) {
+                QueueOperations ops = captured.operations();
                 OwnedOperations candidate = new OwnedOperations(ownerPluginId, ops);
-                OwnedOperations clash = next.putIfAbsent(ops.queueType(), candidate);
+                OwnedOperations clash = next.putIfAbsent(captured.queueType(), candidate);
                 if (clash != null) {
-                    throw new IllegalStateException("duplicate queue operations type: " + ops.queueType()
+                    throw new IllegalStateException("duplicate queue operations type: " + captured.queueType()
                             + " (" + ops.getClass().getName()
                             + "; already registered: " + clash.operations().getClass().getName() + ")");
                 }
@@ -136,12 +154,43 @@ public class QueueOperationRegistry {
         return snapshot.byType().values().stream().map(OwnedOperations::operations).toList();
     }
 
-    private static void validate(QueueOperations ops) {
-        if (ops == null) {
-            throw new IllegalStateException("null queue operations");
+    /**
+     * 返回当前精确归属于某外置插件 identity 的操作快照。生命周期据此清退本代队列，禁止在 teardown 时重读
+     * {@code PixivFeaturePlugin.queueTypes()}（getter 可变或已不可安全调用）。父 context 无 owner 的操作不在结果中。
+     */
+    public List<OwnedQueueOperations> operationsForOwner(String ownerPluginId) {
+        if (ownerPluginId == null || ownerPluginId.isBlank()) {
+            return List.of();
         }
-        if (ops.queueType() == null || ops.queueType().isBlank()) {
-            throw new IllegalStateException("queue operations without queueType: " + ops.getClass().getName());
+        Snapshot current = snapshot;
+        return current.byType().entrySet().stream()
+                .filter(entry -> ownerPluginId.equals(entry.getValue().ownerPluginId()))
+                .map(entry -> new OwnedQueueOperations(entry.getKey(), entry.getValue().operations()))
+                .toList();
+    }
+
+    private static List<CapturedOperations> capture(List<QueueOperations> operations) {
+        if (operations == null || operations.isEmpty()) {
+            return List.of();
         }
+        Map<String, CapturedOperations> captured = new LinkedHashMap<>();
+        for (QueueOperations ops : operations) {
+            if (ops == null) {
+                throw new IllegalStateException("null queue operations");
+            }
+            String queueType = ops.queueType();
+            if (queueType == null || queueType.isBlank()) {
+                throw new IllegalStateException("queue operations without queueType: "
+                        + ops.getClass().getName());
+            }
+            CapturedOperations candidate = new CapturedOperations(queueType, ops);
+            CapturedOperations clash = captured.putIfAbsent(queueType, candidate);
+            if (clash != null) {
+                throw new IllegalStateException("duplicate queue operations type: " + queueType
+                        + " (" + ops.getClass().getName()
+                        + "; already registered: " + clash.operations().getClass().getName() + ")");
+            }
+        }
+        return List.copyOf(captured.values());
     }
 }

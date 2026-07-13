@@ -12,7 +12,9 @@ package top.sywyar.pixivdownload.core.download.queue;
  * 跨类型清空只作用于在场的作品类型——残留队列项的暂停 / 隐藏由前端据 {@code /api/download/extensions} 处理，
  * 后端不报错、不删数据。
  *
- * <p>清空 / 按 owner 清空对所有作品类型都成立（{@link #clearAll()} / {@link #clearForOwner(String)} 必须实现）；
+ * <p>清退、清空 / 按 owner 清空对所有作品类型都成立
+ * （{@link #prepareQuiesce()} / {@link #cancelQuiescedTasks()} / {@link #clearAll()} /
+ * {@link #clearForOwner(String)} 必须实现）；
  * 单项取消是可选能力（只有提供单项取消入口的作品类型才覆写 {@link #cancel(long, String, boolean)}，默认空实现），
  * 与 {@code ScheduledWorkRunner.mergeSeries / translateStatus} 的「按能力覆写默认方法」同构。
  */
@@ -20,6 +22,15 @@ public interface QueueOperations {
 
     /** 本适配器承载的作品类型路由键（与 {@code QueueTypeContribution.type()} 同口径，如 {@code illust} / {@code novel}），在注册中心内全局唯一。 */
     String queueType();
+
+    /**
+     * 原子停止本操作实例接收新任务并返回真实退出的 drain；此步不得执行插件 callback。
+     * 重复调用必须返回同一 generation 的 drain；不得用清空状态 map 或线程池 activeCount 伪造归零。
+     */
+    QueueGenerationDrain prepareQuiesce();
+
+    /** 调用方已经保存 {@link #prepareQuiesce()} 的 drain 后，向本代排队 / 运行任务发送协作式取消。 */
+    void cancelQuiescedTasks();
 
     /**
      * 取消单件作品的下载。仅提供单项取消入口的作品类型才覆写；默认无能力（空实现）。

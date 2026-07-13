@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
@@ -44,10 +45,12 @@ import java.util.Set;
  * <h2>停止顺序（与启动期接入对称）</h2>
  * {@code stop} 依次：<b>① 标记 {@link PluginRuntimePhase#QUIESCED}</b>（请求网关随即拒绝命中其路由的新请求）→
  * <b>② 精确撤回本 generation 的 schedule publication</b>（统一 registry 原子拒绝新 lease，并向旧 lease 发取消）→
- * <b>③ 关闭 SSE、排空在途下载队列</b> → <b>④ 等待旧 generation lease 归零</b> → <b>⑤ 拆除服务足迹</b>
+ * <b>③ 保存 queue generation drain、关闭 SSE 并发送协作式取消</b> →
+ * <b>④ 用同一绝对截止时间等待旧 schedule / queue generation 归零</b> → <b>⑤ 拆除服务足迹</b>
  * （{@link #tearDownServing}：注销 controller / runtime capability / web 贡献 → 调插件 {@code stop()} → 关闭子 context）。
- * schedule 撤回失败不会被吞掉；运行期等待超时返回 {@link PluginManagementErrorCode#OPERATION_IN_PROGRESS} 并保持
- * {@link PluginRuntimePhase#QUIESCED}，绝不关闭仍被 lease 引用的 child context。其余足迹拆除继续沿用 best-effort 隔离。
+ * schedule 撤回或 queue drain 准备失败不会被吞掉；运行期等待超时返回
+ * {@link PluginManagementErrorCode#OPERATION_IN_PROGRESS} 并保持 {@link PluginRuntimePhase#QUIESCED}，绝不关闭仍被
+ * schedule lease 或 queue task 引用的 child context。其余足迹拆除继续沿用 best-effort 隔离。
  *
  * <h2>插件自身 {@code start()} / {@code stop()}</h2>
  * 插件自身的生命周期回调与服务足迹（web / controller / 子 context）分属不同时机：<b>启动期</b>全部活动插件的
@@ -73,15 +76,13 @@ import java.util.Set;
  *       {@link PluginScheduleContributionRegistrar#withdraw} 用精确 publication token 从统一
  *       {@code ScheduleCapabilityRegistry} 撤回 owner bundle；旧 generation 的 planning / execution lease 同时收到协作式
  *       取消，新 planning lease 不再获取来源、执行器、凭据策略或 guard。残留任务数据保留，待能力恢复后可重新解析。</li>
- *   <li><b>清退在途资源</b>——① 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件全部活动 SSE 推流并向客户端
- *       发「插件不可用」事件；② 据插件 {@link PixivFeaturePlugin#queueTypes()} 声明的每个 queueType 经核心队列宿主注册中心
- *       {@code QueueOperationRegistry} 解析操作适配器并
- *       {@link top.sywyar.pixivdownload.core.download.queue.QueueOperations#clearAll() clearAll} 排空 / 取消其在途下载任务
- *       （不直依赖任一具体下载实现）。</li>
+ *   <li><b>清退在途资源</b>——① 从核心队列宿主注册中心取得 owner 精确操作快照，先保存各操作实例的
+ *       {@link QueueGenerationDrain}，再发送协作式取消；② 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件
+ *       全部活动 SSE 推流并向客户端发「插件不可用」事件。生命周期不在 teardown 时重读插件 getter，也不直依赖任一
+ *       具体下载实现。</li>
  * </ol>
- * schedule 撤回属于安全前置条件，失败向上抛出；SSE 与队列步骤彼此隔离。某 queueType 操作缺席（贡献它的插件已禁 / 卸）
- * 时跳过、不报错。在途下载经
- * 协作式取消（{@code DownloadStatus} 标志位）停止——长任务据此干净退出。异步任务一律走核心受管执行器，本服务不新建线程池。
+ * schedule 撤回与 queue drain 保存属于安全前置条件，失败向上抛出；SSE 与队列取消彼此隔离。队列任务的 drain 仅在
+ * 核心 wrapper 真正退出后归零，排队任务取消时立即清除插件 delegate。异步任务一律走核心受管执行器，本服务不新建线程池。
  *
  * <p>本服务把外置插件标识为单一 {@code pluginId}：对全部在场外置插件，其功能插件 id 与 PF4J 包 id 重合，故子
  * context / controller / web 贡献 / 路由声明 / 状态机统一以该 id 为键。所有变更在本对象锁内串行；写入各注册中心
@@ -92,7 +93,7 @@ import java.util.Set;
 @Component
 public class PluginLifecycleService {
 
-    private static final long RUNTIME_SCHEDULE_DRAIN_TIMEOUT_NANOS = 30_000_000_000L;
+    private static final long RUNTIME_DRAIN_TIMEOUT_NANOS = 30_000_000_000L;
 
     private final ApplicationContext parent;
     private final PluginRuntimeManager pluginRuntimeManager;
@@ -426,18 +427,17 @@ public class PluginLifecycleService {
             return; // 幂等 / 无服务足迹可拆
         }
         ensureQuiesced(record);
-        long deadline = System.nanoTime() + RUNTIME_SCHEDULE_DRAIN_TIMEOUT_NANOS;
-        ScheduleGenerationDrain drain = record.scheduleDrain;
-        if (drain != null && !drain.awaitDrained(deadline)) {
+        long deadline = System.nanoTime() + RUNTIME_DRAIN_TIMEOUT_NANOS;
+        String activeDrain = awaitRuntimeDrains(record, deadline);
+        if (activeDrain != null) {
             throw new ClassifiedPluginLifecycleException(
                     PluginManagementErrorCode.OPERATION_IN_PROGRESS,
-                    "plugin '" + pluginId + "' remains quiesced with "
-                            + drain.activeLeaseCount() + " active schedule lease(s)");
+                    "plugin '" + pluginId + "' remains quiesced with active " + activeDrain);
         }
         finishStop(record);
     }
 
-    /** 标记 QUIESCED，并且恰好一次按 publication → SSE → queue 的顺序发起运行期清退。 */
+    /** 标记 QUIESCED，并按 publication → queue drain 保存 → SSE / queue 取消的顺序发起运行期清退。 */
     private void ensureQuiesced(ManagedPlugin record) {
         PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
         if (phase == PluginRuntimePhase.STARTED) {
@@ -449,10 +449,15 @@ public class PluginLifecycleService {
         if (record.runtimeTasksQuiesced) {
             return;
         }
-        PluginRuntimeTaskQuiescer.QuiesceResult result = runtimeTaskQuiescer.quiesce(
-                scheduleMutationAuthority,
-                record.pluginId, record.schedulePublication, record.plugin());
-        record.scheduleDrain = result.scheduleDrain().orElse(null);
+        if (record.schedulePublication != null && record.scheduleDrain == null) {
+            PluginRuntimeTaskQuiescer.QuiesceResult result = runtimeTaskQuiescer.withdrawSchedule(
+                    scheduleMutationAuthority, record.schedulePublication);
+            record.scheduleDrain = result.scheduleDrain().orElse(null);
+        }
+        runtimeTaskQuiescer.prepareQueueDrains(
+                record.pluginId, List.copyOf(record.queueDrains), record.queueDrains::add);
+        runtimeTaskQuiescer.quiesceAfterScheduleWithdrawal(
+                record.pluginId, List.copyOf(record.queueDrains));
         record.runtimeTasksQuiesced = true;
     }
 
@@ -461,6 +466,7 @@ public class PluginLifecycleService {
         tearDownServing(record);
         record.schedulePublication = null;
         record.scheduleDrain = null;
+        record.queueDrains.clear();
         record.runtimeTasksQuiesced = false;
         lifecycleState.set(record.pluginId, PluginRuntimePhase.STOPPED);
         log.info("Stopped plugin '{}'.", record.pluginId);
@@ -475,7 +481,28 @@ public class PluginLifecycleService {
                 interrupted |= Thread.interrupted();
             }
         }
+        for (QueueGenerationDrain queueDrain : record.queueDrains) {
+            while (!queueDrain.isDrained()) {
+                if (!queueDrain.awaitDrained()) {
+                    interrupted |= Thread.interrupted();
+                }
+            }
+        }
         return interrupted;
+    }
+
+    /** 对 schedule 与全部 queue drain 使用同一个绝对截止时间；返回首个仍活动的纯值诊断。 */
+    private static String awaitRuntimeDrains(ManagedPlugin record, long deadlineNanos) {
+        ScheduleGenerationDrain scheduleDrain = record.scheduleDrain;
+        if (scheduleDrain != null && !scheduleDrain.awaitDrained(deadlineNanos)) {
+            return "schedule lease(s)=" + scheduleDrain.activeLeaseCount();
+        }
+        for (QueueGenerationDrain queueDrain : record.queueDrains) {
+            if (!queueDrain.awaitDrained(deadlineNanos)) {
+                return "queue task(s) " + queueDrain.queueType() + "=" + queueDrain.activeCount();
+            }
+        }
+        return null;
     }
 
     private void doUnload(ManagedPlugin record) {
@@ -549,6 +576,20 @@ public class PluginLifecycleService {
      */
     private void bringUpServing(ManagedPlugin record, boolean invokePluginStart) {
         String pluginId = record.pluginId;
+        try {
+            runtimeTaskQuiescer.resumeStreams(pluginId);
+        } catch (Throwable failure) {
+            log.error("Failed to resume server-push streams for plugin '{}' (failureType={}) - isolating.",
+                    pluginId, failure.getClass().getName());
+            lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+            if (failure instanceof VirtualMachineError fatal) {
+                throw fatal;
+            }
+            if (failure instanceof ThreadDeath fatal) {
+                throw fatal;
+            }
+            return;
+        }
         // a) web 贡献：仅当当前未接入且有注册条目时接入（运行期重启路径在此重新接入；启动期构造期已接入故跳过）。
         if (!record.webRegistered && record.registered != null) {
             try {
@@ -728,6 +769,13 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("refusing to close child context with active schedule leases: "
                     + record.pluginId + " (active=" + record.scheduleDrain.activeLeaseCount() + ")");
         }
+        for (QueueGenerationDrain queueDrain : record.queueDrains) {
+            if (!queueDrain.isDrained()) {
+                throw new PluginLifecycleException("refusing to close child context with active queue tasks: "
+                        + record.pluginId + "/" + queueDrain.queueType()
+                        + " (active=" + queueDrain.activeCount() + ")");
+            }
+        }
         try {
             child.close();
         } catch (Exception e) {
@@ -772,6 +820,7 @@ public class PluginLifecycleService {
         boolean webRegistered;
         ScheduleCapabilityPublication schedulePublication;
         ScheduleGenerationDrain scheduleDrain;
+        final List<QueueGenerationDrain> queueDrains = new ArrayList<>();
         boolean runtimeTasksQuiesced;
 
         ManagedPlugin(String pluginId, PluginContextModule module, PluginRegistry.RegisteredPlugin registered) {

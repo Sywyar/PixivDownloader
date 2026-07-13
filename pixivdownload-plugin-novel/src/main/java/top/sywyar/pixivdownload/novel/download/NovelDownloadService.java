@@ -2,10 +2,10 @@ package top.sywyar.pixivdownload.novel.download;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpMethod;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
@@ -15,6 +15,9 @@ import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.core.download.queue.QueueStatusRetention;
+import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
@@ -91,11 +94,13 @@ public class NovelDownloadService implements NovelDownloader {
     private final UserQuotaService userQuotaService;
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
+    private final TaskExecutor downloadTaskExecutor;
     private final AppMessages messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final WorkMetaCaptureService workMetaCaptureService;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
+    private final QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
 
     public NovelDownloadService(DownloadConfig downloadConfig,
                                 PixivDatabase pixivDatabase,
@@ -107,6 +112,7 @@ public class NovelDownloadService implements NovelDownloader {
                                 @Nullable UserQuotaService userQuotaService,
                                 @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                 @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+                                @Qualifier("novelDownloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                 AppMessages messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
                                 WorkMetaCaptureService workMetaCaptureService) {
@@ -120,19 +126,37 @@ public class NovelDownloadService implements NovelDownloader {
         this.userQuotaService = userQuotaService;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
+        this.downloadTaskExecutor = downloadTaskExecutor;
         this.messages = messages;
         this.novelAutoTranslateService = novelAutoTranslateService;
         this.workMetaCaptureService = workMetaCaptureService;
     }
 
-    @Async("novelDownloadTaskExecutor")
     @Override
     public void download(NovelDownloadRequest request, String userUuid) {
-        downloadBlocking(request, userUuid);
+        QueueTaskTracker.Task task = taskTracker.prepareQueued(userUuid);
+        task.bind(() -> downloadTracked(task, request, userUuid));
+        try {
+            downloadTaskExecutor.execute(task);
+        } catch (RuntimeException | Error failure) {
+            task.rejectSubmission();
+            throw failure;
+        }
     }
 
     @Override
     public boolean downloadBlocking(NovelDownloadRequest request, String userUuid) {
+        QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
+        try {
+            return downloadTracked(task, request, userUuid);
+        } finally {
+            task.completeRunning();
+        }
+    }
+
+    private boolean downloadTracked(QueueTaskTracker.Task task,
+                                    NovelDownloadRequest request,
+                                    String userUuid) {
         boolean succeeded = false;
         Long novelId = request.getNovelId();
         NovelDownloadRequest.Other other = request.getOther() == null
@@ -141,7 +165,10 @@ public class NovelDownloadService implements NovelDownloader {
         String title = request.getTitle() == null ? String.valueOf(novelId) : request.getTitle();
         NovelDownloadStatus status = new NovelDownloadStatus(novelId, title, format.ext(), userUuid);
         String statusKey = statusKey(novelId, userUuid);
-        statusMap.put(statusKey, status);
+        task.onCancellation(() -> cancelTrackedStatus(statusKey, status));
+        if (!task.publishIfActive(() -> statusMap.put(statusKey, status))) {
+            return false;
+        }
 
         try {
             String rawContent = request.getContent() == null ? "" : request.getContent();
@@ -308,9 +335,11 @@ public class NovelDownloadService implements NovelDownloader {
             status.setFailed(true);
             status.setErrorMessage(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
-            taskScheduler.schedule(
-                    () -> statusMap.remove(statusKey),
-                    Instant.now().plusSeconds(300));
+            if (statusMap.get(statusKey) == status) {
+                QueueStatusRetention.schedule(taskTracker, userUuid, taskScheduler,
+                        Instant.now().plusSeconds(300),
+                        () -> statusMap.remove(statusKey, status));
+            }
         }
         return succeeded;
     }
@@ -343,17 +372,73 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     public int forceClearDownloads() {
-        return forceClearDownloads(status -> true);
+        int cancelledTasks = 0;
+        int clearedStatuses = 0;
+        Throwable failure = null;
+        try {
+            cancelledTasks = taskTracker.cancelActive();
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            clearedStatuses = forceClearDownloads(status -> true);
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
+        return clearedStatuses > 0 ? clearedStatuses : cancelledTasks;
     }
 
     public int forceClearDownloadsForOwner(String ownerUuid) {
-        return forceClearDownloads(status -> java.util.Objects.equals(status.getOwnerUuid(), ownerUuid));
+        int cancelledTasks = 0;
+        int clearedStatuses = 0;
+        Throwable failure = null;
+        try {
+            cancelledTasks = taskTracker.cancelForOwner(ownerUuid);
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            clearedStatuses = forceClearDownloads(
+                    status -> java.util.Objects.equals(status.getOwnerUuid(), ownerUuid));
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
+        return clearedStatuses > 0 ? clearedStatuses : cancelledTasks;
+    }
+
+    /** 先停止接收并取得唯一 drain；本方法不执行插件 callback。 */
+    public QueueGenerationDrain prepareQuiesceDownloads() {
+        return taskTracker.prepareQuiesce();
+    }
+
+    /** drain 已由生命周期保存后，再取消本代任务并清理状态。 */
+    public void cancelQuiescedDownloads() {
+        Throwable failure = null;
+        try {
+            taskTracker.cancelQuiescedTasks();
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            forceClearDownloads(status -> true);
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
     }
 
     private int forceClearDownloads(java.util.function.Predicate<NovelDownloadStatus> matcher) {
         AtomicInteger cleared = new AtomicInteger();
-        statusMap.forEach(10, (key, status) -> {
-            if (status != null && matcher.test(status)) {
+        Throwable failure = null;
+        for (var entry : List.copyOf(statusMap.entrySet())) {
+            String key = entry.getKey();
+            NovelDownloadStatus status = entry.getValue();
+            try {
+                if (status == null || !matcher.test(status)) {
+                    continue;
+                }
                 status.setCancelled(true);
                 status.setCompleted(true);
                 status.setFailed(false);
@@ -363,9 +448,60 @@ public class NovelDownloadService implements NovelDownloader {
                 if (statusMap.remove(key, status)) {
                     cleared.incrementAndGet();
                 }
+            } catch (Throwable error) {
+                failure = mergeFailure(failure, error);
             }
-        });
+        }
+        rethrow(failure);
         return cleared.get();
+    }
+
+    private void cancelTrackedStatus(String statusKey, NovelDownloadStatus status) {
+        status.setCancelled(true);
+        status.setCompleted(true);
+        status.setFailed(false);
+        status.setStage("cancelled");
+        status.setEndTime(java.time.LocalDateTime.now());
+        status.setErrorMessage(messages.get("download.cancelled"));
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    private static Throwable mergeFailure(Throwable current, Throwable failure) {
+        if (current == null) {
+            return failure;
+        }
+        if (failureRank(failure) > failureRank(current)) {
+            addSuppressedSafely(failure, current);
+            return failure;
+        }
+        addSuppressedSafely(current, failure);
+        return current;
+    }
+
+    private static int failureRank(Throwable failure) {
+        if (failure instanceof VirtualMachineError || failure instanceof ThreadDeath) {
+            return 2;
+        }
+        return failure instanceof Error ? 1 : 0;
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable failure) {
+        if (target == failure) {
+            return;
+        }
+        try {
+            target.addSuppressed(failure);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖主失败对象。
+        }
     }
 
     public static void validateUserDownloadFolder(NovelDownloadRequest.Other other) {

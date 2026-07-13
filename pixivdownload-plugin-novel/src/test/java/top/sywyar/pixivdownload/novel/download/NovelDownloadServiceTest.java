@@ -8,12 +8,15 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -26,6 +29,10 @@ import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -72,15 +79,20 @@ class NovelDownloadServiceTest {
     private WorkMetaCaptureService workMetaCaptureService;
 
     private NovelDownloadService service;
+    private final TaskExecutor downloadTaskExecutor = Runnable::run;
 
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
         lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
-        service = new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase,
+        service = newService(downloadTaskExecutor);
+    }
+
+    private NovelDownloadService newService(TaskExecutor taskExecutor) {
+        return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase,
                 novelSeriesService, authorService, collectionService, pixivBookmarkService,
-                userQuotaService, downloadRestTemplate, taskScheduler, APP_MESSAGES,
+                userQuotaService, downloadRestTemplate, taskScheduler, taskExecutor, APP_MESSAGES,
                 novelAutoTranslateService, workMetaCaptureService);
     }
 
@@ -125,5 +137,66 @@ class NovelDownloadServiceTest {
 
         assertThat(ok).isTrue();
         verify(workMetaCaptureService).captureForwardedNovel(eq(103L), any());
+    }
+
+    @Test
+    @DisplayName("提交后状态创建前 quiesce 应取消小说宿主任务")
+    void shouldCancelPendingTaskBeforeStatusCreation() {
+        AtomicReference<Runnable> submitted = new AtomicReference<>();
+        NovelDownloadService queued = newService(submitted::set);
+
+        queued.download(txtRequest(104L, null), "owner-a");
+        QueueGenerationDrain drain = queued.prepareQuiesceDownloads();
+        queued.cancelQuiescedDownloads();
+        submitted.get().run();
+
+        assertThat(drain.isDrained()).isTrue();
+        assertThat(queued.getStatus(104L, "owner-a", false)).isNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> queued.download(txtRequest(105L, null), "owner-a"))
+                .isInstanceOf(QueueNotAcceptingException.class)
+                .satisfies(error -> assertThat(((QueueNotAcceptingException) error).getStatus().value())
+                        .isEqualTo(503));
+    }
+
+    @Test
+    @DisplayName("小说父执行器拒绝提交时应归还 permit")
+    void shouldReleasePermitWhenExecutorRejects() {
+        RejectedExecutionException rejected = new RejectedExecutionException("full");
+        NovelDownloadService rejecting = newService(task -> { throw rejected; });
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> rejecting.download(txtRequest(106L, null), null))
+                .isSameAs(rejected);
+
+        QueueGenerationDrain drain = rejecting.prepareQuiesceDownloads();
+        rejecting.cancelQuiescedDownloads();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("运行中的小说任务必须等执行线程退出才归零")
+    void shouldWaitForRunningDownloadToExit() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        lenient().when(downloadConfig.getRootFolder()).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await();
+            return tempDir.toString();
+        });
+        NovelDownloadService running = newService(task -> {
+            Thread worker = new Thread(task, "novel-drain-test");
+            worker.setDaemon(true);
+            worker.start();
+        });
+
+        running.download(txtRequest(107L, null), null);
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        QueueGenerationDrain drain = running.prepareQuiesceDownloads();
+        running.cancelQuiescedDownloads();
+        assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(20))).isFalse();
+
+        release.countDown();
+        assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(2))).isTrue();
     }
 }

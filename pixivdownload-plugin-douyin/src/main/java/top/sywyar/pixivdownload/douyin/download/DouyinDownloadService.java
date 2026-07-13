@@ -4,6 +4,9 @@ import org.springframework.core.task.TaskExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinCookieValidator;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
@@ -52,6 +55,7 @@ public class DouyinDownloadService {
     private final ConcurrentMap<String, MutableStatus> statuses = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskIdentity, String> runningStatusIds = new ConcurrentHashMap<>();
     private final Object runningLock = new Object();
+    private final QueueTaskTracker taskTracker = new QueueTaskTracker(QUEUE_TYPE);
 
     public DouyinDownloadService(DouyinUrlParser parser,
                                  DouyinClient client,
@@ -128,43 +132,72 @@ public class DouyinDownloadService {
     }
 
     public DouyinStartResponse start(DouyinDownloadRequest request, String ownerUuid) throws DouyinClientException {
-        String input = request == null ? "" : request.input();
-        String cookie = request == null ? null : request.cookie();
-        DouyinCookieValidator.ensureUsable(cookie);
-        DouyinRuntimeSettings runtimeSettings = settingsService.runtimeSettings();
-        RuntimePair runtime = runtimeFor(runtimeSettings.proxyMode());
-        DouyinCanonicalDownload canonical = runtime.client().resolveDownload(input, cookie);
         String ownerScope = normalizeOwnerScope(ownerUuid);
-        TaskIdentity identity = new TaskIdentity(ownerScope, canonical.stableKey());
-        MutableStatus status;
-        synchronized (runningLock) {
-            String runningStatusId = runningStatusIds.get(identity);
-            MutableStatus running = runningStatusId == null ? null : statuses.get(runningStatusId);
-            if (running != null && running.isRunning()) {
-                return new DouyinStartResponse(true, running.id, running.workId, running.messageKey);
+        QueueTaskTracker.Task task = taskTracker.beginRunning(ownerScope);
+        boolean submitted = false;
+        try {
+            String input = request == null ? "" : request.input();
+            String cookie = request == null ? null : request.cookie();
+            DouyinCookieValidator.ensureUsable(cookie);
+            DouyinRuntimeSettings runtimeSettings = settingsService.runtimeSettings();
+            RuntimePair runtime = runtimeFor(runtimeSettings.proxyMode());
+            DouyinCanonicalDownload canonical = runtime.client().resolveDownload(input, cookie);
+            TaskIdentity identity = new TaskIdentity(ownerScope, canonical.stableKey());
+            MutableStatus status;
+            synchronized (runningLock) {
+                String runningStatusId = runningStatusIds.get(identity);
+                MutableStatus running = runningStatusId == null ? null : statuses.get(runningStatusId);
+                if (running != null && running.isRunning()) {
+                    if (task.isCancellationRequested()) {
+                        throw new QueueNotAcceptingException(QUEUE_TYPE);
+                    }
+                    return new DouyinStartResponse(true, running.id, running.workId, running.messageKey);
+                }
+                if (runningStatusId != null) {
+                    runningStatusIds.remove(identity, runningStatusId);
+                }
+                String statusId = UUID.randomUUID().toString();
+                status = new MutableStatus(statusId, identity, canonical.kind(),
+                        canonical.stableId(), numericId(canonical.stableId()));
+                status.title = safeTitle(request == null ? null : request.title(), canonical.stableId());
+                status.originalInput = input;
+                status.canonicalUrl = canonical.canonicalUrl();
+                status.cookie = cookie;
+                status.collectionId = canonical.kind() == DouyinCanonicalKind.COLLECTION
+                        ? canonical.stableId()
+                        : request == null ? null : request.collectionId();
+                status.collectionTitle = request == null ? null : request.collectionTitle();
+                status.preResolvedWork = canonical.preResolvedWork();
+                status.runtime = runtime;
+                status.downloadDirectory = runtimeSettings.downloadDirectory();
+                task.onCancellation(() -> cancelTrackedStatus(status));
+                if (!task.publishIfActive(() -> {
+                    statuses.put(statusId, status);
+                    runningStatusIds.put(identity, statusId);
+                })) {
+                    throw new QueueNotAcceptingException(QUEUE_TYPE);
+                }
             }
-            if (runningStatusId != null) {
-                runningStatusIds.remove(identity, runningStatusId);
+            if (!task.handoff(() -> run(status))) {
+                throw new QueueNotAcceptingException(QUEUE_TYPE);
             }
-            String statusId = UUID.randomUUID().toString();
-            status = new MutableStatus(statusId, identity, canonical.kind(),
-                    canonical.stableId(), numericId(canonical.stableId()));
-            status.title = safeTitle(request == null ? null : request.title(), canonical.stableId());
-            status.originalInput = input;
-            status.canonicalUrl = canonical.canonicalUrl();
-            status.cookie = cookie;
-            status.collectionId = canonical.kind() == DouyinCanonicalKind.COLLECTION
-                    ? canonical.stableId()
-                    : request == null ? null : request.collectionId();
-            status.collectionTitle = request == null ? null : request.collectionTitle();
-            status.preResolvedWork = canonical.preResolvedWork();
-            status.runtime = runtime;
-            status.downloadDirectory = runtimeSettings.downloadDirectory();
-            statuses.put(statusId, status);
-            runningStatusIds.put(identity, statusId);
+            try {
+                downloadTaskExecutor.execute(task);
+            } catch (RuntimeException | Error failure) {
+                task.rejectSubmission();
+                removeStatus(status);
+                throw failure;
+            }
+            submitted = true;
+            if (task.isCancellationRequested()) {
+                throw new QueueNotAcceptingException(QUEUE_TYPE);
+            }
+            return new DouyinStartResponse(true, status.id, status.workId, "douyin.status.queued");
+        } finally {
+            if (!submitted) {
+                task.completeRunning();
+            }
         }
-        downloadTaskExecutor.execute(() -> run(status));
-        return new DouyinStartResponse(true, status.id, status.workId, "douyin.status.queued");
     }
 
     public Optional<DouyinDownloadSnapshot> status(String id, String ownerUuid, boolean admin) {
@@ -205,24 +238,85 @@ public class DouyinDownloadService {
 
     public int clearAll() {
         int count = statuses.size();
-        statuses.values().forEach(MutableStatus::cancel);
-        statuses.clear();
-        runningStatusIds.clear();
-        return count;
+        int cancelledTasks = 0;
+        Throwable failure = null;
+        try {
+            cancelledTasks = taskTracker.cancelActive();
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            cancelAndClearStatuses();
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
+        return count > 0 ? count : cancelledTasks;
     }
 
     public int clearForOwner(String ownerUuid) {
         String ownerScope = normalizeOwnerScope(ownerUuid);
+        int cancelledTasks = 0;
         int cleared = 0;
+        Throwable failure = null;
+        try {
+            cancelledTasks = taskTracker.cancelForOwner(ownerScope);
+        } catch (Throwable error) {
+            failure = error;
+        }
         for (MutableStatus status : List.copyOf(statuses.values())) {
             if (!status.ownedBy(ownerScope)) {
                 continue;
             }
             cleared++;
-            status.cancel();
-            removeStatus(status);
+            try {
+                status.cancel();
+            } catch (Throwable error) {
+                failure = mergeFailure(failure, error);
+            }
+            try {
+                removeStatus(status);
+            } catch (Throwable error) {
+                failure = mergeFailure(failure, error);
+            }
         }
-        return cleared;
+        rethrow(failure);
+        return cleared > 0 ? cleared : cancelledTasks;
+    }
+
+    /** 先停止接收并取得唯一 drain；本方法不执行插件 callback。 */
+    public QueueGenerationDrain prepareQuiesceDownloads() {
+        return taskTracker.prepareQuiesce();
+    }
+
+    /** drain 已由生命周期保存后，再取消本代任务并清理状态。 */
+    public void cancelQuiescedDownloads() {
+        Throwable failure = null;
+        try {
+            taskTracker.cancelQuiescedTasks();
+        } catch (Throwable error) {
+            failure = error;
+        }
+        try {
+            cancelAndClearStatuses();
+        } catch (Throwable error) {
+            failure = mergeFailure(failure, error);
+        }
+        rethrow(failure);
+    }
+
+    private void cancelAndClearStatuses() {
+        Throwable failure = null;
+        for (MutableStatus status : List.copyOf(statuses.values())) {
+            try {
+                status.cancel();
+            } catch (Throwable error) {
+                failure = mergeFailure(failure, error);
+            }
+        }
+        statuses.clear();
+        runningStatusIds.clear();
+        rethrow(failure);
     }
 
     public void cancel(long numericWorkId, String ownerUuid, boolean admin) {
@@ -440,6 +534,50 @@ public class DouyinDownloadService {
     private void removeStatus(MutableStatus status) {
         statuses.remove(status.id, status);
         runningStatusIds.remove(status.identity, status.id);
+    }
+
+    private void cancelTrackedStatus(MutableStatus status) {
+        status.cancel();
+        removeStatus(status);
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    private static Throwable mergeFailure(Throwable current, Throwable failure) {
+        if (current == null) {
+            return failure;
+        }
+        if (failureRank(failure) > failureRank(current)) {
+            addSuppressedSafely(failure, current);
+            return failure;
+        }
+        addSuppressedSafely(current, failure);
+        return current;
+    }
+
+    private static int failureRank(Throwable failure) {
+        if (failure instanceof VirtualMachineError || failure instanceof ThreadDeath) {
+            return 2;
+        }
+        return failure instanceof Error ? 1 : 0;
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable failure) {
+        if (target == failure) {
+            return;
+        }
+        try {
+            target.addSuppressed(failure);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖主失败对象。
+        }
     }
 
     private static String normalizeOwnerScope(String ownerUuid) {

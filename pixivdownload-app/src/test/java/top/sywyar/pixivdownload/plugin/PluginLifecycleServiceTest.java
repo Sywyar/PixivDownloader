@@ -8,8 +8,11 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry.OwnedQueueOperations;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -59,6 +62,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -231,7 +235,8 @@ class PluginLifecycleServiceTest {
             plugin.queueType = queueType;
             if (queueType != null) {
                 ops = new RecordingQueueOperations(queueType);
-                queueRegistry = new QueueOperationRegistry(List.of(ops));
+                queueRegistry = new QueueOperationRegistry(List.of());
+                queueRegistry.register("ext-demo", List.of(ops));
             } else {
                 ops = null;
                 queueRegistry = new QueueOperationRegistry(List.of());
@@ -418,13 +423,13 @@ class PluginLifecycleServiceTest {
     // ============================ 运行期任务清退组（quiesce / 卸载时 drain 在途队列 + 关闭 SSE）============================
 
     @Test
-    @DisplayName("stop：经核心队列宿主注册中心排空该插件 queueType 的在途任务 + 关闭其 SSE 推流，阶段落 STOPPED")
+    @DisplayName("stop：保存该插件 queue generation drain、发送取消并关闭 SSE，阶段落 STOPPED")
     void stopDrainsQueueTasksAndClosesStreams() {
         MockHarness h = new MockHarness("ext-illust");
 
         h.service.stop("ext-demo");
 
-        assertThat(h.ops.clearAllCount).isEqualTo(1);                       // 在途下载经 QueueOperations.clearAll 取消
+        assertThat(h.ops.clearAllCount).isEqualTo(1);                       // 保存 drain 后发送协作式取消
         assertThat(h.stream.closedCount).isEqualTo(1);                      // SSE 推流被关闭（客户端收到不可用事件）
         assertThat(h.streamRegistry.activeStreamCount("ext-demo")).isZero(); // 关闭后不残留引用
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
@@ -443,6 +448,45 @@ class PluginLifecycleServiceTest {
     }
 
     @Test
+    @DisplayName("queueTypes getter 抛断言错误时 quiesce 仍完成且 stop 不会二次撤回 schedule")
+    void queueTypeGetterAssertionErrorDoesNotStrandQuiesce() {
+        MockHarness h = new MockHarness();
+        h.plugin.failQueueTypesWithError = true;
+
+        h.service.quiesce("ext-demo");
+
+        assertThat(h.stream.closedCount).isEqualTo(1);
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+        h.service.stop("ext-demo");
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+        verify(h.scheduleRegistrar, times(1)).withdraw(any(), eq(h.publication));
+    }
+
+    @Test
+    @DisplayName("队列取消抛断言错误时保持 QUIESCED，修复后重试才拆服务足迹")
+    void queueCancellationAssertionErrorKeepsRetryableQuiesce() {
+        MockHarness h = new MockHarness("ext-illust");
+        h.ops.failClearAllWithError = true;
+
+        assertThatThrownBy(() -> h.service.stop("ext-demo"))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("plugin-private-clear-all");
+
+        assertThat(h.ops.clearAllCount).isEqualTo(1);
+        assertThat(h.stream.closedCount).isEqualTo(1);
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+        verify(h.scheduleRegistrar).withdraw(any(), eq(h.publication));
+        verify(h.webRegistrar, never()).unregister(eq("ext-demo"), any());
+
+        h.ops.failClearAllWithError = false;
+        h.service.stop("ext-demo");
+
+        assertThat(h.ops.clearAllCount).isEqualTo(2);
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+        verify(h.webRegistrar).unregister(eq("ext-demo"), any());
+    }
+
+    @Test
     @DisplayName("无 queueType 的纯贡献插件：stop 不触达队列注册中心（drain 安全空操作），仍关闭其 SSE")
     void stopWithoutQueueTypeStillClosesStreams() {
         MockHarness h = new MockHarness(); // 无 queueType
@@ -454,24 +498,49 @@ class PluginLifecycleServiceTest {
     }
 
     @Test
-    @DisplayName("长任务在插件卸载时被取消：unload 触发 drain（clearAll），阻塞等待的下载线程被放行、干净退出")
-    void longRunningTaskIsCancelledOnUnload() throws Exception {
+    @DisplayName("运行任务取消后 drain 等宿主 wrapper 实际退出，unload 才继续")
+    void unloadWaitsForRunningQueueWrapperToActuallyExit() throws Exception {
         MockHarness h = new MockHarness("ext-illust");
-        AtomicBoolean released = new AtomicBoolean(false);
-        // 模拟一个在途下载长任务：阻塞等待，直到队列被排空（clearAll 放行 latch）才退出 —— 即「被取消」。
-        Thread worker = new Thread(() -> {
+        CountDownLatch taskEntered = new CountDownLatch(1);
+        CountDownLatch cancellationObserved = new CountDownLatch(1);
+        CountDownLatch releaseTask = new CountDownLatch(1);
+        QueueTaskTracker.Task tracked = h.ops.queuedTask(() -> {
+            taskEntered.countDown();
             try {
-                released.set(h.ops.drained.await(2, TimeUnit.SECONDS));
-            } catch (InterruptedException e) {
+                if (!releaseTask.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("timed out waiting to release tracked queue task");
+                }
+            } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
+                throw new AssertionError("tracked queue task interrupted");
             }
-        });
+        }, cancellationObserved::countDown);
+        Thread worker = new Thread(tracked, "tracked-plugin-queue-task");
         worker.start();
+        assertThat(taskEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
-        h.service.unload("ext-demo"); // → stop（drain → clearAll 放行 latch）→ 从核心注册中心移除
+        AtomicReference<Throwable> unloadFailure = new AtomicReference<>();
+        Thread unload = new Thread(() -> {
+            try {
+                h.service.unload("ext-demo");
+            } catch (Throwable failure) {
+                unloadFailure.set(failure);
+            }
+        }, "plugin-unload-await-queue");
+        unload.start();
+        assertThat(cancellationObserved.await(5, TimeUnit.SECONDS)).isTrue();
 
-        worker.join(3000);
-        assertThat(released).isTrue();                 // 长任务观察到取消、干净退出（而非永久阻塞）
+        assertThat(unload.isAlive()).isTrue();
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+        verify(h.webRegistrar, never()).unregister(eq("ext-demo"), any());
+
+        releaseTask.countDown();
+        worker.join(5000);
+        unload.join(5000);
+
+        assertThat(worker.isAlive()).isFalse();
+        assertThat(unload.isAlive()).isFalse();
+        assertThat(unloadFailure.get()).isNull();
         assertThat(h.ops.clearAllCount).isEqualTo(1);
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.UNLOADED);
     }
@@ -497,33 +566,48 @@ class PluginLifecycleServiceTest {
         final ScheduleGenerationDrain drain = mock(ScheduleGenerationDrain.class);
         final PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
         final QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
+        final QueueOperations queueOperations = mock(QueueOperations.class);
+        final QueueGenerationDrain queueDrain = mock(QueueGenerationDrain.class);
         final PluginCapabilityContributionRegistrar capabilityRegistrar =
                 mock(PluginCapabilityContributionRegistrar.class);
         final PluginLifecycleService service;
 
         OrderHarness() {
-            plugin.queueType = "ext-illust"; // 声明作品类型 → drain 会经 queueRegistry.resolve 解析其操作适配器
             when(runtime.inspectContextModules()).thenReturn(List.of());
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             when(scheduleRegistrar.register(any(), eq(registered), any())).thenReturn(Optional.of(publication));
             when(scheduleRegistrar.withdraw(any(), eq(publication))).thenReturn(Optional.of(drain));
             when(drain.awaitDrained(anyLong())).thenReturn(true);
             when(drain.isDrained()).thenReturn(true);
+            when(queueRegistry.operationsForOwner("ext-demo"))
+                    .thenReturn(List.of(new OwnedQueueOperations("ext-illust", queueOperations)));
+            when(queueOperations.prepareQuiesce()).thenReturn(queueDrain);
+            when(queueDrain.queueType()).thenReturn("ext-illust");
+            when(queueDrain.generation()).thenReturn(1L);
+            when(queueDrain.awaitDrained(anyLong())).thenReturn(true);
+            when(queueDrain.isDrained()).thenReturn(true);
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
                     new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
                     runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry),
                     capabilityRegistrar, registry, state);
             service.startAll(); // 纯贡献插件登记为 STARTED
-            clearInvocations(scheduleRegistrar, streamRegistry, queueRegistry, capabilityRegistrar);
+            clearInvocations(scheduleRegistrar, streamRegistry, queueRegistry,
+                    queueOperations, queueDrain, capabilityRegistrar);
         }
 
-        /** 断言 publication 撤回 → 关 SSE → drain 队列 → 注销运行期能力的相对调用顺序。 */
+        /** 断言 publication 撤回 → 保存 queue drain → 关 SSE / 发取消 → 等待 → 注销运行期能力。 */
         void verifyShieldThenDrain() {
-            InOrder ord = inOrder(scheduleRegistrar, streamRegistry, queueRegistry, capabilityRegistrar);
-            ord.verify(scheduleRegistrar).withdraw(any(), eq(publication));    // ① 先拒绝新 lease 并取消旧代
-            ord.verify(streamRegistry).closeForPlugin("ext-demo");  // ② 再关闭 SSE 推流
-            ord.verify(queueRegistry).resolve("ext-illust");        // ③ 再 drain 在途下载队列
-            ord.verify(capabilityRegistrar).unregister("ext-demo"); // ④ drain 完成后才注销 owner-aware 队列能力
+            InOrder ord = inOrder(scheduleRegistrar, streamRegistry, queueRegistry,
+                    queueOperations, queueDrain, capabilityRegistrar);
+            ord.verify(scheduleRegistrar).withdraw(any(), eq(publication));
+            ord.verify(queueRegistry).operationsForOwner("ext-demo");
+            ord.verify(queueOperations).prepareQuiesce();
+            ord.verify(streamRegistry).closeForPlugin("ext-demo");
+            ord.verify(queueRegistry).operationsForOwner("ext-demo");
+            ord.verify(queueOperations).prepareQuiesce();
+            ord.verify(queueOperations).cancelQuiescedTasks();
+            ord.verify(queueDrain).awaitDrained(anyLong());
+            ord.verify(capabilityRegistrar).unregister("ext-demo");
         }
     }
 
@@ -583,7 +667,7 @@ class PluginLifecycleServiceTest {
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             when(scheduleRegistrar.register(any(), eq(registered), any())).thenReturn(Optional.of(publication));
-            when(quiescer.quiesce(any(), eq("ext-demo"), eq(publication), any()))
+            when(quiescer.withdrawSchedule(any(), eq(publication)))
                     .thenReturn(new PluginRuntimeTaskQuiescer.QuiesceResult(Optional.of(drain)));
             when(drain.awaitDrained(anyLong())).thenReturn(false, true);
             when(drain.isDrained()).thenReturn(true);
@@ -612,7 +696,9 @@ class PluginLifecycleServiceTest {
             assertThat(child.isActive()).isFalse();
             assertThat(service.contextFor("ext-demo")).isEmpty();
             assertThat(plugin.stopCount).isEqualTo(1);
-            verify(quiescer, times(1)).quiesce(any(), eq("ext-demo"), eq(publication), any());
+            verify(quiescer, times(1)).withdrawSchedule(any(), eq(publication));
+            verify(quiescer, times(1)).prepareQueueDrains(eq("ext-demo"), any(), any());
+            verify(quiescer, times(1)).quiesceAfterScheduleWithdrawal(eq("ext-demo"), any());
         }
     }
 
@@ -1088,6 +1174,7 @@ class PluginLifecycleServiceTest {
         private int startCount;
         private int stopCount;
         private boolean failStart;
+        private boolean failQueueTypesWithError;
         private String queueType; // 非空时声明对应作品类型（验证 quiesce / 卸载时排空其在途队列）
         private List<ScheduledSourceProvider> scheduledSources = List.of(); // 非空时贡献计划任务来源（验证 schedule 热插拔）
 
@@ -1102,6 +1189,9 @@ class PluginLifecycleServiceTest {
 
         @Override
         public List<QueueTypeContribution> queueTypes() {
+            if (failQueueTypesWithError) {
+                throw new AssertionError("plugin-private-queue-types");
+            }
             return queueType == null ? List.of()
                     : List.of(new QueueTypeContribution(id, queueType, id, "label", 10, null));
         }
@@ -1140,17 +1230,16 @@ class PluginLifecycleServiceTest {
         }
     }
 
-    /**
-     * 记录 clearAll 调用并在排空时放行 {@code drained} latch 的队列操作夹具：模拟「在途下载被取消」——
-     * 一个阻塞等待该 latch 的下载线程在 clearAll 后被放行（即被取消、干净退出）。
-     */
+    /** 记录生命周期取消与普通 clear 的队列操作夹具；drain 只在宿主 wrapper 的 finally 归还凭据后归零。 */
     private static final class RecordingQueueOperations implements QueueOperations {
         private final String type;
+        private final QueueTaskTracker tracker;
         int clearAllCount;
-        final CountDownLatch drained = new CountDownLatch(1);
+        boolean failClearAllWithError;
 
         RecordingQueueOperations(String type) {
             this.type = type;
+            this.tracker = new QueueTaskTracker(type);
         }
 
         @Override
@@ -1159,15 +1248,35 @@ class PluginLifecycleServiceTest {
         }
 
         @Override
+        public QueueGenerationDrain prepareQuiesce() {
+            return tracker.prepareQuiesce();
+        }
+
+        @Override
+        public void cancelQuiescedTasks() {
+            tracker.cancelQuiescedTasks();
+            clearAll();
+        }
+
+        @Override
         public int clearAll() {
             clearAllCount++;
-            drained.countDown();
+            if (failClearAllWithError) {
+                throw new AssertionError("plugin-private-clear-all");
+            }
             return 3;
         }
 
         @Override
         public int clearForOwner(String ownerUuid) {
             return 0;
+        }
+
+        QueueTaskTracker.Task queuedTask(Runnable delegate, Runnable cancellation) {
+            QueueTaskTracker.Task task = tracker.prepareQueued("test-owner");
+            task.onCancellation(cancellation);
+            task.bind(delegate);
+            return task;
         }
     }
 

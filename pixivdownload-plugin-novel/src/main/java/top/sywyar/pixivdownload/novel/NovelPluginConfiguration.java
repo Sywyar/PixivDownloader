@@ -166,12 +166,13 @@ public class NovelPluginConfiguration {
             @Nullable UserQuotaService userQuotaService,
             @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
             @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+            @Qualifier("novelDownloadTaskExecutor") TaskExecutor downloadTaskExecutor,
             AppMessages messages,
             NovelAutoTranslateService novelAutoTranslateService,
             WorkMetaCaptureService workMetaCaptureService) {
         return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase, novelSeriesService,
                 authorService, collectionService, pixivBookmarkService, userQuotaService, downloadRestTemplate,
-                taskScheduler, messages, novelAutoTranslateService, workMetaCaptureService);
+                taskScheduler, downloadTaskExecutor, messages, novelAutoTranslateService, workMetaCaptureService);
     }
 
     @Bean

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
@@ -61,5 +62,16 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(204);
         assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    @DisplayName("队列清退竞态应返回本地化 503 而不是裸 500")
+    void shouldHandleQuiescedQueueAsServiceUnavailable() {
+        ResponseEntity<ErrorResponse> response = handler.handleLocalized(
+                new QueueNotAcceptingException("illust"), Locale.SIMPLIFIED_CHINESE);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError()).isEqualTo("插件正在停用中，暂时不可用，请稍后重试");
     }
 }

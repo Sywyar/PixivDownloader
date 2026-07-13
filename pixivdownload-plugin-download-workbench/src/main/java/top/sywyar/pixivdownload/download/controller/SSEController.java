@@ -20,6 +20,9 @@ import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
@@ -45,6 +48,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -73,6 +77,9 @@ public class SSEController {
     private final ConcurrentHashMap<String, ScheduledFuture<?>> aggregatedHeartbeats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, PendingProgress> pendingProgress = new ConcurrentHashMap<>();
     private final AtomicBoolean progressFlushRunning = new AtomicBoolean(false);
+    private final AtomicBoolean backgroundDrainRegistered = new AtomicBoolean(false);
+    private final QueueTaskTracker backgroundTasks = new QueueTaskTracker("download-workbench-sse");
+    private final String backgroundStreamToken = "sse-background:" + UUID.randomUUID();
 
     public SSEController(TaskScheduler taskScheduler,
                          SetupService setupService,
@@ -92,13 +99,47 @@ public class SSEController {
 
     @PreDestroy
     public void shutdownProgressExecutor() {
-        sseProgressExecutor.shutdownNow();
+        try {
+            quiesceBackgroundTasks();
+        } catch (Throwable failure) {
+            log.warn("SSE background task cleanup failed during context close (failureType={})",
+                    failure.getClass().getName());
+        } finally {
+            pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, backgroundStreamToken);
+            sseProgressExecutor.shutdownNow();
+            boolean interrupted = false;
+            try {
+                while (!sseProgressExecutor.isTerminated()) {
+                    try {
+                        if (sseProgressExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                            break;
+                        }
+                    } catch (InterruptedException failure) {
+                        interrupted = true;
+                    }
+                }
+            } finally {
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
     }
 
     private record ArtworkSubscription(SseEmitter emitter, Long artworkId, String ownerUuid,
-                                       boolean admin, Locale locale) {}
+                                       boolean admin, Locale locale, String streamToken) {
+        private ArtworkSubscription(SseEmitter emitter, Long artworkId, String ownerUuid,
+                                    boolean admin, Locale locale) {
+            this(emitter, artworkId, ownerUuid, admin, locale, null);
+        }
+    }
 
-    private record AggregatedSubscription(SseEmitter emitter, String ownerUuid, boolean admin, Locale locale) {}
+    private record AggregatedSubscription(SseEmitter emitter, String ownerUuid, boolean admin,
+                                          Locale locale, String streamToken) {
+        private AggregatedSubscription(SseEmitter emitter, String ownerUuid, boolean admin, Locale locale) {
+            this(emitter, ownerUuid, admin, locale, null);
+        }
+    }
 
     private record PendingProgress(Long artworkId, DownloadStatus downloadStatus, String userUuid) {}
 
@@ -106,67 +147,79 @@ public class SSEController {
 
     @GetMapping(value = "/download/{artworkId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter createSSEConnection(@PathVariable Long artworkId, HttpServletRequest request) {
+        ensureBackgroundDrainRegistered();
         SseEmitter emitter = new SseEmitter(300_000L);
         boolean admin = setupService.hasAdminScope(request);
         String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
-        String subscriptionKey = artworkSubscriptionKey(artworkId, ownerUuid, admin);
-        emitters.put(subscriptionKey, new ArtworkSubscription(
-                emitter, artworkId, ownerUuid, admin, currentRequestLocale()));
-        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, subscriptionKey,
-                () -> closeArtworkStreamUnavailable(subscriptionKey));
+        String connectionId = UUID.randomUUID().toString();
+        String subscriptionKey = artworkSubscriptionKey(artworkId, ownerUuid, admin) + "#" + connectionId;
+        String streamToken = "artwork:" + connectionId;
+        ArtworkSubscription subscription = new ArtworkSubscription(
+                emitter, artworkId, ownerUuid, admin, currentRequestLocale(), streamToken);
+        emitters.put(subscriptionKey, subscription);
+        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, streamToken,
+                () -> closeArtworkStreamUnavailable(subscriptionKey, subscription));
 
         emitter.onCompletion(() -> {
-            cleanupArtworkEmitter(subscriptionKey);
+            cleanupArtworkEmitter(subscriptionKey, subscription);
             log.info(logMessage("sse.log.connection.completed", id(artworkId)));
         });
         emitter.onTimeout(() -> {
-            cleanupArtworkEmitter(subscriptionKey);
+            cleanupArtworkEmitter(subscriptionKey, subscription);
             log.error(logMessage("sse.log.connection.timeout", id(artworkId)));
         });
         emitter.onError((e) -> {
-            cleanupArtworkEmitter(subscriptionKey);
+            cleanupArtworkEmitter(subscriptionKey, subscription);
             log.debug(logMessage("sse.log.connection.error", id(artworkId), e.getMessage()));
         });
 
         if (!sendStatusUpdate(subscriptionKey)) {
-            cleanupArtworkEmitter(subscriptionKey);
+            cleanupArtworkEmitter(subscriptionKey, subscription);
             return emitter;
         }
 
-        ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(() -> {
-            if (isEmitterValid(subscriptionKey) && !sendEvent(emitter, SseEmitter.event()
-                    .id(String.valueOf(System.currentTimeMillis()))
-                    .name("heartbeat")
-                    .data("ping"))) {
-                cleanupArtworkEmitter(subscriptionKey);
-            }
-        }, Duration.ofSeconds(30));
+        ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(
+                () -> runTrackedBackground(() -> {
+                    if (isEmitterValid(subscriptionKey, subscription) && !sendEvent(emitter, SseEmitter.event()
+                            .id(String.valueOf(System.currentTimeMillis()))
+                            .name("heartbeat")
+                            .data("ping"))) {
+                        cleanupArtworkEmitter(subscriptionKey, subscription);
+                    }
+                }), Duration.ofSeconds(30));
         heartbeatTasks.put(subscriptionKey, heartbeat);
+        if (!isEmitterValid(subscriptionKey, subscription)
+                && heartbeatTasks.remove(subscriptionKey, heartbeat)) {
+            heartbeat.cancel(false);
+        }
 
         return emitter;
     }
 
     @GetMapping(value = "/download", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter createAggregatedSSEConnection(HttpServletRequest request) {
+        ensureBackgroundDrainRegistered();
         SseEmitter emitter = new SseEmitter(86_400_000L);
         String connectionId = UUID.randomUUID().toString();
+        String streamToken = "aggregated:" + connectionId;
         boolean admin = setupService.hasAdminScope(request);
         String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
-        aggregatedEmitters.put(connectionId, new AggregatedSubscription(
-                emitter, ownerUuid, admin, currentRequestLocale()));
-        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, connectionId,
-                () -> closeAggregatedStreamUnavailable(connectionId));
+        AggregatedSubscription subscription = new AggregatedSubscription(
+                emitter, ownerUuid, admin, currentRequestLocale(), streamToken);
+        aggregatedEmitters.put(connectionId, subscription);
+        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, streamToken,
+                () -> closeAggregatedStreamUnavailable(connectionId, subscription));
 
         emitter.onCompletion(() -> {
-            cleanupAggregatedEmitter(connectionId);
+            cleanupAggregatedEmitter(connectionId, subscription);
             log.debug(logMessage("sse.log.aggregated.completed", connectionId));
         });
         emitter.onTimeout(() -> {
-            cleanupAggregatedEmitter(connectionId);
+            cleanupAggregatedEmitter(connectionId, subscription);
             log.debug(logMessage("sse.log.aggregated.timeout", connectionId));
         });
         emitter.onError((e) -> {
-            cleanupAggregatedEmitter(connectionId);
+            cleanupAggregatedEmitter(connectionId, subscription);
             log.debug(logMessage("sse.log.aggregated.error", connectionId, e.getMessage()));
         });
 
@@ -175,21 +228,28 @@ public class SSEController {
                 .id(String.valueOf(System.currentTimeMillis()))
                 .name("aggregated-ready")
                 .data(closeToken))) {
-            cleanupAggregatedEmitter(connectionId);
+            cleanupAggregatedEmitter(connectionId, subscription);
             log.debug(logMessage("sse.log.aggregated.initial-send-failed", connectionId, "client disconnected"));
             return emitter;
         }
 
-        ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(() -> {
-            AggregatedSubscription sub = aggregatedEmitters.get(connectionId);
-            if (sub != null && !sendEvent(sub.emitter(), SseEmitter.event()
-                    .id(String.valueOf(System.currentTimeMillis()))
-                    .name("heartbeat")
-                    .data("ping"))) {
-                cleanupAggregatedEmitter(connectionId);
-            }
-        }, Duration.ofSeconds(30));
+        ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(
+                () -> runTrackedBackground(() -> {
+                    AggregatedSubscription sub = aggregatedEmitters.get(connectionId);
+                    if (sub != null && !sendEvent(sub.emitter(), SseEmitter.event()
+                            .id(String.valueOf(System.currentTimeMillis()))
+                            .name("heartbeat")
+                            .data("ping"))) {
+                        cleanupAggregatedEmitter(connectionId, subscription);
+                    }
+                }), Duration.ofSeconds(30));
         aggregatedHeartbeats.put(connectionId, heartbeat);
+        if (aggregatedEmitters.get(connectionId) != subscription) {
+            // The connection was already closed while the scheduler was returning its handle.
+            if (aggregatedHeartbeats.remove(connectionId, heartbeat)) {
+                heartbeat.cancel(false);
+            }
+        }
 
         return emitter;
     }
@@ -199,7 +259,7 @@ public class SSEController {
                                                                HttpServletRequest request) {
         boolean admin = setupService.hasAdminScope(request);
         String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
-        completeArtworkEmitter(artworkSubscriptionKey(artworkId, ownerUuid, admin));
+        completeArtworkEmitters(artworkId, ownerUuid, admin);
         log.info(logMessage("sse.log.connection.closed", id(artworkId)));
         return ResponseEntity.ok(DownloadResponse.builder()
                 .success(true)
@@ -243,51 +303,90 @@ public class SSEController {
     }
 
     private void cleanupArtworkEmitter(String subscriptionKey) {
-        cancelHeartbeat(subscriptionKey);
-        removeArtworkEmitter(subscriptionKey, false);
+        ArtworkSubscription subscription = emitters.get(subscriptionKey);
+        if (subscription == null) {
+            cancelHeartbeat(subscriptionKey);
+            return;
+        }
+        cleanupArtworkEmitter(subscriptionKey, subscription);
     }
 
-    private void completeArtworkEmitter(String subscriptionKey) {
+    private void cleanupArtworkEmitter(String subscriptionKey, ArtworkSubscription subscription) {
         cancelHeartbeat(subscriptionKey);
-        ArtworkSubscription subscription = emitters.remove(subscriptionKey);
-        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, subscriptionKey);
-        if (subscription != null && sendClosingEvent(subscription.emitter(), id(subscription.artworkId()))) {
+        if (emitters.remove(subscriptionKey, subscription)) {
+            unregisterPluginStream(subscription.streamToken());
             completeEmitter(subscription.emitter());
         }
     }
 
-    private void removeArtworkEmitter(String subscriptionKey, boolean complete) {
-        ArtworkSubscription subscription = emitters.remove(subscriptionKey);
-        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, subscriptionKey);
-        if (complete && subscription != null) {
-            completeEmitter(subscription.emitter());
+    private void completeArtworkEmitters(Long artworkId, String ownerUuid, boolean admin) {
+        for (var entry : emitters.entrySet()) {
+            ArtworkSubscription subscription = entry.getValue();
+            if (Objects.equals(subscription.artworkId(), artworkId)
+                    && subscription.admin() == admin
+                    && Objects.equals(subscription.ownerUuid(), ownerUuid)) {
+                completeArtworkEmitter(entry.getKey(), subscription);
+            }
+        }
+    }
+
+    private void completeArtworkEmitter(String subscriptionKey, ArtworkSubscription subscription) {
+        cancelHeartbeat(subscriptionKey);
+        if (emitters.remove(subscriptionKey, subscription)) {
+            unregisterPluginStream(subscription.streamToken());
+            try {
+                sendClosingEvent(subscription.emitter(), id(subscription.artworkId()));
+            } finally {
+                completeEmitter(subscription.emitter());
+            }
+        }
+    }
+
+    private void completeArtworkEmitter(String subscriptionKey) {
+        ArtworkSubscription subscription = emitters.get(subscriptionKey);
+        if (subscription != null) {
+            completeArtworkEmitter(subscriptionKey, subscription);
         }
     }
 
     private void cleanupAggregatedEmitter(String connectionId) {
+        AggregatedSubscription subscription = aggregatedEmitters.get(connectionId);
+        if (subscription == null) {
+            cancelAggregatedHeartbeat(connectionId);
+            return;
+        }
+        cleanupAggregatedEmitter(connectionId, subscription);
+    }
+
+    private void cleanupAggregatedEmitter(String connectionId, AggregatedSubscription subscription) {
         cancelAggregatedHeartbeat(connectionId);
-        removeAggregatedEmitter(connectionId, false);
+        if (aggregatedEmitters.remove(connectionId, subscription)) {
+            unregisterPluginStream(subscription.streamToken());
+            completeEmitter(subscription.emitter());
+        }
     }
 
     private void completeAggregatedEmitter(String connectionId) {
         cancelAggregatedHeartbeat(connectionId);
         AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
-        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, connectionId);
-        if (sub != null && sendClosingEvent(sub.emitter(), connectionId)) {
-            completeEmitter(sub.emitter());
+        if (sub != null) {
+            unregisterPluginStream(sub.streamToken());
+            try {
+                sendClosingEvent(sub.emitter(), connectionId);
+            } finally {
+                completeEmitter(sub.emitter());
+            }
         }
     }
 
-    private void removeAggregatedEmitter(String connectionId, boolean complete) {
-        AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
-        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, connectionId);
-        if (complete && sub != null) {
-            completeEmitter(sub.emitter());
+    private void unregisterPluginStream(String streamToken) {
+        if (streamToken != null) {
+            pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, streamToken);
         }
     }
 
-    private boolean isEmitterValid(String subscriptionKey) {
-        return emitters.containsKey(subscriptionKey);
+    private boolean isEmitterValid(String subscriptionKey, ArtworkSubscription subscription) {
+        return emitters.get(subscriptionKey) == subscription;
     }
 
     public boolean sendStatusUpdate(Long artworkId) {
@@ -315,7 +414,7 @@ public class SSEController {
     @EventListener
     public void handleDownloadProgressEvent(DownloadProgressEvent event) {
         Long artworkId = event.getArtworkId();
-        if (artworkId == null) {
+        if (artworkId == null || (emitters.isEmpty() && aggregatedEmitters.isEmpty())) {
             return;
         }
 
@@ -328,11 +427,139 @@ public class SSEController {
         if (!progressFlushRunning.compareAndSet(false, true)) {
             return;
         }
+        QueueTaskTracker.Task tracked = null;
         try {
-            sseProgressExecutor.execute(this::flushPendingProgress);
+            ensureBackgroundDrainRegistered();
+            tracked = backgroundTasks.prepareQueued("progress-flush");
+            tracked.bind(this::flushPendingProgress);
+            sseProgressExecutor.execute(tracked);
+        } catch (QueueNotAcceptingException failure) {
+            progressFlushRunning.set(false);
+            pendingProgress.clear();
         } catch (RejectedExecutionException e) {
+            if (tracked != null) {
+                tracked.rejectSubmission();
+            }
             progressFlushRunning.set(false);
             log.warn("SSE progress flush task rejected: {}", e.getMessage());
+        } catch (RuntimeException | Error failure) {
+            if (tracked != null) {
+                tracked.rejectSubmission();
+            }
+            progressFlushRunning.set(false);
+            throw failure;
+        }
+    }
+
+    private void ensureBackgroundDrainRegistered() {
+        if (!backgroundDrainRegistered.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, backgroundStreamToken, () -> {
+                quiesceBackgroundTasks();
+                backgroundDrainRegistered.set(false);
+            });
+        } catch (Throwable failure) {
+            if (pluginStreamRegistry.acceptsNewStreams(STREAM_OWNER_PLUGIN_ID)) {
+                backgroundDrainRegistered.set(false);
+            }
+            rethrowBackgroundFailure(failure);
+        }
+    }
+
+    private void runTrackedBackground(Runnable action) {
+        QueueTaskTracker.Task tracked;
+        try {
+            tracked = backgroundTasks.beginRunning("heartbeat");
+        } catch (QueueNotAcceptingException ignored) {
+            return;
+        }
+        try {
+            action.run();
+        } finally {
+            tracked.completeRunning();
+        }
+    }
+
+    private void quiesceBackgroundTasks() {
+        QueueGenerationDrain drain = backgroundTasks.prepareQuiesce();
+        Throwable failure = cancelScheduledBackgroundTasks();
+        pendingProgress.clear();
+        try {
+            backgroundTasks.cancelQuiescedTasks();
+        } catch (Throwable cancellationFailure) {
+            failure = mergeBackgroundFailure(failure, cancellationFailure);
+        }
+        boolean interrupted = false;
+        while (!drain.isDrained()) {
+            if (!drain.awaitDrained()) {
+                interrupted |= Thread.interrupted();
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        rethrowBackgroundFailure(failure);
+    }
+
+    private Throwable cancelScheduledBackgroundTasks() {
+        Throwable failure = null;
+        for (var entry : List.copyOf(heartbeatTasks.entrySet())) {
+            try {
+                entry.getValue().cancel(false);
+                heartbeatTasks.remove(entry.getKey(), entry.getValue());
+            } catch (Throwable cancelFailure) {
+                failure = mergeBackgroundFailure(failure, cancelFailure);
+            }
+        }
+        for (var entry : List.copyOf(aggregatedHeartbeats.entrySet())) {
+            try {
+                entry.getValue().cancel(false);
+                aggregatedHeartbeats.remove(entry.getKey(), entry.getValue());
+            } catch (Throwable cancelFailure) {
+                failure = mergeBackgroundFailure(failure, cancelFailure);
+            }
+        }
+        return failure;
+    }
+
+    private static Throwable mergeBackgroundFailure(Throwable current, Throwable failure) {
+        if (current == null) {
+            return failure;
+        }
+        if (backgroundFailureRank(failure) > backgroundFailureRank(current)) {
+            addBackgroundSuppressed(failure, current);
+            return failure;
+        }
+        addBackgroundSuppressed(current, failure);
+        return current;
+    }
+
+    private static int backgroundFailureRank(Throwable failure) {
+        if (failure instanceof VirtualMachineError || failure instanceof ThreadDeath) {
+            return 2;
+        }
+        return failure instanceof Error ? 1 : 0;
+    }
+
+    private static void addBackgroundSuppressed(Throwable target, Throwable failure) {
+        if (target == failure) {
+            return;
+        }
+        try {
+            target.addSuppressed(failure);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖主失败对象。
+        }
+    }
+
+    private static void rethrowBackgroundFailure(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
         }
     }
 
@@ -426,23 +653,44 @@ public class SSEController {
 
     /**
      * 由 {@link PluginStreamRegistry#closeForPlugin} 调用（拥有它的插件 quiesce / 卸载时）：向作品级客户端发
-     * 「插件不可用」事件后关闭其连接。此处<b>不</b>反向注销该流——注册中心正遍历已原子摘下的快照；
-     * {@code emitter.complete()} 触发的 {@code onCompletion} 走 {@link #cleanupArtworkEmitter}，其 unregister
-     * 此时为安全 no-op（该插件条目已被注册中心移除）。
+     * 「插件不可用」事件后关闭其连接。通知发送只是 best-effort；即使客户端已断开导致 send 失败，也必须 complete
+     * 传输句柄并取消 heartbeat，使承载该请求的异步 lease 能真实退出。complete 触发的 unregister 与注册中心关闭锁可重入。
      */
     private void closeArtworkStreamUnavailable(String subscriptionKey) {
+        ArtworkSubscription subscription = emitters.get(subscriptionKey);
+        if (subscription != null) {
+            closeArtworkStreamUnavailable(subscriptionKey, subscription);
+        }
+    }
+
+    private void closeArtworkStreamUnavailable(
+            String subscriptionKey, ArtworkSubscription subscription) {
         cancelHeartbeat(subscriptionKey);
-        ArtworkSubscription subscription = emitters.remove(subscriptionKey);
-        if (subscription != null && sendUnavailableEvent(subscription.emitter(), subscription.locale())) {
+        emitters.remove(subscriptionKey, subscription);
+        unregisterPluginStream(subscription.streamToken());
+        try {
+            sendUnavailableEvent(subscription.emitter(), subscription.locale());
+        } finally {
             completeEmitter(subscription.emitter());
         }
     }
 
     /** 同 {@link #closeArtworkStreamUnavailable}，作用于聚合连接。 */
     private void closeAggregatedStreamUnavailable(String connectionId) {
+        AggregatedSubscription subscription = aggregatedEmitters.get(connectionId);
+        if (subscription != null) {
+            closeAggregatedStreamUnavailable(connectionId, subscription);
+        }
+    }
+
+    private void closeAggregatedStreamUnavailable(
+            String connectionId, AggregatedSubscription sub) {
         cancelAggregatedHeartbeat(connectionId);
-        AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
-        if (sub != null && sendUnavailableEvent(sub.emitter(), sub.locale())) {
+        aggregatedEmitters.remove(connectionId, sub);
+        unregisterPluginStream(sub.streamToken());
+        try {
+            sendUnavailableEvent(sub.emitter(), sub.locale());
+        } finally {
             completeEmitter(sub.emitter());
         }
     }

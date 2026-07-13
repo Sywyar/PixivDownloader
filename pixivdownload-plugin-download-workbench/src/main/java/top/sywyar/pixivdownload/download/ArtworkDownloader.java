@@ -9,7 +9,7 @@ import java.util.List;
  *
  * <p>由 {@link ArtworkDownloadExecutor} 实现。让调度 / 自动化等上层功能只依赖这一个方法，
  * 而不必注入 {@code ArtworkDownloadExecutor} 本体（其依赖众多），既缩小耦合面又便于测试。
- * 默认入口仍是异步执行（{@code @Async}），调用方不应假设方法返回即下载完成。
+ * 默认入口仍是异步执行：实现会在调用线程先登记队列任务，再显式提交专用父执行器；调用方不应假设方法返回即下载完成。
  * 计划任务等需要严格等待落盘完成的后台流程使用 {@link #downloadImagesBlocking}。
  */
 public interface ArtworkDownloader {

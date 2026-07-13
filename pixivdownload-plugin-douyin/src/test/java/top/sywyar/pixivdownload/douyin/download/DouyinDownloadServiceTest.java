@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.task.TaskExecutor;
+import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
@@ -34,6 +36,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,6 +55,74 @@ class DouyinDownloadServiceTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    @DisplayName("同步解析期间 quiesce 必须等调用线程退出")
+    void waitsForSynchronousResolveBeforeDraining() throws Exception {
+        FakeClient client = new FakeClient();
+        CountDownLatch resolveEntered = new CountDownLatch(1);
+        CountDownLatch releaseResolve = new CountDownLatch(1);
+        client.blockResolve(resolveEntered, releaseResolve);
+        DouyinDownloadService service = service(client, Runnable::run);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread caller = new Thread(() -> {
+            try {
+                service.start(new DouyinDownloadRequest(
+                        "https://www.douyin.com/video/10001", "", VALID_COOKIE), "owner-a");
+            } catch (Throwable error) {
+                failure.set(error);
+            }
+        }, "douyin-resolve-drain-test");
+        caller.setDaemon(true);
+        caller.start();
+        assertThat(resolveEntered.await(2, TimeUnit.SECONDS)).isTrue();
+
+        QueueGenerationDrain drain = service.prepareQuiesceDownloads();
+        service.cancelQuiescedDownloads();
+        assertThat(drain.activeCount()).isEqualTo(1);
+        assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(20))).isFalse();
+
+        releaseResolve.countDown();
+        caller.join(2_000);
+        assertThat(caller.isAlive()).isFalse();
+        assertThat(failure.get()).isInstanceOf(QueueNotAcceptingException.class);
+        assertThat(drain.isDrained()).isTrue();
+        assertThat(service.active("owner-a", false)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("父执行器拒绝 Douyin 提交时应回滚状态并归还 permit")
+    void releasesPermitAndStatusWhenExecutorRejects() {
+        FakeClient client = new FakeClient();
+        RejectedExecutionException rejected = new RejectedExecutionException("full");
+        DouyinDownloadService service = service(client, task -> { throw rejected; });
+
+        assertThatThrownBy(() -> service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/10001", "", VALID_COOKIE), "owner-a"))
+                .isSameAs(rejected);
+
+        QueueGenerationDrain drain = service.prepareQuiesceDownloads();
+        service.cancelQuiescedDownloads();
+        assertThat(drain.isDrained()).isTrue();
+        assertThat(service.active("owner-a", false)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("已入父队列但尚未运行的 Douyin 任务可无残留取消")
+    void cancelsQueuedTaskWithoutRunningPluginDelegate() throws Exception {
+        FakeClient client = new FakeClient();
+        CapturingExecutor executor = new CapturingExecutor();
+        DouyinDownloadService service = service(client, executor);
+
+        var response = service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/10001", "", VALID_COOKIE), "owner-a");
+        QueueGenerationDrain drain = service.prepareQuiesceDownloads();
+        service.cancelQuiescedDownloads();
+        executor.runAll();
+
+        assertThat(drain.isDrained()).isTrue();
+        assertThat(service.status(response.id(), "owner-a", false)).isEmpty();
+    }
 
     @Test
     @DisplayName("公开视频元数据解析后写入插件私有下载目录")
@@ -592,6 +666,13 @@ class DouyinDownloadServiceTest {
         private boolean seriesNeverLast;
         private int seriesListCalls;
         private String lastSeriesId;
+        private CountDownLatch resolveEntered;
+        private CountDownLatch releaseResolve;
+
+        void blockResolve(CountDownLatch entered, CountDownLatch release) {
+            this.resolveEntered = entered;
+            this.releaseResolve = release;
+        }
 
         void mapSingle(String token, String stableId) {
             singleStableIds.put(token, stableId);
@@ -603,6 +684,15 @@ class DouyinDownloadServiceTest {
 
         @Override
         public DouyinCanonicalDownload resolveDownload(String input, String cookie) throws DouyinClientException {
+            if (resolveEntered != null) {
+                resolveEntered.countDown();
+                try {
+                    releaseResolve.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR, "interrupted");
+                }
+            }
             if (resolveFailure != null) {
                 throw new DouyinClientException(resolveFailure, resolveFailure.name());
             }
