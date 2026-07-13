@@ -28,7 +28,7 @@ import java.util.Set;
  */
 public class NovelPlugin implements PixivFeaturePlugin {
 
-    private static final String ID = "novel";
+    public static final String ID = "novel";
 
     @Override
     public String id() {

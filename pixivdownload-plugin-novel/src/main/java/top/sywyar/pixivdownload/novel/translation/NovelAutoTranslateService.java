@@ -5,15 +5,22 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
+import top.sywyar.pixivdownload.novel.NovelPlugin;
 
 /**
  * 「新下载小说自动翻译」的服务端编排队列：下载落库后由 {@link NovelDownloadService} 提交，把新下小说整章翻译成
@@ -54,17 +61,20 @@ public class NovelAutoTranslateService {
     private final NovelMergeService mergeService;
     private final AiService aiService;
     private final TaskExecutor executor;
+    private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
 
     public NovelAutoTranslateService(NovelTranslationService translationService,
                                      NovelGlossaryService glossaryService,
                                      NovelMergeService mergeService,
                                      AiService aiService,
-                                     @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor) {
+                                     @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
+                                     ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
         this.translationService = translationService;
         this.glossaryService = glossaryService;
         this.mergeService = mergeService;
         this.aiService = aiService;
         this.executor = executor;
+        this.scheduleCapabilityRegistry = scheduleCapabilityRegistry;
     }
 
     // 目标语言文本（归一化小写）→ 已解析的 BCP-47 代码；只缓存非空结果（失败可重试）。
@@ -122,45 +132,128 @@ public class NovelAutoTranslateService {
         }
         statuses.put(novelId, status);
 
-        Runnable job = () -> runJob(novelId, status, targetLanguage, segmentSize, mergeAfter, mergeFormat);
-        if (series == null) {
-            return CompletableFuture.runAsync(job, executor);
+        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> ownerLease = tryAcquireOwnerLease();
+        if (ownerLease == null) {
+            fail(status, "plugin-unavailable");
+            markSeriesDone(status);
+            return CompletableFuture.completedFuture(null);
         }
-        // 同系列接龙：handle 吞掉前序异常，保证后续章节仍会执行。
-        synchronized (seriesTails) {
-            CompletableFuture<Void> prev = seriesTails.getOrDefault(series, CompletableFuture.completedFuture(null));
-            CompletableFuture<Void> next = prev
-                    .handle((ignored, ex) -> null)
-                    .thenRunAsync(job, executor);
-            seriesTails.put(series, next);
-            return next;
+        ScheduledCancellation cancellation = ownerLease.cancellation();
+        AtomicBoolean jobStarted = new AtomicBoolean();
+        Runnable job = () -> {
+            jobStarted.set(true);
+            try {
+                runJob(novelId, status, targetLanguage, segmentSize,
+                        mergeAfter, mergeFormat, cancellation);
+            } finally {
+                markSeriesDone(status);
+            }
+        };
+        try {
+            if (series == null) {
+                return closeLeaseWhenComplete(
+                        CompletableFuture.runAsync(job, executor), ownerLease,
+                        novelId, status, jobStarted);
+            }
+            // 同系列接龙：handle 吞掉前序异常，保证后续章节仍会执行；owner lease 覆盖排队等待和实际执行。
+            synchronized (seriesTails) {
+                CompletableFuture<Void> prev = seriesTails.getOrDefault(
+                        series, CompletableFuture.completedFuture(null));
+                CompletableFuture<Void> next = closeLeaseWhenComplete(
+                        prev.handle((ignored, ex) -> null).thenRunAsync(job, executor),
+                        ownerLease, novelId, status, jobStarted);
+                seriesTails.put(series, next);
+                return next;
+            }
+        } catch (RuntimeException submissionFailure) {
+            if (!jobStarted.get()) {
+                markSubmissionRejected(novelId, status, submissionFailure);
+            }
+            ownerLease.close();
+            return CompletableFuture.completedFuture(null);
         }
     }
 
+    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> tryAcquireOwnerLease() {
+        var handle = scheduleCapabilityRegistry.resolveOwner(NovelPlugin.ID).orElse(null);
+        if (handle == null) {
+            return null;
+        }
+        return scheduleCapabilityRegistry.tryAcquire(handle).orElse(null);
+    }
+
+    private CompletableFuture<Void> closeLeaseWhenComplete(
+            CompletableFuture<Void> future,
+            ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> ownerLease,
+            long novelId,
+            JobStatus status,
+            AtomicBoolean jobStarted) {
+        return future.handle((ignored, failure) -> {
+            try {
+                if (failure != null && !jobStarted.get()) {
+                    markSubmissionRejected(novelId, status, failure);
+                    return null;
+                }
+                if (failure != null) {
+                    throw failure instanceof CompletionException completion
+                            ? completion : new CompletionException(failure);
+                }
+                return null;
+            } finally {
+                ownerLease.close();
+            }
+        });
+    }
+
+    private void markSubmissionRejected(long novelId, JobStatus status, Throwable failure) {
+        log.warn("Auto-translate novel {} submission rejected [{}]: {}",
+                novelId, failure.getClass().getSimpleName(), failure.getMessage());
+        fail(status, "executor-rejected");
+        markSeriesDone(status);
+    }
+
     private void runJob(long novelId, JobStatus status, String targetLanguage, int segmentSize,
-                        boolean mergeAfter, String mergeFormat) {
+                        boolean mergeAfter, String mergeFormat, ScheduledCancellation cancellation) {
         try {
+            if (cancelled(cancellation, status)) {
+                return;
+            }
             if (!aiService.isConfigured()) {
                 fail(status, "ai-unavailable");
                 return;
             }
             status.enter(Phase.RESOLVING);
             String langCode = resolveCachedLang(targetLanguage);
+            if (cancelled(cancellation, status)) {
+                return;
+            }
             Long glossaryId = glossaryService.getOrCreateNovelDefaultId(novelId);
+            if (cancelled(cancellation, status)) {
+                return;
+            }
 
             status.enter(Phase.TRANSLATING);
             NovelTranslationService.Result result = translationService.translateChapter(
                     novelId, targetLanguage, Math.max(0, segmentSize), false,
                     (langCode == null || langCode.isBlank()) ? null : langCode, glossaryId,
                     true, true, true);
+            if (cancelled(cancellation, status)) {
+                return;
+            }
             NovelTranslationService.Status st = result.status();
             if (st == NovelTranslationService.Status.SAME_LANGUAGE) {
                 // 原文已是目标语言：跳过整章翻译；若开启系列合订，仍刷新原文基准与已有译文变体，
                 // 因为变体合订对缺失译文章节会回退原文，本章落库后仍可能影响最终合订内容。
                 status.langCode = result.langCode() == null ? "" : result.langCode();
                 if (status.seriesId != null && mergeAfter) {
+                    if (cancelled(cancellation, status)) {
+                        return;
+                    }
                     status.enter(Phase.MERGING);
                     mergeSeriesBestEffort(status, mergeFormat);
+                }
+                if (cancelled(cancellation, status)) {
+                    return;
                 }
                 status.done = true;
                 status.enter(Phase.SAME_LANGUAGE);
@@ -177,6 +270,9 @@ public class NovelAutoTranslateService {
             if (status.seriesId != null) {
                 // 系列名 / 系列简介翻译（best-effort，共用默认表）；失败不影响合订。
                 try {
+                    if (cancelled(cancellation, status)) {
+                        return;
+                    }
                     translationService.translateSeriesTitle(status.seriesId, targetLanguage,
                             resolvedLang, glossaryId, true, true);
                 } catch (Exception e) {
@@ -184,9 +280,15 @@ public class NovelAutoTranslateService {
                             status.seriesId, e.getMessage());
                 }
                 if (mergeAfter) {
+                    if (cancelled(cancellation, status)) {
+                        return;
+                    }
                     status.enter(Phase.MERGING);
                     mergeSeriesBestEffort(status, mergeFormat);
                 }
+            }
+            if (cancelled(cancellation, status)) {
+                return;
             }
             status.done = true;
             status.enter(Phase.DONE);
@@ -194,10 +296,20 @@ public class NovelAutoTranslateService {
             log.warn("Auto-translate novel {} failed [{}]: {}",
                     novelId, e.getClass().getSimpleName(), e.getMessage());
             fail(status, e.getClass().getSimpleName());
-        } finally {
-            if (status.seriesId != null) {
-                seriesDone.computeIfAbsent(status.seriesId, k -> new AtomicLong()).incrementAndGet();
-            }
+        }
+    }
+
+    private static boolean cancelled(ScheduledCancellation cancellation, JobStatus status) {
+        if (!cancellation.isCancellationRequested()) {
+            return false;
+        }
+        fail(status, "plugin-quiesced");
+        return true;
+    }
+
+    private void markSeriesDone(JobStatus status) {
+        if (status.seriesId != null) {
+            seriesDone.computeIfAbsent(status.seriesId, key -> new AtomicLong()).incrementAndGet();
         }
     }
 
@@ -212,7 +324,7 @@ public class NovelAutoTranslateService {
         }
     }
 
-    private void fail(JobStatus status, String reason) {
+    private static void fail(JobStatus status, String reason) {
         status.failed = true;
         status.failureReason = reason;
         status.enter(Phase.FAILED);

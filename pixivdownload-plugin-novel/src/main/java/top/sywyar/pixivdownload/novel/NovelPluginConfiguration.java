@@ -31,6 +31,7 @@ import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardController;
@@ -144,8 +145,11 @@ public class NovelPluginConfiguration {
             NovelGlossaryService glossaryService,
             NovelMergeService mergeService,
             AiService aiService,
-            @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor) {
-        return new NovelAutoTranslateService(translationService, glossaryService, mergeService, aiService, executor);
+            @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
+            ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
+        return new NovelAutoTranslateService(
+                translationService, glossaryService, mergeService, aiService, executor,
+                scheduleCapabilityRegistry);
     }
 
     @Bean

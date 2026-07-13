@@ -4,10 +4,24 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -37,12 +51,174 @@ class NovelAutoTranslateServiceTest {
     private final TaskExecutor directExecutor = Runnable::run;
 
     private NovelAutoTranslateService service() {
-        return new NovelAutoTranslateService(
-                translationService, glossaryService, mergeService, aiService, directExecutor);
+        return fixture(directExecutor).service();
+    }
+
+    private ServiceFixture fixture(TaskExecutor executor) {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = registry.publish(ScheduleOwnerBundle.prepare(
+                new ScheduleCapabilityOwner("novel", "novel", 1L),
+                List.of(),
+                List.of(new ScheduledWorkRunner() {
+                    @Override public String kind() { return ScheduledWorkKind.NOVEL; }
+                    @Override
+                    public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
+                        return true;
+                    }
+                }),
+                List.of(), List.of(), List.of(), List.of(), List.of()));
+        return new ServiceFixture(
+                new NovelAutoTranslateService(
+                        translationService, glossaryService, mergeService, aiService, executor, registry),
+                registry,
+                publication);
+    }
+
+    private record ServiceFixture(
+            NovelAutoTranslateService service,
+            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityPublication publication) {
     }
 
     private NovelTranslationService.Result ok(String lang) {
         return new NovelTranslationService.Result(NovelTranslationService.Status.OK, lang, "ok", false);
+    }
+
+    @Test
+    @DisplayName("翻译 future 持有 novel owner lease，撤回后 drain 等待作业协作退出")
+    void translationFutureKeepsOwnerLeaseUntilCompletion() throws Exception {
+        when(aiService.isConfigured()).thenReturn(true);
+        when(translationService.resolveLangCode("english")).thenReturn("en-US");
+        when(glossaryService.getOrCreateNovelDefaultId(100L)).thenReturn(7L);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch allowFinish = new CountDownLatch(1);
+        when(translationService.translateChapter(eq(100L), eq("english"), eq(0), eq(false),
+                eq("en-US"), eq(7L), eq(true), eq(true), eq(true))).thenAnswer(invocation -> {
+                    started.countDown();
+                    assertTrue(allowFinish.await(5, TimeUnit.SECONDS));
+                    return ok("en-US");
+                });
+        TaskExecutor async = task -> new Thread(task, "novel-translate-lease-test").start();
+        ServiceFixture fixture = fixture(async);
+        CompletableFuture<Void> future = fixture.service()
+                .submit(100L, null, "english", 0, false, "epub");
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+            assertFalse(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50)));
+            assertEquals(1, drain.activeLeaseCount());
+
+            allowFinish.countDown();
+            future.get(5, TimeUnit.SECONDS);
+
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+            NovelAutoTranslateService.StatusView status = fixture.service().getStatus(100L);
+            assertEquals("FAILED", status.phase());
+            assertEquals("plugin-quiesced", status.failureReason());
+        } finally {
+            allowFinish.countDown();
+            future.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("词汇表查询期间撤回 owner 后不再启动长耗时翻译")
+    void withdrawalDuringGlossaryLookupStopsBeforeTranslation() throws Exception {
+        when(aiService.isConfigured()).thenReturn(true);
+        when(translationService.resolveLangCode("english")).thenReturn("en-US");
+        CountDownLatch glossaryStarted = new CountDownLatch(1);
+        CountDownLatch allowGlossaryReturn = new CountDownLatch(1);
+        when(glossaryService.getOrCreateNovelDefaultId(101L)).thenAnswer(invocation -> {
+            glossaryStarted.countDown();
+            assertTrue(allowGlossaryReturn.await(5, TimeUnit.SECONDS));
+            return 7L;
+        });
+        TaskExecutor async = task -> new Thread(task, "novel-glossary-cancellation-test").start();
+        ServiceFixture fixture = fixture(async);
+        CompletableFuture<Void> future = fixture.service()
+                .submit(101L, null, "english", 0, false, "epub");
+        try {
+            assertTrue(glossaryStarted.await(5, TimeUnit.SECONDS));
+            var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+            assertEquals(1, drain.activeLeaseCount());
+
+            allowGlossaryReturn.countDown();
+            future.get(5, TimeUnit.SECONDS);
+
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+            verify(translationService, never()).translateChapter(anyLong(), anyString(), anyInt(),
+                    anyBoolean(), nullable(String.class), nullable(Long.class),
+                    anyBoolean(), anyBoolean(), anyBoolean());
+            NovelAutoTranslateService.StatusView status = fixture.service().getStatus(101L);
+            assertEquals("FAILED", status.phase());
+            assertEquals("plugin-quiesced", status.failureReason());
+        } finally {
+            allowGlossaryReturn.countDown();
+            future.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("执行器拒绝翻译时以失败终结状态并释放 owner 租约")
+    void rejectedExecutorFailsStatusAndReleasesOwnerLeases() {
+        TaskExecutor rejecting = task -> {
+            throw new RejectedExecutionException("executor stopped");
+        };
+        ServiceFixture fixture = fixture(rejecting);
+
+        fixture.service().submit(102L, null, "english", 0, false, "epub").join();
+        fixture.service().submit(103L, 500L, "english", 0, false, "epub").join();
+
+        NovelAutoTranslateService.StatusView standalone = fixture.service().getStatus(102L);
+        NovelAutoTranslateService.StatusView series = fixture.service().getStatus(103L);
+        assertEquals("FAILED", standalone.phase());
+        assertEquals("executor-rejected", standalone.failureReason());
+        assertEquals("FAILED", series.phase());
+        assertEquals("executor-rejected", series.failureReason());
+        assertEquals(0, series.seriesPending());
+
+        var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+        assertTrue(drain.isDrained());
+        assertEquals(0, drain.activeLeaseCount());
+    }
+
+    @Test
+    @DisplayName("同语言合订期间撤回 owner 后以插件静默失败终结")
+    void withdrawalDuringSameLanguageMergeFailsInsteadOfReportingSuccess() throws Exception {
+        when(aiService.isConfigured()).thenReturn(true);
+        when(translationService.resolveLangCode("english")).thenReturn("en-US");
+        when(glossaryService.getOrCreateNovelDefaultId(104L)).thenReturn(7L);
+        when(translationService.translateChapter(eq(104L), eq("english"), eq(0), eq(false),
+                eq("en-US"), eq(7L), eq(true), eq(true), eq(true))).thenReturn(
+                new NovelTranslationService.Result(
+                        NovelTranslationService.Status.SAME_LANGUAGE, "en-US", "same", false));
+        CountDownLatch mergeStarted = new CountDownLatch(1);
+        CountDownLatch allowMergeReturn = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            mergeStarted.countDown();
+            assertTrue(allowMergeReturn.await(5, TimeUnit.SECONDS));
+            return null;
+        }).when(mergeService).merge(500L, NovelDownloadService.NovelFormat.EPUB);
+        TaskExecutor async = task -> new Thread(task, "novel-same-language-cancellation-test").start();
+        ServiceFixture fixture = fixture(async);
+        CompletableFuture<Void> future = fixture.service()
+                .submit(104L, 500L, "english", 0, true, "epub");
+        try {
+            assertTrue(mergeStarted.await(5, TimeUnit.SECONDS));
+            var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+            assertEquals(1, drain.activeLeaseCount());
+
+            allowMergeReturn.countDown();
+            future.get(5, TimeUnit.SECONDS);
+
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+            NovelAutoTranslateService.StatusView status = fixture.service().getStatus(104L);
+            assertEquals("FAILED", status.phase());
+            assertEquals("plugin-quiesced", status.failureReason());
+        } finally {
+            allowMergeReturn.countDown();
+            future.get(5, TimeUnit.SECONDS);
+        }
     }
 
     @Test
