@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
@@ -17,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
+import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
 
 import java.util.List;
 
@@ -129,7 +129,7 @@ class DownloadWorkbenchRequiredContextTest {
     @DisplayName("七类默认插画/混合作品来源随 download-workbench 插件贡献")
     void scheduledSourcesDeclared() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        registry.publish(ScheduleOwnerBundle.prepare(
+        ScheduleCapabilityTestFixture.publish(registry, ScheduleOwnerBundle.prepare(
                 new ScheduleCapabilityOwner("download-workbench", "download-workbench", 1L),
                 plugin.scheduledSources(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
 
@@ -143,9 +143,9 @@ class DownloadWorkbenchRequiredContextTest {
                 .containsExactlyInAnyOrder("user-new", "user-request", "search", "series",
                         "my-bookmarks", "follow-latest", "collection");
         try (SchedulePlanningLease userNew = registry.tryAcquireSource(
-                ScheduledTaskType.USER_NEW.name()).orElseThrow();
+                "USER_NEW").orElseThrow();
              SchedulePlanningLease collection = registry.tryAcquireSource(
-                     ScheduledTaskType.COLLECTION.name()).orElseThrow()) {
+                     "COLLECTION").orElseThrow()) {
             assertThat(userNew.legacySourceProvider()).map(ScheduledSourceProvider::type)
                     .contains("user-new");
             assertThat(collection.legacySourceProvider()).map(ScheduledSourceProvider::type)

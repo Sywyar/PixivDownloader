@@ -5,6 +5,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
@@ -103,6 +104,8 @@ public class PluginLifecycleService {
     private final PluginCapabilityContributionRegistrar capabilityContributionRegistrar;
     private final PluginRegistry pluginRegistry;
     private final PluginLifecycleState lifecycleState;
+    private final ScheduleContributionLifecycleAuthority scheduleMutationAuthority =
+            new ScheduleContributionLifecycleAuthority();
 
     private final Object lock = new Object();
     /** 按接入顺序保存的受管外置插件（键 = pluginId）。仅在 {@link #lock} 内变更，读路径取只读视图。 */
@@ -447,6 +450,7 @@ public class PluginLifecycleService {
             return;
         }
         PluginRuntimeTaskQuiescer.QuiesceResult result = runtimeTaskQuiescer.quiesce(
+                scheduleMutationAuthority,
                 record.pluginId, record.schedulePublication, record.plugin());
         record.scheduleDrain = result.scheduleDrain().orElse(null);
         record.runtimeTasksQuiesced = true;
@@ -611,7 +615,7 @@ public class PluginLifecycleService {
         if (record.registered != null) {
             try {
                 record.schedulePublication = scheduleContributionRegistrar
-                        .register(record.registered, record.context).orElse(null);
+                        .register(scheduleMutationAuthority, record.registered, record.context).orElse(null);
             } catch (RuntimeException e) {
                 log.error("Failed to publish schedule capabilities for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);

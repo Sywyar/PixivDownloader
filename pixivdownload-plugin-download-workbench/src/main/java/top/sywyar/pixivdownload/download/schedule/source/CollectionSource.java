@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 /**
  * 珍藏集来源（{@code COLLECTION}）：账号私有，插画 + 小说混合。发现成员后分两遍各自走对应下载管线，
@@ -12,7 +11,7 @@ import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 public final class CollectionSource extends AbstractScheduledSource {
 
     public CollectionSource() {
-        super(ScheduledTaskType.COLLECTION);
+        super("collection", "COLLECTION");
     }
 
     @Override

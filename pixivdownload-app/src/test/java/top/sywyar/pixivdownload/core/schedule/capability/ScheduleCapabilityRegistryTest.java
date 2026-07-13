@@ -30,6 +30,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 
 import java.util.ArrayList;
+import java.lang.reflect.Modifier;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -97,6 +98,34 @@ class ScheduleCapabilityRegistryTest {
             assertThat(lease.sourceExecutor()).containsSame(fixture.sourceExecutor());
             assertThat(lease.legacySourceProvider()).containsSame(fixture.legacySource());
         }
+    }
+
+    @Test
+    @DisplayName("publication 等值伪造不能撤回真实发布，mutation 与构造入口均非 public")
+    void publicationIdentityAndMutationVisibilityAreHostInternal() throws Exception {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityOwner owner = owner("identity-feature", "identity-package", 1L);
+        Fixture fixture = completeFixture(owner, "identity-source", "identity-source", "IDENTITY_SOURCE",
+                "identity-work", "identity-policy", "identity-guard");
+        ScheduleCapabilityPublication actual = registry.publish(fixture.bundle());
+        ScheduleCapabilityPublication forged =
+                ScheduleCapabilityRegistryTestAccess.equivalent(actual);
+
+        assertThat(forged).isNotSameAs(actual);
+        assertThat(forged.owner()).isEqualTo(actual.owner());
+        assertThat(forged.publicationId()).isEqualTo(actual.publicationId());
+        assertThat(registry.withdraw(forged)).isEmpty();
+        assertThat(registry.publication(owner)).containsSame(actual);
+        assertThat(registry.withdraw(actual)).isPresent();
+
+        assertThat(ScheduleCapabilityPublication.class.getDeclaredConstructors())
+                .allMatch(constructor -> !Modifier.isPublic(constructor.getModifiers()));
+        assertThat(List.of("publish", "withdraw", "publication"))
+                .allSatisfy(name -> assertThat(java.util.Arrays.stream(
+                        ScheduleCapabilityRegistry.class.getDeclaredMethods())
+                        .filter(method -> method.getName().equals(name)))
+                        .isNotEmpty()
+                        .allMatch(method -> !Modifier.isPublic(method.getModifiers())));
     }
 
     @Test

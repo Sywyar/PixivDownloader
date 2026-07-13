@@ -33,9 +33,12 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilit
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.schedule.source.DiscoveryMode;
 import top.sywyar.pixivdownload.download.schedule.source.PageSupplier;
@@ -46,23 +49,30 @@ import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Download;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleWorkFilter;
+import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalLong;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongPredicate;
-import java.util.regex.Pattern;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 
 /**
  * 计划任务的执行核心：按任务类型在服务端发现作品 ID、跳过已下载、逐个抓取元数据、
@@ -77,29 +87,24 @@ import java.util.regex.Pattern;
  *       非依赖型自动清除失效快照、降级匿名续跑（运行成功后发一次 {@code DEGRADED_ANONYMOUS} 通知）；
  *       {@code WARNED} 抛 {@link OveruseWarningException} → 账号级冻结。</li>
  *   <li><b>轮内 N 检查点</b>：每成功派发 N（{@code schedule.inbox-check-every}）个下载读一次站内信，{@code WARNED} 干净 unwind。</li>
- *   <li><b>单作品异常分类</b>：404/403-gone 跳过不挡 watermark；可恢复 {@link PixivFetchService.PixivFetchException}
+ *   <li><b>单作品异常分类</b>：404/403-gone 跳过不挡 checkpoint；可恢复 {@link PixivFetchService.PixivFetchException}
  *       记隔离表 + 连续计数，连续 M（{@code schedule.auth-failure-circuit-breaker}）次熔断挂起。</li>
- *   <li><b>watermark</b>：reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）；挂起异常上抛时绝不推进。</li>
+ *   <li><b>checkpoint</b>：reached 边界且无挂起条件即提交新水位线（哪怕本轮有作品进隔离表）；挂起异常上抛时绝不提交。</li>
  * </ul>
- * 自动挂起均发通知（邮件 + 推送并行，经 {@link NotificationService}，best-effort）；手动 {@code PAUSED} 不发。
+ * 自动挂起均发通知（邮件 + 推送并行，经 {@link NotificationService}，best-effort）；手动 {@code MANUAL} 挂起不发。
  *
  * <p><b>作品级并发</b>：任务间本就串行（唯一 {@code @Scheduled} tick + 单飞），故一个任务内借用
  * 下载线程池（插画走 {@code downloadTaskExecutor}、小说走 {@code novelDownloadTaskExecutor}，与交互式
  * web 下载共享）做作品级并发。发现 / 翻页 / 水位线边界判定 / 去重 / 取元数据 / 服务端筛选 / 解析图片 URL /
- * 作品间礼貌延迟 / 过度访问轮内 N 检查全在调度主线程<b>串行</b>执行（保证 watermark 按新→旧判边界、限速安全）；
+ * 作品间礼貌延迟 / 过度访问轮内 N 检查全在调度主线程<b>串行</b>执行（保证水位线按新→旧判边界、限速安全）；
  * <b>仅</b>把阻塞下载提交到线程池，用 {@link Semaphore}（有效并发数 = {@code min(任务并发数, 对应池大小)}）限流：
- * 主线程提交前 {@code acquire}、异步任务 {@code finally} 里 {@code release}。novel 合订 / {@code updateWatermark} /
- * {@code runTask} 返回前等本轮所有在途下载完成（join）。「连续失败」熔断计数在并发下退化为「按完成顺序的连续」（可接受）。
+ * 主线程提交前 {@code acquire}、异步任务 {@code finally} 里 {@code release}。novel 合订与候选 checkpoint 都在
+ * {@code runTask} 返回前等待本轮所有在途下载完成（join）。「连续失败」熔断计数在并发下退化为「按完成顺序的连续」（可接受）。
  */
 @Slf4j
 @PluginManagedBean
 @RequiredArgsConstructor
 public class ScheduleExecutor {
-
-    public static final String STATUS_OK = "OK";
-    public static final String STATUS_AUTH_EXPIRED = ScheduledTask.STATUS_AUTH_EXPIRED;
-    public static final String STATUS_OVERUSE_PAUSED = ScheduledTask.STATUS_OVERUSE_PAUSED;
-    public static final String STATUS_ERROR = "ERROR";
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
     private final ScheduledTaskStore store;
@@ -114,6 +119,7 @@ public class ScheduleExecutor {
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
     private final ObjectMapper objectMapper;
+    private final PixivSchedulePersistenceCodec persistenceCodec;
     private final OveruseWarningService overuseWarningService;
     private final NotificationService notificationService;
     private final AppMessages messages;
@@ -127,10 +133,21 @@ public class ScheduleExecutor {
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
     /** 过度访问通知里逐条列出受影响任务的最大条数，超出附「等共 N 个」。 */
     private static final int TASK_LIST_LIMIT = 15;
-    private static final Pattern COOKIE_HEADER_PATTERN = Pattern.compile("(?i)\\b(cookie\\s*[:=]\\s*)[^\\r\\n]+");
-    private static final Pattern PHPSESSID_PATTERN = Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s&]+");
-    // 涵盖 cookie 串前缀（^ / ; / 空白）以及 URL 查询串前缀（? / &），后者用于 `...?PHPSESSID=...` / `&PHPSESSID=...` 形式。
-    private static final Pattern COOKIE_PAIR_PATTERN = Pattern.compile("(?i)(^|[;\\s?&])([A-Za-z0-9_-]+\\s*=\\s*)[^;\\s&]+");
+
+    static RuntimeException propagate(Throwable failure) {
+        return ScheduleExecutor.<RuntimeException>throwUnchecked(failure);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> RuntimeException throwUnchecked(Throwable failure) throws T {
+        throw (T) failure;
+    }
+
+    static void addCleanupFailure(Throwable failure, Throwable cleanupFailure) {
+        if (failure != cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+        }
+    }
 
     /**
      * 后台异步运行一个已经抢占瞬时态的任务。owner lease 必须由同步提交点在入队前取得并转交，
@@ -140,35 +157,53 @@ public class ScheduleExecutor {
     public void runTaskAsync(
             long taskId,
             ScheduleRunState.Claim claim,
+            ScheduleRunToken queuedToken,
             ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease) {
         try (hostLease) {
             if (hostLease.cancellation().isCancellationRequested()) {
-                runState.clear(claim);
+                try {
+                    releaseQueued(taskId, queuedToken);
+                } finally {
+                    runState.clear(claim);
+                }
                 log.debug("Scheduled task {} queued run skipped: schedule host is quiesced", taskId);
                 return;
             }
-            runTaskAsyncLeased(taskId, claim, hostLease.cancellation());
+            runTaskAsyncLeased(taskId, claim, queuedToken, hostLease.cancellation());
+        } catch (Throwable e) {
+            try {
+                releaseQueued(taskId, queuedToken);
+            } catch (Throwable cleanupFailure) {
+                addCleanupFailure(e, cleanupFailure);
+            }
+            try {
+                runState.clear(claim);
+            } catch (Throwable cleanupFailure) {
+                addCleanupFailure(e, cleanupFailure);
+            }
+            throw propagate(e);
         }
     }
 
     private void runTaskAsyncLeased(
-            long taskId, ScheduleRunState.Claim claim, ScheduledCancellation hostCancellation) {
-        boolean delegated = false;
-        try {
-            ScheduledTask task = store.findById(taskId);
-            if (task != null) {
-                delegated = true;
-                runTaskAndRecordLeased(task, claim, hostCancellation);
-            }
-        } finally {
-            if (!delegated) {
+            long taskId,
+            ScheduleRunState.Claim claim,
+            ScheduleRunToken queuedToken,
+            ScheduledCancellation hostCancellation) {
+        ScheduledTask task = store.findById(taskId);
+        if (task == null) {
+            try {
+                releaseQueued(taskId, queuedToken);
+            } finally {
                 runState.clear(claim);
             }
+            return;
         }
+        runTaskAndRecordLeased(task, claim, queuedToken, hostCancellation);
     }
 
     /**
-     * 同步运行一个任务并把结果写回（last_run_time / last_status / next_run_time）。
+     * 同步运行一个任务，并以 CAS 写回最近结果、下一次运行时间与候选 checkpoint。
      * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
@@ -182,19 +217,171 @@ public class ScheduleExecutor {
                 log.debug("Scheduled task {} ({}) skipped: already queued or running", task.id(), task.name());
                 return;
             }
-            runTaskAndRecordLeased(task, claim, hostLease.cancellation());
+            String claimToken = null;
+            ScheduleRunToken queuedToken;
+            try {
+                claimToken = java.util.UUID.randomUUID().toString();
+                queuedToken = store.tryQueueNow(task.id(), task.stateVersion(), claimToken)
+                        .orElse(null);
+            } catch (Throwable e) {
+                try {
+                    if (claimToken != null) {
+                        releaseClaim(task.id(), claimToken, task.nextRunTime());
+                    }
+                } catch (Throwable cleanupFailure) {
+                    addCleanupFailure(e, cleanupFailure);
+                }
+                try {
+                    runState.clear(claim);
+                } catch (Throwable cleanupFailure) {
+                    addCleanupFailure(e, cleanupFailure);
+                }
+                throw propagate(e);
+            }
+            if (queuedToken == null) {
+                runState.clear(claim);
+                log.debug("Scheduled task {} ({}) skipped: durable claim rejected", task.id(), task.name());
+                return;
+            }
+            runTaskAndRecordLeased(task, claim, queuedToken, hostLease.cancellation());
         }
     }
 
-    void runTaskAndRecord(ScheduledTask task, ScheduleRunState.Claim claim) {
-        try (ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = tryAcquireHostLease()) {
-            if (hostLease == null) {
+    void runTaskAndRecord(
+            ScheduledTask task,
+            ScheduleRunState.Claim claim,
+            ScheduleRunToken queuedToken) {
+        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease;
+        try {
+            hostLease = tryAcquireHostLease();
+        } catch (Throwable e) {
+            try {
+                releaseQueued(task.id(), queuedToken);
+            } catch (Throwable cleanupFailure) {
+                addCleanupFailure(e, cleanupFailure);
+            }
+            try {
                 runState.clear(claim);
-                log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
+            } catch (Throwable cleanupFailure) {
+                addCleanupFailure(e, cleanupFailure);
+            }
+            throw propagate(e);
+        }
+        if (hostLease == null) {
+            try {
+                releaseQueued(task.id(), queuedToken);
+            } finally {
+                runState.clear(claim);
+            }
+            log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
+            return;
+        }
+        try (hostLease) {
+            runTaskAndRecordLeased(task, claim, queuedToken, hostLease.cancellation());
+        }
+    }
+
+    void releaseQueued(long taskId, ScheduleRunToken queuedToken) {
+        RuntimeException releaseFailure = null;
+        try {
+            // QUEUED 释放不需要预读；null 由 SQL 的 COALESCE 保留当前 next_run_time。
+            if (store.releaseQueued(taskId, queuedToken, null).isPresent()) {
                 return;
             }
-            runTaskAndRecordLeased(task, claim, hostLease.cancellation());
+        } catch (RuntimeException e) {
+            releaseFailure = e;
         }
+        try {
+            // release 与管理员挂起、startRun 的提交结果可能竞态；也覆盖一次性读写异常。
+            finishAbandonedClaimWithRetry(
+                    taskId, queuedToken.claimToken(), ScheduleLastOutcome.INTERRUPTED,
+                    System.currentTimeMillis(), "CLAIM_ABANDONED", null, null);
+        } catch (RuntimeException recoveryFailure) {
+            if (releaseFailure != null) {
+                releaseFailure.addSuppressed(recoveryFailure);
+                throw releaseFailure;
+            }
+            throw recoveryFailure;
+        }
+    }
+
+    /** 收敛 queue CAS 结果不确定的同 claim 行；若写入未发生或已由别人完成则为空操作。 */
+    void releaseClaim(long taskId, String claimToken, Long nextRun) {
+        finishAbandonedClaimWithRetry(
+                taskId, claimToken, ScheduleLastOutcome.INTERRUPTED,
+                System.currentTimeMillis(), "QUEUE_CLAIM_UNCERTAIN", null, nextRun);
+    }
+
+    /** tick 对数据库仍在途、但本进程已无内存镜像的孤儿 claim 做幂等收尾。 */
+    void recoverOrphanedClaim(ScheduledTask task) {
+        finishAbandonedClaimWithRetry(
+                task.id(), task.runClaimToken(), ScheduleLastOutcome.INTERRUPTED,
+                System.currentTimeMillis(), "ORPHANED_CLAIM", null, task.nextRunTime());
+    }
+
+    private OptionalLong finishAbandonedClaimWithRetry(
+            long taskId,
+            String claimToken,
+            ScheduleLastOutcome fallbackOutcome,
+            long finishedTime,
+            String fallbackCode,
+            String fallbackMessage,
+            Long nextRun) {
+        RuntimeException firstFailure = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                return finishAbandonedClaim(
+                        taskId, claimToken, fallbackOutcome, finishedTime,
+                        fallbackCode, fallbackMessage, nextRun);
+            } catch (RuntimeException e) {
+                if (firstFailure == null) {
+                    firstFailure = e;
+                } else {
+                    firstFailure.addSuppressed(e);
+                }
+            }
+        }
+        throw Objects.requireNonNull(firstFailure);
+    }
+
+    /**
+     * 只收尾仍由同一 claim 持有的在途行。QUEUED 优先重新释放；RUNNING/CANCEL_REQUESTED 则用当前
+     * stateVersion 构造精确 token。SQL 会在并发挂起发生时以行内 reason/code/detail 为准。
+     */
+    private OptionalLong finishAbandonedClaim(
+            long taskId,
+            String claimToken,
+            ScheduleLastOutcome fallbackOutcome,
+            long finishedTime,
+            String fallbackCode,
+            String fallbackMessage,
+            Long nextRun) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            ScheduledTask current = store.findById(taskId);
+            if (current == null
+                    || current.runState() == null
+                    || !Objects.equals(claimToken, current.runClaimToken())) {
+                return OptionalLong.empty();
+            }
+            ScheduleRunToken activeToken = new ScheduleRunToken(
+                    claimToken, current.stateVersion(), current.runState());
+            Long effectiveNextRun = nextRun == null ? current.nextRunTime() : nextRun;
+            if (current.runState()
+                    == top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED) {
+                OptionalLong released = store.releaseQueued(taskId, activeToken, nextRun);
+                if (released.isPresent()) {
+                    return released;
+                }
+                continue;
+            }
+            OptionalLong finished = store.finishCancelled(
+                    taskId, activeToken, fallbackOutcome, finishedTime,
+                    fallbackCode, fallbackMessage, effectiveNextRun);
+            if (finished.isPresent()) {
+                return finished;
+            }
+        }
+        throw new IllegalStateException("active schedule claim could not be finalized");
     }
 
     private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> tryAcquireHostLease() {
@@ -205,113 +392,362 @@ public class ScheduleExecutor {
         return scheduleCapabilityRegistry.tryAcquire(handle).orElse(null);
     }
 
+    /**
+     * 对来源/执行器不可用任务做无网络 planning 探测。仅在当前 owner 与定义 schema 都匹配且所需作品执行器
+     * 能取得同代复合租约时返回 true；所有租约都在返回前释放。
+     */
+    boolean canResolveExecution(ScheduledTask task) {
+        try (SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(task.sourceType())
+                .orElse(null)) {
+            if (planning == null
+                    || !Objects.equals(task.sourceOwnerPluginId(), planning.owner().featurePluginId())
+                    || !Objects.equals(task.sourceType(), planning.sourceType())) {
+                return false;
+            }
+            ScheduledSource sourceProvider = planning.legacySourceProvider()
+                    .filter(ScheduledSource.class::isInstance)
+                    .map(ScheduledSource.class::cast)
+                    .orElse(null);
+            if (sourceProvider == null) {
+                return false;
+            }
+            ScheduleTaskSnapshot snapshot = parseTaskSnapshot(task);
+            DiscoveryMode mode = sourceProvider.mode(snapshot.source());
+            Set<String> workTypes = mode == DiscoveryMode.COLLECTION
+                    ? Set.of(ScheduledWorkKind.ILLUST, ScheduledWorkKind.NOVEL)
+                    : Set.of(snapshot.novel() ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST);
+            ScheduleExecutionLease execution = scheduleCapabilityRegistry
+                    .tryExpandLegacy(planning, workTypes)
+                    .orElse(null);
+            if (execution == null) {
+                return false;
+            }
+            ScheduledCancellation cancellation = execution.cancellation();
+            try (execution) {
+                if (cancellation.isCancellationRequested()) {
+                    return false;
+                }
+            }
+            return !cancellation.isCancellationRequested();
+        } catch (Exception e) {
+            log.debug("Scheduled task {} capability recovery probe failed: {}",
+                    task.id(), e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     private void runTaskAndRecordLeased(
             ScheduledTask task,
             ScheduleRunState.Claim claim,
+            ScheduleRunToken queuedToken,
+            ScheduledCancellation hostCancellation) {
+        try {
+            runTaskAndRecordLeasedBody(task, claim, queuedToken, hostCancellation);
+        } catch (Throwable failure) {
+            try {
+                finishAbandonedClaimWithRetry(
+                        task.id(), queuedToken.claimToken(), ScheduleLastOutcome.ERROR,
+                        System.currentTimeMillis(), "UNCAUGHT_THROWABLE", null, task.nextRunTime());
+            } catch (Throwable cleanupFailure) {
+                addCleanupFailure(failure, cleanupFailure);
+            }
+            try {
+                runState.clear(claim);
+            } catch (Throwable cleanupFailure) {
+                addCleanupFailure(failure, cleanupFailure);
+            }
+            throw propagate(failure);
+        }
+    }
+
+    private void runTaskAndRecordLeasedBody(
+            ScheduledTask task,
+            ScheduleRunState.Claim claim,
+            ScheduleRunToken queuedToken,
             ScheduledCancellation hostCancellation) {
         if (!runState.markRunning(claim)) {
+            try {
+                releaseQueued(task.id(), queuedToken);
+            } finally {
+                runState.clear(claim);
+            }
             log.debug("Scheduled task {} ({}) skipped: stale run claim", task.id(), task.name());
             return;
         }
-        String status;
+        ScheduleRunToken runningToken;
+        try {
+            runningToken = store.startRun(task.id(), queuedToken).orElse(null);
+        } catch (RuntimeException e) {
+            try {
+                releaseQueued(task.id(), queuedToken);
+            } catch (RuntimeException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+                log.error("Scheduled task {} could not release its claim after start failure",
+                        task.id(), cleanupFailure);
+            } finally {
+                runState.clear(claim);
+            }
+            throw e;
+        }
+        if (runningToken == null) {
+            try {
+                releaseQueued(task.id(), queuedToken);
+            } finally {
+                runState.clear(claim);
+            }
+            log.debug("Scheduled task {} ({}) skipped: durable start rejected", task.id(), task.name());
+            return;
+        }
+        ScheduleLastOutcome outcome = ScheduleLastOutcome.ERROR;
+        String outcomeCode = null;
         String message = null;
         ScheduleSuspendException suspendNotification = null;
+        OveruseWarningException overuseNotification = null;
         long suspendTriggerTime = 0L;
         // 本轮是否因 cookie 失效但任务无需 cookie 而自动降级（runTask 内已清失效快照 + 转匿名续跑）；运行成功后据此发一次降级通知。
         boolean[] degraded = {false};
         int completedCount = 0;
-        // 仅当 last_status 由「非 ERROR」转入 ERROR 时才发失败通知（连续失败不重复打扰）；进入 catch 前先读旧状态。
+        // 仅当 lastOutcome 由「非 ERROR」转入 ERROR 时才发失败通知（连续失败不重复打扰）；进入 catch 前先读旧状态。
         boolean notifyRunFailed = false;
         List<PendingExhaustedNotification> pendingNotifications =
                 Collections.synchronizedList(new ArrayList<>());
+        AtomicReference<ScheduledCheckpoint> candidateCheckpoint = new AtomicReference<>();
+        ScheduleSuspendReason requestedSuspend = null;
+        String suspendCode = null;
+        String suspendDetailJson = null;
         try {
-            ensureCapabilityAvailable(hostCancellation, task.type().name());
-            // 落库本轮开始时刻：正常结束（含干净挂起）时 updateRunResult 会清为 NULL；进程被强杀则残留 → 中断红灯。
-            store.updateRunStarted(task.id(), System.currentTimeMillis());
+            ensureCapabilityAvailable(hostCancellation, task.sourceType());
             // 任务级单独代理：覆盖调度主线程上本轮的全部 Pixiv 请求（发现 / 元数据 / 站内信检测）；
             // 提交到下载池的阻塞下载在 WorkRunner.submit 内对池线程做同样的覆盖。
             OutboundProxyOverride.set(task.proxySnapshot());
             try {
-                completedCount = runTask(task, pendingNotifications, degraded);
+                completedCount = runTask(task, pendingNotifications, degraded, candidateCheckpoint);
             } finally {
                 OutboundProxyOverride.clear();
             }
-            ensureCapabilityAvailable(hostCancellation, task.type().name());
-            status = STATUS_OK;
+            ensureCapabilityAvailable(hostCancellation, task.sourceType());
+            outcome = ScheduleLastOutcome.OK;
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completedCount);
         } catch (OveruseWarningException e) {
-            // 过度访问警告：账号级暂停 + 冻结同账号 + 通知；干净挂起（清 run_started_time）。
-            status = STATUS_OVERUSE_PAUSED;
-            message = String.valueOf(e.modifiedAt()); // 触发警告 modifiedAt：供卡片展示 + 账号级 ack 取用
-            handleOveruse(task, e);
+            requestedSuspend = ScheduleSuspendReason.POLICY;
+            suspendCode = "PIXIV_OVERUSE";
+            suspendDetailJson = safeDetailJson("modifiedAt", e.modifiedAt(), "excerpt", e.excerpt());
+            outcomeCode = suspendCode;
+            message = String.valueOf(e.modifiedAt());
+            overuseNotification = e;
             log.warn("Scheduled task {} ({}) paused: overuse warning", task.id(), task.name());
         } catch (ScheduleSuspendException e) {
-            // cookie 依赖型 dead cookie / 单作品连续失败熔断：任务级挂起 + 通知。
-            status = STATUS_AUTH_EXPIRED;
+            requestedSuspend = ScheduleSuspendReason.CREDENTIAL;
+            suspendCode = e.reason().name();
+            suspendDetailJson = safeDetailJson(
+                    "consecutiveFailures", e.consecutiveFailures(),
+                    "lastErrorExcerpt", e.lastErrorExcerpt());
+            outcomeCode = suspendCode;
             suspendNotification = e;
             suspendTriggerTime = System.currentTimeMillis();
             log.warn("Scheduled task {} ({}) suspended: {}", task.id(), task.name(), e.reason());
         } catch (SchedulePauseException e) {
-            // 用户在本轮派发循环中按了「暂停」：DB 已被 ScheduleService.pause 写成 PAUSED，
-            // 此处仅记日志、不冻账号、不发邮件；下面的 updateRunResult 走 CASE 保留 PAUSED 状态。
-            // 已派发的下载继续在 @Async 池中跑完（取消点位于下个作品派发前，不打断进行中的下载），
-            // 未派发的作品本轮不再继续。
-            status = ScheduledTask.STATUS_PAUSED;
-            log.info("Scheduled task {} ({}) paused mid-run by user", task.id(), task.name());
+            ScheduledTask suspended = store.findById(task.id());
+            if (suspended != null
+                    && suspended.suspendReason() != null
+                    && suspended.suspendReason() != ScheduleSuspendReason.MANUAL) {
+                outcome = suspended.suspendReason() == ScheduleSuspendReason.QUIESCED
+                        ? ScheduleLastOutcome.CANCELLED
+                        : ScheduleLastOutcome.ERROR;
+                outcomeCode = suspended.suspendCode();
+                message = suspended.suspendDetailJson();
+            } else {
+                outcome = ScheduleLastOutcome.CANCELLED;
+                outcomeCode = "MANUAL_PAUSE";
+            }
+            log.info("Scheduled task {} ({}) stopped at a work boundary", task.id(), task.name());
         } catch (PixivFetchService.PixivFetchException e) {
-            // 发现阶段鉴权失效（轮首/翻页）：不写 cookie 到日志，挂起并发通知等管理员重授权。
-            status = STATUS_AUTH_EXPIRED;
+            requestedSuspend = ScheduleSuspendReason.CREDENTIAL;
+            suspendCode = "COOKIE_DEAD";
+            outcomeCode = suspendCode;
             suspendNotification = new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
             suspendTriggerTime = System.currentTimeMillis();
             log.warn("Scheduled task {} ({}) auth expired, awaiting re-authorization", task.id(), task.name());
         } catch (ScheduleSourceUnavailableException e) {
-            // 来源解析门未命中（来源插件被禁 / 卸载、或类型已移除）：标记来源不可用、干净挂起（清 run_started_time）。
-            // 不发现 / 不派发、不冻账号、不发通知——presentation（前端状态灯 / 邮件）由真正可触发该状态的功能路径补齐；
-            // 此处仅落库状态 + 诊断原因（仅类型名、无凭证），并经 findDue 状态门挡住自动重跑。
-            status = ScheduledTask.STATUS_SOURCE_UNAVAILABLE;
+            requestedSuspend = hostCancellation.isCancellationRequested()
+                    ? ScheduleSuspendReason.QUIESCED
+                    : ScheduleSuspendReason.SOURCE_UNAVAILABLE;
+            suspendCode = hostCancellation.isCancellationRequested()
+                    ? "HOST_QUIESCED"
+                    : "SOURCE_UNAVAILABLE";
+            outcomeCode = suspendCode;
             message = e.getMessage();
             log.warn("Scheduled task {} ({}) source unavailable: {}", task.id(), task.name(), e.unresolvedType());
-        } catch (Exception e) {
-            status = STATUS_ERROR;
+        } catch (ScheduleExecutorUnavailableException e) {
+            requestedSuspend = ScheduleSuspendReason.EXECUTOR_UNAVAILABLE;
+            suspendCode = "EXECUTOR_UNAVAILABLE";
+            outcomeCode = suspendCode;
+            message = e.getMessage();
+            log.warn("Scheduled task {} ({}) work executor unavailable for source {}: {}",
+                    task.id(), task.name(), e.sourceType(), e.requiredWorkTypes());
+        } catch (ScheduleDefinitionException e) {
+            requestedSuspend = ScheduleSuspendReason.MIGRATION_ERROR;
+            suspendCode = "DEFINITION_INVALID";
+            outcomeCode = suspendCode;
             message = summarizeError(e);
-            notifyRunFailed = !STATUS_ERROR.equals(task.lastStatus());
+            suspendDetailJson = safeDetailJson("message", message, "sourceType", task.sourceType());
+            log.warn("Scheduled task {} ({}) definition is invalid", task.id(), task.name());
+        } catch (Exception e) {
+            outcome = ScheduleLastOutcome.ERROR;
+            outcomeCode = "UNEXPECTED_FAILURE";
+            message = summarizeError(e);
+            notifyRunFailed = task.lastOutcome() != ScheduleLastOutcome.ERROR;
             log.error("Scheduled task {} ({}) failed [{}]: {}",
                     task.id(), task.name(), e.getClass().getSimpleName(), message);
+        }
+        long completedAt = System.currentTimeMillis();
+        Long nextRun = task.nextRunTime();
+        OptionalLong persistedResult;
+        try {
+            nextRun = ScheduleTiming.computeNextRun(
+                    task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
+            if (requestedSuspend != null) {
+                suspendForRun(task, runningToken, requestedSuspend, suspendCode, suspendDetailJson);
+                ScheduleLastOutcome cancelledOutcome = requestedSuspend == ScheduleSuspendReason.QUIESCED
+                        ? ScheduleLastOutcome.CANCELLED
+                        : ScheduleLastOutcome.ERROR;
+                persistedResult = store.finishCancelled(
+                        task.id(), runningToken, cancelledOutcome, completedAt,
+                        outcomeCode, message, nextRun);
+            } else if (outcome == ScheduleLastOutcome.CANCELLED) {
+                persistedResult = store.finishCancelled(
+                        task.id(), runningToken, outcome, completedAt,
+                        outcomeCode, message, nextRun);
+            } else {
+                ScheduledCheckpoint checkpoint = outcome == ScheduleLastOutcome.OK
+                        ? candidateCheckpoint.get()
+                        : null;
+                ScheduleRunCompletion completion = new ScheduleRunCompletion(
+                        completedAt, outcome, outcomeCode, message, nextRun,
+                        checkpoint == null ? null : checkpoint.schema(),
+                        checkpoint == null ? null : checkpoint.version(),
+                        checkpoint == null ? null : checkpoint.payloadJson());
+                persistedResult = store.completeRun(task.id(), runningToken, completion);
+                if (persistedResult.isEmpty()) {
+                    persistedResult = finishConcurrentSuspend(task.id(), runningToken, completedAt, nextRun);
+                }
+            }
+        } catch (RuntimeException e) {
+            try {
+                finishAbandonedClaimWithRetry(
+                        task.id(), runningToken.claimToken(), ScheduleLastOutcome.ERROR,
+                        completedAt, "FINALIZATION_FAILED", summarizeError(e), nextRun);
+            } catch (RuntimeException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+                log.error("Scheduled task {} could not finish its claim after finalization failure",
+                        task.id(), cleanupFailure);
+            }
+            throw e;
         } finally {
             runState.clear(claim);
         }
-        long completedAt = System.currentTimeMillis();
-        Long nextRun = ScheduleTiming.computeNextRun(
-                task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
-        // 挂起态写未来 next_run 仅供展示；findDue 的 last_status 门控会挡住它，不会立即重跑。
-        store.updateRunResult(task.id(), completedAt, status, message, nextRun);
+        if (persistedResult.isEmpty()) {
+            finishAbandonedClaimWithRetry(
+                    task.id(), runningToken.claimToken(), ScheduleLastOutcome.ERROR,
+                    completedAt, "FINALIZATION_REJECTED", null, nextRun);
+            log.error("Scheduled task {} ({}) durable completion was rejected", task.id(), task.name());
+            return;
+        }
+        if (degraded[0]
+                && requestedSuspend == null
+                && outcome == ScheduleLastOutcome.OK) {
+            OptionalLong removed = store.removeCredential(
+                    task.id(), persistedResult.getAsLong(), DownloadWorkbenchPlugin.ID,
+                    PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
+            if (removed.isEmpty()) {
+                log.info("Scheduled task {} kept credential changed concurrently after anonymous downgrade",
+                        task.id());
+            }
+        }
         Long notificationNextRun = persistedNextRun(task.id(), nextRun);
+        if (overuseNotification != null) {
+            handleOveruse(task, overuseNotification);
+        }
         if (suspendNotification != null) {
             handleSuspend(task, suspendNotification, suspendTriggerTime);
         }
         sendPendingExhaustedNotifications(task, pendingNotifications, notificationNextRun);
         // ── 运行结束通知（best-effort，不影响调度）：成功时按「是否自动降级 / 是否有新下载」二选一，失败时按「转入 ERROR」发一次。──
-        if (STATUS_OK.equals(status)) {
+        if (outcome == ScheduleLastOutcome.OK && requestedSuspend == null) {
             if (degraded[0]) {
                 notifyDegradedAnonymous(task, completedCount, completedAt, notificationNextRun);
             } else if (completedCount > 0) {
                 notifyRunSummary(task, completedCount, completedAt, notificationNextRun);
             }
-        } else if (notifyRunFailed) {
+        } else if (notifyRunFailed && requestedSuspend == null) {
             notifyRunFailure(task, message, completedAt, notificationNextRun);
+        }
+    }
+
+    private void suspendForRun(
+            ScheduledTask task,
+            ScheduleRunToken runningToken,
+            ScheduleSuspendReason reason,
+            String code,
+            String detailJson) {
+        if (reason == ScheduleSuspendReason.POLICY
+                && task.credentialPolicyOwnerPluginId() != null
+                && task.credentialPolicyId() != null
+                && task.credentialAccountKey() != null) {
+            List<ScheduledTask> affected = store.findByCredentialAccount(
+                    task.credentialPolicyOwnerPluginId(), task.credentialPolicyId(),
+                    task.credentialAccountKey());
+            store.suspendByCredentialAccount(
+                    task.credentialPolicyOwnerPluginId(), task.credentialPolicyId(),
+                    task.credentialAccountKey(), reason, code, detailJson);
+            affected.forEach(affectedTask -> runState.requestCancel(affectedTask.id()));
+            return;
+        }
+        store.suspend(task.id(), runningToken.stateVersion(), reason, code, detailJson);
+    }
+
+    private OptionalLong finishConcurrentSuspend(
+            long taskId,
+            ScheduleRunToken runningToken,
+            long completedAt,
+            Long nextRun) {
+        ScheduledTask current = store.findById(taskId);
+        if (current == null
+                || current.runState() != top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.CANCEL_REQUESTED
+                || !runningToken.claimToken().equals(current.runClaimToken())) {
+            return OptionalLong.empty();
+        }
+        ScheduleLastOutcome outcome = current.suspendReason() == ScheduleSuspendReason.MANUAL
+                || current.suspendReason() == ScheduleSuspendReason.QUIESCED
+                ? ScheduleLastOutcome.CANCELLED
+                : ScheduleLastOutcome.ERROR;
+        return store.finishCancelled(
+                taskId, runningToken, outcome, completedAt,
+                current.suspendCode(), current.suspendDetailJson(), nextRun);
+    }
+
+    private String safeDetailJson(String firstKey, Object firstValue, String secondKey, Object secondValue) {
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            if (firstValue != null) detail.put(firstKey, firstValue);
+            if (secondValue != null) detail.put(secondKey, secondValue);
+            return objectMapper.writeValueAsString(detail);
+        } catch (Exception ignored) {
+            return "{}";
         }
     }
 
     /**
      * 把异常压缩成可安全展示的失败原因摘要：取 {@code getMessage()}（缺失时退化为异常简单类名），
-     * 折叠空白、显式脱敏 Cookie 凭证，并截断到 {@link #MAX_ERROR_MESSAGE_LENGTH}。
+     * 折叠空白、统一脱敏 Cookie、Authorization、token 与签名凭证，并截断到
+     * {@link #MAX_ERROR_MESSAGE_LENGTH}。
      */
     private static String summarizeError(Throwable e) {
         String raw = e.getMessage();
         if (raw == null || raw.isBlank()) {
             raw = e.getClass().getSimpleName();
         }
-        String collapsed = redactCookies(raw.replaceAll("\\s+", " ").trim());
+        String collapsed = ScheduleCredentialRedactor.redact(raw.replaceAll("\\s+", " ").trim());
         if (collapsed.length() > MAX_ERROR_MESSAGE_LENGTH) {
             collapsed = collapsed.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "…";
         }
@@ -324,14 +760,15 @@ public class ScheduleExecutor {
             ScheduledTask refreshed = store.findById(taskId);
             return refreshed == null ? fallback : refreshed.nextRunTime();
         } catch (RuntimeException e) {
-            log.debug(messages.getForLog("schedule.log.next-run.reload-failed", taskId, e.getMessage()));
+            log.debug(messages.getForLog(
+                    "schedule.log.next-run.reload-failed", taskId, e.getClass().getSimpleName()));
             return fallback;
         }
     }
 
     /**
      * 单作品隔离表 {@code reason} 列入库专用：直接取 {@code e.getMessage()}（缺失退化为异常简单类名），
-     * 仅做 cookie 脱敏（项目红线，绝不入库），不折叠空白、不截断长度。
+     * 统一脱敏 Cookie、Authorization、token 与签名凭证后再折叠空白并限制长度。
      * 与 {@link #summarizeError} 区别：那是顶层任务级 {@code last_message} 的展示摘要，会做大量整形并截到 300。
      */
     private static String pendingReason(Throwable e) {
@@ -339,26 +776,10 @@ public class ScheduleExecutor {
         if (raw == null || raw.isBlank()) {
             raw = e.getClass().getSimpleName();
         }
-        return redactCookies(raw);
-    }
-
-    /**
-     * 脱敏文本中的 cookie / PHPSESSID。<b>无条件</b>先后应用：
-     * <ol>
-     *   <li>{@code Cookie:} / {@code Cookie=} 整段头；</li>
-     *   <li>独立 {@code PHPSESSID=value}（含 URL 查询串里的 {@code ?PHPSESSID=} / {@code &PHPSESSID=}）；</li>
-     *   <li>cookie 串里的所有 {@code key=value} 对（含 URL 查询串前缀）。</li>
-     * </ol>
-     * 两个值-级 pattern 不再二选一——某些异常文案只命中其中一个（典型如 URL 形式的 {@code ?PHPSESSID=...}
-     * 不命中早期 {@code COOKIE_PAIR_PATTERN}）。同时跑两遍是幂等的：前一遍把 PHPSESSID 值换成 {@code [redacted]}
-     * 之后，后一遍仍可按 {@code key=...} 形态把其他配对正确清空。
-     */
-    static String redactCookies(String text) {
-        if (text == null || text.isEmpty()) return text;
-        String out = COOKIE_HEADER_PATTERN.matcher(text).replaceAll("$1[redacted]");
-        out = PHPSESSID_PATTERN.matcher(out).replaceAll("$1[redacted]");
-        out = COOKIE_PAIR_PATTERN.matcher(out).replaceAll("$1$2[redacted]");
-        return out;
+        String sanitized = ScheduleCredentialRedactor.redact(raw).replaceAll("\\s+", " ").trim();
+        return sanitized.length() <= MAX_ERROR_MESSAGE_LENGTH
+                ? sanitized
+                : sanitized.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "…";
     }
 
     /**
@@ -368,16 +789,23 @@ public class ScheduleExecutor {
      * @throws ScheduleSuspendException cookie 依赖型 dead cookie / 单作品连续失败熔断
      * @throws PixivFetchService.PixivFetchException 发现阶段鉴权失效
      */
-    private int runTask(ScheduledTask task, List<PendingExhaustedNotification> pendingNotifications,
-                        boolean[] degraded) throws Exception {
+    private int runTask(
+            ScheduledTask task,
+            List<PendingExhaustedNotification> pendingNotifications,
+            boolean[] degraded,
+            AtomicReference<ScheduledCheckpoint> candidateCheckpoint) throws Exception {
         // 来源 planning 只允许读取任务定义和选择执行模式；cookie、探活与任何来源网络访问必须等复合 lease 完整取得。
-        try (SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(task.type().name())
-                .orElseThrow(() -> new ScheduleSourceUnavailableException(task.type().name()))) {
+        try (SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(task.sourceType())
+                .orElseThrow(() -> new ScheduleSourceUnavailableException(task.sourceType()))) {
+            if (!Objects.equals(task.sourceOwnerPluginId(), planning.owner().featurePluginId())
+                    || !Objects.equals(task.sourceType(), planning.sourceType())) {
+                throw new ScheduleSourceUnavailableException(task.sourceType() + " (owner mismatch)");
+            }
             ScheduledSource sourceProvider = planning.legacySourceProvider()
                     .filter(ScheduledSource.class::isInstance)
                     .map(ScheduledSource.class::cast)
-                    .orElseThrow(() -> new ScheduleSourceUnavailableException(task.type().name()));
-            ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.parse(objectMapper, task.paramsJson());
+                    .orElseThrow(() -> new ScheduleSourceUnavailableException(task.sourceType()));
+            ScheduleTaskSnapshot snapshot = parseTaskSnapshot(task);
             boolean novel = snapshot.novel();
             JsonNode source = snapshot.source();
             DiscoveryMode discoveryMode = sourceProvider.mode(source);
@@ -387,19 +815,33 @@ public class ScheduleExecutor {
 
             ScheduleExecutionLease execution = scheduleCapabilityRegistry
                     .tryExpandLegacy(planning, requiredWorkTypes)
-                    .orElseThrow(() -> new ScheduleSourceUnavailableException(
-                            task.type().name() + " (work types: " + requiredWorkTypes + ")"));
+                    .orElseThrow(() -> new ScheduleExecutorUnavailableException(
+                            task.sourceType(), requiredWorkTypes));
             ScheduledCancellation executionCancellation = execution.cancellation();
             int completed;
             try (execution) {
-                completed = runTaskWithLease(task, pendingNotifications, degraded, sourceProvider,
+                completed = runTaskWithLease(task, pendingNotifications, degraded, candidateCheckpoint, sourceProvider,
                         snapshot, novel, source, discoveryMode, execution.legacyWorkRunners(),
                         executionCancellation);
             }
             // close 与 owner retire 在线程安全计数槽上线性化：retire 先发生会留下取消信号，
             // close 先发生则说明所有插件行为已完成。close 后检查可消除「末次检查→释放租约」窗口。
-            ensureCapabilityAvailable(executionCancellation, task.type().name());
+            ensureCapabilityAvailable(executionCancellation, task.sourceType());
             return completed;
+        }
+    }
+
+    private ScheduleTaskSnapshot parseTaskSnapshot(ScheduledTask task) throws ScheduleDefinitionException {
+        if (!PixivSchedulePersistenceCodec.DEFINITION_SCHEMA.equals(task.definitionSchema())
+                || task.definitionVersion() == null
+                || task.definitionVersion() != PixivSchedulePersistenceCodec.DEFINITION_VERSION) {
+            throw new ScheduleDefinitionException(
+                    "unsupported Pixiv schedule definition schema or version");
+        }
+        try {
+            return ScheduleTaskSnapshot.parse(objectMapper, task.definitionJson());
+        } catch (Exception e) {
+            throw new ScheduleDefinitionException("invalid Pixiv schedule definition", e);
         }
     }
 
@@ -407,6 +849,7 @@ public class ScheduleExecutor {
             ScheduledTask task,
             List<PendingExhaustedNotification> pendingNotifications,
             boolean[] degraded,
+            AtomicReference<ScheduledCheckpoint> candidateCheckpoint,
             ScheduledSource sourceProvider,
             ScheduleTaskSnapshot snapshot,
             boolean novel,
@@ -414,10 +857,15 @@ public class ScheduleExecutor {
             DiscoveryMode discoveryMode,
             Map<String, ScheduledWorkRunner> workRunners,
             ScheduledCancellation cancellation) throws Exception {
-        ensureCapabilityAvailable(cancellation, task.type().name());
+        ensureCapabilityAvailable(cancellation, task.sourceType());
 
-        String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
-                ? store.findCookieSnapshot(task.id())
+        boolean credentialBound = DownloadWorkbenchPlugin.ID.equals(task.credentialPolicyOwnerPluginId())
+                && PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID.equals(task.credentialPolicyId())
+                && task.credentialSecretReference() != null;
+        String cookie = credentialBound
+                ? store.findCredentialSecret(
+                        task.id(), DownloadWorkbenchPlugin.ID,
+                        PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID)
                 : null;
 
         Filters filters = snapshot.filters();
@@ -431,9 +879,9 @@ public class ScheduleExecutor {
         int fetchLimit = snapshot.fetchLimit();
 
         // ── 轮首检查点：cookie-bound 任务读站内信（过度访问判定 + cookie 存活探测）──────────────
-        if (ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())) {
+        if (credentialBound) {
             OveruseWarningService.Result result =
-                    overuseWarningService.check(cookie, task.ackWarningTime(), System.currentTimeMillis());
+                    overuseWarningService.check(cookie, acknowledgedWarningTime(task), System.currentTimeMillis());
             if (result.isCookieDead()) {
                 if (snapshot.cookieDependent() || sourceProvider.accountScoped()) {
                     // 账号私有来源（收藏 / 关注新作 / 珍藏集）无法匿名续跑，dead cookie 一律挂起。
@@ -443,7 +891,6 @@ public class ScheduleExecutor {
                 // 也避免每轮重复发降级通知；本轮降级匿名续跑（全年龄作品照样抓全、不丢、不浪费），运行成功后发一次降级通知。
                 // 连带清除由 Cookie 派生的账号绑定（account_id / ack_warning_time）：任务已转受限、不再使用该账号凭证，
                 // 残留账号标识会让它仍被同账号其它任务的过度访问冻结牵连、被账号级恢复 / 通知按原账号归类。
-                store.clearCookieAndAccount(task.id(), ScheduledTask.COOKIE_RESTRICTED);
                 cookie = null;
                 degraded[0] = true;
             } else if (result.isWarned()) {
@@ -479,13 +926,14 @@ public class ScheduleExecutor {
             // 经来源 provider 发现并派发本轮新作（水位线 / 边界 / 全量按来源在 discoverAndDispatch 内自定；
             // 共享扫描驱动 / 作品级并发 / 限流 / 过度访问检查 / 水位线推进封装在 RunContext 背后的调度壳里）。
             sourceProvider.discoverAndDispatch(
-                    new RunContext(task, source, cookie, novel, fetchLimit, run, runner, alreadyDownloaded, politeDelay));
+                    new RunContext(task, source, cookie, novel, fetchLimit, run, runner,
+                            alreadyDownloaded, politeDelay, candidateCheckpoint));
         } finally {
             // 等本轮所有在途下载完成：保证挂起 / 异常 unwind 时已派发的下载跑完、失败者已入隔离表，
-            // 终态标记与「watermark 不推进」一致（updateWatermark 已在 watermarkScan 内 join 后才执行）。
+            // 终态标记与「checkpoint 不提交」一致（候选水位线只会在完整 join 后随成功结果原子提交）。
             runner.awaitAll();
         }
-        ensureCapabilityAvailable(cancellation, task.type().name());
+        ensureCapabilityAvailable(cancellation, task.sourceType());
 
         int completed = runner.completed();
 
@@ -494,7 +942,7 @@ public class ScheduleExecutor {
         if (novel && sourceProvider.seriesMergeApplies() && download.novelMerge() && completed > 0) {
             long seriesId = source.path("seriesId").asLong(0);
             if (seriesId > 0) {
-                ensureCapabilityAvailable(cancellation, task.type().name());
+                ensureCapabilityAvailable(cancellation, task.sourceType());
                 try {
                     workRunners.get(ScheduledWorkKind.NOVEL)
                             .mergeSeries(seriesId, download.novelMergeFormat());
@@ -506,8 +954,20 @@ public class ScheduleExecutor {
         }
         // mergeSeries 是插件执行器上的长调用：owner 在调用期间撤回时，generation drain 会等本租约释放。
         // 调用返回后必须重新观察复合取消信号，避免把已撤回执行器完成的旧代结果误记为 OK。
-        ensureCapabilityAvailable(cancellation, task.type().name());
+        ensureCapabilityAvailable(cancellation, task.sourceType());
         return completed;
+    }
+
+    private Long acknowledgedWarningTime(ScheduledTask task) throws ScheduleDefinitionException {
+        String state = task.credentialPolicyStateJson();
+        if (state == null || state.isBlank()) {
+            return null;
+        }
+        try {
+            return persistenceCodec.decodeAcknowledgedWarningTime(state);
+        } catch (IllegalArgumentException e) {
+            throw new ScheduleDefinitionException("invalid Pixiv credential policy state", e);
+        }
     }
 
     private static void ensureCapabilityAvailable(
@@ -526,20 +986,34 @@ public class ScheduleExecutor {
     private void retryPending(long taskId, WorkRunner runner, Runnable politeDelay,
                               LongPredicate alreadyDownloaded)
             throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException,
-            ScheduleSourceUnavailableException {
+            ScheduleSourceUnavailableException, ScheduleDefinitionException {
         int max = scheduleConfig.getPendingMaxAttempts();
-        for (ScheduledTaskPending p : store.listPending(taskId)) {
-            if (p.attempts() >= max) {
-                continue; // 需人工，停止自动重试
+        for (ScheduledPendingWork p : store.listPendingWork(taskId)) {
+            if (!runner.workType().equals(p.workType())) {
+                throw new ScheduleDefinitionException(
+                        "pending work type does not match the task execution plan");
             }
-            String id = String.valueOf(p.workId());
-            if (alreadyDownloaded.test(p.workId())) {
+            long numericWorkId;
+            String id;
+            try {
+                ScheduledWork work = persistenceCodec.fromPendingWork(p);
+                id = persistenceCodec.decodeWorkId(work);
+                numericWorkId = Long.parseLong(id);
+            } catch (IllegalArgumentException e) {
+                throw new ScheduleDefinitionException("invalid Pixiv pending work envelope", e);
+            }
+            if (p.attempts() >= max) {
+                runner.claimWithoutDispatch(numericWorkId);
+                continue; // 需人工，停止自动重试，也不允许本轮来源发现绕过隔离状态
+            }
+            if (alreadyDownloaded.test(numericWorkId)) {
+                runner.claimWithoutDispatch(numericWorkId);
                 // 已在别处下载完：清隔离条目、本轮不再 dispatch；不入运行队列展示，避免和正常发现的「已下载跳过」混淆。
-                store.deletePending(taskId, p.workId());
+                store.deletePendingWork(taskId, p.workType(), p.workId());
                 continue;
             }
             runner.run().discovered(id);
-            runner.process(id, p.workId(), true);
+            runner.process(id, numericWorkId, true);
             politeDelay.run();
         }
     }
@@ -554,7 +1028,7 @@ public class ScheduleExecutor {
                                   List<PendingExhaustedNotification> pendingNotifications,
                                   Map<String, ScheduledWorkRunner> workRunners,
                                   ScheduledCancellation cancellation) throws Exception {
-        ensureCapabilityAvailable(cancellation, task.type().name());
+        ensureCapabilityAvailable(cancellation, task.sourceType());
         String collectionId = source.path("collectionId").asText("");
         PixivFetchService.CollectionWorkIds ids = pixivFetchService.discoverCollectionWorkIds(collectionId, cookie);
 
@@ -563,9 +1037,16 @@ public class ScheduleExecutor {
 
         // 隔离表中尚未达上限的待重试成员（混合来源不记 kind，靠本轮发现的成员关系区分插画/小说）。
         int max = scheduleConfig.getPendingMaxAttempts();
-        Set<Long> pending = new HashSet<>();
-        for (ScheduledTaskPending p : store.listPending(task.id())) {
-            if (p.attempts() < max) pending.add(p.workId());
+        Map<PendingWorkKey, Boolean> pending = new HashMap<>();
+        for (ScheduledPendingWork p : store.listPendingWork(task.id())) {
+            try {
+                ScheduledWork work = persistenceCodec.fromPendingWork(p);
+                String workId = persistenceCodec.decodeWorkId(work);
+                Long.parseLong(workId);
+                pending.put(new PendingWorkKey(work.key().workType(), workId), p.attempts() < max);
+            } catch (IllegalArgumentException e) {
+                throw new ScheduleDefinitionException("invalid Pixiv collection pending envelope", e);
+            }
         }
 
         // 珍藏集无水位线、ID 非单调 → 每轮上限：两遍（插画 + 小说）共享同一预算，本轮最多派发 fetchLimit 个新作
@@ -588,7 +1069,7 @@ public class ScheduleExecutor {
      */
     private int runCollectionPass(ScheduledTask task, boolean novel, String cookie, Filters filters,
                                   Download download, ScheduleRunQueue.Run run, List<String> ids,
-                                  Set<Long> pending, Runnable politeDelay, int[] budget,
+                                  Map<PendingWorkKey, Boolean> pending, Runnable politeDelay, int[] budget,
                                   List<PendingExhaustedNotification> pendingNotifications,
                                   Map<String, ScheduledWorkRunner> workRunners,
                                   ScheduledCancellation cancellation) throws Exception {
@@ -598,6 +1079,7 @@ public class ScheduleExecutor {
         WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool,
                 pendingNotifications, workRunners, cancellation);
         String itemKind = novel ? ScheduleRunQueue.KIND_NOVEL : ScheduleRunQueue.KIND_ILLUST;
+        String workType = novel ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST;
         try {
             for (String id : ids) {
                 long workId;
@@ -606,17 +1088,22 @@ public class ScheduleExecutor {
                 } catch (NumberFormatException e) {
                     continue;
                 }
-                boolean isRetry = pending.contains(workId);
+                PendingWorkKey pendingKey = new PendingWorkKey(workType, id);
+                Boolean retryable = pending.get(pendingKey);
+                if (Boolean.FALSE.equals(retryable)) {
+                    continue;
+                }
+                boolean isRetry = Boolean.TRUE.equals(retryable);
                 // 重试条目若已经在别处被下载（手动 / 别的任务）：清隔离条目、跳过 dispatch，避免重复下载。
                 if (isRetry && alreadyDownloaded.test(workId)) {
-                    store.deletePending(task.id(), workId);
-                    pending.remove(workId);
+                    store.deletePendingWork(task.id(), workType, id);
+                    pending.remove(pendingKey);
                     continue;
                 }
                 // 已下载免费跳过：登记 + 跳过、不占预算（且不受预算是否耗尽影响），否则窗口永远停在已下载的表头、旧积压永不补下。
                 if (!isRetry && alreadyDownloaded.test(workId)) {
                     run.discovered(id, itemKind);
-                    run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+                    run.mark(id, itemKind, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
                     continue;
                 }
                 // 每轮上限：预算耗尽即静默跳过剩余新作（不登记发现、不入运行队列，下一轮再处理）；重试不受限。
@@ -634,8 +1121,11 @@ public class ScheduleExecutor {
         } finally {
             runner.awaitAll();
         }
-        ensureCapabilityAvailable(cancellation, task.type().name());
+        ensureCapabilityAvailable(cancellation, task.sourceType());
         return runner.completed();
+    }
+
+    private record PendingWorkKey(String workType, String workId) {
     }
 
     /**
@@ -654,10 +1144,12 @@ public class ScheduleExecutor {
         private final WorkRunner runner;
         private final LongPredicate alreadyDownloaded;
         private final Runnable politeDelay;
+        private final AtomicReference<ScheduledCheckpoint> candidateCheckpoint;
 
         RunContext(ScheduledTask task, JsonNode source, String cookie, boolean novel, int fetchLimit,
                    ScheduleRunQueue.Run run, WorkRunner runner, LongPredicate alreadyDownloaded,
-                   Runnable politeDelay) {
+                   Runnable politeDelay,
+                   AtomicReference<ScheduledCheckpoint> candidateCheckpoint) {
             this.task = task;
             this.source = source;
             this.cookie = cookie;
@@ -667,6 +1159,7 @@ public class ScheduleExecutor {
             this.runner = runner;
             this.alreadyDownloaded = alreadyDownloaded;
             this.politeDelay = politeDelay;
+            this.candidateCheckpoint = candidateCheckpoint;
         }
 
         @Override
@@ -707,7 +1200,7 @@ public class ScheduleExecutor {
         @Override
         public void watermarkScan(PageSupplier pages, Runnable pageDelay) throws Exception {
             WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
-            long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
+            long watermark = decodeWatermark(task);
             // 仅首轮（水位线未建立）封顶：入队数达到上限即停，newestSeen 已记到最新 ID、水位线照常推进到最新，
             // 更老的积压会被永久跳过（这正是「只要最新 N 个、之后只追新」的预期语义）。
             int queueLimit = (watermark == 0 && fetchLimit > 0) ? fetchLimit : 0;
@@ -716,10 +1209,10 @@ public class ScheduleExecutor {
             // 扫描正常返回（无挂起异常）后，先等本轮在途下载完成再推进水位线：确保失败者已入隔离表、
             // watermark 推进不会越过尚未真正落盘的作品（崩溃抗空洞）。挂起异常上抛时本方法不会执行到这里。
             runner.awaitAll();
-            ensureCapabilityAvailable(runner.capabilityCancellation, task.type().name());
+            ensureCapabilityAvailable(runner.capabilityCancellation, task.sourceType());
             // reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）。
             if (result.newestSeen() > 0) {
-                store.updateWatermark(task.id(), result.newestSeen());
+                candidateCheckpoint.set(persistenceCodec.encodeCheckpoint(result.newestSeen()));
             }
         }
 
@@ -731,6 +1224,20 @@ public class ScheduleExecutor {
             runDownloadedBoundaryScan(
                     pages, alreadyDownloaded, dispatcher, politeDelay,
                     ScheduleExecutor.this::watermarkPageDelay, run, queueLimit);
+        }
+
+        private long decodeWatermark(ScheduledTask task) throws ScheduleDefinitionException {
+            if (task.checkpointSchema() == null
+                    && task.checkpointVersion() == null
+                    && task.checkpointJson() == null) {
+                return 0L;
+            }
+            try {
+                return persistenceCodec.decodeCheckpoint(new ScheduledCheckpoint(
+                        task.checkpointSchema(), task.checkpointVersion(), task.checkpointJson()));
+            } catch (IllegalArgumentException e) {
+                throw new ScheduleDefinitionException("invalid Pixiv checkpoint", e);
+            }
         }
 
         @Override
@@ -918,9 +1425,9 @@ public class ScheduleExecutor {
             throws Exception {
         PixivFetchService.ArtworkMetaCapture capture = pixivFetchService.fetchArtworkMetaCapture(id, cookie);
         PixivFetchService.ArtworkMeta meta = capture.meta();
-        run.setMeta(id, meta.title(), meta.xRestrict(), meta.ai());
+        run.setMeta(id, ScheduledWorkKind.ILLUST, meta.title(), meta.xRestrict(), meta.ai());
         if (!ScheduleWorkFilter.artworkMatches(meta, filters)) {
-            run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
+            run.mark(id, ScheduledWorkKind.ILLUST, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return null;
         }
         // 系列富信息（标题 + 简介 + 封面）：与 web 链路一致，本轮按 seriesId 缓存、best-effort，失败不挡下载。
@@ -989,9 +1496,9 @@ public class ScheduleExecutor {
             throws Exception {
         PixivFetchService.NovelDetailCapture capture = pixivFetchService.fetchNovelDetailCapture(id, cookie);
         PixivFetchService.NovelDetail d = capture.detail();
-        run.setMeta(id, d.title(), d.xRestrict(), d.ai());
+        run.setMeta(id, ScheduledWorkKind.NOVEL, d.title(), d.xRestrict(), d.ai());
         if (!ScheduleWorkFilter.novelMatches(d, filters)) {
-            run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
+            run.mark(id, ScheduledWorkKind.NOVEL, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return null;
         }
         // 系列富信息（简介 + 封面 + 系列标签）：与 web 链路一致，本轮按 seriesId 缓存、best-effort，失败不挡下载。
@@ -1049,7 +1556,7 @@ public class ScheduleExecutor {
         try {
             meta = pixivFetchService.fetchIllustSeriesMeta(seriesId, cookie);
         } catch (Exception e) {
-            log.debug("Scheduled illust series {} enrichment skipped: {}", seriesId, e.getMessage());
+            log.debug("Scheduled illust series {} enrichment skipped: {}", seriesId, pendingReason(e));
             meta = new PixivFetchService.IllustSeriesMeta("", "");
         }
         cache.put(seriesId, meta);
@@ -1069,7 +1576,7 @@ public class ScheduleExecutor {
         try {
             meta = pixivFetchService.fetchNovelSeriesMeta(seriesId, cookie);
         } catch (Exception e) {
-            log.debug("Scheduled novel series {} enrichment skipped: {}", seriesId, e.getMessage());
+            log.debug("Scheduled novel series {} enrichment skipped: {}", seriesId, pendingReason(e));
             meta = new PixivFetchService.NovelSeriesMeta("", "", List.of());
         }
         cache.put(seriesId, meta);
@@ -1113,6 +1620,7 @@ public class ScheduleExecutor {
         private final Map<Long, PixivFetchService.IllustSeriesMeta> illustSeriesCache = new HashMap<>();
         private final Map<Long, PixivFetchService.NovelSeriesMeta> novelSeriesCache = new HashMap<>();
         private final Object pendingLock = new Object();
+        private final Set<Long> claimedWorkIds = ConcurrentHashMap.newKeySet();
         private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
         private final AtomicInteger completedDownloads = new AtomicInteger(0);
         private int dispatchedSinceCheck = 0;
@@ -1121,9 +1629,9 @@ public class ScheduleExecutor {
                    ScheduleRunQueue.Run run, int concurrency, TaskExecutor pool,
                    List<PendingExhaustedNotification> pendingNotifications,
                    Map<String, ScheduledWorkRunner> workRunners,
-                   ScheduledCancellation capabilityCancellation) {
+                   ScheduledCancellation capabilityCancellation) throws ScheduleDefinitionException {
             this.taskId = task.id();
-            this.ackWarningTime = task.ackWarningTime();
+            this.ackWarningTime = acknowledgedWarningTime(task);
             this.novel = novel;
             this.cookie = cookie;
             this.proxy = task.proxySnapshot();
@@ -1133,7 +1641,7 @@ public class ScheduleExecutor {
             this.permits = new Semaphore(Math.max(1, concurrency));
             this.pool = pool;
             this.pendingNotifications = pendingNotifications;
-            this.sourceType = task.type().name();
+            this.sourceType = task.sourceType();
             this.workRunner = workRunners.get(novel ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST);
             if (this.workRunner == null) {
                 throw new IllegalStateException("leased work runner unavailable");
@@ -1143,6 +1651,16 @@ public class ScheduleExecutor {
 
         ScheduleRunQueue.Run run() {
             return run;
+        }
+
+        String workType() {
+            return novel
+                    ? PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL
+                    : PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST;
+        }
+
+        void claimWithoutDispatch(long workId) {
+            claimedWorkIds.add(workId);
         }
 
         /** 本轮实际成功完成的下载数（join 后才稳定）。 */
@@ -1155,8 +1673,15 @@ public class ScheduleExecutor {
             CompletableFuture<?>[] arr = inflight.toArray(new CompletableFuture[0]);
             try {
                 CompletableFuture.allOf(arr).join();
+            } catch (CompletionException e) {
+                if (e.getCause() instanceof Error) {
+                    throw (Error) e.getCause();
+                }
+                throw new IllegalStateException(
+                        "in-flight work did not finish with durable success or pending state", e);
             } catch (Exception e) {
-                log.warn("Scheduled task {} await in-flight downloads failed: {}", taskId, e.getMessage());
+                throw new IllegalStateException(
+                        "in-flight work did not finish with durable success or pending state", e);
             }
         }
 
@@ -1167,6 +1692,9 @@ public class ScheduleExecutor {
         boolean process(String id, long workId, boolean isRetry)
                 throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException,
                 ScheduleSourceUnavailableException {
+            if (!claimedWorkIds.add(workId)) {
+                return false;
+            }
             // 协作式取消：用户在运行中按下「暂停」后，下一个作品派发前抛 PauseException 干净 unwind。
             // 已提交的下载在池里继续跑完不打断；此后不再发起新的派发。
             if (runState.isCancelRequested(taskId)) {
@@ -1182,7 +1710,7 @@ public class ScheduleExecutor {
                 int sc = e.getStatusCode().value();
                 if (sc == 404 || sc == 403) {
                     // 真已删除 / 注销：跳过、不进隔离、不挡 watermark
-                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, "gone " + sc);
+                    run.mark(id, workType(), ScheduleRunQueue.STATUS_FAILED, "gone " + sc);
                     return false;
                 }
                 // 其它 4xx（含 429）：可恢复瞬时，隔离不计熔断
@@ -1191,7 +1719,7 @@ public class ScheduleExecutor {
             } catch (PixivFetchService.PixivFetchException e) {
                 // 受限 / 需登录（可恢复）：隔离 + 连续失败计数；连续 M 次熔断
                 String reason = pendingReason(e);
-                run.mark(id, ScheduleRunQueue.STATUS_FAILED, reason);
+                run.mark(id, workType(), ScheduleRunQueue.STATUS_FAILED, reason);
                 recordRecoverable(workId, isRetry, reason);
                 int cf = consecutiveFailures.incrementAndGet();
                 if (cf >= scheduleConfig.getAuthFailureCircuitBreaker()) {
@@ -1204,7 +1732,7 @@ public class ScheduleExecutor {
             } catch (Exception e) {
                 // 瞬时 IO / 解析错误：隔离、不计熔断
                 String reason = pendingReason(e);
-                run.mark(id, ScheduleRunQueue.STATUS_FAILED, reason);
+                run.mark(id, workType(), ScheduleRunQueue.STATUS_FAILED, reason);
                 recordRecoverable(workId, isRetry, reason);
                 return false;
             }
@@ -1213,7 +1741,7 @@ public class ScheduleExecutor {
                 // 被筛选跳过：重试条目从隔离表移除（不再属于「待重试」）。
                 if (isRetry) {
                     synchronized (pendingLock) {
-                        store.deletePending(taskId, workId);
+                        store.deletePendingWork(taskId, workType(), Long.toString(workId));
                     }
                 }
                 return false;
@@ -1236,48 +1764,55 @@ public class ScheduleExecutor {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("interrupted while scheduling download", e);
             }
-            CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
-                boolean[] ok = {false};
-                // 任务级单独代理：阻塞下载在共享下载池线程上执行（图片 / 动图 ZIP / 小说封面与内嵌图 / 下载后收藏
-                // 全部内联其中）；经 runScoped 套用线程级覆盖并在结束后必定清除，避免污染后续交互式下载的代理路由
-                // （跨任务上下文清理契约，见 OutboundProxyOverride#runScoped）。
-                OutboundProxyOverride.runScoped(proxy, () -> {
+            CompletableFuture<Void> f;
+            try {
+                f = CompletableFuture.runAsync(() -> {
                     try {
-                        if (!capabilityCancellation.isCancellationRequested()) {
-                            ok[0] = job.run();
-                        }
-                    } catch (Exception e) {
-                        // 下载器抛出的 message 可能含上游错误 URL（带 PHPSESSID 查询串）或 cookie 头，先脱敏。
-                        log.warn("Scheduled task {} download work {} threw: {}",
-                                taskId, workId, redactCookies(String.valueOf(e.getMessage())));
+                        boolean[] ok = {false};
+                        // 任务级单独代理：阻塞下载在共享下载池线程上执行（图片 / 动图 ZIP / 小说封面与内嵌图 / 下载后收藏
+                        // 全部内联其中）；经 runScoped 套用线程级覆盖并在结束后必定清除，避免污染后续交互式下载的代理路由
+                        // （跨任务上下文清理契约，见 OutboundProxyOverride#runScoped）。
+                        OutboundProxyOverride.runScoped(proxy, () -> {
+                            try {
+                                if (!capabilityCancellation.isCancellationRequested()) {
+                                    ok[0] = job.run();
+                                }
+                            } catch (Exception e) {
+                                // 下载器抛出的 message 可能含上游错误 URL（带 PHPSESSID 查询串）或 cookie 头，先脱敏。
+                                log.warn("Scheduled task {} download work {} threw: {}",
+                                        taskId, workId,
+                                        ScheduleCredentialRedactor.redact(String.valueOf(e.getMessage())));
+                            }
+                        });
+                        onComplete(id, workId, isRetry, ok[0]);
+                    } finally {
+                        permits.release();
                     }
-                });
-                try {
-                    onComplete(id, workId, isRetry, ok[0]);
-                } finally {
-                    permits.release();
-                }
-            }, pool);
+                }, pool);
+            } catch (Throwable failure) {
+                permits.release();
+                throw propagate(failure);
+            }
             inflight.add(f);
         }
 
         /** 下载完成回调（池线程）：成功清隔离 + 计数 + 清零连续失败；失败隔离、不计熔断。 */
         private void onComplete(String id, long workId, boolean isRetry, boolean ok) {
             if (ok) {
-                run.mark(id, ScheduleRunQueue.STATUS_DOWNLOADED, null);
+                run.mark(id, workType(), ScheduleRunQueue.STATUS_DOWNLOADED, null);
                 // 本轮确实下载完成、且开启了「下载即自动翻译」的小说才登记：队列视图据此只对本轮真正提交过翻译的条目
                 // 叠加翻译状态，不读 novelId 上一轮残留的终态（已下载跳过 / 关闭翻译的条目都不会被叠加）。
                 if (novel && download.novelAutoTranslate()) {
-                    run.markAutoTranslateSubmitted(id);
+                    run.markAutoTranslateSubmitted(id, workType());
                 }
                 consecutiveFailures.set(0);
                 synchronized (pendingLock) {
-                    store.deletePending(taskId, workId);
+                    store.deletePendingWork(taskId, workType(), Long.toString(workId));
                 }
                 completedDownloads.incrementAndGet();
             } else {
                 // 下载器顶层异常被吞返 false：隔离、不计熔断
-                run.mark(id, ScheduleRunQueue.STATUS_FAILED, "download failed");
+                run.mark(id, workType(), ScheduleRunQueue.STATUS_FAILED, "download failed");
                 recordRecoverable(workId, isRetry, "download failed");
             }
         }
@@ -1288,18 +1823,25 @@ public class ScheduleExecutor {
             int attemptsAtLimit = 0;
             synchronized (pendingLock) {
                 if (isRetry) {
-                    store.incPendingAttempts(taskId, workId, now);
+                    store.incrementPendingAttempts(taskId, workType(), Long.toString(workId), now);
                     log.warn("Scheduled task {} retry work {} failed: {}", taskId, workId, reason);
                     // 刚跨过自动重试上限：发通知转人工。临界判断（== max）确保只在跨越那一次触发，
                     // 不会因为后续仍在表里的同行（attempts >= max 已被 retryPending 跳过）重复发。
                     int max = scheduleConfig.getPendingMaxAttempts();
-                    Integer attempts = store.selectPendingAttempts(taskId, workId);
+                    ScheduledPendingWork pending = store.findPendingWork(
+                            taskId, workType(), Long.toString(workId));
+                    Integer attempts = pending == null ? null : pending.attempts();
                     if (attempts != null && attempts == max) {
                         exhausted = true;
                         attemptsAtLimit = attempts;
                     }
                 } else {
-                    store.insertPending(taskId, workId, reason, now);
+                    ScheduledWork work = persistenceCodec.createWorkEnvelope(
+                            workType(), Long.toString(workId));
+                    store.upsertPendingWork(persistenceCodec.toPendingWork(
+                            taskId, work, "PIXIV_RETRYABLE",
+                            safeDetailJson("message", reason, "category", "recoverable"),
+                            0, now, null));
                     log.warn("Scheduled task {} isolated work {}: {}", taskId, workId, reason);
                 }
             }
@@ -1332,16 +1874,10 @@ public class ScheduleExecutor {
 
     /** 过度访问：冻结同账号所有非挂起态任务 + 发 overuse-paused 通知（邮件 + 推送）。 */
     private void handleOveruse(ScheduledTask task, OveruseWarningException e) {
-        String accountId = task.accountId();
-        String message = String.valueOf(e.modifiedAt());
+        String accountId = task.credentialAccountKey();
         Locale locale = AppLocale.normalize(Locale.getDefault());
-        // 冻结前先取「将被冻结」的同账号任务（状态门与 freezeAccount 一致），用于在通知里逐条列出被挂起的任务名 / ID。
         List<ScheduledTask> affected = collectFreezableTasks(task, accountId);
-        int frozen = 1;
-        if (accountId != null && !accountId.isBlank()) {
-            frozen = Math.max(1, store.freezeAccount(
-                    accountId, ScheduledTask.STATUS_OVERUSE_PAUSED, message));
-        }
+        int frozen = Math.max(1, affected.size());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("account_id", accountId == null ? "-" : accountId);
         ph.put("tasks_count", String.valueOf(frozen));
@@ -1364,7 +1900,7 @@ public class ScheduleExecutor {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
-        ph.put("task_type", taskTypeLabel(locale, task.type()));
+        ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         ph.put("trigger_time", formatTime(triggerTime));
         if (e.reason() == ScheduleSuspendException.Reason.CIRCUIT_BREAKER) {
@@ -1403,7 +1939,7 @@ public class ScheduleExecutor {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
-        ph.put("task_type", taskTypeLabel(locale, task.type()));
+        ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         ph.put("work_id", String.valueOf(event.workId()));
         ph.put("work_kind", kindLabel);
@@ -1422,7 +1958,7 @@ public class ScheduleExecutor {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
-        ph.put("task_type", taskTypeLabel(locale, task.type()));
+        ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         return ph;
     }
@@ -1457,21 +1993,19 @@ public class ScheduleExecutor {
         sendNotification(NotificationScenario.RUN_FAILED, ph);
     }
 
-    /**
-     * 取「将被账号级冻结」的任务列表（状态门与 {@link top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper#freezeAccount}
-     * 一致：排除已挂起态），供通知逐条列出。无 account（restricted 任务）时退化为当前任务一条。
-     */
+    /** 取同 credential policy/account 下将被挂起的任务列表，供通知逐条列出。 */
     private List<ScheduledTask> collectFreezableTasks(ScheduledTask current, String accountId) {
         if (accountId == null || accountId.isBlank()) {
             return List.of(current);
         }
         List<ScheduledTask> result = new ArrayList<>();
-        for (ScheduledTask t : store.findByAccountId(accountId)) {
-            String st = t.lastStatus();
-            boolean suspended = ScheduledTask.STATUS_OVERUSE_PAUSED.equals(st)
-                    || ScheduledTask.STATUS_AUTH_EXPIRED.equals(st)
-                    || ScheduledTask.STATUS_PAUSED.equals(st);
-            if (!suspended) {
+        for (ScheduledTask t : store.findByCredentialAccount(
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                accountId)) {
+            if (t.suspendReason() == null
+                    || (t.suspendReason() == ScheduleSuspendReason.POLICY
+                    && "PIXIV_OVERUSE".equals(t.suspendCode()))) {
                 result.add(t);
             }
         }
@@ -1507,18 +2041,22 @@ public class ScheduleExecutor {
     /**
      * 计划任务类型的本地化标签（与邮件 / 推送共用同一组 i18n key）。类型→标签 key 由各来源对象
      * （{@link ScheduledSource#notificationLabelKey()}）承载，经来源注册中心解析——调度器不再按
-     * {@link ScheduledTaskType} 枚举 switch 取标签。解析不到（不应发生：自动挂起态不发通知）退化为「-」。
+     * 枚举 switch 取标签。解析不到（不应发生：自动挂起态不发通知）退化为「-」。
      */
-    private String taskTypeLabel(Locale locale, ScheduledTaskType type) {
-        if (type == null) {
+    private String taskTypeLabel(Locale locale, String sourceType) {
+        if (sourceType == null || sourceType.isBlank()) {
             return "-";
         }
-        var handle = scheduleCapabilityRegistry.resolveLegacySource(type.name()).orElse(null);
-        if (handle == null) {
+        SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(sourceType).orElse(null);
+        if (planning == null) {
             return "-";
         }
-        try (ScheduleSingleCapabilityLease<?> lease = scheduleCapabilityRegistry.tryAcquire(handle).orElse(null)) {
-            if (lease == null || !(lease.capability() instanceof ScheduledSource source)) {
+        try (planning) {
+            ScheduledSource source = planning.legacySourceProvider()
+                    .filter(ScheduledSource.class::isInstance)
+                    .map(ScheduledSource.class::cast)
+                    .orElse(null);
+            if (source == null) {
                 return "-";
             }
             return messages.get(locale, source.notificationLabelKey());

@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 
@@ -17,7 +16,7 @@ import java.util.List;
 public final class SearchSource extends AbstractScheduledSource {
 
     public SearchSource() {
-        super(ScheduledTaskType.SEARCH);
+        super("search", "SEARCH");
     }
 
     @Override

@@ -13,436 +13,356 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("ScheduledTaskMapper 数据访问")
+@DisplayName("ScheduledTaskMapper 中性持久化")
 class ScheduledTaskMapperTest {
 
-    private SingleConnectionDataSource ds;
-    private SqlSessionFactory factory;
+    private SingleConnectionDataSource dataSource;
+    private SqlSession session;
+    private ScheduledTaskMapper mapper;
+    private JdbcTemplate jdbc;
 
     @BeforeEach
     void setUp() {
-        ds = new SingleConnectionDataSource();
-        ds.setDriverClassName("org.sqlite.JDBC");
-        ds.setUrl("jdbc:sqlite::memory:");
-        ds.setSuppressClose(true);
+        dataSource = new SingleConnectionDataSource();
+        dataSource.setDriverClassName("org.sqlite.JDBC");
+        dataSource.setUrl("jdbc:sqlite::memory:");
+        dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new JdbcTransactionFactory(), ds);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(ScheduledTaskMapper.class);
-        factory = new SqlSessionFactoryBuilder().build(config);
+        Environment environment = new Environment("test", new JdbcTransactionFactory(), dataSource);
+        Configuration configuration = new Configuration(environment);
+        configuration.setMapUnderscoreToCamelCase(true);
+        configuration.addMapper(ScheduledTaskMapper.class);
+        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(configuration);
+        session = factory.openSession(true);
+        mapper = session.getMapper(ScheduledTaskMapper.class);
+        jdbc = new JdbcTemplate(dataSource);
 
-        // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        new DatabaseInitializer(new JdbcTemplate(ds),
-                registry.contributions(), registry.mergedSchema(),
+        new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {}).initialize();
     }
 
     @AfterEach
     void tearDown() {
-        ds.destroy();
+        session.close();
+        dataSource.destroy();
     }
 
-    private ScheduledTaskInsert sample(String name, Long nextRun, String cookie) {
+    @Test
+    @DisplayName("新任务显式写 storageVersion=1，并按中性来源和定义字段往返")
+    void insertsCanonicalTaskProjection() {
+        ScheduledTaskInsert row = sample("中性任务", 1_000L);
+        mapper.insert(row);
+
+        ScheduledTask read = mapper.findById(row.getId());
+        assertThat(read.sourceType()).isEqualTo("fixture-source");
+        assertThat(read.sourceOwnerPluginId()).isEqualTo("fixture-plugin");
+        assertThat(read.definitionSchema()).isEqualTo("fixture.definition");
+        assertThat(read.definitionVersion()).isEqualTo(1);
+        assertThat(read.definitionJson()).isEqualTo("{\"query\":{\"mode\":\"fixture\"}}");
+        assertThat(read.storageVersion()).isEqualTo(ScheduledTask.CURRENT_STORAGE_VERSION);
+        assertThat(read.lastOutcome()).isEqualTo(ScheduleLastOutcome.NEVER);
+        assertThat(read.stateVersion()).isZero();
+    }
+
+    @Test
+    @DisplayName("credential join 只投影非敏感元数据，secret 仅专用标量可读")
+    void credentialSecretUsesDedicatedScalar() {
+        ScheduledTaskInsert row = sample("凭证任务", 1_000L);
+        mapper.insert(row);
+        mapper.upsertCredential(row.getId(), "fixture-plugin", "fixture-credential", "account-1",
+                "{\"ack\":12}", "credential-secret", "vault:fixture", 2_000L);
+
+        ScheduledTask read = mapper.findById(row.getId());
+        assertThat(read.credentialPolicyOwnerPluginId()).isEqualTo("fixture-plugin");
+        assertThat(read.credentialPolicyId()).isEqualTo("fixture-credential");
+        assertThat(read.credentialAccountKey()).isEqualTo("account-1");
+        assertThat(read.credentialPolicyStateJson()).isEqualTo("{\"ack\":12}");
+        assertThat(read.credentialSecretReference()).isEqualTo("vault:fixture");
+        assertThat(read.toString()).doesNotContain("credential-secret");
+        assertThat(mapper.findCredentialSecret(row.getId(), "fixture-plugin", "fixture-credential"))
+                .isEqualTo("credential-secret");
+        assertThat(mapper.findCredentialSecret(row.getId(), "other", "fixture-credential")).isNull();
+    }
+
+    @Test
+    @DisplayName("due 认领和开始运行各自原子返回 claimToken 与新 stateVersion")
+    void claimsDueTaskAndStartsWithReturnedToken() {
+        ScheduledTaskInsert row = sample("到期任务", 500L);
+        mapper.insert(row);
+
+        ScheduleRunToken queued = mapper.tryQueueDue(row.getId(), 0L, "claim-a", 1_000L);
+        assertThat(queued).isEqualTo(new ScheduleRunToken("claim-a", 1L, ScheduleRunState.QUEUED));
+        assertThat(mapper.tryQueueDue(row.getId(), 0L, "claim-b", 1_000L)).isNull();
+
+        ScheduleRunToken running = mapper.startRun(row.getId(), queued);
+        assertThat(running).isEqualTo(new ScheduleRunToken("claim-a", 2L, ScheduleRunState.RUNNING));
+        assertThat(mapper.startRun(row.getId(), queued)).isNull();
+
+        ScheduleRunCompletion completion = new ScheduleRunCompletion(
+                2_000L, ScheduleLastOutcome.OK, "run.ok", null, 9_000L,
+                "fixture.checkpoint", 2, "{\"cursor\":\"001\"}");
+        assertThat(mapper.completeRun(row.getId(), running, completion)).isEqualTo(3L);
+
+        ScheduledTask completed = mapper.findById(row.getId());
+        assertThat(completed.runState()).isNull();
+        assertThat(completed.runClaimToken()).isNull();
+        assertThat(completed.lastOutcome()).isEqualTo(ScheduleLastOutcome.OK);
+        assertThat(completed.checkpointJson()).isEqualTo("{\"cursor\":\"001\"}");
+        assertThat(completed.stateVersion()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("失败完成未提供 checkpoint 时保留上次安全断点")
+    void failedCompletionPreservesPreviousCheckpoint() {
+        ScheduledTaskInsert row = sample("失败任务", 500L);
+        row.setCheckpointSchema("fixture.checkpoint");
+        row.setCheckpointVersion(1);
+        row.setCheckpointJson("{\"cursor\":\"safe\"}");
+        mapper.insert(row);
+        ScheduleRunToken queued = mapper.tryQueueNow(row.getId(), 0L, "claim-error");
+        ScheduleRunToken running = mapper.startRun(row.getId(), queued);
+
+        ScheduleRunCompletion failed = new ScheduleRunCompletion(
+                2_000L, ScheduleLastOutcome.ERROR, "source.failed", "failure", 9_000L,
+                null, null, null);
+        assertThat(mapper.completeRun(row.getId(), running, failed)).isEqualTo(3L);
+
+        ScheduledTask completed = mapper.findById(row.getId());
+        assertThat(completed.lastOutcome()).isEqualTo(ScheduleLastOutcome.ERROR);
+        assertThat(completed.checkpointSchema()).isEqualTo("fixture.checkpoint");
+        assertThat(completed.checkpointVersion()).isEqualTo(1);
+        assertThat(completed.checkpointJson()).isEqualTo("{\"cursor\":\"safe\"}");
+    }
+
+    @Test
+    @DisplayName("管理员挂起令旧 normal complete 失败，但原 claim 可完成取消且保留挂起")
+    void suspendedRunRejectsNormalCompletionButAcceptsSameClaimCancellation() {
+        ScheduledTaskInsert row = sample("竞态任务", 500L);
+        mapper.insert(row);
+        ScheduleRunToken queued = mapper.tryQueueNow(row.getId(), 0L, "claim-race");
+        ScheduleRunToken running = mapper.startRun(row.getId(), queued);
+
+        assertThat(mapper.suspend(row.getId(), running.stateVersion(), ScheduleSuspendReason.MANUAL,
+                "admin.pause", "{\"by\":\"admin\"}")).isEqualTo(3L);
+        ScheduledTask cancelling = mapper.findById(row.getId());
+        assertThat(cancelling.runState()).isEqualTo(ScheduleRunState.CANCEL_REQUESTED);
+        assertThat(cancelling.runClaimToken()).isEqualTo("claim-race");
+
+        ScheduleRunCompletion staleCompletion = new ScheduleRunCompletion(
+                2_000L, ScheduleLastOutcome.OK, "run.ok", null, 9_000L,
+                "fixture.checkpoint", 1, "{}");
+        assertThat(mapper.completeRun(row.getId(), running, staleCompletion)).isNull();
+
+        assertThat(mapper.finishCancelled(row.getId(), running, ScheduleLastOutcome.ERROR,
+                2_100L, "stale.executor", "stale detail", 9_000L)).isEqualTo(4L);
+        ScheduledTask finished = mapper.findById(row.getId());
+        assertThat(finished.runState()).isNull();
+        assertThat(finished.runClaimToken()).isNull();
+        assertThat(finished.lastOutcome()).isEqualTo(ScheduleLastOutcome.CANCELLED);
+        assertThat(finished.suspendReason()).isEqualTo(ScheduleSuspendReason.MANUAL);
+        assertThat(finished.suspendCode()).isEqualTo("admin.pause");
+        assertThat(finished.outcomeCode()).isEqualTo("admin.pause");
+        assertThat(finished.outcomeMessage()).isEqualTo("{\"by\":\"admin\"}");
+        assertThat(finished.checkpointJson()).isNull();
+    }
+
+    @Test
+    @DisplayName("异步提交失败只可用同一 QUEUED token 释放认领")
+    void releasesQueuedClaimAfterSubmissionFailure() {
+        ScheduledTaskInsert row = sample("提交失败", 500L);
+        mapper.insert(row);
+        ScheduleRunToken queued = mapper.tryQueueNow(row.getId(), 0L, "claim-submit");
+
+        assertThat(mapper.releaseQueued(row.getId(),
+                new ScheduleRunToken("wrong", queued.stateVersion(), ScheduleRunState.QUEUED), 700L)).isNull();
+        assertThat(mapper.releaseQueued(row.getId(), queued, 700L)).isEqualTo(2L);
+
+        ScheduledTask released = mapper.findById(row.getId());
+        assertThat(released.runState()).isNull();
+        assertThat(released.runClaimToken()).isNull();
+        assertThat(released.nextRunTime()).isEqualTo(700L);
+        assertThat(mapper.tryQueueDue(row.getId(), released.stateVersion(), "claim-retry", 700L))
+                .extracting(ScheduleRunToken::claimToken).isEqualTo("claim-retry");
+    }
+
+    @Test
+    @DisplayName("resume 必须精确匹配 stateVersion、reason 和 code")
+    void resumesOnlyExactSuspension() {
+        ScheduledTaskInsert row = sample("精确恢复", 500L);
+        mapper.insert(row);
+        Long suspendedVersion = mapper.suspend(row.getId(), 0L, ScheduleSuspendReason.POLICY,
+                "risk.limit", "{\"event\":1}");
+
+        assertThat(mapper.resume(row.getId(), suspendedVersion, ScheduleSuspendReason.POLICY,
+                "other", 1_000L)).isNull();
+        assertThat(mapper.resume(row.getId(), 0L, ScheduleSuspendReason.POLICY,
+                "risk.limit", 1_000L)).isNull();
+        assertThat(mapper.resume(row.getId(), suspendedVersion, ScheduleSuspendReason.POLICY,
+                "risk.limit", 1_000L)).isEqualTo(2L);
+        assertThat(mapper.findById(row.getId()).suspendReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("definition 编辑只清可由有效定义修复的挂起原因")
+    void definitionEditClearsOnlyDefinitionRecoverableSuspensions() {
+        List<ScheduleSuspendReason> recoverable = List.of(
+                ScheduleSuspendReason.MIGRATION_ERROR,
+                ScheduleSuspendReason.SOURCE_UNAVAILABLE,
+                ScheduleSuspendReason.EXECUTOR_UNAVAILABLE);
+        ScheduleTaskDefinitionUpdate update = new ScheduleTaskDefinitionUpdate(
+                "修复后", "fixture-source", "fixture-plugin", "fixture.definition", 2,
+                "{\"query\":{\"mode\":\"changed\"}}", "{}",
+                ScheduledTask.TRIGGER_INTERVAL, 30, null, 2_000L);
+
+        for (ScheduleSuspendReason reason : ScheduleSuspendReason.values()) {
+            ScheduledTaskInsert row = sample("挂起-" + reason, 1_000L);
+            row.setSuspendReason(reason);
+            row.setSuspendCode("fixture.suspend");
+            row.setSuspendDetailJson("{\"reason\":\"fixture\"}");
+            mapper.insert(row);
+
+            assertThat(mapper.updateDefinition(row.getId(), 0L, update))
+                    .as("%s 的 definition CAS", reason)
+                    .isEqualTo(1L);
+            ScheduledTask changed = mapper.findById(row.getId());
+            if (recoverable.contains(reason)) {
+                assertThat(changed.suspendReason()).as("%s reason", reason).isNull();
+                assertThat(changed.suspendCode()).as("%s code", reason).isNull();
+                assertThat(changed.suspendDetailJson()).as("%s detail", reason).isNull();
+            } else {
+                assertThat(changed.suspendReason()).as("%s reason", reason).isEqualTo(reason);
+                assertThat(changed.suspendCode()).as("%s code", reason).isEqualTo("fixture.suspend");
+                assertThat(changed.suspendDetailJson()).as("%s detail", reason)
+                        .isEqualTo("{\"reason\":\"fixture\"}");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("findDue 只返回 canonical、启用、未挂起且无认领的到期任务")
+    void findDueUsesOrthogonalStateGate() {
+        ScheduledTaskInsert due = sample("可运行", 500L);
+        mapper.insert(due);
+        ScheduledTaskInsert disabled = sample("停用", 500L);
+        disabled.setEnabled(false);
+        mapper.insert(disabled);
+        ScheduledTaskInsert future = sample("未来", 5_000L);
+        mapper.insert(future);
+        ScheduledTaskInsert suspended = sample("挂起", 500L);
+        suspended.setSuspendReason(ScheduleSuspendReason.CREDENTIAL);
+        mapper.insert(suspended);
+        ScheduledTaskInsert legacy = sample("待迁移", 500L);
+        legacy.setStorageVersion(ScheduledTask.LEGACY_STORAGE_VERSION);
+        mapper.insert(legacy);
+        ScheduleRunToken queued = mapper.tryQueueNow(due.getId(), 0L, "claim-due");
+
+        assertThat(mapper.findDue(1_000L)).isEmpty();
+        mapper.releaseQueued(due.getId(), queued, 500L);
+        assertThat(mapper.findDue(1_000L)).extracting(ScheduledTask::name).containsExactly("可运行");
+    }
+
+    @Test
+    @DisplayName("启动恢复重排普通中断并保留管理员挂起终态")
+    void recoversInterruptedClaimsWithoutOverwritingSuspension() {
+        ScheduledTaskInsert row = sample("崩溃任务", 9_000L);
+        mapper.insert(row);
+        ScheduleRunToken queued = mapper.tryQueueNow(row.getId(), 0L, "claim-crash");
+        mapper.startRun(row.getId(), queued);
+        ScheduledTaskInsert pausedRow = sample("暂停中崩溃", 9_000L);
+        mapper.insert(pausedRow);
+        ScheduleRunToken paused = mapper.tryQueueNow(pausedRow.getId(), 0L, "claim-paused");
+        mapper.suspend(pausedRow.getId(), paused.stateVersion(), ScheduleSuspendReason.MANUAL,
+                "ADMIN_PAUSE", "{\"by\":\"admin\"}");
+
+        assertThat(mapper.recoverInterruptedRuns(1_000L)).isEqualTo(2);
+        ScheduledTask recovered = mapper.findById(row.getId());
+        assertThat(recovered.runState()).isNull();
+        assertThat(recovered.runClaimToken()).isNull();
+        assertThat(recovered.lastOutcome()).isEqualTo(ScheduleLastOutcome.INTERRUPTED);
+        assertThat(recovered.lastRunTime()).isEqualTo(1_000L);
+        assertThat(recovered.nextRunTime()).isEqualTo(1_000L);
+        ScheduledTask recoveredPause = mapper.findById(pausedRow.getId());
+        assertThat(recoveredPause.runState()).isNull();
+        assertThat(recoveredPause.lastOutcome()).isEqualTo(ScheduleLastOutcome.CANCELLED);
+        assertThat(recoveredPause.outcomeCode()).isEqualTo("ADMIN_PAUSE");
+        assertThat(recoveredPause.outcomeMessage()).isEqualTo("{\"by\":\"admin\"}");
+        assertThat(recoveredPause.lastRunTime()).isEqualTo(1_000L);
+        assertThat(recoveredPause.nextRunTime()).isEqualTo(9_000L);
+        assertThat(mapper.findDue(1_000L)).extracting(ScheduledTask::id).containsExactly(row.getId());
+    }
+
+    @Test
+    @DisplayName("字符串作品身份、relations 和 payload 在 pending 中无损往返")
+    void pendingWorkPreservesStringIdentityAndEnvelope() {
+        List<String> ids = List.of("001", "1", "550e8400-e29b-41d4-a716-446655440000",
+                "92233720368547758070", "id-with_dash");
+        long now = 3_000L;
+        for (String id : ids) {
+            mapper.upsertPendingWork(pending(1L, "fixture.work", id, now));
+        }
+        mapper.upsertPendingWork(pending(1L, "other.work", "1", now));
+
+        assertThat(mapper.listPendingWork(1L)).hasSize(6);
+        ScheduledPendingWork leadingZero = mapper.findPendingWork(1L, "fixture.work", "001");
+        assertThat(leadingZero.workId()).isEqualTo("001");
+        assertThat(leadingZero.payloadJson()).isEqualTo("{\"id\":\"001\"}");
+        assertThat(leadingZero.relationsJson()).isEqualTo("[{\"type\":\"author\",\"id\":\"a-1\"}]");
+
+        assertThat(mapper.incrementPendingAttempts(1L, "fixture.work", "001", 4_000L)).isEqualTo(1);
+        ScheduledPendingWork refreshed = new ScheduledPendingWork(
+                1L, "fixture.work", "001", "fixture.payload", 2,
+                "{\"id\":\"001\",\"v\":2}", "[]", "{\"title\":\"new\"}",
+                "retry", "{}", 0, 9_999L, 5_000L);
+        mapper.upsertPendingWork(refreshed);
+        ScheduledPendingWork afterConflict = mapper.findPendingWork(1L, "fixture.work", "001");
+        assertThat(afterConflict.attempts()).isEqualTo(1);
+        assertThat(afterConflict.firstSeenTime()).isEqualTo(now);
+        assertThat(afterConflict.payloadVersion()).isEqualTo(2);
+        assertThat(afterConflict.relationsJson()).isEqualTo("[]");
+
+        assertThat(mapper.deletePendingWork(1L, "fixture.work", "1")).isEqualTo(1);
+        assertThat(mapper.findPendingWork(1L, "other.work", "1")).isNotNull();
+    }
+
+    private ScheduledTaskInsert sample(String name, Long nextRunTime) {
         ScheduledTaskInsert row = new ScheduledTaskInsert();
         row.setName(name);
         row.setEnabled(true);
-        row.setType(ScheduledTaskType.USER_NEW);
-        row.setParamsJson("{\"userId\":\"123\"}");
+        row.setSourceType("fixture-source");
+        row.setSourceOwnerPluginId("fixture-plugin");
+        row.setDefinitionSchema("fixture.definition");
+        row.setDefinitionVersion(1);
+        row.setDefinitionJson("{\"query\":{\"mode\":\"fixture\"}}");
+        row.setPresentationJson("{\"title\":\"fixture\"}");
         row.setTriggerKind(ScheduledTask.TRIGGER_INTERVAL);
         row.setIntervalMinutes(60);
-        row.setCookieMode(cookie == null ? ScheduledTask.COOKIE_RESTRICTED : ScheduledTask.COOKIE_BOUND);
-        row.setCookieSnapshot(cookie);
-        row.setNextRunTime(nextRun);
+        row.setNextRunTime(nextRunTime);
         row.setCreatedTime(1_700_000_000_000L);
         return row;
     }
 
-    @Test
-    @DisplayName("插入后回填自增主键，findById 能读回（不含 cookie 投影）")
-    void shouldInsertAndReadBack() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务A", 1000L, "PHPSESSID=secret; x=y");
-            mapper.insert(row);
-
-            assertThat(row.getId()).isNotNull();
-            ScheduledTask read = mapper.findById(row.getId());
-            assertThat(read).isNotNull();
-            assertThat(read.name()).isEqualTo("任务A");
-            assertThat(read.type()).isEqualTo(ScheduledTaskType.USER_NEW);
-            // cookie 红线：行投影里写入的快照仍可经专用通道读回，但 record 本身不承载 cookie
-            assertThat(mapper.findCookieSnapshot(read.id())).isEqualTo("PHPSESSID=secret; x=y");
-        }
-    }
-
-    @Test
-    @DisplayName("USER_REQUEST 类型经 EnumTypeHandler 按名往返（新增枚举值无需 DDL）")
-    void shouldRoundTripUserRequestType() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("约稿任务", 1000L, null);
-            row.setType(ScheduledTaskType.USER_REQUEST);
-            mapper.insert(row);
-            assertThat(mapper.findById(row.getId()).type()).isEqualTo(ScheduledTaskType.USER_REQUEST);
-        }
-    }
-
-    @Test
-    @DisplayName("findCookieSnapshot 是取 cookie 的唯一通道，findAll 投影不含 cookie")
-    void shouldExposeCookieOnlyViaDedicatedAccessor() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务B", 1000L, "PHPSESSID=topsecret");
-            mapper.insert(row);
-
-            List<ScheduledTask> all = mapper.findAll();
-            assertThat(all).hasSize(1);
-            // 行投影只暴露 cookieMode，凭证本身只能经专用裸标量通道取得
-            assertThat(all.get(0).cookieMode()).isEqualTo(ScheduledTask.COOKIE_BOUND);
-            assertThat(mapper.findCookieSnapshot(row.getId())).isEqualTo("PHPSESSID=topsecret");
-        }
-    }
-
-    @Test
-    @DisplayName("updateProxy 设置 / 清除任务级单独代理，行投影能读回")
-    void shouldUpdateAndClearProxySnapshot() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务P", 1000L, null);
-            mapper.insert(row);
-            long id = row.getId();
-            assertThat(mapper.findById(id).proxySnapshot()).isNull();
-
-            mapper.updateProxy(id, "127.0.0.1:7890");
-            assertThat(mapper.findById(id).proxySnapshot()).isEqualTo("127.0.0.1:7890");
-
-            mapper.updateProxy(id, null);
-            assertThat(mapper.findById(id).proxySnapshot()).isNull();
-        }
-    }
-
-    @Test
-    @DisplayName("findDue 只返回 enabled 且 next_run_time<=now 的任务")
-    void shouldFilterDueTasks() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            mapper.insert(sample("到期", 500L, null));
-            ScheduledTaskInsert future = sample("未到期", 5000L, null);
-            mapper.insert(future);
-            ScheduledTaskInsert disabled = sample("已停用", 100L, null);
-            disabled.setEnabled(false);
-            mapper.insert(disabled);
-
-            List<ScheduledTask> due = mapper.findDue(1000L);
-            assertThat(due).extracting(ScheduledTask::name).containsExactly("到期");
-        }
-    }
-
-    @Test
-    @DisplayName("findDue 把残留 run_started_time 的中断任务纳入（next_run 在未来也立即重跑），但挂起态仍被排除")
-    void findDueIncludesInterruptedRegardlessOfNextRun() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            // next_run 仍在未来（典型：立即运行触发、尚未到周期就被强杀），但残留 run_started_time → 应被捡起重跑
-            ScheduledTaskInsert interrupted = sample("中断未到期", 9000L, null);
-            interrupted.setRunStartedTime(1234L);
-            mapper.insert(interrupted);
-            // 中断 + 挂起态：状态门优先，仍不重跑
-            ScheduledTaskInsert pausedInterrupted = sample("中断且暂停", 9000L, null);
-            pausedInterrupted.setRunStartedTime(1234L);
-            pausedInterrupted.setLastStatus(ScheduledTask.STATUS_PAUSED);
-            mapper.insert(pausedInterrupted);
-
-            List<String> due = mapper.findDue(1000L).stream().map(ScheduledTask::name).toList();
-            assertThat(due).contains("中断未到期");
-            assertThat(due).doesNotContain("中断且暂停");
-        }
-    }
-
-    @Test
-    @DisplayName("updateCookie 写入快照、updateRunResult 记录运行结果")
-    void shouldUpdateCookieAndRunResult() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务C", 1000L, null);
-            mapper.insert(row);
-            long id = row.getId();
-
-            mapper.updateCookie(id, "PHPSESSID=new", ScheduledTask.COOKIE_BOUND);
-            assertThat(mapper.findCookieSnapshot(id)).isEqualTo("PHPSESSID=new");
-            assertThat(mapper.findById(id).cookieMode()).isEqualTo(ScheduledTask.COOKIE_BOUND);
-
-            mapper.updateRunResult(id, 2000L, "ERROR", "no image urls resolved", 8000L);
-            ScheduledTask read = mapper.findById(id);
-            assertThat(read.lastRunTime()).isEqualTo(2000L);
-            assertThat(read.lastStatus()).isEqualTo("ERROR");
-            assertThat(read.lastMessage()).isEqualTo("no image urls resolved");
-            assertThat(read.nextRunTime()).isEqualTo(8000L);
-        }
-    }
-
-    @Test
-    @DisplayName("updateRunStarted 落库开始时刻，updateRunResult 一并清空 run_started_time")
-    void shouldClearRunStartedOnRunResult() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务D", 1000L, null);
-            mapper.insert(row);
-            long id = row.getId();
-            // 创建时 run_started_time 为 null
-            assertThat(mapper.findById(id).runStartedTime()).isNull();
-
-            mapper.updateRunStarted(id, 3000L);
-            assertThat(mapper.findById(id).runStartedTime()).isEqualTo(3000L);
-
-            // 正常结束：updateRunResult 一并把 run_started_time 清为 null（中断信号清除）
-            mapper.updateRunResult(id, 4000L, "OK", null, 10000L);
-            assertThat(mapper.findById(id).runStartedTime()).isNull();
-        }
-    }
-
-    @Test
-    @DisplayName("updateWatermark 推进水位线，findById 能读回")
-    void shouldUpdateWatermark() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务E", 1000L, null);
-            mapper.insert(row);
-            long id = row.getId();
-            // 创建时水位线为 null
-            assertThat(mapper.findById(id).watermarkId()).isNull();
-
-            mapper.updateWatermark(id, 123456L);
-            assertThat(mapper.findById(id).watermarkId()).isEqualTo(123456L);
-        }
-    }
-
-    @Test
-    @DisplayName("updateDefinition 编辑任务定义时清空水位线，避免沿用旧来源锚点")
-    void shouldResetWatermarkWhenDefinitionChanges() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务F", 1000L, null);
-            mapper.insert(row);
-            long id = row.getId();
-            mapper.updateWatermark(id, 123456L);
-
-            mapper.updateDefinition(
-                    id, "任务F2", ScheduledTaskType.SEARCH,
-                    "{\"kind\":\"illust\",\"source\":{\"word\":\"tag\",\"maxPages\":-1}}",
-                    ScheduledTask.TRIGGER_INTERVAL, 30, null, 2000L);
-
-            ScheduledTask read = mapper.findById(id);
-            assertThat(read.name()).isEqualTo("任务F2");
-            assertThat(read.type()).isEqualTo(ScheduledTaskType.SEARCH);
-            assertThat(read.watermarkId()).isNull();
-        }
-    }
-
-    @Test
-    @DisplayName("findDue 排除挂起态（OVERUSE_PAUSED / AUTH_EXPIRED / PAUSED / SOURCE_UNAVAILABLE），仅返回可运行任务")
-    void findDueGatesSuspendedStatuses() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            long ok = insertWithStatus(mapper, "正常", null);
-            long overuse = insertWithStatus(mapper, "过度访问", ScheduledTask.STATUS_OVERUSE_PAUSED);
-            long auth = insertWithStatus(mapper, "鉴权失效", ScheduledTask.STATUS_AUTH_EXPIRED);
-            long paused = insertWithStatus(mapper, "手动暂停", ScheduledTask.STATUS_PAUSED);
-            long sourceUnavailable = insertWithStatus(mapper, "来源不可用", ScheduledTask.STATUS_SOURCE_UNAVAILABLE);
-
-            List<Long> due = mapper.findDue(5000L).stream().map(ScheduledTask::id).toList();
-            assertThat(due).contains(ok);
-            assertThat(due).doesNotContain(overuse, auth, paused, sourceUnavailable);
-        }
-    }
-
-    @Test
-    @DisplayName("SOURCE_UNAVAILABLE 任务暂停但数据保留：clearSuspend 显式重激活后重新可被 findDue 调度（来源恢复路径）")
-    void sourceUnavailableTaskIsPausedButRecoverableWithoutDataLoss() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            long taskId = insertWithStatus(mapper, "来源不可用", ScheduledTask.STATUS_SOURCE_UNAVAILABLE);
-            mapper.updateWatermark(taskId, 555L); // 已推进过的水位线（断点）
-
-            // 暂停：不被 findDue 自动重跑（来源缺失下重跑只会每周期撞门空转）
-            assertThat(mapper.findDue(5000L).stream().map(ScheduledTask::id).toList()).doesNotContain(taskId);
-            // 数据保留：任务行仍在、定义 / 水位线完好（来源不可用绝不删用户任务数据）
-            ScheduledTask suspended = mapper.findById(taskId);
-            assertThat(suspended).isNotNull();
-            assertThat(suspended.lastStatus()).isEqualTo(ScheduledTask.STATUS_SOURCE_UNAVAILABLE);
-            assertThat(suspended.paramsJson()).isEqualTo("{\"userId\":\"123\"}");
-            assertThat(suspended.watermarkId()).isEqualTo(555L);
-
-            // 来源恢复后的显式重激活：清挂起 + 重置 next_run，任务重新可被调度、水位线仍从断点续跑
-            mapper.clearSuspend(taskId, 4000L);
-
-            ScheduledTask recovered = mapper.findById(taskId);
-            assertThat(recovered.lastStatus()).isNull();
-            assertThat(recovered.nextRunTime()).isEqualTo(4000L);
-            assertThat(recovered.watermarkId()).isEqualTo(555L);
-            assertThat(mapper.findDue(5000L).stream().map(ScheduledTask::id).toList()).contains(taskId);
-        }
-    }
-
-    @Test
-    @DisplayName("freezeAccount 仅冻结同账号非挂起态任务；clearSuspendForAccount 清挂起并重置 next_run")
-    void freezeAndClearAccount() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            long a1 = insertWithStatus(mapper, "A1", null);
-            long a2 = insertWithStatus(mapper, "A2", null);
-            mapper.updateAccountId(a1, "12345");
-            mapper.updateAccountId(a2, "12345");
-
-            int frozen = mapper.freezeAccount("12345", ScheduledTask.STATUS_OVERUSE_PAUSED, "999");
-            assertThat(frozen).isEqualTo(2);
-            assertThat(mapper.findById(a1).lastStatus()).isEqualTo(ScheduledTask.STATUS_OVERUSE_PAUSED);
-            assertThat(mapper.findById(a1).lastMessage()).isEqualTo("999");
-
-            mapper.clearSuspendForAccount("12345", 8000L);
-            assertThat(mapper.findById(a1).lastStatus()).isNull();
-            assertThat(mapper.findById(a2).nextRunTime()).isEqualTo(8000L);
-            assertThat(mapper.findByAccountId("12345")).hasSize(2);
-        }
-    }
-
-    @Test
-    @DisplayName("clearCookieAndAccount：清 Cookie 转受限的同时清除 account_id 与 ack_warning_time，此后账号级冻结不再命中")
-    void clearCookieAlsoClearsAccountBinding() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            // 绑定 Cookie 的任务：带账号标识 + 管理员「无视风险」放行记录
-            ScheduledTaskInsert boundRow = sample("绑定任务", 1000L, "PHPSESSID=12345_abc");
-            mapper.insert(boundRow);
-            long bound = boundRow.getId();
-            mapper.updateAccountId(bound, "12345");
-            mapper.updateAckWarning("12345", 999000L);
-            // 同账号另一任务，用来在解绑后触发账号级过度访问冻结
-            ScheduledTaskInsert siblingRow = sample("同账号兄弟", 1000L, "PHPSESSID=12345_def");
-            mapper.insert(siblingRow);
-            long sibling = siblingRow.getId();
-            mapper.updateAccountId(sibling, "12345");
-
-            // 解除授权 / 失效自动降级：清 Cookie 转受限，账号绑定一并清除
-            mapper.clearCookieAndAccount(bound, ScheduledTask.COOKIE_RESTRICTED);
-
-            ScheduledTask read = mapper.findById(bound);
-            assertThat(read.cookieMode()).isEqualTo(ScheduledTask.COOKIE_RESTRICTED);
-            assertThat(read.accountId()).isNull();
-            assertThat(read.ackWarningTime()).isNull();
-            assertThat(mapper.findCookieSnapshot(bound)).isNull();
-
-            // 兄弟任务触发同账号过度访问冻结：已解绑的任务不再被牵连
-            mapper.freezeAccount("12345", ScheduledTask.STATUS_OVERUSE_PAUSED, "888");
-            assertThat(mapper.findById(bound).lastStatus()).isNull();
-            assertThat(mapper.findById(sibling).lastStatus()).isEqualTo(ScheduledTask.STATUS_OVERUSE_PAUSED);
-            assertThat(mapper.findByAccountId("12345"))
-                    .extracting(ScheduledTask::id).containsExactly(sibling);
-        }
-    }
-
-    @Test
-    @DisplayName("updateAckWarning / armRetry / clearRetryArmed 写读一致")
-    void ackAndRetryArming() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务G", 1000L, null);
-            mapper.insert(row);
-            long id = row.getId();
-            mapper.updateAccountId(id, "777");
-
-            mapper.updateAckWarning("777", 1234L);
-            assertThat(mapper.findById(id).ackWarningTime()).isEqualTo(1234L);
-
-            mapper.armRetry(id);
-            assertThat(mapper.findById(id).pendingRetryArmed()).isEqualTo(1);
-            mapper.clearRetryArmed(id);
-            assertThat(mapper.findById(id).pendingRetryArmed()).isZero();
-        }
-    }
-
-    @Test
-    @DisplayName("隔离表：insertPending 冲突保留 first_seen，incPendingAttempts 累加，deletePending 移除")
-    void pendingTableCrud() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            mapper.insertPending(1L, 100L, "受限", 5000L);
-            mapper.insertPending(1L, 100L, "再次受限", 6000L); // 冲突：保留 first_seen、attempts 不变
-            List<ScheduledTaskPending> list = mapper.listPending(1L);
-            assertThat(list).hasSize(1);
-            assertThat(list.get(0).firstSeenTime()).isEqualTo(5000L);
-            assertThat(list.get(0).attempts()).isZero();
-            assertThat(list.get(0).reason()).isEqualTo("再次受限");
-
-            mapper.incPendingAttempts(1L, 100L, 7000L);
-            assertThat(mapper.listPending(1L).get(0).attempts()).isEqualTo(1);
-
-            mapper.deletePending(1L, 100L);
-            assertThat(mapper.listPending(1L)).isEmpty();
-        }
-    }
-
-    @Test
-    @DisplayName("updateRunResult 保留运行中被手动设置的 PAUSED：不覆盖 last_status / last_message / next_run_time")
-    void runResultPreservesManualPaused() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务H", 1000L, null);
-            mapper.insert(row);
-            long id = row.getId();
-            mapper.updateRunStarted(id, 3000L);
-
-            // 模拟用户在任务运行过程中手动点了「暂停」
-            mapper.setStatus(id, ScheduledTask.STATUS_PAUSED);
-
-            // 本轮跑完落库结果：CASE 应保留 PAUSED + 旧的 next_run_time，仅清 run_started_time、刷 last_run_time
-            mapper.updateRunResult(id, 4000L, "OK", null, 10000L);
-
-            ScheduledTask read = mapper.findById(id);
-            assertThat(read.lastStatus()).isEqualTo(ScheduledTask.STATUS_PAUSED);
-            assertThat(read.lastMessage()).isNull();
-            assertThat(read.nextRunTime()).isEqualTo(1000L); // 保留：不被 OK 路径的新值覆盖
-            assertThat(read.lastRunTime()).isEqualTo(4000L); // 仍刷新
-            assertThat(read.runStartedTime()).isNull();       // 仍清空
-        }
-    }
-
-    @Test
-    @DisplayName("updateRunResult 非 PAUSED 旧状态正常被新结果覆盖")
-    void runResultOverwritesNonPausedStatus() {
-        try (SqlSession session = factory.openSession(true)) {
-            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
-            ScheduledTaskInsert row = sample("任务I", 1000L, null);
-            row.setLastStatus("OK");
-            mapper.insert(row);
-            long id = row.getId();
-
-            mapper.updateRunResult(id, 4000L, "ERROR", "boom", 20000L);
-
-            ScheduledTask read = mapper.findById(id);
-            assertThat(read.lastStatus()).isEqualTo("ERROR");
-            assertThat(read.lastMessage()).isEqualTo("boom");
-            assertThat(read.nextRunTime()).isEqualTo(20000L);
-        }
-    }
-
-    private long insertWithStatus(ScheduledTaskMapper mapper, String name, String status) {
-        ScheduledTaskInsert row = sample(name, 1000L, null);
-        row.setLastStatus(status);
-        mapper.insert(row);
-        return row.getId();
+    private ScheduledPendingWork pending(long taskId, String workType, String workId, long now) {
+        return new ScheduledPendingWork(
+                taskId, workType, workId, "fixture.payload", 1,
+                "{\"id\":\"" + workId + "\"}",
+                "[{\"type\":\"author\",\"id\":\"a-1\"}]",
+                "{\"title\":\"fixture\"}", "retry", "{}", 0, now, now);
     }
 }

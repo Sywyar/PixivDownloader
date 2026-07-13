@@ -1,9 +1,7 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 /**
  * 计划任务的创建 / 编辑请求体。
@@ -24,8 +22,8 @@ public class ScheduleTaskRequest {
     @NotBlank
     private String name;
 
-    @NotNull
-    private ScheduledTaskType type;
+    @NotBlank
+    private String type;
 
     /** 任务参数 JSON（按 type 解释，见类注释） */
     @NotBlank

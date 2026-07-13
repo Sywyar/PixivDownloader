@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.core.ai.AiService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
@@ -56,17 +57,19 @@ class NovelAutoTranslateServiceTest {
 
     private ServiceFixture fixture(TaskExecutor executor) {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = registry.publish(ScheduleOwnerBundle.prepare(
-                new ScheduleCapabilityOwner("novel", "novel", 1L),
-                List.of(),
-                List.of(new ScheduledWorkRunner() {
-                    @Override public String kind() { return ScheduledWorkKind.NOVEL; }
-                    @Override
-                    public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
-                        return true;
-                    }
-                }),
-                List.of(), List.of(), List.of(), List.of(), List.of()));
+        ScheduleCapabilityPublication publication = ScheduleCapabilityRegistryTestAccess.publish(
+                registry, ScheduleOwnerBundle.prepare(
+                        new ScheduleCapabilityOwner("novel", "novel", 1L),
+                        List.of(),
+                        List.of(new ScheduledWorkRunner() {
+                            @Override public String kind() { return ScheduledWorkKind.NOVEL; }
+                            @Override
+                            public boolean download(
+                                    ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
+                                return true;
+                            }
+                        }),
+                        List.of(), List.of(), List.of(), List.of(), List.of()));
         return new ServiceFixture(
                 new NovelAutoTranslateService(
                         translationService, glossaryService, mergeService, aiService, executor, registry),
@@ -104,7 +107,8 @@ class NovelAutoTranslateServiceTest {
                 .submit(100L, null, "english", 0, false, "epub");
         try {
             assertTrue(started.await(5, TimeUnit.SECONDS));
-            var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+            var drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                    fixture.registry(), fixture.publication()).orElseThrow();
             assertFalse(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50)));
             assertEquals(1, drain.activeLeaseCount());
 
@@ -139,7 +143,8 @@ class NovelAutoTranslateServiceTest {
                 .submit(101L, null, "english", 0, false, "epub");
         try {
             assertTrue(glossaryStarted.await(5, TimeUnit.SECONDS));
-            var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+            var drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                    fixture.registry(), fixture.publication()).orElseThrow();
             assertEquals(1, drain.activeLeaseCount());
 
             allowGlossaryReturn.countDown();
@@ -177,7 +182,8 @@ class NovelAutoTranslateServiceTest {
         assertEquals("executor-rejected", series.failureReason());
         assertEquals(0, series.seriesPending());
 
-        var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+        var drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                fixture.registry(), fixture.publication()).orElseThrow();
         assertTrue(drain.isDrained());
         assertEquals(0, drain.activeLeaseCount());
     }
@@ -205,7 +211,8 @@ class NovelAutoTranslateServiceTest {
                 .submit(104L, 500L, "english", 0, true, "epub");
         try {
             assertTrue(mergeStarted.await(5, TimeUnit.SECONDS));
-            var drain = fixture.registry().withdraw(fixture.publication()).orElseThrow();
+            var drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                    fixture.registry(), fixture.publication()).orElseThrow();
             assertEquals(1, drain.activeLeaseCount());
 
             allowMergeReturn.countDown();

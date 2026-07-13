@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+
 import java.util.Optional;
 
 /** 仅供 app 测试调用 registry 包级生命周期入口与构造伪造身份；生产代码没有对应入口。 */
@@ -45,4 +48,16 @@ public final class ScheduleCapabilityRegistryTestAccess {
                 publication.owner(), publication.publicationId());
     }
 
+    public static PluginScheduleContributionRegistrar registrar(
+            ScheduleCapabilityRegistry registry,
+            LegacyScheduledTaskMigrationService migrationService,
+            PluginRegistry pluginRegistry) {
+        return new PluginScheduleContributionRegistrar(registry, migrationService, pluginRegistry);
+    }
+
+    public static Optional<ScheduleCapabilityPublication> publication(
+            PluginScheduleContributionRegistrar registrar,
+            ScheduleCapabilityOwner owner) {
+        return registrar.publication(owner);
+    }
 }

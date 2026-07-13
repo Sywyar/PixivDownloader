@@ -43,7 +43,7 @@ class ScheduleRunQueueTest {
     class ItemRecording {
 
         @Test
-        @DisplayName("discovered 保留发现顺序、按 ID 去重幂等")
+        @DisplayName("discovered 保留发现顺序、按作品类型与 ID 去重幂等")
         void discoveredKeepsOrderAndDedupes() {
             ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST);
             run.discovered("100");
@@ -56,6 +56,36 @@ class ScheduleRunQueueTest {
             assertThat(items).allSatisfy(it ->
                     assertThat(it.getStatus()).isEqualTo(ScheduleRunQueue.STATUS_PENDING));
             assertThat(items.get(0).getKind()).isEqualTo(ScheduleRunQueue.KIND_ILLUST);
+        }
+
+        @Test
+        @DisplayName("相同 ID 的插画与小说分别登记并按复合身份更新")
+        void sameIdAcrossWorkTypesRemainsDistinct() {
+            ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST);
+            run.discovered("100", ScheduleRunQueue.KIND_ILLUST);
+            run.discovered("100", ScheduleRunQueue.KIND_NOVEL);
+            run.discovered("100", ScheduleRunQueue.KIND_NOVEL);
+
+            run.setMeta("100", ScheduleRunQueue.KIND_ILLUST, "插画标题", 1, false);
+            run.setMeta("100", ScheduleRunQueue.KIND_NOVEL, "小说标题", 0, true);
+            run.mark("100", ScheduleRunQueue.KIND_ILLUST,
+                    ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
+            run.mark("100", ScheduleRunQueue.KIND_NOVEL,
+                    ScheduleRunQueue.STATUS_DOWNLOADED, null);
+            run.markAutoTranslateSubmitted("100", ScheduleRunQueue.KIND_NOVEL);
+
+            assertThat(run.snapshot())
+                    .extracting(ScheduleRunQueue.Item::getKind,
+                            ScheduleRunQueue.Item::getTitle,
+                            ScheduleRunQueue.Item::getStatus,
+                            ScheduleRunQueue.Item::isAutoTranslateSubmitted)
+                    .containsExactly(
+                            org.assertj.core.groups.Tuple.tuple(
+                                    ScheduleRunQueue.KIND_ILLUST, "插画标题",
+                                    ScheduleRunQueue.STATUS_SKIPPED_FILTER, false),
+                            org.assertj.core.groups.Tuple.tuple(
+                                    ScheduleRunQueue.KIND_NOVEL, "小说标题",
+                                    ScheduleRunQueue.STATUS_DOWNLOADED, true));
         }
 
         @Test

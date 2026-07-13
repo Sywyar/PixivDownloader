@@ -6,54 +6,72 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.download.ArtworkDownloader;
-import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.notification.NotificationScenario;
-import top.sywyar.pixivdownload.core.notification.NotificationService;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
+import top.sywyar.pixivdownload.download.ArtworkDownloader;
+import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.download.PixivFetchService;
+import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.download.schedule.source.DiscoveryMode;
+import top.sywyar.pixivdownload.download.schedule.source.ScheduledSource;
+import top.sywyar.pixivdownload.download.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("ScheduleExecutor 运行计时")
+@DisplayName("ScheduleExecutor 耐久状态与收尾屏障")
 class ScheduleExecutorRunTimingTest {
+
+    private static final TaskExecutor SYNC_EXECUTOR = Runnable::run;
 
     @Mock
     private ScheduledTaskStore store;
     @Mock
     private PixivFetchService pixivFetchService;
     @Mock
-    private PixivDatabase pixivDatabase;
+    private top.sywyar.pixivdownload.core.db.PixivDatabase pixivDatabase;
     @Mock
     private ArtworkDownloader artworkDownloader;
     @Mock
@@ -61,141 +79,135 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private OveruseWarningService overuseWarningService;
     @Mock
-    private NotificationService notificationService;
+    private top.sywyar.pixivdownload.core.notification.NotificationService notificationService;
     @Mock
     private top.sywyar.pixivdownload.i18n.AppMessages appMessages;
     @Mock
     private top.sywyar.pixivdownload.setup.SetupService setupService;
 
+    private ObjectMapper objectMapper;
+    private PixivSchedulePersistenceCodec codec;
+    private ScheduleRunState localRunState;
     private ScheduleExecutor executor;
-    private ScheduleRunState runState;
-
-    /** 同步执行器：把提交的下载就地跑完，让原本串行的计时断言保持稳定。 */
-    private static final TaskExecutor SYNC_EXECUTOR = Runnable::run;
 
     @BeforeEach
     void setUp() {
-        runState = new ScheduleRunState();
+        objectMapper = new ObjectMapper();
+        codec = new PixivSchedulePersistenceCodec(objectMapper);
+        localRunState = new ScheduleRunState();
         executor = newExecutor(SYNC_EXECUTOR, SYNC_EXECUTOR);
-    }
 
-    /**
-     * 用指定下载池构造被测执行器（默认 DownloadConfig：图片/小说池各 10）。
-     * 统一能力注册中心显式发布 download-workbench（7 个默认来源与插画执行器同代可解析），故 runTask 顶部的来源解析门恒命中、
-     * 既有发现 / 派发行为不变（解析门只在来源缺失时改道，见 ScheduleExecutorSourceResolutionTest）。
-     * 插画执行器薄包持有 mock ArtworkDownloader；执行租约解析后仍调用同一下载接缝。
-     */
-    private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool) {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityTestFixture.publishDownloadWorkbench(
-                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
-        return newExecutor(imagePool, novelPool, registry);
-    }
-
-    private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool,
-                                         ScheduleCapabilityRegistry registry) {
-        return new ScheduleExecutor(store,
-                registry,
-                pixivFetchService, pixivDatabase,
-                org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
-                artworkDownloader, novelMetadataRepository,
-                new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
-                overuseWarningService, notificationService, appMessages, setupService,
-                new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(), imagePool, novelPool);
+        lenient().when(store.tryQueueNow(anyLong(), anyLong(), anyString()))
+                .thenAnswer(invocation -> Optional.of(new ScheduleRunToken(
+                        invocation.getArgument(2), 1L,
+                        top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED)));
+        lenient().when(store.startRun(anyLong(), any(ScheduleRunToken.class)))
+                .thenAnswer(invocation -> {
+                    ScheduleRunToken queued = invocation.getArgument(1);
+                    return Optional.of(new ScheduleRunToken(
+                            queued.claimToken(), 2L,
+                            top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.RUNNING));
+                });
+        lenient().when(store.completeRun(
+                        anyLong(), any(ScheduleRunToken.class), any(ScheduleRunCompletion.class)))
+                .thenReturn(OptionalLong.of(3L));
+        lenient().when(store.finishCancelled(
+                        anyLong(), any(ScheduleRunToken.class), any(ScheduleLastOutcome.class),
+                        anyLong(), any(), any(), any()))
+                .thenReturn(OptionalLong.of(3L));
+        lenient().when(store.suspend(
+                        anyLong(), anyLong(), any(ScheduleSuspendReason.class), any(), any()))
+                .thenReturn(OptionalLong.of(3L));
+        lenient().when(store.listPendingWork(anyLong())).thenReturn(List.of());
     }
 
     @Test
-    @DisplayName("固定周期：等待真实下载完成后才记录上次运行与下次运行时间")
-    void shouldRecordNextRunAfterBlockingDownloadCompletes() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                1L, "画师计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("123"));
-        when(pixivDatabase.hasArtwork(123L)).thenReturn(false);
-        when(pixivFetchService.fetchArtworkMetaCapture("123", null)).thenReturn(
-                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
-                        0, "标题", 0, false, 10L, "作者",
-                        null, null, -1, 1, List.of(), "", null), null));
-        when(pixivFetchService.resolveArtworkPages("123", null)).thenReturn(
-                new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/img-original/img/123.jpg"), null));
-
-        AtomicLong downloadCompletedAt = new AtomicLong();
+    @DisplayName("真实并发下载全部排空后才把结果与候选检查点原子提交")
+    void commitsOutcomeAndCheckpointAfterDownloadBarrier() throws Exception {
+        ScheduledTask task = task(1L, "user-new",
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},"
+                        + "\"download\":{\"concurrent\":2}}",
+                null, null, null);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("123", "124"));
+        stubArtwork(123L, "标题");
+        stubArtwork(124L, "标题");
+        CountDownLatch downloadsStarted = new CountDownLatch(2);
+        CountDownLatch allowDownloadsToFinish = new CountDownLatch(1);
+        AtomicInteger finished = new AtomicInteger();
+        AtomicLong downloadedAt = new AtomicLong();
         when(artworkDownloader.downloadImagesBlocking(
-                eq(123L), eq("标题"), anyList(), eq("https://www.pixiv.net/artworks/123"),
+                anyLong(), eq("标题"), anyList(), anyString(),
                 any(DownloadRequest.Other.class), isNull(), isNull()))
-                .thenAnswer(inv -> {
-                    Thread.sleep(20);
-                    downloadCompletedAt.set(System.currentTimeMillis());
+                .thenAnswer(invocation -> {
+                    downloadsStarted.countDown();
+                    assertThat(allowDownloadsToFinish.await(5, TimeUnit.SECONDS)).isTrue();
+                    downloadedAt.set(System.currentTimeMillis());
+                    finished.incrementAndGet();
                     return true;
                 });
 
-        executor.runTaskAndRecord(task);
+        ExecutorService downloadPool = Executors.newFixedThreadPool(2);
+        ScheduleExecutor asyncExecutor = newExecutor(downloadPool::execute, downloadPool::execute);
+        Thread run = new Thread(() -> asyncExecutor.runTaskAndRecord(task), "schedule-barrier-test");
+        run.start();
+        try {
+            assertThat(downloadsStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            verify(store, never()).completeRun(
+                    eq(1L), any(ScheduleRunToken.class), any(ScheduleRunCompletion.class));
 
-        ArgumentCaptor<Long> lastRun = ArgumentCaptor.forClass(Long.class);
-        ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
-        verify(store).updateRunResult(eq(1L), lastRun.capture(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
-        assertThat(lastRun.getValue()).isGreaterThanOrEqualTo(downloadCompletedAt.get());
-        assertThat(nextRun.getValue()).isEqualTo(lastRun.getValue() + 60_000L);
+            allowDownloadsToFinish.countDown();
+            run.join(5_000L);
+            assertThat(run.isAlive()).isFalse();
+        } finally {
+            allowDownloadsToFinish.countDown();
+            run.join(5_000L);
+            downloadPool.shutdownNow();
+        }
+
+        ScheduleRunCompletion completion = captureCompletion(1L);
+        assertThat(finished.get()).isEqualTo(2);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.OK);
+        assertThat(completion.finishedTime()).isGreaterThanOrEqualTo(downloadedAt.get());
+        assertThat(completion.nextRunTime()).isEqualTo(completion.finishedTime() + 60_000L);
+        assertThat(completion.checkpointSchema())
+                .isEqualTo(PixivSchedulePersistenceCodec.CHECKPOINT_SCHEMA);
+        assertThat(codec.decodeCheckpoint(new top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint(
+                 completion.checkpointSchema(), completion.checkpointVersion(), completion.checkpointJson())))
+                .isEqualTo(124L);
     }
 
     @Test
-    @DisplayName("USER_NEW：进入即落库开始时刻，完整跑完把水位线推进到本轮发现的最新作品 ID")
-    void shouldWriteRunStartedAndAdvanceWatermark() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                1L, "画师计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        // 发现两个作品（最新在前），均已下载 → 不取 meta、不下载，但水位线推进到本轮最新 ID 200
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200", "150"));
-        when(pixivDatabase.hasArtwork(200L)).thenReturn(true);
-        when(pixivDatabase.hasArtwork(150L)).thenReturn(true);
-
-        executor.runTaskAndRecord(task);
-
-        verify(store).updateRunStarted(eq(1L), anyLong());
-        verify(store).updateWatermark(eq(1L), eq(200L));
-        verify(store).updateRunResult(eq(1L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
-    }
-
-    @Test
-    @DisplayName("SERIES 不走水位线：完整跑完不更新 watermark，但仍落库开始时刻")
-    void seriesDoesNotUseWatermark() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                2L, "系列计划", true, ScheduledTaskType.SERIES,
+    @DisplayName("无水位线来源正常结束时不伪造检查点")
+    void doesNotCreateCheckpointForSeries() throws Exception {
+        ScheduledTask task = task(
+                2L, "series",
                 "{\"kind\":\"illust\",\"source\":{\"seriesId\":\"9\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
+                null, null, null);
         when(pixivFetchService.discoverSeriesArtworkIds("9", null)).thenReturn(List.of());
 
         executor.runTaskAndRecord(task);
 
-        verify(store, never()).updateWatermark(anyLong(), any());
-        verify(store).updateRunStarted(eq(2L), anyLong());
+        ScheduleRunCompletion completion = captureCompletion(2L);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.OK);
+        assertThat(completion.checkpointSchema()).isNull();
+        assertThat(completion.checkpointVersion()).isNull();
+        assertThat(completion.checkpointJson()).isNull();
     }
 
     @Test
-    @DisplayName("SEARCH popular_d + maxPages=-1 逐页处理，直到命中已下载边界")
-    void popularIncrementalSearchUsesPagedWatermarkScan() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                5L, "热门计划", true, ScheduledTaskType.SEARCH,
-                "{\"kind\":\"illust\",\"source\":{\"word\":\"tag\",\"order\":\"popular_d\",\"mode\":\"all\",\"sMode\":\"s_tag\",\"maxPages\":-1}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        when(pixivFetchService.discoverSearchArtworkIdsPage("tag", "popular_d", "all", "s_tag", 1, null))
+    @DisplayName("SEARCH popular_d 与 maxPages=-1 逐页处理直到命中已下载边界")
+    void popularIncrementalSearchUsesPagedDownloadedBoundary() throws Exception {
+        ScheduledTask task = task(
+                10L, "search",
+                "{\"kind\":\"illust\",\"source\":{\"word\":\"tag\",\"order\":\"popular_d\","
+                        + "\"mode\":\"all\",\"sMode\":\"s_tag\",\"maxPages\":-1}}",
+                null, null, null);
+        when(pixivFetchService.discoverSearchArtworkIdsPage(
+                "tag", "popular_d", "all", "s_tag", 1, null))
                 .thenReturn(List.of("300", "200"));
         when(pixivDatabase.hasArtwork(300L)).thenReturn(false);
         when(pixivDatabase.hasArtwork(200L)).thenReturn(true);
-        when(pixivFetchService.fetchArtworkMetaCapture("300", null)).thenReturn(
-                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
-                        0, "热门新作", 0, false, 10L, "作者",
-                        null, null, -1, 1, List.of(), "", null), null));
-        when(pixivFetchService.resolveArtworkPages("300", null)).thenReturn(
-                new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/img-original/img/300.jpg"), null));
+        stubArtwork(300L, "热门新作");
         when(artworkDownloader.downloadImagesBlocking(
                 eq(300L), eq("热门新作"), anyList(), eq("https://www.pixiv.net/artworks/300"),
                 any(DownloadRequest.Other.class), isNull(), isNull()))
@@ -203,226 +215,210 @@ class ScheduleExecutorRunTimingTest {
 
         executor.runTaskAndRecord(task);
 
-        verify(pixivFetchService).discoverSearchArtworkIdsPage("tag", "popular_d", "all", "s_tag", 1, null);
+        verify(pixivFetchService).discoverSearchArtworkIdsPage(
+                "tag", "popular_d", "all", "s_tag", 1, null);
         verify(pixivFetchService, never()).discoverSearchArtworkIds(
                 eq("tag"), eq("popular_d"), eq("all"), eq("s_tag"), eq(-1), isNull());
-        verify(store, never()).updateWatermark(anyLong(), any());
         verify(artworkDownloader).downloadImagesBlocking(
                 eq(300L), eq("热门新作"), anyList(), eq("https://www.pixiv.net/artworks/300"),
                 any(DownloadRequest.Other.class), isNull(), isNull());
+        ScheduleRunCompletion completion = captureCompletion(10L);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.OK);
+        assertThat(completion.checkpointSchema()).isNull();
+        assertThat(completion.checkpointJson()).isNull();
     }
 
     @Test
-    @DisplayName("水位线扫描中单作品可恢复失败进隔离表，watermark 仍照常推进")
-    void shouldAdvanceWatermarkWhenSingleWorkIsolated() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                6L, "失败计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
+    @DisplayName("单作品可恢复失败先耐久进入 pending 再允许推进检查点")
+    void persistsPendingBeforeCheckpoint() throws Exception {
+        ScheduledTask task = task(3L, "user-new", userDefinition("100"), null, null, null);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200"));
         when(pixivDatabase.hasArtwork(200L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMetaCapture("200", null))
-                .thenThrow(new IllegalStateException("temporary"));
+                .thenThrow(new PixivFetchService.PixivFetchException(
+                        "Authorization: Bearer pending-secret token: second-secret"));
 
         executor.runTaskAndRecord(task);
 
-        // 可恢复失败进隔离表（attempts 不计熔断），watermark 推进到本轮最新 ID 200
-        verify(store).insertPending(eq(6L), eq(200L), any(), anyLong());
-        verify(store).updateWatermark(eq(6L), eq(200L));
-        verify(store).updateRunResult(eq(6L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+        ArgumentCaptor<ScheduledPendingWork> pending = ArgumentCaptor.forClass(ScheduledPendingWork.class);
+        ArgumentCaptor<ScheduleRunCompletion> completion =
+                ArgumentCaptor.forClass(ScheduleRunCompletion.class);
+        InOrder durableWrites = inOrder(store);
+        durableWrites.verify(store).upsertPendingWork(pending.capture());
+        durableWrites.verify(store).completeRun(
+                eq(3L), any(ScheduleRunToken.class), completion.capture());
+        assertThat(pending.getValue().workType()).isEqualTo("illust");
+        assertThat(pending.getValue().workId()).isEqualTo("200");
+        assertThat(codec.decodeWorkId(codec.fromPendingWork(pending.getValue()))).isEqualTo("200");
+        assertThat(pending.getValue().reasonDetailJson()).contains("[redacted]")
+                .doesNotContain("pending-secret", "second-secret");
+        assertThat(completion.getValue().checkpointJson()).contains("\"200\"");
     }
 
     @Test
-    @DisplayName("鉴权失效通知不含「下次预定运行」：挂起任务不会自动续跑，避免误导")
+    @DisplayName("下载回调无法耐久 pending 时整轮失败且绝不提交候选检查点")
+    void pendingPersistenceFailurePreventsCheckpointCommit() throws Exception {
+        ScheduledTask task = task(4L, "user-new", userDefinition("100"), null, null, null);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("201"));
+        stubArtwork(201L, "失败作品");
+        when(artworkDownloader.downloadImagesBlocking(
+                eq(201L), eq("失败作品"), anyList(), anyString(),
+                any(DownloadRequest.Other.class), isNull(), isNull()))
+                .thenReturn(false);
+        when(store.upsertPendingWork(any(ScheduledPendingWork.class)))
+                .thenThrow(new IllegalStateException("database unavailable"));
+
+        executor.runTaskAndRecord(task);
+
+        ScheduleRunCompletion completion = captureCompletion(4L);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.ERROR);
+        assertThat(completion.checkpointSchema()).isNull();
+        assertThat(completion.checkpointJson()).isNull();
+    }
+
+    @Test
+    @DisplayName("顶层失败结果在持久化前脱敏完整 Cookie 对")
+    void failureOutcomeRedactsCookiePairs() throws Exception {
+        ScheduledTask task = task(11L, "user-new", userDefinition("100"), null, null, null);
+        when(pixivFetchService.discoverUserArtworkIds("100", null))
+                .thenThrow(new IllegalStateException(
+                        "bad auth PHPSESSID=cookie-secret; device=pair-secret"));
+
+        executor.runTaskAndRecord(task);
+
+        ScheduleRunCompletion completion = captureCompletion(11L);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.ERROR);
+        assertThat(completion.outcomeMessage()).contains("[redacted]")
+                .doesNotContain("cookie-secret", "pair-secret");
+    }
+
+    @Test
+    @DisplayName("顶层失败结果统一脱敏 Authorization、Bearer、token 与签名 URL")
+    void failureOutcomeRedactsGenericCredentialForms() throws Exception {
+        ScheduledTask task = task(12L, "user-new", userDefinition("100"), null, null, null);
+        when(pixivFetchService.discoverUserArtworkIds("100", null))
+                .thenThrow(new IllegalStateException(
+                        "request failed Authorization: Basic basic-secret, "
+                                + "Proxy-Authorization: Bearer proxy-secret, token: token-secret "
+                                + "url=https://example.test/a?X-Amz-Signature=signature-secret"));
+
+        executor.runTaskAndRecord(task);
+
+        ScheduleRunCompletion completion = captureCompletion(12L);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.ERROR);
+        assertThat(completion.outcomeMessage()).contains("[redacted]")
+                .doesNotContain("basic-secret", "proxy-secret", "token-secret", "signature-secret");
+    }
+
+    @Test
+    @DisplayName("鉴权失效通知不携带会误导的下次运行时间")
     void authExpiredNotificationOmitsNextRunTime() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                13L, "鉴权失效计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
+        ScheduledTask task = task(18L, "user-new", userDefinition("100"), null, null, null);
         when(pixivFetchService.discoverUserArtworkIds("100", null))
                 .thenThrow(new PixivFetchService.PixivFetchException("auth expired"));
 
         executor.runTaskAndRecord(task);
 
-        // next_run 仍照常落库供卡片展示（findDue 状态门挡住自动续跑）
-        verify(store).updateRunResult(eq(13L), anyLong(), eq(ScheduleExecutor.STATUS_AUTH_EXPIRED),
-                isNull(), any());
-
+        verify(store).suspend(
+                eq(18L), eq(2L), eq(ScheduleSuspendReason.CREDENTIAL), eq("COOKIE_DEAD"), isNull());
+        verify(store).finishCancelled(
+                eq(18L), any(ScheduleRunToken.class), eq(ScheduleLastOutcome.ERROR),
+                anyLong(), eq("COOKIE_DEAD"), isNull(), any());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
-        verify(notificationService).notify(eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
-        // 挂起态需人工重授权才会继续，通知里绝不携带会误导的下次运行时间
+        verify(notificationService).notify(
+                eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
         assertThat(placeholders.getValue()).doesNotContainKey("next_run_time");
+        verify(store, never()).completeRun(
+                eq(18L), any(ScheduleRunToken.class), any(ScheduleRunCompletion.class));
     }
 
     @Test
-    @DisplayName("失败原因：写入 last_message 前脱敏 Pixiv Cookie")
-    void shouldSanitizeCookieBeforePersistingFailureMessage() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                3L, "脱敏计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        when(pixivFetchService.discoverUserArtworkIds("100", null))
-                .thenThrow(new IllegalStateException("request failed Cookie: PHPSESSID=secret; foo=bar"));
+    @DisplayName("损坏 pending 信封保留原行并把任务挂起为迁移错误")
+    void invalidPendingEnvelopeSuspendsWithoutCheckpoint() {
+        ScheduledTask task = task(5L, "user-new", userDefinition("100"), null, null, null);
+        when(store.listPendingWork(5L)).thenReturn(List.of(new ScheduledPendingWork(
+                5L, "illust", "202", "unknown.schema", 9, "{}", "[]", "{}",
+                "OLD", "{}", 1, 1L, 2L)));
 
         executor.runTaskAndRecord(task);
 
-        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
-        verify(store).updateRunResult(
-                eq(3L), anyLong(), eq(ScheduleExecutor.STATUS_ERROR), message.capture(), anyLong());
-        assertThat(message.getValue()).contains("[redacted]");
-        assertThat(message.getValue()).doesNotContain("secret").doesNotContain("foo=bar");
+        verify(store).suspend(
+                eq(5L), eq(2L), eq(ScheduleSuspendReason.MIGRATION_ERROR),
+                eq("DEFINITION_INVALID"), anyString());
+        verify(store).finishCancelled(
+                eq(5L), any(ScheduleRunToken.class), eq(ScheduleLastOutcome.ERROR),
+                anyLong(), eq("DEFINITION_INVALID"), anyString(), any());
+        verify(store, never()).completeRun(eq(5L), any(), any());
+        verify(store, never()).deletePendingWork(anyLong(), anyString(), anyString());
     }
 
     @Test
-    @DisplayName("运行中手动暂停：派发循环检测取消信号、干净 unwind、updateRunResult 写 PAUSED；已派发的不回滚")
-    void midRunPauseUnwindsCleanly() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                7L, "暂停计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        // 发现两个未下载作品：第 1 个派发后由模拟「下载器内部」请求取消，第 2 个 process() 入口应抛 Pause
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("301", "302"));
-        when(pixivDatabase.hasArtwork(301L)).thenReturn(false);
-        when(pixivDatabase.hasArtwork(302L)).thenReturn(false);
-        when(pixivFetchService.fetchArtworkMetaCapture("301", null)).thenReturn(
-                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
-                        0, "首件", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null), null));
-        when(pixivFetchService.resolveArtworkPages("301", null)).thenReturn(
-                new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/img-original/img/301.jpg"), null));
+    @DisplayName("pending 重试与同轮来源重复发现共享作品认领且只下载一次")
+    void pendingRetryAndDiscoveryDispatchOnlyOnce() throws Exception {
+        ScheduledTask task = task(6L, "user-new", userDefinition("100"), null, null, null);
+        ScheduledPendingWork pending = codec.toPendingWork(
+                6L, codec.createWorkEnvelope("illust", "203"),
+                "OLD", "{}", 0, 1L, 2L);
+        when(store.listPendingWork(6L)).thenReturn(List.of(pending));
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("203"));
+        stubArtwork(203L, "重试作品");
         when(artworkDownloader.downloadImagesBlocking(
-                eq(301L), eq("首件"), anyList(), eq("https://www.pixiv.net/artworks/301"),
-                any(DownloadRequest.Other.class), isNull(), isNull()))
-                .thenAnswer(inv -> {
-                    // 已下载提交 / 完成：在这一刻管理员按下暂停
-                    runState.requestCancel(7L);
-                    return true;
-                });
-
-        executor.runTaskAndRecord(task);
-
-        // 第 1 件已派发完成，第 2 件不应再请求 meta / 不应进入下载器
-        verify(pixivFetchService).fetchArtworkMetaCapture("301", null);
-        verify(pixivFetchService, never()).fetchArtworkMetaCapture(eq("302"), any());
-        verify(artworkDownloader, never()).downloadImagesBlocking(
-                eq(302L), any(), anyList(), any(), any(DownloadRequest.Other.class), any(), any());
-        // updateRunResult 收尾：状态写 PAUSED；CASE 会在 DB 已是 PAUSED 时再保留，这里直接验证传入参数。
-        verify(store).updateRunResult(
-                eq(7L), anyLong(), eq(ScheduledTask.STATUS_PAUSED), isNull(), anyLong());
-        // 已派发的不回滚：本轮发现的 301 未进隔离表（dispatch 成功），watermark 不推进（unwind 路径）。
-        verify(store, never()).insertPending(eq(7L), eq(301L), any(), anyLong());
-        verify(store, never()).updateWatermark(eq(7L), anyLong());
-    }
-
-    @Test
-    @DisplayName("每轮无条件消费隔离表：pendingRetryArmed=0 也会先重试待重试作品")
-    void shouldConsumePendingEveryRun() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                8L, "自动重试计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null,
-                0, 0L);
-        // 武装位 = 0：仍应跑 retryPending（每轮无条件消费）
-        when(store.listPending(8L)).thenReturn(List.of(
-                new ScheduledTaskPending(8L, 555L, "previous failure", 2, 1000L, 2000L)));
-        // 发现阶段返回空，让本轮只跑 retryPending 路径
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
-        // 重试时再次成功下载：流程 deletePending → 入 retryPending completed 计数
-        // 注意：retryPending 不查 hasArtwork（直接 process），无需 stub
-        when(pixivFetchService.fetchArtworkMetaCapture("555", null)).thenReturn(
-                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
-                        0, "恢复成功", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null), null));
-        when(pixivFetchService.resolveArtworkPages("555", null)).thenReturn(
-                new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/img-original/img/555.jpg"), null));
-        when(artworkDownloader.downloadImagesBlocking(
-                eq(555L), eq("恢复成功"), anyList(), eq("https://www.pixiv.net/artworks/555"),
+                eq(203L), eq("重试作品"), anyList(), anyString(),
                 any(DownloadRequest.Other.class), isNull(), isNull()))
                 .thenReturn(true);
 
         executor.runTaskAndRecord(task);
 
-        // 重试成功：deletePending 出表（不再 inc）；不应触发 incPendingAttempts
-        verify(store).deletePending(8L, 555L);
-        verify(store, never()).incPendingAttempts(eq(8L), eq(555L), anyLong());
-        // 武装位 clearRetryArmed 不在核心 ScheduledTaskStore 暴露面上（仅 mapper 留存），
-        // 故执行器经 store 结构上无从调用，无需再断言。
+        verify(artworkDownloader, times(1)).downloadImagesBlocking(
+                eq(203L), eq("重试作品"), anyList(), anyString(),
+                any(DownloadRequest.Other.class), isNull(), isNull());
+        verify(store).deletePendingWork(6L, "illust", "203");
+        assertThat(captureCompletion(6L).outcome()).isEqualTo(ScheduleLastOutcome.OK);
     }
 
     @Test
-    @DisplayName("重试失败刚跨过 pending-max-attempts 阈值时触发 pending-exhausted 通知")
-    void shouldNotifyPendingExhaustedWhenAttemptsCrossLimit() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                9L, "重试达上限计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null,
-                0, 0L);
-        // 既有隔离条目：attempts=4，再失败 +1 = 5（默认 max=5）→ 触发通知
-        when(store.listPending(9L)).thenReturn(List.of(
-                new ScheduledTaskPending(9L, 777L, "previous", 4, 1000L, 2000L)));
-        when(store.selectPendingAttempts(9L, 777L)).thenReturn(5);
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenAnswer(inv -> {
-            Thread.sleep(1100);
-            return List.of();
-        });
-        // retryPending 不查 hasArtwork（直接 process），无需 stub
-        // 模拟瞬时失败 → recordRecoverable 走 incPendingAttempts → 检查 attempts 是否到阈值
+    @DisplayName("pending 重试刚跨过上限时触发需人工通知")
+    void pendingRetryNotifiesWhenAttemptsCrossLimit() throws Exception {
+        ScheduledTask task = task(13L, "user-new", userDefinition("100"), null, null, null);
+        ScheduledPendingWork pending = codec.toPendingWork(
+                13L, codec.createWorkEnvelope("illust", "777"),
+                "OLD", "{}", 4, 1_000L, 2_000L);
+        ScheduledPendingWork exhausted = codec.toPendingWork(
+                13L, codec.createWorkEnvelope("illust", "777"),
+                "OLD", "{}", 5, 1_000L, 3_000L);
+        when(store.listPendingWork(13L)).thenReturn(List.of(pending));
+        when(store.incrementPendingAttempts(eq(13L), eq("illust"), eq("777"), anyLong()))
+                .thenReturn(5);
+        when(store.findPendingWork(13L, "illust", "777")).thenReturn(exhausted);
+        when(pixivDatabase.hasArtwork(777L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMetaCapture("777", null))
                 .thenThrow(new IllegalStateException("still failing"));
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
 
         executor.runTaskAndRecord(task);
 
-        verify(store).incPendingAttempts(eq(9L), eq(777L), anyLong());
-        ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
-        verify(store).updateRunResult(eq(9L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
-
+        verify(store).incrementPendingAttempts(eq(13L), eq("illust"), eq("777"), anyLong());
+        ScheduleRunCompletion completion = captureCompletion(13L);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.OK);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
-        // 统一通知：扇出给所有介质由 NotificationService 负责，调度器只触发一次场景。
-        verify(notificationService).notify(eq(NotificationScenario.PENDING_EXHAUSTED), any(), placeholders.capture());
-        assertThat(placeholders.getValue().get("next_run_time")).isEqualTo(formatTime(nextRun.getValue()));
-    }
-
-    private static String formatTime(long epochMs) {
-        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
-                .format(new java.util.Date(epochMs));
-    }
-
-    @Test
-    @DisplayName("失败原因：无 Cookie 前缀时也脱敏整段 Cookie 对")
-    void shouldSanitizeCookiePairsWithoutCookieHeader() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                4L, "脱敏计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        when(pixivFetchService.discoverUserArtworkIds("100", null))
-                .thenThrow(new IllegalStateException("bad auth PHPSESSID=secret; foo=bar"));
-
-        executor.runTaskAndRecord(task);
-
-        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
-        verify(store).updateRunResult(
-                eq(4L), anyLong(), eq(ScheduleExecutor.STATUS_ERROR), message.capture(), anyLong());
-        assertThat(message.getValue()).contains("PHPSESSID=[redacted]");
-        assertThat(message.getValue()).doesNotContain("secret").doesNotContain("foo=bar");
+        verify(notificationService).notify(
+                eq(NotificationScenario.PENDING_EXHAUSTED), any(), placeholders.capture());
+        assertThat(placeholders.getValue())
+                .containsEntry("work_id", "777")
+                .containsEntry("attempts", "5")
+                .containsEntry("last_error_excerpt", "still failing");
     }
 
     @Test
-    @DisplayName("实际目录检测开启：去重改用 isArtworkDownloaded(verify) 而非裸 hasArtwork")
+    @DisplayName("实际目录检测开启时使用 ArtworkDownloader 去重而不读取裸数据库命中")
     void verifyFilesUsesArtworkDownloaderDedup() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                10L, "目录检测计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"verifyFiles\":true}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
+        ScheduledTask task = task(
+                14L, "user-new",
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},"
+                        + "\"download\":{\"verifyFiles\":true}}",
+                null, null, null);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200"));
         when(artworkDownloader.isArtworkDownloaded(200L, true)).thenReturn(true);
 
@@ -432,29 +428,25 @@ class ScheduleExecutorRunTimingTest {
         verify(pixivDatabase, never()).hasArtwork(anyLong());
         verify(artworkDownloader, never()).downloadImagesBlocking(
                 anyLong(), any(), anyList(), any(), any(DownloadRequest.Other.class), any(), any());
-        // 已下载跳过，但本轮发现到的最新 ID 仍推进水位线
-        verify(store).updateWatermark(eq(10L), eq(200L));
+        ScheduleRunCompletion completion = captureCompletion(14L);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.OK);
+        assertThat(completion.checkpointJson()).contains("\"watermarkId\":\"200\"");
     }
 
     @Test
-    @DisplayName("图片间隔写入下载请求 Other.delayMs（仅插画）")
+    @DisplayName("插画任务把图片间隔写入 DownloadRequest.Other")
     void imageDelayPropagatesToDownloadRequest() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                11L, "图片间隔计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"imageDelayMs\":250}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
+        ScheduledTask task = task(
+                15L, "user-new",
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},"
+                        + "\"download\":{\"imageDelayMs\":250}}",
+                null, null, null);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("400"));
-        when(pixivDatabase.hasArtwork(400L)).thenReturn(false);
-        when(pixivFetchService.fetchArtworkMetaCapture("400", null)).thenReturn(
-                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
-                        0, "图", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null), null));
-        when(pixivFetchService.resolveArtworkPages("400", null)).thenReturn(
-                new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/img-original/img/400.jpg"), null));
+        stubArtwork(400L, "图");
         when(artworkDownloader.downloadImagesBlocking(
                 eq(400L), eq("图"), anyList(), eq("https://www.pixiv.net/artworks/400"),
-                any(DownloadRequest.Other.class), isNull(), isNull())).thenReturn(true);
+                any(DownloadRequest.Other.class), isNull(), isNull()))
+                .thenReturn(true);
 
         executor.runTaskAndRecord(task);
 
@@ -463,70 +455,268 @@ class ScheduleExecutorRunTimingTest {
                 eq(400L), eq("图"), anyList(), eq("https://www.pixiv.net/artworks/400"),
                 other.capture(), isNull(), isNull());
         assertThat(other.getValue().getDelayMs()).isEqualTo(250);
+        assertThat(captureCompletion(15L).outcome()).isEqualTo(ScheduleLastOutcome.OK);
     }
 
     @Test
-    @DisplayName("并发下载：runTask 返回前 join 所有在途下载，完成后才推进水位线")
-    void concurrentDownloadsAreJoinedBeforeRecording() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                12L, "并发计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"concurrent\":2}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("220", "210"));
-        when(pixivDatabase.hasArtwork(220L)).thenReturn(false);
-        when(pixivDatabase.hasArtwork(210L)).thenReturn(false);
-        when(pixivFetchService.fetchArtworkMetaCapture(anyString(), isNull())).thenReturn(
-                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
-                        0, "并发作品", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null), null));
-        when(pixivFetchService.resolveArtworkPages(anyString(), isNull())).thenReturn(
-                new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/img-original/img/x.jpg"), null));
-        AtomicInteger finished = new AtomicInteger();
+    @DisplayName("协作式人工取消只做取消收尾且不提交检查点")
+    void manualCancellationFinishesWithoutCheckpoint() throws Exception {
+        ScheduledTask task = task(7L, "user-new", userDefinition("100"), null, null, null);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("300", "301"));
+        stubArtwork(300L, "第一件");
         when(artworkDownloader.downloadImagesBlocking(
-                anyLong(), anyString(), anyList(), anyString(),
+                eq(300L), eq("第一件"), anyList(), anyString(),
                 any(DownloadRequest.Other.class), isNull(), isNull()))
-                .thenAnswer(inv -> {
-                    Thread.sleep(40);
-                    finished.incrementAndGet();
+                .thenAnswer(invocation -> {
+                    localRunState.requestCancel(7L);
                     return true;
                 });
 
-        // 真异步：每个下载另起线程；Semaphore(min(2,10)) 控并发。
-        TaskExecutor async = r -> new Thread(r).start();
-        ScheduleExecutor asyncExecutor = newExecutor(async, async);
-        asyncExecutor.runTaskAndRecord(task);
+        executor.runTaskAndRecord(task);
 
-        // 返回时两个在途下载都应已完成（被 join），并据此推进水位线。
-        assertThat(finished.get()).isEqualTo(2);
-        verify(store).updateWatermark(eq(12L), eq(220L));
-        verify(store).updateRunResult(
-                eq(12L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+        verify(store).finishCancelled(
+                eq(7L), any(ScheduleRunToken.class), eq(ScheduleLastOutcome.CANCELLED),
+                anyLong(), eq("MANUAL_PAUSE"), isNull(), any());
+        verify(store, never()).completeRun(eq(7L), any(), any());
+        verify(pixivFetchService, never()).fetchArtworkMetaCapture(eq("301"), any());
     }
 
     @Test
-    @DisplayName("异步下载全部 join 前执行租约保持活跃，撤回 owner 的 drain 不会提前归零")
-    void capabilityLeaseCoversAllAsyncDownloadsUntilJoinCompletes() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                14L, "租约覆盖计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"concurrent\":2}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("501", "502"));
-        when(pixivDatabase.hasArtwork(anyLong())).thenReturn(false);
-        when(pixivFetchService.fetchArtworkMetaCapture(anyString(), isNull())).thenReturn(
-                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
-                        0, "租约作品", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null), null));
-        when(pixivFetchService.resolveArtworkPages(anyString(), isNull())).thenReturn(
-                new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/img-original/img/x.jpg"), null));
+    @DisplayName("损坏检查点不会周期重撞而是挂起为迁移错误")
+    void invalidCheckpointSuspendsAsMigrationError() {
+        ScheduledTask task = task(
+                8L, "user-new", userDefinition("100"),
+                new Checkpoint(PixivSchedulePersistenceCodec.CHECKPOINT_SCHEMA,
+                        PixivSchedulePersistenceCodec.CHECKPOINT_VERSION,
+                        "{\"watermarkId\":123}"),
+                null, null);
 
+        executor.runTaskAndRecord(task);
+
+        verify(store).suspend(
+                eq(8L), eq(2L), eq(ScheduleSuspendReason.MIGRATION_ERROR),
+                eq("DEFINITION_INVALID"), anyString());
+        verify(store, never()).completeRun(eq(8L), any(), any());
+    }
+
+    @Test
+    @DisplayName("损坏凭证策略状态不会进入网络探活并挂起为迁移错误")
+    void invalidCredentialPolicyStateSuspendsBeforeNetwork() {
+        ScheduledTask task = task(
+                9L, "user-new", userDefinition("100"), null,
+                "{\"schema\":\"wrong\",\"version\":1}", "scheduled-task:9:credential");
+        when(store.findCredentialSecret(
+                9L, DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
+                .thenReturn("PHPSESSID=9_secret");
+
+        executor.runTaskAndRecord(task);
+
+        verify(overuseWarningService, never()).check(anyString(), any(), anyLong());
+        verify(store).suspend(
+                eq(9L), eq(2L), eq(ScheduleSuspendReason.MIGRATION_ERROR),
+                eq("DEFINITION_INVALID"), anyString());
+        verify(store, never()).completeRun(eq(9L), any(), any());
+    }
+
+    @Test
+    @DisplayName("开始运行写库异常会收尾同 claim 的不确定持久化状态")
+    void startRunFailureFinalizesSameDurableClaim() {
+        ScheduledTask task = task(19L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleRunState.Claim claim = localRunState.tryMarkQueued(19L);
+        ScheduleRunToken queued = new ScheduleRunToken(
+                "claim-start-failure", 1L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
+        ScheduleRunToken durableRunning = new ScheduleRunToken(
+                queued.claimToken(), 2L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.RUNNING);
+        ScheduledTask current = org.mockito.Mockito.mock(ScheduledTask.class);
+        when(current.nextRunTime()).thenReturn(9_000L);
+        when(current.runState()).thenReturn(durableRunning.runState());
+        when(current.runClaimToken()).thenReturn(durableRunning.claimToken());
+        when(current.stateVersion()).thenReturn(durableRunning.stateVersion());
+        when(store.startRun(19L, queued)).thenThrow(new IllegalStateException("start write failed"));
+        when(store.findById(19L)).thenReturn(current);
+        when(store.releaseQueued(19L, queued, null)).thenReturn(OptionalLong.empty());
+        when(store.finishCancelled(
+                eq(19L), eq(durableRunning), eq(ScheduleLastOutcome.INTERRUPTED), anyLong(),
+                eq("CLAIM_ABANDONED"), isNull(), eq(9_000L)))
+                .thenReturn(OptionalLong.of(3L));
+
+        assertThatThrownBy(() -> executor.runTaskAndRecord(task, claim, queued))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("start write failed");
+
+        verify(store).releaseQueued(19L, queued, null);
+        verify(store).finishCancelled(
+                eq(19L), eq(durableRunning), eq(ScheduleLastOutcome.INTERRUPTED), anyLong(),
+                eq("CLAIM_ABANDONED"), isNull(), eq(9_000L));
+        assertThat(localRunState.get(19L)).isNull();
+    }
+
+    @Test
+    @DisplayName("最终结果写库异常会以错误终态收尾同 claim 并清理内存认领")
+    void finalizationFailureFinishesSameDurableClaimAsError() throws IOException {
+        ScheduledTask task = task(20L, "user-new", userDefinition("100"), null, null, null);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
+        ScheduleRunState.Claim claim = localRunState.tryMarkQueued(20L);
+        ScheduleRunToken queued = new ScheduleRunToken(
+                "claim-finalization-failure", 1L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
+        ScheduleRunToken running = new ScheduleRunToken(
+                queued.claimToken(), 2L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.RUNNING);
+        ScheduledTask current = org.mockito.Mockito.mock(ScheduledTask.class);
+        when(current.runState()).thenReturn(running.runState());
+        when(current.runClaimToken()).thenReturn(running.claimToken());
+        when(current.stateVersion()).thenReturn(running.stateVersion());
+        when(store.startRun(20L, queued)).thenReturn(Optional.of(running));
+        when(store.completeRun(eq(20L), eq(running), any(ScheduleRunCompletion.class)))
+                .thenThrow(new IllegalStateException("completion write failed"));
+        when(store.findById(20L)).thenReturn(current);
+        when(store.finishCancelled(
+                eq(20L), eq(running), eq(ScheduleLastOutcome.ERROR), anyLong(),
+                eq("FINALIZATION_FAILED"), eq("completion write failed"), any()))
+                .thenReturn(OptionalLong.of(3L));
+
+        assertThatThrownBy(() -> executor.runTaskAndRecord(task, claim, queued))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("completion write failed");
+
+        verify(store).finishCancelled(
+                eq(20L), eq(running), eq(ScheduleLastOutcome.ERROR), anyLong(),
+                eq("FINALIZATION_FAILED"), eq("completion write failed"), any());
+        assertThat(localRunState.get(20L)).isNull();
+    }
+
+    @Test
+    @DisplayName("宿主租约获取异常会释放耐久队列认领和内存认领")
+    void hostLeaseAcquisitionFailureReleasesQueuedClaim() {
+        ScheduledTask task = task(21L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleRunState.Claim claim = localRunState.tryMarkQueued(21L);
+        ScheduleRunToken queued = new ScheduleRunToken(
+                "claim-host-lease-failure", 1L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
+        ScheduleCapabilityRegistry failingRegistry =
+                org.mockito.Mockito.mock(ScheduleCapabilityRegistry.class);
+        when(failingRegistry.resolveOwner(DownloadWorkbenchPlugin.ID))
+                .thenThrow(new IllegalStateException("registry unavailable"));
+        when(store.releaseQueued(21L, queued, null))
+                .thenReturn(OptionalLong.of(2L));
+        ScheduleExecutor failingExecutor = newExecutor(
+                SYNC_EXECUTOR, SYNC_EXECUTOR, failingRegistry);
+
+        assertThatThrownBy(() -> failingExecutor.runTaskAndRecord(task, claim, queued))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("registry unavailable");
+
+        verify(store).releaseQueued(21L, queued, null);
+        assertThat(localRunState.get(21L)).isNull();
+    }
+
+    @Test
+    @DisplayName("队列释放的一次性数据库异常由同 token 重试收敛")
+    void transientQueuedReleaseFailureIsRetried() {
+        ScheduleRunToken queued = new ScheduleRunToken(
+                "claim-transient-release", 4L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
+        ScheduledTask current = org.mockito.Mockito.mock(ScheduledTask.class);
+        when(current.runState()).thenReturn(queued.runState());
+        when(current.runClaimToken()).thenReturn(queued.claimToken());
+        when(current.stateVersion()).thenReturn(queued.stateVersion());
+        when(current.nextRunTime()).thenReturn(12_000L);
+        when(store.findById(22L)).thenReturn(current);
+        when(store.releaseQueued(22L, queued, null))
+                .thenThrow(new IllegalStateException("temporary database failure"))
+                .thenReturn(OptionalLong.of(5L));
+
+        executor.releaseQueued(22L, queued);
+
+        verify(store, times(2)).releaseQueued(22L, queued, null);
+    }
+
+    @Test
+    @DisplayName("RUNNING 来源插件抛出 LinkageError 时按同 token 清理数据库与内存并原样抛出")
+    void runningSourcePluginErrorFinalizesSameClaimAndPreservesError() {
+        LinkageError pluginFailure = new LinkageError("source plugin linkage failed");
+        ScheduledSource failingSource = new ScheduledSource() {
+            @Override
+            public String type() {
+                return "error-source";
+            }
+
+            @Override
+            public DiscoveryMode mode(com.fasterxml.jackson.databind.JsonNode source) {
+                return DiscoveryMode.WATERMARK;
+            }
+
+            @Override
+            public boolean accountScoped() {
+                return false;
+            }
+
+            @Override
+            public String notificationLabelKey() {
+                return "schedule.source.error";
+            }
+
+            @Override
+            public void discoverAndDispatch(ScheduledSourceContext context) {
+                throw pluginFailure;
+            }
+        };
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityTestFixture.publish(
+                registry,
+                ScheduleCapabilityTestFixture.DOWNLOAD_WORKBENCH_OWNER,
+                List.of(failingSource),
+                List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        ScheduleExecutor failingExecutor = newExecutor(SYNC_EXECUTOR, SYNC_EXECUTOR, registry);
+        ScheduledTask task = task(23L, "error-source", userDefinition("100"), null, null, null);
+        ScheduleRunState.Claim claim = localRunState.tryMarkQueued(23L);
+        ScheduleRunToken queued = new ScheduleRunToken(
+                "claim-plugin-error", 1L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
+        ScheduleRunToken running = new ScheduleRunToken(
+                queued.claimToken(), 2L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.RUNNING);
+        ScheduledTask current = org.mockito.Mockito.mock(ScheduledTask.class);
+        when(current.runState()).thenReturn(running.runState());
+        when(current.runClaimToken()).thenReturn(running.claimToken());
+        when(current.stateVersion()).thenReturn(running.stateVersion());
+        when(store.startRun(23L, queued)).thenReturn(Optional.of(running));
+        when(store.findById(23L)).thenReturn(current);
+        when(store.finishCancelled(
+                eq(23L), eq(running), eq(ScheduleLastOutcome.ERROR), anyLong(),
+                eq("UNCAUGHT_THROWABLE"), isNull(), any()))
+                .thenReturn(OptionalLong.of(3L));
+
+        assertThatThrownBy(() -> failingExecutor.runTaskAndRecord(task, claim, queued))
+                .isSameAs(pluginFailure);
+
+        verify(store).finishCancelled(
+                eq(23L), eq(running), eq(ScheduleLastOutcome.ERROR), anyLong(),
+                eq("UNCAUGHT_THROWABLE"), isNull(), any());
+        assertThat(localRunState.get(23L)).isNull();
+    }
+
+    @Test
+    @DisplayName("异步下载排空前 execution lease 阻止 owner generation 提前 drain")
+    void executionLeaseCoversAllAsyncDownloadsUntilJoinCompletes() throws Exception {
+        ScheduledTask task = task(
+                16L, "user-new",
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},"
+                        + "\"download\":{\"concurrent\":2}}",
+                null, null, null);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("501", "502"));
+        stubArtwork(501L, "租约作品");
+        stubArtwork(502L, "租约作品");
         CountDownLatch downloadsStarted = new CountDownLatch(2);
         CountDownLatch allowDownloadsToFinish = new CountDownLatch(1);
         when(artworkDownloader.downloadImagesBlocking(
-                anyLong(), anyString(), anyList(), anyString(),
+                anyLong(), eq("租约作品"), anyList(), anyString(),
                 any(DownloadRequest.Other.class), isNull(), isNull()))
-                .thenAnswer(inv -> {
+                .thenAnswer(invocation -> {
                     downloadsStarted.countDown();
                     assertThat(allowDownloadsToFinish.await(5, TimeUnit.SECONDS)).isTrue();
                     return true;
@@ -535,48 +725,52 @@ class ScheduleExecutorRunTimingTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(
                 registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
-        TaskExecutor async = runnable -> new Thread(runnable, "schedule-lease-test").start();
-        ScheduleExecutor leasedExecutor = newExecutor(async, async, registry);
-
-        Thread run = new Thread(() -> leasedExecutor.runTaskAndRecord(task), "schedule-run-test");
+        ExecutorService downloadPool = Executors.newFixedThreadPool(2);
+        ScheduleExecutor leasedExecutor = newExecutor(downloadPool::execute, downloadPool::execute, registry);
+        Thread run = new Thread(() -> leasedExecutor.runTaskAndRecord(task), "schedule-lease-test");
         run.start();
-        assertThat(downloadsStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        ScheduleGenerationDrain drain = null;
+        try {
+            assertThat(downloadsStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            drain = ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
+            assertThat(drain.activeLeaseCount()).isEqualTo(2);
+            assertThat(drain.awaitDrained(
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))).isFalse();
 
-        ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
-        assertThat(drain.isDrained()).isFalse();
-        assertThat(drain.activeLeaseCount()).isEqualTo(2);
-        assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))).isFalse();
+            allowDownloadsToFinish.countDown();
+            run.join(5_000L);
+            assertThat(run.isAlive()).isFalse();
+            assertThat(drain.awaitDrained(
+                    System.nanoTime() + TimeUnit.SECONDS.toNanos(2))).isTrue();
+        } finally {
+            allowDownloadsToFinish.countDown();
+            run.join(5_000L);
+            downloadPool.shutdownNow();
+        }
 
-        allowDownloadsToFinish.countDown();
-        run.join(5_000L);
-
-        assertThat(run.isAlive()).isFalse();
-        assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(2))).isTrue();
-        ArgumentCaptor<String> unavailable = ArgumentCaptor.forClass(String.class);
-        verify(store).updateRunResult(
-                eq(14L), anyLong(), eq(ScheduledTask.STATUS_SOURCE_UNAVAILABLE),
-                unavailable.capture(), anyLong());
-        verify(store, never()).updateWatermark(eq(14L), anyLong());
-        assertThat(unavailable.getValue()).contains("USER_NEW").contains("capability retired");
+        verify(store).suspend(
+                eq(16L), eq(2L), eq(ScheduleSuspendReason.QUIESCED),
+                eq("HOST_QUIESCED"), isNull());
+        verify(store).finishCancelled(
+                eq(16L), any(ScheduleRunToken.class), eq(ScheduleLastOutcome.CANCELLED),
+                anyLong(), eq("HOST_QUIESCED"), anyString(), any());
+        verify(store, never()).completeRun(
+                eq(16L), any(ScheduleRunToken.class), any(ScheduleRunCompletion.class));
     }
 
     @Test
-    @DisplayName("来源执行租约释放后宿主 owner lease 仍覆盖结果持久化与通知收尾")
+    @DisplayName("来源 execution lease 释放后 host owner lease 仍覆盖结果持久化收尾")
     void hostOwnerLeaseCoversFinalizationAfterSourceLeaseCloses() throws Exception {
-        ScheduledTask task = new ScheduledTask(
-                15L, "收尾租约计划", true, ScheduledTaskType.USER_NEW,
-                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
-                ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null,
-                null, null, null, null, 0, 0L);
+        ScheduledTask task = task(17L, "user-new", userDefinition("100"), null, null, null);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
         CountDownLatch finalizationStarted = new CountDownLatch(1);
         CountDownLatch allowFinalization = new CountDownLatch(1);
         doAnswer(invocation -> {
             finalizationStarted.countDown();
             assertThat(allowFinalization.await(5, TimeUnit.SECONDS)).isTrue();
-            return null;
-        }).when(store).updateRunResult(eq(15L), anyLong(), anyString(), any(), anyLong());
+            return OptionalLong.of(3L);
+        }).when(store).completeRun(
+                eq(17L), any(ScheduleRunToken.class), any(ScheduleRunCompletion.class));
 
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(
@@ -586,14 +780,14 @@ class ScheduleExecutorRunTimingTest {
         run.start();
         try {
             assertThat(finalizationStarted.await(5, TimeUnit.SECONDS)).isTrue();
-            ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
+            ScheduleGenerationDrain drain =
+                    ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
             assertThat(drain.activeLeaseCount()).isEqualTo(1);
             assertThat(drain.awaitDrained(
                     System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))).isFalse();
 
             allowFinalization.countDown();
             run.join(5_000L);
-
             assertThat(run.isAlive()).isFalse();
             assertThat(drain.awaitDrained(
                     System.nanoTime() + TimeUnit.SECONDS.toNanos(1))).isTrue();
@@ -601,5 +795,81 @@ class ScheduleExecutorRunTimingTest {
             allowFinalization.countDown();
             run.join(5_000L);
         }
+    }
+
+    private void stubArtwork(long id, String title) throws IOException {
+        when(pixivDatabase.hasArtwork(id)).thenReturn(false);
+        when(pixivFetchService.fetchArtworkMetaCapture(Long.toString(id), null)).thenReturn(
+                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
+                        0, title, 0, false, 10L, "作者",
+                        null, null, -1, 1, List.of(), "", null), null));
+        when(pixivFetchService.resolveArtworkPages(Long.toString(id), null)).thenReturn(
+                new PixivFetchService.ArtworkPages(
+                        List.of("https://i.pximg.net/img-original/img/" + id + ".jpg"), null));
+    }
+
+    private ScheduleExecutor newExecutor(TaskExecutor downloadExecutor, TaskExecutor novelExecutor) {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(
+                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        return newExecutor(downloadExecutor, novelExecutor, registry);
+    }
+
+    private ScheduleExecutor newExecutor(
+            TaskExecutor downloadExecutor,
+            TaskExecutor novelExecutor,
+            ScheduleCapabilityRegistry registry) {
+        return new ScheduleExecutor(
+                store, registry, pixivFetchService, pixivDatabase,
+                org.mockito.Mockito.mock(
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
+                artworkDownloader, novelMetadataRepository, new ScheduleConfig(), localRunState,
+                new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
+                notificationService, appMessages, setupService,
+                new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(),
+                downloadExecutor, novelExecutor);
+    }
+
+    private ScheduleRunCompletion captureCompletion(long taskId) {
+        ArgumentCaptor<ScheduleRunCompletion> completion =
+                ArgumentCaptor.forClass(ScheduleRunCompletion.class);
+        verify(store).completeRun(eq(taskId), any(ScheduleRunToken.class), completion.capture());
+        return completion.getValue();
+    }
+
+    private static String userDefinition(String userId) {
+        return "{\"kind\":\"illust\",\"source\":{\"userId\":\"" + userId + "\"}}";
+    }
+
+    private ScheduledTask task(
+            long id,
+            String sourceType,
+            String definitionJson,
+            Checkpoint checkpoint,
+            String policyStateJson,
+            String secretReference) {
+        boolean hasCredential = policyStateJson != null || secretReference != null;
+        return new ScheduledTask(
+                id, "任务" + id, true, sourceType, DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.DEFINITION_SCHEMA,
+                PixivSchedulePersistenceCodec.DEFINITION_VERSION,
+                definitionJson, "{}", ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                null, 0L, null,
+                checkpoint == null ? null : checkpoint.schema(),
+                checkpoint == null ? null : checkpoint.version(),
+                checkpoint == null ? null : checkpoint.json(),
+                ScheduledTask.CURRENT_STORAGE_VERSION,
+                null, null, ScheduleLastOutcome.NEVER, null, null,
+                null, null, null, 0L,
+                hasCredential ? DownloadWorkbenchPlugin.ID : null,
+                hasCredential ? PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID : null,
+                hasCredential ? Long.toString(id) : null,
+                policyStateJson,
+                secretReference,
+                hasCredential ? 1L : null,
+                0L);
+    }
+
+    private record Checkpoint(String schema, int version, String json) {
     }
 }

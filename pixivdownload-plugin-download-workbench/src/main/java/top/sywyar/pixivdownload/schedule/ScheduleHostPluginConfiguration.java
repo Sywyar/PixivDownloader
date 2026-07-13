@@ -6,6 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
@@ -99,6 +101,7 @@ public class ScheduleHostPluginConfiguration {
                                              ScheduleRunState runState,
                                              ScheduleRunQueue runQueue,
                                              ObjectMapper objectMapper,
+                                             PixivSchedulePersistenceCodec persistenceCodec,
                                              OveruseWarningService overuseWarningService,
                                              NotificationService notificationService,
                                              AppMessages messages,
@@ -108,7 +111,7 @@ public class ScheduleHostPluginConfiguration {
                                              @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
-                scheduleConfig, runState, runQueue, objectMapper, overuseWarningService,
+                scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
                 notificationService, messages, setupService, downloadConfig,
                 downloadTaskExecutor, novelDownloadTaskExecutor);
     }
@@ -119,8 +122,14 @@ public class ScheduleHostPluginConfiguration {
                                            ScheduleConfig config,
                                            ScheduleRunState runState,
                                            ScheduleRunQueue runQueue,
+                                           ObjectMapper objectMapper,
+                                           PixivSchedulePersistenceCodec persistenceCodec,
+                                           OveruseWarningService overuseWarningService,
+                                           PlatformTransactionManager transactionManager,
                                            ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
-        return new ScheduleService(store, executor, config, runState, runQueue, scheduleCapabilityRegistry);
+        return new ScheduleService(store, executor, config, runState, runQueue,
+                objectMapper, persistenceCodec, overuseWarningService,
+                new TransactionTemplate(transactionManager), scheduleCapabilityRegistry);
     }
 
     @Bean

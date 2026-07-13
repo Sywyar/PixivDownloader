@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -25,7 +27,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
@@ -110,8 +112,11 @@ class ExternalPluginContextManagerTest {
                 new RouteAccessRegistry(empty), new StaticResourceRegistry(empty),
                 new WebI18nBundleRegistry(empty), new NavigationRegistry(empty),
                 new WebUiSlotRegistry(empty), userscripts, scripts);
-        PluginScheduleContributionRegistrar scheduleRegistrar = new PluginScheduleContributionRegistrar(
-                new ScheduleCapabilityRegistry());
+        PluginScheduleContributionRegistrar scheduleRegistrar =
+                ScheduleCapabilityRegistryTestAccess.registrar(
+                        new ScheduleCapabilityRegistry(), (reservation, adapter) ->
+                        new LegacyScheduledTaskMigrationService.OwnerMigrationReport(
+                                "unused", 0, 0, 0, 0), empty);
         PluginCapabilityContributionRegistrar capabilityRegistrar = new PluginCapabilityContributionRegistrar(List.of());
         PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
         QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());

@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 
@@ -12,7 +11,7 @@ import java.util.List;
 public final class UserNewSource extends AbstractScheduledSource {
 
     public UserNewSource() {
-        super(ScheduledTaskType.USER_NEW);
+        super("user-new", "USER_NEW");
     }
 
     @Override

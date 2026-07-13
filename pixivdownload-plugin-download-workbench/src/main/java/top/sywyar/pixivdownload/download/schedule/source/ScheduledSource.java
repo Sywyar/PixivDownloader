@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
  * <p>本接口住下载工作台域（{@code schedule.source}）、<b>不入</b> plugin.api——执行契约放在合适边界、
  * plugin.api 仅保留轻量身份 SPI。调度壳经来源注册中心把任务存量 {@code type} 解析到
  * {@link ScheduledSourceProvider}，再向下转型为本接口派发；当前 7 个内置来源全部由下载工作台贡献并实现本接口。
- * 由此调度主编排不再用任何按 {@link top.sywyar.pixivdownload.core.schedule.ScheduledTaskType} 枚举的 switch
+ * 由此调度主编排不再用任何按旧来源枚举的 switch
  * 调具体来源实现，发现 / 模式判定 / 账号私有判定 / 通知标签全部由各来源对象承载。
  */
 public interface ScheduledSource extends ScheduledSourceProvider {

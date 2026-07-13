@@ -1,9 +1,12 @@
 package top.sywyar.pixivdownload.schedule;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
@@ -16,14 +19,23 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
+import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
+import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
+import java.util.OptionalLong;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -42,6 +54,10 @@ public class ScheduleService {
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
+    private final ObjectMapper objectMapper;
+    private final PixivSchedulePersistenceCodec persistenceCodec;
+    private final OveruseWarningService overuseWarningService;
+    private final TransactionTemplate transactionTemplate;
     /**
      * 作品类型执行器注册中心：队列视图的翻译状态叠加经小说执行器（{@code novel}）取得——它实现可选的
      * {@code translateStatus} 能力。执行器缺席（小说插件被禁 / 卸载）时解析为空、不叠加翻译状态，队列视图照常返回。
@@ -51,7 +67,7 @@ public class ScheduleService {
 
     public List<ScheduleTaskView> list() {
         return store.findAll().stream()
-                .map(t -> ScheduleTaskView.of(t, runState.get(t.id())))
+                .map(t -> ScheduleTaskView.of(t, runState.get(t.id()), persistenceCodec))
                 .toList();
     }
 
@@ -60,7 +76,7 @@ public class ScheduleService {
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
-        return ScheduleTaskView.of(task, runState.get(id));
+        return ScheduleTaskView.of(task, runState.get(id), persistenceCodec);
     }
 
     @Transactional
@@ -71,29 +87,23 @@ public class ScheduleService {
         }
         String triggerKind = validateTrigger(req);
         long now = System.currentTimeMillis();
+        ResolvedDefinition resolved = resolveDefinition(0, req);
 
         ScheduledTaskInsert row = new ScheduledTaskInsert();
         row.setName(req.getName().trim());
         row.setEnabled(true);
-        row.setType(req.getType());
-        row.setParamsJson(req.getParamsJson());
+        row.setSourceType(resolved.definition().sourceType());
+        row.setSourceOwnerPluginId(resolved.sourceOwnerPluginId());
+        row.setDefinitionSchema(resolved.definition().definitionSchema());
+        row.setDefinitionVersion(resolved.definition().definitionVersion());
+        row.setDefinitionJson(resolved.definition().definitionJson());
+        row.setPresentationJson(writeJson(resolved.definition().presentation()));
         row.setTriggerKind(triggerKind);
         row.setIntervalMinutes(req.getIntervalMinutes());
         row.setCronExpr(emptyToNull(req.getCronExpr()));
-        // 创建时默认受限模式（无 cookie）；管理员可随后授权 cookie 升级为 bound
-        row.setCookieMode(ScheduledTask.COOKIE_RESTRICTED);
-        row.setCookieSnapshot(null);
         row.setProxySnapshot(null);
         row.setNextRunTime(ScheduleTiming.computeNextRun(
                 triggerKind, req.getIntervalMinutes(), req.getCronExpr(), now));
-        row.setLastRunTime(null);
-        row.setLastStatus(null);
-        row.setLastMessage(null);
-        row.setWatermarkId(null);
-        row.setRunStartedTime(null);
-        row.setAccountId(null);
-        row.setAckWarningTime(null);
-        row.setPendingRetryArmed(0);
         row.setCreatedTime(now);
 
         store.insert(row);
@@ -102,37 +112,37 @@ public class ScheduleService {
 
     @Transactional
     public ScheduleTaskView update(long id, ScheduleTaskRequest req) {
-        requireExisting(id);
-        requireNotBusy(id);
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
+        requirePixivTask(task);
         String triggerKind = validateTrigger(req);
+        ResolvedDefinition resolved = resolveDefinition(id, req);
         Long nextRun = ScheduleTiming.computeNextRun(
                 triggerKind, req.getIntervalMinutes(), req.getCronExpr(), System.currentTimeMillis());
-        store.updateDefinition(
-                id, req.getName().trim(), req.getType(), req.getParamsJson(),
+        ScheduleTaskDefinitionUpdate update = new ScheduleTaskDefinitionUpdate(
+                req.getName().trim(), resolved.definition().sourceType(), resolved.sourceOwnerPluginId(),
+                resolved.definition().definitionSchema(), resolved.definition().definitionVersion(),
+                resolved.definition().definitionJson(), writeJson(resolved.definition().presentation()),
                 triggerKind, req.getIntervalMinutes(), emptyToNull(req.getCronExpr()), nextRun);
-        // 编辑后的任务可能换了 type / source / filters，旧隔离表里的 workId 在新定义下没意义
-        // （甚至 kind 也可能从插画切到小说）。一并清掉，避免用错误的下载管线复活旧失败条目。
-        store.deleteAllPending(id);
+        requireChanged(store.updateDefinition(id, task.stateVersion(), update));
         return get(id);
     }
 
     @Transactional
     public ScheduleTaskView setEnabled(long id, boolean enabled) {
-        requireExisting(id);
-        requireNotBusy(id);
-        store.updateEnabled(id, enabled);
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
+        requireChanged(store.updateEnabled(id, task.stateVersion(), enabled));
         return get(id);
     }
 
     @Transactional
     public void delete(long id) {
-        requireExisting(id);
-        requireNotBusy(id);
-        // 隔离表无 FK / 触发器，必须显式清理；否则同 task_id 在 AUTOINCREMENT 下虽不复用，
-        // 但残留行会成为孤儿数据。
-        store.deleteAllPending(id);
-        // 任务删除即清 cookie 快照（行删除连带 cookie_snapshot 一并消失）
-        store.delete(id);
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
+        if (!store.deleteAggregate(id, task.stateVersion())) {
+            throw concurrentChange();
+        }
         // 连带清除内存中的本轮运行队列，避免删除后残留
         runQueue.remove(id);
     }
@@ -186,6 +196,9 @@ public class ScheduleService {
                 }
             } catch (NumberFormatException ignored) {
                 // 非数字 ID（不应出现于小说）：跳过叠加
+            } catch (RuntimeException ignored) {
+                // 插件执行器异常不得穿过边界破坏整份队列视图，也不保留 child classloader 的异常对象。
+                log.debug("Scheduled work translation status is temporarily unavailable");
             }
         }
         return new ScheduleQueueView.Item(
@@ -210,26 +223,75 @@ public class ScheduleService {
      * 同一份 Cookie 不可能修复失效，若放行只会清掉挂起态、下一轮再次失效并重复发通知，白白空跑。
      * 由于在任何写库之前就抛出，故既不覆盖快照、也不清除 {@code AUTH_EXPIRED} 状态。
      */
-    @Transactional
     public ScheduleTaskView authorizeCookie(long id, String cookie) {
-        requireExisting(id);
-        requireNotBusy(id);
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
+        requirePixivTask(task);
         if (cookie == null || !cookie.contains("PHPSESSID")) {
             throw LocalizedException.badRequest(
                     "schedule.error.cookie-invalid", "Cookie 无效：缺少 PHPSESSID");
         }
         String trimmed = cookie.trim();
-        String existing = store.findCookieSnapshot(id);
+        String existing = store.findCredentialSecret(
+                id, DownloadWorkbenchPlugin.ID, PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
         if (existing != null && existing.equals(trimmed)) {
             throw LocalizedException.badRequest(
                     "schedule.error.cookie-unchanged",
                     "Cookie 与当前已绑定的相同，未做更新；若任务因 Cookie 失效被挂起，请改用新的有效 Cookie");
         }
-        store.updateCookie(id, trimmed, ScheduledTask.COOKIE_BOUND);
-        store.updateAccountId(id, parsePixivUserId(trimmed));
-        ScheduledTask task = store.findById(id);
-        store.clearSuspendIfStatus(
-                id, nextRunFor(task), ScheduledTask.STATUS_AUTH_EXPIRED);
+        OveruseWarningService.Result probe;
+        try {
+            probe = overuseWarningService.probe(trimmed, System.currentTimeMillis());
+        } catch (OveruseWarningService.CredentialProbeException e) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.cookie-probe-failed", "暂时无法验证 Cookie，请检查网络后重试");
+        }
+        if (probe.isCookieDead()) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.cookie-invalid", "Cookie 无效或已失效，请重新登录 Pixiv 后复制新 Cookie");
+        }
+        transactionTemplate.executeWithoutResult(status -> {
+            ScheduledTask current = requireExisting(id);
+            if (current.stateVersion() != task.stateVersion()) {
+                throw concurrentChange();
+            }
+            requireNotBusy(current);
+            requirePixivTask(current);
+            String currentSecret = store.findCredentialSecret(
+                    id, DownloadWorkbenchPlugin.ID,
+                    PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
+            if (currentSecret != null && currentSecret.equals(trimmed)) {
+                throw LocalizedException.badRequest(
+                        "schedule.error.cookie-unchanged",
+                        "Cookie 与当前已绑定的相同，未做更新；若任务因 Cookie 失效被挂起，请改用新的有效 Cookie");
+            }
+            String policyState = current.credentialPolicyStateJson() == null
+                    ? persistenceCodec.encodePolicyState(null)
+                    : current.credentialPolicyStateJson();
+            OptionalLong bound = store.bindCredential(
+                    id, current.stateVersion(), DownloadWorkbenchPlugin.ID,
+                    PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                    parsePixivUserId(trimmed), policyState, trimmed,
+                    "scheduled-task:" + id + ":credential", System.currentTimeMillis());
+            requireChanged(bound);
+            long version = bound.getAsLong();
+            if (current.suspendReason() == ScheduleSuspendReason.CREDENTIAL) {
+                OptionalLong resumed = store.resume(
+                        id, version, ScheduleSuspendReason.CREDENTIAL,
+                        current.suspendCode(), nextRunFor(current));
+                requireChanged(resumed);
+                version = resumed.getAsLong();
+            }
+            if (probe.isWarned()
+                    && (current.suspendReason() == null
+                    || current.suspendReason() == ScheduleSuspendReason.CREDENTIAL)) {
+                requireChanged(store.suspend(
+                        id, version, ScheduleSuspendReason.POLICY, "PIXIV_OVERUSE",
+                        writeJson(java.util.Map.of(
+                                "modifiedAt", Long.toString(probe.modifiedAt()),
+                                "excerpt", probe.excerpt()))));
+            }
+        });
         return get(id);
     }
 
@@ -251,14 +313,19 @@ public class ScheduleService {
     /**
      * 解除 Cookie 授权：清空快照回到受限模式，并一并清除由 Cookie 派生的账号绑定
      * （{@code account_id} / {@code ack_warning_time}）——否则任务虽已转受限（匿名），仍会被同账号
-     * 的过度访问冻结、横幅分组与账号级恢复误命中。详见
-     * {@link top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper#clearCookieAndAccount}。
+     * 的过度访问冻结、横幅分组与账号级恢复误命中。
      */
     @Transactional
     public ScheduleTaskView revokeCookie(long id) {
-        requireExisting(id);
-        requireNotBusy(id);
-        store.clearCookieAndAccount(id, ScheduledTask.COOKIE_RESTRICTED);
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
+        requirePixivTask(task);
+        if (task.credentialPolicyOwnerPluginId() == null) {
+            return get(id);
+        }
+        requireChanged(store.removeCredential(
+                id, task.stateVersion(), DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID));
         return get(id);
     }
 
@@ -268,14 +335,14 @@ public class ScheduleService {
      */
     @Transactional
     public ScheduleTaskView updateProxy(long id, String proxy) {
-        requireExisting(id);
-        requireNotBusy(id);
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
         String normalized = emptyToNull(proxy);
         if (normalized != null && OutboundProxyOverride.parse(normalized) == null) {
             throw LocalizedException.badRequest(
                     "schedule.error.proxy-invalid", "代理格式无效，应为 host:port（例如 127.0.0.1:7890）");
         }
-        store.updateProxy(id, normalized);
+        requireChanged(store.updateProxy(id, task.stateVersion(), normalized));
         return get(id);
     }
 
@@ -288,7 +355,7 @@ public class ScheduleService {
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
-        requireNotBusy(id);
+        requireNotBusy(task);
         if (!task.enabled()) {
             throw LocalizedException.badRequest("schedule.error.run-disabled", "任务已停用，请先启用再运行");
         }
@@ -312,21 +379,58 @@ public class ScheduleService {
         }
         boolean delegated = false;
         ScheduleRunState.Claim claim = null;
+        ScheduleRunToken runToken = null;
+        String claimToken = null;
+        Long nextRun = null;
+        Throwable failure = null;
         try {
-            requireExisting(id);
+            ScheduledTask task = requireExisting(id);
+            nextRun = task.nextRunTime();
             claim = runState.tryMarkQueued(id);
             if (claim == null) {
                 log.debug("Scheduled task {} manual run ignored: already queued or running", id);
                 return;
             }
-            executor.runTaskAsync(id, claim, hostLease);
+            claimToken = UUID.randomUUID().toString();
+            runToken = store.tryQueueNow(
+                            id, task.stateVersion(), claimToken)
+                    .orElse(null);
+            if (runToken == null) {
+                runState.clear(claim);
+                claim = null;
+                log.debug("Scheduled task {} manual run ignored: durable claim rejected", id);
+                return;
+            }
+            executor.runTaskAsync(id, claim, runToken, hostLease);
             delegated = true;
-        } catch (RuntimeException e) {
-            runState.clear(claim);
-            throw e;
+        } catch (Throwable e) {
+            failure = e;
+            try {
+                if (runToken != null) {
+                    executor.releaseQueued(id, runToken);
+                } else if (claimToken != null) {
+                    executor.releaseClaim(id, claimToken, nextRun);
+                }
+            } catch (Throwable cleanupFailure) {
+                ScheduleExecutor.addCleanupFailure(e, cleanupFailure);
+            }
+            try {
+                runState.clear(claim);
+            } catch (Throwable cleanupFailure) {
+                ScheduleExecutor.addCleanupFailure(e, cleanupFailure);
+            }
+            throw ScheduleExecutor.propagate(e);
         } finally {
             if (!delegated) {
-                hostLease.close();
+                try {
+                    hostLease.close();
+                } catch (Throwable cleanupFailure) {
+                    if (failure != null) {
+                        ScheduleExecutor.addCleanupFailure(failure, cleanupFailure);
+                    } else {
+                        throw ScheduleExecutor.propagate(cleanupFailure);
+                    }
+                }
             }
         }
     }
@@ -342,24 +446,29 @@ public class ScheduleService {
     // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────
 
     /**
-     * 手动暂停（任务级 PAUSED）：不冻账号、不发邮件；findDue 状态门挡住，不再到期触发。
+     * 手动挂起（{@code MANUAL}）：不冻账号、不发邮件；findDue 状态门挡住，不再到期触发。
      *
      * <p><b>仅在任务正在运行 / 排队（busy）时可暂停</b>：暂停语义是「打断当前这一轮」，空闲任务没有可打断的运行，
      * 应改用「停用」阻止自动调度。空闲时直接拒绝（前端也会禁用按钮，这里是后端防护）。
      *
      * <p>通过 {@link ScheduleRunState#requestCancel(long)} 给正在运行的本轮派发循环发协作式取消信号：
      * executor 在下一个作品派发前抛 {@link SchedulePauseException} 干净 unwind 本轮，
-     * 这样「按下暂停立刻见效」，已下载的不回滚、未派发的不再继续，最终 {@code updateRunResult}
-     * 由 CASE 保留 PAUSED 状态。
+     * 这样「按下暂停立刻见效」，已下载的不回滚、未派发的不再继续；持久化状态先原子转为
+     * {@code CANCEL_REQUESTED}，再由持有原 claim token 的执行方完成取消收尾。
      */
     @Transactional
     public ScheduleTaskView pause(long id) {
-        requireExisting(id);
-        if (!isBusy(id)) {
+        ScheduledTask task = requireExisting(id);
+        if (task.suspendReason() != null) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.run-suspended", "任务已处于暂停或挂起状态");
+        }
+        if (!isBusy(task)) {
             throw LocalizedException.badRequest(
                     "schedule.error.pause-idle", "任务当前未在运行，无需暂停；如需阻止自动运行请使用「停用」");
         }
-        store.setStatus(id, ScheduledTask.STATUS_PAUSED);
+        requireChanged(store.suspend(
+                id, task.stateVersion(), ScheduleSuspendReason.MANUAL, "ADMIN_PAUSE", null));
         runState.requestCancel(id);
         return get(id);
     }
@@ -377,12 +486,14 @@ public class ScheduleService {
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
-        if (!ScheduledTask.STATUS_PAUSED.equals(task.lastStatus())) {
+        if (task.suspendReason() != ScheduleSuspendReason.MANUAL) {
             throw LocalizedException.badRequest(
                     "schedule.error.resume-not-paused", "任务未处于手动暂停状态，无法恢复");
         }
-        requireNotBusy(id);
-        store.clearSuspend(id, System.currentTimeMillis());
+        requireNotBusy(task);
+        requireChanged(store.resume(
+                id, task.stateVersion(), ScheduleSuspendReason.MANUAL,
+                task.suspendCode(), System.currentTimeMillis()));
         return get(id);
     }
 
@@ -391,13 +502,17 @@ public class ScheduleService {
      */
     @Transactional
     public void resumeAccount(String accountId, AccountResumeRequest req) {
-        List<ScheduledTask> tasks = store.findByAccountId(accountId);
+        List<ScheduledTask> tasks = store.findByCredentialAccount(
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                accountId);
         if (tasks.isEmpty()) {
             throw LocalizedException.badRequest(
                     "schedule.error.account-not-found", "账号下无计划任务: {0}", accountId);
         }
         boolean hasOverusePaused = tasks.stream()
-                .anyMatch(t -> ScheduledTask.STATUS_OVERUSE_PAUSED.equals(t.lastStatus()));
+                .anyMatch(t -> t.suspendReason() == ScheduleSuspendReason.POLICY
+                        && "PIXIV_OVERUSE".equals(t.suspendCode()));
         if (!hasOverusePaused) {
             // 账号级恢复仅针对过度访问暂停。AUTH_EXPIRED / 手动 PAUSED 必须各自走对应恢复入口，
             // 不能借账号级按钮一并清除（会越权放行管理员未确认的状态）。
@@ -408,11 +523,10 @@ public class ScheduleService {
         String mode = req.getMode() == null ? "" : req.getMode().trim();
         Long ackTime = latestOveruseWarning(tasks);
         long now = System.currentTimeMillis();
+        long acknowledgedAt = ackTime == null ? now : ackTime;
+        Long nextRun;
         if (AccountResumeRequest.MODE_IGNORE.equals(mode)) {
-            if (ackTime != null) {
-                store.updateAckWarning(accountId, ackTime);
-            }
-            store.clearSuspendForAccount(accountId, now);
+            nextRun = now;
         } else if (AccountResumeRequest.MODE_DEFER.equals(mode)) {
             int minutes = req.getMinutes() == null
                     ? config.getOveruseDeferDefaultMinutes() : req.getMinutes();
@@ -420,12 +534,33 @@ public class ScheduleService {
                 throw LocalizedException.badRequest(
                         "schedule.error.defer-minutes-min", "延迟分钟数最低为 60");
             }
-            if (ackTime != null) {
-                store.updateAckWarning(accountId, ackTime); // 保险
-            }
-            store.clearSuspendForAccount(accountId, now + minutes * 60_000L);
+            nextRun = now + minutes * 60_000L;
         } else {
             throw LocalizedException.badRequest("schedule.error.resume-mode-invalid", "恢复方式无效");
+        }
+        for (ScheduledTask task : tasks) {
+            if (task.runState() != null) {
+                throw LocalizedException.badRequest(
+                        "schedule.error.busy", "账号下仍有任务正在取消收尾，请稍后重试");
+            }
+            String oldState = task.credentialPolicyStateJson() == null
+                    ? persistenceCodec.encodePolicyState(null)
+                    : task.credentialPolicyStateJson();
+            requireChanged(store.updateCredentialPolicyState(
+                    task.id(), task.stateVersion(), DownloadWorkbenchPlugin.ID,
+                    PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                    oldState, persistenceCodec.withAcknowledgedWarningTime(oldState, acknowledgedAt), now));
+        }
+        int expectedResumed = (int) tasks.stream()
+                .filter(t -> t.suspendReason() == ScheduleSuspendReason.POLICY
+                        && "PIXIV_OVERUSE".equals(t.suspendCode()))
+                .count();
+        int resumed = store.resumeByCredentialAccount(
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                accountId, ScheduleSuspendReason.POLICY, "PIXIV_OVERUSE", nextRun);
+        if (resumed != expectedResumed) {
+            throw concurrentChange();
         }
     }
 
@@ -433,31 +568,35 @@ public class ScheduleService {
     public List<SchedulePendingView> pending(long id) {
         requireExisting(id);
         int max = config.getPendingMaxAttempts();
-        return store.listPending(id).stream()
+        return store.listPendingWork(id).stream()
                 .map(p -> SchedulePendingView.of(p, max))
                 .toList();
     }
 
     /** 手动清除隔离表中某个「需人工」条目（运行 / 排队中拒绝，避免与本轮的隔离表读写竞态）。 */
     @Transactional
-    public void clearPending(long id, long workId) {
-        requireExisting(id);
-        requireNotBusy(id);
-        store.deletePending(id, workId);
+    public void clearPending(long id, String workType, String workId) {
+        ScheduledTask task = requireExisting(id);
+        requireNotBusy(task);
+        requireChanged(store.clearPendingWork(
+                id, task.stateVersion(), workType, workId));
     }
 
     /** 取同账号 OVERUSE_PAUSED 任务里 last_message 记录的最新触发警告 modifiedAt（毫秒）。 */
-    private static Long latestOveruseWarning(List<ScheduledTask> tasks) {
+    private Long latestOveruseWarning(List<ScheduledTask> tasks) {
         Long best = null;
         for (ScheduledTask t : tasks) {
-            if (!ScheduledTask.STATUS_OVERUSE_PAUSED.equals(t.lastStatus())) continue;
-            String msg = t.lastMessage();
-            if (msg == null || msg.isBlank()) continue;
+            if (t.suspendReason() != ScheduleSuspendReason.POLICY
+                    || !"PIXIV_OVERUSE".equals(t.suspendCode())
+                    || t.suspendDetailJson() == null) {
+                continue;
+            }
             try {
-                long v = Long.parseLong(msg.trim());
+                var node = objectMapper.readTree(t.suspendDetailJson()).path("modifiedAt");
+                long v = Long.parseLong(node.asText("0"));
                 if (best == null || v > best) best = v;
-            } catch (NumberFormatException ignored) {
-                // last_message 非纯数字（异常路径）：忽略
+            } catch (Exception ignored) {
+                // 安全展示载荷损坏时不猜测时间；恢复动作会用当前时间作为确认点。
             }
         }
         return best;
@@ -470,20 +609,22 @@ public class ScheduleService {
 
     // ── 内部 ────────────────────────────────────────────────────────────────────
 
-    private void requireExisting(long id) {
-        if (store.findById(id) == null) {
+    private ScheduledTask requireExisting(long id) {
+        ScheduledTask task = store.findById(id);
+        if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
+        return task;
     }
 
-    /** 任务是否正处于瞬时运行态（QUEUED / RUNNING）。结构性操作在此期间应拒绝。 */
-    private boolean isBusy(long id) {
-        return runState.get(id) != null;
+    /** 持久化认领是运行真相；内存镜像只补同步提交到查询之间的极短窗口。 */
+    private boolean isBusy(ScheduledTask task) {
+        return task.runState() != null || runState.get(task.id()) != null;
     }
 
     /** 运行 / 排队中拒绝结构性操作（编辑 / 启停 / 删除 / 授权 / 解绑 / 清待重试 / 恢复等）。 */
-    private void requireNotBusy(long id) {
-        if (isBusy(id)) {
+    private void requireNotBusy(ScheduledTask task) {
+        if (isBusy(task)) {
             throw LocalizedException.badRequest(
                     "schedule.error.busy", "任务正在运行或排队中，请等待本轮结束后再操作");
         }
@@ -491,10 +632,62 @@ public class ScheduleService {
 
     /** 是否处于暂停 / 挂起态（手动暂停 / 过度访问 / cookie 失效）。 */
     private static boolean isSuspended(ScheduledTask t) {
-        String s = t.lastStatus();
-        return ScheduledTask.STATUS_PAUSED.equals(s)
-                || ScheduledTask.STATUS_OVERUSE_PAUSED.equals(s)
-                || ScheduledTask.STATUS_AUTH_EXPIRED.equals(s);
+        return t.suspendReason() != null;
+    }
+
+    private void requirePixivTask(ScheduledTask task) {
+        if (!DownloadWorkbenchPlugin.ID.equals(task.sourceOwnerPluginId())) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.source-unavailable", "该任务不使用 Pixiv 凭证策略");
+        }
+    }
+
+    private ResolvedDefinition resolveDefinition(long taskId, ScheduleTaskRequest req) {
+        String requestedType = req.getType() == null ? null : req.getType().trim();
+        SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(requestedType).orElse(null);
+        if (planning == null) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.source-unavailable", "计划任务来源当前不可用: {0}", requestedType);
+        }
+        try (planning) {
+            if (!DownloadWorkbenchPlugin.ID.equals(planning.owner().featurePluginId())) {
+                throw LocalizedException.badRequest(
+                        "schedule.error.source-unavailable", "该来源不能由 Pixiv 计划编辑器创建或修改");
+            }
+            ScheduledTaskDefinition definition;
+            try {
+                definition = persistenceCodec.createDefinition(
+                        taskId, req.getName().trim(), planning.sourceType(), req.getParamsJson());
+            } catch (IllegalArgumentException e) {
+                throw LocalizedException.badRequest(
+                        "schedule.error.definition-invalid", "计划任务定义无效");
+            }
+            return new ResolvedDefinition(definition, planning.owner().featurePluginId());
+        }
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to encode schedule presentation", e);
+        }
+    }
+
+    private void requireChanged(OptionalLong changed) {
+        if (changed.isEmpty()) {
+            throw concurrentChange();
+        }
+    }
+
+    private LocalizedException concurrentChange() {
+        return LocalizedException.badRequest(
+                "schedule.error.concurrent-change", "任务状态已变化，请刷新后重试");
+    }
+
+    private record ResolvedDefinition(
+            ScheduledTaskDefinition definition,
+            String sourceOwnerPluginId) {
     }
 
     private String validateTrigger(ScheduleTaskRequest req) {

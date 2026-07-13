@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 
 import java.util.List;
@@ -14,7 +13,7 @@ import java.util.List;
 public final class FollowLatestSource extends AbstractScheduledSource {
 
     public FollowLatestSource() {
-        super(ScheduledTaskType.FOLLOW_LATEST);
+        super("follow-latest", "FOLLOW_LATEST");
     }
 
     @Override

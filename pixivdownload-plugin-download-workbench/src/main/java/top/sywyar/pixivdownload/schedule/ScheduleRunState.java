@@ -7,11 +7,10 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 计划任务的<b>运行期瞬时状态</b>登记（仅内存，不落库）。
+ * 计划任务的同进程协调态登记（仅内存，不落库）。
  *
- * <p>持久化的 {@code last_status} 只能表达「上一轮的结果」（OK / AUTH_EXPIRED / ERROR / 尚未运行），
- * 无法表达「此刻正在跑」或「在等待前一个任务跑完」。本登记补足这两个瞬时态，供
- * {@link top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView} 透出给前端展示状态灯：
+ * <p>持久化 Store 的 claim token、state version 与 run state 是运行真相。本登记镜像同 JVM 内已认领的
+ * {@code QUEUED}/{@code RUNNING}，用于快速单飞、协作式取消和界面即时刷新：
  *
  * <ul>
  *   <li>{@link #QUEUED}：本轮 tick 已选中、出于「同一时刻只跑一个」的串行约束在排队等待前序任务结束；</li>
@@ -21,14 +20,15 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>每轮运行都必须先拿到一个 {@link Claim}。后续从 QUEUED 转 RUNNING、结束清理时都校验 claim，
  * 避免同一任务被手动运行 / tick 重复触发后互相覆盖或误清对方状态。
  *
- * <p>不落库是有意的：进程退出后这些瞬时态自然消失，不会出现「卡在 RUNNING」的脏状态；
- * 任务真正的结果始终以持久化的 {@code last_status} / {@code run_started_time} 为准。
+ * <p>本登记不是运行真相：持久化 Store 另以 claim token、state version 和运行态做 CAS。
+ * 这里仅用于同进程内快速单飞、协作式取消与界面即时刷新；进程重启后的中断恢复完全由持久化状态机负责。
  */
 @PluginManagedBean
 public class ScheduleRunState {
 
     public static final String QUEUED = "QUEUED";
     public static final String RUNNING = "RUNNING";
+    public static final String CANCEL_REQUESTED = "CANCEL_REQUESTED";
 
     private final AtomicLong nextClaim = new AtomicLong();
     private final ConcurrentMap<Long, Entry> states = new ConcurrentHashMap<>();
@@ -64,10 +64,13 @@ public class ScheduleRunState {
                 current.claimId() == claim.claimId() ? null : current);
     }
 
-    /** 返回该任务的瞬时运行态（{@link #QUEUED} / {@link #RUNNING}），无则返回 {@code null}。 */
+    /** 返回该任务的瞬时运行态，无则返回 {@code null}。 */
     public String get(long id) {
         Entry entry = states.get(id);
-        return entry == null ? null : entry.state();
+        if (entry == null) {
+            return null;
+        }
+        return entry.cancelRequested() ? CANCEL_REQUESTED : entry.state();
     }
 
     /**
@@ -75,8 +78,8 @@ public class ScheduleRunState {
      *
      * <p>用于手动「暂停」让运行中的任务在下一个安全检查点（{@code WorkRunner.process} 入口）干净 unwind。
      * 标记位寄存在 {@link Entry} 上，{@link #clear(Claim)} 移除 Entry 时一并消失，下一轮运行自然清零。
-     * 任务空闲（无 Entry）时返回 {@code false}：DB 的 {@code last_status=PAUSED} 已足以让 {@code findDue} 把它挡住，
-     * 无需在内存里挂残留标记。
+     * 任务空闲（无 Entry）时返回 {@code false}：持久化挂起原因已足以让 {@code findDue} 把它挡住，
+     * 无需在内存里保留取消标记。
      */
     public boolean requestCancel(long taskId) {
         boolean[] applied = {false};

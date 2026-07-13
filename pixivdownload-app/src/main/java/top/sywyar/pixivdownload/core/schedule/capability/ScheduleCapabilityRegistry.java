@@ -174,7 +174,7 @@ public class ScheduleCapabilityRegistry {
     /**
      * 一次发布一个 owner 的完整 bundle。冲突或校验失败时，既有 snapshot 引用与 revision 均保持不变。
      */
-    public ScheduleCapabilityPublication publish(ScheduleOwnerBundle bundle) {
+    ScheduleCapabilityPublication publish(ScheduleOwnerBundle bundle) {
         ScheduleCapabilityReservation reservation = reserve(bundle);
         boolean committed = false;
         try {
@@ -300,7 +300,7 @@ public class ScheduleCapabilityRegistry {
     /**
      * 精确撤回一次 publication。旧 generation 或同 generation 的旧 publication token 都不能撤回当前能力。
      */
-    public Optional<ScheduleGenerationDrain> withdraw(ScheduleCapabilityPublication publication) {
+    Optional<ScheduleGenerationDrain> withdraw(ScheduleCapabilityPublication publication) {
         if (publication == null) {
             return Optional.empty();
         }
@@ -319,7 +319,7 @@ public class ScheduleCapabilityRegistry {
         }
     }
 
-    public Optional<ScheduleCapabilityPublication> publication(ScheduleCapabilityOwner owner) {
+    Optional<ScheduleCapabilityPublication> publication(ScheduleCapabilityOwner owner) {
         if (owner == null) {
             return Optional.empty();
         }

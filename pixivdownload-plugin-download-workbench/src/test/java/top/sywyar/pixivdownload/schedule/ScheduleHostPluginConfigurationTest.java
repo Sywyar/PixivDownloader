@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegis
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +34,10 @@ class ScheduleHostPluginConfigurationTest {
         ScheduleConfig config = new ScheduleConfig();
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleRunQueue runQueue = new ScheduleRunQueue();
+        ObjectMapper objectMapper = new ObjectMapper();
+        PixivSchedulePersistenceCodec persistenceCodec =
+                configuration.pixivSchedulePersistenceCodec(objectMapper);
+        OveruseWarningService overuseWarningService = mock(OveruseWarningService.class);
         TaskExecutor direct = Runnable::run;
 
         ScheduleExecutor executor = configuration.scheduleExecutor(
@@ -45,8 +51,9 @@ class ScheduleHostPluginConfigurationTest {
                 config,
                 runState,
                 runQueue,
-                new ObjectMapper(),
-                mock(OveruseWarningService.class),
+                objectMapper,
+                persistenceCodec,
+                overuseWarningService,
                 mock(NotificationService.class),
                 mock(AppMessages.class),
                 mock(SetupService.class),
@@ -54,11 +61,17 @@ class ScheduleHostPluginConfigurationTest {
                 direct,
                 direct);
         ScheduleService service = configuration.scheduleService(
-                store, executor, config, runState, runQueue, registry);
+                store, executor, config, runState, runQueue,
+                objectMapper, persistenceCodec, overuseWarningService,
+                mock(PlatformTransactionManager.class), registry);
 
         assertThat(ReflectionTestUtils.getField(executor, "scheduleCapabilityRegistry"))
                 .isSameAs(registry);
         assertThat(ReflectionTestUtils.getField(service, "scheduleCapabilityRegistry"))
                 .isSameAs(registry);
+        assertThat(ReflectionTestUtils.getField(executor, "persistenceCodec"))
+                .isSameAs(persistenceCodec);
+        assertThat(ReflectionTestUtils.getField(service, "persistenceCodec"))
+                .isSameAs(persistenceCodec);
     }
 }

@@ -10,7 +10,9 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthority;
+import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthorityTestAccess;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 
 import java.util.Arrays;
@@ -31,6 +33,9 @@ import static org.mockito.Mockito.when;
 @DisplayName("插件运行期任务清退器")
 class PluginRuntimeTaskQuiescerTest {
 
+    private static final ScheduleContributionLifecycleAuthority AUTHORITY =
+            ScheduleContributionLifecycleAuthorityTestAccess.create();
+
     @Test
     @DisplayName("按 publication 撤回、关闭 SSE、排空队列的固定顺序清退并返回精确 drain")
     void withdrawsThenClosesStreamsThenDrainsQueues() {
@@ -40,16 +45,16 @@ class PluginRuntimeTaskQuiescerTest {
         QueueOperations operations = mock(QueueOperations.class);
         ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
         ScheduleGenerationDrain drain = mock(ScheduleGenerationDrain.class);
-        when(registrar.withdraw(publication)).thenReturn(Optional.of(drain));
+        when(registrar.withdraw(AUTHORITY, publication)).thenReturn(Optional.of(drain));
         when(queues.resolve("ext-illust")).thenReturn(Optional.of(operations));
         PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
         PluginRuntimeTaskQuiescer.QuiesceResult result = quiescer.quiesce(
-                "ext-demo", publication, Optional.of(pluginWithQueueTypes("ext-illust")));
+                AUTHORITY, "ext-demo", publication, Optional.of(pluginWithQueueTypes("ext-illust")));
 
         assertThat(result.scheduleDrain()).contains(drain);
         InOrder order = inOrder(registrar, streams, queues, operations);
-        order.verify(registrar).withdraw(publication);
+        order.verify(registrar).withdraw(AUTHORITY, publication);
         order.verify(streams).closeForPlugin("ext-demo");
         order.verify(queues).resolve("ext-illust");
         order.verify(operations).clearAll();
@@ -62,11 +67,12 @@ class PluginRuntimeTaskQuiescerTest {
         PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
         QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
         ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
-        doThrow(new IllegalStateException("withdraw failed")).when(registrar).withdraw(publication);
+        doThrow(new IllegalStateException("withdraw failed"))
+                .when(registrar).withdraw(AUTHORITY, publication);
         PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
         assertThatThrownBy(() -> quiescer.quiesce(
-                "ext-demo", publication, Optional.of(pluginWithQueueTypes("ext-illust"))))
+                AUTHORITY, "ext-demo", publication, Optional.of(pluginWithQueueTypes("ext-illust"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("withdraw failed");
 
@@ -80,11 +86,11 @@ class PluginRuntimeTaskQuiescerTest {
         PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
         QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
         ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
-        when(registrar.withdraw(publication)).thenReturn(Optional.empty());
+        when(registrar.withdraw(AUTHORITY, publication)).thenReturn(Optional.empty());
         PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
         assertThatThrownBy(() -> quiescer.quiesce(
-                "ext-demo", publication, Optional.of(pluginWithQueueTypes())))
+                AUTHORITY, "ext-demo", publication, Optional.of(pluginWithQueueTypes())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("no longer active");
         verifyNoInteractions(streams, queues);
@@ -100,7 +106,7 @@ class PluginRuntimeTaskQuiescerTest {
         QueueOperations healthy = mock(QueueOperations.class);
         ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
         ScheduleGenerationDrain drain = mock(ScheduleGenerationDrain.class);
-        when(registrar.withdraw(publication)).thenReturn(Optional.of(drain));
+        when(registrar.withdraw(AUTHORITY, publication)).thenReturn(Optional.of(drain));
         doThrow(new IllegalStateException("stream failed")).when(streams).closeForPlugin("ext-demo");
         when(queues.resolve("broken")).thenReturn(Optional.of(broken));
         when(queues.resolve("healthy")).thenReturn(Optional.of(healthy));
@@ -108,7 +114,8 @@ class PluginRuntimeTaskQuiescerTest {
         PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
         assertThatCode(() -> quiescer.quiesce(
-                "ext-demo", publication, Optional.of(pluginWithQueueTypes("broken", "healthy"))))
+                AUTHORITY, "ext-demo", publication,
+                Optional.of(pluginWithQueueTypes("broken", "healthy"))))
                 .doesNotThrowAnyException();
 
         verify(healthy).clearAll();
@@ -125,10 +132,11 @@ class PluginRuntimeTaskQuiescerTest {
         PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
         PluginRuntimeTaskQuiescer.QuiesceResult result = quiescer.quiesce(
-                "ext-demo", null, Optional.of(pluginWithQueueTypes("ext-illust")));
+                AUTHORITY, "ext-demo", null, Optional.of(pluginWithQueueTypes("ext-illust")));
 
         assertThat(result.scheduleDrain()).isEmpty();
-        verify(registrar, never()).withdraw(org.mockito.ArgumentMatchers.any());
+        verify(registrar, never()).withdraw(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(streams).closeForPlugin("ext-demo");
         verify(operations).clearAll();
     }

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
@@ -148,7 +149,8 @@ class PluginClassLoaderLeakProbeTest {
         ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
                 owner, plugin.scheduledSources(), List.of(runner), List.of(), List.of(),
                 List.of(), List.of(), List.of());
-        ScheduleCapabilityPublication publication = schedule.publish(bundle);
+        ScheduleCapabilityPublication publication =
+                ScheduleCapabilityRegistryTestAccess.publish(schedule, bundle);
         streams.register(PLUGIN_ID, "conn-1", () -> { /* no-op close */ });
 
         // —— 接入后（确定性）：各注册中心暴露该插件，且 static / i18n / userscript 解析用的正是 probe loader ——
@@ -171,7 +173,8 @@ class PluginClassLoaderLeakProbeTest {
 
         // —— 注销（与生命周期 teardown 等价的注册中心注销路径）——
         web.unregister(registered); // 五类 web 贡献注销 + ResourceBundle.clearCache(probeCl) + scriptRegistry.refresh
-        ScheduleGenerationDrain drain = schedule.withdraw(publication).orElseThrow();
+        ScheduleGenerationDrain drain =
+                ScheduleCapabilityRegistryTestAccess.withdraw(schedule, publication).orElseThrow();
         assertThat(schedule.snapshotView().owners()).isEmpty();
         assertThat(schedule.resolveLegacySource(SOURCE_TYPE)).isEmpty();
         assertThat(schedule.resolveLegacyWorkRunner(RUNNER_KIND)).isEmpty();

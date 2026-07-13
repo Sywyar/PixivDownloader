@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.CookieAuthorizeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ProxyOverrideRequest;
+import top.sywyar.pixivdownload.schedule.dto.SchedulePendingDeleteRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
@@ -103,7 +104,7 @@ public class ScheduleController {
 
     // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────
 
-    /** 手动暂停（任务级 PAUSED，不冻账号、不发邮件）。 */
+    /** 手动挂起当前运行（MANUAL，不冻账号、不发邮件）。 */
     @PostMapping("/tasks/{id}/pause")
     public ScheduleTaskView pause(@PathVariable long id) {
         return scheduleService.pause(id);
@@ -140,9 +141,11 @@ public class ScheduleController {
     }
 
     /** 手动清除隔离表中某个「需人工」条目。 */
-    @DeleteMapping("/tasks/{id}/pending/{workId}")
-    public Map<String, Object> clearPending(@PathVariable long id, @PathVariable long workId) {
-        scheduleService.clearPending(id, workId);
+    @DeleteMapping("/tasks/{id}/pending")
+    public Map<String, Object> clearPending(
+            @PathVariable long id,
+            @Valid @RequestBody SchedulePendingDeleteRequest request) {
+        scheduleService.clearPending(id, request.getWorkType(), request.getWorkId());
         return Map.of("success", true);
     }
 }

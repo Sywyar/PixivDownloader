@@ -8,7 +8,8 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPubli
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthority;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 
 import java.util.List;
@@ -46,21 +47,24 @@ public class PluginRuntimeTaskQuiescer {
      * 发起指定插件的运行期清退。若传入 publication，则必须精确撤回并取得 drain；token 已过期视为安全错误，
      * 不能继续关闭 child context。
      */
-    public QuiesceResult quiesce(String pluginId,
+    public QuiesceResult quiesce(ScheduleContributionLifecycleAuthority authority,
+                                 String pluginId,
                                  @Nullable ScheduleCapabilityPublication publication,
                                  Optional<PixivFeaturePlugin> plugin) {
-        Optional<ScheduleGenerationDrain> drain = withdrawSchedule(publication);
+        Optional<ScheduleGenerationDrain> drain = withdrawSchedule(authority, publication);
         closeStreams(pluginId);
         drainQueueTasks(pluginId, plugin);
         return new QuiesceResult(drain);
     }
 
     private Optional<ScheduleGenerationDrain> withdrawSchedule(
+            ScheduleContributionLifecycleAuthority authority,
             @Nullable ScheduleCapabilityPublication publication) {
         if (publication == null) {
             return Optional.empty();
         }
-        Optional<ScheduleGenerationDrain> drain = scheduleContributionRegistrar.withdraw(publication);
+        Optional<ScheduleGenerationDrain> drain =
+                scheduleContributionRegistrar.withdraw(authority, publication);
         if (drain.isEmpty()) {
             throw new IllegalStateException("schedule publication is no longer active: "
                     + publication.owner() + "#" + publication.publicationId());

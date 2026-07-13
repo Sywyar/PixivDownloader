@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 
 /**
  * 隔离表（待重试）行的对外视图：供前端「本任务待重试 / 需人工」面板展示。
@@ -10,16 +10,20 @@ import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
  */
 public record SchedulePendingView(
         long taskId,
-        long workId,
-        String reason,
+        String workType,
+        String workId,
+        String presentationJson,
+        String reasonCode,
+        String reasonDetailJson,
         int attempts,
         boolean needsManual,
         Long firstSeenTime,
         Long lastAttemptTime
 ) {
-    public static SchedulePendingView of(ScheduledTaskPending p, int maxAttempts) {
+    public static SchedulePendingView of(ScheduledPendingWork p, int maxAttempts) {
         return new SchedulePendingView(
-                p.taskId(), p.workId(), p.reason(), p.attempts(),
+                p.taskId(), p.workType(), p.workId(), p.presentationJson(),
+                p.reasonCode(), p.reasonDetailJson(), p.attempts(),
                 p.attempts() >= maxAttempts, p.firstSeenTime(), p.lastAttemptTime());
     }
 }

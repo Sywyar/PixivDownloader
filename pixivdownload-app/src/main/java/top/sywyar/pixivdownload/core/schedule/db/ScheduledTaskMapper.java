@@ -7,259 +7,435 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 
 import java.util.List;
 
-/**
- * {@code scheduled_tasks} 表的数据访问（核心实现层，仅供 {@link ScheduledTaskStoreImpl} 内部使用）。
- *
- * <p><b>cookie 红线：</b>{@code cookie_snapshot} 是完整登录凭证，<b>绝不</b>出现在
- * {@link #SELECT_TASK} 这类行投影里（列表 / 详情 / 导出都走它，恒为 {@code null}）。
- * 调度器需要凭证时单独调 {@link #findCookieSnapshot(long)} 取裸标量，结果只在服务内部使用、
- * 绝不写日志 / 回显。
- */
+/** 核心计划任务 Store 的 MyBatis 实现细节；插件代码不得直接依赖本 mapper。 */
 @Mapper
 public interface ScheduledTaskMapper {
 
-    /** 不含 cookie_snapshot 的行投影；cookieSnapshot 组件在映射时恒为 null。 */
-    String SELECT_TASK = "SELECT id, name, enabled, type, params_json AS paramsJson,"
-            + " trigger_kind AS triggerKind, interval_minutes AS intervalMinutes,"
-            + " cron_expr AS cronExpr, cookie_mode AS cookieMode,"
-            + " proxy_snapshot AS proxySnapshot,"
-            + " next_run_time AS nextRunTime, last_run_time AS lastRunTime,"
-            + " last_status AS lastStatus, last_message AS lastMessage,"
-            + " watermark_id AS watermarkId, run_started_time AS runStartedTime,"
-            + " account_id AS accountId, ack_warning_time AS ackWarningTime,"
-            + " pending_retry_armed AS pendingRetryArmed,"
-            + " created_time AS createdTime"
-            + " FROM scheduled_tasks";
+    /** 不含任何 credential secret 的任务投影。 */
+    String SELECT_TASK = "SELECT t.id, t.name, t.enabled,"
+            + " t.type AS sourceType, t.source_owner_plugin_id AS sourceOwnerPluginId,"
+            + " t.definition_schema AS definitionSchema, t.definition_version AS definitionVersion,"
+            + " t.params_json AS definitionJson, t.presentation_json AS presentationJson,"
+            + " t.trigger_kind AS triggerKind, t.interval_minutes AS intervalMinutes,"
+            + " t.cron_expr AS cronExpr, t.proxy_snapshot AS proxySnapshot,"
+            + " t.next_run_time AS nextRunTime, t.last_run_time AS lastRunTime,"
+            + " t.checkpoint_schema AS checkpointSchema, t.checkpoint_version AS checkpointVersion,"
+            + " t.checkpoint_json AS checkpointJson, t.storage_version AS storageVersion,"
+            + " t.run_state AS runState, t.run_claim_token AS runClaimToken,"
+            + " t.last_outcome AS lastOutcome, t.outcome_code AS outcomeCode,"
+            + " t.outcome_message AS outcomeMessage, t.suspend_reason AS suspendReason,"
+            + " t.suspend_code AS suspendCode, t.suspend_detail_json AS suspendDetailJson,"
+            + " t.state_version AS stateVersion,"
+            + " c.policy_owner_plugin_id AS credentialPolicyOwnerPluginId,"
+            + " c.policy_id AS credentialPolicyId, c.account_key AS credentialAccountKey,"
+            + " c.policy_state_json AS credentialPolicyStateJson,"
+            + " c.secret_reference AS credentialSecretReference, c.updated_time AS credentialUpdatedTime,"
+            + " t.created_time AS createdTime"
+            + " FROM scheduled_tasks t"
+            + " LEFT JOIN scheduled_task_credentials c ON c.task_id = t.id";
 
-    // ── 写入 ────────────────────────────────────────────────────────────────────
-
-    @Insert("INSERT INTO scheduled_tasks(name, enabled, type, params_json, trigger_kind,"
-            + " interval_minutes, cron_expr, cookie_mode, cookie_snapshot, proxy_snapshot,"
-            + " next_run_time, last_run_time, last_status, last_message,"
-            + " watermark_id, run_started_time, account_id, ack_warning_time,"
-            + " pending_retry_armed, created_time)"
-            + " VALUES(#{name}, #{enabled}, #{type}, #{paramsJson}, #{triggerKind},"
-            + " #{intervalMinutes}, #{cronExpr}, #{cookieMode}, #{cookieSnapshot}, #{proxySnapshot},"
-            + " #{nextRunTime}, #{lastRunTime}, #{lastStatus}, #{lastMessage},"
-            + " #{watermarkId}, #{runStartedTime}, #{accountId}, #{ackWarningTime},"
-            + " #{pendingRetryArmed}, #{createdTime})")
+    @Insert("INSERT INTO scheduled_tasks(name, enabled, type, params_json,"
+            + " source_owner_plugin_id, definition_schema, definition_version, presentation_json,"
+            + " trigger_kind, interval_minutes, cron_expr, cookie_mode, proxy_snapshot,"
+            + " next_run_time, last_run_time, checkpoint_schema, checkpoint_version, checkpoint_json,"
+            + " storage_version, run_state, run_claim_token, last_outcome, outcome_code, outcome_message,"
+            + " suspend_reason, suspend_code, suspend_detail_json, state_version, created_time)"
+            + " VALUES(#{name}, #{enabled}, #{sourceType}, #{definitionJson},"
+            + " #{sourceOwnerPluginId}, #{definitionSchema}, #{definitionVersion}, #{presentationJson},"
+            + " #{triggerKind}, #{intervalMinutes}, #{cronExpr}, 'restricted', #{proxySnapshot},"
+            + " #{nextRunTime}, #{lastRunTime}, #{checkpointSchema}, #{checkpointVersion}, #{checkpointJson},"
+            + " #{storageVersion}, #{runState}, #{runClaimToken}, #{lastOutcome}, #{outcomeCode}, #{outcomeMessage},"
+            + " #{suspendReason}, #{suspendCode}, #{suspendDetailJson}, #{stateVersion}, #{createdTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     void insert(ScheduledTaskInsert task);
 
-    @Update("UPDATE scheduled_tasks SET name = #{name}, type = #{type}, params_json = #{paramsJson},"
-            + " trigger_kind = #{triggerKind}, interval_minutes = #{intervalMinutes},"
-            + " cron_expr = #{cronExpr}, next_run_time = #{nextRunTime}, watermark_id = NULL"
-            + " WHERE id = #{id}")
-    int updateDefinition(@Param("id") long id,
-                         @Param("name") String name,
-                         @Param("type") ScheduledTaskType type,
-                         @Param("paramsJson") String paramsJson,
-                         @Param("triggerKind") String triggerKind,
-                         @Param("intervalMinutes") Integer intervalMinutes,
-                         @Param("cronExpr") String cronExpr,
-                         @Param("nextRunTime") Long nextRunTime);
-
-    @Update("UPDATE scheduled_tasks SET enabled = #{enabled} WHERE id = #{id}")
-    int updateEnabled(@Param("id") long id, @Param("enabled") boolean enabled);
-
-    @Update("UPDATE scheduled_tasks SET cookie_snapshot = #{cookieSnapshot}, cookie_mode = #{cookieMode}"
-            + " WHERE id = #{id}")
-    int updateCookie(@Param("id") long id,
-                     @Param("cookieSnapshot") String cookieSnapshot,
-                     @Param("cookieMode") String cookieMode);
-
-    /**
-     * 解除授权 / 失效自动降级共用：清空 Cookie 凭证（转受限匿名模式），并清除由 Cookie 派生的
-     * {@code account_id} 与 {@code ack_warning_time}。
-     *
-     * <p>{@code account_id}（PHPSESSID 下划线前缀的非敏感 Pixiv userId）是「同账号过度访问冻结 /
-     * 横幅分组 / 账号级恢复」的分组键。Cookie 一旦清除，账号绑定即失去依据：若残留，这个已转受限
-     * （不再使用该账号凭证）的任务仍会被同账号其它任务触发的过度访问冻结牵连、在通知 / 横幅里错误
-     * 归到该账号、并被账号级恢复误命中。{@code ack_warning_time}（管理员对该账号「无视风险」的放行
-     * 记录）同属账号维度，一并清除，避免日后改用别的账号重新授权时沿用旧账号的放行记录而吞掉新账号
-     * 的首次警告。
-     */
-    @Update("UPDATE scheduled_tasks SET cookie_snapshot = NULL, cookie_mode = #{cookieMode},"
-            + " account_id = NULL, ack_warning_time = NULL WHERE id = #{id}")
-    int clearCookieAndAccount(@Param("id") long id, @Param("cookieMode") String cookieMode);
-
-    /** 设置 / 清除任务级单独代理（host:port，非凭证；{@code null} = 回退全局代理设置）。 */
-    @Update("UPDATE scheduled_tasks SET proxy_snapshot = #{proxySnapshot} WHERE id = #{id}")
-    int updateProxy(@Param("id") long id, @Param("proxySnapshot") String proxySnapshot);
-
-    /**
-     * 本轮跑完落库结果。<b>CASE 保留运行中被手动设置的 {@code PAUSED}</b>：
-     * 用户在任务运行过程中点了「暂停」时，{@link #setStatus} 已把 {@code last_status} 写成 {@code PAUSED}；
-     * 这里若直接覆盖会让暂停被吞掉、下一轮 tick 又把任务挑回来跑。SQLite 中 SET 子句的所有表达式按行旧值求值，
-     * 三个 CASE 都对 <i>本轮跑之前</i> 的 {@code last_status} 做判断，原子无 TOCTOU。
-     */
-    @Update("UPDATE scheduled_tasks SET last_run_time = #{lastRunTime},"
-            + " last_status = CASE WHEN last_status = 'PAUSED' THEN 'PAUSED' ELSE #{lastStatus} END,"
-            + " last_message = CASE WHEN last_status = 'PAUSED' THEN last_message ELSE #{lastMessage} END,"
-            + " next_run_time = CASE WHEN last_status = 'PAUSED' THEN next_run_time ELSE #{nextRunTime} END,"
-            + " run_started_time = NULL WHERE id = #{id}")
-    int updateRunResult(@Param("id") long id,
-                        @Param("lastRunTime") Long lastRunTime,
-                        @Param("lastStatus") String lastStatus,
-                        @Param("lastMessage") String lastMessage,
-                        @Param("nextRunTime") Long nextRunTime);
-
-    /** 进入执行时落库本轮开始时刻；进程被强杀（未走到 {@link #updateRunResult}）即残留为「上次运行被中断」信号。 */
-    @Update("UPDATE scheduled_tasks SET run_started_time = #{runStartedTime} WHERE id = #{id}")
-    int updateRunStarted(@Param("id") long id, @Param("runStartedTime") Long runStartedTime);
-
-    /** 一轮完整跑完后更新水位线（本轮发现到的最新作品 ID）；异常 / 鉴权失效不更新。 */
-    @Update("UPDATE scheduled_tasks SET watermark_id = #{watermarkId} WHERE id = #{id}")
-    int updateWatermark(@Param("id") long id, @Param("watermarkId") Long watermarkId);
-
-    @Delete("DELETE FROM scheduled_tasks WHERE id = #{id}")
-    int delete(@Param("id") long id);
-
-    /** 仅覆盖 params_json（启动期补字段迁移用），不动其它列、不清水位线。 */
-    @Update("UPDATE scheduled_tasks SET params_json = #{paramsJson} WHERE id = #{id}")
-    int updateParamsJson(@Param("id") long id, @Param("paramsJson") String paramsJson);
-
-    // ── 读取（无 cookie） ────────────────────────────────────────────────────────
-
-    @Select(SELECT_TASK + " ORDER BY id DESC")
+    @Select(SELECT_TASK + " ORDER BY t.id DESC")
     List<ScheduledTask> findAll();
 
-    @Select(SELECT_TASK + " WHERE id = #{id}")
+    @Select(SELECT_TASK + " WHERE t.id = #{id}")
     ScheduledTask findById(@Param("id") long id);
-
-    /**
-     * 到期 <b>或被进程强杀中断</b>、且未被挂起的任务。挂起态（{@code OVERUSE_PAUSED} 账号级过度访问、
-     * {@code AUTH_EXPIRED} cookie 失效、{@code PAUSED} 管理员手动）由状态门挡住，不再每周期重撞——
-     * 等待管理员显式恢复。
-     *
-     * <p><b>{@code run_started_time IS NOT NULL} 分支 = 崩溃即时重跑：</b>正常运行结束 {@code updateRunResult}
-     * 会清 {@code run_started_time}；若进程在一轮运行中途被强杀则残留。重启后哪怕该任务的 {@code next_run_time}
-     * 还在未来（典型如「立即运行」触发、尚未到周期就被中断的那一轮），也要立刻重跑补齐，而不是傻等到下次周期。
-     * 正在运行的任务虽也匹配此分支，但有内存 Claim 占位，{@code tryMarkQueued} 会失败、tick 跳过，不会重复触发。
-     *
-     * <p>{@code SOURCE_UNAVAILABLE}（来源 provider 解析不到 → 调度器在轮首解析门标记的来源不可用）同样并入状态门：
-     * 来源缺失下重跑只会每周期再次撞门空转，须挡住等来源恢复后由显式重激活入口恢复。
-     */
-    @Select(SELECT_TASK + " WHERE enabled = 1"
-            + " AND (last_status IS NULL"
-            + "      OR last_status NOT IN ('OVERUSE_PAUSED','AUTH_EXPIRED','PAUSED','SOURCE_UNAVAILABLE'))"
-            + " AND ((next_run_time IS NOT NULL AND next_run_time <= #{now})"
-            + "      OR run_started_time IS NOT NULL)"
-            + " ORDER BY next_run_time")
-    List<ScheduledTask> findDue(@Param("now") long now);
 
     @Select("SELECT COUNT(*) FROM scheduled_tasks")
     int countAll();
 
-    @Select(SELECT_TASK + " WHERE account_id = #{accountId} ORDER BY id DESC")
-    List<ScheduledTask> findByAccountId(@Param("accountId") String accountId);
+    @Select(SELECT_TASK
+            + " WHERE t.storage_version = 1 AND t.enabled = 1"
+            + " AND t.suspend_reason IS NULL AND t.run_state IS NULL"
+            + " AND t.next_run_time IS NOT NULL AND t.next_run_time <= #{now}"
+            + " ORDER BY t.next_run_time, t.id")
+    List<ScheduledTask> findDue(@Param("now") long now);
 
-    // ── 状态 / 挂起 / 账号冻结 / 重试武装 ─────────────────────────────────────────
+    @Select(SELECT_TASK
+            + " WHERE c.policy_owner_plugin_id = #{policyOwnerPluginId}"
+            + " AND c.policy_id = #{policyId} AND c.account_key = #{accountKey}"
+            + " ORDER BY t.id DESC")
+    List<ScheduledTask> findByCredentialAccount(
+            @Param("policyOwnerPluginId") String policyOwnerPluginId,
+            @Param("policyId") String policyId,
+            @Param("accountKey") String accountKey);
 
-    /** 仅置状态（手动暂停等），不动其它列。 */
-    @Update("UPDATE scheduled_tasks SET last_status = #{status} WHERE id = #{id}")
-    int setStatus(@Param("id") long id, @Param("status") String status);
+    @Select(value = "UPDATE scheduled_tasks SET run_state = 'QUEUED',"
+            + " run_claim_token = #{claimToken}, state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
+            + " AND enabled = 1 AND suspend_reason IS NULL AND run_state IS NULL"
+            + " AND next_run_time IS NOT NULL AND next_run_time <= #{now}"
+            + " RETURNING run_claim_token AS claimToken, state_version AS stateVersion, run_state AS runState",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    ScheduleRunToken tryQueueDue(@Param("id") long id,
+                                 @Param("expectedStateVersion") long expectedStateVersion,
+                                 @Param("claimToken") String claimToken,
+                                 @Param("now") long now);
 
-    /** 写入授权解析出的非敏感 Pixiv userId（PHPSESSID 下划线前缀）。 */
-    @Update("UPDATE scheduled_tasks SET account_id = #{accountId} WHERE id = #{id}")
-    int updateAccountId(@Param("id") long id, @Param("accountId") String accountId);
+    @Select(value = "UPDATE scheduled_tasks SET run_state = 'QUEUED',"
+            + " run_claim_token = #{claimToken}, state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
+            + " AND enabled = 1 AND suspend_reason IS NULL AND run_state IS NULL"
+            + " RETURNING run_claim_token AS claimToken, state_version AS stateVersion, run_state AS runState",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    ScheduleRunToken tryQueueNow(@Param("id") long id,
+                                 @Param("expectedStateVersion") long expectedStateVersion,
+                                 @Param("claimToken") String claimToken);
 
-    /**
-     * 账号级过度访问冻结：把同账号所有<b>非挂起态</b>任务一并标 {@code OVERUSE_PAUSED} + 提示文案，
-     * 挡住「还没轮到跑」的兄弟任务（「此刻正在下载」的兄弟靠其自身轮内 N 检查点停下）。
-     */
-    @Update("UPDATE scheduled_tasks SET last_status = #{status}, last_message = #{message},"
-            + " run_started_time = NULL"
-            + " WHERE account_id = #{accountId}"
-            + " AND (last_status IS NULL OR last_status NOT IN ('OVERUSE_PAUSED','AUTH_EXPIRED','PAUSED'))")
-    int freezeAccount(@Param("accountId") String accountId,
-                      @Param("status") String status,
-                      @Param("message") String message);
+    @Select(value = "UPDATE scheduled_tasks SET run_state = 'RUNNING', state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1"
+            + " AND state_version = #{queuedToken.stateVersion}"
+            + " AND run_state = 'QUEUED' AND run_claim_token = #{queuedToken.claimToken}"
+            + " AND enabled = 1 AND suspend_reason IS NULL"
+            + " RETURNING run_claim_token AS claimToken, state_version AS stateVersion, run_state AS runState",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    ScheduleRunToken startRun(@Param("id") long id,
+                              @Param("queuedToken") ScheduleRunToken queuedToken);
 
-    /** 记录管理员已显式放行的最新警告 modifiedAt（同账号），此后不超过它的警告不再触发暂停。 */
-    @Update("UPDATE scheduled_tasks SET ack_warning_time = #{ackTime} WHERE account_id = #{accountId}")
-    int updateAckWarning(@Param("accountId") String accountId, @Param("ackTime") Long ackTime);
+    @Select(value = "UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
+            + " last_run_time = #{completion.finishedTime}, last_outcome = #{completion.outcome},"
+            + " outcome_code = #{completion.outcomeCode}, outcome_message = #{completion.outcomeMessage},"
+            + " next_run_time = #{completion.nextRunTime},"
+            + " checkpoint_schema = CASE WHEN #{completion.checkpointSchema} IS NULL"
+            + "                          THEN checkpoint_schema ELSE #{completion.checkpointSchema} END,"
+            + " checkpoint_version = CASE WHEN #{completion.checkpointSchema} IS NULL"
+            + "                           THEN checkpoint_version ELSE #{completion.checkpointVersion} END,"
+            + " checkpoint_json = CASE WHEN #{completion.checkpointSchema} IS NULL"
+            + "                        THEN checkpoint_json ELSE #{completion.checkpointJson} END,"
+            + " state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1"
+            + " AND state_version = #{runningToken.stateVersion}"
+            + " AND run_state = 'RUNNING' AND run_claim_token = #{runningToken.claimToken}"
+            + " AND suspend_reason IS NULL"
+            + " RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long completeRun(@Param("id") long id,
+                     @Param("runningToken") ScheduleRunToken runningToken,
+                     @Param("completion") ScheduleRunCompletion completion);
 
-    /**
-     * 账号级（过度访问）恢复：同账号<b>仅 {@code OVERUSE_PAUSED}</b> 任务清挂起 + 重置 next_run + 清中断哨兵。
-     * 绝不顺带恢复 {@code AUTH_EXPIRED}（需要重新授权 cookie）或 {@code PAUSED}（管理员手动暂停）——这两类
-     * 与过度访问无关，应该由各自的恢复入口处理。
-     */
-    @Update("UPDATE scheduled_tasks SET last_status = NULL, last_message = NULL,"
-            + " next_run_time = #{nextRun}, run_started_time = NULL"
-            + " WHERE account_id = #{accountId}"
-            + " AND last_status = 'OVERUSE_PAUSED'")
-    int clearSuspendForAccount(@Param("accountId") String accountId, @Param("nextRun") Long nextRun);
+    @Select(value = "UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
+            + " last_run_time = #{finishedTime},"
+            + " last_outcome = CASE"
+            + "   WHEN run_state = 'CANCEL_REQUESTED'"
+            + "        AND suspend_reason IN ('MANUAL','QUIESCED') THEN 'CANCELLED'"
+            + "   WHEN run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL THEN 'ERROR'"
+            + "   ELSE #{outcome} END,"
+            + " outcome_code = CASE"
+            + "   WHEN run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL THEN suspend_code"
+            + "   ELSE #{outcomeCode} END,"
+            + " outcome_message = CASE"
+            + "   WHEN run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL"
+            + "     THEN suspend_detail_json"
+            + "   ELSE #{outcomeMessage} END,"
+            + " next_run_time = #{nextRunTime}, state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1"
+            + " AND run_claim_token = #{activeToken.claimToken}"
+            + " AND ((state_version = #{activeToken.stateVersion}"
+            + "       AND run_state = #{activeToken.runState})"
+            + "   OR (state_version = #{activeToken.stateVersion} + 1"
+            + "       AND #{activeToken.runState} IN ('QUEUED','RUNNING')"
+            + "       AND run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL))"
+            + " RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long finishCancelled(@Param("id") long id,
+                         @Param("activeToken") ScheduleRunToken activeToken,
+                         @Param("outcome") ScheduleLastOutcome outcome,
+                         @Param("finishedTime") long finishedTime,
+                         @Param("outcomeCode") String outcomeCode,
+                         @Param("outcomeMessage") String outcomeMessage,
+                         @Param("nextRunTime") Long nextRunTime);
 
-    /**
-     * 单任务恢复：清挂起 + 重置 next_run + 清中断哨兵。
-     * 同清 {@code run_started_time}：若任务在「暂停途中进程被强杀」的窗口里留下了残留哨兵，
-     * 恢复时一并清除，避免恢复后仍被误显示为「上次运行被中断」红灯。
-     */
-    @Update("UPDATE scheduled_tasks SET last_status = NULL, last_message = NULL,"
-            + " next_run_time = #{nextRun}, run_started_time = NULL WHERE id = #{id}")
-    int clearSuspend(@Param("id") long id, @Param("nextRun") Long nextRun);
+    @Select(value = "UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
+            + " next_run_time = COALESCE(#{nextRunTime}, next_run_time),"
+            + " state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1"
+            + " AND state_version = #{queuedToken.stateVersion}"
+            + " AND run_state = 'QUEUED' AND run_claim_token = #{queuedToken.claimToken}"
+            + " RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long releaseQueued(@Param("id") long id,
+                       @Param("queuedToken") ScheduleRunToken queuedToken,
+                       @Param("nextRunTime") Long nextRunTime);
 
-    /**
-     * 单任务、<b>仅当当前状态为指定挂起态</b>时清挂起 + 重置 next_run + 清中断哨兵。
-     * 用于「按入口类型限定恢复」：cookie 重新授权只解 {@code AUTH_EXPIRED}、手动恢复只解 {@code PAUSED}，
-     * 避免一个恢复入口越权清掉其它管理员未确认的挂起态。
-     */
-    @Update("UPDATE scheduled_tasks SET last_status = NULL, last_message = NULL,"
-            + " next_run_time = #{nextRun}, run_started_time = NULL"
-            + " WHERE id = #{id} AND last_status = #{expectedStatus}")
-    int clearSuspendIfStatus(@Param("id") long id,
-                             @Param("nextRun") Long nextRun,
-                             @Param("expectedStatus") String expectedStatus);
+    @Select(value = "UPDATE scheduled_tasks SET suspend_reason = #{reason}, suspend_code = #{code},"
+            + " suspend_detail_json = #{detailJson},"
+            + " run_state = CASE WHEN run_state IN ('QUEUED','RUNNING')"
+            + "                  THEN 'CANCEL_REQUESTED' ELSE run_state END,"
+            + " state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1"
+            + " AND state_version = #{expectedStateVersion} AND suspend_reason IS NULL"
+            + " RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long suspend(@Param("id") long id,
+                 @Param("expectedStateVersion") long expectedStateVersion,
+                 @Param("reason") ScheduleSuspendReason reason,
+                 @Param("code") String code,
+                 @Param("detailJson") String detailJson);
 
-    /** 管理员处理完异常后武装：下一轮运行开始先把隔离表入队重试。 */
-    @Update("UPDATE scheduled_tasks SET pending_retry_armed = 1 WHERE id = #{id}")
-    int armRetry(@Param("id") long id);
+    @Select(value = "UPDATE scheduled_tasks SET suspend_reason = NULL, suspend_code = NULL,"
+            + " suspend_detail_json = NULL, next_run_time = #{nextRunTime},"
+            + " state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
+            + " AND run_state IS NULL AND suspend_reason = #{expectedReason}"
+            + " AND (suspend_code = #{expectedCode} OR (suspend_code IS NULL AND #{expectedCode} IS NULL))"
+            + " RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long resume(@Param("id") long id,
+                @Param("expectedStateVersion") long expectedStateVersion,
+                @Param("expectedReason") ScheduleSuspendReason expectedReason,
+                @Param("expectedCode") String expectedCode,
+                @Param("nextRunTime") Long nextRunTime);
 
-    /** 重试隔离表后清除武装位。 */
-    @Update("UPDATE scheduled_tasks SET pending_retry_armed = 0 WHERE id = #{id}")
-    int clearRetryArmed(@Param("id") long id);
+    @Update("UPDATE scheduled_tasks SET suspend_reason = #{reason}, suspend_code = #{code},"
+            + " suspend_detail_json = #{detailJson},"
+            + " run_state = CASE WHEN run_state IN ('QUEUED','RUNNING')"
+            + "                  THEN 'CANCEL_REQUESTED' ELSE run_state END,"
+            + " state_version = state_version + 1"
+            + " WHERE storage_version = 1 AND suspend_reason IS NULL"
+            + " AND id IN (SELECT task_id FROM scheduled_task_credentials"
+            + "            WHERE policy_owner_plugin_id = #{policyOwnerPluginId}"
+            + "              AND policy_id = #{policyId} AND account_key = #{accountKey})")
+    int suspendByCredentialAccount(@Param("policyOwnerPluginId") String policyOwnerPluginId,
+                                   @Param("policyId") String policyId,
+                                   @Param("accountKey") String accountKey,
+                                   @Param("reason") ScheduleSuspendReason reason,
+                                   @Param("code") String code,
+                                   @Param("detailJson") String detailJson);
 
-    // ── 隔离表 CRUD ──────────────────────────────────────────────────────────────
+    @Update("UPDATE scheduled_tasks SET suspend_reason = NULL, suspend_code = NULL,"
+            + " suspend_detail_json = NULL, next_run_time = #{nextRunTime},"
+            + " state_version = state_version + 1"
+            + " WHERE storage_version = 1 AND run_state IS NULL"
+            + " AND suspend_reason = #{expectedReason}"
+            + " AND (suspend_code = #{expectedCode} OR (suspend_code IS NULL AND #{expectedCode} IS NULL))"
+            + " AND id IN (SELECT task_id FROM scheduled_task_credentials"
+            + "            WHERE policy_owner_plugin_id = #{policyOwnerPluginId}"
+            + "              AND policy_id = #{policyId} AND account_key = #{accountKey})")
+    int resumeByCredentialAccount(@Param("policyOwnerPluginId") String policyOwnerPluginId,
+                                  @Param("policyId") String policyId,
+                                  @Param("accountKey") String accountKey,
+                                  @Param("expectedReason") ScheduleSuspendReason expectedReason,
+                                  @Param("expectedCode") String expectedCode,
+                                  @Param("nextRunTime") Long nextRunTime);
 
-    /** 记录可恢复失败的单作品；冲突时保留 {@code first_seen_time}、不重置 {@code attempts}，仅刷新原因与时刻。 */
-    @Insert("INSERT INTO scheduled_task_pending(task_id, work_id, reason, attempts,"
-            + " first_seen_time, last_attempt_time)"
-            + " VALUES(#{taskId}, #{workId}, #{reason}, 0, #{now}, #{now})"
-            + " ON CONFLICT(task_id, work_id) DO UPDATE SET reason = excluded.reason,"
+    @Select(value = "UPDATE scheduled_tasks SET name = #{update.name}, type = #{update.sourceType},"
+            + " source_owner_plugin_id = #{update.sourceOwnerPluginId},"
+            + " definition_schema = #{update.definitionSchema},"
+            + " definition_version = #{update.definitionVersion}, params_json = #{update.definitionJson},"
+            + " presentation_json = #{update.presentationJson}, trigger_kind = #{update.triggerKind},"
+            + " interval_minutes = #{update.intervalMinutes}, cron_expr = #{update.cronExpr},"
+            + " next_run_time = #{update.nextRunTime}, checkpoint_schema = NULL,"
+            + " checkpoint_version = NULL, checkpoint_json = NULL,"
+            + " suspend_reason = CASE WHEN suspend_reason IN"
+            + " ('MIGRATION_ERROR', 'SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE')"
+            + " THEN NULL ELSE suspend_reason END,"
+            + " suspend_code = CASE WHEN suspend_reason IN"
+            + " ('MIGRATION_ERROR', 'SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE')"
+            + " THEN NULL ELSE suspend_code END,"
+            + " suspend_detail_json = CASE WHEN suspend_reason IN"
+            + " ('MIGRATION_ERROR', 'SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE')"
+            + " THEN NULL ELSE suspend_detail_json END,"
+            + " state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
+            + " AND run_state IS NULL RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long updateDefinition(@Param("id") long id,
+                          @Param("expectedStateVersion") long expectedStateVersion,
+                          @Param("update") ScheduleTaskDefinitionUpdate update);
+
+    @Select(value = "UPDATE scheduled_tasks SET enabled = #{enabled}, state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
+            + " AND run_state IS NULL RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long updateEnabled(@Param("id") long id,
+                       @Param("expectedStateVersion") long expectedStateVersion,
+                       @Param("enabled") boolean enabled);
+
+    @Select(value = "UPDATE scheduled_tasks SET proxy_snapshot = #{proxySnapshot},"
+            + " state_version = state_version + 1"
+            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
+            + " AND run_state IS NULL RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long updateProxy(@Param("id") long id,
+                     @Param("expectedStateVersion") long expectedStateVersion,
+                     @Param("proxySnapshot") String proxySnapshot);
+
+    @Delete("DELETE FROM scheduled_tasks WHERE id = #{id}"
+            + " AND state_version = #{expectedStateVersion} AND run_state IS NULL")
+    int deleteTaskByVersion(@Param("id") long id,
+                            @Param("expectedStateVersion") long expectedStateVersion);
+
+    @Update("UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
+            + " last_run_time = #{now},"
+            + " last_outcome = CASE"
+            + "   WHEN suspend_reason IN ('MANUAL','QUIESCED') THEN 'CANCELLED'"
+            + "   WHEN suspend_reason IS NOT NULL THEN 'ERROR'"
+            + "   ELSE 'INTERRUPTED' END,"
+            + " outcome_code = CASE WHEN suspend_reason IS NOT NULL"
+            + "   THEN suspend_code ELSE 'host.restart' END,"
+            + " outcome_message = CASE WHEN suspend_reason IS NOT NULL"
+            + "   THEN suspend_detail_json ELSE NULL END,"
+            + " next_run_time = CASE WHEN suspend_reason IS NULL THEN #{now} ELSE next_run_time END,"
+            + " state_version = state_version + 1"
+            + " WHERE storage_version = 1 AND run_state IS NOT NULL")
+    int recoverInterruptedRuns(@Param("now") long now);
+
+    @Select(value = "UPDATE scheduled_tasks SET state_version = state_version + 1"
+            + " WHERE id = #{taskId} AND storage_version = 1"
+            + " AND state_version = #{expectedStateVersion} AND run_state IS NULL"
+            + " RETURNING state_version",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Long advanceIdleStateVersion(@Param("taskId") long taskId,
+                                 @Param("expectedStateVersion") long expectedStateVersion);
+
+    @Insert("INSERT INTO scheduled_task_credentials(task_id, policy_owner_plugin_id, policy_id,"
+            + " account_key, policy_state_json, secret, secret_reference, updated_time)"
+            + " VALUES(#{taskId}, #{policyOwnerPluginId}, #{policyId}, #{accountKey}, #{policyStateJson},"
+            + " #{secret}, #{secretReference}, #{updatedTime})"
+            + " ON CONFLICT(task_id) DO UPDATE SET"
+            + " policy_owner_plugin_id = excluded.policy_owner_plugin_id,"
+            + " policy_id = excluded.policy_id, account_key = excluded.account_key,"
+            + " policy_state_json = excluded.policy_state_json,"
+            + " secret = excluded.secret, secret_reference = excluded.secret_reference,"
+            + " updated_time = excluded.updated_time")
+    int upsertCredential(@Param("taskId") long taskId,
+                         @Param("policyOwnerPluginId") String policyOwnerPluginId,
+                         @Param("policyId") String policyId,
+                         @Param("accountKey") String accountKey,
+                         @Param("policyStateJson") String policyStateJson,
+                         @Param("secret") String secret,
+                         @Param("secretReference") String secretReference,
+                         @Param("updatedTime") long updatedTime);
+
+    @Delete("DELETE FROM scheduled_task_credentials WHERE task_id = #{taskId}"
+            + " AND policy_owner_plugin_id = #{policyOwnerPluginId} AND policy_id = #{policyId}")
+    int deleteCredential(@Param("taskId") long taskId,
+                         @Param("policyOwnerPluginId") String policyOwnerPluginId,
+                         @Param("policyId") String policyId);
+
+    @Delete("DELETE FROM scheduled_task_credentials WHERE task_id = #{taskId}")
+    int deleteCredentialByTask(@Param("taskId") long taskId);
+
+    @Update("UPDATE scheduled_task_credentials SET policy_state_json = #{newPolicyStateJson},"
+            + " updated_time = #{updatedTime} WHERE task_id = #{taskId}"
+            + " AND policy_owner_plugin_id = #{policyOwnerPluginId} AND policy_id = #{policyId}"
+            + " AND policy_state_json = #{expectedPolicyStateJson}")
+    int updateCredentialPolicyState(@Param("taskId") long taskId,
+                                    @Param("policyOwnerPluginId") String policyOwnerPluginId,
+                                    @Param("policyId") String policyId,
+                                    @Param("expectedPolicyStateJson") String expectedPolicyStateJson,
+                                    @Param("newPolicyStateJson") String newPolicyStateJson,
+                                    @Param("updatedTime") long updatedTime);
+
+    @Select("SELECT task_id AS taskId, policy_owner_plugin_id AS policyOwnerPluginId,"
+            + " policy_id AS policyId, account_key AS accountKey,"
+            + " policy_state_json AS policyStateJson,"
+            + " secret_reference AS secretReference, updated_time AS updatedTime"
+            + " FROM scheduled_task_credentials WHERE task_id = #{taskId}")
+    ScheduledTaskCredential findCredentialMetadata(@Param("taskId") long taskId);
+
+    @Select("SELECT secret FROM scheduled_task_credentials WHERE task_id = #{taskId}"
+            + " AND policy_owner_plugin_id = #{policyOwnerPluginId} AND policy_id = #{policyId}")
+    String findCredentialSecret(@Param("taskId") long taskId,
+                                @Param("policyOwnerPluginId") String policyOwnerPluginId,
+                                @Param("policyId") String policyId);
+
+    @Insert("INSERT INTO scheduled_task_pending_work(task_id, work_type, work_id, payload_schema,"
+            + " payload_version, payload_json, relations_json, presentation_json, reason_code,"
+            + " reason_detail_json, attempts, first_seen_time, last_attempt_time)"
+            + " VALUES(#{taskId}, #{workType}, #{workId}, #{payloadSchema}, #{payloadVersion},"
+            + " #{payloadJson}, #{relationsJson}, #{presentationJson}, #{reasonCode},"
+            + " #{reasonDetailJson}, #{attempts}, #{firstSeenTime}, #{lastAttemptTime})"
+            + " ON CONFLICT(task_id, work_type, work_id) DO UPDATE SET"
+            + " payload_schema = excluded.payload_schema, payload_version = excluded.payload_version,"
+            + " payload_json = excluded.payload_json, relations_json = excluded.relations_json,"
+            + " presentation_json = excluded.presentation_json, reason_code = excluded.reason_code,"
+            + " reason_detail_json = excluded.reason_detail_json,"
             + " last_attempt_time = excluded.last_attempt_time")
-    int insertPending(@Param("taskId") long taskId, @Param("workId") long workId,
-                      @Param("reason") String reason, @Param("now") long now);
+    int upsertPendingWork(ScheduledPendingWork pendingWork);
 
-    @Delete("DELETE FROM scheduled_task_pending WHERE task_id = #{taskId} AND work_id = #{workId}")
-    int deletePending(@Param("taskId") long taskId, @Param("workId") long workId);
-
-    @Update("UPDATE scheduled_task_pending SET attempts = attempts + 1, last_attempt_time = #{now}"
-            + " WHERE task_id = #{taskId} AND work_id = #{workId}")
-    int incPendingAttempts(@Param("taskId") long taskId, @Param("workId") long workId,
-                           @Param("now") long now);
-
-    /** 取单行 {@code attempts} 标量；不存在返回 {@code null}。用于在 {@link #incPendingAttempts} 后判断是否刚跨过上限。 */
-    @Select("SELECT attempts FROM scheduled_task_pending WHERE task_id = #{taskId} AND work_id = #{workId}")
-    Integer selectPendingAttempts(@Param("taskId") long taskId, @Param("workId") long workId);
-
-    @Select("SELECT task_id AS taskId, work_id AS workId, reason, attempts,"
+    @Select("SELECT task_id AS taskId, work_type AS workType, work_id AS workId,"
+            + " payload_schema AS payloadSchema, payload_version AS payloadVersion,"
+            + " payload_json AS payloadJson, relations_json AS relationsJson,"
+            + " presentation_json AS presentationJson, reason_code AS reasonCode,"
+            + " reason_detail_json AS reasonDetailJson, attempts,"
             + " first_seen_time AS firstSeenTime, last_attempt_time AS lastAttemptTime"
-            + " FROM scheduled_task_pending WHERE task_id = #{taskId} ORDER BY first_seen_time")
-    List<ScheduledTaskPending> listPending(@Param("taskId") long taskId);
+            + " FROM scheduled_task_pending_work"
+            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}")
+    ScheduledPendingWork findPendingWork(@Param("taskId") long taskId,
+                                         @Param("workType") String workType,
+                                         @Param("workId") String workId);
 
+    @Select("SELECT task_id AS taskId, work_type AS workType, work_id AS workId,"
+            + " payload_schema AS payloadSchema, payload_version AS payloadVersion,"
+            + " payload_json AS payloadJson, relations_json AS relationsJson,"
+            + " presentation_json AS presentationJson, reason_code AS reasonCode,"
+            + " reason_detail_json AS reasonDetailJson, attempts,"
+            + " first_seen_time AS firstSeenTime, last_attempt_time AS lastAttemptTime"
+            + " FROM scheduled_task_pending_work WHERE task_id = #{taskId}"
+            + " ORDER BY first_seen_time, work_type, work_id")
+    List<ScheduledPendingWork> listPendingWork(@Param("taskId") long taskId);
+
+    @Select(value = "UPDATE scheduled_task_pending_work SET attempts = attempts + 1,"
+            + " last_attempt_time = #{now}"
+            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}"
+            + " RETURNING attempts",
+            affectData = true)
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Integer incrementPendingAttempts(@Param("taskId") long taskId,
+                                     @Param("workType") String workType,
+                                     @Param("workId") String workId,
+                                     @Param("now") long now);
+
+    @Delete("DELETE FROM scheduled_task_pending_work"
+            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}")
+    int deletePendingWork(@Param("taskId") long taskId,
+                          @Param("workType") String workType,
+                          @Param("workId") String workId);
+
+    @Delete("DELETE FROM scheduled_task_pending_work WHERE task_id = #{taskId}")
+    int deleteAllPendingWork(@Param("taskId") long taskId);
+
+    /** 旧表只作为迁移输入；聚合删除任务时仍需清理它，避免孤儿。 */
     @Delete("DELETE FROM scheduled_task_pending WHERE task_id = #{taskId}")
-    int deleteAllPending(@Param("taskId") long taskId);
+    int deleteLegacyPendingByTask(@Param("taskId") long taskId);
 
-    // ── cookie 专用裸标量取值（仅供调度器内部） ─────────────────────────────────────
-
-    @Select("SELECT cookie_snapshot FROM scheduled_tasks WHERE id = #{id}")
-    String findCookieSnapshot(@Param("id") long id);
 }

@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 
@@ -13,7 +12,7 @@ import java.util.List;
 public final class MyBookmarksSource extends AbstractScheduledSource {
 
     public MyBookmarksSource() {
-        super(ScheduledTaskType.MY_BOOKMARKS);
+        super("my-bookmarks", "MY_BOOKMARKS");
     }
 
     @Override

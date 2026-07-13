@@ -13,8 +13,10 @@ import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
@@ -30,7 +32,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStream;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
@@ -236,8 +238,8 @@ class PluginLifecycleServiceTest {
             }
             when(runtime.inspectContextModules()).thenReturn(List.of());
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
-            when(scheduleRegistrar.register(eq(registered), any())).thenReturn(Optional.of(publication));
-            when(scheduleRegistrar.withdraw(publication)).thenReturn(Optional.of(drain));
+            when(scheduleRegistrar.register(any(), eq(registered), any())).thenReturn(Optional.of(publication));
+            when(scheduleRegistrar.withdraw(any(), eq(publication))).thenReturn(Optional.of(drain));
             when(drain.awaitDrained(anyLong())).thenReturn(true);
             when(drain.isDrained()).thenReturn(true);
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
@@ -282,12 +284,12 @@ class PluginLifecycleServiceTest {
         MockHarness h = new MockHarness();
 
         h.service.quiesce("ext-demo");
-        verify(h.scheduleRegistrar).withdraw(h.publication);
+        verify(h.scheduleRegistrar).withdraw(any(), eq(h.publication));
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
 
         clearInvocations(h.scheduleRegistrar);
         h.service.stop("ext-demo");
-        verify(h.scheduleRegistrar, never()).withdraw(any());
+        verify(h.scheduleRegistrar, never()).withdraw(any(), any());
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
     }
 
@@ -299,7 +301,7 @@ class PluginLifecycleServiceTest {
         h.service.stop("ext-demo");
 
         verify(h.controllerRegistrar).unregisterControllers("ext-demo");
-        verify(h.scheduleRegistrar).withdraw(h.publication);
+        verify(h.scheduleRegistrar).withdraw(any(), eq(h.publication));
         verify(h.webRegistrar).unregister(eq("ext-demo"), any());
         assertThat(h.plugin.stopCount).isEqualTo(1);
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
@@ -307,7 +309,7 @@ class PluginLifecycleServiceTest {
         // 重复 stop 不破坏状态、不再次清退（已 STOPPED → 早返回，schedule / web 注销与插件 stop() 都不再发生）
         clearInvocations(h.scheduleRegistrar, h.webRegistrar);
         h.service.stop("ext-demo");
-        verify(h.scheduleRegistrar, never()).withdraw(any());
+        verify(h.scheduleRegistrar, never()).withdraw(any(), any());
         verify(h.webRegistrar, never()).unregister(eq("ext-demo"), any());
         assertThat(h.plugin.stopCount).isEqualTo(1);
     }
@@ -333,7 +335,7 @@ class PluginLifecycleServiceTest {
 
         h.service.unload("ext-demo");
 
-        verify(h.scheduleRegistrar).withdraw(h.publication);
+        verify(h.scheduleRegistrar).withdraw(any(), eq(h.publication));
         verify(h.webRegistrar).unregister(eq("ext-demo"), any()); // 经 stop 拆服务足迹
         verify(h.registry).unregister("ext-demo");                // 从核心注册中心移除
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.UNLOADED);
@@ -473,8 +475,8 @@ class PluginLifecycleServiceTest {
             plugin.queueType = "ext-illust"; // 声明作品类型 → drain 会经 queueRegistry.resolve 解析其操作适配器
             when(runtime.inspectContextModules()).thenReturn(List.of());
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
-            when(scheduleRegistrar.register(eq(registered), any())).thenReturn(Optional.of(publication));
-            when(scheduleRegistrar.withdraw(publication)).thenReturn(Optional.of(drain));
+            when(scheduleRegistrar.register(any(), eq(registered), any())).thenReturn(Optional.of(publication));
+            when(scheduleRegistrar.withdraw(any(), eq(publication))).thenReturn(Optional.of(drain));
             when(drain.awaitDrained(anyLong())).thenReturn(true);
             when(drain.isDrained()).thenReturn(true);
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
@@ -488,7 +490,7 @@ class PluginLifecycleServiceTest {
         /** 断言 publication 撤回 → 关 SSE → drain 队列 → 注销运行期能力的相对调用顺序。 */
         void verifyShieldThenDrain() {
             InOrder ord = inOrder(scheduleRegistrar, streamRegistry, queueRegistry, capabilityRegistrar);
-            ord.verify(scheduleRegistrar).withdraw(publication);    // ① 先拒绝新 lease 并取消旧代
+            ord.verify(scheduleRegistrar).withdraw(any(), eq(publication));    // ① 先拒绝新 lease 并取消旧代
             ord.verify(streamRegistry).closeForPlugin("ext-demo");  // ② 再关闭 SSE 推流
             ord.verify(queueRegistry).resolve("ext-illust");        // ③ 再 drain 在途下载队列
             ord.verify(capabilityRegistrar).unregister("ext-demo"); // ④ drain 完成后才注销 owner-aware 队列能力
@@ -550,8 +552,8 @@ class PluginLifecycleServiceTest {
                     "ext-demo", getClass().getClassLoader(), List.of(PluginConfig.class));
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
-            when(scheduleRegistrar.register(eq(registered), any())).thenReturn(Optional.of(publication));
-            when(quiescer.quiesce(eq("ext-demo"), eq(publication), any()))
+            when(scheduleRegistrar.register(any(), eq(registered), any())).thenReturn(Optional.of(publication));
+            when(quiescer.quiesce(any(), eq("ext-demo"), eq(publication), any()))
                     .thenReturn(new PluginRuntimeTaskQuiescer.QuiesceResult(Optional.of(drain)));
             when(drain.awaitDrained(anyLong())).thenReturn(false, true);
             when(drain.isDrained()).thenReturn(true);
@@ -580,7 +582,7 @@ class PluginLifecycleServiceTest {
             assertThat(child.isActive()).isFalse();
             assertThat(service.contextFor("ext-demo")).isEmpty();
             assertThat(plugin.stopCount).isEqualTo(1);
-            verify(quiescer, times(1)).quiesce(eq("ext-demo"), eq(publication), any());
+            verify(quiescer, times(1)).quiesce(any(), eq("ext-demo"), eq(publication), any());
         }
     }
 
@@ -607,14 +609,14 @@ class PluginLifecycleServiceTest {
         ScheduleGenerationDrain secondDrain = mock(ScheduleGenerationDrain.class);
         when(runtime.inspectContextModules()).thenReturn(List.of());
         when(registry.registeredPlugins()).thenReturn(List.of(firstRegistered, secondRegistered));
-        when(scheduleRegistrar.register(eq(firstRegistered), any())).thenReturn(Optional.of(firstPublication));
-        when(scheduleRegistrar.register(eq(secondRegistered), any())).thenReturn(Optional.of(secondPublication));
-        when(scheduleRegistrar.withdraw(firstPublication)).thenReturn(Optional.of(firstDrain));
-        when(scheduleRegistrar.withdraw(secondPublication)).thenReturn(Optional.of(secondDrain));
+        when(scheduleRegistrar.register(any(), eq(firstRegistered), any())).thenReturn(Optional.of(firstPublication));
+        when(scheduleRegistrar.register(any(), eq(secondRegistered), any())).thenReturn(Optional.of(secondPublication));
+        when(scheduleRegistrar.withdraw(any(), eq(firstPublication))).thenReturn(Optional.of(firstDrain));
+        when(scheduleRegistrar.withdraw(any(), eq(secondPublication))).thenReturn(Optional.of(secondDrain));
         when(firstDrain.isDrained()).thenReturn(true);
         when(secondDrain.isDrained()).thenAnswer(invocation -> {
-            verify(scheduleRegistrar).withdraw(secondPublication);
-            verify(scheduleRegistrar).withdraw(firstPublication);
+            verify(scheduleRegistrar).withdraw(any(), eq(secondPublication));
+            verify(scheduleRegistrar).withdraw(any(), eq(firstPublication));
             return false;
         }).thenReturn(true);
         when(secondDrain.awaitDrained()).thenReturn(true);
@@ -630,8 +632,8 @@ class PluginLifecycleServiceTest {
         service.stopAll();
 
         InOrder order = inOrder(scheduleRegistrar, secondDrain, controllerRegistrar);
-        order.verify(scheduleRegistrar).withdraw(secondPublication);
-        order.verify(scheduleRegistrar).withdraw(firstPublication);
+        order.verify(scheduleRegistrar).withdraw(any(), eq(secondPublication));
+        order.verify(scheduleRegistrar).withdraw(any(), eq(firstPublication));
         order.verify(secondDrain).isDrained();
         order.verify(secondDrain).awaitDrained();
         order.verify(secondDrain).isDrained();
@@ -767,7 +769,7 @@ class PluginLifecycleServiceTest {
     @DisplayName("运行期 schedule publication 是 context、能力、controller 和插件 start 成功后的最终发布点")
     void runtimeSchedulePublicationIsFinalBringUpStep() {
         try (ContextHarness h = new ContextHarness()) {
-            when(h.scheduleRegistrar.register(eq(h.registered), any()))
+            when(h.scheduleRegistrar.register(any(), eq(h.registered), any()))
                     .thenReturn(Optional.empty())
                     .thenAnswer(invocation -> {
                         assertThat(h.plugin.startCount).isEqualTo(1);
@@ -786,7 +788,7 @@ class PluginLifecycleServiceTest {
                     h.capabilityRegistrar, h.controllerRegistrar, h.scheduleRegistrar);
             order.verify(h.capabilityRegistrar).register(eq("ext-demo"), any());
             order.verify(h.controllerRegistrar).registerControllers(eq("ext-demo"), any());
-            order.verify(h.scheduleRegistrar).register(eq(h.registered), any());
+            order.verify(h.scheduleRegistrar).register(any(), eq(h.registered), any());
             assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STARTED);
         }
     }
@@ -795,7 +797,7 @@ class PluginLifecycleServiceTest {
     @DisplayName("启动期最终 schedule publication 失败不调用插件 stop，回调所有权仍归 PluginRegistry")
     void bootSchedulePublicationFailureDoesNotStopPlugin() {
         try (ContextHarness h = new ContextHarness()) {
-            when(h.scheduleRegistrar.register(eq(h.registered), any()))
+            when(h.scheduleRegistrar.register(any(), eq(h.registered), any()))
                     .thenThrow(new IllegalStateException("publish failed"));
 
             h.service.startAll();
@@ -815,7 +817,7 @@ class PluginLifecycleServiceTest {
         try (ContextHarness h = new ContextHarness()) {
             h.service.startAll();
             h.service.stop("ext-demo");
-            when(h.scheduleRegistrar.register(eq(h.registered), any()))
+            when(h.scheduleRegistrar.register(any(), eq(h.registered), any()))
                     .thenThrow(new IllegalStateException("publish failed"));
 
             h.service.start("ext-demo");
@@ -994,13 +996,14 @@ class PluginLifecycleServiceTest {
     // ============================ 夹具 ============================
 
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
-        PluginScheduleContributionRegistrar scheduleRegistrar = emptyScheduleRegistrar();
+        PluginRegistry pluginRegistry = new PluginRegistry(List.of());
+        PluginScheduleContributionRegistrar scheduleRegistrar = emptyScheduleRegistrar(pluginRegistry);
         PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
         QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
         return new PluginLifecycleService(parent, runtimeReturning(modules), new PluginApplicationContextFactory(),
                 emptyControllerRegistrar(), emptyWebRegistrar(), scheduleRegistrar,
                 runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry), capabilityRegistrar(),
-                new PluginRegistry(List.of()), new PluginLifecycleState());
+                pluginRegistry, new PluginLifecycleState());
     }
 
     private static PluginRuntimeTaskQuiescer runtimeTaskQuiescer(
@@ -1010,8 +1013,15 @@ class PluginLifecycleServiceTest {
         return new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
     }
 
-    private static PluginScheduleContributionRegistrar emptyScheduleRegistrar() {
-        return new PluginScheduleContributionRegistrar(new ScheduleCapabilityRegistry());
+    private static PluginScheduleContributionRegistrar emptyScheduleRegistrar(PluginRegistry pluginRegistry) {
+        return ScheduleCapabilityRegistryTestAccess.registrar(
+                new ScheduleCapabilityRegistry(), noOpMigrationService(),
+                pluginRegistry);
+    }
+
+    private static LegacyScheduledTaskMigrationService noOpMigrationService() {
+        return (reservation, adapter) ->
+                new LegacyScheduledTaskMigrationService.OwnerMigrationReport("unused", 0, 0, 0, 0);
     }
 
     private static PluginCapabilityContributionRegistrar capabilityRegistrar() {
@@ -1210,11 +1220,13 @@ class PluginLifecycleServiceTest {
         ScheduleHarness(ScheduledWorkRunner... preexistingRunners) {
             plugin.scheduledSources = List.of(sourceProvider("ext-source", "EXT_SOURCE"));
             if (preexistingRunners.length > 0) {
-                capabilityRegistry.publish(ScheduleOwnerBundle.prepare(
+                ScheduleCapabilityRegistryTestAccess.publish(
+                        capabilityRegistry, ScheduleOwnerBundle.prepare(
                         new ScheduleCapabilityOwner("preexisting", "preexisting", 0L),
                         List.of(), List.of(preexistingRunners), List.of(), List.of(), List.of(), List.of(), List.of()));
             }
-            scheduleRegistrar = new PluginScheduleContributionRegistrar(capabilityRegistry);
+            scheduleRegistrar = ScheduleCapabilityRegistryTestAccess.registrar(
+                    capabilityRegistry, noOpMigrationService(), registry);
             PluginContextModule module = new PluginContextModule(
                     "ext-sched", ScheduleHarness.class.getClassLoader(), List.of(ScheduleContribConfig.class));
             when(runtime.inspectContextModules()).thenReturn(List.of(module));

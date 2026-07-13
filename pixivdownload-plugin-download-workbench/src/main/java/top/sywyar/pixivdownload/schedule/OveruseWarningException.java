@@ -2,7 +2,8 @@ package top.sywyar.pixivdownload.schedule;
 
 /**
  * 检测到 Pixiv 过度访问警告时上抛，让 {@code runTaskAndRecord} 干净 unwind 本轮：
- * 标 {@code OVERUSE_PAUSED}、冻结同账号、发邮件。已派发的下载不回滚，水位线不推进。
+ * 以 {@code POLICY}/{@code PIXIV_OVERUSE} 挂起同账号任务并发通知。已派发的下载不回滚，
+ * 候选 checkpoint 不提交。
  *
  * @see OveruseWarningService
  */

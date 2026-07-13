@@ -1,86 +1,41 @@
 package top.sywyar.pixivdownload.core.schedule.db;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalLong;
 
-/**
- * {@link ScheduledTaskStore} 的核心实现层（{@code core.schedule.db}）。
- *
- * <p><b>边界职责：</b>把底层 MyBatis {@link ScheduledTaskMapper} 收拢为内部实现，只透出
- * {@link ScheduledTaskStore} 声明的语义读写方法；插件托管的调度引擎 Bean 注入的是接口
- * {@link ScheduledTaskStore}、永远拿不到 mapper / 裸连接 / 自由 SQL。{@code scheduled_tasks} /
- * {@code scheduled_task_pending} 两张表的 schema 归核心（{@link ScheduleSchemaContribution}，owner = core）。
- *
- * <p>注入由 MyBatis {@code SqlSessionFactory} 提供的池化 {@code DataSource}（经 mapper），不自建连接、
- * 不绕过连接池。建表 / 补列 / 索引统一由 {@link DatabaseInitializer} 执行；{@link #init()} 只保留幂等的
- * 任务快照数据迁移。
- *
- * <p><b>cookie 红线（沿用 {@link ScheduledTaskMapper} 约定）：</b>{@code cookie_snapshot} 是完整登录凭证，
- * 不出现在 {@link #findAll()} / {@link #findById(long)} 这类行投影里（恒为 {@code null}）；调度器需要凭证时
- * 单独调 {@link #findCookieSnapshot(long)} 取裸标量，结果只在服务内部使用、绝不写日志 / 回显。
- */
-@Slf4j
+/** {@link ScheduledTaskStore} 的核心 MyBatis 实现。 */
 @Repository
 @RequiredArgsConstructor
 public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     private final ScheduledTaskMapper mapper;
-    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    /** 仅表达表结构初始化必须先完成。 */
     @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
 
     @PostConstruct
     public void init() {
-        backfillRedownloadDeletedSetting();
+        recoverInterruptedRuns(System.currentTimeMillis());
     }
-
-    /**
-     * 幂等迁移：为旧版本创建的任务快照补齐 {@code download.redownloadDeleted}（允许已删除的作品被重新下载），
-     * 默认 {@code false}（不勾选 = 软删除的作品视为已下载、跳过）。已有该字段的任务不动；
-     * 单个任务解析失败仅记日志、不阻断启动（执行器对缺字段也按 false 兜底）。
-     */
-    private void backfillRedownloadDeletedSetting() {
-        List<ScheduledTask> tasks = mapper.findAll();
-        if (tasks == null || tasks.isEmpty()) {
-            return;
-        }
-        ObjectMapper json = new ObjectMapper();
-        for (ScheduledTask task : tasks) {
-            try {
-                JsonNode root = json.readTree(task.paramsJson() == null ? "{}" : task.paramsJson());
-                if (!(root instanceof ObjectNode rootNode)) {
-                    continue;
-                }
-                JsonNode downloadNode = rootNode.path("download");
-                ObjectNode download = downloadNode.isObject()
-                        ? (ObjectNode) downloadNode
-                        : rootNode.putObject("download");
-                if (download.has("redownloadDeleted")) {
-                    continue;
-                }
-                download.put("redownloadDeleted", false);
-                mapper.updateParamsJson(task.id(), json.writeValueAsString(rootNode));
-            } catch (Exception e) {
-                log.warn("Failed to backfill redownloadDeleted for scheduled task {}: {}",
-                        task.id(), e.getMessage());
-            }
-        }
-    }
-
-    // ── scheduled_tasks 读取（无 cookie） ──────────────────────────────────────────
 
     @Override
     public List<ScheduledTask> findAll() {
@@ -103,137 +58,363 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     }
 
     @Override
-    public List<ScheduledTask> findByAccountId(String accountId) {
-        return mapper.findByAccountId(accountId);
+    public List<ScheduledTask> findByCredentialAccount(String policyOwnerPluginId,
+                                                       String policyId,
+                                                       String accountKey) {
+        return mapper.findByCredentialAccount(policyOwnerPluginId, policyId, accountKey);
     }
 
     @Override
-    public String findCookieSnapshot(long id) {
-        return mapper.findCookieSnapshot(id);
-    }
-
-    // ── scheduled_tasks 写入 ──────────────────────────────────────────────────────
-
-    @Override
+    @Transactional
     public void insert(ScheduledTaskInsert task) {
+        Objects.requireNonNull(task, "task");
+        if (task.getStorageVersion() == ScheduledTask.CURRENT_STORAGE_VERSION) {
+            requireText(task.getSourceType(), "source type");
+            requireText(task.getSourceOwnerPluginId(), "source owner plugin id");
+            requireText(task.getDefinitionSchema(), "definition schema");
+            if (task.getDefinitionVersion() == null || task.getDefinitionVersion() <= 0) {
+                throw new IllegalArgumentException("definition version must be positive");
+            }
+            if (task.getDefinitionJson() == null) {
+                throw new IllegalArgumentException("definition json must not be null");
+            }
+        } else if (task.getStorageVersion() != ScheduledTask.LEGACY_STORAGE_VERSION) {
+            throw new IllegalArgumentException("unsupported scheduled task storage version");
+        }
         mapper.insert(task);
+        boolean hasCredentialMetadata = hasText(task.getCredentialPolicyOwnerPluginId())
+                || hasText(task.getCredentialPolicyId());
+        if (!hasCredentialMetadata) {
+            if (task.getCredentialSecret() != null || task.getCredentialSecretReference() != null) {
+                throw new IllegalArgumentException("credential policy metadata is required for secret storage");
+            }
+            return;
+        }
+        requireText(task.getCredentialPolicyOwnerPluginId(), "credential policy owner");
+        requireText(task.getCredentialPolicyId(), "credential policy id");
+        if (task.getCredentialUpdatedTime() == null) {
+            throw new IllegalArgumentException("credential updated time is required");
+        }
+        mapper.upsertCredential(task.getId(), task.getCredentialPolicyOwnerPluginId(),
+                task.getCredentialPolicyId(), task.getCredentialAccountKey(),
+                normalizePolicyState(task.getCredentialPolicyStateJson()),
+                task.getCredentialSecret(), task.getCredentialSecretReference(),
+                task.getCredentialUpdatedTime());
     }
 
     @Override
-    public int updateDefinition(long id, String name, ScheduledTaskType type, String paramsJson,
-                                String triggerKind, Integer intervalMinutes, String cronExpr,
-                                Long nextRunTime) {
-        return mapper.updateDefinition(id, name, type, paramsJson, triggerKind, intervalMinutes,
-                cronExpr, nextRunTime);
+    public Optional<ScheduleRunToken> tryQueueDue(long id,
+                                                  long expectedStateVersion,
+                                                  String claimToken,
+                                                  long now) {
+        requireText(claimToken, "claim token");
+        return Optional.ofNullable(mapper.tryQueueDue(id, expectedStateVersion, claimToken, now));
     }
 
     @Override
-    public int updateEnabled(long id, boolean enabled) {
-        return mapper.updateEnabled(id, enabled);
+    public Optional<ScheduleRunToken> tryQueueNow(long id,
+                                                  long expectedStateVersion,
+                                                  String claimToken) {
+        requireText(claimToken, "claim token");
+        return Optional.ofNullable(mapper.tryQueueNow(id, expectedStateVersion, claimToken));
     }
 
     @Override
-    public int updateCookie(long id, String cookieSnapshot, String cookieMode) {
-        return mapper.updateCookie(id, cookieSnapshot, cookieMode);
+    public Optional<ScheduleRunToken> startRun(long id, ScheduleRunToken queuedToken) {
+        requireTokenState(queuedToken, ScheduleRunState.QUEUED);
+        return Optional.ofNullable(mapper.startRun(id, queuedToken));
     }
 
     @Override
-    public int clearCookieAndAccount(long id, String cookieMode) {
-        return mapper.clearCookieAndAccount(id, cookieMode);
+    public OptionalLong completeRun(long id,
+                                    ScheduleRunToken runningToken,
+                                    ScheduleRunCompletion completion) {
+        requireTokenState(runningToken, ScheduleRunState.RUNNING);
+        Objects.requireNonNull(completion, "completion");
+        return optionalLong(mapper.completeRun(id, runningToken, completion));
     }
 
     @Override
-    public int updateProxy(long id, String proxySnapshot) {
-        return mapper.updateProxy(id, proxySnapshot);
+    public OptionalLong finishCancelled(long id,
+                                        ScheduleRunToken activeToken,
+                                        ScheduleLastOutcome outcome,
+                                        long finishedTime,
+                                        String outcomeCode,
+                                        String outcomeMessage,
+                                        Long nextRunTime) {
+        Objects.requireNonNull(activeToken, "activeToken");
+        if (activeToken.runState() != ScheduleRunState.RUNNING
+                && activeToken.runState() != ScheduleRunState.QUEUED
+                && activeToken.runState() != ScheduleRunState.CANCEL_REQUESTED) {
+            throw new IllegalArgumentException("cancel completion requires an active run token");
+        }
+        if (outcome != ScheduleLastOutcome.CANCELLED
+                && outcome != ScheduleLastOutcome.ERROR
+                && outcome != ScheduleLastOutcome.INTERRUPTED) {
+            throw new IllegalArgumentException("cancel completion outcome must be CANCELLED, ERROR or INTERRUPTED");
+        }
+        return optionalLong(mapper.finishCancelled(id, activeToken, outcome, finishedTime,
+                outcomeCode, outcomeMessage, nextRunTime));
     }
 
     @Override
-    public int updateRunResult(long id, Long lastRunTime, String lastStatus, String lastMessage,
+    public OptionalLong releaseQueued(long id, ScheduleRunToken queuedToken, Long nextRunTime) {
+        requireTokenState(queuedToken, ScheduleRunState.QUEUED);
+        return optionalLong(mapper.releaseQueued(id, queuedToken, nextRunTime));
+    }
+
+    @Override
+    public OptionalLong suspend(long id,
+                                long expectedStateVersion,
+                                ScheduleSuspendReason reason,
+                                String code,
+                                String detailJson) {
+        Objects.requireNonNull(reason, "reason");
+        return optionalLong(mapper.suspend(id, expectedStateVersion, reason, code, detailJson));
+    }
+
+    @Override
+    public OptionalLong resume(long id,
+                               long expectedStateVersion,
+                               ScheduleSuspendReason expectedReason,
+                               String expectedCode,
                                Long nextRunTime) {
-        return mapper.updateRunResult(id, lastRunTime, lastStatus, lastMessage, nextRunTime);
+        Objects.requireNonNull(expectedReason, "expectedReason");
+        return optionalLong(mapper.resume(id, expectedStateVersion, expectedReason,
+                expectedCode, nextRunTime));
     }
 
     @Override
-    public int updateRunStarted(long id, Long runStartedTime) {
-        return mapper.updateRunStarted(id, runStartedTime);
+    public int suspendByCredentialAccount(String policyOwnerPluginId,
+                                          String policyId,
+                                          String accountKey,
+                                          ScheduleSuspendReason reason,
+                                          String code,
+                                          String detailJson) {
+        requireText(policyOwnerPluginId, "credential policy owner");
+        requireText(policyId, "credential policy id");
+        requireText(accountKey, "credential account key");
+        Objects.requireNonNull(reason, "reason");
+        return mapper.suspendByCredentialAccount(policyOwnerPluginId, policyId, accountKey,
+                reason, code, detailJson);
     }
 
     @Override
-    public int updateWatermark(long id, Long watermarkId) {
-        return mapper.updateWatermark(id, watermarkId);
+    public int resumeByCredentialAccount(String policyOwnerPluginId,
+                                         String policyId,
+                                         String accountKey,
+                                         ScheduleSuspendReason expectedReason,
+                                         String expectedCode,
+                                         Long nextRunTime) {
+        requireText(policyOwnerPluginId, "credential policy owner");
+        requireText(policyId, "credential policy id");
+        requireText(accountKey, "credential account key");
+        Objects.requireNonNull(expectedReason, "expectedReason");
+        return mapper.resumeByCredentialAccount(policyOwnerPluginId, policyId, accountKey,
+                expectedReason, expectedCode, nextRunTime);
     }
 
     @Override
-    public int delete(long id) {
-        return mapper.delete(id);
-    }
-
-    // ── 状态 / 挂起 / 账号冻结 ─────────────────────────────────────────────────────
-
-    @Override
-    public int setStatus(long id, String status) {
-        return mapper.setStatus(id, status);
-    }
-
-    @Override
-    public int updateAccountId(long id, String accountId) {
-        return mapper.updateAccountId(id, accountId);
+    @Transactional
+    public OptionalLong updateDefinition(long id,
+                                         long expectedStateVersion,
+                                         ScheduleTaskDefinitionUpdate update) {
+        Objects.requireNonNull(update, "update");
+        Long newVersion = mapper.updateDefinition(id, expectedStateVersion, update);
+        if (newVersion == null) {
+            return OptionalLong.empty();
+        }
+        mapper.deleteAllPendingWork(id);
+        return OptionalLong.of(newVersion);
     }
 
     @Override
-    public int freezeAccount(String accountId, String status, String message) {
-        return mapper.freezeAccount(accountId, status, message);
+    public OptionalLong updateEnabled(long id, long expectedStateVersion, boolean enabled) {
+        return optionalLong(mapper.updateEnabled(id, expectedStateVersion, enabled));
     }
 
     @Override
-    public int updateAckWarning(String accountId, Long ackTime) {
-        return mapper.updateAckWarning(accountId, ackTime);
+    public OptionalLong updateProxy(long id,
+                                    long expectedStateVersion,
+                                    String proxySnapshot) {
+        return optionalLong(mapper.updateProxy(id, expectedStateVersion, proxySnapshot));
     }
 
     @Override
-    public int clearSuspendForAccount(String accountId, Long nextRun) {
-        return mapper.clearSuspendForAccount(accountId, nextRun);
+    @Transactional
+    public boolean deleteAggregate(long id, long expectedStateVersion) {
+        if (mapper.deleteTaskByVersion(id, expectedStateVersion) != 1) {
+            return false;
+        }
+        mapper.deleteAllPendingWork(id);
+        mapper.deleteLegacyPendingByTask(id);
+        mapper.deleteCredentialByTask(id);
+        return true;
     }
 
     @Override
-    public int clearSuspend(long id, Long nextRun) {
-        return mapper.clearSuspend(id, nextRun);
+    public int recoverInterruptedRuns(long now) {
+        return mapper.recoverInterruptedRuns(now);
     }
 
     @Override
-    public int clearSuspendIfStatus(long id, Long nextRun, String expectedStatus) {
-        return mapper.clearSuspendIfStatus(id, nextRun, expectedStatus);
-    }
-
-    // ── scheduled_task_pending（单作品隔离重试表）CRUD ────────────────────────────
-
-    @Override
-    public int insertPending(long taskId, long workId, String reason, long now) {
-        return mapper.insertPending(taskId, workId, reason, now);
-    }
-
-    @Override
-    public int deletePending(long taskId, long workId) {
-        return mapper.deletePending(taskId, workId);
-    }
-
-    @Override
-    public int incPendingAttempts(long taskId, long workId, long now) {
-        return mapper.incPendingAttempts(taskId, workId, now);
-    }
-
-    @Override
-    public Integer selectPendingAttempts(long taskId, long workId) {
-        return mapper.selectPendingAttempts(taskId, workId);
-    }
-
-    @Override
-    public List<ScheduledTaskPending> listPending(long taskId) {
-        return mapper.listPending(taskId);
+    @Transactional
+    public OptionalLong bindCredential(long taskId,
+                                       long expectedStateVersion,
+                                       String policyOwnerPluginId,
+                                       String policyId,
+                                       String accountKey,
+                                       String policyStateJson,
+                                       String secret,
+                                       String secretReference,
+                                       long updatedTime) {
+        requireText(policyOwnerPluginId, "credential policy owner");
+        requireText(policyId, "credential policy id");
+        if (secret == null && secretReference == null) {
+            throw new IllegalArgumentException("credential secret or reference is required");
+        }
+        Long newVersion = mapper.advanceIdleStateVersion(taskId, expectedStateVersion);
+        if (newVersion == null) {
+            return OptionalLong.empty();
+        }
+        mapper.upsertCredential(taskId, policyOwnerPluginId, policyId, accountKey,
+                normalizePolicyState(policyStateJson), secret, secretReference, updatedTime);
+        return OptionalLong.of(newVersion);
     }
 
     @Override
-    public int deleteAllPending(long taskId) {
-        return mapper.deleteAllPending(taskId);
+    @Transactional
+    public OptionalLong removeCredential(long taskId,
+                                         long expectedStateVersion,
+                                         String expectedPolicyOwnerPluginId,
+                                         String expectedPolicyId) {
+        ScheduledTaskCredential current = mapper.findCredentialMetadata(taskId);
+        if (current == null
+                || !Objects.equals(current.policyOwnerPluginId(), expectedPolicyOwnerPluginId)
+                || !Objects.equals(current.policyId(), expectedPolicyId)) {
+            return OptionalLong.empty();
+        }
+        Long newVersion = mapper.advanceIdleStateVersion(taskId, expectedStateVersion);
+        if (newVersion == null) {
+            return OptionalLong.empty();
+        }
+        if (mapper.deleteCredential(taskId, expectedPolicyOwnerPluginId, expectedPolicyId) != 1) {
+            throw new IllegalStateException("credential changed during version-guarded removal");
+        }
+        return OptionalLong.of(newVersion);
+    }
+
+    @Override
+    @Transactional
+    public OptionalLong updateCredentialPolicyState(long taskId,
+                                                    long expectedStateVersion,
+                                                    String expectedPolicyOwnerPluginId,
+                                                    String expectedPolicyId,
+                                                    String expectedPolicyStateJson,
+                                                    String newPolicyStateJson,
+                                                    long updatedTime) {
+        String expected = normalizePolicyState(expectedPolicyStateJson);
+        ScheduledTaskCredential current = mapper.findCredentialMetadata(taskId);
+        if (current == null
+                || !Objects.equals(current.policyOwnerPluginId(), expectedPolicyOwnerPluginId)
+                || !Objects.equals(current.policyId(), expectedPolicyId)
+                || !Objects.equals(normalizePolicyState(current.policyStateJson()), expected)) {
+            return OptionalLong.empty();
+        }
+        Long newVersion = mapper.advanceIdleStateVersion(taskId, expectedStateVersion);
+        if (newVersion == null) {
+            return OptionalLong.empty();
+        }
+        int changed = mapper.updateCredentialPolicyState(taskId, expectedPolicyOwnerPluginId,
+                expectedPolicyId, expected, normalizePolicyState(newPolicyStateJson), updatedTime);
+        if (changed != 1) {
+            throw new IllegalStateException("credential policy state changed during version-guarded update");
+        }
+        return OptionalLong.of(newVersion);
+    }
+
+    @Override
+    public ScheduledTaskCredential findCredentialMetadata(long taskId) {
+        return mapper.findCredentialMetadata(taskId);
+    }
+
+    @Override
+    public String findCredentialSecret(long taskId,
+                                       String policyOwnerPluginId,
+                                       String policyId) {
+        return mapper.findCredentialSecret(taskId, policyOwnerPluginId, policyId);
+    }
+
+    @Override
+    public int upsertPendingWork(ScheduledPendingWork pendingWork) {
+        Objects.requireNonNull(pendingWork, "pendingWork");
+        return mapper.upsertPendingWork(pendingWork);
+    }
+
+    @Override
+    public ScheduledPendingWork findPendingWork(long taskId, String workType, String workId) {
+        return mapper.findPendingWork(taskId, workType, workId);
+    }
+
+    @Override
+    public List<ScheduledPendingWork> listPendingWork(long taskId) {
+        return mapper.listPendingWork(taskId);
+    }
+
+    @Override
+    public Integer incrementPendingAttempts(long taskId,
+                                            String workType,
+                                            String workId,
+                                            long now) {
+        return mapper.incrementPendingAttempts(taskId, workType, workId, now);
+    }
+
+    @Override
+    public int deletePendingWork(long taskId, String workType, String workId) {
+        return mapper.deletePendingWork(taskId, workType, workId);
+    }
+
+    @Override
+    @Transactional
+    public OptionalLong clearPendingWork(long taskId,
+                                         long expectedStateVersion,
+                                         String workType,
+                                         String workId) {
+        Long newVersion = mapper.advanceIdleStateVersion(taskId, expectedStateVersion);
+        if (newVersion == null) {
+            return OptionalLong.empty();
+        }
+        mapper.deletePendingWork(taskId, workType, workId);
+        return OptionalLong.of(newVersion);
+    }
+
+    @Override
+    public int deleteAllPendingWork(long taskId) {
+        return mapper.deleteAllPendingWork(taskId);
+    }
+
+    private static OptionalLong optionalLong(Long value) {
+        return value == null ? OptionalLong.empty() : OptionalLong.of(value);
+    }
+
+    private static void requireTokenState(ScheduleRunToken token, ScheduleRunState expected) {
+        Objects.requireNonNull(token, "token");
+        if (token.runState() != expected) {
+            throw new IllegalArgumentException("run token must be " + expected);
+        }
+    }
+
+    private static void requireText(String value, String label) {
+        if (!hasText(value)) {
+            throw new IllegalArgumentException(label + " must not be blank");
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static String normalizePolicyState(String policyStateJson) {
+        return policyStateJson == null || policyStateJson.isBlank() ? "{}" : policyStateJson;
     }
 }

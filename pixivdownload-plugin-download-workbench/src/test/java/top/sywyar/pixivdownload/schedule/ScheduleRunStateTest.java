@@ -5,11 +5,11 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("ScheduleRunState 瞬时运行态")
+@DisplayName("ScheduleRunState 进程内协调状态")
 class ScheduleRunStateTest {
 
     @Test
-    @DisplayName("同一任务只能被一个 claim 占用，过期 claim 不能误清状态")
+    @DisplayName("内存 claim 只做单飞镜像，过期 claim 不能误清当前状态")
     void shouldKeepStateOwnedByCurrentClaimOnly() {
         ScheduleRunState state = new ScheduleRunState();
 
@@ -28,10 +28,16 @@ class ScheduleRunStateTest {
 
         state.clear(claim);
         assertThat(state.get(1L)).isNull();
+
+        ScheduleRunState.Claim next = state.tryMarkQueued(1L);
+        assertThat(next).isNotNull();
+        assertThat(next.claimId()).isNotEqualTo(claim.claimId());
+        state.clear(claim);
+        assertThat(state.get(1L)).isEqualTo(ScheduleRunState.QUEUED);
     }
 
     @Test
-    @DisplayName("requestCancel 仅对存在 claim 的任务生效；clear 后取消标记随 Entry 一起消失")
+    @DisplayName("取消请求绑定当前 claim，并以 CANCEL_REQUESTED 覆盖界面镜像")
     void shouldRequestCancelOnlyWhileClaimed() {
         ScheduleRunState state = new ScheduleRunState();
 
@@ -45,10 +51,12 @@ class ScheduleRunStateTest {
         // 任务运行中：requestCancel 把当前 Claim 标为待取消，executor 在下个派发前抛 Pause 异常。
         assertThat(state.requestCancel(7L)).isTrue();
         assertThat(state.isCancelRequested(7L)).isTrue();
+        assertThat(state.get(7L)).isEqualTo(ScheduleRunState.CANCEL_REQUESTED);
 
         // markRunning 不应丢失取消标记（QUEUED → RUNNING 跨态保留）。
         assertThat(state.markRunning(claim)).isTrue();
         assertThat(state.isCancelRequested(7L)).isTrue();
+        assertThat(state.get(7L)).isEqualTo(ScheduleRunState.CANCEL_REQUESTED);
 
         // 本轮结束 / 进程清理：Entry 被移除，取消标记随之消失，下一轮新 Claim 默认未取消。
         state.clear(claim);

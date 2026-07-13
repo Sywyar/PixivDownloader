@@ -46,6 +46,17 @@ public class OveruseWarningService {
      * @param now            当前时刻（毫秒）
      */
     public Result check(String cookie, Long ackWarningTime, long now) {
+        return check(cookie, ackWarningTime, now, false);
+    }
+
+    /**
+     * 绑定凭证前的主动探活。与运行期检查不同，瞬时网络或解析失败不能被当作凭证已验证成功。
+     */
+    public Result probe(String cookie, long now) {
+        return check(cookie, null, now, true);
+    }
+
+    private Result check(String cookie, Long ackWarningTime, long now, boolean strictProbe) {
         if (cookie == null || cookie.isBlank()) {
             return Result.cookieDead();
         }
@@ -55,6 +66,9 @@ public class OveruseWarningService {
         } catch (PixivFetchService.PixivFetchException e) {
             return Result.cookieDead();
         } catch (Exception e) {
+            if (strictProbe) {
+                throw new CredentialProbeException(e);
+            }
             // 瞬时网络 / 解析异常：不误判 cookie 死、也不误暂停——视为 CLEAN，让本轮正常进行
             // （依赖型任务若 cookie 真死，发现阶段会再次失败并挂起）。
             log.debug("Overuse check transient error: {}", e.getClass().getSimpleName());
@@ -80,6 +94,12 @@ public class OveruseWarningService {
             }
         }
         return best > 0 ? Result.warned(best, bestExcerpt) : Result.clean();
+    }
+
+    public static final class CredentialProbeException extends RuntimeException {
+        CredentialProbeException(Throwable cause) {
+            super("Pixiv credential probe failed", cause);
+        }
     }
 
     /** 把站内信正文做成可放进邮件的摘要：去 HTML 标签、折叠空白、截断 300 字（绝不含凭证）。 */

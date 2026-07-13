@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>其中模式判定与账号私有判定的用例自 {@code ScheduleExecutorFilterTest} 的 {@code isWatermarkMode} /
  * {@code isAccountScopedType} 迁来——这两段按类型判定的逻辑已随发现 / 派发一并迁入各 {@link ScheduledSource}，
- * 调度器不再按 {@link top.sywyar.pixivdownload.core.schedule.ScheduledTaskType} 枚举 switch 判定。
+ * 调度器不再按旧来源枚举 switch 判定。
  */
 @DisplayName("计划任务来源 provider 行为")
 class ScheduledSourceTest {

@@ -64,13 +64,13 @@ public class ScheduleRunQueue {
         return new Run(System.currentTimeMillis(), kind);
     }
 
-    /** 一轮运行的队列：保留发现顺序，按作品 ID 增量更新元数据与状态。 */
+    /** 一轮运行的队列：保留发现顺序，按作品类型与 ID 的复合身份增量更新元数据与状态。 */
     public static final class Run {
 
         private final long startedTime;
         private final String kind;
         private final List<Item> order = new ArrayList<>();
-        private final Map<String, Item> byId = new HashMap<>();
+        private final Map<QueueWorkKey, Item> byKey = new HashMap<>();
         private boolean truncated;
 
         Run(long startedTime, String kind) {
@@ -78,7 +78,7 @@ public class ScheduleRunQueue {
             this.kind = kind;
         }
 
-        /** 发现一个作品（按发现顺序追加，重复 ID 幂等）；超过上限只置 truncated、不再记录。 */
+        /** 发现一个作品（按发现顺序追加，重复复合身份幂等）；超过上限只置 truncated、不再记录。 */
         public synchronized void discovered(String id) {
             discovered(id, kind);
         }
@@ -88,21 +88,32 @@ public class ScheduleRunQueue {
          * 不再统一沿用 run 级 kind。{@code itemKind} 为 {@code null} 时回退到 run 级 kind。
          */
         public synchronized void discovered(String id, String itemKind) {
-            if (id == null || byId.containsKey(id)) {
+            if (id == null) {
+                return;
+            }
+            String resolvedKind = itemKind == null ? kind : itemKind;
+            QueueWorkKey key = new QueueWorkKey(resolvedKind, id);
+            if (byKey.containsKey(key)) {
                 return;
             }
             if (order.size() >= MAX_ITEMS) {
                 truncated = true;
                 return;
             }
-            Item item = new Item(id, itemKind == null ? kind : itemKind);
+            Item item = new Item(id, resolvedKind);
             order.add(item);
-            byId.put(id, item);
+            byKey.put(key, item);
         }
 
         /** 抓到元数据后补全标题 / 分级 / AI 标记（未登记的作品 ID 直接忽略）。 */
         public synchronized void setMeta(String id, String title, Integer xRestrict, Boolean ai) {
-            Item item = byId.get(id);
+            setMeta(id, kind, title, xRestrict, ai);
+        }
+
+        /** 按作品类型与 ID 的复合身份补全元数据。 */
+        public synchronized void setMeta(
+                String id, String itemKind, String title, Integer xRestrict, Boolean ai) {
+            Item item = byKey.get(new QueueWorkKey(itemKind == null ? kind : itemKind, id));
             if (item == null) {
                 return;
             }
@@ -113,7 +124,12 @@ public class ScheduleRunQueue {
 
         /** 更新某作品的处理状态与可选说明（未登记的作品 ID 直接忽略）。 */
         public synchronized void mark(String id, String status, String message) {
-            Item item = byId.get(id);
+            mark(id, kind, status, message);
+        }
+
+        /** 按作品类型与 ID 的复合身份更新处理状态。 */
+        public synchronized void mark(String id, String itemKind, String status, String message) {
+            Item item = byKey.get(new QueueWorkKey(itemKind == null ? kind : itemKind, id));
             if (item == null) {
                 return;
             }
@@ -126,7 +142,12 @@ public class ScheduleRunQueue {
          * 仅被此标记的条目在队列视图里才叠加翻译状态，避免读到 {@code novelId} 上一轮残留的终态。
          */
         public synchronized void markAutoTranslateSubmitted(String id) {
-            Item item = byId.get(id);
+            markAutoTranslateSubmitted(id, kind);
+        }
+
+        /** 按作品类型与 ID 的复合身份记录自动翻译提交状态。 */
+        public synchronized void markAutoTranslateSubmitted(String id, String itemKind) {
+            Item item = byKey.get(new QueueWorkKey(itemKind == null ? kind : itemKind, id));
             if (item == null) {
                 return;
             }
@@ -148,6 +169,9 @@ public class ScheduleRunQueue {
                 copy.add(item.copy());
             }
             return copy;
+        }
+
+        private record QueueWorkKey(String workType, String workId) {
         }
     }
 
