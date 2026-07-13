@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.ai.AiClientSettings;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
 
 import java.util.List;
 
@@ -28,6 +29,8 @@ public class AiService {
                 new AiException("AI plugin unavailable"));
         try {
             return client.chat(callType, messages, options);
+        } catch (ExternalCapabilityUnavailableException e) {
+            throw new AiException("AI plugin unavailable");
         } catch (AiClientException e) {
             throw new AiException(e.getMessage(), e);
         }
@@ -40,13 +43,19 @@ public class AiService {
                 new AiException("AI plugin unavailable"));
         try {
             return client.chatTest(callType, settings, messages, options);
+        } catch (ExternalCapabilityUnavailableException e) {
+            throw new AiException("AI plugin unavailable");
         } catch (AiClientException e) {
             throw new AiException(e.getMessage(), e);
         }
     }
 
     public boolean isConfigured() {
-        return registry.active().map(AiChatClient::isConfigured).orElse(false);
+        try {
+            return registry.active().map(AiChatClient::isConfigured).orElse(false);
+        } catch (ExternalCapabilityUnavailableException unavailable) {
+            return false;
+        }
     }
 
     public static class AiException extends Exception {

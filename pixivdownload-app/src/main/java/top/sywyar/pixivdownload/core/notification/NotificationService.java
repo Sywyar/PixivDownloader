@@ -53,13 +53,14 @@ public class NotificationService {
             log.debug("Notification scenario [{}] disabled by config; skipping all sinks.", scenario.id());
             return;
         }
-        for (NotificationSink sink : sinkRegistry.sinks()) {
+        for (NotificationSinkRegistry.PreparedSink prepared : sinkRegistry.preparedSinks()) {
+            NotificationSink sink = prepared.sink();
             try {
                 sink.deliver(scenario, locale, placeholders);
             } catch (RuntimeException e) {
                 // deliver 已是 best-effort，这里是双保险：单介质意外异常不影响其它介质。
                 log.warn("Notification sink [{}] failed for scenario [{}]: {}",
-                        sink.medium(), scenario.id(), e.getClass().getSimpleName());
+                        prepared.medium(), scenario.id(), e.getClass().getSimpleName());
             }
         }
     }

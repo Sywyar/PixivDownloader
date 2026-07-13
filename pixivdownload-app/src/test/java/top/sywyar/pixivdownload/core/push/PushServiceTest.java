@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.MessageSource;
 import org.springframework.context.MessageSourceResolvable;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
@@ -16,8 +17,10 @@ import top.sywyar.pixivdownload.push.RenderedMessage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 @DisplayName("PushService 派发器单元测试")
 class PushServiceTest {
@@ -42,6 +45,40 @@ class PushServiceTest {
 
     /** 无状态，全测试共用一个实例。 */
     private static final PushFormatConverter CONVERTER = new PushFormatConverter();
+
+    @Test
+    @DisplayName("状态发布失败时推送 owner 与可见快照保持原子一致")
+    void registryStatePublicationFailureKeepsOwnerAndSnapshotAtomic() {
+        AtomicReference<Throwable> nextFailure = new AtomicReference<>();
+        PushChannelRegistry registry = new PushChannelRegistry(List.of(), () -> throwPending(nextFailure));
+        FakeChannel first = new FakeChannel(PushChannelType.BARK, true);
+        FakeChannel second = new FakeChannel(PushChannelType.TELEGRAM, true);
+        registry.registerPrepared("owner-a", 1L, List.of(
+                new PushChannelRegistry.PreparedChannel(PushChannelType.BARK, first, "first.Type")));
+        List<PushChannel> beforePublish = registry.channels();
+
+        for (Throwable expected : failures("publish")) {
+            nextFailure.set(expected);
+            assertThat(catchThrowable(() -> registry.registerPrepared("owner-b", 2L, List.of(
+                    new PushChannelRegistry.PreparedChannel(
+                            PushChannelType.TELEGRAM, second, "second.Type")))))
+                    .isSameAs(expected);
+            assertThat(registry.channels()).isSameAs(beforePublish);
+            assertThat(registry.byType(PushChannelType.TELEGRAM)).isEmpty();
+        }
+
+        registry.registerPrepared("owner-b", 2L, List.of(
+                new PushChannelRegistry.PreparedChannel(PushChannelType.TELEGRAM, second, "second.Type")));
+        List<PushChannel> beforeWithdraw = registry.channels();
+        for (Throwable expected : failures("withdraw")) {
+            nextFailure.set(expected);
+            assertThat(catchThrowable(() -> registry.unregisterPrepared("owner-b", 2L))).isSameAs(expected);
+            assertThat(registry.channels()).isSameAs(beforeWithdraw);
+            assertThat(registry.byType(PushChannelType.TELEGRAM)).containsSame(second);
+        }
+        registry.unregisterPrepared("owner-b", 2L);
+        assertThat(registry.channels()).containsExactly(first);
+    }
 
     @Test
     @DisplayName("无活动 push 插件通道时广播为空、定向与测试路径明确 SKIPPED")
@@ -95,6 +132,22 @@ class PushServiceTest {
     }
 
     @Test
+    @DisplayName("通道在配置探测前被撤回时使用注册快照诊断且不让异常逃逸")
+    void withdrawnChannelDuringConfigurationProbeFailsSoft() {
+        FakeChannel withdrawn = new FakeChannel(PushChannelType.BARK, true);
+        PushService service = service(withdrawn);
+        withdrawn.configuredFailure = new ExternalCapabilityUnavailableException("withdrawn");
+        withdrawn.failTypeLookup = true;
+
+        List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
+
+        assertThat(results).singleElement().satisfies(result -> {
+            assertThat(result.channel()).isEqualTo(PushChannelType.BARK);
+            assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
+        });
+    }
+
+    @Test
     @DisplayName("定向发送：通道不存在 / 未配置时返回 SKIPPED")
     void targetedSendSkipsWhenAbsentOrUnconfigured() {
         FakeChannel unconfigured = new FakeChannel(PushChannelType.BARK, false);
@@ -143,6 +196,23 @@ class PushServiceTest {
         return new PushService(new PushChannelRegistry(List.of(channels)), CONVERTER, MESSAGES);
     }
 
+    private static List<Throwable> failures(String action) {
+        return List.of(
+                new IllegalStateException("ordinary-" + action),
+                new OutOfMemoryError("fatal-" + action),
+                new ThreadDeath());
+    }
+
+    private static void throwPending(AtomicReference<Throwable> pending) {
+        Throwable failure = pending.getAndSet(null);
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
     /** 测试用设置快照：可配置 type 与是否完整。 */
     private record FakeSettings(PushChannelType type, boolean complete) implements PushChannelSettings {
         @Override
@@ -156,6 +226,8 @@ class PushServiceTest {
         private final PushChannelType type;
         private final boolean configured;
         private RuntimeException toThrow;
+        private RuntimeException configuredFailure;
+        private boolean failTypeLookup;
         private final List<RenderedMessage> received = new ArrayList<>();
         private final List<RenderedMessage> testReceived = new ArrayList<>();
 
@@ -166,11 +238,17 @@ class PushServiceTest {
 
         @Override
         public PushChannelType type() {
+            if (failTypeLookup) {
+                throw new AssertionError("service must use captured push channel type");
+            }
             return type;
         }
 
         @Override
         public boolean isConfigured() {
+            if (configuredFailure != null) {
+                throw configuredFailure;
+            }
             return configured;
         }
 

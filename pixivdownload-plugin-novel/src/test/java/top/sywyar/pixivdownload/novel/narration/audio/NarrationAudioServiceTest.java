@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceMode;
@@ -123,6 +124,30 @@ class NarrationAudioServiceTest {
         assertThatThrownBy(() -> service.synthesizeVoiceDesign("t", "", null))
                 .isInstanceOf(NarrationVoiceException.class);
         verify(voxcpm, never()).synthesize(any(), any());
+    }
+
+    @Test
+    @DisplayName("引擎撤回后的迟到合成使用已捕获 id 并抛受控不可用异常")
+    void withdrawnEngineSynthesisIsControlled() {
+        NarrationVoiceEngine engine = mock(NarrationVoiceEngine.class);
+        when(engine.id()).thenReturn("voxcpm");
+        NarrationAudioService service = service(config("voxcpm"), engine);
+        when(engine.id()).thenThrow(new AssertionError("service must use captured engine id"));
+        when(engine.isAvailable()).thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
+
+        assertThatThrownBy(() -> service.synthesizeVoiceDesign("text", "", null))
+                .isInstanceOf(NarrationVoiceException.class);
+    }
+
+    @Test
+    @DisplayName("引擎撤回后的可达性探测按不可用降级")
+    void withdrawnEngineReachabilityIsFalse() {
+        NarrationVoiceEngine engine = mock(NarrationVoiceEngine.class);
+        when(engine.id()).thenReturn("voxcpm");
+        NarrationAudioService service = service(config("voxcpm"), engine);
+        when(engine.isReachable()).thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
+
+        assertThat(service.isEngineAvailable()).isFalse();
     }
 
     @Test

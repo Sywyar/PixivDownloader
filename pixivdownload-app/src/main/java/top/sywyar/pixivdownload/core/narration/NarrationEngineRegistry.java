@@ -1,59 +1,88 @@
 package top.sywyar.pixivdownload.core.narration;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * 朗读引擎<b>注册工厂</b>：把自动发现的 {@code List<NarrationVoiceEngine>} 建成「小写 id → 引擎」索引，供
- * {@code NarrationAudioService} 按 {@code narration-tts.engine} 取用（仿 {@code AiPresetRegistry} /
- * {@code List<PushChannel>} 惯例）。id 冲突在启动时即抛 {@link IllegalStateException}，避免「同名两个引擎、
- * 谁生效不确定」的隐患。
- */
+/** Host registry for narration engine proxies and their already captured stable ids. */
 @Component
 public class NarrationEngineRegistry {
 
-    private final Object lock = new Object();
-    private final Map<String, List<NarrationVoiceEngine>> byPlugin = new LinkedHashMap<>();
-    private volatile Map<String, NarrationVoiceEngine> byId = Map.of();
-    private volatile List<NarrationVoiceEngine> all = List.of();
-
-    public NarrationEngineRegistry(List<NarrationVoiceEngine> engines) {
-        if (engines != null && !engines.isEmpty()) {
-            byPlugin.put("core", List.copyOf(engines));
-            rebuild();
-        }
-    }
-
-    public void register(String pluginId, List<NarrationVoiceEngine> engines) {
-        synchronized (lock) {
-            if (engines == null || engines.isEmpty()) {
-                byPlugin.remove(pluginId);
-            } else {
-                byPlugin.put(pluginId, List.copyOf(engines));
+    /** Metadata captured from a raw child target before proxy publication. */
+    public record PreparedEngine(String id, NarrationVoiceEngine engine, String implementationType) {
+        public PreparedEngine {
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("narration engine id must not be blank");
             }
-            rebuild();
+            id = id.trim().toLowerCase(Locale.ROOT);
+            if (engine == null) {
+                throw new IllegalArgumentException("narration engine proxy must not be null");
+            }
+            implementationType = implementationType == null || implementationType.isBlank()
+                    ? "unknown" : implementationType;
         }
     }
 
-    public void unregister(String pluginId) {
-        synchronized (lock) {
-            byPlugin.remove(pluginId);
-            rebuild();
+    private record OwnerKey(String pluginId, long publicationId) {
+    }
+
+    private record Snapshot(
+            Map<String, NarrationVoiceEngine> byId,
+            Map<String, PreparedEngine> preparedById,
+            List<NarrationVoiceEngine> all) {
+        private Snapshot {
+            byId = Map.copyOf(byId);
+            preparedById = Map.copyOf(preparedById);
+            all = List.copyOf(all);
+        }
+
+        private static Snapshot empty() {
+            return new Snapshot(Map.of(), Map.of(), List.of());
         }
     }
 
-    private void rebuild() {
-        Map<String, NarrationVoiceEngine> map = new LinkedHashMap<>();
-        List<NarrationVoiceEngine> engines = new ArrayList<>();
-        for (List<NarrationVoiceEngine> list : byPlugin.values()) {
-            for (NarrationVoiceEngine engine : list) {
+    private record State(Map<OwnerKey, List<PreparedEngine>> byOwner, Snapshot snapshot) {
+        private State {
+            byOwner = Collections.unmodifiableMap(new LinkedHashMap<>(byOwner));
+            snapshot = java.util.Objects.requireNonNull(snapshot, "narration engine snapshot");
+        }
+
+        private static State empty() {
+            return new State(Map.of(), Snapshot.empty());
+        }
+    }
+
+    private final Object lock = new Object();
+    private final Runnable statePublishProbe;
+    private volatile State state = State.empty();
+
+    @Autowired
+    public NarrationEngineRegistry(List<NarrationVoiceEngine> engines) {
+        this(engines, () -> {
+        });
+    }
+
+    NarrationEngineRegistry(List<NarrationVoiceEngine> engines, Runnable statePublishProbe) {
+        this.statePublishProbe = java.util.Objects.requireNonNull(
+                statePublishProbe, "narration state publish probe");
+        if (engines != null && !engines.isEmpty()) {
+            register("core", engines);
+        }
+    }
+
+    /** Legacy/core registration path; external adapters use {@link #registerPrepared}. */
+    public void register(String pluginId, List<NarrationVoiceEngine> engines) {
+        List<PreparedEngine> prepared = new ArrayList<>();
+        if (engines != null) {
+            for (NarrationVoiceEngine engine : engines) {
                 if (engine == null) {
                     continue;
                 }
@@ -62,39 +91,109 @@ public class NarrationEngineRegistry {
                     throw new IllegalStateException(
                             "narration engine has blank id: " + engine.getClass().getName());
                 }
-                String id = rawId.trim().toLowerCase(Locale.ROOT);
-                NarrationVoiceEngine prev = map.putIfAbsent(id, engine);
-                if (prev != null) {
-                    throw new IllegalStateException("duplicate narration engine id '" + id + "': "
-                            + prev.getClass().getName() + " vs " + engine.getClass().getName());
-                }
-                engines.add(engine);
+                prepared.add(new PreparedEngine(rawId, engine, engine.getClass().getName()));
             }
         }
-        this.byId = Map.copyOf(map);
-        this.all = List.copyOf(engines);
+        registerPrepared(pluginId, 0L, prepared);
     }
 
-    /** 按 id 取引擎（大小写不敏感）；空 id / 无匹配返回 {@link Optional#empty()}。 */
+    /** Publish metadata plus target-free proxies without calling any proxy during snapshot rebuild. */
+    public void registerPrepared(String pluginId, long publicationId, List<PreparedEngine> engines) {
+        OwnerKey owner = owner(pluginId, publicationId);
+        List<PreparedEngine> copy = engines == null ? List.of() : List.copyOf(engines);
+        synchronized (lock) {
+            State current = state;
+            Map<OwnerKey, List<PreparedEngine>> next = new LinkedHashMap<>(current.byOwner());
+            if (copy.isEmpty()) {
+                next.remove(owner);
+            } else {
+                next.put(owner, copy);
+            }
+            publishState(new State(next, rebuild(next)));
+        }
+    }
+
+    public void unregister(String pluginId) {
+        synchronized (lock) {
+            State current = state;
+            Map<OwnerKey, List<PreparedEngine>> next = new LinkedHashMap<>(current.byOwner());
+            next.keySet().removeIf(owner -> owner.pluginId().equals(pluginId));
+            publishState(new State(next, rebuild(next)));
+        }
+    }
+
+    /** Exact withdrawal; a stale publication cannot delete a replacement. */
+    public void unregisterPrepared(String pluginId, long publicationId) {
+        synchronized (lock) {
+            OwnerKey owner = owner(pluginId, publicationId);
+            State current = state;
+            if (!current.byOwner().containsKey(owner)) {
+                return;
+            }
+            Map<OwnerKey, List<PreparedEngine>> next = new LinkedHashMap<>(current.byOwner());
+            next.remove(owner);
+            publishState(new State(next, rebuild(next)));
+        }
+    }
+
+    /** Case-insensitive id lookup. */
     public Optional<NarrationVoiceEngine> byId(String id) {
         if (id == null || id.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(byId.get(id.trim().toLowerCase(Locale.ROOT)));
+        return Optional.ofNullable(state.snapshot().byId().get(id.trim().toLowerCase(Locale.ROOT)));
     }
 
-    /** 解析 {@code narration-tts.engine} 配置值对应的引擎（语义化别名，等价于 {@link #byId(String)}）。 */
     public Optional<NarrationVoiceEngine> selected(String engineId) {
         return byId(engineId);
     }
 
-    /** 全部已注册引擎（注册顺序，不可变）。 */
-    public List<NarrationVoiceEngine> all() {
-        return all;
+    public Optional<PreparedEngine> selectedPrepared(String engineId) {
+        if (engineId == null || engineId.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(state.snapshot().preparedById().get(
+                engineId.trim().toLowerCase(Locale.ROOT)));
     }
 
-    /** 已注册引擎数量（供日志 / 诊断）。 */
+    public List<NarrationVoiceEngine> all() {
+        return state.snapshot().all();
+    }
+
     public int count() {
-        return all.size();
+        return state.snapshot().all().size();
+    }
+
+    private void publishState(State next) {
+        statePublishProbe.run();
+        state = next;
+    }
+
+    private static Snapshot rebuild(Map<OwnerKey, List<PreparedEngine>> owners) {
+        Map<String, PreparedEngine> metadataById = new LinkedHashMap<>();
+        Map<String, NarrationVoiceEngine> enginesById = new LinkedHashMap<>();
+        List<NarrationVoiceEngine> engines = new ArrayList<>();
+        for (List<PreparedEngine> list : owners.values()) {
+            for (PreparedEngine prepared : list) {
+                PreparedEngine previous = metadataById.putIfAbsent(prepared.id(), prepared);
+                if (previous != null) {
+                    throw new IllegalStateException("duplicate narration engine id '" + prepared.id() + "': "
+                            + previous.implementationType() + " vs " + prepared.implementationType());
+                }
+                enginesById.put(prepared.id(), prepared.engine());
+                engines.add(prepared.engine());
+            }
+        }
+        return new Snapshot(enginesById, metadataById, engines);
+    }
+
+    private static OwnerKey owner(String pluginId, long publicationId) {
+        if (pluginId == null || pluginId.isBlank()) {
+            throw new IllegalArgumentException("narration capability plugin id must not be blank");
+        }
+        if (publicationId < 0L) {
+            throw new IllegalArgumentException("narration capability publication id must not be negative");
+        }
+        return new OwnerKey(pluginId.trim(), publicationId);
     }
 }

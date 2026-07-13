@@ -156,8 +156,8 @@ class PluginCapabilityContributionRegistrarTest {
     }
 
     @Test
-    @DisplayName("原子 context adapter 替换失败时保留上一代能力")
-    void failedContextAdapterReplacementKeepsPreviousGeneration() {
+    @DisplayName("context adapter 部分发布后失败时 registrar 仍调用注销清除残留")
+    void partialContextAdapterFailureIsRolledBack() {
         List<String> events = new ArrayList<>();
         RecordingContextAdapter gallery = new RecordingContextAdapter(events);
         PluginCapabilityContributionRegistrar registrar = new PluginCapabilityContributionRegistrar(
@@ -165,8 +165,7 @@ class PluginCapabilityContributionRegistrarTest {
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
             child.refresh();
-            registrar.register("ext-demo", child);
-            gallery.failOnRegister = true;
+            gallery.failAfterRegister = true;
 
             assertThatThrownBy(() -> registrar.register("ext-demo", child))
                     .isInstanceOf(IllegalStateException.class)
@@ -175,8 +174,8 @@ class PluginCapabilityContributionRegistrarTest {
 
         assertThat(events).containsExactly(
                 "gallery:register:ext-demo",
-                "gallery:register:ext-demo");
-        assertThat(gallery.registered).containsExactly("ext-demo");
+                "gallery:unregister:ext-demo");
+        assertThat(gallery.registered).isEmpty();
     }
 
     @Test
@@ -302,6 +301,7 @@ class PluginCapabilityContributionRegistrarTest {
         private final List<String> events;
         private final List<String> registered = new ArrayList<>();
         private boolean failOnRegister;
+        private boolean failAfterRegister;
 
         private RecordingContextAdapter(List<String> events) {
             this.events = events;
@@ -320,6 +320,9 @@ class PluginCapabilityContributionRegistrarTest {
             }
             if (!registered.contains(pluginId)) {
                 registered.add(pluginId);
+            }
+            if (failAfterRegister) {
+                throw new IllegalStateException("gallery failed after partial publication");
             }
         }
 

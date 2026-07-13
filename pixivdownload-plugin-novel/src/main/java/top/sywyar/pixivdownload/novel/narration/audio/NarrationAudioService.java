@@ -113,27 +113,37 @@ public class NarrationAudioService {
         if (normalized.isEmpty()) {
             throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
         }
-        NarrationVoiceEngine engine = registry.selected(config.getEngine()).orElse(null);
-        if (engine == null) {
+        NarrationEngineRegistry.PreparedEngine prepared =
+                registry.selectedPrepared(config.getEngine()).orElse(null);
+        if (prepared == null) {
             log.warn(messages.getForLog("narration.tts.log.engine.not-found", config.getEngine(), registry.count()));
             throw new NarrationVoiceException(
                     messages.get("narration.tts.error.engine-not-found", config.getEngine()), null);
         }
-        if (!engine.isAvailable()) {
-            log.warn(messages.getForLog("narration.tts.log.engine.unavailable", engine.id()));
+        NarrationVoiceEngine engine = prepared.engine();
+        String engineId = prepared.id();
+        try {
+            if (!engine.isAvailable()) {
+                log.warn(messages.getForLog("narration.tts.log.engine.unavailable", engineId));
+                throw new NarrationVoiceException(messages.get("narration.tts.error.unavailable"), null);
+            }
+            NarrationVoiceMode effectiveMode = mode;
+            if (!engine.supportedModes().contains(mode)) {
+                if (log.isDebugEnabled()) {
+                    log.debug(messages.getForLog("narration.tts.log.mode.downgrade", mode, engineId));
+                }
+                effectiveMode = NarrationVoiceMode.VOICE_DESIGN;
+            }
+            if (log.isDebugEnabled()) {
+                log.debug(messages.getForLog("narration.tts.log.engine.selected", engineId));
+            }
+            return engine.synthesize(effectiveMode, req.withText(normalized));
+        } catch (NarrationVoiceException failure) {
+            throw failure;
+        } catch (RuntimeException unavailable) {
+            log.warn(messages.getForLog("narration.tts.log.engine.unavailable", engineId));
             throw new NarrationVoiceException(messages.get("narration.tts.error.unavailable"), null);
         }
-        NarrationVoiceMode effectiveMode = mode;
-        if (!engine.supportedModes().contains(mode)) {
-            if (log.isDebugEnabled()) {
-                log.debug(messages.getForLog("narration.tts.log.mode.downgrade", mode, engine.id()));
-            }
-            effectiveMode = NarrationVoiceMode.VOICE_DESIGN;
-        }
-        if (log.isDebugEnabled()) {
-            log.debug(messages.getForLog("narration.tts.log.engine.selected", engine.id()));
-        }
-        return engine.synthesize(effectiveMode, req.withText(normalized));
     }
 
     /**
@@ -142,8 +152,15 @@ public class NarrationAudioService {
      * 可用性显隐 / 禁用「富感情朗读」入口，避免后端未配置 / 已宕机时仍可点开并触发分析。
      */
     public boolean isEngineAvailable() {
-        return registry.selected(config.getEngine())
-                .map(NarrationVoiceEngine::isReachable)
-                .orElse(false);
+        NarrationEngineRegistry.PreparedEngine prepared =
+                registry.selectedPrepared(config.getEngine()).orElse(null);
+        if (prepared == null) {
+            return false;
+        }
+        try {
+            return prepared.engine().isReachable();
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
     }
 }

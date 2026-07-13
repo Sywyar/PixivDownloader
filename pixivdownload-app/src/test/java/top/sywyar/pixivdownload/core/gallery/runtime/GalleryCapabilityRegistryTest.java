@@ -23,12 +23,53 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 @DisplayName("统一画廊 capability 注册中心")
 class GalleryCapabilityRegistryTest {
+
+    @Test
+    @DisplayName("状态发布遇到普通或致命错误时 owner 与画廊快照保持同一旧版本")
+    void statePublicationFailureKeepsOwnerAndSnapshotAtomic() {
+        AtomicReference<Throwable> nextFailure = new AtomicReference<>();
+        GalleryCapabilityRegistry registry = new GalleryCapabilityRegistry(
+                List.of(), List.of(), () -> throwPending(nextFailure));
+        GalleryFrontendContribution first = frontend(
+                "first.card", 10, Set.of(GalleryFrontendHook.CARD_EXTENSION), GalleryFrontendScope.any());
+        GalleryFrontendContribution second = frontend(
+                "second.card", 20, Set.of(GalleryFrontendHook.CARD_EXTENSION), GalleryFrontendScope.any());
+        registry.registerPrepared("owner-a", 1L, List.of(), List.of(), List.of(first));
+        GalleryCapabilityRegistry.Snapshot beforePublish = registry.snapshot();
+
+        for (Throwable expected : List.of(
+                new IllegalStateException("ordinary-publish"),
+                new OutOfMemoryError("fatal-publish"),
+                new ThreadDeath())) {
+            nextFailure.set(expected);
+            assertThat(catchThrowable(() -> registry.registerPrepared(
+                    "owner-b", 2L, List.of(), List.of(), List.of(second)))).isSameAs(expected);
+            assertThat(registry.snapshot()).isSameAs(beforePublish);
+        }
+
+        registry.registerPrepared("owner-b", 2L, List.of(), List.of(), List.of(second));
+        GalleryCapabilityRegistry.Snapshot beforeWithdraw = registry.snapshot();
+        for (Throwable expected : List.of(
+                new IllegalStateException("ordinary-withdraw"),
+                new OutOfMemoryError("fatal-withdraw"),
+                new ThreadDeath())) {
+            nextFailure.set(expected);
+            assertThat(catchThrowable(() -> registry.unregisterPrepared("owner-b", 2L))).isSameAs(expected);
+            assertThat(registry.snapshot()).isSameAs(beforeWithdraw);
+        }
+        registry.unregisterPrepared("owner-b", 2L);
+        assertThat(registry.snapshot().frontendContributions())
+                .extracting(item -> item.contribution().contributionId())
+                .containsExactly("first.card");
+    }
 
     @Test
     @DisplayName("同一子上下文的投影、详情与前端贡献按 owner 原子注册和注销")
@@ -245,6 +286,16 @@ class GalleryCapabilityRegistryTest {
                 view ? "view." + id : null,
                 view ? "images" : null,
                 order);
+    }
+
+    private static void throwPending(AtomicReference<Throwable> pending) {
+        Throwable failure = pending.getAndSet(null);
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
     }
 
     private static final class TestProvider implements GalleryProjectionProvider, GalleryWorkProvider {

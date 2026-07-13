@@ -53,11 +53,11 @@ public class PushService implements PushDispatcher {
             return List.of();
         }
         List<PushResult> results = new ArrayList<>();
-        for (PushChannel channel : channelRegistry.channels()) {
-            if (!channel.isConfigured()) {
-                continue;
+        for (PushChannelRegistry.PreparedChannel channel : channelRegistry.preparedChannels()) {
+            PushResult result = dispatchConfigured(channel, message);
+            if (result != null) {
+                results.add(result);
             }
-            results.add(dispatch(channel, message));
         }
         if (results.isEmpty()) {
             log.debug(messages.getForLog("push.log.skipped.no-channel"));
@@ -70,14 +70,11 @@ public class PushService implements PushDispatcher {
      * {@link PushResult.Status#SKIPPED}。绝不抛异常。
      */
     public PushResult push(PushChannelType type, PushMessage message) {
-        PushChannel channel = channelRegistry.byType(type).orElse(null);
+        PushChannelRegistry.PreparedChannel channel = channelRegistry.preparedByType(type).orElse(null);
         if (channel == null) {
             return PushResult.skipped(type, "push plugin unavailable");
         }
-        if (!channel.isConfigured()) {
-            return PushResult.skipped(type, "channel not configured");
-        }
-        return dispatch(channel, message == null ? PushMessage.of("", "") : message);
+        return dispatchTargeted(channel, message == null ? PushMessage.of("", "") : message);
     }
 
     /**
@@ -101,7 +98,8 @@ public class PushService implements PushDispatcher {
             if (settings == null) {
                 continue;
             }
-            PushChannel channel = channelRegistry.byType(settings.type()).orElse(null);
+            PushChannelRegistry.PreparedChannel channel =
+                    channelRegistry.preparedByType(settings.type()).orElse(null);
             if (channel == null) {
                 results.add(PushResult.skipped(settings.type(), "push plugin unavailable"));
                 continue;
@@ -119,23 +117,49 @@ public class PushService implements PushDispatcher {
      * 双保险：通道实现已承诺 best-effort 不抛，这里仍兜一层 {@link RuntimeException}，确保广播不会因单个
      * 通道的意外异常中断。
      */
-    private PushResult dispatch(PushChannel channel, PushMessage message) {
+    private PushResult dispatchConfigured(
+            PushChannelRegistry.PreparedChannel prepared,
+            PushMessage message) {
+        PushChannel channel = prepared.channel();
         try {
+            if (!channel.isConfigured()) {
+                return null;
+            }
             return channel.send(renderFor(channel, message));
         } catch (RuntimeException e) {
-            log.warn(messages.getForLog("push.log.channel.error", channel.type().id(),
+            log.warn(messages.getForLog("push.log.channel.error", prepared.type().id(),
                     e.getClass().getSimpleName()));
-            return PushResult.failed(channel.type(), "unexpected error");
+            return PushResult.failed(prepared.type(), "unexpected error");
         }
     }
 
-    private PushResult dispatchTest(PushChannel channel, PushChannelSettings settings, PushMessage message) {
+    private PushResult dispatchTargeted(
+            PushChannelRegistry.PreparedChannel prepared,
+            PushMessage message) {
+        PushChannel channel = prepared.channel();
+        try {
+            if (!channel.isConfigured()) {
+                return PushResult.skipped(prepared.type(), "channel not configured");
+            }
+            return channel.send(renderFor(channel, message));
+        } catch (RuntimeException e) {
+            log.warn(messages.getForLog("push.log.channel.error", prepared.type().id(),
+                    e.getClass().getSimpleName()));
+            return PushResult.failed(prepared.type(), "unexpected error");
+        }
+    }
+
+    private PushResult dispatchTest(
+            PushChannelRegistry.PreparedChannel prepared,
+            PushChannelSettings settings,
+            PushMessage message) {
+        PushChannel channel = prepared.channel();
         try {
             return channel.sendTest(settings, renderFor(channel, message));
         } catch (RuntimeException e) {
-            log.warn(messages.getForLog("push.log.channel.error", channel.type().id(),
+            log.warn(messages.getForLog("push.log.channel.error", prepared.type().id(),
                     e.getClass().getSimpleName()));
-            return PushResult.failed(channel.type(), "unexpected error");
+            return PushResult.failed(prepared.type(), "unexpected error");
         }
     }
 

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.gallery.runtime;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
 import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -33,6 +35,38 @@ public class GalleryCapabilityRegistry {
 
     private static final String CORE_OWNER = "core";
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
+
+    /** Projection metadata captured before the raw provider is hidden behind its proxy. */
+    public record PreparedProjectionProvider(
+            String providerId,
+            GalleryProjectionProvider provider,
+            List<GalleryProjectionDescriptor> descriptors,
+            String implementationType
+    ) {
+        public PreparedProjectionProvider {
+            Objects.requireNonNull(providerId, "providerId");
+            Objects.requireNonNull(provider, "provider");
+            descriptors = List.copyOf(descriptors);
+            implementationType = implementationType == null || implementationType.isBlank()
+                    ? "unknown" : implementationType;
+        }
+    }
+
+    /** Work-provider metadata captured before the raw provider is hidden behind its proxy. */
+    public record PreparedWorkProvider(
+            String providerId,
+            GalleryWorkProvider provider,
+            List<GalleryWorkDescriptor> descriptors,
+            String implementationType
+    ) {
+        public PreparedWorkProvider {
+            Objects.requireNonNull(providerId, "providerId");
+            Objects.requireNonNull(provider, "provider");
+            descriptors = List.copyOf(descriptors);
+            implementationType = implementationType == null || implementationType.isBlank()
+                    ? "unknown" : implementationType;
+        }
+    }
 
     public record RegisteredProjectionProvider(
             String ownerPluginId,
@@ -107,6 +141,21 @@ public class GalleryCapabilityRegistry {
         }
     }
 
+    private record OwnerKey(String pluginId, long publicationId) {
+    }
+
+    /** Owner bookkeeping and its derived public view are published as one immutable value. */
+    private record State(Map<OwnerKey, OwnerCapabilities> byOwner, Snapshot snapshot) {
+        private State {
+            byOwner = Collections.unmodifiableMap(new LinkedHashMap<>(byOwner));
+            Objects.requireNonNull(snapshot, "gallery capability snapshot");
+        }
+
+        private static State empty() {
+            return new State(Map.of(), Snapshot.empty());
+        }
+    }
+
     private record ProjectionRoute(String sourceId, GalleryKind kind) {
     }
 
@@ -114,18 +163,27 @@ public class GalleryCapabilityRegistry {
     }
 
     private final Object lock = new Object();
-    private final Map<String, OwnerCapabilities> byOwner = new LinkedHashMap<>();
-    private volatile Snapshot snapshot = Snapshot.empty();
+    private final Runnable statePublishProbe;
+    private volatile State state = State.empty();
 
+    @Autowired
     public GalleryCapabilityRegistry(List<GalleryProjectionProvider> projections,
                                      List<GalleryWorkProvider> works) {
+        this(projections, works, () -> {
+        });
+    }
+
+    GalleryCapabilityRegistry(List<GalleryProjectionProvider> projections,
+                              List<GalleryWorkProvider> works,
+                              Runnable statePublishProbe) {
+        this.statePublishProbe = Objects.requireNonNull(statePublishProbe, "gallery state publish probe");
         if ((projections != null && !projections.isEmpty()) || (works != null && !works.isEmpty())) {
             register(CORE_OWNER, projections, works, List.of());
         }
     }
 
     public Snapshot snapshot() {
-        return snapshot;
+        return state.snapshot();
     }
 
     public void register(String ownerPluginId,
@@ -144,43 +202,119 @@ public class GalleryCapabilityRegistry {
                          List<GalleryWorkProvider> works,
                          List<GalleryFrontendContribution> frontends) {
         String owner = requireId(ownerPluginId, "gallery owner plugin id");
+        OwnerKey ownerKey = owner(owner, 0L);
         boolean empty = isEmpty(projections) && isEmpty(works) && isEmpty(frontends);
         OwnerCapabilities prepared = empty ? null : prepareOwner(owner, projections, works, frontends);
 
         synchronized (lock) {
-            if (empty && !byOwner.containsKey(owner)) {
+            State current = state;
+            if (empty && !current.byOwner().containsKey(ownerKey)) {
                 return;
             }
-            Map<String, OwnerCapabilities> next = new LinkedHashMap<>(byOwner);
+            Map<OwnerKey, OwnerCapabilities> next = new LinkedHashMap<>(current.byOwner());
             if (empty) {
-                next.remove(owner);
+                next.remove(ownerKey);
             } else {
-                next.put(owner, prepared);
+                next.put(ownerKey, prepared);
             }
-            Snapshot rebuilt = rebuild(next, snapshot.generation() + 1);
-            byOwner.clear();
-            byOwner.putAll(next);
-            snapshot = rebuilt;
+            publishState(new State(next, rebuild(next, current.snapshot().generation() + 1)));
         }
     }
 
     public void unregister(String ownerPluginId) {
         String owner = requireId(ownerPluginId, "gallery owner plugin id");
         synchronized (lock) {
-            if (!byOwner.containsKey(owner)) {
+            State current = state;
+            if (current.byOwner().keySet().stream().noneMatch(key -> key.pluginId().equals(owner))) {
                 return;
             }
-            Map<String, OwnerCapabilities> next = new LinkedHashMap<>(byOwner);
-            next.remove(owner);
-            Snapshot rebuilt = rebuild(next, snapshot.generation() + 1);
-            byOwner.clear();
-            byOwner.putAll(next);
-            snapshot = rebuilt;
+            Map<OwnerKey, OwnerCapabilities> next = new LinkedHashMap<>(current.byOwner());
+            next.keySet().removeIf(key -> key.pluginId().equals(owner));
+            publishState(new State(next, rebuild(next, current.snapshot().generation() + 1)));
+        }
+    }
+
+    /**
+     * Publish pre-captured metadata plus target-free proxies. Snapshot rebuild never calls a provider proxy.
+     */
+    public void registerPrepared(
+            String ownerPluginId,
+            long publicationId,
+            List<PreparedProjectionProvider> projectionProviders,
+            List<PreparedWorkProvider> workProviders,
+            List<GalleryFrontendContribution> frontendContributions) {
+        String owner = requireId(ownerPluginId, "gallery owner plugin id");
+        OwnerKey ownerKey = owner(owner, publicationId);
+        List<RegisteredProjectionProvider> projections = new ArrayList<>();
+        if (projectionProviders != null) {
+            for (PreparedProjectionProvider prepared : projectionProviders) {
+                if (prepared == null) {
+                    throw new IllegalStateException("null prepared gallery projection provider (owner: "
+                            + owner + ")");
+                }
+                validatePreparedProjectionDescriptors(owner, prepared.providerId(), prepared.descriptors());
+                projections.add(new RegisteredProjectionProvider(
+                        owner,
+                        requireId(prepared.providerId(), "gallery projection provider id"),
+                        prepared.provider(),
+                        prepared.descriptors()));
+            }
+        }
+        List<RegisteredWorkProvider> works = new ArrayList<>();
+        if (workProviders != null) {
+            for (PreparedWorkProvider prepared : workProviders) {
+                if (prepared == null) {
+                    throw new IllegalStateException("null prepared gallery work provider (owner: " + owner + ")");
+                }
+                validatePreparedWorkDescriptors(owner, prepared.providerId(), prepared.descriptors());
+                works.add(new RegisteredWorkProvider(
+                        owner,
+                        requireId(prepared.providerId(), "gallery work provider id"),
+                        prepared.provider(),
+                        prepared.descriptors()));
+            }
+        }
+        List<RegisteredFrontendContribution> frontends = new ArrayList<>();
+        if (frontendContributions != null) {
+            for (GalleryFrontendContribution contribution : frontendContributions) {
+                validateFrontendContribution(owner, contribution);
+                frontends.add(new RegisteredFrontendContribution(owner, contribution));
+            }
+        }
+        OwnerCapabilities prepared = new OwnerCapabilities(projections, works, frontends);
+        boolean empty = projections.isEmpty() && works.isEmpty() && frontends.isEmpty();
+        synchronized (lock) {
+            State current = state;
+            if (empty && !current.byOwner().containsKey(ownerKey)) {
+                return;
+            }
+            Map<OwnerKey, OwnerCapabilities> next = new LinkedHashMap<>(current.byOwner());
+            if (empty) {
+                next.remove(ownerKey);
+            } else {
+                next.put(ownerKey, prepared);
+            }
+            publishState(new State(next, rebuild(next, current.snapshot().generation() + 1L)));
+        }
+    }
+
+    /** Exact withdrawal; a stale publication cannot delete a replacement. */
+    public void unregisterPrepared(String ownerPluginId, long publicationId) {
+        String owner = requireId(ownerPluginId, "gallery owner plugin id");
+        OwnerKey ownerKey = owner(owner, publicationId);
+        synchronized (lock) {
+            State current = state;
+            if (!current.byOwner().containsKey(ownerKey)) {
+                return;
+            }
+            Map<OwnerKey, OwnerCapabilities> next = new LinkedHashMap<>(current.byOwner());
+            next.remove(ownerKey);
+            publishState(new State(next, rebuild(next, current.snapshot().generation() + 1L)));
         }
     }
 
     public List<RegisteredProjectionProvider> resolveProjections(GalleryKind kind, String sourceId) {
-        return snapshot.projectionProviders().stream()
+        return state.snapshot().projectionProviders().stream()
                 .filter(registered -> registered.descriptors().stream().anyMatch(descriptor ->
                         descriptor.kind() == kind
                                 && (sourceId == null || sourceId.equals(descriptor.sourceId()))))
@@ -194,7 +328,7 @@ public class GalleryCapabilityRegistry {
     public Optional<RegisteredWorkProvider> resolveWork(String sourceId, String namespace,
                                                         Set<GalleryDataAccess> allowedAccess) {
         Set<GalleryDataAccess> allowed = allowedAccess == null ? Set.of() : Set.copyOf(allowedAccess);
-        return snapshot.workProviders().stream()
+        return state.snapshot().workProviders().stream()
                 .filter(registered -> registered.descriptors().stream().anyMatch(descriptor ->
                         descriptor.sourceId().equals(sourceId)
                                 && descriptor.sourceWorkNamespace().equals(namespace)
@@ -204,10 +338,15 @@ public class GalleryCapabilityRegistry {
 
     public List<RegisteredFrontendContribution> resolveFrontends(
             String sourceId, String namespace, GalleryKind kind, GalleryMediaKind mediaKind) {
-        return snapshot.frontendContributions().stream()
+        return state.snapshot().frontendContributions().stream()
                 .filter(registered -> registered.contribution()
                         .matches(sourceId, namespace, kind, mediaKind))
                 .toList();
+    }
+
+    private void publishState(State next) {
+        statePublishProbe.run();
+        state = next;
     }
 
     private static OwnerCapabilities prepareOwner(
@@ -249,7 +388,7 @@ public class GalleryCapabilityRegistry {
         return new OwnerCapabilities(projections, works, frontends);
     }
 
-    private static Snapshot rebuild(Map<String, OwnerCapabilities> owners, long generation) {
+    private static Snapshot rebuild(Map<OwnerKey, OwnerCapabilities> owners, long generation) {
         List<RegisteredProjectionProvider> projections = new ArrayList<>();
         List<RegisteredWorkProvider> works = new ArrayList<>();
         List<RegisteredFrontendContribution> frontends = new ArrayList<>();
@@ -388,6 +527,40 @@ public class GalleryCapabilityRegistry {
         }
     }
 
+    private static void validatePreparedProjectionDescriptors(
+            String owner,
+            String providerId,
+            List<GalleryProjectionDescriptor> descriptors) {
+        if (descriptors == null) {
+            throw new IllegalStateException("prepared gallery projection descriptors are null (owner: "
+                    + owner + ", provider: " + providerId + ")");
+        }
+        for (GalleryProjectionDescriptor descriptor : descriptors) {
+            if (descriptor == null) {
+                throw new IllegalStateException("null gallery projection descriptor: " + providerId);
+            }
+            requireId(descriptor.sourceId(), "gallery source id");
+            Objects.requireNonNull(descriptor.kind(), "gallery projection kind");
+        }
+    }
+
+    private static void validatePreparedWorkDescriptors(
+            String owner,
+            String providerId,
+            List<GalleryWorkDescriptor> descriptors) {
+        if (descriptors == null) {
+            throw new IllegalStateException("prepared gallery work descriptors are null (owner: "
+                    + owner + ", provider: " + providerId + ")");
+        }
+        for (GalleryWorkDescriptor descriptor : descriptors) {
+            if (descriptor == null) {
+                throw new IllegalStateException("null gallery work descriptor: " + providerId);
+            }
+            requireId(descriptor.sourceId(), "gallery source id");
+            requireId(descriptor.sourceWorkNamespace(), "gallery work namespace");
+        }
+    }
+
     private static void validateFrontendContribution(String owner, GalleryFrontendContribution contribution) {
         if (contribution == null) {
             throw new IllegalStateException("null gallery frontend contribution (owner: " + owner + ")");
@@ -446,6 +619,13 @@ public class GalleryCapabilityRegistry {
 
     private static boolean isEmpty(List<?> values) {
         return values == null || values.isEmpty();
+    }
+
+    private static OwnerKey owner(String pluginId, long publicationId) {
+        if (publicationId < 0L) {
+            throw new IllegalArgumentException("gallery capability publication id must not be negative");
+        }
+        return new OwnerKey(pluginId, publicationId);
     }
 
     private static String requireId(String value, String label) {

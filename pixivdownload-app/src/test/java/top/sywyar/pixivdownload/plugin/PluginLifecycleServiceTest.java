@@ -329,6 +329,36 @@ class PluginLifecycleServiceTest {
     }
 
     @Test
+    @DisplayName("能力清理失败时保留 QUIESCED 与活动 context，重试成功后才停止插件并关闭 context")
+    void capabilityCleanupFailureKeepsRetryableQuiescedContext() {
+        try (ContextHarness h = new ContextHarness()) {
+            h.service.startAll();
+            ConfigurableApplicationContext child = h.service.contextFor("ext-demo").orElseThrow();
+            doThrow(new IllegalStateException("capability cleanup failed"))
+                    .doNothing()
+                    .when(h.capabilityRegistrar).unregister("ext-demo");
+
+            assertThatThrownBy(() -> h.service.stop("ext-demo"))
+                    .isInstanceOf(PluginLifecycleException.class)
+                    .hasMessageContaining("capability cleanup remains pending");
+
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+            assertThat(h.service.contextFor("ext-demo")).containsSame(child);
+            assertThat(child.isActive()).isTrue();
+            assertThat(h.plugin.stopCount).isZero();
+            verify(h.webRegistrar, never()).unregister(eq("ext-demo"), any());
+
+            h.service.stop("ext-demo");
+
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(h.service.contextFor("ext-demo")).isEmpty();
+            assertThat(child.isActive()).isFalse();
+            assertThat(h.plugin.stopCount).isEqualTo(1);
+            verify(h.capabilityRegistrar, times(2)).unregister("ext-demo");
+        }
+    }
+
+    @Test
     @DisplayName("unload：先停止再从核心注册中心移除，阶段落 UNLOADED")
     void unloadStopsThenUnregistersFromCore() {
         MockHarness h = new MockHarness();
@@ -750,8 +780,8 @@ class PluginLifecycleServiceTest {
     }
 
     @Test
-    @DisplayName("能力注册失败时沿用 registrar 内部回滚且不再次注销原子旧快照")
-    void capabilityRegistrationFailureIsNotUnregisteredAgain() {
+    @DisplayName("能力注册失败时重试同一 registrar 清理入口后才关闭 child context")
+    void capabilityRegistrationFailureRetriesExactCleanup() {
         try (ContextHarness h = new ContextHarness()) {
             doThrow(new IllegalStateException("capability failed"))
                     .when(h.capabilityRegistrar).register(eq("ext-demo"), any());
@@ -761,7 +791,7 @@ class PluginLifecycleServiceTest {
             assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
             assertThat(h.service.contextFor("ext-demo")).isEmpty();
             verify(h.capabilityRegistrar).register(eq("ext-demo"), any());
-            verify(h.capabilityRegistrar, never()).unregister("ext-demo");
+            verify(h.capabilityRegistrar).unregister("ext-demo");
         }
     }
 

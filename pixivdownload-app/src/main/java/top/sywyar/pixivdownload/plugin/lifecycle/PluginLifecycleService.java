@@ -582,8 +582,9 @@ public class PluginLifecycleService {
             } catch (RuntimeException e) {
                 log.error("Failed to register runtime capability contributions for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record, false, false);
-                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                if (rollBackBringUp(record, true, false)) {
+                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                }
                 return;
             }
         }
@@ -594,8 +595,9 @@ public class PluginLifecycleService {
             } catch (Exception e) {
                 log.error("Failed to register controllers for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record, true, false);
-                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                if (rollBackBringUp(record, true, false)) {
+                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                }
                 return;
             }
         }
@@ -606,8 +608,9 @@ public class PluginLifecycleService {
             } catch (RuntimeException e) {
                 log.error("Plugin '{}' start() failed: {} - rolling back its service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record, true, false);
-                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                if (rollBackBringUp(record, true, false)) {
+                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                }
                 return;
             }
         }
@@ -619,8 +622,9 @@ public class PluginLifecycleService {
             } catch (RuntimeException e) {
                 log.error("Failed to publish schedule capabilities for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record, true, invokePluginStart);
-                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                if (rollBackBringUp(record, true, invokePluginStart)) {
+                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                }
                 return;
             }
         }
@@ -641,7 +645,9 @@ public class PluginLifecycleService {
         try {
             capabilityContributionRegistrar.unregister(pluginId);
         } catch (RuntimeException e) {
-            log.warn("Error unregistering runtime capability contributions for plugin '{}': {}", pluginId, e.toString());
+            log.warn("Runtime capability cleanup for plugin '{}' remains pending: {}", pluginId, e.toString());
+            throw new PluginLifecycleException(
+                    "runtime capability cleanup remains pending for plugin '" + pluginId + "'", e);
         }
         try {
             if (record.webRegistered) {
@@ -667,8 +673,8 @@ public class PluginLifecycleService {
      * 已成功、随后最终 schedule publication 失败时对称调用 {@code stop()}；启动期回调仍归 {@link PluginRegistry} 所有。
      * 每步隔离、异常只记日志。
      */
-    private void rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered,
-                                 boolean pluginStarted) {
+    private boolean rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered,
+                                    boolean pluginStarted) {
         try {
             controllerRegistrar.unregisterControllers(record.pluginId);
         } catch (RuntimeException e) {
@@ -677,9 +683,17 @@ public class PluginLifecycleService {
         if (capabilitiesRegistered) {
             try {
                 capabilityContributionRegistrar.unregister(record.pluginId);
-            } catch (RuntimeException e) {
+            } catch (Throwable e) {
                 log.warn("Error rolling back runtime capability contributions for plugin '{}': {}",
                         record.pluginId, e.toString());
+                lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+                if (e instanceof VirtualMachineError fatal) {
+                    throw fatal;
+                }
+                if (e instanceof ThreadDeath fatal) {
+                    throw fatal;
+                }
+                return false;
             }
         }
         if (pluginStarted) {
@@ -692,6 +706,7 @@ public class PluginLifecycleService {
         }
         closeQuietly(record);
         cleanUpFailedBringUp(record);
+        return true;
     }
 
     /** 失败接入的清理：撤回本次接入的 web 贡献（幂等）。 */
