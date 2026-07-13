@@ -1,8 +1,11 @@
 package top.sywyar.pixivdownload.plugin.lifecycle.quiesce;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
@@ -12,16 +15,20 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 外置插件运行期任务清退器：在生命周期服务完成 quiesce 标记后，按固定顺序屏蔽新的计划任务派发、关闭该插件的
- * 服务端推流，再按插件声明的 queue type 排空在途下载任务。
- *
- * <p>三个职责步骤分别隔离异常，任一步失败只记录诊断，不阻断后续清退。底层 schedule 注销、推流关闭与队列清空
- * 均沿用既有幂等语义，因此 quiesce 后再 stop 时可以安全重复调用。本组件只编排运行期任务资源，不持有生命周期状态，
- * 也不负责 controller、web 贡献、子 context 或插件自身 {@code start/stop} 回调。</p>
+ * 外置插件运行期任务清退器。固定顺序为精确撤回 schedule publication（同时拒绝新 lease、取消本代在途执行）→
+ * 关闭 SSE → 排空插件队列。schedule 撤回是 child context 安全关闭的前置条件，失败不得吞掉；SSE 与队列清退仍按
+ * 既有 best-effort 语义彼此隔离。
  */
 @Slf4j
 @Component
 public class PluginRuntimeTaskQuiescer {
+
+    /** 本次 quiesce 获得的精确 schedule drain；无 schedule publication 时为空。 */
+    public record QuiesceResult(Optional<ScheduleGenerationDrain> scheduleDrain) {
+        public QuiesceResult {
+            scheduleDrain = scheduleDrain == null ? Optional.empty() : scheduleDrain;
+        }
+    }
 
     private final PluginScheduleContributionRegistrar scheduleContributionRegistrar;
     private final PluginStreamRegistry pluginStreamRegistry;
@@ -36,24 +43,29 @@ public class PluginRuntimeTaskQuiescer {
     }
 
     /**
-     * 清退指定插件的运行期任务资源。调用顺序固定为 schedule 派发屏蔽 → SSE 关闭 → queue drain。
-     *
-     * @param pluginId 插件 id
-     * @param plugin   插件描述实例；缺少核心注册条目时为空，此时仍屏蔽 schedule 并关闭推流
+     * 发起指定插件的运行期清退。若传入 publication，则必须精确撤回并取得 drain；token 已过期视为安全错误，
+     * 不能继续关闭 child context。
      */
-    public void quiesce(String pluginId, Optional<PixivFeaturePlugin> plugin) {
-        shieldScheduleDispatch(pluginId);
+    public QuiesceResult quiesce(String pluginId,
+                                 @Nullable ScheduleCapabilityPublication publication,
+                                 Optional<PixivFeaturePlugin> plugin) {
+        Optional<ScheduleGenerationDrain> drain = withdrawSchedule(publication);
         closeStreams(pluginId);
         drainQueueTasks(pluginId, plugin);
+        return new QuiesceResult(drain);
     }
 
-    private void shieldScheduleDispatch(String pluginId) {
-        try {
-            scheduleContributionRegistrar.unregister(pluginId);
-        } catch (RuntimeException e) {
-            log.warn("Error unregistering schedule contributions for plugin '{}' during quiesce: {}",
-                    pluginId, e.toString());
+    private Optional<ScheduleGenerationDrain> withdrawSchedule(
+            @Nullable ScheduleCapabilityPublication publication) {
+        if (publication == null) {
+            return Optional.empty();
         }
+        Optional<ScheduleGenerationDrain> drain = scheduleContributionRegistrar.withdraw(publication);
+        if (drain.isEmpty()) {
+            throw new IllegalStateException("schedule publication is no longer active: "
+                    + publication.owner() + "#" + publication.publicationId());
+        }
+        return drain;
     }
 
     private void closeStreams(String pluginId) {

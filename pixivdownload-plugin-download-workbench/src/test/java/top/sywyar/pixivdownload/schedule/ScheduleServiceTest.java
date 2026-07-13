@@ -8,8 +8,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
@@ -17,6 +21,7 @@ import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,6 +30,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,14 +46,14 @@ class ScheduleServiceTest {
     @Mock
     private ScheduleRunQueue runQueue;
 
-    /** 默认空作品类型执行器注册中心（多数用例不触发翻译状态叠加）。 */
-    private static ScheduledWorkRunnerRegistry emptyRunnerRegistry() {
-        return new ScheduledWorkRunnerRegistry(List.of());
+    /** 默认空统一能力注册中心（多数用例不触发翻译状态叠加）。 */
+    private static ScheduleCapabilityRegistry emptyCapabilityRegistry() {
+        return new ScheduleCapabilityRegistry();
     }
 
     private ScheduleService newService() {
         return new ScheduleService(store, executor, new ScheduleConfig(), new ScheduleRunState(),
-                runQueue, emptyRunnerRegistry());
+                runQueue, emptyCapabilityRegistry());
     }
 
     private static ScheduledTask task(long id, String accountId, String status, String message) {
@@ -119,7 +126,7 @@ class ScheduleServiceTest {
 
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyCapabilityRegistry());
         // 模拟任务正在跑：先挂一个 Claim，pause 后该 Claim 应被标为待取消
         ScheduleRunState.Claim claim = runState.tryMarkQueued(42L);
         assertThat(claim).isNotNull();
@@ -138,7 +145,7 @@ class ScheduleServiceTest {
 
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyCapabilityRegistry());
 
         assertThatThrownBy(() -> service.pause(99L)).isInstanceOf(LocalizedException.class);
         verify(store, never()).setStatus(anyLong(), anyString());
@@ -151,10 +158,10 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         runState.tryMarkQueued(7L);
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyCapabilityRegistry());
 
         assertThatThrownBy(() -> service.manualRun(7L)).isInstanceOf(LocalizedException.class);
-        verify(executor, never()).runTaskAsync(anyLong(), any());
+        verify(executor, never()).runTaskAsync(anyLong(), any(), any());
     }
 
     @Test
@@ -167,7 +174,7 @@ class ScheduleServiceTest {
 
         ScheduleService service = newService();
         assertThatThrownBy(() -> service.manualRun(8L)).isInstanceOf(LocalizedException.class);
-        verify(executor, never()).runTaskAsync(anyLong(), any());
+        verify(executor, never()).runTaskAsync(anyLong(), any(), any());
     }
 
     @Test
@@ -177,7 +184,62 @@ class ScheduleServiceTest {
 
         ScheduleService service = newService();
         assertThatThrownBy(() -> service.manualRun(9L)).isInstanceOf(LocalizedException.class);
-        verify(executor, never()).runTaskAsync(anyLong(), any());
+        verify(executor, never()).runTaskAsync(anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("runOnce 在异步入队前转交 owner 租约，排队期间撤回仍等待 drain")
+    void runOnceTransfersOwnerLeaseBeforeAsyncQueueing() {
+        long taskId = 41L;
+        when(store.findById(taskId)).thenReturn(task(taskId, null, null, null));
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication =
+                ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
+        ScheduleRunState runState = new ScheduleRunState();
+        ScheduleService service = new ScheduleService(
+                store, executor, new ScheduleConfig(), runState, runQueue, registry);
+        AtomicReference<ScheduleRunState.Claim> transferredClaim = new AtomicReference<>();
+        AtomicReference<ScheduleSingleCapabilityLease<ScheduleCapabilityOwner>> transferredLease =
+                new AtomicReference<>();
+        doAnswer(invocation -> {
+            transferredClaim.set(invocation.getArgument(1));
+            transferredLease.set(invocation.getArgument(2));
+            return null;
+        }).when(executor).runTaskAsync(eq(taskId), any(), any());
+
+        service.runOnce(taskId);
+
+        ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
+        assertThat(runState.get(taskId)).isEqualTo(ScheduleRunState.QUEUED);
+        assertThat(drain.activeLeaseCount()).isEqualTo(1);
+        assertThat(drain.isDrained()).isFalse();
+        assertThat(transferredLease.get().cancellation().isCancellationRequested()).isTrue();
+
+        transferredLease.get().close();
+        runState.clear(transferredClaim.get());
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("runOnce 异步提交失败时关闭 owner 租约并清除排队 Claim")
+    void runOnceClosesOwnerLeaseWhenAsyncSubmissionFails() {
+        long taskId = 42L;
+        when(store.findById(taskId)).thenReturn(task(taskId, null, null, null));
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication =
+                ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
+        ScheduleRunState runState = new ScheduleRunState();
+        ScheduleService service = new ScheduleService(
+                store, executor, new ScheduleConfig(), runState, runQueue, registry);
+        doThrow(new IllegalStateException("rejected"))
+                .when(executor).runTaskAsync(eq(taskId), any(), any());
+
+        assertThatThrownBy(() -> service.runOnce(taskId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("rejected");
+
+        assertThat(runState.get(taskId)).isNull();
+        assertThat(registry.withdraw(publication).orElseThrow().isDrained()).isTrue();
     }
 
     @Test
@@ -299,8 +361,14 @@ class ScheduleServiceTest {
         when(novelRunner.kind()).thenReturn(ScheduledWorkKind.NOVEL);
         when(novelRunner.translateStatus(111L)).thenReturn(
                 new ScheduledWorkTranslateStatus("TRANSLATING", 5L, 0));
+        ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
+                capabilityRegistry,
+                new ScheduleCapabilityOwner("novel", "novel", 1L),
+                List.of(),
+                List.of(novelRunner));
         ScheduleService service = new ScheduleService(store, executor, new ScheduleConfig(),
-                new ScheduleRunState(), runQueue, new ScheduledWorkRunnerRegistry(List.of(novelRunner)));
+                new ScheduleRunState(), runQueue, capabilityRegistry);
 
         List<ScheduleQueueView.Item> items = service.queue(1L).items();
 
@@ -310,6 +378,31 @@ class ScheduleServiceTest {
         assertThat(skipped.translatePhase()).isNull();
         verify(novelRunner).translateStatus(111L);
         verify(novelRunner, never()).translateStatus(222L);
+        ScheduleGenerationDrain drain = capabilityRegistry.withdraw(publication).orElseThrow();
+        assertThat(drain.isDrained())
+                .as("queue 映射返回前短租约应已关闭并释放小说执行器")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("queue：小说执行器缺席时安全跳过翻译状态，队列正文照常返回")
+    void queueSkipsTranslateStatusWhenCapabilityIsAbsent() {
+        when(store.findById(2L)).thenReturn(task(2L, null, null, null));
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_NOVEL);
+        run.discovered("333", ScheduleRunQueue.KIND_NOVEL);
+        run.mark("333", ScheduleRunQueue.STATUS_DOWNLOADED, null);
+        run.markAutoTranslateSubmitted("333");
+        when(runQueue.get(2L)).thenReturn(run);
+
+        ScheduleService service = new ScheduleService(store, executor, new ScheduleConfig(),
+                new ScheduleRunState(), runQueue, emptyCapabilityRegistry());
+
+        ScheduleQueueView.Item item = service.queue(2L).items().get(0);
+
+        assertThat(item.id()).isEqualTo("333");
+        assertThat(item.translatePhase()).isNull();
+        assertThat(item.translateElapsedSeconds()).isNull();
+        assertThat(item.translateSeriesPending()).isNull();
     }
 
     @Test
@@ -319,7 +412,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         runState.tryMarkRunning(11L);
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyCapabilityRegistry());
 
         assertThatThrownBy(() -> service.delete(11L)).isInstanceOf(LocalizedException.class);
         verify(store, never()).delete(anyLong());

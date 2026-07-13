@@ -25,13 +25,18 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelSettings;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
+import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.schedule.source.DiscoveryMode;
 import top.sywyar.pixivdownload.download.schedule.source.PageSupplier;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSource;
@@ -98,23 +103,12 @@ public class ScheduleExecutor {
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
     private final ScheduledTaskStore store;
-    /**
-     * 计划任务来源注册中心：{@code runTask} 顶部把任务存量 {@code type} 解析到对应来源 provider，
-     * 再向下转型为 {@link ScheduledSource} 派发其发现 / 模式 / 谓词——调度主编排不再按
-     * {@link ScheduledTaskType} 枚举 switch 调具体来源实现。解析不到即来源不可用、干净挂起。
-     */
-    private final ScheduledSourceRegistry scheduledSourceRegistry;
+    /** owner 原子来源与作品能力 registry；所有插件行为只在 generation lease 内调用。 */
+    private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
     private final PixivFetchService pixivFetchService;
     private final PixivDatabase pixivDatabase;
     private final WorkMetaCaptureService workMetaCaptureService;
     private final ArtworkDownloader artworkDownloader;
-    /**
-     * 作品类型执行器注册中心（核心 owned）：调度壳准备好中性 work 后按作品类型（{@code illust} / {@code novel}）
-     * 解析执行器派发下载 / 系列合订 / 取翻译状态——插画执行器住调度壳、小说执行器由小说插件贡献，调度壳因此既不
-     * 强依赖任一具体下载实现、也不再为小说单列分支、更不 import novel 包。某类型执行器缺席（贡献它的插件被禁 /
-     * 卸载）时解析为空，对应类型任务标记不可用、干净挂起（见 {@link #requireWorkRunner}）。
-     */
-    private final ScheduledWorkRunnerRegistry workRunnerRegistry;
     private final NovelMetadataRepository novelMetadataRepository;
     private final ScheduleConfig scheduleConfig;
     private final ScheduleRunState runState;
@@ -138,26 +132,33 @@ public class ScheduleExecutor {
     // 涵盖 cookie 串前缀（^ / ; / 空白）以及 URL 查询串前缀（? / &），后者用于 `...?PHPSESSID=...` / `&PHPSESSID=...` 形式。
     private static final Pattern COOKIE_PAIR_PATTERN = Pattern.compile("(?i)(^|[;\\s?&])([A-Za-z0-9_-]+\\s*=\\s*)[^;\\s&]+");
 
-    /** 后台异步运行一次（供「立即运行」端点用，避免阻塞 HTTP 请求线程）。 */
+    /**
+     * 后台异步运行一个已经抢占瞬时态的任务。owner lease 必须由同步提交点在入队前取得并转交，
+     * 使线程池排队时间也计入 generation drain；异步任务无论是否真正开始执行都会负责关闭它。
+     */
     @Async
-    public void runTaskAsync(long taskId) {
-        ScheduleRunState.Claim claim = runState.tryMarkQueued(taskId);
-        if (claim == null) {
-            log.debug("Scheduled task {} async run skipped: already queued or running", taskId);
-            return;
+    public void runTaskAsync(
+            long taskId,
+            ScheduleRunState.Claim claim,
+            ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease) {
+        try (hostLease) {
+            if (hostLease.cancellation().isCancellationRequested()) {
+                runState.clear(claim);
+                log.debug("Scheduled task {} queued run skipped: schedule host is quiesced", taskId);
+                return;
+            }
+            runTaskAsyncLeased(taskId, claim, hostLease.cancellation());
         }
-        runTaskAsync(taskId, claim);
     }
 
-    /** 后台异步运行一个已经抢占瞬时态的任务。 */
-    @Async
-    public void runTaskAsync(long taskId, ScheduleRunState.Claim claim) {
+    private void runTaskAsyncLeased(
+            long taskId, ScheduleRunState.Claim claim, ScheduledCancellation hostCancellation) {
         boolean delegated = false;
         try {
             ScheduledTask task = store.findById(taskId);
             if (task != null) {
                 delegated = true;
-                runTaskAndRecord(task, claim);
+                runTaskAndRecordLeased(task, claim, hostCancellation);
             }
         } finally {
             if (!delegated) {
@@ -171,15 +172,43 @@ public class ScheduleExecutor {
      * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
-        ScheduleRunState.Claim claim = runState.tryMarkRunning(task.id());
-        if (claim == null) {
-            log.debug("Scheduled task {} ({}) skipped: already queued or running", task.id(), task.name());
-            return;
+        try (ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = tryAcquireHostLease()) {
+            if (hostLease == null) {
+                log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
+                return;
+            }
+            ScheduleRunState.Claim claim = runState.tryMarkRunning(task.id());
+            if (claim == null) {
+                log.debug("Scheduled task {} ({}) skipped: already queued or running", task.id(), task.name());
+                return;
+            }
+            runTaskAndRecordLeased(task, claim, hostLease.cancellation());
         }
-        runTaskAndRecord(task, claim);
     }
 
     void runTaskAndRecord(ScheduledTask task, ScheduleRunState.Claim claim) {
+        try (ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = tryAcquireHostLease()) {
+            if (hostLease == null) {
+                runState.clear(claim);
+                log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
+                return;
+            }
+            runTaskAndRecordLeased(task, claim, hostLease.cancellation());
+        }
+    }
+
+    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> tryAcquireHostLease() {
+        var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
+        if (handle == null) {
+            return null;
+        }
+        return scheduleCapabilityRegistry.tryAcquire(handle).orElse(null);
+    }
+
+    private void runTaskAndRecordLeased(
+            ScheduledTask task,
+            ScheduleRunState.Claim claim,
+            ScheduledCancellation hostCancellation) {
         if (!runState.markRunning(claim)) {
             log.debug("Scheduled task {} ({}) skipped: stale run claim", task.id(), task.name());
             return;
@@ -196,6 +225,7 @@ public class ScheduleExecutor {
         List<PendingExhaustedNotification> pendingNotifications =
                 Collections.synchronizedList(new ArrayList<>());
         try {
+            ensureCapabilityAvailable(hostCancellation, task.type().name());
             // 落库本轮开始时刻：正常结束（含干净挂起）时 updateRunResult 会清为 NULL；进程被强杀则残留 → 中断红灯。
             store.updateRunStarted(task.id(), System.currentTimeMillis());
             // 任务级单独代理：覆盖调度主线程上本轮的全部 Pixiv 请求（发现 / 元数据 / 站内信检测）；
@@ -206,6 +236,7 @@ public class ScheduleExecutor {
             } finally {
                 OutboundProxyOverride.clear();
             }
+            ensureCapabilityAvailable(hostCancellation, task.type().name());
             status = STATUS_OK;
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completedCount);
         } catch (OveruseWarningException e) {
@@ -339,32 +370,51 @@ public class ScheduleExecutor {
      */
     private int runTask(ScheduledTask task, List<PendingExhaustedNotification> pendingNotifications,
                         boolean[] degraded) throws Exception {
-        // ── 来源解析门 + 派发对象：把任务存量 type（枚举名，如 USER_NEW）解析到对应来源 provider，并向下转型为
-        //    执行契约 ScheduledSource。解析不到 / 非执行型（来源插件被禁 / 卸载、或该类型已被移除）→ 标记来源不可用
-        //    并干净挂起，绝不读 cookie / 探站内信 / 发现 / 派发。当前 7 个内置来源恒由下载工作台贡献并实现
-        //    ScheduledSource，故生产路径恒命中。下方发现 / 模式判定 / 账号私有判定 / 系列合订全部经该 source 对象，
-        //    调度主编排不再按 ScheduledTaskType 枚举 switch 调具体来源实现。
-        ScheduledSource sourceProvider = scheduledSourceRegistry.resolve(task.type().name())
-                .filter(ScheduledSource.class::isInstance)
-                .map(ScheduledSource.class::cast)
-                .orElseThrow(() -> new ScheduleSourceUnavailableException(task.type().name()));
+        // 来源 planning 只允许读取任务定义和选择执行模式；cookie、探活与任何来源网络访问必须等复合 lease 完整取得。
+        try (SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(task.type().name())
+                .orElseThrow(() -> new ScheduleSourceUnavailableException(task.type().name()))) {
+            ScheduledSource sourceProvider = planning.legacySourceProvider()
+                    .filter(ScheduledSource.class::isInstance)
+                    .map(ScheduledSource.class::cast)
+                    .orElseThrow(() -> new ScheduleSourceUnavailableException(task.type().name()));
+            ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.parse(objectMapper, task.paramsJson());
+            boolean novel = snapshot.novel();
+            JsonNode source = snapshot.source();
+            DiscoveryMode discoveryMode = sourceProvider.mode(source);
+            Set<String> requiredWorkTypes = discoveryMode == DiscoveryMode.COLLECTION
+                    ? Set.of(ScheduledWorkKind.ILLUST, ScheduledWorkKind.NOVEL)
+                    : Set.of(novel ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST);
 
-        ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.parse(objectMapper, task.paramsJson());
-        boolean novel = snapshot.novel();
-        JsonNode source = snapshot.source();
-        DiscoveryMode discoveryMode = sourceProvider.mode(source);
-
-        // ── 作品类型执行器解析门：本任务要派发的每种作品类型都必须有对应执行器（runner），否则标记不可用、干净
-        //    挂起。与上面的来源解析门并列在读 cookie / 探站内信 / 发现 / 派发之前——缺执行器（如小说插件被禁 /
-        //    卸载、或未提供该类型执行器）时绝不读 cookie / 发现 / 派发。COLLECTION 是插画 + 小说混合来源，需两类
-        //    执行器都在场；其余按任务 kind 取单一类型。插画执行器恒由下载工作台内置贡献，故插画任务不受小说执行器
-        //    缺席影响。复用 SOURCE_UNAVAILABLE 终态（语义现扩展为「来源或作品类型执行器不可用」）。
-        if (discoveryMode == DiscoveryMode.COLLECTION) {
-            requireWorkRunner(ScheduledWorkKind.ILLUST, task);
-            requireWorkRunner(ScheduledWorkKind.NOVEL, task);
-        } else {
-            requireWorkRunner(novel ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST, task);
+            ScheduleExecutionLease execution = scheduleCapabilityRegistry
+                    .tryExpandLegacy(planning, requiredWorkTypes)
+                    .orElseThrow(() -> new ScheduleSourceUnavailableException(
+                            task.type().name() + " (work types: " + requiredWorkTypes + ")"));
+            ScheduledCancellation executionCancellation = execution.cancellation();
+            int completed;
+            try (execution) {
+                completed = runTaskWithLease(task, pendingNotifications, degraded, sourceProvider,
+                        snapshot, novel, source, discoveryMode, execution.legacyWorkRunners(),
+                        executionCancellation);
+            }
+            // close 与 owner retire 在线程安全计数槽上线性化：retire 先发生会留下取消信号，
+            // close 先发生则说明所有插件行为已完成。close 后检查可消除「末次检查→释放租约」窗口。
+            ensureCapabilityAvailable(executionCancellation, task.type().name());
+            return completed;
         }
+    }
+
+    private int runTaskWithLease(
+            ScheduledTask task,
+            List<PendingExhaustedNotification> pendingNotifications,
+            boolean[] degraded,
+            ScheduledSource sourceProvider,
+            ScheduleTaskSnapshot snapshot,
+            boolean novel,
+            JsonNode source,
+            DiscoveryMode discoveryMode,
+            Map<String, ScheduledWorkRunner> workRunners,
+            ScheduledCancellation cancellation) throws Exception {
+        ensureCapabilityAvailable(cancellation, task.type().name());
 
         String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
                 ? store.findCookieSnapshot(task.id())
@@ -403,7 +453,8 @@ public class ScheduleExecutor {
 
         // COLLECTION 是插画+小说混合来源，分两遍各自走对应下载管线，单独处理（不经共享扫描驱动）。
         if (discoveryMode == DiscoveryMode.COLLECTION) {
-            return runCollectionTask(task, source, cookie, filters, download, fetchLimit, pendingNotifications);
+            return runCollectionTask(task, source, cookie, filters, download, fetchLimit, pendingNotifications,
+                    workRunners, cancellation);
         }
 
         // 开新一轮的运行队列（整体替换上一轮）。
@@ -417,7 +468,7 @@ public class ScheduleExecutor {
         TaskExecutor pool = novel ? novelDownloadTaskExecutor : downloadTaskExecutor;
         int concurrency = effectiveConcurrency(novel, download.concurrent());
         WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool,
-                pendingNotifications);
+                pendingNotifications, workRunners, cancellation);
 
         try {
             // ── 每轮无条件先消费隔离表（不再依赖 pendingRetryArmed 武装位）：走正常 dispatch 路径，
@@ -434,6 +485,7 @@ public class ScheduleExecutor {
             // 终态标记与「watermark 不推进」一致（updateWatermark 已在 watermarkScan 内 join 后才执行）。
             runner.awaitAll();
         }
+        ensureCapabilityAvailable(cancellation, task.type().name());
 
         int completed = runner.completed();
 
@@ -442,9 +494,9 @@ public class ScheduleExecutor {
         if (novel && sourceProvider.seriesMergeApplies() && download.novelMerge() && completed > 0) {
             long seriesId = source.path("seriesId").asLong(0);
             if (seriesId > 0) {
+                ensureCapabilityAvailable(cancellation, task.type().name());
                 try {
-                    workRunnerRegistry.resolve(ScheduledWorkKind.NOVEL)
-                            .orElseThrow(() -> new IllegalStateException("novel work runner unavailable"))
+                    workRunners.get(ScheduledWorkKind.NOVEL)
                             .mergeSeries(seriesId, download.novelMergeFormat());
                 } catch (Exception e) {
                     log.warn("Scheduled task {} series merge failed [{}]: {}",
@@ -452,21 +504,18 @@ public class ScheduleExecutor {
                 }
             }
         }
+        // mergeSeries 是插件执行器上的长调用：owner 在调用期间撤回时，generation drain 会等本租约释放。
+        // 调用返回后必须重新观察复合取消信号，避免把已撤回执行器完成的旧代结果误记为 OK。
+        ensureCapabilityAvailable(cancellation, task.type().name());
         return completed;
     }
 
-    /**
-     * 作品类型执行器解析门：解析对应作品类型（{@code kind}）的执行器，缺席即抛
-     * {@link ScheduleSourceUnavailableException}，让 {@code runTaskAndRecord} 标记 {@code SOURCE_UNAVAILABLE}
-     * 干净挂起（该终态语义现扩展为「来源 <b>或</b> 作品类型执行器不可用」）。在读 cookie / 发现 / 派发之前调用，
-     * 故缺执行器时绝不读 cookie / 探站内信 / 发现 / 派发。返回执行器仅表达「在场」，实际派发时由各 prepare 方法
-     * 再次解析（恒命中）。
-     */
-    private ScheduledWorkRunner requireWorkRunner(String kind, ScheduledTask task)
+    private static void ensureCapabilityAvailable(
+            ScheduledCancellation cancellation, String unresolvedType)
             throws ScheduleSourceUnavailableException {
-        return workRunnerRegistry.resolve(kind)
-                .orElseThrow(() -> new ScheduleSourceUnavailableException(
-                        task.type().name() + " (work kind: " + kind + ")"));
+        if (cancellation.isCancellationRequested()) {
+            throw new ScheduleSourceUnavailableException(unresolvedType + " (capability retired)");
+        }
     }
 
     /**
@@ -476,7 +525,8 @@ public class ScheduleExecutor {
      */
     private void retryPending(long taskId, WorkRunner runner, Runnable politeDelay,
                               LongPredicate alreadyDownloaded)
-            throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
+            throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException,
+            ScheduleSourceUnavailableException {
         int max = scheduleConfig.getPendingMaxAttempts();
         for (ScheduledTaskPending p : store.listPending(taskId)) {
             if (p.attempts() >= max) {
@@ -501,7 +551,10 @@ public class ScheduleExecutor {
      */
     private int runCollectionTask(ScheduledTask task, JsonNode source, String cookie,
                                   Filters filters, Download download, int fetchLimit,
-                                  List<PendingExhaustedNotification> pendingNotifications) throws Exception {
+                                  List<PendingExhaustedNotification> pendingNotifications,
+                                  Map<String, ScheduledWorkRunner> workRunners,
+                                  ScheduledCancellation cancellation) throws Exception {
+        ensureCapabilityAvailable(cancellation, task.type().name());
         String collectionId = source.path("collectionId").asText("");
         PixivFetchService.CollectionWorkIds ids = pixivFetchService.discoverCollectionWorkIds(collectionId, cookie);
 
@@ -521,9 +574,9 @@ public class ScheduleExecutor {
 
         int completed = 0;
         completed += runCollectionPass(task, false, cookie, filters, download, run, ids.illustIds(), pending,
-                politeDelay, budget, pendingNotifications);
+                politeDelay, budget, pendingNotifications, workRunners, cancellation);
         completed += runCollectionPass(task, true, cookie, filters, download, run, ids.novelIds(), pending,
-                politeDelay, budget, pendingNotifications);
+                politeDelay, budget, pendingNotifications, workRunners, cancellation);
         return completed;
     }
 
@@ -536,12 +589,14 @@ public class ScheduleExecutor {
     private int runCollectionPass(ScheduledTask task, boolean novel, String cookie, Filters filters,
                                   Download download, ScheduleRunQueue.Run run, List<String> ids,
                                   Set<Long> pending, Runnable politeDelay, int[] budget,
-                                  List<PendingExhaustedNotification> pendingNotifications) throws Exception {
+                                  List<PendingExhaustedNotification> pendingNotifications,
+                                  Map<String, ScheduledWorkRunner> workRunners,
+                                  ScheduledCancellation cancellation) throws Exception {
         LongPredicate alreadyDownloaded = alreadyDownloadedPredicate(novel, download);
         TaskExecutor pool = novel ? novelDownloadTaskExecutor : downloadTaskExecutor;
         int concurrency = effectiveConcurrency(novel, download.concurrent());
         WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool,
-                pendingNotifications);
+                pendingNotifications, workRunners, cancellation);
         String itemKind = novel ? ScheduleRunQueue.KIND_NOVEL : ScheduleRunQueue.KIND_ILLUST;
         try {
             for (String id : ids) {
@@ -579,6 +634,7 @@ public class ScheduleExecutor {
         } finally {
             runner.awaitAll();
         }
+        ensureCapabilityAvailable(cancellation, task.type().name());
         return runner.completed();
     }
 
@@ -660,6 +716,7 @@ public class ScheduleExecutor {
             // 扫描正常返回（无挂起异常）后，先等本轮在途下载完成再推进水位线：确保失败者已入隔离表、
             // watermark 推进不会越过尚未真正落盘的作品（崩溃抗空洞）。挂起异常上抛时本方法不会执行到这里。
             runner.awaitAll();
+            ensureCapabilityAvailable(runner.capabilityCancellation, task.type().name());
             // reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）。
             if (result.newestSeen() > 0) {
                 store.updateWatermark(task.id(), result.newestSeen());
@@ -694,7 +751,8 @@ public class ScheduleExecutor {
     @FunctionalInterface
     interface WorkDispatcher {
         boolean dispatch(String id, long workId)
-                throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException;
+                throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException,
+                ScheduleSourceUnavailableException;
     }
 
     /** 水位线 SEARCH 翻到下一页前的强制礼貌延迟。 */
@@ -814,7 +872,8 @@ public class ScheduleExecutor {
                                        java.util.function.LongPredicate alreadyDownloaded,
                                        WorkDispatcher dispatcher, Runnable politeDelay,
                                        ScheduleRunQueue.Run run, int queueLimit)
-            throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
+            throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException,
+            ScheduleSourceUnavailableException {
         int queued = 0;
         for (String id : ids) {
             long workId;
@@ -854,7 +913,8 @@ public class ScheduleExecutor {
      */
     private DownloadJob prepareArtwork(String id, long artworkId, String cookie,
                                        Filters filters, Download download, ScheduleRunQueue.Run run,
-                                       Map<Long, PixivFetchService.IllustSeriesMeta> seriesCache)
+                                       Map<Long, PixivFetchService.IllustSeriesMeta> seriesCache,
+                                       ScheduledWorkRunner runner)
             throws Exception {
         PixivFetchService.ArtworkMetaCapture capture = pixivFetchService.fetchArtworkMetaCapture(id, cookie);
         PixivFetchService.ArtworkMeta meta = capture.meta();
@@ -909,8 +969,6 @@ public class ScheduleExecutor {
                 ugoira, ugoiraZipUrl, ugoiraDelays, imageUrls, PIXIV_REFERER + "artworks/" + id);
         ScheduledIllustSettings settings = new ScheduledIllustSettings(
                 download.fileNameTemplate(), download.bookmark(), download.collectionId(), download.imageDelayMs());
-        ScheduledWorkRunner runner = workRunnerRegistry.resolve(ScheduledWorkKind.ILLUST)
-                .orElseThrow(() -> new IllegalStateException("illust work runner unavailable"));
         // 下载已抓的 illust / pages body 别丢——下载成功后旁路归一化 meta sidecar + 列投影（零额外请求、best-effort）。
         JsonNode illustBody = capture.body();
         JsonNode capturedPagesBody = pagesBody;
@@ -926,7 +984,8 @@ public class ScheduleExecutor {
     /** 抓取小说详情、应用筛选；命中则组装请求并返回待提交线程池的下载任务，被筛选跳过返回 {@code null}。 */
     private DownloadJob prepareNovel(String id, long novelId, String cookie,
                                      Filters filters, Download download, ScheduleRunQueue.Run run,
-                                     Map<Long, PixivFetchService.NovelSeriesMeta> seriesCache)
+                                     Map<Long, PixivFetchService.NovelSeriesMeta> seriesCache,
+                                     ScheduledWorkRunner runner)
             throws Exception {
         PixivFetchService.NovelDetailCapture capture = pixivFetchService.fetchNovelDetailCapture(id, cookie);
         PixivFetchService.NovelDetail d = capture.detail();
@@ -965,8 +1024,6 @@ public class ScheduleExecutor {
                 download.fileNameTemplate(), download.bookmark(), download.collectionId(), download.novelFormat(),
                 download.novelAutoTranslate(), download.novelTranslateLanguage(),
                 download.novelTranslateSegmentSize(), download.novelMerge(), download.novelMergeFormat());
-        ScheduledWorkRunner runner = workRunnerRegistry.resolve(ScheduledWorkKind.NOVEL)
-                .orElseThrow(() -> new IllegalStateException("novel work runner unavailable"));
         // 下载已抓的 novel body 别丢——下载成功后旁路归一化 meta sidecar + upload_time 列投影（零额外请求、best-effort）。
         JsonNode novelBody = capture.body();
         return () -> {
@@ -1047,6 +1104,9 @@ public class ScheduleExecutor {
         private final Semaphore permits;
         private final TaskExecutor pool;
         private final List<PendingExhaustedNotification> pendingNotifications;
+        private final String sourceType;
+        private final ScheduledWorkRunner workRunner;
+        private final ScheduledCancellation capabilityCancellation;
         // 仅调度主线程顺序追加 / 读取（process 与 awaitAll 都在主线程），无需并发容器。
         private final List<CompletableFuture<Void>> inflight = new ArrayList<>();
         // 本轮系列富信息缓存（按 seriesId）：同一系列的多个章节只查一次 Pixiv 系列 AJAX，仅主线程访问。
@@ -1059,7 +1119,9 @@ public class ScheduleExecutor {
 
         WorkRunner(ScheduledTask task, boolean novel, String cookie, Filters filters, Download download,
                    ScheduleRunQueue.Run run, int concurrency, TaskExecutor pool,
-                   List<PendingExhaustedNotification> pendingNotifications) {
+                   List<PendingExhaustedNotification> pendingNotifications,
+                   Map<String, ScheduledWorkRunner> workRunners,
+                   ScheduledCancellation capabilityCancellation) {
             this.taskId = task.id();
             this.ackWarningTime = task.ackWarningTime();
             this.novel = novel;
@@ -1071,6 +1133,12 @@ public class ScheduleExecutor {
             this.permits = new Semaphore(Math.max(1, concurrency));
             this.pool = pool;
             this.pendingNotifications = pendingNotifications;
+            this.sourceType = task.type().name();
+            this.workRunner = workRunners.get(novel ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST);
+            if (this.workRunner == null) {
+                throw new IllegalStateException("leased work runner unavailable");
+            }
+            this.capabilityCancellation = capabilityCancellation;
         }
 
         ScheduleRunQueue.Run run() {
@@ -1097,17 +1165,19 @@ public class ScheduleExecutor {
          * @return true 仅当成功把下载提交到线程池（不代表下载已成功——结果在 {@link #onComplete} 统计）
          */
         boolean process(String id, long workId, boolean isRetry)
-                throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
+                throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException,
+                ScheduleSourceUnavailableException {
             // 协作式取消：用户在运行中按下「暂停」后，下一个作品派发前抛 PauseException 干净 unwind。
             // 已提交的下载在池里继续跑完不打断；此后不再发起新的派发。
             if (runState.isCancelRequested(taskId)) {
                 throw new SchedulePauseException();
             }
+            ensureCapabilityAvailable(capabilityCancellation, sourceType);
             DownloadJob job;
             try {
                 job = novel
-                        ? prepareNovel(id, workId, cookie, filters, download, run, novelSeriesCache)
-                        : prepareArtwork(id, workId, cookie, filters, download, run, illustSeriesCache);
+                        ? prepareNovel(id, workId, cookie, filters, download, run, novelSeriesCache, workRunner)
+                        : prepareArtwork(id, workId, cookie, filters, download, run, illustSeriesCache, workRunner);
             } catch (HttpClientErrorException e) {
                 int sc = e.getStatusCode().value();
                 if (sc == 404 || sc == 403) {
@@ -1149,8 +1219,11 @@ public class ScheduleExecutor {
                 return false;
             }
 
+            ensureCapabilityAvailable(capabilityCancellation, sourceType);
+
             // 准备就绪：限流后提交到下载池并发执行；派发点（提交成功）即做过度访问 N 检查。
             submit(id, workId, isRetry, job);
+            ensureCapabilityAvailable(capabilityCancellation, sourceType);
             afterDispatchCheckpoint();
             return true;
         }
@@ -1170,7 +1243,9 @@ public class ScheduleExecutor {
                 // （跨任务上下文清理契约，见 OutboundProxyOverride#runScoped）。
                 OutboundProxyOverride.runScoped(proxy, () -> {
                     try {
-                        ok[0] = job.run();
+                        if (!capabilityCancellation.isCancellationRequested()) {
+                            ok[0] = job.run();
+                        }
                     } catch (Exception e) {
                         // 下载器抛出的 message 可能含上游错误 URL（带 PHPSESSID 查询串）或 cookie 头，先脱敏。
                         log.warn("Scheduled task {} download work {} threw: {}",
@@ -1438,11 +1513,16 @@ public class ScheduleExecutor {
         if (type == null) {
             return "-";
         }
-        return scheduledSourceRegistry.resolve(type.name())
-                .filter(ScheduledSource.class::isInstance)
-                .map(ScheduledSource.class::cast)
-                .map(source -> messages.get(locale, source.notificationLabelKey()))
-                .orElse("-");
+        var handle = scheduleCapabilityRegistry.resolveLegacySource(type.name()).orElse(null);
+        if (handle == null) {
+            return "-";
+        }
+        try (ScheduleSingleCapabilityLease<?> lease = scheduleCapabilityRegistry.tryAcquire(handle).orElse(null)) {
+            if (lease == null || !(lease.capability() instanceof ScheduledSource source)) {
+                return "-";
+            }
+            return messages.get(locale, source.notificationLabelKey());
+        }
     }
 
     /** 触发方式的本地化标签：{@code interval} → 「每 N 分钟」、{@code cron} → 「Cron：表达式」。 */

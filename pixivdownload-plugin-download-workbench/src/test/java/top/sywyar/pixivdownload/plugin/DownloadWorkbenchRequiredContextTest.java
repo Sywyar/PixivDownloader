@@ -3,6 +3,10 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
+import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
@@ -12,7 +16,6 @@ import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 
 import java.util.List;
@@ -125,20 +128,28 @@ class DownloadWorkbenchRequiredContextTest {
     @Test
     @DisplayName("七类默认插画/混合作品来源随 download-workbench 插件贡献")
     void scheduledSourcesDeclared() {
-        ScheduledSourceRegistry registry = new ScheduledSourceRegistry(new PluginRegistry(List.of(plugin)));
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        registry.publish(ScheduleOwnerBundle.prepare(
+                new ScheduleCapabilityOwner("download-workbench", "download-workbench", 1L),
+                plugin.scheduledSources(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
 
-        assertThat(registry.sources())
-                .extracting(ScheduledSourceRegistry.RegisteredSource::pluginId)
-                .containsOnly("download-workbench");
-        assertThat(registry.sources())
-                .extracting(source -> source.provider().type())
-                .containsExactly("user-new", "user-request", "search", "series",
+        assertThat(registry.snapshotView().owners()).singleElement()
+                .satisfies(owner -> {
+                    assertThat(owner.owner().featurePluginId()).isEqualTo("download-workbench");
+                    assertThat(owner.owner().packageId()).isEqualTo("download-workbench");
+                    assertThat(owner.owner().pluginGeneration()).isEqualTo(1L);
+                });
+        assertThat(registry.snapshotView().owners().get(0).legacySourceTypes())
+                .containsExactlyInAnyOrder("user-new", "user-request", "search", "series",
                         "my-bookmarks", "follow-latest", "collection");
-        assertThat(registry.resolve(ScheduledTaskType.USER_NEW.name()))
-                .map(ScheduledSourceProvider::type)
-                .contains("user-new");
-        assertThat(registry.resolve(ScheduledTaskType.COLLECTION.name()))
-                .map(ScheduledSourceProvider::type)
-                .contains("collection");
+        try (SchedulePlanningLease userNew = registry.tryAcquireSource(
+                ScheduledTaskType.USER_NEW.name()).orElseThrow();
+             SchedulePlanningLease collection = registry.tryAcquireSource(
+                     ScheduledTaskType.COLLECTION.name()).orElseThrow()) {
+            assertThat(userNew.legacySourceProvider()).map(ScheduledSourceProvider::type)
+                    .contains("user-new");
+            assertThat(collection.legacySourceProvider()).map(ScheduledSourceProvider::type)
+                    .contains("collection");
+        }
     }
 }

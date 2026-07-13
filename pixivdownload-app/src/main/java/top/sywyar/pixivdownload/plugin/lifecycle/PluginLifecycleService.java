@@ -4,15 +4,24 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
-import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
-import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
-import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -20,13 +29,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.nio.file.Path;
 import java.util.Set;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
 /**
  * 外置插件运行期热启停 / quiesce 生命周期服务：把单个外置插件的 {@code load} / {@code start} / {@code quiesce} /
@@ -39,12 +42,11 @@ import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
  *
  * <h2>停止顺序（与启动期接入对称）</h2>
  * {@code stop} 依次：<b>① 标记 {@link PluginRuntimePhase#QUIESCED}</b>（请求网关随即拒绝命中其路由的新请求）→
- * <b>② 清退运行期任务</b>（{@link PluginRuntimeTaskQuiescer} 固定按「停新计划任务派发 → 关闭 SSE 推流 → 排空在途下载队列」
- * 执行，使 direct stop〔from STARTED〕的 drain 窗口内调度器也解析不到其来源 / 执行器）→ <b>③ 拆除服务足迹</b>
- * （{@link #tearDownServing}：注销 controller → 注销 schedule 贡献〔②已注销、此处为最终清退幂等 no-op〕→ 注销 web 贡献 →
- * 调插件 {@code stop()} → 关闭子 context）。每一步都被隔离（异常只记日志、不向上抛、不阻断后续步骤），且无论某步是否异常，
- * 阶段都强制落到 {@link PluginRuntimePhase#STOPPED}——保证「stop 中某一步异常不影响 registry 清退」。web 贡献注销复用
- * {@link PluginWebContributionRegistrar}（含 {@code ResourceBundle.clearCache} 与 {@code ScriptRegistry} 刷新）。
+ * <b>② 精确撤回本 generation 的 schedule publication</b>（统一 registry 原子拒绝新 lease，并向旧 lease 发取消）→
+ * <b>③ 关闭 SSE、排空在途下载队列</b> → <b>④ 等待旧 generation lease 归零</b> → <b>⑤ 拆除服务足迹</b>
+ * （{@link #tearDownServing}：注销 controller / runtime capability / web 贡献 → 调插件 {@code stop()} → 关闭子 context）。
+ * schedule 撤回失败不会被吞掉；运行期等待超时返回 {@link PluginManagementErrorCode#OPERATION_IN_PROGRESS} 并保持
+ * {@link PluginRuntimePhase#QUIESCED}，绝不关闭仍被 lease 引用的 child context。其余足迹拆除继续沿用 best-effort 隔离。
  *
  * <h2>插件自身 {@code start()} / {@code stop()}</h2>
  * 插件自身的生命周期回调与服务足迹（web / controller / 子 context）分属不同时机：<b>启动期</b>全部活动插件的
@@ -64,21 +66,20 @@ import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
  * <h2>运行期任务清退</h2>
  * {@code quiesce} 与 {@code stop} 在标记 {@link PluginRuntimePhase#QUIESCED} 后、拆除服务足迹前，先<b>停住该插件的
  * 新计划任务派发</b>、再清退其在途运行期资源（新 HTTP 请求已由 {@link PluginQuiesceGate} 在 HTTP 层 503 挡住）。
- * 具体顺序与逐步异常隔离由 {@link PluginRuntimeTaskQuiescer} 内聚负责：
+ * 具体顺序由 {@link PluginRuntimeTaskQuiescer} 内聚负责：
  * <ol>
  *   <li><b>停新计划任务派发</b>——经
- *       {@link PluginScheduleContributionRegistrar#unregister} 注销该插件 schedule 贡献（来源 + 作品类型执行器），使
- *       {@code ScheduledSourceRegistry} / {@code ScheduledWorkRunnerRegistry} 对其解析不到 → {@code ScheduleExecutor}
- *       把残留任务标 {@code SOURCE_UNAVAILABLE} 干净挂起（不发现 / 不派发、不删任务数据）。这与 HTTP 层 503 网关对称：
- *       HTTP 新请求被 {@link PluginQuiesceGate} 挡、计划任务新派发被来源注销挡。（{@code stop} 随后在
- *       {@link #tearDownServing} 再注销一次为幂等安全 no-op。）</li>
+ *       {@link PluginScheduleContributionRegistrar#withdraw} 用精确 publication token 从统一
+ *       {@code ScheduleCapabilityRegistry} 撤回 owner bundle；旧 generation 的 planning / execution lease 同时收到协作式
+ *       取消，新 planning lease 不再获取来源、执行器、凭据策略或 guard。残留任务数据保留，待能力恢复后可重新解析。</li>
  *   <li><b>清退在途资源</b>——① 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件全部活动 SSE 推流并向客户端
  *       发「插件不可用」事件；② 据插件 {@link PixivFeaturePlugin#queueTypes()} 声明的每个 queueType 经核心队列宿主注册中心
  *       {@code QueueOperationRegistry} 解析操作适配器并
  *       {@link top.sywyar.pixivdownload.core.download.queue.QueueOperations#clearAll() clearAll} 排空 / 取消其在途下载任务
  *       （不直依赖任一具体下载实现）。</li>
  * </ol>
- * 每步隔离（异常只记日志、不阻断后续清退）；某 queueType 操作缺席（贡献它的插件已禁 / 卸）时跳过、不报错。在途下载经
+ * schedule 撤回属于安全前置条件，失败向上抛出；SSE 与队列步骤彼此隔离。某 queueType 操作缺席（贡献它的插件已禁 / 卸）
+ * 时跳过、不报错。在途下载经
  * 协作式取消（{@code DownloadStatus} 标志位）停止——长任务据此干净退出。异步任务一律走核心受管执行器，本服务不新建线程池。
  *
  * <p>本服务把外置插件标识为单一 {@code pluginId}：对全部在场外置插件，其功能插件 id 与 PF4J 包 id 重合，故子
@@ -89,6 +90,8 @@ import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 @Slf4j
 @Component
 public class PluginLifecycleService {
+
+    private static final long RUNTIME_SCHEDULE_DRAIN_TIMEOUT_NANOS = 30_000_000_000L;
 
     private final ApplicationContext parent;
     private final PluginRuntimeManager pluginRuntimeManager;
@@ -152,15 +155,14 @@ public class PluginLifecycleService {
                 managed.put(pluginId, record);
                 bringUpFromBoot(record);
             }
-            // 2) 没有子 context 的纯贡献外置插件：仅 web 贡献（构造期已接入），登记为 STARTED 以纳入热启停 / quiesce。
+            // 2) 没有子 context 的纯贡献外置插件：仍需在最终 bring-up 点发布其纯元数据 schedule 能力。
             for (PluginRegistry.RegisteredPlugin rp : external) {
                 if (managed.containsKey(rp.id())) {
                     continue;
                 }
                 ManagedPlugin record = new ManagedPlugin(rp.id(), null, rp);
-                record.webRegistered = true;
                 managed.put(rp.id(), record);
-                lifecycleState.initialize(rp.id(), PluginRuntimePhase.STARTED);
+                bringUpFromBoot(record);
             }
             started = true;
         }
@@ -178,14 +180,29 @@ public class PluginLifecycleService {
             }
             List<String> ids = new ArrayList<>(managed.keySet());
             Collections.reverse(ids);
+            // 先对全部插件撤回 publication 并发出取消，避免逐插件等待时其它 owner 仍继续接收新执行。
             for (String id : ids) {
                 ManagedPlugin record = managed.get(id);
                 PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
                 if (phase == PluginRuntimePhase.STARTED || phase == PluginRuntimePhase.QUIESCED) {
-                    doStop(record);
+                    ensureQuiesced(record);
+                }
+            }
+
+            // 核心 context 关闭不能在 lease 仍活动时继续销毁父服务；忽略中断直到所有旧代执行真实归零。
+            boolean interrupted = false;
+            for (String id : ids) {
+                ManagedPlugin record = managed.get(id);
+                PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
+                if (phase == PluginRuntimePhase.QUIESCED) {
+                    interrupted |= awaitDrainUninterruptibly(record);
+                    finishStop(record);
                 }
             }
             started = false;
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -391,15 +408,10 @@ public class PluginLifecycleService {
 
     private void doQuiesce(ManagedPlugin record) {
         PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
-        if (phase == PluginRuntimePhase.QUIESCED) {
-            return; // 幂等：已静默
-        }
-        if (phase != PluginRuntimePhase.STARTED) {
+        if (phase != PluginRuntimePhase.STARTED && phase != PluginRuntimePhase.QUIESCED) {
             throw new PluginLifecycleException("cannot quiesce plugin '" + record.pluginId + "' from phase " + phase);
         }
-        lifecycleState.transition(record.pluginId, PluginRuntimePhase.QUIESCED);
-        // 清退器固定按 schedule 派发屏蔽 → SSE 关闭 → queue drain 执行；与 HTTP 层 503 网关对称。
-        runtimeTaskQuiescer.quiesce(record.pluginId, record.plugin());
+        ensureQuiesced(record);
         log.info("Quiesced plugin '{}': no longer accepting new requests.", record.pluginId);
     }
 
@@ -410,17 +422,56 @@ public class PluginLifecycleService {
                 || phase == PluginRuntimePhase.LOADED) {
             return; // 幂等 / 无服务足迹可拆
         }
-        // 1) quiesce 标记（停止新入口）——若已 QUIESCED 则跳过（早返回后剩余只可能是 STARTED / QUIESCED）。
-        if (phase == PluginRuntimePhase.STARTED) {
-            lifecycleState.transition(pluginId, PluginRuntimePhase.QUIESCED);
+        ensureQuiesced(record);
+        long deadline = System.nanoTime() + RUNTIME_SCHEDULE_DRAIN_TIMEOUT_NANOS;
+        ScheduleGenerationDrain drain = record.scheduleDrain;
+        if (drain != null && !drain.awaitDrained(deadline)) {
+            throw new ClassifiedPluginLifecycleException(
+                    PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                    "plugin '" + pluginId + "' remains quiesced with "
+                            + drain.activeLeaseCount() + " active schedule lease(s)");
         }
-        // 2) 清退运行期任务：先停 schedule 派发，再关闭 SSE、排空队列；quiesce 已执行过时为安全重复调用。
-        runtimeTaskQuiescer.quiesce(record.pluginId, record.plugin());
-        // 3) 拆除服务足迹（每步隔离，异常不阻断后续清退；schedule 贡献在此再注销一次为最终清退幂等 no-op）。
+        finishStop(record);
+    }
+
+    /** 标记 QUIESCED，并且恰好一次按 publication → SSE → queue 的顺序发起运行期清退。 */
+    private void ensureQuiesced(ManagedPlugin record) {
+        PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
+        if (phase == PluginRuntimePhase.STARTED) {
+            lifecycleState.transition(record.pluginId, PluginRuntimePhase.QUIESCED);
+        } else if (phase != PluginRuntimePhase.QUIESCED) {
+            throw new PluginLifecycleException("cannot quiesce plugin '" + record.pluginId
+                    + "' from phase " + phase);
+        }
+        if (record.runtimeTasksQuiesced) {
+            return;
+        }
+        PluginRuntimeTaskQuiescer.QuiesceResult result = runtimeTaskQuiescer.quiesce(
+                record.pluginId, record.schedulePublication, record.plugin());
+        record.scheduleDrain = result.scheduleDrain().orElse(null);
+        record.runtimeTasksQuiesced = true;
+    }
+
+    /** lease 已归零后的唯一服务足迹关闭入口。 */
+    private void finishStop(ManagedPlugin record) {
         tearDownServing(record);
-        // 4) 强制落到 STOPPED（即便上面某步异常也保证状态与清退一致）。
-        lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
-        log.info("Stopped plugin '{}'.", pluginId);
+        record.schedulePublication = null;
+        record.scheduleDrain = null;
+        record.runtimeTasksQuiesced = false;
+        lifecycleState.set(record.pluginId, PluginRuntimePhase.STOPPED);
+        log.info("Stopped plugin '{}'.", record.pluginId);
+    }
+
+    /** clean context shutdown 使用：清除中断并持续等待，返回是否曾观察到中断。 */
+    private static boolean awaitDrainUninterruptibly(ManagedPlugin record) {
+        ScheduleGenerationDrain drain = record.scheduleDrain;
+        boolean interrupted = false;
+        while (drain != null && !drain.isDrained()) {
+            if (!drain.awaitDrained()) {
+                interrupted |= Thread.interrupted();
+            }
+        }
+        return interrupted;
     }
 
     private void doUnload(ManagedPlugin record) {
@@ -479,14 +530,13 @@ public class PluginLifecycleService {
     }
 
     /**
-     * 建立服务足迹：（按需）接入 web 贡献 → 建子 context → 接入 schedule 贡献（来源 + 执行器）→ 动态注册 controller →
-     *（仅运行期重启）调插件 {@code start()}，成功后阶段落到 {@link PluginRuntimePhase#STARTED}。任一步失败被隔离
+     * 建立服务足迹：（按需）接入 web 贡献 → 建子 context → 接入 runtime capability → 动态注册 controller →
+     *（仅运行期重启）调插件 {@code start()} → 最终原子发布 schedule owner bundle，成功后阶段落到
+     * {@link PluginRuntimePhase#STARTED}。任一步失败被隔离
      *（回滚本次已建立的足迹、阶段落到 STOPPED），不向上抛、不影响其它插件。
      *
-     * <p>schedule 贡献排在子 context 建立<b>之后</b>（执行器是子 context 的 Bean，发现需先有子 context）、controller
-     * 注册<b>之前</b>，经 {@link PluginScheduleContributionRegistrar} 接入插件的计划任务来源与作品类型执行器；纯贡献
-     * 插件（无子 context）只接入来源。其失败与 controller / 运行期 {@code start()} 失败一样触发 {@link #rollBackBringUp}
-     *（该回滚已含 schedule 贡献撤回）。
+     * <p>schedule 行为 Bean 依赖 child context，但 publication 必须是 bring-up 的最后一个可失败步骤：这样 capability、
+     * controller 或插件 {@code start()} 失败时统一 registry 从未暴露半可用 owner，也不存在回滚关闭已被租用 Bean 的窗口。
      *
      * @param invokePluginStart 足迹建立后是否调用插件自身 {@code start()}。<b>启动期接入（boot）传 {@code false}</b>——
      *        全部活动插件的 {@code start()} 由 {@link PluginRegistry}（{@code SmartLifecycle}）在启动期统一调用一次,
@@ -521,50 +571,51 @@ public class PluginLifecycleService {
             }
             record.context = child;
         }
-        // c) schedule 贡献：来源（来自插件，幂等）+ 执行器（从子 context 发现，纯贡献插件无子 context 则仅来源）。
-        if (record.registered != null) {
-            try {
-                scheduleContributionRegistrar.register(record.registered, record.context);
-            } catch (RuntimeException e) {
-                log.error("Failed to register schedule contributions for plugin '{}': {} - rolling back service footprint.",
-                        pluginId, e.toString(), e);
-                rollBackBringUp(record, false);
-                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
-                return;
-            }
-        }
-        // d) runtime capability beans from the child context.
+        // c) runtime capability beans from the child context.
         if (record.context != null) {
             try {
                 capabilityContributionRegistrar.register(pluginId, record.context);
             } catch (RuntimeException e) {
                 log.error("Failed to register runtime capability contributions for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record, false);
+                rollBackBringUp(record, false, false);
                 lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
                 return;
             }
         }
-        // e) controller 动态注册进父 context 请求分发表（仅有子 context 的插件包）。
+        // d) controller 动态注册进父 context 请求分发表（仅有子 context 的插件包）。
         if (record.context != null) {
             try {
                 controllerRegistrar.registerControllers(pluginId, record.context);
             } catch (Exception e) {
                 log.error("Failed to register controllers for plugin '{}': {} - rolling back service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record, true);
+                rollBackBringUp(record, true, false);
                 lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
                 return;
             }
         }
-        // f) 插件自身 start()：仅运行期重启路径调用（启动期由 PluginRegistry 统一调用、不在此重复）。失败即回滚本次足迹。
+        // e) 插件自身 start()：仅运行期重启路径调用（启动期由 PluginRegistry 统一调用、不在此重复）。
         if (invokePluginStart) {
             try {
                 record.plugin().ifPresent(PixivFeaturePlugin::start);
             } catch (RuntimeException e) {
                 log.error("Plugin '{}' start() failed: {} - rolling back its service footprint.",
                         pluginId, e.toString(), e);
-                rollBackBringUp(record, true);
+                rollBackBringUp(record, true, false);
+                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                return;
+            }
+        }
+        // f) 最终原子发布 schedule owner bundle。此前失败均不会让调度器看到该 owner。
+        if (record.registered != null) {
+            try {
+                record.schedulePublication = scheduleContributionRegistrar
+                        .register(record.registered, record.context).orElse(null);
+            } catch (RuntimeException e) {
+                log.error("Failed to publish schedule capabilities for plugin '{}': {} - rolling back service footprint.",
+                        pluginId, e.toString(), e);
+                rollBackBringUp(record, true, invokePluginStart);
                 lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
                 return;
             }
@@ -573,10 +624,8 @@ public class PluginLifecycleService {
     }
 
     /**
-     * 拆除服务足迹，顺序为 <b>注销 controller → 注销 schedule 贡献 → 注销 web 贡献 → 调插件 {@code stop()} →
-     * 关闭子 context</b>。每一步被隔离（异常只记日志、不抛出），保证某步异常不阻断后续清退。schedule 贡献注销
-     * 经 {@link PluginScheduleContributionRegistrar}（注销来源 + 按已记录 {@code kind} 注销执行器）；注销后调度器
-     * 对该插件来源 / 作品类型解析不到 → 残留任务进入 {@code SOURCE_UNAVAILABLE} 干净挂起、数据不删（既有语义）。
+     * lease 已归零后拆除服务足迹，顺序为 controller → runtime capability → web → 插件 stop → child context。
+     * schedule publication 已在 quiesce 起点精确撤回，不在这里按 pluginId 重复注销。
      */
     private void tearDownServing(ManagedPlugin record) {
         String pluginId = record.pluginId;
@@ -589,11 +638,6 @@ public class PluginLifecycleService {
             capabilityContributionRegistrar.unregister(pluginId);
         } catch (RuntimeException e) {
             log.warn("Error unregistering runtime capability contributions for plugin '{}': {}", pluginId, e.toString());
-        }
-        try {
-            scheduleContributionRegistrar.unregister(pluginId);
-        } catch (RuntimeException e) {
-            log.warn("Error unregistering schedule contributions for plugin '{}': {}", pluginId, e.toString());
         }
         try {
             if (record.webRegistered) {
@@ -613,12 +657,14 @@ public class PluginLifecycleService {
 
     /**
      * 回滚本次 {@link #bringUpServing} 已建立的服务足迹：<b>注销 controller → 按成功标记注销 runtime capability →
-     * 注销 schedule 贡献 → 关闭子 context → 撤回 web 贡献</b>（bring-up 顺序的逆序）。能力注册本身失败时由
+     * 关闭 child context → 撤回 web 贡献</b>。能力注册本身失败时由
      * {@link PluginCapabilityContributionRegistrar} 完成内部回滚，此处不再二次注销原子旧快照。用于 schedule 贡献注册失败 /
-     * capability 注册失败 / controller 注册失败 / 插件 {@code start()} 失败。各步幂等。<b>不</b>调用插件 {@code stop()}——
-     * {@code start()} 未成功、插件未进入运行态，按 footprint 维度回退即可；每步隔离、异常只记日志。
+     * capability 注册失败 / controller 注册失败 / 插件 {@code start()} 失败。各步幂等。仅当运行期插件 {@code start()}
+     * 已成功、随后最终 schedule publication 失败时对称调用 {@code stop()}；启动期回调仍归 {@link PluginRegistry} 所有。
+     * 每步隔离、异常只记日志。
      */
-    private void rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered) {
+    private void rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered,
+                                 boolean pluginStarted) {
         try {
             controllerRegistrar.unregisterControllers(record.pluginId);
         } catch (RuntimeException e) {
@@ -632,10 +678,13 @@ public class PluginLifecycleService {
                         record.pluginId, e.toString());
             }
         }
-        try {
-            scheduleContributionRegistrar.unregister(record.pluginId);
-        } catch (RuntimeException e) {
-            log.warn("Error rolling back schedule contributions for plugin '{}': {}", record.pluginId, e.toString());
+        if (pluginStarted) {
+            try {
+                record.plugin().ifPresent(PixivFeaturePlugin::stop);
+            } catch (RuntimeException e) {
+                log.warn("Error stopping plugin '{}' after schedule publication failure: {}",
+                        record.pluginId, e.toString());
+            }
         }
         closeQuietly(record);
         cleanUpFailedBringUp(record);
@@ -655,6 +704,10 @@ public class PluginLifecycleService {
         ConfigurableApplicationContext child = record.context;
         if (child == null) {
             return;
+        }
+        if (record.scheduleDrain != null && !record.scheduleDrain.isDrained()) {
+            throw new PluginLifecycleException("refusing to close child context with active schedule leases: "
+                    + record.pluginId + " (active=" + record.scheduleDrain.activeLeaseCount() + ")");
         }
         try {
             child.close();
@@ -698,6 +751,9 @@ public class PluginLifecycleService {
         final PluginRegistry.RegisteredPlugin registered; // 可空（无核心注册条目的测试夹具）
         volatile ConfigurableApplicationContext context;  // 不在服务时为空
         boolean webRegistered;
+        ScheduleCapabilityPublication schedulePublication;
+        ScheduleGenerationDrain scheduleDrain;
+        boolean runtimeTasksQuiesced;
 
         ManagedPlugin(String pluginId, PluginContextModule module, PluginRegistry.RegisteredPlugin registered) {
             this(pluginId, registered != null ? registered.generation() : 0L, module, registered);

@@ -12,12 +12,11 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import top.sywyar.pixivdownload.setup.SetupService;
 
@@ -37,9 +36,9 @@ import top.sywyar.pixivdownload.setup.SetupService;
  * <b>依赖方向：</b>调度壳需要 Pixiv 抓取与作品下载等核心下载机器（{@link PixivFetchService} /
  * {@link ArtworkDownloader} / {@link WorkMetaCaptureService}，均由根包扫描装配、属核心机器），以及来源
  * 执行契约（{@code download.schedule.source}，住下载工作台域）；故本装配层依赖 download 包，<b>不</b> import 任何
- * novel 包类型。下载派发统一经核心契约 {@code core.schedule.work.ScheduledWorkRunner} + 注册中心
- * {@link ScheduledWorkRunnerRegistry} 按作品类型解析：插画执行器由下载工作台贡献、小说执行器由小说插件贡献，
- * 装配层只注入核心注册中心；来源发现 / 派发经来源 provider（下载工作台贡献、经来源注册中心解析）完成。
+ * novel 包类型。下载派发统一经核心契约 {@code core.schedule.work.ScheduledWorkRunner} +
+ * {@link ScheduleCapabilityRegistry} generation lease 按作品类型解析：插画执行器由下载工作台贡献、小说执行器由
+ * 小说插件贡献；来源和作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
  * {@link NovelMetadataRepository} 是核心去重接口（{@code core.metadata.novel}）、本就属核心，保留。
  */
 @Configuration
@@ -69,12 +68,11 @@ public class ScheduleHostPluginConfiguration {
 
     @Bean
     public ScheduleExecutor scheduleExecutor(ScheduledTaskStore store,
-                                             ScheduledSourceRegistry scheduledSourceRegistry,
+                                             ScheduleCapabilityRegistry scheduleCapabilityRegistry,
                                              PixivFetchService pixivFetchService,
                                              PixivDatabase pixivDatabase,
                                              WorkMetaCaptureService workMetaCaptureService,
                                              ArtworkDownloader artworkDownloader,
-                                             ScheduledWorkRunnerRegistry workRunnerRegistry,
                                              NovelMetadataRepository novelMetadataRepository,
                                              ScheduleConfig scheduleConfig,
                                              ScheduleRunState runState,
@@ -87,8 +85,8 @@ public class ScheduleHostPluginConfiguration {
                                              DownloadConfig downloadConfig,
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                              @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor) {
-        return new ScheduleExecutor(store, scheduledSourceRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, workRunnerRegistry, novelMetadataRepository,
+        return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
+                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 scheduleConfig, runState, runQueue, objectMapper, overuseWarningService,
                 notificationService, messages, setupService, downloadConfig,
                 downloadTaskExecutor, novelDownloadTaskExecutor);
@@ -100,16 +98,17 @@ public class ScheduleHostPluginConfiguration {
                                            ScheduleConfig config,
                                            ScheduleRunState runState,
                                            ScheduleRunQueue runQueue,
-                                           ScheduledWorkRunnerRegistry workRunnerRegistry) {
-        return new ScheduleService(store, executor, config, runState, runQueue, workRunnerRegistry);
+                                           ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
+        return new ScheduleService(store, executor, config, runState, runQueue, scheduleCapabilityRegistry);
     }
 
     @Bean
     public ScheduleRunner scheduleRunner(ScheduledTaskStore store,
                                          ScheduleExecutor executor,
                                          ScheduleConfig config,
-                                         ScheduleRunState runState) {
-        return new ScheduleRunner(store, executor, config, runState);
+                                         ScheduleRunState runState,
+                                         ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
+        return new ScheduleRunner(store, executor, config, runState, scheduleCapabilityRegistry);
     }
 
     @Bean

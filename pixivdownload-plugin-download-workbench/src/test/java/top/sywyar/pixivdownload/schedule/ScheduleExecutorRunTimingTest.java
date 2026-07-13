@@ -10,13 +10,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
@@ -28,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,10 +40,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ScheduleExecutor 运行计时")
@@ -79,26 +81,27 @@ class ScheduleExecutorRunTimingTest {
 
     /**
      * 用指定下载池构造被测执行器（默认 DownloadConfig：图片/小说池各 10）。
-     * 来源注册中心显式安装 download-workbench（7 个默认来源全可解析），故 runTask 顶部的来源解析门恒命中、
+     * 统一能力注册中心显式发布 download-workbench（7 个默认来源与插画执行器同代可解析），故 runTask 顶部的来源解析门恒命中、
      * 既有发现 / 派发行为不变（解析门只在来源缺失时改道，见 ScheduleExecutorSourceResolutionTest）。
-     * 作品类型执行器注册中心装入真实插画执行器（薄包被 mock 的 ArtworkDownloader）：本测试全为 illust 任务，
-     * 执行器经注册中心解析后仍调用同一 ArtworkDownloader，既有下载断言不变。
+     * 插画执行器薄包持有 mock ArtworkDownloader；执行租约解析后仍调用同一下载接缝。
      */
     private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool) {
-        ScheduledWorkRunnerRegistry workRunnerRegistry = new ScheduledWorkRunnerRegistry(
-                List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(
+                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        return newExecutor(imagePool, novelPool, registry);
+    }
+
+    private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool,
+                                         ScheduleCapabilityRegistry registry) {
         return new ScheduleExecutor(store,
-                downloadWorkbenchSources(),
+                registry,
                 pixivFetchService, pixivDatabase,
                 org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
-                artworkDownloader, workRunnerRegistry, novelMetadataRepository,
+                artworkDownloader, novelMetadataRepository,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
                 overuseWarningService, notificationService, appMessages, setupService,
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(), imagePool, novelPool);
-    }
-
-    private ScheduledSourceRegistry downloadWorkbenchSources() {
-        return new ScheduledSourceRegistry(new PluginRegistry(List.of(new DownloadWorkbenchPlugin())));
     }
 
     @Test
@@ -499,5 +502,104 @@ class ScheduleExecutorRunTimingTest {
         verify(store).updateWatermark(eq(12L), eq(220L));
         verify(store).updateRunResult(
                 eq(12L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+    }
+
+    @Test
+    @DisplayName("异步下载全部 join 前执行租约保持活跃，撤回 owner 的 drain 不会提前归零")
+    void capabilityLeaseCoversAllAsyncDownloadsUntilJoinCompletes() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                14L, "租约覆盖计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"concurrent\":2}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("501", "502"));
+        when(pixivDatabase.hasArtwork(anyLong())).thenReturn(false);
+        when(pixivFetchService.fetchArtworkMetaCapture(anyString(), isNull())).thenReturn(
+                new PixivFetchService.ArtworkMetaCapture(new PixivFetchService.ArtworkMeta(
+                        0, "租约作品", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null), null));
+        when(pixivFetchService.resolveArtworkPages(anyString(), isNull())).thenReturn(
+                new PixivFetchService.ArtworkPages(
+                        List.of("https://i.pximg.net/img-original/img/x.jpg"), null));
+
+        CountDownLatch downloadsStarted = new CountDownLatch(2);
+        CountDownLatch allowDownloadsToFinish = new CountDownLatch(1);
+        when(artworkDownloader.downloadImagesBlocking(
+                anyLong(), anyString(), anyList(), anyString(),
+                any(DownloadRequest.Other.class), isNull(), isNull()))
+                .thenAnswer(inv -> {
+                    downloadsStarted.countDown();
+                    assertThat(allowDownloadsToFinish.await(5, TimeUnit.SECONDS)).isTrue();
+                    return true;
+                });
+
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(
+                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        TaskExecutor async = runnable -> new Thread(runnable, "schedule-lease-test").start();
+        ScheduleExecutor leasedExecutor = newExecutor(async, async, registry);
+
+        Thread run = new Thread(() -> leasedExecutor.runTaskAndRecord(task), "schedule-run-test");
+        run.start();
+        assertThat(downloadsStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+        ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
+        assertThat(drain.isDrained()).isFalse();
+        assertThat(drain.activeLeaseCount()).isEqualTo(2);
+        assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))).isFalse();
+
+        allowDownloadsToFinish.countDown();
+        run.join(5_000L);
+
+        assertThat(run.isAlive()).isFalse();
+        assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(2))).isTrue();
+        ArgumentCaptor<String> unavailable = ArgumentCaptor.forClass(String.class);
+        verify(store).updateRunResult(
+                eq(14L), anyLong(), eq(ScheduledTask.STATUS_SOURCE_UNAVAILABLE),
+                unavailable.capture(), anyLong());
+        verify(store, never()).updateWatermark(eq(14L), anyLong());
+        assertThat(unavailable.getValue()).contains("USER_NEW").contains("capability retired");
+    }
+
+    @Test
+    @DisplayName("来源执行租约释放后宿主 owner lease 仍覆盖结果持久化与通知收尾")
+    void hostOwnerLeaseCoversFinalizationAfterSourceLeaseCloses() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                15L, "收尾租约计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null,
+                null, null, null, null, 0, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
+        CountDownLatch finalizationStarted = new CountDownLatch(1);
+        CountDownLatch allowFinalization = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            finalizationStarted.countDown();
+            assertThat(allowFinalization.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(store).updateRunResult(eq(15L), anyLong(), anyString(), any(), anyLong());
+
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(
+                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        ScheduleExecutor leasedExecutor = newExecutor(SYNC_EXECUTOR, SYNC_EXECUTOR, registry);
+        Thread run = new Thread(() -> leasedExecutor.runTaskAndRecord(task), "schedule-finalization-lease-test");
+        run.start();
+        try {
+            assertThat(finalizationStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
+            assertThat(drain.activeLeaseCount()).isEqualTo(1);
+            assertThat(drain.awaitDrained(
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))).isFalse();
+
+            allowFinalization.countDown();
+            run.join(5_000L);
+
+            assertThat(run.isAlive()).isFalse();
+            assertThat(drain.awaitDrained(
+                    System.nanoTime() + TimeUnit.SECONDS.toNanos(1))).isTrue();
+        } finally {
+            allowFinalization.countDown();
+            run.join(5_000L);
+        }
     }
 }

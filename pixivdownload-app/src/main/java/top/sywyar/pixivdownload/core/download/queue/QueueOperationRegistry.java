@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
  * 读路径走单个不可变快照（{@code byType} 映射），注册 / 注销在锁内构建新快照后一次性原子替换引用，读侧无锁且
  * 永不观察到半更新；注册失败时既有快照原样保留。
  *
- * <p>镜像 {@link top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry}：{@code queueType} 全局唯一
+ * <p>与其它 owner-scoped 能力注册中心一致，{@code queueType} 全局唯一
  * （与 {@code QueueTypeRegistry} 对类型 id 的全局唯一约束同口径），重复 {@code queueType} 在注册期 fail-fast。某作品类型
  * 操作缺席（贡献它的插件被禁 / 卸载、或本就未提供该 Bean）时，{@link #resolve} 返回空、{@link #all()} 不含它——
  * 下载队列控制器据此把跨类型操作只作用于在场的作品类型，绝不因缺操作而启动失败

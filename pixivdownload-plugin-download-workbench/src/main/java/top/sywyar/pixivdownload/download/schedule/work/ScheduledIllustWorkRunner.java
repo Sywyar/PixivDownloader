@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
  * 系列富信息补全 / 图片 URL 解析 / 动图解析全部已在调度主线程串行完成并写入载体，本执行器只做字段搬运 + 阻塞下载，
  * 不发起任何抓取。sidecar 捕获仍由调度壳在下载成功后旁路完成，不在此承载。随下载工作台插件生命周期归属
  * （{@code @PluginManagedBean}，由 {@code DownloadWorkbenchPluginConfiguration} 显式装配），经
- * {@link top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry} 注册。
+ * {@link top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry} 随 owner bundle 原子注册。
  */
 @PluginManagedBean
 @RequiredArgsConstructor

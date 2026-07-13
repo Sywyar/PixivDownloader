@@ -8,7 +8,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -31,7 +31,6 @@ import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiesc
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
@@ -112,7 +111,7 @@ class ExternalPluginContextManagerTest {
                 new WebI18nBundleRegistry(empty), new NavigationRegistry(empty),
                 new WebUiSlotRegistry(empty), userscripts, scripts);
         PluginScheduleContributionRegistrar scheduleRegistrar = new PluginScheduleContributionRegistrar(
-                new ScheduledSourceRegistry(empty), new ScheduledWorkRunnerRegistry(List.of()));
+                new ScheduleCapabilityRegistry());
         PluginCapabilityContributionRegistrar capabilityRegistrar = new PluginCapabilityContributionRegistrar(List.of());
         PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
         QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());

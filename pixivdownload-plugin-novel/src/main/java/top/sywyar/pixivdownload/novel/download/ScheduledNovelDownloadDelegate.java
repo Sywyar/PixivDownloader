@@ -30,7 +30,7 @@ import java.io.IOException;
  *
  * <p><b>随小说插件生命周期归属</b>：本类标 {@code @PluginManagedBean}、排除出根包扫描，由
  * {@code NovelPluginConfiguration} 以 {@code @Bean} 显式装配，经
- * {@link top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry} 注册。小说插件被禁 / 卸载时
+ * {@link top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry} 随 owner bundle 原子注册。小说插件被禁 / 卸载时
  * 本执行器随之缺席，调度壳解析不到 {@code novel} 执行器即把小说计划任务标记为不可用并干净挂起（不偷跑、不启动失败）。
  */
 @PluginManagedBean

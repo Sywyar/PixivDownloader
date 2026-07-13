@@ -3,314 +3,287 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
+import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFrontendContribution;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-/**
- * 外置插件 schedule 贡献注册器测试：来源（来自插件元数据 {@code scheduledSources()}）+ 执行器（从子 context 发现的
- * {@link ScheduledWorkRunner} Bean）的可逆注册 / 注销、按插件原子回滚、来源接入幂等、子 context 执行器发现不含祖先。
- */
-@DisplayName("外置插件 schedule 贡献注册器")
+/** 统一 schedule owner bundle 的准备、发布与精确撤回回归。 */
+@DisplayName("外置插件 schedule 能力原子注册器")
 class PluginScheduleContributionRegistrarTest {
 
     @Test
-    @DisplayName("注册插件来源后 ScheduledSourceRegistry 可按规范 type / legacy 名解析")
-    void registersScheduledSource() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
+    @DisplayName("一次发布旧来源与 child context 五类行为 Bean，并由宿主盖章 owner、package 和 generation")
+    void publishesCompleteOwnerBundle() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(registry);
 
-        registrar.register(registeredFeature("ext-a", sourceProvider("alpha", "ALPHA_LEGACY")), null);
+        try (AnnotationConfigApplicationContext child = completeChildContext("alpha", "alpha-work")) {
+            ScheduleCapabilityPublication publication = registrar.register(
+                    registeredFeature("ext-a", "ext-package", 7L,
+                            List.of(sourceProvider("alpha", "ALPHA")),
+                            List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA"))), child).orElseThrow();
 
-        assertThat(sources.resolve("alpha")).isPresent();
-        assertThat(sources.resolve("ALPHA_LEGACY")).isPresent();
-    }
-
-    @Test
-    @DisplayName("从子 context 发现 ScheduledWorkRunner 并注册：ScheduledWorkRunnerRegistry 可按 kind 解析")
-    void registersRunnerFromChildContext() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
-
-        try (AnnotationConfigApplicationContext child = childContext("alpha-kind")) {
-            registrar.register(registeredFeature("ext-a"), child);
-
-            assertThat(runners.resolve("alpha-kind")).isPresent();
-            assertThat(registrar.runnerKinds("ext-a")).containsExactly("alpha-kind");
+            assertThat(publication.owner()).isEqualTo(
+                    new ScheduleCapabilityOwner("ext-a", "ext-package", 7L));
+            assertThat(registry.snapshotView().owners()).singleElement().satisfies(owner -> {
+                assertThat(owner.owner()).isEqualTo(publication.owner());
+                assertThat(owner.legacySourceTypes()).containsExactly("alpha");
+                assertThat(owner.sourceTypes()).containsExactly("alpha");
+                assertThat(owner.workTypes()).containsExactly("alpha-work");
+                assertThat(owner.credentialPolicyIds()).containsExactly("alpha-policy");
+                assertThat(owner.guardIds()).containsExactly("alpha-guard");
+            });
+            assertThat(registry.resolveLegacySource("ALPHA")).isPresent();
+            assertThat(registry.resolveSourceExecutor("alpha")).isPresent();
+            assertThat(registry.resolveLegacyWorkRunner("alpha-work")).isPresent();
+            assertThat(registry.resolveWorkExecutor("alpha-work")).isPresent();
+            assertThat(registry.resolveCredentialPolicy("alpha-policy")).isPresent();
+            assertThat(registry.resolveGuard("alpha-guard")).isPresent();
         }
     }
 
     @Test
-    @DisplayName("unregister 后来源与执行器均不可解析")
-    void unregisterRemovesSourceAndRunner() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
+    @DisplayName("插件 getter 或 bundle 校验失败时旧 snapshot 完整保留，不产生 publication")
+    void preparationFailureDoesNotPolluteSnapshot() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(registry);
+        registrar.register(registeredFeature("ext-a", "ext-a", 1L,
+                List.of(sourceProvider("stable", "STABLE")), List.of()), null).orElseThrow();
+        long revision = registry.snapshotView().revision();
 
-        try (AnnotationConfigApplicationContext child = childContext("alpha-kind")) {
-            registrar.register(registeredFeature("ext-a", sourceProvider("alpha", "ALPHA_LEGACY")), child);
-            assertThat(sources.resolve("alpha")).isPresent();
-            assertThat(runners.resolve("alpha-kind")).isPresent();
+        PixivFeaturePlugin broken = new PixivFeaturePlugin() {
+            @Override public String id() { return "ext-b"; }
+            @Override public String displayName() { return "ext-b.label"; }
+            @Override public String description() { return "ext-b.summary"; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override
+            public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
+                throw new IllegalStateException("broken getter");
+            }
+        };
+        PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                broken, PluginSource.EXTERNAL, getClass().getClassLoader(), "ext-b", 2L);
 
-            registrar.unregister("ext-a");
-
-            assertThat(sources.resolve("alpha")).isEmpty();
-            assertThat(sources.resolve("ALPHA_LEGACY")).isEmpty();
-            assertThat(runners.resolve("alpha-kind")).isEmpty();
-            assertThat(registrar.runnerKinds("ext-a")).isEmpty();
-        }
-    }
-
-    @Test
-    @DisplayName("register → unregister → register 后快照一致（可逆，无重复注册错误）")
-    void registerUnregisterRegisterIsConsistent() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
-        PluginRegistry.RegisteredPlugin rp = registeredFeature("ext-a", sourceProvider("alpha", "ALPHA_LEGACY"));
-
-        try (AnnotationConfigApplicationContext c1 = childContext("alpha-kind")) {
-            registrar.register(rp, c1);
-        }
-        registrar.unregister("ext-a");
-        try (AnnotationConfigApplicationContext c2 = childContext("alpha-kind")) {
-            registrar.register(rp, c2);
-
-            assertThat(sources.resolve("alpha")).isPresent();
-            assertThat(sources.resolve("ALPHA_LEGACY")).isPresent();
-            assertThat(runners.resolve("alpha-kind")).isPresent();
-            assertThat(registrar.runnerKinds("ext-a")).containsExactly("alpha-kind");
-        }
-    }
-
-    @Test
-    @DisplayName("来源 type 跨插件冲突：fail-fast，既有快照不被污染")
-    void sourceTypeConflictFailsFast() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
-
-        registrar.register(registeredFeature("ext-a", sourceProvider("alpha", "A")), null);
-
-        assertThatThrownBy(() -> registrar.register(
-                registeredFeature("ext-b", sourceProvider("alpha", "B")), null))
+        assertThatThrownBy(() -> registrar.register(registered, null))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("duplicate scheduled source type");
-        // 既有快照不污染：alpha 仍解析到 ext-a 的来源
-        assertThat(sources.sources()).hasSize(1);
-        assertThat(sources.resolve("alpha")).isPresent();
+                .hasMessageContaining("scheduledSourceDescriptors")
+                .hasMessageContaining("IllegalStateException")
+                .hasMessageNotContaining("broken getter")
+                .hasNoCause();
+        assertThat(registry.snapshotView().revision()).isEqualTo(revision);
+        assertThat(registry.resolveLegacySource("stable")).isPresent();
+        assertThat(registrar.publication(new ScheduleCapabilityOwner("ext-b", "ext-b", 2L))).isEmpty();
     }
 
     @Test
-    @DisplayName("执行器 kind 跨插件冲突：fail-fast，既有快照不被污染")
-    void runnerKindConflictFailsFast() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
+    @DisplayName("精确 publication 撤回会拒绝新 lease、取消旧 lease，并在旧 lease 释放后归零")
+    void exactWithdrawalReturnsGenerationDrain() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(registry);
+        ScheduleCapabilityPublication publication = registrar.register(
+                registeredFeature("ext-a", "ext-a", 3L,
+                        List.of(sourceProvider("alpha", "ALPHA")), List.of()), null).orElseThrow();
+        SchedulePlanningLease lease = registry.tryAcquireSource("alpha").orElseThrow();
 
-        try (AnnotationConfigApplicationContext c1 = childContext("shared-kind");
-             AnnotationConfigApplicationContext c2 = childContext("shared-kind")) {
-            registrar.register(registeredFeature("ext-a"), c1);
-            assertThat(runners.resolve("shared-kind")).isPresent();
+        ScheduleGenerationDrain drain = registrar.withdraw(publication).orElseThrow();
 
-            assertThatThrownBy(() -> registrar.register(registeredFeature("ext-b"), c2))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("duplicate scheduled work runner kind");
-            // 既有快照不污染：ext-a 的执行器仍在、ext-b 未记录 kind
-            assertThat(runners.runners()).hasSize(1);
-            assertThat(registrar.runnerKinds("ext-b")).isEmpty();
-        }
+        assertThat(registry.tryAcquireSource("alpha")).isEmpty();
+        assertThat(lease.cancellation().isCancellationRequested()).isTrue();
+        assertThat(drain.activeLeaseCount()).isEqualTo(1);
+        assertThat(drain.isDrained()).isFalse();
+        lease.close();
+        assertThat(drain.isDrained()).isTrue();
     }
 
     @Test
-    @DisplayName("执行器注册失败时已注册的来源回滚（按插件原子）")
-    void runnerFailureRollsBackSource() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        // 预置一个 kind=clash 的执行器，制造插件执行器注册冲突
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of(workRunner("clash")));
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
+    @DisplayName("同 generation 重新发布后旧 token 不能撤回新 publication")
+    void stalePublicationCannotWithdrawReplacement() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(registry);
+        PluginRegistry.RegisteredPlugin registered = registeredFeature(
+                "ext-a", "ext-a", 4L, List.of(sourceProvider("alpha", "ALPHA")), List.of());
+        ScheduleCapabilityPublication oldPublication = registrar.register(registered, null).orElseThrow();
+        registrar.withdraw(oldPublication).orElseThrow();
+        ScheduleCapabilityPublication current = registrar.register(registered, null).orElseThrow();
 
-        try (AnnotationConfigApplicationContext child = childContext("clash")) {
-            assertThatThrownBy(() -> registrar.register(
-                    registeredFeature("ext-a", sourceProvider("alpha", "A")), child))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("duplicate scheduled work runner kind");
-            // 来源被回滚、不泄漏；预置执行器未被污染；未记录 ext-a 的 kind
-            assertThat(sources.resolve("alpha")).isEmpty();
-            assertThat(sources.sources()).isEmpty();
-            assertThat(runners.runners()).hasSize(1); // 仅预置 clash
-            assertThat(registrar.runnerKinds("ext-a")).isEmpty();
-        }
+        assertThat(current.publicationId()).isGreaterThan(oldPublication.publicationId());
+        assertThat(registrar.withdraw(oldPublication)).isEmpty();
+        assertThat(registry.resolveLegacySource("alpha")).isPresent();
+        assertThat(registrar.withdraw(current)).isPresent();
     }
 
     @Test
-    @DisplayName("unregister 幂等：未注册过 / 重复注销 / 空白 id 均为安全 no-op")
-    void unregisterIsIdempotent() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
+    @DisplayName("registry 未确认撤回时保留 publication token 供一致性诊断与重试")
+    void failedRegistryWithdrawalKeepsPublicationToken() {
+        ScheduleCapabilityRegistry registry = mock(ScheduleCapabilityRegistry.class);
+        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(registry);
+        ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner("ext-a", "ext-a", 6L);
+        ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
+        when(publication.owner()).thenReturn(owner);
+        when(publication.publicationId()).thenReturn(42L);
+        when(registry.publish(any(ScheduleOwnerBundle.class))).thenReturn(publication);
+        when(registry.withdraw(publication)).thenReturn(Optional.empty());
 
-        // 未注册过 / 空白 id：静默 no-op
-        registrar.unregister("never");
-        registrar.unregister(" ");
-        registrar.unregister(null);
+        assertThat(registrar.register(registeredFeature(
+                "ext-a", "ext-a", 6L, List.of(sourceProvider("alpha")), List.of()), null))
+                .containsSame(publication);
 
-        try (AnnotationConfigApplicationContext child = childContext("alpha-kind")) {
-            registrar.register(registeredFeature("ext-a", sourceProvider("alpha", "A")), child);
-            registrar.unregister("ext-a");
-            // 重复注销不破坏状态、不报错
-            registrar.unregister("ext-a");
-
-            assertThat(sources.resolve("alpha")).isEmpty();
-            assertThat(runners.resolve("alpha-kind")).isEmpty();
-        }
+        assertThat(registrar.withdraw(publication)).isEmpty();
+        assertThat(registrar.publication(owner)).containsSame(publication);
     }
 
     @Test
-    @DisplayName("子 context 为 null（纯贡献插件）：仅注册来源、无执行器、不报错")
-    void nullChildContextRegistersOnlySources() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
-
-        registrar.register(registeredFeature("ext-a", sourceProvider("alpha", "A")), null);
-
-        assertThat(sources.resolve("alpha")).isPresent();
-        assertThat(runners.runners()).isEmpty();
-        assertThat(registrar.runnerKinds("ext-a")).isEmpty();
-    }
-
-    @Test
-    @DisplayName("子 context 执行器发现不含祖先：只注册子 context 自有执行器，不误纳父 context 的内置执行器")
-    void childContextRunnerDiscoveryExcludesAncestors() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
+    @DisplayName("child context Bean 发现不含父 context，并在 descriptor/executor 不匹配时原子拒绝")
+    void childBeanDiscoveryExcludesAncestors() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(registry);
+        ScheduledSourceExecutor parentExecutor = sourceExecutor("parent");
 
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext();
              AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
-            parent.registerBean("parent-runner", ScheduledWorkRunner.class, () -> workRunner("parent-kind"));
+            parent.registerBean("parent-source", ScheduledSourceExecutor.class, () -> parentExecutor);
             parent.refresh();
             child.setParent(parent);
-            child.registerBean("child-runner", ScheduledWorkRunner.class, () -> workRunner("child-kind"));
+            registerCompleteBeans(child, "alpha", "alpha-work");
             child.refresh();
 
-            registrar.register(registeredFeature("ext-a"), child);
-
-            assertThat(runners.resolve("child-kind")).isPresent();   // 子 context 自有执行器
-            assertThat(runners.resolve("parent-kind")).isEmpty();    // 父 context 执行器未被误纳
-            assertThat(registrar.runnerKinds("ext-a")).containsExactly("child-kind");
+            assertThat(registrar.register(registeredFeature(
+                    "ext-a", "ext-a", 5L, List.of(),
+                    List.of(sourceDescriptor("alpha", "alpha-work"))), child)).isPresent();
+            assertThat(registry.resolveSourceExecutor("alpha")).isPresent();
+            assertThat(registry.resolveSourceExecutor("parent")).isEmpty();
         }
     }
 
     @Test
-    @DisplayName("来源接入幂等：来源已被构造期接入时不重复注册（仍发现并注册执行器）")
-    void sourcesAlreadyRegisteredAreSkipped() {
-        ScheduledSourceRegistry sources = emptySourceRegistry();
-        // 模拟启动期构造期已接入 ext-a 的来源
-        sources.register("ext-a", List.of(sourceProvider("alpha", "A")));
-        ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
-        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(sources, runners);
+    @DisplayName("无任何 schedule 能力的插件返回空 publication 且不改变 registry")
+    void emptyPluginIsTransparent() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        PluginScheduleContributionRegistrar registrar = new PluginScheduleContributionRegistrar(registry);
 
-        try (AnnotationConfigApplicationContext child = childContext("alpha-kind")) {
-            // 不抛「already registered」；执行器照常从子 context 注册
-            registrar.register(registeredFeature("ext-a", sourceProvider("alpha", "A")), child);
+        Optional<ScheduleCapabilityPublication> publication = registrar.register(
+                registeredFeature("ext-a", "ext-a", 0L, List.of(), List.of()), null);
 
-            assertThat(sources.resolve("alpha")).isPresent();
-            assertThat(sources.sources()).hasSize(1); // 来源未被重复注册
-            assertThat(runners.resolve("alpha-kind")).isPresent();
-            assertThat(registrar.runnerKinds("ext-a")).containsExactly("alpha-kind");
-        }
+        assertThat(publication).isEmpty();
+        assertThat(registry.snapshotView().owners()).isEmpty();
     }
 
-    // --- 夹具 ---
-
-    private static ScheduledSourceRegistry emptySourceRegistry() {
-        return new ScheduledSourceRegistry(new PluginRegistry(List.of()));
+    private static AnnotationConfigApplicationContext completeChildContext(String sourceType, String workType) {
+        AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
+        registerCompleteBeans(child, sourceType, workType);
+        child.refresh();
+        return child;
     }
 
-    /** 子 context：为每个给定 kind 注册一个 {@link ScheduledWorkRunner} Bean。 */
-    private static AnnotationConfigApplicationContext childContext(String... runnerKinds) {
-        AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
-        for (String kind : runnerKinds) {
-            ctx.registerBean("runner-" + kind, ScheduledWorkRunner.class, () -> workRunner(kind));
-        }
-        ctx.refresh();
-        return ctx;
+    private static void registerCompleteBeans(
+            AnnotationConfigApplicationContext child, String sourceType, String workType) {
+        child.registerBean("legacy-runner", ScheduledWorkRunner.class, () -> legacyRunner(workType));
+        child.registerBean("source-executor", ScheduledSourceExecutor.class, () -> sourceExecutor(sourceType));
+        child.registerBean("work-executor", ScheduledWorkExecutor.class, () -> workExecutor(workType));
+        child.registerBean("credential-policy", ScheduledCredentialPolicy.class,
+                () -> credentialPolicy(sourceType + "-policy"));
+        child.registerBean("execution-guard", ScheduledExecutionGuard.class,
+                () -> executionGuard(sourceType + "-guard"));
     }
 
-    private static PluginRegistry.RegisteredPlugin registeredFeature(String id, ScheduledSourceProvider... sources) {
-        PixivFeaturePlugin plugin = new PixivFeaturePlugin() {
-            @Override
-            public String id() {
-                return id;
-            }
+    private static PluginRegistry.RegisteredPlugin registeredFeature(
+            String id, String packageId, long generation,
+            List<ScheduledSourceProvider> legacySources,
+            List<ScheduledSourceDescriptor> descriptors) {
+        return new PluginRegistry.RegisteredPlugin(
+                feature(id, legacySources, descriptors), PluginSource.EXTERNAL,
+                PluginScheduleContributionRegistrarTest.class.getClassLoader(), packageId, generation);
+    }
 
-            @Override
-            public String displayName() {
-                return id + ".label";
-            }
-
-            @Override
-            public String description() {
-                return id + ".summary";
-            }
-
-            @Override
-            public PluginKind kind() {
-                return PluginKind.FEATURE;
-            }
-
-            @Override
-            public List<ScheduledSourceProvider> scheduledSources() {
-                return List.of(sources);
-            }
+    private static PixivFeaturePlugin feature(
+            String id, List<ScheduledSourceProvider> legacySources,
+            List<ScheduledSourceDescriptor> descriptors) {
+        return new PixivFeaturePlugin() {
+            @Override public String id() { return id; }
+            @Override public String displayName() { return id + ".label"; }
+            @Override public String description() { return id + ".summary"; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public List<ScheduledSourceProvider> scheduledSources() { return legacySources; }
+            @Override public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() { return descriptors; }
         };
-        return new PluginRegistry.RegisteredPlugin(plugin, PluginSource.EXTERNAL,
-                PluginScheduleContributionRegistrarTest.class.getClassLoader());
     }
 
-    private static ScheduledSourceProvider sourceProvider(String type, String... legacy) {
+    private static ScheduledSourceProvider sourceProvider(String type, String... aliases) {
         return new ScheduledSourceProvider() {
-            @Override
-            public String type() {
-                return type;
-            }
-
-            @Override
-            public Set<String> legacyTypeNames() {
-                return Set.of(legacy);
-            }
+            @Override public String type() { return type; }
+            @Override public Set<String> legacyTypeNames() { return Set.of(aliases); }
         };
     }
 
-    private static ScheduledWorkRunner workRunner(String kind) {
-        return new ScheduledWorkRunner() {
-            @Override
-            public String kind() {
-                return kind;
-            }
+    private static ScheduledSourceDescriptor sourceDescriptor(
+            String sourceType, String workType, String... legacyAliases) {
+        return new ScheduledSourceDescriptor(
+                sourceType, Set.of(legacyAliases), sourceType + ".definition", 1,
+                new ScheduledSourcePresentation("test", "source.name", "source.description", "schedule", "neutral"),
+                Set.of("schedule"), Set.of(workType), Set.of(sourceType + "-policy"),
+                Set.of(sourceType + "-guard"),
+                new ScheduledSourceFrontendContribution(1, "/test/schedule-source.js"));
+    }
 
-            @Override
-            public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
+    private static ScheduledWorkRunner legacyRunner(String workType) {
+        return new ScheduledWorkRunner() {
+            @Override public String kind() { return workType; }
+            @Override public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
                 return true;
             }
         };
+    }
+
+    private static ScheduledSourceExecutor sourceExecutor(String sourceType) {
+        ScheduledSourceExecutor executor = mock(ScheduledSourceExecutor.class);
+        when(executor.sourceType()).thenReturn(sourceType);
+        return executor;
+    }
+
+    private static ScheduledWorkExecutor workExecutor(String workType) {
+        ScheduledWorkExecutor executor = mock(ScheduledWorkExecutor.class);
+        when(executor.workType()).thenReturn(workType);
+        return executor;
+    }
+
+    private static ScheduledCredentialPolicy credentialPolicy(String policyId) {
+        ScheduledCredentialPolicy policy = mock(ScheduledCredentialPolicy.class);
+        when(policy.policyId()).thenReturn(policyId);
+        return policy;
+    }
+
+    private static ScheduledExecutionGuard executionGuard(String guardId) {
+        ScheduledExecutionGuard guard = mock(ScheduledExecutionGuard.class);
+        when(guard.guardId()).thenReturn(guardId);
+        return guard;
     }
 }

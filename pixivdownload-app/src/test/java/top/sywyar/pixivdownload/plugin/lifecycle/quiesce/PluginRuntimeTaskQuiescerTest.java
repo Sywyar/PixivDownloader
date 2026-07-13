@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
@@ -15,7 +17,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -28,89 +32,105 @@ import static org.mockito.Mockito.when;
 class PluginRuntimeTaskQuiescerTest {
 
     @Test
-    @DisplayName("按固定顺序屏蔽计划派发、关闭 SSE、排空插件声明的队列")
-    void shieldsScheduleThenClosesStreamsThenDrainsQueues() {
-        PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
-        PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
-        QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
+    @DisplayName("按 publication 撤回、关闭 SSE、排空队列的固定顺序清退并返回精确 drain")
+    void withdrawsThenClosesStreamsThenDrainsQueues() {
+        PluginScheduleContributionRegistrar registrar = mock(PluginScheduleContributionRegistrar.class);
+        PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
+        QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
         QueueOperations operations = mock(QueueOperations.class);
-        when(queueRegistry.resolve("ext-illust")).thenReturn(Optional.of(operations));
-        when(operations.clearAll()).thenReturn(2);
-        PluginRuntimeTaskQuiescer quiescer =
-                new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
+        ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
+        ScheduleGenerationDrain drain = mock(ScheduleGenerationDrain.class);
+        when(registrar.withdraw(publication)).thenReturn(Optional.of(drain));
+        when(queues.resolve("ext-illust")).thenReturn(Optional.of(operations));
+        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
-        quiescer.quiesce("ext-demo", Optional.of(pluginWithQueueTypes("ext-illust")));
+        PluginRuntimeTaskQuiescer.QuiesceResult result = quiescer.quiesce(
+                "ext-demo", publication, Optional.of(pluginWithQueueTypes("ext-illust")));
 
-        InOrder order = inOrder(scheduleRegistrar, streamRegistry, queueRegistry, operations);
-        order.verify(scheduleRegistrar).unregister("ext-demo");
-        order.verify(streamRegistry).closeForPlugin("ext-demo");
-        order.verify(queueRegistry).resolve("ext-illust");
+        assertThat(result.scheduleDrain()).contains(drain);
+        InOrder order = inOrder(registrar, streams, queues, operations);
+        order.verify(registrar).withdraw(publication);
+        order.verify(streams).closeForPlugin("ext-demo");
+        order.verify(queues).resolve("ext-illust");
         order.verify(operations).clearAll();
     }
 
     @Test
-    @DisplayName("schedule、SSE 与单个队列清退失败彼此隔离，后续队列仍会排空")
-    void stepFailuresDoNotBlockLaterCleanup() {
-        PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
-        PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
-        QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
+    @DisplayName("publication 撤回异常不可吞且不得越过安全门关闭 SSE 或排空队列")
+    void withdrawalFailureIsSafetyCritical() {
+        PluginScheduleContributionRegistrar registrar = mock(PluginScheduleContributionRegistrar.class);
+        PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
+        QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
+        ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
+        doThrow(new IllegalStateException("withdraw failed")).when(registrar).withdraw(publication);
+        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
+
+        assertThatThrownBy(() -> quiescer.quiesce(
+                "ext-demo", publication, Optional.of(pluginWithQueueTypes("ext-illust"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("withdraw failed");
+
+        verifyNoInteractions(streams, queues);
+    }
+
+    @Test
+    @DisplayName("已过期 publication token 被明确拒绝，不能伪装成安全清退")
+    void stalePublicationIsRejected() {
+        PluginScheduleContributionRegistrar registrar = mock(PluginScheduleContributionRegistrar.class);
+        PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
+        QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
+        ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
+        when(registrar.withdraw(publication)).thenReturn(Optional.empty());
+        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
+
+        assertThatThrownBy(() -> quiescer.quiesce(
+                "ext-demo", publication, Optional.of(pluginWithQueueTypes())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no longer active");
+        verifyNoInteractions(streams, queues);
+    }
+
+    @Test
+    @DisplayName("撤回成功后 SSE 与各队列清退失败彼此隔离，后续队列仍会排空")
+    void bestEffortStepsRemainIsolated() {
+        PluginScheduleContributionRegistrar registrar = mock(PluginScheduleContributionRegistrar.class);
+        PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
+        QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
         QueueOperations broken = mock(QueueOperations.class);
         QueueOperations healthy = mock(QueueOperations.class);
-        doThrow(new IllegalStateException("schedule failed"))
-                .when(scheduleRegistrar).unregister("ext-demo");
-        doThrow(new IllegalStateException("stream failed"))
-                .when(streamRegistry).closeForPlugin("ext-demo");
-        when(queueRegistry.resolve("broken")).thenReturn(Optional.of(broken));
-        when(queueRegistry.resolve("healthy")).thenReturn(Optional.of(healthy));
+        ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
+        ScheduleGenerationDrain drain = mock(ScheduleGenerationDrain.class);
+        when(registrar.withdraw(publication)).thenReturn(Optional.of(drain));
+        doThrow(new IllegalStateException("stream failed")).when(streams).closeForPlugin("ext-demo");
+        when(queues.resolve("broken")).thenReturn(Optional.of(broken));
+        when(queues.resolve("healthy")).thenReturn(Optional.of(healthy));
         when(broken.clearAll()).thenThrow(new IllegalStateException("queue failed"));
-        PluginRuntimeTaskQuiescer quiescer =
-                new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
+        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
         assertThatCode(() -> quiescer.quiesce(
-                "ext-demo", Optional.of(pluginWithQueueTypes("broken", "healthy"))))
+                "ext-demo", publication, Optional.of(pluginWithQueueTypes("broken", "healthy"))))
                 .doesNotThrowAnyException();
 
         verify(healthy).clearAll();
     }
 
     @Test
-    @DisplayName("读取插件 queue type 失败只跳过队列清退，schedule 与 SSE 已完成处理")
-    void queueTypeDiscoveryFailureIsIsolated() {
-        PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
-        PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
-        QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
-        PixivFeaturePlugin plugin = pluginWithQueueTypes();
-        PixivFeaturePlugin failingPlugin = new DelegatingPlugin(plugin) {
-            @Override
-            public List<QueueTypeContribution> queueTypes() {
-                throw new IllegalStateException("metadata failed");
-            }
-        };
-        PluginRuntimeTaskQuiescer quiescer =
-                new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
+    @DisplayName("无 schedule publication 时仍关闭 SSE 并排空队列，返回空 drain")
+    void pluginWithoutSchedulePublicationStillDrainsRuntimeTasks() {
+        PluginScheduleContributionRegistrar registrar = mock(PluginScheduleContributionRegistrar.class);
+        PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
+        QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
+        QueueOperations operations = mock(QueueOperations.class);
+        when(queues.resolve("ext-illust")).thenReturn(Optional.of(operations));
+        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
 
-        assertThatCode(() -> quiescer.quiesce("ext-demo", Optional.of(failingPlugin)))
-                .doesNotThrowAnyException();
+        PluginRuntimeTaskQuiescer.QuiesceResult result = quiescer.quiesce(
+                "ext-demo", null, Optional.of(pluginWithQueueTypes("ext-illust")));
 
-        verify(scheduleRegistrar).unregister("ext-demo");
-        verify(streamRegistry).closeForPlugin("ext-demo");
-        verifyNoInteractions(queueRegistry);
-    }
-
-    @Test
-    @DisplayName("缺少核心注册条目时仍屏蔽 schedule 并关闭 SSE，不访问队列注册中心")
-    void missingPluginDescriptorStillShieldsAndClosesStreams() {
-        PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
-        PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
-        QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
-        PluginRuntimeTaskQuiescer quiescer =
-                new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
-
-        quiescer.quiesce("ext-demo", Optional.empty());
-
-        verify(scheduleRegistrar).unregister("ext-demo");
-        verify(streamRegistry).closeForPlugin("ext-demo");
-        verify(queueRegistry, never()).resolve(org.mockito.ArgumentMatchers.anyString());
+        assertThat(result.scheduleDrain()).isEmpty();
+        verify(registrar, never()).withdraw(org.mockito.ArgumentMatchers.any());
+        verify(streams).closeForPlugin("ext-demo");
+        verify(operations).clearAll();
     }
 
     private static PixivFeaturePlugin pluginWithQueueTypes(String... queueTypes) {
@@ -119,58 +139,11 @@ class PluginRuntimeTaskQuiescerTest {
                         "ext-demo", type, "test", "queue." + type, 0, null))
                 .toList();
         return new PixivFeaturePlugin() {
-            @Override
-            public String id() {
-                return "ext-demo";
-            }
-
-            @Override
-            public String displayName() {
-                return "plugin.name";
-            }
-
-            @Override
-            public String description() {
-                return "plugin.description";
-            }
-
-            @Override
-            public PluginKind kind() {
-                return PluginKind.FEATURE;
-            }
-
-            @Override
-            public List<QueueTypeContribution> queueTypes() {
-                return contributions;
-            }
+            @Override public String id() { return "ext-demo"; }
+            @Override public String displayName() { return "plugin.name"; }
+            @Override public String description() { return "plugin.description"; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public List<QueueTypeContribution> queueTypes() { return contributions; }
         };
-    }
-
-    private abstract static class DelegatingPlugin implements PixivFeaturePlugin {
-        private final PixivFeaturePlugin delegate;
-
-        private DelegatingPlugin(PixivFeaturePlugin delegate) {
-            this.delegate = delegate;
-        }
-
-        @Override
-        public String id() {
-            return delegate.id();
-        }
-
-        @Override
-        public String displayName() {
-            return delegate.displayName();
-        }
-
-        @Override
-        public String description() {
-            return delegate.description();
-        }
-
-        @Override
-        public PluginKind kind() {
-            return delegate.kind();
-        }
     }
 }

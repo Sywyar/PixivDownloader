@@ -16,22 +16,29 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,6 +48,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,10 +57,10 @@ import static org.mockito.Mockito.when;
 /**
  * ScheduleExecutor 的来源解析门测试。覆盖两件事：
  * <ol>
- *   <li><b>来源不可解析</b>：任务 {@code type} 在 {@link ScheduledSourceRegistry} 解析不到 provider
+ *   <li><b>来源不可解析</b>：任务 {@code type} 在 {@link ScheduleCapabilityRegistry} 解析不到 provider
  *       （模拟来源插件被禁 / 卸载、或类型已移除）时，调度器在 {@code runTask} 顶部即标记
  *       {@link ScheduledTask#STATUS_SOURCE_UNAVAILABLE} 干净挂起，<b>绝不</b>读 cookie / 探站内信 /
- *       发现 / 派发；该终态生产路径不可达（当前 7 个内置来源恒在），仅以单测钉死其正确性。</li>
+ *       发现 / 派发；该终态在来源 owner 被禁用、卸载或重载撤回时真实可达。</li>
  *   <li><b>代理/Cookie 作用域</b>：加解析门后，既有发现 + 派发仍全程在任务级
  *       {@link OutboundProxyOverride} 覆盖内执行，运行结束清除覆盖（不污染后续无关请求）。</li>
  * </ol>
@@ -97,28 +106,25 @@ class ScheduleExecutorSourceResolutionTest {
         OutboundProxyOverride.clear();
     }
 
-    /** 用指定来源注册中心 + 默认作品类型执行器注册中心（仅插画执行器）构造被测执行器。 */
-    private ScheduleExecutor newExecutor(ScheduledSourceRegistry registry) {
-        return newExecutor(registry, illustOnlyRunnerRegistry());
-    }
-
-    /** 用指定来源注册中心 + 作品类型执行器注册中心构造被测执行器（同步下载池，默认 DownloadConfig）。 */
-    private ScheduleExecutor newExecutor(ScheduledSourceRegistry registry,
-                                         ScheduledWorkRunnerRegistry workRunnerRegistry) {
+    /** 用统一能力注册中心构造被测执行器（同步下载池，默认 DownloadConfig）。 */
+    private ScheduleExecutor newExecutor(ScheduleCapabilityRegistry registry) {
         return new ScheduleExecutor(store, registry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, workRunnerRegistry, novelMetadataRepository,
+                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(),
                 new ObjectMapper(), overuseWarningService, notificationService, appMessages, setupService,
                 new DownloadConfig(), SYNC_EXECUTOR, SYNC_EXECUTOR);
     }
 
-    private ScheduledSourceRegistry downloadWorkbenchSources() {
-        return new ScheduledSourceRegistry(new PluginRegistry(List.of(new DownloadWorkbenchPlugin())));
+    private ScheduleCapabilityRegistry downloadWorkbenchCapabilities() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(
+                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        return registry;
     }
 
-    /** 仅含插画执行器的注册中心（薄包被 mock 的 ArtworkDownloader）：无 novel 执行器，用于验证缺执行器行为。 */
-    private ScheduledWorkRunnerRegistry illustOnlyRunnerRegistry() {
-        return new ScheduledWorkRunnerRegistry(List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+    /** 来源与插画执行器同 owner 发布；无 novel 执行器，用于验证缺执行器行为。 */
+    private ScheduleCapabilityRegistry illustOnlyCapabilities() {
+        return downloadWorkbenchCapabilities();
     }
 
     private static ScheduledTask userNewTask(String cookieMode, String proxy) {
@@ -146,11 +152,26 @@ class ScheduleExecutorSourceResolutionTest {
                 cookieMode, null, 0L, null, null, null, null, null, null, null, 0, 0L);
     }
 
+    private static ScheduledTask novelSeriesMergeTask() {
+        return new ScheduledTask(
+                4L, "小说系列合订计划", true, ScheduledTaskType.SERIES,
+                "{\"kind\":\"novel\",\"source\":{\"seriesId\":\"777\"},"
+                        + "\"download\":{\"novelMerge\":true,\"novelMergeFormat\":\"epub\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null, 0, 0L);
+    }
+
     @Test
     @DisplayName("来源解析不到 provider：标记 SOURCE_UNAVAILABLE 暂停，绝不读 cookie / 探站内信 / 发现 / 派发")
     void unresolvableSourcePausesWithoutAnyWork() throws Exception {
         // 空注册中心：USER_NEW 解析不到任何 provider（模拟来源插件被禁 / 卸载、或类型已移除）。
-        ScheduledSourceRegistry emptyRegistry = new ScheduledSourceRegistry(new PluginRegistry(List.of()));
+        ScheduleCapabilityRegistry emptyRegistry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityTestFixture.publish(
+                emptyRegistry,
+                new top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner(
+                        "download-workbench", "download-workbench", 1L),
+                List.of(),
+                List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
         ScheduleExecutor executor = newExecutor(emptyRegistry);
 
         // cookie-bound：若解析门未短路，轮首会读 cookie 快照并探站内信——以此反证解析门确实在它们之前生效。
@@ -176,9 +197,30 @@ class ScheduleExecutorSourceResolutionTest {
     }
 
     @Test
+    @DisplayName("宿主 owner 撤回后拒绝新的执行入口且不读取任务、cookie 或网络")
+    void withdrawnHostOwnerRejectsNewInvocationBeforeAnyWork() throws Exception {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(
+                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+        assertThat(registry.resolveLegacySource(ScheduledTaskType.USER_NEW.name())).isPresent();
+        assertThat(registry.withdraw(publication)).isPresent();
+        assertThat(registry.resolveLegacySource(ScheduledTaskType.USER_NEW.name())).isEmpty();
+
+        newExecutor(registry).runTaskAndRecord(userNewTask(ScheduledTask.COOKIE_BOUND, null));
+
+        verify(store, never()).updateRunStarted(anyLong(), anyLong());
+        verify(store, never()).updateRunResult(anyLong(), anyLong(), any(), any(), any());
+        verify(store, never()).findCookieSnapshot(anyLong());
+        verify(overuseWarningService, never()).check(any(), any(), anyLong());
+        verify(pixivFetchService, never()).discoverUserArtworkIds(anyString(), any());
+        verify(artworkDownloader, never()).downloadImagesBlocking(
+                anyLong(), any(), anyList(), any(), any(DownloadRequest.Other.class), any(), any());
+    }
+
+    @Test
     @DisplayName("来源可解析：加解析门后既有发现 + 派发仍全程在任务级代理覆盖内，运行结束清除覆盖")
     void resolvableSourceRunsEntirelyWithinProxyOverride() throws Exception {
-        ScheduleExecutor executor = newExecutor(downloadWorkbenchSources());
+        ScheduleExecutor executor = newExecutor(downloadWorkbenchCapabilities());
         String proxy = "10.1.2.3:1080";
 
         AtomicReference<HttpHost> proxyDuringDiscovery = new AtomicReference<>();
@@ -224,8 +266,7 @@ class ScheduleExecutorSourceResolutionTest {
     void missingNovelRunnerPausesNovelTaskWithoutAnyWork() throws Exception {
         // 来源可解析（USER_NEW 内置在场），但作品类型执行器注册中心只含插画执行器、无 novel 执行器
         //（模拟小说插件被禁 / 卸载）。
-        ScheduleExecutor executor = newExecutor(
-                downloadWorkbenchSources(), illustOnlyRunnerRegistry());
+        ScheduleExecutor executor = newExecutor(illustOnlyCapabilities());
 
         executor.runTaskAndRecord(userNewNovelTask(ScheduledTask.COOKIE_BOUND));
 
@@ -245,8 +286,7 @@ class ScheduleExecutorSourceResolutionTest {
     @DisplayName("novel 执行器缺席不影响插画任务：插画执行器在场时插画计划任务照常发现 + 下载")
     void illustTaskRunsWhenNovelRunnerMissing() throws Exception {
         // 仅插画执行器在场（无 novel 执行器）；插画任务不受影响。
-        ScheduleExecutor executor = newExecutor(
-                downloadWorkbenchSources(), illustOnlyRunnerRegistry());
+        ScheduleExecutor executor = newExecutor(illustOnlyCapabilities());
 
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200"));
         when(pixivDatabase.hasArtwork(200L)).thenReturn(false);
@@ -276,8 +316,7 @@ class ScheduleExecutorSourceResolutionTest {
         //（模拟小说插件被禁 / 卸载）。珍藏集是插画 + 小说混合来源，需 illust + novel 两类执行器都在场——
         // 当前安全策略是缺任一即把整份 collection 标不可用、绝不退化为「只跑插画」，且在读 cookie /
         // 珍藏集发现 / 下载之前就短路。
-        ScheduleExecutor executor = newExecutor(
-                downloadWorkbenchSources(), illustOnlyRunnerRegistry());
+        ScheduleExecutor executor = newExecutor(illustOnlyCapabilities());
 
         // cookie-bound：若解析门未短路，轮首会读 cookie 快照并探站内信——以此反证解析门确实在它们之前生效。
         executor.runTaskAndRecord(collectionTask(ScheduledTask.COOKIE_BOUND));
@@ -299,5 +338,62 @@ class ScheduleExecutorSourceResolutionTest {
         verify(notificationService, never()).notify(any(), any(), any());
         // 来源不可用绝不推进水位线
         verify(store, never()).updateWatermark(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("小说合订阻塞期间撤回 novel owner：drain 等待旧代租约且任务最终标记来源不可用")
+    void withdrawnNovelOwnerDuringSeriesMergeWaitsForLeaseAndDoesNotWriteOk() throws Exception {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(
+                registry, List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
+
+        CountDownLatch mergeEntered = new CountDownLatch(1);
+        CountDownLatch allowMergeReturn = new CountDownLatch(1);
+        ScheduledWorkRunner novelRunner = mock(ScheduledWorkRunner.class);
+        when(novelRunner.kind()).thenReturn(ScheduledWorkKind.NOVEL);
+        when(novelRunner.download(any(), any(), isNull())).thenReturn(true);
+        doAnswer(invocation -> {
+            mergeEntered.countDown();
+            assertThat(allowMergeReturn.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(novelRunner).mergeSeries(777L, "epub");
+
+        ScheduleCapabilityOwner novelOwner = new ScheduleCapabilityOwner("novel", "novel", 1L);
+        var novelPublication = ScheduleCapabilityTestFixture.publish(
+                registry, novelOwner, List.of(), List.of(novelRunner));
+        assertThat(novelOwner).isNotEqualTo(ScheduleCapabilityTestFixture.DOWNLOAD_WORKBENCH_OWNER);
+
+        when(pixivFetchService.discoverNovelSeriesIds("777", null)).thenReturn(List.of("300"));
+        when(pixivFetchService.fetchNovelDetailCapture("300", null)).thenReturn(
+                new PixivFetchService.NovelDetailCapture(
+                        new PixivFetchService.NovelDetail(
+                                300L, "章节", 0, false, 0,
+                                10L, "作者", "", List.of(),
+                                777L, 1L, "系列", "正文", 2, 2,
+                                1, 1, true, "ja", null, 1L, Map.of()),
+                        null));
+
+        ExecutorService taskThread = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> run = taskThread.submit(() -> newExecutor(registry).runTaskAndRecord(novelSeriesMergeTask()));
+            assertThat(mergeEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            ScheduleGenerationDrain drain = registry.withdraw(novelPublication).orElseThrow();
+            assertThat(drain.owner()).isEqualTo(novelOwner);
+            assertThat(drain.activeLeaseCount()).isEqualTo(1);
+            assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(200))).isFalse();
+
+            allowMergeReturn.countDown();
+            run.get(5, TimeUnit.SECONDS);
+
+            assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5))).isTrue();
+            verify(store).updateRunResult(
+                    eq(4L), anyLong(), eq(ScheduledTask.STATUS_SOURCE_UNAVAILABLE), anyString(), anyLong());
+            verify(store, never()).updateRunResult(
+                    eq(4L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+        } finally {
+            allowMergeReturn.countDown();
+            taskThread.shutdownNow();
+        }
     }
 }

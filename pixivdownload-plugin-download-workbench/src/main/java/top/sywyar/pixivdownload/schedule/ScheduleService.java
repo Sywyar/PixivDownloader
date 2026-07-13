@@ -6,13 +6,17 @@ import org.springframework.scheduling.support.CronExpression;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
@@ -43,7 +47,7 @@ public class ScheduleService {
      * {@code translateStatus} 能力。执行器缺席（小说插件被禁 / 卸载）时解析为空、不叠加翻译状态，队列视图照常返回。
      * ScheduleService 因此不再 import 任何 novel 包类型。
      */
-    private final ScheduledWorkRunnerRegistry workRunnerRegistry;
+    private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
 
     public List<ScheduleTaskView> list() {
         return store.findAll().stream()
@@ -164,9 +168,17 @@ public class ScheduleService {
             try {
                 long novelId = Long.parseLong(it.getId());
                 // 经核心契约取小说执行器的翻译状态能力；执行器缺席（小说插件被禁 / 卸载）则不叠加。
-                ScheduledWorkTranslateStatus tv = workRunnerRegistry.resolve(ScheduledWorkKind.NOVEL)
-                        .map(runner -> runner.translateStatus(novelId))
+                ScheduledWorkTranslateStatus tv = null;
+                var handle = scheduleCapabilityRegistry.resolveLegacyWorkRunner(ScheduledWorkKind.NOVEL)
                         .orElse(null);
+                if (handle != null) {
+                    try (ScheduleSingleCapabilityLease<ScheduledWorkRunner> lease =
+                                 scheduleCapabilityRegistry.tryAcquire(handle).orElse(null)) {
+                        if (lease != null) {
+                            tv = lease.capability().translateStatus(novelId);
+                        }
+                    }
+                }
                 if (tv != null) {
                     translatePhase = tv.phase();
                     translateElapsed = tv.elapsedSeconds();
@@ -293,18 +305,38 @@ public class ScheduleService {
      * 已在运行 / 排队（有 Claim）时静默跳过，靠 next_run 兜底由 tick 接管。
      */
     public void runOnce(long id) {
-        requireExisting(id);
-        ScheduleRunState.Claim claim = runState.tryMarkQueued(id);
-        if (claim == null) {
-            log.debug("Scheduled task {} manual run ignored: already queued or running", id);
+        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = tryAcquireHostLease();
+        if (hostLease == null) {
+            log.debug("Scheduled task {} manual run ignored: schedule host is quiesced", id);
             return;
         }
+        boolean delegated = false;
+        ScheduleRunState.Claim claim = null;
         try {
-            executor.runTaskAsync(id, claim);
+            requireExisting(id);
+            claim = runState.tryMarkQueued(id);
+            if (claim == null) {
+                log.debug("Scheduled task {} manual run ignored: already queued or running", id);
+                return;
+            }
+            executor.runTaskAsync(id, claim, hostLease);
+            delegated = true;
         } catch (RuntimeException e) {
             runState.clear(claim);
             throw e;
+        } finally {
+            if (!delegated) {
+                hostLease.close();
+            }
         }
+    }
+
+    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> tryAcquireHostLease() {
+        var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
+        if (handle == null) {
+            return null;
+        }
+        return scheduleCapabilityRegistry.tryAcquire(handle).orElse(null);
     }
 
     // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────

@@ -106,12 +106,12 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class))
             // 插件启用开关：空实例代表全部启用（本切片不验证禁用语义，只需 PluginRegistry 的 @Autowired 构造可解析）。
             .withBean(PluginToggleProperties.class, PluginToggleProperties::new)
-            // 作品类型执行器注册中心用真实 Bean：收集小说插件贡献的小说执行器。
+            // 统一计划任务能力 registry 使用真实 Bean；该切片不发布外置插件能力。
             .withUserConfiguration(
                     CorePluginConfiguration.class,
                     PluginMarketPluginConfiguration.class,
                     PluginRegistry.class,
-                    top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry.class,
+                    top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry.class,
                     DatabaseSchemaRegistry.class);
 
     @Test

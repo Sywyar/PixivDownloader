@@ -1,16 +1,13 @@
 package top.sywyar.pixivdownload.schedule;
 
-import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
-
 /**
- * 来源不可用信号：任务的 {@code type} 在
- * {@link top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry} 解析不到对应来源 provider
- * （来源插件被禁 / 卸载，或该类型已被移除）时，由 {@code ScheduleExecutor.runTask} 顶部的来源解析门上抛，
+ * 来源能力不可用信号：任务的 {@code type} 无法从
+ * {@link top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry} 取得完整 generation lease
+ * （来源或作品 owner 被禁用、卸载、撤回，或类型已移除）时，由 {@code ScheduleExecutor.runTask} 上抛，
  * 让 {@code runTaskAndRecord} 标 {@link top.sywyar.pixivdownload.core.schedule.ScheduledTask#STATUS_SOURCE_UNAVAILABLE}、清 {@code run_started_time}，
  * <b>绝不发现 / 派发</b>，并经 {@code findDue} 状态门挡住自动重跑。
  *
- * <p>当前 7 个内置来源恒由核心插件贡献，故该信号在生产路径不可达——它是为插件禁用 / 热卸载
- * 语义预留的解析门终态，目前仅以单元测试钉死其正确性。
+ * <p>owner quiesce 会撤回 publication 并取消正在运行的复合 lease；调度壳在下一个协作式取消点以同一信号干净挂起。
  */
 public class ScheduleSourceUnavailableException extends Exception {
 

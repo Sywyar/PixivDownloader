@@ -4,7 +4,8 @@ import java.io.IOException;
 
 /**
  * 计划任务里某一<b>作品类型</b>（插画 / 小说 ...）下载一侧的核心契约。各作品类型由一个执行器承载，经
- * {@link ScheduledWorkRunnerRegistry} 按 {@link #kind()} 解析、向下转型由调度壳调用——调度主编排因此不再为
+ * {@link top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry} 按 {@link #kind()} 解析并在
+ * generation lease 内由调度壳调用——调度主编排因此不再为
  * 小说单列分支、也不强依赖任一具体下载实现。
  *
  * <p>这是清偿「schedule 编排层显式依赖小说具体服务」耦合、并把插画下载也统一到同一执行器抽象的接缝：
@@ -13,8 +14,8 @@ import java.io.IOException;
  * 筛选 / sidecar 捕获 / 异常分类 / 限流 / 熔断 / 代理 / 运行队列等共享调度机器仍留在调度壳，不随某作品类型移走。
  *
  * <p>执行器由贡献该作品类型的一侧实现并显式装配（插画执行器住调度壳 / 下载工作台，小说执行器住小说插件、随
- * 小说插件生命周期归属）。某作品类型执行器缺席（如对应插件被禁 / 卸载）时，{@link ScheduledWorkRunnerRegistry#resolve}
- * 返回空、调度壳把该类型任务标记为不可用并干净挂起，绝不继续下载、也不导致启动失败。
+ * 小说插件生命周期归属）。某作品类型执行器缺席（如对应插件被禁 / 卸载）时，统一 registry 不会发放该能力租约，
+ * 调度壳把该类型任务标记为不可用并干净挂起，绝不继续下载、也不导致启动失败。
  */
 public interface ScheduledWorkRunner {
 
