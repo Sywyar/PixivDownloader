@@ -40,9 +40,7 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewSc
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
-import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
-import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.quota.RateLimitService;
@@ -251,10 +249,8 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public DownloadExtensionController downloadExtensionController(QueueTypeRegistry queueTypeRegistry,
-                                                                   DownloadTabRegistry downloadTabRegistry,
-                                                                   WebUiSlotRegistry webUiSlotRegistry) {
-        return new DownloadExtensionController(queueTypeRegistry, downloadTabRegistry, webUiSlotRegistry);
+    public DownloadExtensionController downloadExtensionController(DownloadExtensionRegistry extensionRegistry) {
+        return new DownloadExtensionController(extensionRegistry);
     }
 
     @Bean

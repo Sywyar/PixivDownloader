@@ -12,15 +12,21 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 
+import java.lang.ref.WeakReference;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry.RegisteredPlugin;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.StaticResourceConfig;
 
@@ -113,33 +119,79 @@ class StaticResourceConfigTest {
     @Test
     @DisplayName("上下文刷新后注册的精确文件立即可访问，注销后不可访问，再注册后恢复")
     void runtimeExactFileRegistrationIsImmediatelyReversible() throws Exception {
-        AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext();
-        context.setServletContext(new MockServletContext());
-        context.register(ExactFileServingConfig.class);
-        context.refresh();
-        MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
+        try (AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext()) {
+            context.setServletContext(new MockServletContext());
+            context.register(ExactFileServingConfig.class);
+            context.refresh();
+            MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
 
-        StaticResourceRegistry registry = context.getBean(StaticResourceRegistry.class);
-        mvc.perform(get("/setup.html"))
-                .andExpect(status().isNotFound());
+            PluginRegistry plugins = context.getBean(PluginRegistry.class);
+            StaticResourceRegistry registry = context.getBean(StaticResourceRegistry.class);
+            RegisteredPlugin owner = owner("demo");
+            plugins.register(owner);
+            try {
+                mvc.perform(get("/module.js"))
+                        .andExpect(status().isNotFound());
 
-        registry.register("demo", ExactFileServingConfig.class.getClassLoader(), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/", "/setup.html", true)));
-        mvc.perform(get("/setup.html"))
-                .andExpect(status().isOk());
+                registry.register(owner, List.of(
+                        new StaticResourceContribution("demo", "classpath:/test-download/", "/module.js", true)));
+                mvc.perform(get("/module.js"))
+                        .andExpect(status().isOk());
 
-        registry.unregister("demo");
-        mvc.perform(get("/setup.html"))
-                .andExpect(status().isNotFound());
+                registry.unregister("demo");
+                mvc.perform(get("/module.js"))
+                        .andExpect(status().isNotFound());
 
-        registry.register("demo", ExactFileServingConfig.class.getClassLoader(), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/", "/setup.html", true)));
-        mvc.perform(get("/setup.html"))
-                .andExpect(status().isOk());
+                registry.register(owner, List.of(
+                        new StaticResourceContribution("demo", "classpath:/test-download/", "/module.js", true)));
+                mvc.perform(get("/module.js"))
+                        .andExpect(status().isOk());
+            } finally {
+                registry.unregister(owner.id());
+                plugins.unregister(owner);
+            }
+        }
     }
 
-    private static StaticResourceRegistry emptyRegistry() {
-        return new StaticResourceRegistry(new PluginRegistry(List.of()));
+    @Test
+    @DisplayName("注销后无需后续请求刷新 mapping，旧静态快照也不再强持 owner")
+    void cachedMappingDoesNotRetainOwnerAfterUnregisterWithoutAnotherRequest() throws Exception {
+        try (AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext()) {
+            context.setServletContext(new MockServletContext());
+            context.register(ExactFileServingConfig.class);
+            context.refresh();
+            MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            PluginRegistry plugins = context.getBean(PluginRegistry.class);
+            StaticResourceRegistry registry = context.getBean(StaticResourceRegistry.class);
+
+            WeakReference<RegisteredPlugin> owner =
+                    primeMappingThenUnregisterWithoutAnotherRequest(plugins, registry, mvc);
+
+            assertThat(registry.resources()).isEmpty();
+            assertThat(ClassLoaderLeakProbes.awaitCollected(owner))
+                    .as("mapping cache must not retain the unregistered static resource owner")
+                    .isTrue();
+        }
+    }
+
+    private static WeakReference<RegisteredPlugin> primeMappingThenUnregisterWithoutAnotherRequest(
+            PluginRegistry plugins, StaticResourceRegistry registry, MockMvc mvc) throws Exception {
+        RegisteredPlugin owner = owner("mapping-leak-probe");
+        plugins.register(owner);
+        registry.register(owner, List.of(new StaticResourceContribution(
+                owner.id(), "classpath:/test-download/", "/module.js", true)));
+        mvc.perform(get("/module.js"))
+                .andExpect(status().isOk());
+        WeakReference<RegisteredPlugin> weakOwner = new WeakReference<>(owner);
+        registry.unregister(owner.id());
+        plugins.unregister(owner);
+        // 刻意不再发请求：DynamicStaticResourceHandlerMapping 的已建 handler 必须自行不强持旧 owner。
+        return weakOwner;
+    }
+
+    private static RegisteredPlugin owner(String pluginId) {
+        PixivFeaturePlugin plugin = new RuntimeStaticPlugin(pluginId);
+        return new RegisteredPlugin(plugin, PluginSource.BUILT_IN, plugin.getClass().getClassLoader());
     }
 
     @Configuration
@@ -148,9 +200,20 @@ class StaticResourceConfigTest {
     static class ExactFileServingConfig {
 
         @Bean
-        @Primary
-        StaticResourceRegistry staticResourceRegistry() {
-            return emptyRegistry();
+        PluginRegistry pluginRegistry() {
+            return new PluginRegistry(List.of());
         }
+
+        @Bean
+        @Primary
+        StaticResourceRegistry staticResourceRegistry(PluginRegistry pluginRegistry) {
+            return new StaticResourceRegistry(pluginRegistry);
+        }
+    }
+
+    private record RuntimeStaticPlugin(String id) implements PixivFeaturePlugin {
+        @Override public String displayName() { return id + ".label"; }
+        @Override public String description() { return id + ".summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
     }
 }

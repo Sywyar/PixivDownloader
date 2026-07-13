@@ -176,11 +176,9 @@ class NovelExternalPluginBootContextTest {
         WebI18nBundleRegistry.RegisteredBundle novelBundle = webI18nBundleRegistry.resolve("novel");
         assertThat(novelBundle).isNotNull();
         assertThat(novelBundle.pluginId()).isEqualTo("novel");
-        assertThat(novelBundle.classLoader()).isSameAs(externalCl);
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("novel-gallery");
         assertThat(bundle).isNotNull();
         assertThat(bundle.pluginId()).isEqualTo("novel");
-        assertThat(bundle.classLoader()).isSameAs(externalCl);
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "小说");
 
         assertThat(externalCl.getResource("static/pixiv-novel-download/novel-queue-type.js")).isNotNull();

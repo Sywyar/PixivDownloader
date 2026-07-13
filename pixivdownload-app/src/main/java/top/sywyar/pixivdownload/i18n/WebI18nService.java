@@ -6,22 +6,11 @@ import org.springframework.stereotype.Service;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.ResourceBundle;
 
 @Service
 @RequiredArgsConstructor
 public class WebI18nService {
 
-    /**
-     * 禁用 {@link ResourceBundle} 默认的"回退到 JVM 默认 locale"行为。
-     * 例如 JVM 默认 locale 是 en-US 时，请求 zh-CN 的资源会先尝试
-     * {@code common_zh_CN} / {@code common_zh}，找不到后会回退到默认 locale
-     * 的 {@code common_en}（英文），永远到不了作为根 bundle 的 {@code common.properties}（中文）。
-     * 用 {@link java.util.ResourceBundle.Control#getNoFallbackControl} 禁止这一步，
-     * 让请求 locale 找不到对应文件时直接落到根 bundle。
-     */
-    static final ResourceBundle.Control NO_FALLBACK_CONTROL =
-            ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES);
     private static final char BOM = '\uFEFF';
 
     private final WebI18nBundleRegistry bundleRegistry;

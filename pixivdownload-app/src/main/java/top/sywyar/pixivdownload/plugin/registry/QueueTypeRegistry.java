@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.registry;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
@@ -13,7 +14,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 下载队列作品类型注册中心。收集各插件的 {@link QueueTypeContribution}，
+ * 下载队列作品类型兼容门面。生产读路径投影 {@link DownloadExtensionRegistry} 的单一 owner 原子快照；
+ * 保留接收 {@link PluginRegistry} 的构造器与可逆写方法，供尚未迁移的独立测试 / 兼容调用使用。
+ * <p>
+ * 旧实现收集各插件的 {@link QueueTypeContribution}，
  * 按 pluginId 可逆注册（{@link #register} / {@link #unregister}），
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁
  * （{@code /api/download/extensions} 在每次请求上读取）。
@@ -31,9 +35,17 @@ public class QueueTypeRegistry {
 
     private final Object lock = new Object();
 
+    private final DownloadExtensionRegistry extensionRegistry;
+
     private volatile List<RegisteredQueueType> snapshot = List.of();
 
+    @Autowired
+    public QueueTypeRegistry(DownloadExtensionRegistry extensionRegistry) {
+        this.extensionRegistry = extensionRegistry;
+    }
+
     public QueueTypeRegistry(PluginRegistry pluginRegistry) {
+        this.extensionRegistry = null;
         for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
             PixivFeaturePlugin plugin = registered.plugin();
             List<QueueTypeContribution> queueTypes = plugin.queueTypes();
@@ -47,6 +59,7 @@ public class QueueTypeRegistry {
      * 注册一个插件的全部作品类型。同一 pluginId 重复注册、类型非法、类型 id 与已注册项冲突都立即抛出。
      */
     public void register(String pluginId, List<QueueTypeContribution> queueTypes) {
+        requireLegacyMutationMode();
         if (pluginId == null || pluginId.isBlank()) {
             throw new IllegalStateException("queue type contribution without pluginId");
         }
@@ -78,6 +91,7 @@ public class QueueTypeRegistry {
      * 因此对未注册过的 pluginId 静默返回。
      */
     public void unregister(String pluginId) {
+        requireLegacyMutationMode();
         synchronized (lock) {
             snapshot = snapshot.stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
@@ -87,7 +101,20 @@ public class QueueTypeRegistry {
 
     /** 按注册顺序返回全部作品类型的不可变快照。 */
     public List<RegisteredQueueType> queueTypes() {
+        if (extensionRegistry != null) {
+            return extensionRegistry.snapshot().queueTypes().stream()
+                    .map(registered -> new RegisteredQueueType(
+                            registered.owner().featurePluginId(), registered.queueType()))
+                    .toList();
+        }
         return snapshot;
+    }
+
+    private void requireLegacyMutationMode() {
+        if (extensionRegistry != null) {
+            throw new UnsupportedOperationException(
+                    "download extension mutations must use DownloadExtensionRegistry publications");
+        }
     }
 
     private static void validate(QueueTypeContribution queueType, String pluginId) {

@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.plugin.registry;
 
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -18,6 +18,8 @@ import java.util.stream.Collectors;
  * 路由访问注册中心。收集各插件的 {@link WebRouteContribution}，
  * 按 pluginId 可逆注册（{@link #register} / {@link #unregister}），
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁。
+ * 启动构造期只直接聚合内置插件；外置插件由 {@code PluginWebContributionRegistrar} 先发布请求准入 owner，
+ * 再携同一 exact generation + serving owner 注册路由，外置路由从不以 owner-null 形态进入快照。
  * <p>
  * {@code AuthFilter} 在每个请求上读取本注册中心的不可变快照：monitor 受保护与「未声明即 404」判定经
  * {@link #resolve}/{@link #isDeclared(String, HttpMethod)} 按「path + HTTP 方法命中的<b>最具体</b>声明」
@@ -30,8 +32,25 @@ import java.util.stream.Collectors;
 @Component
 public class RouteAccessRegistry {
 
-    /** 一条已注册路由及其声明方插件。 */
-    public record RegisteredRoute(String pluginId, WebRouteContribution route) {
+    /** 一条已注册路由、声明方插件及其可热卸载 serving 的精确请求 owner。 */
+    public record RegisteredRoute(
+            String pluginId,
+            WebRouteContribution route,
+            PluginRequestOwner requestOwner) {
+
+        public RegisteredRoute {
+            if (pluginId == null || pluginId.isBlank() || route == null) {
+                throw new IllegalStateException("invalid registered route owner: " + pluginId);
+            }
+            if (requestOwner != null && !pluginId.equals(requestOwner.pluginId())) {
+                throw new IllegalStateException(
+                        "registered route request owner mismatch: " + requestOwner);
+            }
+        }
+
+        public RegisteredRoute(String pluginId, WebRouteContribution route) {
+            this(pluginId, route, null);
+        }
     }
 
     private final Object lock = new Object();
@@ -40,8 +59,10 @@ public class RouteAccessRegistry {
 
     public RouteAccessRegistry(PluginRegistry pluginRegistry) {
         for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
-            PixivFeaturePlugin plugin = registered.plugin();
-            List<WebRouteContribution> routes = plugin.routes();
+            if (registered.source() != PluginSource.BUILT_IN) {
+                continue;
+            }
+            List<WebRouteContribution> routes = registered.plugin().routes();
             if (!routes.isEmpty()) {
                 register(registered.id(), routes);
             }
@@ -54,8 +75,25 @@ public class RouteAccessRegistry {
      * 使应用启动失败而不是带病运行。
      */
     public void register(String pluginId, List<WebRouteContribution> routes) {
+        register(pluginId, null, routes);
+    }
+
+    /** 注册外置 serving 的路由；每条路由携带同一个精确 generation + serving owner。 */
+    public void register(PluginRequestOwner requestOwner, List<WebRouteContribution> routes) {
+        if (requestOwner == null) {
+            throw new IllegalStateException("route contribution without plugin request owner");
+        }
+        register(requestOwner.pluginId(), requestOwner, routes);
+    }
+
+    private void register(String pluginId,
+                          PluginRequestOwner requestOwner,
+                          List<WebRouteContribution> routes) {
         if (pluginId == null || pluginId.isBlank()) {
             throw new IllegalStateException("route contribution without pluginId");
+        }
+        if (requestOwner != null && !pluginId.equals(requestOwner.pluginId())) {
+            throw new IllegalStateException("route contribution request owner mismatch: " + requestOwner);
         }
         if (routes == null || routes.isEmpty()) {
             throw new IllegalStateException("empty route contribution (plugin: " + pluginId + ")");
@@ -74,7 +112,7 @@ public class RouteAccessRegistry {
                     throw new IllegalStateException("duplicate route contribution: "
                             + route.pathPattern() + " (plugin: " + pluginId + ")");
                 }
-                next.add(new RegisteredRoute(pluginId, route));
+                next.add(new RegisteredRoute(pluginId, route, requestOwner));
             }
             snapshot = List.copyOf(next);
         }
@@ -88,6 +126,21 @@ public class RouteAccessRegistry {
         synchronized (lock) {
             snapshot = snapshot.stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
+                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+        }
+    }
+
+    /**
+     * 只撤回精确外置 serving 的路由；旧 generation / serving 的迟到清理不会按 pluginId 删除后来发布的新代。
+     * 未发布过或已经撤回时静默完成，供可重试清理使用。
+     */
+    public void unregister(PluginRequestOwner requestOwner) {
+        if (requestOwner == null) {
+            return;
+        }
+        synchronized (lock) {
+            snapshot = snapshot.stream()
+                    .filter(registered -> !requestOwner.equals(registered.requestOwner()))
                     .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
         }
     }

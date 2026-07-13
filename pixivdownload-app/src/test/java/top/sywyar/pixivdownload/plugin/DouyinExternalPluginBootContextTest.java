@@ -208,7 +208,6 @@ class DouyinExternalPluginBootContextTest {
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("douyin");
 
         assertThat(bundle).isNotNull();
-        assertThat(bundle.classLoader()).isSameAs(externalDouyinClassLoader());
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("source.douyin", "抖音");
         assertThat(bundle.load(Locale.ENGLISH)).containsEntry("source.douyin", "Douyin");
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE))

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.registry;
 
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.ArrayList;
@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * Web UI 槽位注册中心。收集各<b>活动</b>插件（{@link PluginRegistry#plugins()}，禁用插件不贡献槽位）的
@@ -34,8 +33,7 @@ public class WebUiSlotRegistry {
 
     public WebUiSlotRegistry(PluginRegistry pluginRegistry) {
         for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
-            PixivFeaturePlugin plugin = registered.plugin();
-            List<WebUiSlotContribution> slots = plugin.uiSlots();
+            List<WebUiSlotContribution> slots = registered.plugin().uiSlots();
             if (!slots.isEmpty()) {
                 register(registered.id(), slots);
             }
@@ -93,6 +91,14 @@ public class WebUiSlotRegistry {
     /** 按注册顺序返回全部 UI 槽位的不可变快照。 */
     public List<RegisteredUiSlot> slots() {
         return snapshot;
+    }
+
+    /** 返回某 owner 已在构造期或运行期提交的同一份槽位快照，供下载扩展 boot 装配避免再次调用插件 getter。 */
+    public List<WebUiSlotContribution> slotsFor(String pluginId) {
+        return snapshot.stream()
+                .filter(registered -> registered.pluginId().equals(pluginId))
+                .map(RegisteredUiSlot::slot)
+                .toList();
     }
 
     private static void validate(WebUiSlotContribution slot, String pluginId) {

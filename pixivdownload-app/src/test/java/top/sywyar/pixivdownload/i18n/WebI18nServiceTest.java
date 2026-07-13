@@ -22,7 +22,7 @@ import java.util.jar.JarOutputStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DisplayName("WebI18nService 经声明方插件 ClassLoader 解析 bundle")
+@DisplayName("WebI18nService 读取注册期物化的插件 bundle")
 class WebI18nServiceTest {
 
     private final WebI18nService service = new WebI18nService(
@@ -31,8 +31,8 @@ class WebI18nServiceTest {
     private Path tempDir;
 
     @Test
-    @DisplayName("核心 namespace common 经声明方 ClassLoader 解析到真实 properties（非空键值，行为不变）")
-    void loadsCoreNamespaceThroughDeclaringClassLoader() {
+    @DisplayName("核心 namespace common 从物化快照读取真实 properties（非空键值，行为不变）")
+    void loadsCoreNamespaceFromMaterializedSnapshot() {
         I18nBundleResponse response = service.loadBundle("common", Locale.SIMPLIFIED_CHINESE);
         assertThat(response.getNamespace()).isEqualTo("common");
         assertThat(response.getMessages()).isNotEmpty();
@@ -46,7 +46,7 @@ class WebI18nServiceTest {
     }
 
     @Test
-    @DisplayName("gallery 作为外置插件贡献 namespace 时经声明方 ClassLoader 解析")
+    @DisplayName("gallery 作为外置插件贡献 namespace 时读取注册期物化消息")
     void loadsGalleryNamespaceFromExternalContribution() {
         WebI18nService galleryService = new WebI18nService(
                 new WebI18nBundleRegistry(new PluginRegistry(List.of(new TestGalleryPlugin()))));

@@ -12,10 +12,16 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.MissingResourceException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("WebI18nBundleRegistry i18n bundle 注册中心")
 class WebI18nBundleRegistryTest {
 
-    private static final ClassLoader LOADER = WebI18nBundleRegistryTest.class.getClassLoader();
+    private static final ClassLoader LOADER = syntheticBundleClassLoader("fixture");
 
     /**
      * namespace → baseName 基线：内置共 10 条（download-workbench/gallery/novel/stats/duplicate/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
@@ -88,13 +94,22 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("resolve 携带声明方插件的 ClassLoader（bundle 解析用）")
-    void resolveCarriesDeclaringClassLoader() {
+    @DisplayName("resolve 只暴露所有受支持语言的不可变消息映射，不携带 ClassLoader")
+    void resolveCarriesMaterializedLocaleMapsOnly() {
         WebI18nBundleRegistry registry = builtInRegistry();
         WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve("common");
         assertThat(bundle).isNotNull();
-        assertThat(bundle.classLoader())
-                .isSameAs(top.sywyar.pixivdownload.plugin.CorePlugin.class.getClassLoader());
+        assertThat(bundle.messagesByLocale()).containsOnlyKeys(
+                AppLocale.SUPPORTED_LOCALES.stream().map(Locale::toLanguageTag).toArray(String[]::new));
+        assertThat(bundle.load(Locale.US)).isNotEmpty();
+        assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).isNotEmpty();
+        assertThat(Arrays.stream(WebI18nBundleRegistry.RegisteredBundle.class.getRecordComponents())
+                .map(component -> component.getType()))
+                .allMatch(type -> type != ClassLoader.class);
+        assertThatThrownBy(() -> bundle.messagesByLocale().put("x", Map.of()))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> bundle.load(Locale.US).put("x", "y"))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -177,8 +192,7 @@ class WebI18nBundleRegistryTest {
         WebI18nBundleRegistry registry = emptyRegistry();
         registry.register("demo", LOADER, List.of(ns("alpha")));
         List<WebI18nBundleRegistry.RegisteredBundle> bundles = registry.bundles();
-        assertThatThrownBy(() -> bundles.add(
-                new WebI18nBundleRegistry.RegisteredBundle("x", ns("x"), LOADER)))
+        assertThatThrownBy(() -> bundles.add(bundles.get(0)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
@@ -302,26 +316,98 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("外置插件 i18n bundle 用桥接提供的 classloader 注册，而非插件对象 class 的 loader")
-    void externalI18nUsesBridgeClassLoaderNotPluginClassLoader() {
+    @DisplayName("外置插件只在注册时用桥接 ClassLoader 物化消息，发布快照不保留 loader")
+    void externalI18nIsMaterializedThroughBridgeClassLoader() {
         // 桥接捕获的插件 classloader（真实场景为 PF4J 插件 classloader），与插件实例 class 的 loader 不同
-        ClassLoader bridgeClassLoader = new ClassLoader(WebI18nBundleRegistryTest.class.getClassLoader()) {};
+        ClassLoader bridgeClassLoader = syntheticBundleClassLoader("bridge");
         ExternalI18nPlugin external = new ExternalI18nPlugin();
         // 前置：本测试只有在「插件对象 class 的 loader != 桥接 classloader」时才有意义
         assertThat(external.getClass().getClassLoader()).isNotSameAs(bridgeClassLoader);
 
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(new DiscoveredFeaturePlugin("ext-i18n-pack", external, bridgeClassLoader)), List.of());
+                List.of(new DiscoveredFeaturePlugin("ext-i18n", external, bridgeClassLoader)), List.of());
         PluginRegistry registry = new PluginRegistry(
                 List.of(new CorePlaceholderPlugin()), new PluginToggleProperties(), discoveryProvider(discovery));
         WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(registry);
 
         WebI18nBundleRegistry.RegisteredBundle bundle = i18n.resolve("ext-i18n");
         assertThat(bundle).isNotNull();
-        assertThat(bundle.classLoader())
-                .as("应使用 RegisteredPlugin.classLoader()（桥接 classloader），而非 plugin.getClass().getClassLoader()")
-                .isSameAs(bridgeClassLoader)
-                .isNotSameAs(external.getClass().getClassLoader());
+        assertThat(bundle.load(Locale.US))
+                .containsEntry("fixture.loader", "bridge:i18n/web/ext-i18n_en_US.properties");
+        assertThat(bundle.messagesByLocale()).containsOnlyKeys("en-US", "zh-CN");
+    }
+
+    @Test
+    @DisplayName("locale 专属资源覆盖根资源，缺少专属资源时仍回退根 bundle 且不回退 JVM 默认语言")
+    void localeFallbackMatchesExistingNoDefaultFallbackSemantics() {
+        ClassLoader loader = resourceClassLoader(Map.of(
+                "i18n/web/fallback.properties", "value=Root\nroot.only=kept\n",
+                "i18n/web/fallback_en.properties", "value=English\n"));
+        WebI18nBundleRegistry registry = emptyRegistry();
+        registry.register("fallback", loader,
+                List.of(new I18nContribution("fallback", "i18n.web.fallback")));
+
+        assertThat(registry.resolve("fallback").load(Locale.US))
+                .containsEntry("value", "English")
+                .containsEntry("root.only", "kept");
+        assertThat(registry.resolve("fallback").load(Locale.SIMPLIFIED_CHINESE))
+                .containsEntry("value", "Root")
+                .containsEntry("root.only", "kept");
+    }
+
+    @Test
+    @DisplayName("资源完全缺失时保留既有延迟失败语义，读取受支持 locale 才抛 MissingResourceException")
+    void missingBundleKeepsExistingLoadFailureSemantics() {
+        WebI18nBundleRegistry registry = emptyRegistry();
+        registry.register("missing", resourceClassLoader(Map.of()),
+                List.of(new I18nContribution("missing", "i18n.web.missing")));
+
+        assertThat(registry.resolve("missing").messagesByLocale()).isEmpty();
+        assertThatThrownBy(() -> registry.resolve("missing").load(Locale.US))
+                .isInstanceOf(MissingResourceException.class)
+                .hasMessageContaining("i18n.web.missing");
+    }
+
+    @Test
+    @DisplayName("同一注册批次任一声明非法时整批不发布")
+    void registrationBatchIsAtomic() {
+        WebI18nBundleRegistry registry = emptyRegistry();
+        List<I18nContribution> contributions = Arrays.asList(ns("valid"), null);
+
+        assertThatThrownBy(() -> registry.register("atomic", LOADER, contributions))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(registry.resolve("valid")).isNull();
+        assertThat(registry.bundles()).isEmpty();
+    }
+
+    private static ClassLoader syntheticBundleClassLoader(String marker) {
+        return new ClassLoader(WebI18nBundleRegistryTest.class.getClassLoader()) {
+            @Override
+            public InputStream getResourceAsStream(String name) {
+                InputStream inherited = super.getResourceAsStream(name);
+                if (inherited != null) {
+                    return inherited;
+                }
+                if (name.startsWith("i18n/web/") && name.endsWith(".properties")) {
+                    return utf8("fixture.loader=" + marker + ":" + name + "\n");
+                }
+                return null;
+            }
+        };
+    }
+
+    private static ClassLoader resourceClassLoader(Map<String, String> resources) {
+        return new ClassLoader(null) {
+            @Override
+            public InputStream getResourceAsStream(String name) {
+                String content = resources.get(name);
+                return content == null ? null : utf8(content);
+            }
+        };
+    }
+
+    private static InputStream utf8(String value) {
+        return new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String ownerOf(WebI18nBundleRegistry registry, String namespace) {

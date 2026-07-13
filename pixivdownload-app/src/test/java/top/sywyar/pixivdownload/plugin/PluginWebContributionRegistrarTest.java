@@ -65,7 +65,7 @@ class PluginWebContributionRegistrarTest {
 
         WebI18nBundleRegistry.RegisteredBundle bundle = h.i18n.resolve("web-demo");
         assertThat(bundle).isNotNull();
-        assertThat(bundle.classLoader()).isSameAs(CL);
+        assertThat(bundle.load(java.util.Locale.US)).isNotEmpty();
 
         assertThat(h.nav.navigation()).anyMatch(n -> n.pluginId().equals("web-demo"));
 
@@ -110,14 +110,15 @@ class PluginWebContributionRegistrarTest {
     void registerUnregisterReRegisterIsConsistent() {
         Harness h = emptyHarness();
         PixivFeaturePlugin plugin = new WebDemoPlugin();
+        PluginRegistry.RegisteredPlugin registered = external(plugin);
 
-        h.registrar.register(external(plugin));
+        h.registrar.register(registered);
         Fingerprint first = Fingerprint.of(h);
 
         h.registrar.unregister("web-demo", CL);
         assertThat(Fingerprint.of(h)).isEqualTo(Fingerprint.empty());
 
-        h.registrar.register(external(plugin));
+        h.registrar.register(registered);
         assertThat(Fingerprint.of(h)).isEqualTo(first);
     }
 
@@ -182,7 +183,7 @@ class PluginWebContributionRegistrarTest {
 
     private static Harness harness(PluginRegistry base) {
         RouteAccessRegistry route = new RouteAccessRegistry(base);
-        StaticResourceRegistry staticRes = new StaticResourceRegistry(base);
+        StaticResourceRegistry staticRes = new AutoRegisteringStaticResourceRegistry(base);
         WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(base);
         NavigationRegistry nav = new NavigationRegistry(base);
         WebUiSlotRegistry uiSlot = new WebUiSlotRegistry(base);
@@ -195,6 +196,24 @@ class PluginWebContributionRegistrarTest {
 
     private static Harness emptyHarness() {
         return harness(new PluginRegistry(List.of()));
+    }
+
+    /** 独立 registrar 测试构造器的 owner 仍先接入真实 PluginRegistry，再消费 prepared static token。 */
+    private static final class AutoRegisteringStaticResourceRegistry extends StaticResourceRegistry {
+        private final PluginRegistry plugins;
+
+        private AutoRegisteringStaticResourceRegistry(PluginRegistry plugins) {
+            super(plugins);
+            this.plugins = plugins;
+        }
+
+        @Override
+        public void register(PreparedResources preparedResources) {
+            if (!plugins.containsIdentity(preparedResources.owner())) {
+                plugins.register(preparedResources.owner());
+            }
+            super.register(preparedResources);
+        }
     }
 
     private static PluginRegistry.RegisteredPlugin external(PixivFeaturePlugin plugin) {
@@ -258,7 +277,7 @@ class PluginWebContributionRegistrarTest {
 
         @Override
         public List<I18nContribution> i18n() {
-            return List.of(new I18nContribution("web-demo", "i18n.web.web-demo"));
+            return List.of(new I18nContribution("web-demo", "i18n.web.common"));
         }
 
         @Override

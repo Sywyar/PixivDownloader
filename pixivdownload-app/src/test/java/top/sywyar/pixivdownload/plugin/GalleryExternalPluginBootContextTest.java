@@ -182,11 +182,10 @@ class GalleryExternalPluginBootContextTest {
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("gallery");
         assertThat(bundle).isNotNull();
         assertThat(bundle.pluginId()).isEqualTo("gallery");
-        assertThat(bundle.classLoader()).isSameAs(externalCl);
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "画廊");
-        assertThat(webI18nBundleRegistry.resolve("artwork").classLoader()).isSameAs(externalCl);
-        assertThat(webI18nBundleRegistry.resolve("showcase").classLoader()).isSameAs(externalCl);
-        assertThat(webI18nBundleRegistry.resolve("series").classLoader()).isSameAs(externalCl);
+        assertThat(webI18nBundleRegistry.resolve("artwork").load(Locale.SIMPLIFIED_CHINESE)).isNotEmpty();
+        assertThat(webI18nBundleRegistry.resolve("showcase").load(Locale.SIMPLIFIED_CHINESE)).isNotEmpty();
+        assertThat(webI18nBundleRegistry.resolve("series").load(Locale.SIMPLIFIED_CHINESE)).isNotEmpty();
 
         assertThat(externalCl.getResource("static/pixiv-gallery.html")).isNotNull();
         assertThat(externalCl.getResource("static/unified-gallery.html")).isNull();

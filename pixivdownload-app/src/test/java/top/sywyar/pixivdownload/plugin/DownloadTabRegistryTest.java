@@ -19,7 +19,11 @@ class DownloadTabRegistryTest {
     }
 
     private static TabContribution tab(String tabId) {
-        return new TabContribution("demo", tabId, 10, List.of("illust", "novel"));
+        return tab("demo", tabId);
+    }
+
+    private static TabContribution tab(String pluginId, String tabId) {
+        return new TabContribution(pluginId, tabId, 10, List.of("illust", "novel"));
     }
 
     @Test
@@ -33,7 +37,7 @@ class DownloadTabRegistryTest {
     @DisplayName("register → unregister → 再 register 后快照与首次注册一致（可逆性）")
     void registerUnregisterRoundTrip() {
         DownloadTabRegistry registry = emptyRegistry();
-        List<TabContribution> items = List.of(tab("a"), tab("b"));
+        List<TabContribution> items = List.of(tab("search"), tab("user"));
         registry.register("demo", items);
         List<DownloadTabRegistry.RegisteredTab> first = registry.tabs();
         registry.unregister("demo");
@@ -54,8 +58,8 @@ class DownloadTabRegistryTest {
     @DisplayName("同一 pluginId 重复注册立即抛出")
     void duplicatePluginRegistrationRejected() {
         DownloadTabRegistry registry = emptyRegistry();
-        registry.register("demo", List.of(tab("a")));
-        assertThatThrownBy(() -> registry.register("demo", List.of(tab("b"))))
+        registry.register("demo", List.of(tab("search")));
+        assertThatThrownBy(() -> registry.register("demo", List.of(tab("user"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("demo");
     }
@@ -64,17 +68,17 @@ class DownloadTabRegistryTest {
     @DisplayName("标签页 id 全局冲突立即抛出（跨插件不可重名）")
     void duplicateTabIdAcrossPluginsRejected() {
         DownloadTabRegistry registry = emptyRegistry();
-        registry.register("a", List.of(tab("shared")));
-        assertThatThrownBy(() -> registry.register("b", List.of(tab("shared"))))
+        registry.register("a", List.of(tab("a", "search")));
+        assertThatThrownBy(() -> registry.register("b", List.of(tab("b", "search"))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("shared");
+                .hasMessageContaining("search");
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / tabId 非空，支持类型列表非空，标签页列表非空")
+    @DisplayName("非法输入拒绝：pluginId / tabId 非空、owner 一致、标签页列表非空")
     void invalidInputRejected() {
         DownloadTabRegistry registry = emptyRegistry();
-        assertThatThrownBy(() -> registry.register(" ", List.of(tab("a"))))
+        assertThatThrownBy(() -> registry.register(" ", List.of(tab("search"))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of()))
                 .isInstanceOf(IllegalStateException.class);
@@ -82,18 +86,39 @@ class DownloadTabRegistryTest {
                 new TabContribution("demo", " ", 0, List.of("illust")))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new TabContribution("demo", "a", 0, List.of()))))
+                new TabContribution("other", "search", 0, List.of()))))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("空兼容上限合法，空白或重复支持类型以及未知模式标签页拒绝")
+    void supportedTypeValidation() {
+        DownloadTabRegistry registry = emptyRegistry();
+        registry.register("demo", List.of(new TabContribution("demo", "search", 0, List.of())));
+        assertThat(registry.tabs()).singleElement()
+                .satisfies(tab -> assertThat(tab.tab().supportedQueueTypes()).isEmpty());
+
+        DownloadTabRegistry blank = emptyRegistry();
+        assertThatThrownBy(() -> blank.register("demo", List.of(
+                new TabContribution("demo", "search", 0, List.of(" ")))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> emptyRegistry().register("demo", List.of(
+                new TabContribution("demo", "search", 0, List.of("illust", "illust")))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> emptyRegistry().register("demo", List.of(
+                new TabContribution("demo", "custom", 0, List.of()))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("stable acquisition mode");
     }
 
     @Test
     @DisplayName("tabs() 返回不可变快照，外部不可修改")
     void snapshotIsImmutable() {
         DownloadTabRegistry registry = emptyRegistry();
-        registry.register("demo", List.of(tab("a")));
+        registry.register("demo", List.of(tab("search")));
         List<DownloadTabRegistry.RegisteredTab> snapshot = registry.tabs();
         assertThatThrownBy(() -> snapshot.add(
-                new DownloadTabRegistry.RegisteredTab("x", tab("x"))))
+                new DownloadTabRegistry.RegisteredTab("x", tab("search"))))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 }

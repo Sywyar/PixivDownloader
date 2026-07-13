@@ -183,10 +183,10 @@ class StatsExternalPluginIntegrationTest {
         statsResources.forEach(s ->
                 assertThat(s.classLoader()).isSameAs(externalCl));
 
-        // i18n：stats namespace 进入 WebI18nBundleRegistry，且其解析用 classloader 是外置插件 loader
+        // i18n：stats namespace 经外置插件 loader 物化后进入纯宿主快照。
         WebI18nBundleRegistry.RegisteredBundle bundle = new WebI18nBundleRegistry(registry).resolve("stats");
         assertThat(bundle).isNotNull();
-        assertThat(bundle.classLoader()).isSameAs(externalCl);
+        assertThat(bundle.load(java.util.Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "统计");
 
         // classloader-aware 实证：stats 静态资源 / i18n bundle 只能经外置 loader 解析到，核心壳应用 loader 解析不到。
         assertThat(externalCl.getResource("static/pixiv-stats/pixiv-stats.css")).isNotNull();

@@ -151,7 +151,6 @@ class DuplicateExternalPluginBootContextTest {
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("duplicates");
         assertThat(bundle).isNotNull();
         assertThat(bundle.pluginId()).isEqualTo("duplicate");
-        assertThat(bundle.classLoader()).isSameAs(externalCl);
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "重复检测");
 
         assertThat(externalCl.getResource("static/pixiv-duplicates.html")).isNotNull();

@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.plugin.web;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -9,20 +11,16 @@ import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
-import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
-import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionOwner;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
-import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 /**
- * 下载工作台扩展点接口：返回 {@link QueueTypeRegistry} / {@link DownloadTabRegistry} /
- * {@link WebUiSlotRegistry} 合并后的已启用作品类型、获取方式标签页与 Web UI 槽位，供下载页动态装配
+ * 下载工作台扩展点接口：返回 {@link DownloadExtensionRegistry} 单一 owner 原子快照中的已启用作品类型、
+ * 获取方式标签页与下载页 Web UI 槽位，供下载页动态装配
  * 队列引擎与槽位（取代页面中对小说等类型的硬编码分支）。
  * <p>
  * 仅暴露前端装配所需字段（类型 id / 标签 i18n key / 排序 / 行为模块 URL / 标签页支持的类型 /
@@ -31,68 +29,95 @@ import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
  * <p>
  * 访问归属：本端点随下载工作台页面消费，其路由由 {@code DownloadWorkbenchPlugin.routes()} 以
  * {@link top.sywyar.pixivdownload.plugin.api.web.AccessPolicy#VISITOR} 显式声明
- *（multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor，与未声明时的访问行为逐字等价，
- * 声明只为消除「未声明路由」的语义歧义）。本控制器自身是核心基础设施 Bean（与队列类型 / 标签页注册中心
- * 同住核心 {@code plugin} 包、根包扫描装配），路由归属与 Bean 物理位置可不一致——与下载状态等核心路由同理。
+ *（multi 游客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor，与未声明时的访问行为逐字等价，
+ * 声明只为消除「未声明路由」的语义歧义）。本控制器由下载工作台插件子 context 显式装配，
+ * 通过父上下文注入宿主维护的原子 registry 快照。
  */
 @RestController
 @RequestMapping("/api/download/extensions")
 @RequiredArgsConstructor
 public class DownloadExtensionController {
 
-    private final QueueTypeRegistry queueTypeRegistry;
-    private final DownloadTabRegistry downloadTabRegistry;
-    private final WebUiSlotRegistry webUiSlotRegistry;
+    private final DownloadExtensionRegistry extensionRegistry;
 
     @GetMapping
-    public DownloadExtensionsView extensions() {
-        List<QueueTypeView> queueTypes = queueTypeRegistry.queueTypes().stream()
-                .map(QueueTypeRegistry.RegisteredQueueType::queueType)
-                .sorted(Comparator.comparingInt(QueueTypeContribution::order)
-                        .thenComparing(QueueTypeContribution::type))
+    public ResponseEntity<DownloadExtensionsView> extensions() {
+        DownloadExtensionRegistry.Snapshot snapshot = extensionRegistry.snapshot();
+        List<QueueTypeView> queueTypes = snapshot.queueTypes().stream()
+                .sorted(Comparator.comparingInt(
+                                (DownloadExtensionRegistry.RegisteredQueueType item) -> item.queueType().order())
+                        .thenComparing(item -> item.queueType().type()))
                 .map(item -> new QueueTypeView(
-                        item.type(), item.labelNamespace(), item.labelI18nKey(), item.order(), item.moduleUrl()))
+                        item.queueType().type(),
+                        item.queueType().labelNamespace(),
+                        item.queueType().labelI18nKey(),
+                        item.queueType().order(),
+                        item.queueType().moduleUrl(),
+                        OwnerView.from(item.owner(), item.publicationId())))
                 .toList();
-        List<DownloadTypeView> downloadTypes = queueTypeRegistry.queueTypes().stream()
-                .map(QueueTypeRegistry.RegisteredQueueType::queueType)
-                .sorted(Comparator.comparingInt(QueueTypeContribution::order)
-                        .thenComparing(QueueTypeContribution::type))
-                .map(QueueTypeContribution::descriptor)
+        List<DownloadTypeView> downloadTypes = snapshot.queueTypes().stream()
+                .sorted(Comparator.comparingInt(
+                                (DownloadExtensionRegistry.RegisteredQueueType item) -> item.queueType().order())
+                        .thenComparing(item -> item.queueType().type()))
                 .map(DownloadTypeView::from)
                 .toList();
-        List<TabView> tabs = downloadTabRegistry.tabs().stream()
-                .map(DownloadTabRegistry.RegisteredTab::tab)
-                .sorted(Comparator.comparingInt(TabContribution::order)
-                        .thenComparing(TabContribution::tabId))
-                .map(item -> new TabView(item.tabId(), item.order(), item.supportedQueueTypes()))
+        List<TabView> tabs = snapshot.tabs().stream()
+                .sorted(Comparator.comparingInt(
+                                (DownloadExtensionRegistry.RegisteredTab item) -> item.tab().order())
+                        .thenComparing(item -> item.tab().tabId()))
+                .map(item -> new TabView(
+                        item.tab().tabId(),
+                        item.tab().order(),
+                        item.supportedQueueTypes(),
+                        OwnerView.from(item.owner(), item.publicationId())))
                 .toList();
-        List<UiSlotView> uiSlots = webUiSlotRegistry.slots().stream()
-                .map(WebUiSlotRegistry.RegisteredUiSlot::slot)
-                .sorted(Comparator.comparingInt(WebUiSlotContribution::order)
-                        .thenComparing(WebUiSlotContribution::slotId))
+        List<UiSlotView> uiSlots = snapshot.uiSlots().stream()
+                .sorted(Comparator.comparingInt(
+                                (DownloadExtensionRegistry.RegisteredUiSlot item) -> item.slot().order())
+                        .thenComparing(item -> item.slot().slotId()))
                 .map(item -> new UiSlotView(
-                        item.slotId(), item.target(), item.moduleUrl(), item.order(), item.metadata()))
+                        item.slot().slotId(),
+                        item.slot().target(),
+                        item.slot().moduleUrl(),
+                        item.slot().order(),
+                        item.slot().metadata(),
+                        OwnerView.from(item.owner(), item.publicationId())))
                 .toList();
-        return new DownloadExtensionsView(queueTypes, downloadTypes, tabs, uiSlots);
+        DownloadExtensionsView view = new DownloadExtensionsView(
+                snapshot.epoch(), snapshot.revision(), queueTypes, downloadTypes, tabs, uiSlots);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(view);
     }
 
     /** 下载页扩展点对外视图：已启用的作品类型、获取方式标签页与 Web UI 槽位。 */
-    public record DownloadExtensionsView(List<QueueTypeView> queueTypes,
+    public record DownloadExtensionsView(String epoch,
+                                          long revision,
+                                          List<QueueTypeView> queueTypes,
                                           List<DownloadTypeView> downloadTypes,
                                           List<TabView> tabs,
                                           List<UiSlotView> uiSlots) {
     }
 
-    /** 作品类型对外视图：刻意不含 {@code pluginId}（内部归属）。 */
-    public record QueueTypeView(String type, String labelNamespace, String labelI18nKey, int order, String moduleUrl) {
+    /** 作品类型对外视图；owner 由宿主注册身份盖章，不信任 descriptor 自报归属。 */
+    public record QueueTypeView(String type, String labelNamespace, String labelI18nKey,
+                                int order, String moduleUrl, OwnerView owner) {
     }
 
-    /** 标签页对外视图：刻意不含 {@code pluginId}（内部归属）。 */
-    public record TabView(String tabId, int order, List<String> supportedQueueTypes) {
+    /** 标签页对外视图；supportedQueueTypes 已按 descriptor 取得模式推导并应用显式兼容上限。 */
+    public record TabView(String tabId, int order, List<String> supportedQueueTypes, OwnerView owner) {
     }
 
-    /** UI 槽位对外视图：槽位 id / 宿主锚点 / 渲染模块 / 排序 / 元数据；刻意不含 {@code pluginId}（内部归属）。 */
-    public record UiSlotView(String slotId, String target, String moduleUrl, int order, Map<String, String> metadata) {
+    /** UI 槽位对外视图：只含下载页稳定锚点，并携带宿主盖章的 owner 身份。 */
+    public record UiSlotView(String slotId, String target, String moduleUrl, int order,
+                             Map<String, String> metadata, OwnerView owner) {
+    }
+
+    public record OwnerView(String pluginId, String packageId, long generation, long publicationId) {
+        static OwnerView from(DownloadExtensionOwner owner, long publicationId) {
+            return new OwnerView(
+                    owner.featurePluginId(), owner.packageId(), owner.generation(), publicationId);
+        }
     }
 
     /** 下载类型稳定 descriptor 视图：供前端行为模块按版本化契约自检能力与错误语义。 */
@@ -113,10 +138,13 @@ public class DownloadExtensionController {
             List<String> settings,
             List<String> uiSlots,
             String i18nNamespace,
-            GalleryCapabilitiesView gallery
+            GalleryCapabilitiesView gallery,
+            boolean legacyContract,
+            OwnerView owner
     ) {
 
-        static DownloadTypeView from(DownloadTypeDescriptor descriptor) {
+        static DownloadTypeView from(DownloadExtensionRegistry.RegisteredQueueType registered) {
+            DownloadTypeDescriptor descriptor = registered.queueType().descriptor();
             return new DownloadTypeView(
                     descriptor.contractVersion(),
                     descriptor.pluginId(),
@@ -134,7 +162,9 @@ public class DownloadExtensionController {
                     descriptor.settings(),
                     descriptor.uiSlots(),
                     descriptor.i18nNamespace(),
-                    GalleryCapabilitiesView.from(descriptor.gallery()));
+                    GalleryCapabilitiesView.from(descriptor.gallery()),
+                    registered.queueType().usesLegacyDescriptor(),
+                    OwnerView.from(registered.owner(), registered.publicationId()));
         }
     }
 

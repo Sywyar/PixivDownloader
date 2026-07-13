@@ -5,14 +5,15 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 
 import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 
 @DisplayName("RouteAccessRegistry 路由注册中心")
 class RouteAccessRegistryTest {
@@ -71,6 +72,27 @@ class RouteAccessRegistryTest {
         assertThat(registry.routes()).isEmpty();
         registry.register("demo", routes);
         assertThat(registry.routes()).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("运行期精确 owner 随路由注册，旧 serving 快照不会变成新 owner")
+    void runtimeRegistrationCarriesExactOwnerWithoutMutatingOldSnapshot() {
+        RouteAccessRegistry registry = emptyRegistry();
+        PluginRequestOwner oldOwner = new PluginRequestOwner("demo", 5L, 8L);
+        PluginRequestOwner replacement = new PluginRequestOwner("demo", 5L, 9L);
+        registry.register(oldOwner, List.of(route("/api/demo/**")));
+        List<RouteAccessRegistry.RegisteredRoute> oldSnapshot = registry.routes();
+
+        registry.unregister(oldOwner);
+        registry.register(replacement, List.of(route("/api/demo/**")));
+        registry.unregister(oldOwner);
+
+        assertThat(oldSnapshot).singleElement()
+                .extracting(RouteAccessRegistry.RegisteredRoute::requestOwner)
+                .isEqualTo(oldOwner);
+        assertThat(registry.resolve("/api/demo/status", HttpMethod.GET)).get()
+                .extracting(RouteAccessRegistry.RegisteredRoute::requestOwner)
+                .isEqualTo(replacement);
     }
 
     @Test
@@ -254,4 +276,5 @@ class RouteAccessRegistryTest {
         // path-level 助手忽略方法
         assertThat(registry.isDeclared("/api/only-post")).isTrue();
     }
+
 }

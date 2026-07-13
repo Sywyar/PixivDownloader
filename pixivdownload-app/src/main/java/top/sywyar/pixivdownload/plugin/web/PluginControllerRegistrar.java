@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 
@@ -83,10 +84,29 @@ public class PluginControllerRegistrar {
      * @throws PluginControllerRegistrationException 该 pluginId 已注册过，或任一 controller 映射缺路由声明（整插件不注册）
      */
     public int registerControllers(String pluginId, ApplicationContext context) {
+        return registerControllers(pluginId, context, routeAccessRegistry::isDeclared);
+    }
+
+    /**
+     * 运行期重启使用：路由尚未公开提交时，以同一次 web prepare 的不可变 route 快照校验 controller。
+     */
+    public int registerControllers(
+            String pluginId,
+            ApplicationContext context,
+            PluginWebContributionRegistrar.PreparedWebContribution preparedWeb) {
+        if (preparedWeb == null) {
+            throw new IllegalArgumentException("prepared web contribution must not be null");
+        }
+        return registerControllers(pluginId, context,
+                (path, method) -> preparedWeb.declares(pluginId, path, method));
+    }
+
+    private int registerControllers(
+            String pluginId, ApplicationContext context, BiPredicate<String, HttpMethod> routeAuthority) {
         List<HandlerMethodMapping> detected = detectHandlerMethods(context);
         List<String> undeclared = new ArrayList<>();
         for (HandlerMethodMapping mapping : detected) {
-            undeclared.addAll(undeclaredEndpoints(mapping.info()));
+            undeclared.addAll(undeclaredEndpoints(mapping.info(), routeAuthority));
         }
         synchronized (lock) {
             if (registeredByPlugin.containsKey(pluginId)) {
@@ -103,16 +123,44 @@ public class PluginControllerRegistrar {
             for (HandlerMethodMapping mapping : detected) {
                 try {
                     handlerMapping.registerMapping(mapping.info(), mapping.handler(), mapping.method());
-                } catch (RuntimeException e) {
+                } catch (Throwable failure) {
                     // registerMapping 过程也按插件原子：本次已成功注册的映射全部回滚（逐条 unregister），再抛出带
                     // pluginId + 失败映射诊断的异常。否则前几条已注册、后续某条冲突失败时，registeredByPlugin 不会记录
                     // 本插件、unregisterControllers 成空操作，父分发表会留下指向即将关闭的子 context bean 的陈旧 handler。
-                    rollbackRegistered(pluginId, registered);
+                    UnregistrationResult rollback = null;
+                    Throwable rollbackFailure = null;
+                    try {
+                        rollback = rollbackRegistered(pluginId, registered);
+                    } catch (Throwable cleanupFailure) {
+                        rollbackFailure = cleanupFailure;
+                    }
+                    if (isFatal(failure)) {
+                        addSuppressedSafely(failure, rollbackFailure);
+                        rethrowFatal(failure);
+                    }
+                    if (isFatal(rollbackFailure)) {
+                        addSuppressedSafely(rollbackFailure, failure);
+                        rethrowFatal(rollbackFailure);
+                    }
+                    if (rollbackFailure != null) {
+                        throw new PluginControllerRegistrationException(
+                                "controller registration rollback failed for plugin '" + pluginId
+                                        + "' (failureType=" + rollbackFailure.getClass().getName() + ")");
+                    }
+                    if (!rollback.pending().isEmpty()) {
+                        registeredByPlugin.put(pluginId, List.copyOf(rollback.pending()));
+                        throw new PluginControllerRegistrationException(
+                                "failed to register controller mapping " + mapping.info() + " for plugin '"
+                                        + pluginId + "'; rollback remains pending for " + rollback.pending().size()
+                                        + " mapping(s) (failureTypes=" + rollback.failureTypes()
+                                        + "). The plugin id remains reserved until unregisterControllers succeeds");
+                    }
                     throw new PluginControllerRegistrationException(
                             "failed to register controller mapping " + mapping.info() + " for plugin '" + pluginId
                                     + "' (rolled back " + registered.size() + " mapping(s) already registered in this "
                                     + "attempt; likely a path/method conflict with an existing handler): "
-                                    + e.getMessage(), e);
+                                    + failure.getMessage(),
+                            failure instanceof RuntimeException runtimeFailure ? runtimeFailure : null);
                 }
                 registered.add(mapping.info());
             }
@@ -129,36 +177,93 @@ public class PluginControllerRegistrar {
      * 失败时把前面已注册的映射全部撤掉，保证逐条注册过程也按插件原子，不给父分发表留下半注册的 handler。已在
      * {@link #lock} 内调用；不复用 {@link #unregisterControllers}（那条按 pluginId 查表，本次尚未写入 registeredByPlugin）。
      */
-    private void rollbackRegistered(String pluginId, List<RequestMappingInfo> registered) {
-        for (RequestMappingInfo info : registered) {
-            try {
-                handlerMapping.unregisterMapping(info);
-            } catch (RuntimeException e) {
-                log.warn("Error rolling back controller mapping {} for plugin '{}' after a failed registration: {}",
-                        info, pluginId, e.toString());
-            }
-        }
+    private UnregistrationResult rollbackRegistered(String pluginId, List<RequestMappingInfo> registered) {
+        return unregisterMappings(pluginId, registered, "rolling back");
     }
 
     /**
      * 注销某插件先前注册的全部 controller 映射。统一卸载流程会对每个插件调用，故对未注册过的 pluginId 静默返回。
      */
     public void unregisterControllers(String pluginId) {
-        List<RequestMappingInfo> infos;
         synchronized (lock) {
-            infos = registeredByPlugin.remove(pluginId);
+            List<RequestMappingInfo> infos = registeredByPlugin.get(pluginId);
+            if (infos == null || infos.isEmpty()) {
+                return;
+            }
+            UnregistrationResult result = unregisterMappings(pluginId, infos, "unregistering");
+            if (result.pending().isEmpty()) {
+                registeredByPlugin.remove(pluginId);
+                log.info("Unregistered {} controller mapping(s) for plugin '{}'.", infos.size(), pluginId);
+                return;
+            }
+            // 只保留本次确认失败的映射：成功项已经从父分发表删除，后续重试绝不重复触碰；pluginId 仍占用，
+            // 因而旧 generation 清理完成前，同 id 新 generation 无法接入并与旧 handler 混杂。
+            registeredByPlugin.put(pluginId, List.copyOf(result.pending()));
+            throw new IllegalStateException(
+                    "controller cleanup remains pending for plugin '" + pluginId + "': "
+                            + result.pending().size() + " mapping(s) failed (failureTypes="
+                            + result.failureTypes() + ")");
         }
-        if (infos == null || infos.isEmpty()) {
-            return;
-        }
-        for (RequestMappingInfo info : infos) {
+    }
+
+    /**
+     * 尝试逐条删除映射并返回仍待删除的精确子集。调用方持有 {@link #lock}，因此一次失败清理与后续同 id 注册串行。
+     * 普通失败继续清其余项且不保存 Throwable（避免宿主状态长期引用插件 classloader）；VM / Thread 致命错误先保存
+     * 当前及尚未尝试的映射，再按 JVM 语义原样抛出。
+     */
+    private UnregistrationResult unregisterMappings(
+            String pluginId, List<RequestMappingInfo> infos, String action) {
+        List<RequestMappingInfo> pending = new ArrayList<>();
+        List<String> failureTypes = new ArrayList<>();
+        for (int index = 0; index < infos.size(); index++) {
+            RequestMappingInfo info = infos.get(index);
             try {
                 handlerMapping.unregisterMapping(info);
-            } catch (RuntimeException e) {
-                log.warn("Error unregistering controller mapping {} for plugin '{}': {}", info, pluginId, e.toString());
+            } catch (Throwable failure) {
+                pending.add(info);
+                if (failure instanceof VirtualMachineError fatal) {
+                    pending.addAll(infos.subList(index + 1, infos.size()));
+                    registeredByPlugin.put(pluginId, List.copyOf(pending));
+                    throw fatal;
+                }
+                if (failure instanceof ThreadDeath fatal) {
+                    pending.addAll(infos.subList(index + 1, infos.size()));
+                    registeredByPlugin.put(pluginId, List.copyOf(pending));
+                    throw fatal;
+                }
+                failureTypes.add(failure.getClass().getName());
+                log.warn("Error {} controller mapping {} for plugin '{}' (failureType={})",
+                        action, info, pluginId, failure.getClass().getName());
             }
         }
-        log.info("Unregistered {} controller mapping(s) for plugin '{}'.", infos.size(), pluginId);
+        return new UnregistrationResult(List.copyOf(pending), List.copyOf(failureTypes));
+    }
+
+    private record UnregistrationResult(
+            List<RequestMappingInfo> pending, List<String> failureTypes) {
+    }
+
+    private static boolean isFatal(Throwable failure) {
+        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            throw fatal;
+        }
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
+        if (target != null && suppressed != null && target != suppressed) {
+            try {
+                target.addSuppressed(suppressed);
+            } catch (Throwable ignored) {
+                // 保持首个 fatal 对象身份。
+            }
+        }
     }
 
     /** 当前注册了 controller 映射的插件 id（只读，供可观测 / 测试）。 */
@@ -211,19 +316,20 @@ public class PluginControllerRegistrar {
      * {@code RouteDeclarationCoverageTest} 逐字一致：含 {@code {var}} 的模式按占位归一后判定；无方法限定的映射
      * 以 GET 代表「至少有声明覆盖」。
      */
-    private List<String> undeclaredEndpoints(RequestMappingInfo info) {
+    private List<String> undeclaredEndpoints(
+            RequestMappingInfo info, BiPredicate<String, HttpMethod> routeAuthority) {
         List<String> violations = new ArrayList<>();
         Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
         for (String pattern : info.getPatternValues()) {
             String concrete = toConcretePath(pattern);
             if (methods.isEmpty()) {
-                if (!routeAccessRegistry.isDeclared(concrete, HttpMethod.GET)) {
+                if (!routeAuthority.test(concrete, HttpMethod.GET)) {
                     violations.add("* " + pattern);
                 }
             } else {
                 for (RequestMethod requestMethod : methods) {
                     HttpMethod httpMethod = toHttpMethod(requestMethod);
-                    if (httpMethod != null && !routeAccessRegistry.isDeclared(concrete, httpMethod)) {
+                    if (httpMethod != null && !routeAuthority.test(concrete, httpMethod)) {
                         violations.add(requestMethod + " " + pattern);
                     }
                 }

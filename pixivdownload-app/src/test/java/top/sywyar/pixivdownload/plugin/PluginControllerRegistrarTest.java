@@ -14,6 +14,8 @@ import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -147,6 +149,50 @@ class PluginControllerRegistrarTest {
         }
     }
 
+    @Test
+    @DisplayName("注销部分失败只保留失败映射，同 id 新代被阻断，重试清零后才可重新注册")
+    void unregisterFailureRetainsExactPendingMappingsUntilRetry() {
+        FailingUnregisterMapping mapping = initializeMapping(new FailingUnregisterMapping());
+        RouteAccessRegistry routes = new RouteAccessRegistry(new PluginRegistry(List.of()));
+        routes.register("test-plugin", List.of(WebRouteContribution.admin("/api/test/**")));
+        PluginControllerRegistrar registrar = new PluginControllerRegistrar(mapping, routes);
+
+        try (AnnotationConfigApplicationContext oldContext =
+                     new AnnotationConfigApplicationContext(TwoDeclaredController.class);
+             AnnotationConfigApplicationContext newContext =
+                     new AnnotationConfigApplicationContext(TwoDeclaredController.class)) {
+            assertThat(registrar.registerControllers("test-plugin", oldContext)).isEqualTo(2);
+            mapping.failPath = "/api/test/first";
+
+            assertThatThrownBy(() -> registrar.unregisterControllers("test-plugin"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("cleanup remains pending")
+                    .hasNoCause();
+
+            assertThat(mappedPaths(mapping)).contains("/api/test/first").doesNotContain("/api/test/second");
+            assertThat(registrar.registeredPluginIds()).containsExactly("test-plugin");
+            assertThatThrownBy(() -> registrar.registerControllers("test-plugin", newContext))
+                    .isInstanceOf(PluginControllerRegistrationException.class)
+                    .hasMessageContaining("already registered");
+
+            RequestMappingInfo successful = mapping.attempts.keySet().stream()
+                    .filter(info -> info.getPatternValues().contains("/api/test/second"))
+                    .findFirst().orElseThrow();
+            assertThat(mapping.attempts.get(successful)).isEqualTo(1);
+
+            mapping.failPath = null;
+            registrar.unregisterControllers("test-plugin");
+            assertThat(registrar.registeredPluginIds()).isEmpty();
+            assertThat(mappedPaths(mapping)).doesNotContain("/api/test/first", "/api/test/second");
+            assertThat(mapping.attempts.get(successful)).isEqualTo(1);
+
+            assertThat(registrar.registerControllers("test-plugin", newContext)).isEqualTo(2);
+            assertThat(mapping.getHandlerMethods().values())
+                    .anyMatch(handler -> handler.getBean() == newContext.getBean(TwoDeclaredController.class));
+            registrar.unregisterControllers("test-plugin");
+        }
+    }
+
     // --- helpers ---
 
     /** 收集 mapping 当前全部 handler 映射的路径模式。 */
@@ -158,10 +204,13 @@ class PluginControllerRegistrarTest {
 
     /** 建立并初始化一个独立的 mapping（带空的 web 上下文，仅用于构建 {@link RequestMappingInfo} 与持有注册表）。 */
     private static PluginAwareRequestMappingHandlerMapping newInitializedMapping() {
+        return initializeMapping(new PluginAwareRequestMappingHandlerMapping());
+    }
+
+    private static <T extends PluginAwareRequestMappingHandlerMapping> T initializeMapping(T mapping) {
         StaticWebApplicationContext wac = new StaticWebApplicationContext();
         wac.setServletContext(new MockServletContext());
         wac.refresh();
-        PluginAwareRequestMappingHandlerMapping mapping = new PluginAwareRequestMappingHandlerMapping();
         mapping.setApplicationContext(wac);
         mapping.afterPropertiesSet(); // 空上下文：不检测到任何核心 controller，仅初始化 BuilderConfiguration 与注册表
         return mapping;
@@ -224,6 +273,34 @@ class PluginControllerRegistrarTest {
         @GetMapping("/api/test/conflict")
         String conflict() {
             return "occupied";
+        }
+    }
+
+    @RestController
+    @RequestMapping("/api/test")
+    static class TwoDeclaredController {
+        @GetMapping("/first")
+        String first() {
+            return "first";
+        }
+
+        @GetMapping("/second")
+        String second() {
+            return "second";
+        }
+    }
+
+    static final class FailingUnregisterMapping extends PluginAwareRequestMappingHandlerMapping {
+        private final Map<RequestMappingInfo, Integer> attempts = new LinkedHashMap<>();
+        private String failPath;
+
+        @Override
+        public void unregisterMapping(RequestMappingInfo mapping) {
+            attempts.merge(mapping, 1, Integer::sum);
+            if (failPath != null && mapping.getPatternValues().contains(failPath)) {
+                throw new AssertionError("injected unregister failure");
+            }
+            super.unregisterMapping(mapping);
         }
     }
 }

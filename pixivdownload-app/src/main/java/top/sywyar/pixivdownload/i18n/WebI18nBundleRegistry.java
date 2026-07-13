@@ -15,6 +15,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -36,12 +37,10 @@ import java.util.zip.ZipFile;
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁
  * （{@code /api/i18n/**} 在每次请求上读取）。
  * <p>
- * bundle 解析经声明方插件的 ClassLoader（{@link RegisteredBundle#classLoader()}），该 ClassLoader 由
- * {@link PluginRegistry} 的每条注册（{@link PluginRegistry.RegisteredPlugin#classLoader()}）权威提供：内置插件
- * 是应用 ClassLoader（解析结果与退役前的静态 map 一致），外置插件是发现桥接捕获的该插件自身 ClassLoader、
- * 卸载时随之清缓存。故本注册中心消费 {@link PluginRegistry#registeredPlugins()}（带来源 + ClassLoader），
- * <b>不</b>从 {@code plugin.getClass().getClassLoader()} 自行推导——后者对「插件实例由共享 / 父 ClassLoader 创建」
- * 的外置插件会误解析到错误的 ClassLoader。
+ * 活动插件注册时只在当前栈帧内使用声明方 ClassLoader，一次性物化
+ * {@link AppLocale#SUPPORTED_LOCALES} 的 UTF-8 properties；发布后的 {@link RegisteredBundle} 只保存纯 JDK
+ * 不可变 map，不再持有或调用插件 ClassLoader。ClassLoader 由
+ * {@link PluginRegistry.RegisteredPlugin#classLoader()} 权威提供，不能从插件实例的类自行推导。
  * <p>
  * 安装态但未进入活动快照的外置插件只暴露展示身份所需的只读 i18n fallback：按 descriptor 声明的
  * {@code displayNamespace} 从已安装 artifact 内读取 {@code i18n/web/<namespace>.properties}，不注册路由、
@@ -55,24 +54,39 @@ import java.util.zip.ZipFile;
 @Component
 public class WebI18nBundleRegistry {
 
-    private static final BundleLoader RESOURCE_BUNDLE_LOADER = WebI18nBundleRegistry::loadResourceBundle;
+    private static final java.util.ResourceBundle.Control NO_FALLBACK_CONTROL =
+            java.util.ResourceBundle.Control.getNoFallbackControl(
+                    java.util.ResourceBundle.Control.FORMAT_PROPERTIES);
 
-    /** 一条已注册 namespace、声明方插件与解析用 ClassLoader。 */
-    public record RegisteredBundle(String pluginId, I18nContribution contribution, ClassLoader classLoader,
-                                   BundleLoader loader) {
+    /** 一条已注册 namespace 的纯宿主快照；活动来源保存物化 map，安装态 fallback 只保存 artifact 路径。 */
+    public record RegisteredBundle(
+            String pluginId,
+            I18nContribution contribution,
+            Map<String, Map<String, String>> messagesByLocale,
+            Path installedArtifact) {
 
-        public RegisteredBundle(String pluginId, I18nContribution contribution, ClassLoader classLoader) {
-            this(pluginId, contribution, classLoader, RESOURCE_BUNDLE_LOADER);
+        public RegisteredBundle {
+            Map<String, Map<String, String>> immutable = new LinkedHashMap<>();
+            for (Map.Entry<String, Map<String, String>> entry : messagesByLocale.entrySet()) {
+                immutable.put(entry.getKey(), immutableMessages(entry.getValue()));
+            }
+            messagesByLocale = Collections.unmodifiableMap(immutable);
         }
 
         public Map<String, String> load(Locale locale) {
-            return loader.load(contribution, classLoader, locale);
+            Locale effectiveLocale = AppLocale.normalize(locale);
+            if (installedArtifact != null) {
+                return loadInstalledBundle(installedArtifact, contribution.baseName(), effectiveLocale);
+            }
+            Map<String, String> messages = messagesByLocale.get(effectiveLocale.toLanguageTag());
+            if (messages == null) {
+                throw new MissingResourceException(
+                        "Missing active plugin i18n bundle " + contribution.baseName()
+                                + " for locale " + effectiveLocale.toLanguageTag(),
+                        contribution.baseName(), "");
+            }
+            return messages;
         }
-    }
-
-    @FunctionalInterface
-    public interface BundleLoader {
-        Map<String, String> load(I18nContribution contribution, ClassLoader classLoader, Locale locale);
     }
 
     private final Object lock = new Object();
@@ -99,7 +113,7 @@ public class WebI18nBundleRegistry {
             PixivFeaturePlugin plugin = registered.plugin();
             List<I18nContribution> contributions = plugin.i18n();
             if (!contributions.isEmpty()) {
-                register(registered.id(), registered.classLoader(), contributions);
+                register(plugin.id(), registered.classLoader(), contributions);
             }
         }
         refreshInstalledSnapshot();
@@ -126,15 +140,18 @@ public class WebI18nBundleRegistry {
             Set<String> namespaces = activeSnapshot.stream()
                     .map(registered -> registered.contribution().namespace())
                     .collect(Collectors.toCollection(HashSet::new));
-            List<RegisteredBundle> next = new ArrayList<>(activeSnapshot);
             for (I18nContribution contribution : contributions) {
                 validate(contribution, pluginId);
                 if (!namespaces.add(contribution.namespace())) {
                     throw new IllegalStateException("duplicate i18n namespace: "
                             + contribution.namespace() + " (plugin: " + pluginId + ")");
                 }
-                next.add(new RegisteredBundle(pluginId, contribution, classLoader));
             }
+            List<RegisteredBundle> materialized = contributions.stream()
+                    .map(contribution -> materializeActiveBundle(pluginId, contribution, classLoader))
+                    .toList();
+            List<RegisteredBundle> next = new ArrayList<>(activeSnapshot);
+            next.addAll(materialized);
             activeSnapshot = List.copyOf(next);
         }
     }
@@ -158,7 +175,7 @@ public class WebI18nBundleRegistry {
         return mergedSnapshot();
     }
 
-    /** namespace → 已注册 bundle（含 baseName 与解析用 ClassLoader），未注册返回 {@code null}。 */
+    /** namespace → 已注册的纯宿主 bundle 快照，未注册返回 {@code null}。 */
     public RegisteredBundle resolve(String namespace) {
         for (RegisteredBundle registered : activeSnapshot) {
             if (registered.contribution().namespace().equals(namespace)) {
@@ -237,21 +254,49 @@ public class WebI18nBundleRegistry {
             bundles.add(new RegisteredBundle(
                     installed.id(),
                     contribution,
-                    WebI18nBundleRegistry.class.getClassLoader(),
-                    (ns, ignored, locale) -> loadInstalledBundle(artifact, ns.baseName(), locale)));
+                    Map.of(),
+                    artifact));
         }
         return List.copyOf(bundles);
     }
 
+    private static RegisteredBundle materializeActiveBundle(
+            String pluginId, I18nContribution contribution, ClassLoader classLoader) {
+        Map<String, Map<String, String>> messagesByLocale = new LinkedHashMap<>();
+        for (Locale locale : AppLocale.SUPPORTED_LOCALES) {
+            try {
+                messagesByLocale.put(
+                        locale.toLanguageTag(),
+                        loadResourceBundle(contribution, classLoader, locale));
+            } catch (MissingResourceException ignored) {
+                // 保留既有语义：namespace 可以注册，真正读取缺失 locale 时再抛 MissingResourceException。
+            }
+        }
+        return new RegisteredBundle(pluginId, contribution, messagesByLocale, null);
+    }
+
     private static Map<String, String> loadResourceBundle(
             I18nContribution contribution, ClassLoader classLoader, Locale locale) {
-        java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle(
-                contribution.baseName(), locale, classLoader, WebI18nService.NO_FALLBACK_CONTROL);
-        Map<String, String> messages = new LinkedHashMap<>();
-        for (String key : new TreeSet<>(bundle.keySet())) {
-            messages.putIfAbsent(WebI18nService.normalizeKey(key), bundle.getString(key));
+        List<Locale> candidates = new ArrayList<>(
+                NO_FALLBACK_CONTROL.getCandidateLocales(contribution.baseName(), locale));
+        Collections.reverse(candidates);
+        Map<String, String> merged = new LinkedHashMap<>();
+        boolean loaded = false;
+        for (Locale candidate : candidates) {
+            String bundleName = NO_FALLBACK_CONTROL.toBundleName(contribution.baseName(), candidate);
+            String resourceName = NO_FALLBACK_CONTROL.toResourceName(bundleName, "properties");
+            Map<String, String> values = readClassLoaderProperties(classLoader, resourceName);
+            if (values != null) {
+                merged.putAll(values);
+                loaded = true;
+            }
         }
-        return messages;
+        if (!loaded) {
+            throw new MissingResourceException(
+                    "Missing active plugin i18n bundle " + contribution.baseName(),
+                    contribution.baseName(), "");
+        }
+        return sortedMessages(merged);
     }
 
     private static Map<String, String> loadInstalledBundle(Path artifact, String baseName, Locale locale) {
@@ -272,7 +317,7 @@ public class WebI18nBundleRegistry {
         for (String key : new TreeSet<>(merged.keySet())) {
             sorted.put(key, merged.get(key));
         }
-        return sorted;
+        return immutableMessages(sorted);
     }
 
     private static List<String> resourceNames(String baseName, Locale locale) {
@@ -313,6 +358,37 @@ public class WebI18nBundleRegistry {
             throw new MissingResourceException("Cannot read installed plugin i18n bundle "
                     + resourceName + " from " + artifact + ": " + e.getMessage(), resourceName, "");
         }
+    }
+
+    private static Map<String, String> readClassLoaderProperties(ClassLoader classLoader, String resourceName) {
+        try (InputStream in = classLoader.getResourceAsStream(resourceName)) {
+            if (in == null) {
+                return null;
+            }
+            try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+                Properties properties = new Properties();
+                properties.load(reader);
+                Map<String, String> values = new LinkedHashMap<>();
+                for (String key : properties.stringPropertyNames()) {
+                    values.put(WebI18nService.normalizeKey(key), properties.getProperty(key));
+                }
+                return values;
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot materialize plugin i18n bundle " + resourceName, e);
+        }
+    }
+
+    private static Map<String, String> sortedMessages(Map<String, String> messages) {
+        Map<String, String> sorted = new LinkedHashMap<>();
+        for (String key : new TreeSet<>(messages.keySet())) {
+            sorted.put(key, messages.get(key));
+        }
+        return immutableMessages(sorted);
+    }
+
+    private static Map<String, String> immutableMessages(Map<String, String> messages) {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(messages));
     }
 
     private static String trimToNull(String value) {

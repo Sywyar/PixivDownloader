@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.scripts.UserscriptRegistry.RegisteredUserscript;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
 /**
  * 启动时按 {@link UserscriptRegistry} 声明的来源扫描油猴脚本，解析脚本头部元数据，
@@ -50,11 +49,11 @@ public class ScriptRegistry {
 
     private final AppMessages messages;
     private final UserscriptRegistry userscriptRegistry;
-    /** 脚本列表 + 文件名→资源映射的不可变快照；{@link #refresh()} 整体替换引用（读侧无锁）。 */
+    /** 脚本列表 + 文件名→完整 UTF-8 文本的不可变快照；{@link #refresh()} 整体替换引用（读侧无锁）。 */
     private volatile Snapshot snapshot;
 
-    /** 一份脚本扫描结果：可安装脚本列表与「文件名 → classpath 资源（经声明方 ClassLoader 解析）」。 */
-    private record Snapshot(List<ScriptResource> scripts, Map<String, Resource> resourcesByFileName) {
+    /** 一份脚本扫描结果：可安装脚本列表与「文件名 → 已物化完整文本」。 */
+    private record Snapshot(List<ScriptResource> scripts, Map<String, String> contentsByFileName) {
     }
 
     public ScriptRegistry(AppMessages messages, UserscriptRegistry userscriptRegistry) {
@@ -69,7 +68,7 @@ public class ScriptRegistry {
      * 来源被注销后脚本层不再残留、再注册后恢复——脚本聚合结果不再是构造期一次性缓存。
      */
     public void refresh() {
-        Map<String, Resource> byFileName = new LinkedHashMap<>();
+        Map<String, String> byFileName = new LinkedHashMap<>();
         List<ScriptResource> loaded = List.copyOf(loadScripts(userscriptRegistry, byFileName));
         this.snapshot = new Snapshot(loaded, Map.copyOf(byFileName));
     }
@@ -79,7 +78,7 @@ public class ScriptRegistry {
     }
 
     private List<ScriptResource> loadScripts(UserscriptRegistry userscriptRegistry,
-                                             Map<String, Resource> byFileName) {
+                                             Map<String, String> byFileName) {
         List<ScriptResource> result = new ArrayList<>();
         for (RegisteredUserscript registered : userscriptRegistry.userscripts()) {
             PathMatchingResourcePatternResolver resolver =
@@ -90,9 +89,10 @@ public class ScriptRegistry {
                     String fileName = resource.getFilename();
                     if (fileName == null) continue;
                     try {
-                        ScriptResource sr = parseScript(resource, fileName);
+                        String content = readUtf8(resource);
+                        ScriptResource sr = parseScript(fileName, content);
                         result.add(sr);
-                        byFileName.put(fileName, resource);
+                        byFileName.put(fileName, content);
                         log.debug(message("script.log.registered", sr.id(), fileName));
                     } catch (IOException e) {
                         log.warn(message("script.log.parse.failed", fileName), e);
@@ -110,9 +110,14 @@ public class ScriptRegistry {
         return result;
     }
 
-    private ScriptResource parseScript(Resource resource, String fileName) throws IOException {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
+    private static String readUtf8(Resource resource) throws IOException {
+        try (InputStream in = resource.getInputStream()) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private ScriptResource parseScript(String fileName, String content) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new StringReader(content))) {
             return parseScriptMetadata(fileName, reader);
         }
     }
@@ -203,17 +208,15 @@ public class ScriptRegistry {
     }
 
     /**
-     * 按文件名读取脚本内容（UTF-8），经声明方插件的 ClassLoader 解析的资源即时读取。
+     * 按文件名读取刷新时一次性物化的 UTF-8 脚本文本，不再接触声明方插件的 Resource 或 ClassLoader。
      * 未知文件名抛 {@link IOException}。
      */
     public String readContent(String fileName) throws IOException {
-        Resource resource = snapshot.resourcesByFileName().get(fileName);
-        if (resource == null) {
+        String content = snapshot.contentsByFileName().get(fileName);
+        if (content == null) {
             throw new IOException(message("script.log.content.not-found", fileName));
         }
-        try (InputStream in = resource.getInputStream()) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return content;
     }
 
     private String message(String code, Object... args) {

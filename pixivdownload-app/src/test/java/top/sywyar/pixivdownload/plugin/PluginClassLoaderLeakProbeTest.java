@@ -389,12 +389,12 @@ class PluginClassLoaderLeakProbeTest {
                 ScheduleCapabilityRegistryTestAccess.publish(schedule, bundle);
         streams.register(PLUGIN_ID, "conn-1", () -> { /* no-op close */ });
 
-        // —— 接入后（确定性）：各注册中心暴露该插件，且 static / i18n / userscript 解析用的正是 probe loader ——
+        // —— 接入后（确定性）：各注册中心暴露该插件；i18n 已从来源 loader 物化为宿主值 ——
         assertThat(routes.routes()).anyMatch(r -> r.pluginId().equals(PLUGIN_ID));
         assertThat(statics.resources())
                 .anyMatch(s -> s.pluginId().equals(PLUGIN_ID) && s.classLoader() == probeCl);
         assertThat(i18n.resolve(NAMESPACE)).isNotNull();
-        assertThat(i18n.resolve(NAMESPACE).classLoader()).isSameAs(probeCl);
+        assertThat(i18n.resolve(NAMESPACE).load(java.util.Locale.US)).isNotEmpty();
         assertThat(navigation.navigation()).anyMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts())
                 .anyMatch(u -> u.pluginId().equals(PLUGIN_ID) && u.classLoader() == probeCl);

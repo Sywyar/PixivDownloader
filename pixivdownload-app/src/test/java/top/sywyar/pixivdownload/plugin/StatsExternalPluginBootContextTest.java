@@ -227,7 +227,7 @@ class StatsExternalPluginBootContextTest {
                         && s.contribution().publicPathPrefix().equals("/pixiv-stats.html")))
                 .isTrue();
 
-        assertActiveStatsI18nBundle(externalCl);
+        assertActiveStatsI18nBundle();
 
         // classloader-aware 实证：stats 资源只能经外置 loader 解析到，核心壳应用 loader 解析不到。
         assertThat(externalCl.getResource("static/pixiv-stats/pixiv-stats.css")).isNotNull();
@@ -308,7 +308,7 @@ class StatsExternalPluginBootContextTest {
         pluginWebContributionRegistrar.register(stats);
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
-        assertActiveStatsI18nBundle(stats.classLoader());
+        assertActiveStatsI18nBundle();
         assertThat(navigationRegistry.navigation()).anyMatch(n -> n.pluginId().equals("stats"));
     }
 
@@ -348,7 +348,7 @@ class StatsExternalPluginBootContextTest {
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(pluginControllerRegistrar.registeredPluginIds()).contains("stats");
         assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
-        assertActiveStatsI18nBundle(externalStatsClassLoader());
+        assertActiveStatsI18nBundle();
         ConfigurableApplicationContext afterStart = externalPluginContextManager.contextFor("stats").orElseThrow();
         assertThat(afterStart.isActive()).isTrue();
         assertThat(statsDashboardHandlerBean()).isNotNull();
@@ -399,7 +399,7 @@ class StatsExternalPluginBootContextTest {
         assertThat(statsDashboardHandlerBean()).isNotNull();
         assertThat(anyHandlerLoadedBy(afterReload.getClassLoader())).isTrue();
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
-        assertActiveStatsI18nBundle(afterReload.getClassLoader());
+        assertActiveStatsI18nBundle();
     }
 
     /** 请求分发表中是否存在<b>任何</b>由给定 classloader 加载的 handler Bean（classloader 级泄漏判据）。 */
@@ -423,11 +423,10 @@ class StatsExternalPluginBootContextTest {
                 .filter(rp -> rp.id().equals("stats")).findFirst().orElseThrow().classLoader();
     }
 
-    private void assertActiveStatsI18nBundle(ClassLoader expectedClassLoader) {
+    private void assertActiveStatsI18nBundle() {
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("stats");
         assertThat(bundle).isNotNull();
         assertThat(bundle.pluginId()).isEqualTo("stats");
-        assertThat(bundle.classLoader()).isSameAs(expectedClassLoader);
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "统计");
     }
 
@@ -435,7 +434,6 @@ class StatsExternalPluginBootContextTest {
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("stats");
         assertThat(bundle).isNotNull();
         assertThat(bundle.pluginId()).isEqualTo("stats");
-        assertThat(bundle.classLoader()).isSameAs(WebI18nBundleRegistry.class.getClassLoader());
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "统计");
     }
 
