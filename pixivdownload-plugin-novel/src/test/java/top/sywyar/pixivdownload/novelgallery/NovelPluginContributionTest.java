@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
+import java.io.InputStream;
+import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,6 +19,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelPluginContributionTest {
 
     private final NovelPlugin plugin = new NovelPlugin();
+
+    @Test
+    @DisplayName("插件描述符要求提供通用计划任务契约的核心 API 1.1")
+    void descriptorRequiresScheduleApi11() throws Exception {
+        Properties descriptor = new Properties();
+        try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
+            assertThat(input).isNotNull();
+            descriptor.load(input);
+        }
+        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.1");
+    }
 
     @Test
     @DisplayName("novel 同时声明小说下载核心路由和小说画廊展示路由")
