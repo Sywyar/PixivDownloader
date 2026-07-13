@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptor;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptorProvider;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledCredentialPolicyTarget;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationRoute;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
@@ -55,6 +59,15 @@ public final class ScheduleOwnerBundle {
     record LegacyWorkRunnerEntry(String workType, ScheduledWorkRunner runner) {
     }
 
+    record LegacyPersistenceEntry(
+            String sourceType,
+            String definitionSchema,
+            int definitionVersion,
+            Set<String> possibleWorkTypes,
+            Set<String> credentialPolicyIds
+    ) {
+    }
+
     private static final int MAX_CAPABILITY_ID_BYTES = 256;
 
     private final ScheduleCapabilityOwner owner;
@@ -65,6 +78,7 @@ public final class ScheduleOwnerBundle {
     private final List<CredentialPolicyEntry> credentialPolicies;
     private final List<GuardEntry> guards;
     private final List<LegacyWorkRunnerEntry> legacyWorkRunners;
+    private final List<LegacyPersistenceEntry> legacyPersistence;
 
     private ScheduleOwnerBundle(
             ScheduleCapabilityOwner owner,
@@ -74,7 +88,8 @@ public final class ScheduleOwnerBundle {
             List<WorkExecutorEntry> workExecutors,
             List<CredentialPolicyEntry> credentialPolicies,
             List<GuardEntry> guards,
-            List<LegacyWorkRunnerEntry> legacyWorkRunners) {
+            List<LegacyWorkRunnerEntry> legacyWorkRunners,
+            List<LegacyPersistenceEntry> legacyPersistence) {
         this.owner = owner;
         this.legacySources = List.copyOf(legacySources);
         this.sourceDescriptors = List.copyOf(sourceDescriptors);
@@ -83,6 +98,7 @@ public final class ScheduleOwnerBundle {
         this.credentialPolicies = List.copyOf(credentialPolicies);
         this.guards = List.copyOf(guards);
         this.legacyWorkRunners = List.copyOf(legacyWorkRunners);
+        this.legacyPersistence = List.copyOf(legacyPersistence);
     }
 
     /**
@@ -97,6 +113,20 @@ public final class ScheduleOwnerBundle {
             List<? extends ScheduledWorkExecutor> workExecutors,
             List<? extends ScheduledCredentialPolicy> credentialPolicies,
             List<? extends ScheduledExecutionGuard> guards) {
+        return prepare(owner, legacySources, legacyWorkRunners, sourceDescriptors, sourceExecutors,
+                workExecutors, credentialPolicies, guards, List.of());
+    }
+
+    public static ScheduleOwnerBundle prepare(
+            ScheduleCapabilityOwner owner,
+            List<? extends ScheduledSourceProvider> legacySources,
+            List<? extends ScheduledWorkRunner> legacyWorkRunners,
+            List<? extends ScheduledSourceDescriptor> sourceDescriptors,
+            List<? extends ScheduledSourceExecutor> sourceExecutors,
+            List<? extends ScheduledWorkExecutor> workExecutors,
+            List<? extends ScheduledCredentialPolicy> credentialPolicies,
+            List<? extends ScheduledExecutionGuard> guards,
+            List<? extends LegacySchedulePersistenceDescriptorProvider> legacyPersistenceProviders) {
         Objects.requireNonNull(owner, "owner");
 
         List<LegacySourceEntry> preparedLegacySources = prepareLegacySources(owner, legacySources);
@@ -106,6 +136,8 @@ public final class ScheduleOwnerBundle {
         List<CredentialPolicyEntry> preparedPolicies = prepareCredentialPolicies(owner, credentialPolicies);
         List<GuardEntry> preparedGuards = prepareGuards(owner, guards);
         List<LegacyWorkRunnerEntry> preparedLegacyRunners = prepareLegacyWorkRunners(owner, legacyWorkRunners);
+        List<LegacyPersistenceEntry> preparedLegacyPersistence =
+                prepareLegacyPersistence(owner, legacyPersistenceProviders);
 
         Map<String, SourceDescriptorEntry> descriptorByType = uniqueById(
                 owner, "source descriptor", preparedDescriptors, SourceDescriptorEntry::sourceType);
@@ -125,6 +157,8 @@ public final class ScheduleOwnerBundle {
         uniqueById(owner, "credential policy", preparedPolicies, CredentialPolicyEntry::policyId);
         uniqueById(owner, "execution guard", preparedGuards, GuardEntry::guardId);
         uniqueById(owner, "legacy work runner", preparedLegacyRunners, LegacyWorkRunnerEntry::workType);
+        uniqueById(owner, "legacy persistence descriptor", preparedLegacyPersistence,
+                LegacyPersistenceEntry::sourceType);
 
         Map<String, LegacySourceEntry> legacyByCanonical = new LinkedHashMap<>();
         for (LegacySourceEntry legacy : preparedLegacySources) {
@@ -136,10 +170,28 @@ public final class ScheduleOwnerBundle {
                 throw failure(owner, "legacy and descriptor aliases differ for source: " + descriptor.sourceType());
             }
         }
+        Set<String> declaredSourceTypes = new LinkedHashSet<>(legacyByCanonical.keySet());
+        declaredSourceTypes.addAll(descriptorByType.keySet());
+        for (LegacyPersistenceEntry persistence : preparedLegacyPersistence) {
+            if (!declaredSourceTypes.contains(persistence.sourceType())) {
+                throw failure(owner, "legacy persistence descriptor has no source: "
+                        + persistence.sourceType());
+            }
+            SourceDescriptorEntry descriptor = descriptorByType.get(persistence.sourceType());
+            if (descriptor != null && (!descriptor.descriptor().definitionSchema()
+                    .equals(persistence.definitionSchema())
+                    || descriptor.descriptor().definitionVersion() != persistence.definitionVersion()
+                    || !descriptor.descriptor().possibleWorkTypes().equals(persistence.possibleWorkTypes())
+                    || !descriptor.descriptor().credentialPolicyIds()
+                            .equals(persistence.credentialPolicyIds()))) {
+                throw failure(owner, "legacy persistence descriptor differs from source descriptor: "
+                        + persistence.sourceType());
+            }
+        }
 
         return new ScheduleOwnerBundle(owner, preparedLegacySources, preparedDescriptors,
                 preparedSourceExecutors, preparedWorkExecutors, preparedPolicies, preparedGuards,
-                preparedLegacyRunners);
+                preparedLegacyRunners, preparedLegacyPersistence);
     }
 
     public ScheduleCapabilityOwner owner() {
@@ -154,6 +206,39 @@ public final class ScheduleOwnerBundle {
                 && credentialPolicies.isEmpty()
                 && guards.isEmpty()
                 && legacyWorkRunners.isEmpty();
+    }
+
+    /**
+     * 从已准备、已验证的 owner bundle 投影 legacy alias → canonical source type。
+     *
+     * <p>两类来源契约可同时声明同一 alias，但必须指向同一 canonical type；不同来源对同一
+     * alias 的占用在发布与旧数据迁移之前就 fail-fast。返回值只含字符串纯值，不暴露插件 Bean。
+     */
+    Map<String, LegacyScheduledTaskMigrationRoute> legacyMigrationRoutes(
+            Map<String, String> credentialPolicyOwnersById) {
+        Objects.requireNonNull(credentialPolicyOwnersById, "credentialPolicyOwnersById");
+        Map<String, SourceDescriptorEntry> descriptorsByType = new LinkedHashMap<>();
+        for (SourceDescriptorEntry descriptor : sourceDescriptors) {
+            descriptorsByType.put(descriptor.sourceType(), descriptor);
+        }
+        Map<String, LegacyPersistenceEntry> persistenceByType = new LinkedHashMap<>();
+        for (LegacyPersistenceEntry persistence : legacyPersistence) {
+            persistenceByType.put(persistence.sourceType(), persistence);
+        }
+        Map<String, LegacyScheduledTaskMigrationRoute> routes = new LinkedHashMap<>();
+        for (LegacySourceEntry source : legacySources) {
+            SourceDescriptorEntry descriptor = descriptorsByType.get(source.sourceType());
+            addMigrationRoutes(routes, migrationRoute(
+                    source.sourceType(), descriptor, persistenceByType.get(source.sourceType()),
+                    credentialPolicyOwnersById),
+                    source.aliases());
+        }
+        for (SourceDescriptorEntry descriptor : sourceDescriptors) {
+            addMigrationRoutes(routes, migrationRoute(descriptor.sourceType(), descriptor,
+                    persistenceByType.get(descriptor.sourceType()), credentialPolicyOwnersById),
+                    descriptor.aliases());
+        }
+        return Map.copyOf(routes);
     }
 
     List<LegacySourceEntry> legacySources() {
@@ -194,6 +279,102 @@ public final class ScheduleOwnerBundle {
                 result.add(new LegacySourceEntry(sourceType, aliases, provider));
             } catch (RuntimeException failure) {
                 throw readFailure(owner, "legacy source", failure);
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private void addMigrationRoutes(
+            Map<String, LegacyScheduledTaskMigrationRoute> routes,
+            LegacyScheduledTaskMigrationRoute route,
+            Set<String> aliases) {
+        for (String alias : aliases) {
+            LegacyScheduledTaskMigrationRoute previous = routes.putIfAbsent(alias, route);
+            if (previous != null && !previous.equals(route)) {
+                throw failure(owner, "legacy source alias claimed by multiple canonical sources: " + alias);
+            }
+        }
+    }
+
+    private LegacyScheduledTaskMigrationRoute migrationRoute(
+            String canonicalSourceType,
+            SourceDescriptorEntry descriptor,
+            LegacyPersistenceEntry persistence,
+            Map<String, String> credentialPolicyOwnersById) {
+        if (descriptor != null) {
+            return LegacyScheduledTaskMigrationRoute.descriptorBound(
+                    canonicalSourceType,
+                    descriptor.descriptor().definitionSchema(),
+                    descriptor.descriptor().definitionVersion(),
+                    descriptor.descriptor().possibleWorkTypes(),
+                    credentialPolicyTargets(
+                            canonicalSourceType,
+                            descriptor.descriptor().credentialPolicyIds(),
+                            credentialPolicyOwnersById));
+        }
+        if (persistence != null) {
+            return LegacyScheduledTaskMigrationRoute.descriptorBound(
+                    canonicalSourceType, persistence.definitionSchema(), persistence.definitionVersion(),
+                    persistence.possibleWorkTypes(), credentialPolicyTargets(
+                            canonicalSourceType,
+                            persistence.credentialPolicyIds(),
+                            credentialPolicyOwnersById));
+        }
+        return LegacyScheduledTaskMigrationRoute.specUnavailable(canonicalSourceType);
+    }
+
+    private Set<LegacyScheduledCredentialPolicyTarget> credentialPolicyTargets(
+            String sourceType,
+            Set<String> policyIds,
+            Map<String, String> credentialPolicyOwnersById) {
+        Set<LegacyScheduledCredentialPolicyTarget> targets = new LinkedHashSet<>();
+        for (String policyId : policyIds) {
+            String policyOwner = credentialPolicyOwnersById.get(policyId);
+            if (policyOwner == null) {
+                throw failure(owner, "legacy persistence descriptor references unavailable credential policy "
+                        + policyId + " for source " + sourceType);
+            }
+            targets.add(new LegacyScheduledCredentialPolicyTarget(policyId, policyOwner));
+        }
+        return Set.copyOf(targets);
+    }
+
+    private static List<LegacyPersistenceEntry> prepareLegacyPersistence(
+            ScheduleCapabilityOwner owner,
+            List<? extends LegacySchedulePersistenceDescriptorProvider> providers) {
+        List<LegacyPersistenceEntry> result = new ArrayList<>();
+        for (LegacySchedulePersistenceDescriptorProvider provider :
+                copyInput(owner, "legacy persistence descriptor providers", providers)) {
+            try {
+                List<LegacySchedulePersistenceDescriptor> descriptors =
+                        provider.legacySchedulePersistenceDescriptors();
+                if (descriptors == null) {
+                    throw new IllegalStateException("legacy persistence descriptors must not be null");
+                }
+                for (LegacySchedulePersistenceDescriptor descriptor : descriptors) {
+                    if (descriptor == null) {
+                        throw new IllegalStateException("legacy persistence descriptor must not be null");
+                    }
+                    Set<String> workTypes = new LinkedHashSet<>();
+                    for (String workType : descriptor.possibleWorkTypes()) {
+                        workTypes.add(requireCapabilityId(
+                                workType, "legacy persistence possible work type"));
+                    }
+                    Set<String> credentialPolicyIds = new LinkedHashSet<>();
+                    for (String policyId : descriptor.credentialPolicyIds()) {
+                        credentialPolicyIds.add(requireCapabilityId(
+                                policyId, "legacy persistence credential policy id"));
+                    }
+                    result.add(new LegacyPersistenceEntry(
+                            requireCapabilityId(descriptor.sourceType(), "legacy persistence source type"),
+                            requireCapabilityId(descriptor.definitionSchema(),
+                                    "legacy persistence definition schema"),
+                            descriptor.definitionVersion(),
+                            Set.copyOf(workTypes),
+                            Set.copyOf(credentialPolicyIds)));
+                }
+            } catch (RuntimeException failure) {
+                throw readFailure(owner, "legacy persistence descriptor", failure);
             }
         }
         return List.copyOf(result);

@@ -18,6 +18,9 @@ import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
+import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
+import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 /**
@@ -64,6 +67,24 @@ public class ScheduleHostPluginConfiguration {
     @Bean
     public OveruseWarningService overuseWarningService(PixivFetchService pixivFetchService) {
         return new OveruseWarningService(pixivFetchService);
+    }
+
+    @Bean
+    public PixivSchedulePersistenceCodec pixivSchedulePersistenceCodec(ObjectMapper objectMapper) {
+        return new PixivSchedulePersistenceCodec(objectMapper);
+    }
+
+    @Bean
+    public PixivLegacyScheduledTaskMigrationAdapter pixivLegacyScheduledTaskMigrationAdapter(
+            ObjectMapper objectMapper,
+            PixivSchedulePersistenceCodec codec) {
+        return new PixivLegacyScheduledTaskMigrationAdapter(objectMapper, codec);
+    }
+
+    @Bean
+    public PixivLegacySchedulePersistenceDescriptorProvider
+            pixivLegacySchedulePersistenceDescriptorProvider() {
+        return new PixivLegacySchedulePersistenceDescriptorProvider();
     }
 
     @Bean

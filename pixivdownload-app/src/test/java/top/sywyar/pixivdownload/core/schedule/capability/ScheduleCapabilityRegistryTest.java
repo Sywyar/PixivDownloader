@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.core.schedule.capability;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptor;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptorProvider;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
@@ -200,6 +202,26 @@ class ScheduleCapabilityRegistryTest {
             assertThat(lease.sourceExecutor()).containsSame(fixture.sourceExecutor());
             assertThat(lease.legacySourceProvider()).containsSame(fixture.legacySource());
         }
+    }
+
+    @Test
+    @DisplayName("其它未提交 reservation 中的凭证策略不能授权旧 secret 迁移")
+    void uncommittedCredentialPolicyReservationCannotStampMigrationRoute() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityReservation policyReservation = registry.reserve(policyOnlyBundle(
+                owner("policy-feature", "policy-package", 1L), "credential:reserved"));
+        ScheduleOwnerBundle sourceBundle = legacyMigrationBundle(
+                owner("source-feature", "source-package", 2L),
+                "source:legacy", "SOURCE_LEGACY", "credential:reserved");
+        ScheduleCapabilityReservation sourceReservation = registry.reserve(sourceBundle);
+
+        assertThatThrownBy(() -> registry.reservedMigrationSnapshot(sourceReservation))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unavailable credential policy credential:reserved");
+
+        assertThat(registry.release(sourceReservation)).isTrue();
+        assertThat(registry.release(policyReservation)).isTrue();
+        assertThat(registry.snapshotView().owners()).isEmpty();
     }
 
     @Test
@@ -597,6 +619,20 @@ class ScheduleCapabilityRegistryTest {
         return ScheduleOwnerBundle.prepare(
                 owner, List.of(), List.of(), List.of(), List.of(), List.of(),
                 List.of(credentialPolicy(policyId)), List.of());
+    }
+
+    private static ScheduleOwnerBundle legacyMigrationBundle(
+            ScheduleCapabilityOwner owner,
+            String sourceType,
+            String alias,
+            String policyId) {
+        LegacySchedulePersistenceDescriptorProvider persistence = () -> List.of(
+                new LegacySchedulePersistenceDescriptor(
+                        sourceType, sourceType + ":definition", 1,
+                        Set.of("work:legacy"), Set.of(policyId)));
+        return ScheduleOwnerBundle.prepare(
+                owner, List.of(legacySource(sourceType, Set.of(alias))), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(persistence));
     }
 
     private static ScheduleOwnerBundle guardOnlyBundle(

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationRoute;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
@@ -27,6 +28,19 @@ import java.util.Set;
  */
 @Component
 public class ScheduleCapabilityRegistry {
+
+    /** 已验证 reservation 对应的迁移纯值快照；它本身不授予迁移权限。 */
+    public record ReservedMigrationSnapshot(
+            String ownerPluginId,
+            Map<String, LegacyScheduledTaskMigrationRoute> routes
+    ) {
+        public ReservedMigrationSnapshot {
+            if (ownerPluginId == null || ownerPluginId.isBlank()) {
+                throw new IllegalArgumentException("migration owner plugin id must not be blank");
+            }
+            routes = Map.copyOf(routes);
+        }
+    }
 
     /** 不含插件 Bean 的 owner 观测视图。 */
     public record OwnerView(
@@ -61,7 +75,15 @@ public class ScheduleCapabilityRegistry {
     private record PublishedOwner(
             ScheduleOwnerBundle bundle,
             long publicationId,
+            ScheduleCapabilityPublication publication,
             ScheduleLeaseState leaseState
+    ) {
+    }
+
+    private record ReservedOwner(
+            ScheduleCapabilityReservation token,
+            ScheduleOwnerBundle bundle,
+            Map<String, String> credentialPolicyOwnersById
     ) {
     }
 
@@ -141,7 +163,9 @@ public class ScheduleCapabilityRegistry {
 
     private final Object lock = new Object();
     private volatile Snapshot snapshot = Snapshot.empty();
+    private final Map<Long, ReservedOwner> reservations = new LinkedHashMap<>();
     private long nextPublicationId;
+    private long nextReservationId;
 
     public SnapshotView snapshotView() {
         return snapshot.view();
@@ -151,21 +175,126 @@ public class ScheduleCapabilityRegistry {
      * 一次发布一个 owner 的完整 bundle。冲突或校验失败时，既有 snapshot 引用与 revision 均保持不变。
      */
     public ScheduleCapabilityPublication publish(ScheduleOwnerBundle bundle) {
+        ScheduleCapabilityReservation reservation = reserve(bundle);
+        boolean committed = false;
+        try {
+            ScheduleCapabilityPublication publication = commit(reservation);
+            committed = true;
+            return publication;
+        } finally {
+            if (!committed) {
+                release(reservation);
+            }
+        }
+    }
+
+    /**
+     * 在不改变可见 snapshot 的前提下完整校验并保留一个 owner 的全部命名 claim。
+     * 迁移可在返回后于 registry 锁外执行；任何结束路径都必须 commit 或 release 同一个 token。
+     */
+    ScheduleCapabilityReservation reserve(ScheduleOwnerBundle bundle) {
         Objects.requireNonNull(bundle, "bundle");
         if (bundle.isEmpty()) {
             throw new IllegalStateException("empty schedule capability bundle: " + bundle.owner());
         }
         synchronized (lock) {
+            Map<ScheduleCapabilityOwner, PublishedOwner> validationOwners = validationOwners();
+            rejectActiveOwnerClash(validationOwners, bundle.owner());
+            long reservationId = Math.incrementExact(nextReservationId);
+            validationOwners.put(bundle.owner(), new PublishedOwner(
+                    bundle, -reservationId, null, new ScheduleLeaseState()));
+            rebuild(snapshot.revision(), validationOwners);
+            Map<String, String> credentialPolicyOwnersById =
+                    migrationCredentialPolicyOwners(bundle);
+            ScheduleCapabilityReservation token =
+                    new ScheduleCapabilityReservation(bundle.owner(), reservationId);
+            reservations.put(reservationId, new ReservedOwner(
+                    token, bundle, credentialPolicyOwnersById));
+            nextReservationId = reservationId;
+            return token;
+        }
+    }
+
+    /**
+     * 校验 token 确为本 registry 当前仍有效的对象实例，并从 registry 内部预留项推导 owner 与 route。
+     * 调用方不能提交 owner 或 route 覆盖该快照。
+     */
+    public ReservedMigrationSnapshot reservedMigrationSnapshot(
+            ScheduleCapabilityReservation reservation) {
+        Objects.requireNonNull(reservation, "reservation");
+        synchronized (lock) {
+            ReservedOwner reserved = reservations.get(reservation.reservationId());
+            if (reserved == null || reserved.token() != reservation) {
+                throw new IllegalStateException("unknown schedule capability reservation: " + reservation);
+            }
+            return new ReservedMigrationSnapshot(
+                    reserved.bundle().owner().featurePluginId(),
+                    reserved.bundle().legacyMigrationRoutes(
+                            reserved.credentialPolicyOwnersById()));
+        }
+    }
+
+    /** 把已预留且尚未对读者可见的 bundle 原子发布；无效、已释放或已提交 token 一律拒绝。 */
+    ScheduleCapabilityPublication commit(ScheduleCapabilityReservation reservation) {
+        Objects.requireNonNull(reservation, "reservation");
+        synchronized (lock) {
+            ReservedOwner reserved = reservations.get(reservation.reservationId());
+            if (reserved == null || reserved.token() != reservation) {
+                throw new IllegalStateException("unknown schedule capability reservation: " + reservation);
+            }
+            ScheduleOwnerBundle bundle = reserved.bundle();
             rejectActiveOwnerClash(snapshot.owners(), bundle.owner());
             long publicationId = nextPublicationId + 1L;
+            ScheduleCapabilityPublication publication =
+                    new ScheduleCapabilityPublication(bundle.owner(), publicationId);
             ScheduleLeaseState leaseState = new ScheduleLeaseState();
             Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners = new LinkedHashMap<>(snapshot.owners());
-            nextOwners.put(bundle.owner(), new PublishedOwner(bundle, publicationId, leaseState));
+            nextOwners.put(bundle.owner(), new PublishedOwner(
+                    bundle, publicationId, publication, leaseState));
             Snapshot next = rebuild(snapshot.revision() + 1L, nextOwners);
             nextPublicationId = publicationId;
             snapshot = next;
-            return new ScheduleCapabilityPublication(bundle.owner(), publicationId);
+            reservations.remove(reservation.reservationId());
+            return publication;
         }
+    }
+
+    /** 释放尚未提交的命名 claim；返回 false 表示 token 已提交、已释放或不属于本 registry。 */
+    boolean release(ScheduleCapabilityReservation reservation) {
+        if (reservation == null) {
+            return false;
+        }
+        synchronized (lock) {
+            ReservedOwner reserved = reservations.get(reservation.reservationId());
+            if (reserved == null || reserved.token() != reservation) {
+                return false;
+            }
+            reservations.remove(reservation.reservationId());
+            return true;
+        }
+    }
+
+    private Map<ScheduleCapabilityOwner, PublishedOwner> validationOwners() {
+        Map<ScheduleCapabilityOwner, PublishedOwner> owners = new LinkedHashMap<>(snapshot.owners());
+        for (ReservedOwner reserved : reservations.values()) {
+            owners.put(reserved.token().owner(), new PublishedOwner(
+                    reserved.bundle(), -reserved.token().reservationId(), null,
+                    new ScheduleLeaseState()));
+        }
+        return owners;
+    }
+
+    /**
+     * 迁移只能信任已经发布的 policy，或当前正预留 bundle 自己携带的 policy。其它尚未提交的
+     * reservation 可能随后释放，不能据此移动旧 secret。
+     */
+    private Map<String, String> migrationCredentialPolicyOwners(ScheduleOwnerBundle bundle) {
+        Map<String, String> ownersById = new LinkedHashMap<>();
+        snapshot.credentialPolicies().forEach((policyId, entry) ->
+                ownersById.put(policyId, entry.owner().featurePluginId()));
+        bundle.credentialPolicies().forEach(policy ->
+                ownersById.put(policy.policyId(), bundle.owner().featurePluginId()));
+        return Map.copyOf(ownersById);
     }
 
     /**
@@ -177,7 +306,7 @@ public class ScheduleCapabilityRegistry {
         }
         synchronized (lock) {
             PublishedOwner current = snapshot.owners().get(publication.owner());
-            if (current == null || current.publicationId() != publication.publicationId()) {
+            if (current == null || current.publication() != publication) {
                 return Optional.empty();
             }
             Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners = new LinkedHashMap<>(snapshot.owners());
@@ -198,7 +327,7 @@ public class ScheduleCapabilityRegistry {
         if (published == null) {
             return Optional.empty();
         }
-        return Optional.of(new ScheduleCapabilityPublication(owner, published.publicationId()));
+        return Optional.of(published.publication());
     }
 
     /** 解析当前活动 feature owner 的纯值句柄，用于保护不直接对应某一 source/work 的插件内运行任务。 */
