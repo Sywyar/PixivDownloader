@@ -389,6 +389,7 @@ public interface ScheduledTaskMapper {
             + " payload_json = excluded.payload_json, relations_json = excluded.relations_json,"
             + " presentation_json = excluded.presentation_json, reason_code = excluded.reason_code,"
             + " reason_detail_json = excluded.reason_detail_json,"
+            + " attempts = MAX(attempts, excluded.attempts),"
             + " last_attempt_time = excluded.last_attempt_time")
     int upsertPendingWork(ScheduledPendingWork pendingWork);
 

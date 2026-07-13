@@ -320,8 +320,13 @@ class ScheduleCapabilityRegistryTest {
         assertThat(planning.isActive()).isFalse();
         assertThat(execution.owners()).containsExactly(owner);
         assertThat(execution.workExecutor("work:dedupe")).containsSame(fixture.workExecutor());
+        assertThat(execution.workExecutorOwner("work:dedupe")).contains(owner);
+        assertThat(execution.workExecutorOwners()).containsOnly(Map.entry("work:dedupe", owner));
         assertThat(execution.credentialPolicy()).containsSame(fixture.credentialPolicy());
+        assertThat(execution.credentialPolicyOwner()).contains(owner);
         assertThat(execution.guard("guard:dedupe")).containsSame(fixture.guard());
+        assertThat(execution.guardOwner("guard:dedupe")).contains(owner);
+        assertThat(execution.guardOwners()).containsOnly(Map.entry("guard:dedupe", owner));
 
         ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
         assertThat(drain.activeLeaseCount()).isEqualTo(1);
@@ -448,6 +453,28 @@ class ScheduleCapabilityRegistryTest {
             ScheduledCancellation cancellation = execution.cancellation();
             assertThat(execution.owners()).containsExactlyInAnyOrder(
                     sourceOwner, workOwner, policyOwner, guardOwner);
+            ScheduleCapabilityOwner resolvedWorkOwner =
+                    execution.workExecutorOwner("work:composite").orElseThrow();
+            assertThat(resolvedWorkOwner).isEqualTo(workOwner);
+            assertThat(resolvedWorkOwner.featurePluginId()).isEqualTo("work-feature");
+            assertThat(resolvedWorkOwner.packageId()).isEqualTo("work-package");
+            assertThat(resolvedWorkOwner.pluginGeneration()).isEqualTo(2L);
+            assertThat(execution.workExecutorOwners())
+                    .containsOnly(Map.entry("work:composite", workOwner));
+            ScheduleCapabilityOwner resolvedPolicyOwner =
+                    execution.credentialPolicyOwner().orElseThrow();
+            assertThat(resolvedPolicyOwner).isEqualTo(policyOwner);
+            assertThat(resolvedPolicyOwner.featurePluginId()).isEqualTo("policy-feature");
+            assertThat(resolvedPolicyOwner.packageId()).isEqualTo("policy-package");
+            assertThat(resolvedPolicyOwner.pluginGeneration()).isEqualTo(3L);
+            ScheduleCapabilityOwner resolvedGuardOwner =
+                    execution.guardOwner("guard:composite").orElseThrow();
+            assertThat(resolvedGuardOwner).isEqualTo(guardOwner);
+            assertThat(resolvedGuardOwner.featurePluginId()).isEqualTo("guard-feature");
+            assertThat(resolvedGuardOwner.packageId()).isEqualTo("guard-package");
+            assertThat(resolvedGuardOwner.pluginGeneration()).isEqualTo(4L);
+            assertThat(execution.guardOwners())
+                    .containsOnly(Map.entry("guard:composite", guardOwner));
             assertThat(cancellation.isCancellationRequested()).as(target.name()).isFalse();
 
             ScheduleGenerationDrain drain = registry.withdraw(publications.get(target)).orElseThrow();
@@ -509,8 +536,18 @@ class ScheduleCapabilityRegistryTest {
         assertThatThrownBy(() -> execution.sourceExecutor()).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> execution.workExecutor("work:execution"))
                 .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> execution.workExecutorOwner("work:execution"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> execution.workExecutorOwners())
+                .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> execution.credentialPolicy()).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> execution.credentialPolicyOwner())
+                .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> execution.guard("guard:execution"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> execution.guardOwner("guard:execution"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> execution.guardOwners())
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> execution.cancellation()).isInstanceOf(IllegalStateException.class);
         assertThat(executionDrain.awaitDrained(deadlineAfterMillis(100))).isTrue();

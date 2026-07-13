@@ -1,0 +1,1353 @@
+package top.sywyar.pixivdownload.schedule.execution;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.core.task.SyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledPendingReplayPolicy;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
+import top.sywyar.pixivdownload.schedule.ScheduleConfig;
+import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
+import top.sywyar.pixivdownload.schedule.ScheduleRunState;
+import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.when;
+
+@DisplayName("通用计划任务执行引擎")
+class ScheduleExecutionEngineTest {
+
+    private static final String SOURCE = "fixture-source";
+    private static final String WORK = "fixture-work";
+    private static final String POLICY = "fixture-policy";
+    private static final String GUARD = "fixture-guard";
+
+    @Test
+    @DisplayName("绑定探活在复合租约内使用同一 resolved route 且不执行来源作品或 Guard")
+    void bindingProbeUsesResolvedRouteOnceWithoutExecutingPlanCapabilities() throws Exception {
+        ScheduledTaskStore store = mock(ScheduledTaskStore.class);
+        AtomicBoolean discovered = new AtomicBoolean();
+        AtomicBoolean worked = new AtomicBoolean();
+        AtomicBoolean guarded = new AtomicBoolean();
+        AtomicInteger bindProbes = new AtomicInteger();
+        AtomicReference<ScheduledNetworkRoute> route = new AtomicReference<>();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            discovered.set(true);
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor work = workExecutor(context -> {
+            worked.set(true);
+            return ScheduledWorkResult.completed();
+        });
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                throw new AssertionError("binding must use probeForBinding");
+            }
+
+            @Override
+            public ScheduledCredentialBindResult probeForBinding(
+                    ScheduledCredentialContext context) {
+                bindProbes.incrementAndGet();
+                assertThat(context.purpose()).isEqualTo(ScheduledCredentialContext.Purpose.BIND);
+                assertThat(context.route().isResolved()).isTrue();
+                assertThat(context.route().mode()).isEqualTo(ScheduledNetworkRoute.Mode.DIRECT);
+                route.set(context.route());
+                char[] secret = context.credential().copySecret();
+                try {
+                    assertThat(new String(secret)).isEqualTo("candidate-secret");
+                } finally {
+                    java.util.Arrays.fill(secret, '\0');
+                }
+                assertThat(context.credential().reference())
+                        .isEqualTo("scheduled-task:1:credential");
+                return ScheduledCredentialBindResult.fromProbe(
+                        ScheduledCredentialProbeResult.valid("account-1"));
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            guarded.set(true);
+            return ScheduledGuardDecision.proceed();
+        });
+        ScheduleExecutionEngine engine = engine(store, source, work, policy, guard);
+
+        try (ScheduleCredentialBindingLease binding = engine.prepareCredentialBinding(task())) {
+            assertThat(binding.policyOwnerPluginId()).isEqualTo("fixture");
+            assertThat(binding.policyId()).isEqualTo(POLICY);
+            ScheduledCredentialBindResult result = binding.probe("candidate-secret");
+            assertThat(result.probeResult().accountKey()).isEqualTo("account-1");
+            assertThatThrownBy(() -> binding.probe("candidate-secret"))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        assertThat(bindProbes).hasValue(1);
+        assertThat(route.get()).isNotNull();
+        assertThat(discovered).isFalse();
+        assertThat(worked).isFalse();
+        assertThat(guarded).isFalse();
+    }
+
+    @Test
+    @DisplayName("绑定探活拒绝策略初始状态中的凭证字段与凭证文本")
+    void bindingProbeRejectsCredentialMaterialInInitialPolicyState() throws Exception {
+        AtomicReference<String> policyState = new AtomicReference<>();
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                throw new AssertionError("binding must use probeForBinding");
+            }
+
+            @Override
+            public ScheduledCredentialBindResult probeForBinding(
+                    ScheduledCredentialContext context) {
+                return new ScheduledCredentialBindResult(
+                        ScheduledCredentialProbeResult.valid("account-1"),
+                        policyState.get(), null);
+            }
+        };
+        ScheduleExecutionEngine engine = engine(
+                mock(ScheduledTaskStore.class),
+                sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                policy,
+                guard(context -> ScheduledGuardDecision.proceed()));
+
+        for (String unsafeState : List.of(
+                "{\"refresh_token\":\"opaque\"}",
+                "{\"details\":[{\"note\":\"PHPSESSID=secret\"}]}",
+                "{\"note\":\"PHPSESSID=secret\",\"note\":\"safe\"}",
+                "{\"note\":\"safe\"} {\"note\":\"PHPSESSID=secret\"}",
+                "{\"details\":\"{\\\"cookie\\\":\\\"secret\\\","
+                        + "\\\"cookie\\\":\\\"safe\\\"}\"}")) {
+            policyState.set(unsafeState);
+            try (ScheduleCredentialBindingLease binding =
+                         engine.prepareCredentialBinding(task())) {
+                assertThatThrownBy(() -> binding.probe("candidate-secret"))
+                        .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                                failure -> assertThat(failure.code())
+                                        .isEqualTo("schedule.credential.invalid-policy-state"));
+            }
+        }
+
+        String safeState = "{\"details\":\"{\\\"kind\\\":\\\"safe\\\"}\"}";
+        policyState.set(safeState);
+        try (ScheduleCredentialBindingLease binding = engine.prepareCredentialBinding(task())) {
+            assertThat(binding.probe("candidate-secret").initialPolicyStateJson())
+                    .isEqualTo(safeState);
+        }
+    }
+
+    @Test
+    @DisplayName("1001 件作品严格在 500 与 1000 排空后调用 Guard 并共享同一 route")
+    void guardsAtExactBatchBarriersAndSharesRouteIdentity() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicReference<ScheduledNetworkRoute> routeIdentity = new AtomicReference<>();
+        List<String> events = new ArrayList<>();
+        AtomicInteger executed = new AtomicInteger();
+        AtomicBoolean finalizerCalled = new AtomicBoolean();
+
+        ScheduledSourceExecutor source = sourceExecutor(1001, context -> {
+            assertSameRoute(routeIdentity, context.route());
+            for (int i = 1; i <= 1001; i++) {
+                context.workSink().submit(work(Integer.toString(i)));
+            }
+            return ScheduledDiscoveryResult.withCheckpoint(
+                    new ScheduledCheckpoint("fixture.checkpoint", 1, "{\"cursor\":\"done\"}"));
+        });
+        ScheduledWorkExecutor work = new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return WORK;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(ScheduledWork value, ScheduledWorkContext context) {
+                assertSameRoute(routeIdentity, context.route());
+                executed.incrementAndGet();
+                return ScheduledWorkResult.completed();
+            }
+
+            @Override
+            public void finishRun(ScheduledWorkRunContext context) {
+                assertSameRoute(routeIdentity, context.route());
+                assertThat(context.statistics().attemptedWorkCount()).isEqualTo(1001);
+                assertThat(context.statistics().completedWorkCount()).isEqualTo(1001);
+                events.add("finalizer");
+                finalizerCalled.set(true);
+            }
+        };
+        ScheduledCredentialPolicy policy = credentialPolicy(routeIdentity);
+        ScheduledExecutionGuard guard = guard(context -> {
+            assertSameRoute(routeIdentity, context.route());
+            events.add(switch (context.point()) {
+                case RUN_START -> "start";
+                case WORK_BATCH -> "batch-" + context.attemptedWorkCount();
+                case RUN_END -> "end";
+                case RUN_FAILURE -> "failure";
+            });
+            if (context.point() == ScheduledGuardPoint.WORK_BATCH) {
+                assertThat(executed).hasValue((int) context.attemptedWorkCount());
+            }
+            if (context.point() == ScheduledGuardPoint.RUN_END) {
+                assertThat(finalizerCalled).isTrue();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        ScheduleExecutionEngine engine = engine(store, source, work, policy, guard);
+        ScheduleExecutionResult result = engine.execute(task());
+
+        assertThat(result.completedWorkCount()).isEqualTo(1001);
+        assertThat(result.candidateCheckpoint().payloadJson()).contains("done");
+        assertThat(events).containsExactly("start", "batch-500", "batch-1000", "finalizer", "end");
+        assertThat(routeIdentity.get()).isNotNull();
+        verify(store).findCredentialSecret(1L, "fixture", POLICY);
+    }
+
+    @Test
+    @DisplayName("批次 Guard 拒绝后不会接受第 501 件且不递归调用失败 Guard")
+    void batchRejectionPreventsNextWorkWithoutFailureGuard() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicInteger executed = new AtomicInteger();
+        AtomicInteger failureGuards = new AtomicInteger();
+        AtomicInteger finalizers = new AtomicInteger();
+        AtomicInteger aborts = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(501, context -> {
+            for (int i = 1; i <= 501; i++) {
+                context.workSink().submit(work(Integer.toString(i)));
+            }
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return WORK;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork work,
+                    ScheduledWorkContext context) {
+                executed.incrementAndGet();
+                return ScheduledWorkResult.completed();
+            }
+
+            @Override
+            public void finishRun(ScheduledWorkRunContext context) {
+                finalizers.incrementAndGet();
+            }
+
+            @Override
+            public void abortRun(ScheduledTaskDefinition task) {
+                aborts.incrementAndGet();
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+            }
+            if (context.point() == ScheduledGuardPoint.WORK_BATCH) {
+                return new ScheduledGuardDecision(
+                        ScheduledGuardDecision.Action.FAIL, "fixture.stop", 0L);
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        ScheduleExecutionEngine engine = engine(
+                store, source, executor, credentialPolicy(new AtomicReference<>()), guard);
+
+        assertThatThrownBy(() -> engine.execute(task()))
+                .isInstanceOf(ScheduleExecutionControlException.class)
+                .hasMessage("fixture.stop");
+        assertThat(executed).hasValue(500);
+        assertThat(failureGuards).hasValue(0);
+        assertThat(finalizers).hasValue(0);
+        assertThat(aborts).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("作品类型容量在任务并发之内独立施加背压")
+    void workTypeConcurrencyLimitAppliesInsidePlanLimit() throws Exception {
+        CountDownLatch firstTwoEntered = new CountDownLatch(2);
+        CountDownLatch thirdSubmitAttempted = new CountDownLatch(1);
+        CountDownLatch releaseFirstTwo = new CountDownLatch(1);
+        AtomicInteger started = new AtomicInteger();
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger peak = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(6, context -> {
+            for (int i = 1; i <= 6; i++) {
+                if (i == 3) {
+                    thirdSubmitAttempted.countDown();
+                }
+                context.workSink().submit(work(Integer.toString(i)));
+            }
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return WORK;
+            }
+
+            @Override
+            public int maxConcurrency() {
+                return 2;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork work,
+                    ScheduledWorkContext context) throws ScheduledExecutionException {
+                int sequence = started.incrementAndGet();
+                int current = active.incrementAndGet();
+                peak.accumulateAndGet(current, Math::max);
+                try {
+                    if (sequence <= 2) {
+                        firstTwoEntered.countDown();
+                        if (!releaseFirstTwo.await(5, TimeUnit.SECONDS)) {
+                            throw new ScheduledExecutionException(
+                                    ScheduledFailure.Category.INTERNAL,
+                                    "fixture.release-timeout");
+                        }
+                    }
+                    return ScheduledWorkResult.completed();
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw ScheduledExecutionException.cancelled();
+                } finally {
+                    active.decrementAndGet();
+                }
+            }
+        };
+        ExecutorService workers = Executors.newFixedThreadPool(6);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            ScheduleExecutionEngine engine = engine(
+                    storeWithCredential(), source, executor,
+                    credentialPolicy(new AtomicReference<>()),
+                    guard(context -> ScheduledGuardDecision.proceed()),
+                    new ScheduleRunState(), workers::execute);
+            Future<ScheduleExecutionResult> execution = caller.submit(() -> engine.execute(task()));
+
+            assertThat(firstTwoEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(thirdSubmitAttempted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(started).hasValue(2);
+            assertThat(peak).hasValue(2);
+
+            releaseFirstTwo.countDown();
+            assertThat(execution.get(5, TimeUnit.SECONDS).completedWorkCount()).isEqualTo(6);
+            assertThat(peak).hasValue(2);
+        } finally {
+            releaseFirstTwo.countDown();
+            workers.shutdownNow();
+            caller.shutdownNow();
+            workers.awaitTermination(5, TimeUnit.SECONDS);
+            caller.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("作品失败先完整写入 pending 才允许末尾 Guard 与 checkpoint 候选返回")
+    void persistsPendingBeforeEndGuard() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicBoolean persisted = new AtomicBoolean();
+        AtomicReference<ScheduledPendingWork> persistedWork = new AtomicReference<>();
+        when(store.upsertPendingWork(any())).thenAnswer(invocation -> {
+            persisted.set(true);
+            persistedWork.set(invocation.getArgument(0));
+            return 1;
+        });
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            context.workSink().submit(work("opaque-001"));
+            return ScheduledDiscoveryResult.withCheckpoint(
+                    new ScheduledCheckpoint("fixture.checkpoint", 1, "{}"));
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.RETRYABLE_NETWORK, "fixture.retry");
+        });
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_END) {
+                assertThat(persisted).isTrue();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        ScheduleExecutionResult result = engine(
+                store, source, executor, credentialPolicy(new AtomicReference<>()), guard)
+                .execute(task());
+
+        assertThat(result.completedWorkCount()).isZero();
+        assertThat(result.candidateCheckpoint()).isNotNull();
+        assertThat(persistedWork.get().attempts()).isZero();
+        assertThat(persistedWork.get().firstSeenTime()).isNotNull();
+        assertThat(persistedWork.get().lastAttemptTime()).isNull();
+        verify(store).upsertPendingWork(any());
+    }
+
+    @Test
+    @DisplayName("来源可先用纯本地终态清理 pending 且不计作品尝试或批次 Guard")
+    void sourceClearsLocallyCompletedPendingBeforeReplay() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        ObjectMapper objectMapper = new ObjectMapper();
+        ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(objectMapper);
+        ScheduledWork pendingWork = work("pending-001");
+        ScheduledPendingWork pending = codec.toPendingWork(
+                1L, pendingWork, "fixture.retry", "{}", 1, 1L, 2L);
+        when(store.listPendingWork(1L)).thenReturn(List.of(pending));
+        AtomicInteger executions = new AtomicInteger();
+        AtomicInteger batchGuards = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(
+                1, ScheduledPendingReplayPolicy.REDISCOVERED_ONLY, context -> {
+            assertThat(context.isPending(pendingWork.key())).isTrue();
+            context.workSink().completeLocally(
+                    pendingWork, ScheduledWorkResult.alreadyCompleted());
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            executions.incrementAndGet();
+            return ScheduledWorkResult.completed();
+        });
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.WORK_BATCH) {
+                batchGuards.incrementAndGet();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        ScheduleExecutionResult result = engine(
+                store, source, executor, credentialPolicy(new AtomicReference<>()), guard)
+                .execute(task());
+
+        assertThat(result.completedWorkCount()).isZero();
+        assertThat(executions).hasValue(0);
+        assertThat(batchGuards).hasValue(0);
+        verify(store).deletePendingWork(1L, WORK, "pending-001");
+        verify(store, never()).upsertPendingWork(any());
+    }
+
+    @Test
+    @DisplayName("普通来源失败前仍先执行孤立 pending 并耐久清理成功项")
+    void alwaysPendingRunsBeforeSourceFailure() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        ScheduleWorkPersistenceCodec codec =
+                new ScheduleWorkPersistenceCodec(new ObjectMapper());
+        ScheduledWork pendingWork = work("retry-before-source");
+        when(store.listPendingWork(1L)).thenReturn(List.of(codec.toPendingWork(
+                1L, pendingWork, "fixture.retry", "{}", 1, 1L, 2L)));
+        AtomicInteger executions = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.RETRYABLE_NETWORK,
+                    "fixture.source-unavailable");
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            executions.incrementAndGet();
+            return ScheduledWorkResult.completed();
+        });
+
+        assertThatThrownBy(() -> engine(
+                store, source, executor,
+                credentialPolicy(new AtomicReference<>()),
+                guard(context -> ScheduledGuardDecision.proceed())).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("fixture.source-unavailable"));
+
+        assertThat(executions).hasValue(1);
+        verify(store).deletePendingWork(1L, WORK, "retry-before-source");
+        verify(store, never()).upsertPendingWork(any());
+    }
+
+    @Test
+    @DisplayName("来源失败只调用一次失败 Guard 且 Guard 异常不覆盖原始分类")
+    void failureGuardRunsOnceWithoutReplacingPrimaryFailure() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.RETRYABLE_NETWORK,
+                    "fixture.primary-failure");
+        });
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.INTERNAL,
+                        "fixture.failure-guard-broke");
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        ScheduleExecutionEngine engine = engine(
+                store, source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()), guard);
+
+        assertThatThrownBy(() -> engine.execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("fixture.primary-failure"));
+        assertThat(failureGuards).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("持久化检查点异常在凭证读取和来源发现前失败")
+    void invalidStoredCheckpointFailsBeforeCredentialOrDiscovery() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicInteger discoveries = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            discoveries.incrementAndGet();
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduleExecutionEngine engine = engine(
+                store, source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()),
+                guard(context -> ScheduledGuardDecision.proceed()));
+
+        assertThatThrownBy(() -> engine.execute(
+                taskWithCheckpoint("other.checkpoint", 1, "{}")))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.checkpoint.plan-mismatch"));
+        assertThatThrownBy(() -> engine.execute(
+                taskWithCheckpoint("fixture.checkpoint", null, "{}")))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.checkpoint.invalid-envelope"));
+        assertThatThrownBy(() -> engine.execute(
+                taskWithCheckpoint("fixture.checkpoint", 1, "not-json")))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.checkpoint.payload-invalid"));
+        assertThatThrownBy(() -> engine.execute(
+                taskWithCheckpoint("fixture.checkpoint", 1,
+                        "{\"cookie\":\"PHPSESSID=secret\"}")))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.checkpoint.payload-invalid"));
+
+        assertThat(discoveries).hasValue(0);
+        verify(store, never()).listPendingWork(anyLong());
+        verify(store, never()).findCredentialSecret(anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("来源候选检查点必须是无凭证材料的单一 JSON")
+    void candidateCheckpointMustBeSafeJson() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context ->
+                ScheduledDiscoveryResult.withCheckpoint(new ScheduledCheckpoint(
+                        "fixture.checkpoint", 1,
+                        "{\"token\":\"Bearer secret-value\"}")));
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        assertThatThrownBy(() -> engine(
+                store, source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()), guard).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.checkpoint.payload-invalid"));
+        assertThat(failureGuards).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("不可迁移作品失败先耐久写入 pending 再阻止末尾 Guard 与 checkpoint")
+    void unsupportedWorkBecomesTerminalAfterDurablePending() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        when(store.upsertPendingWork(any())).thenReturn(1);
+        AtomicInteger endGuards = new AtomicInteger();
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            context.workSink().submit(work("unsupported"));
+            return ScheduledDiscoveryResult.withCheckpoint(
+                    new ScheduledCheckpoint("fixture.checkpoint", 1, "{}"));
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
+                    "fixture.payload-unsupported");
+        });
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_END) {
+                endGuards.incrementAndGet();
+            }
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        assertThatThrownBy(() -> engine(
+                store, source, executor,
+                credentialPolicy(new AtomicReference<>()), guard).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("fixture.payload-unsupported"));
+        verify(store).upsertPendingWork(any());
+        assertThat(endGuards).hasValue(0);
+        assertThat(failureGuards).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("pending 跨过重试上限后即使末尾 Guard 失败仍上报事件")
+    void pendingExhaustionEventSurvivesLaterFailure() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(new ObjectMapper());
+        ScheduledPendingWork pending = codec.toPendingWork(
+                1L, work("retry-001"), "fixture.retry", "{}", 4, 1L, 2L);
+        when(store.listPendingWork(1L)).thenReturn(List.of(pending));
+        when(store.upsertPendingWork(any())).thenReturn(1);
+        ScheduledSourceExecutor source = sourceExecutor(
+                1, context -> ScheduledDiscoveryResult.withoutCheckpoint());
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.RETRYABLE_NETWORK, "fixture.retry");
+        });
+        ScheduledExecutionGuard guard = guard(context ->
+                context.point() == ScheduledGuardPoint.RUN_END
+                        ? new ScheduledGuardDecision(
+                        ScheduledGuardDecision.Action.FAIL, "fixture.end-rejected", 0L)
+                        : ScheduledGuardDecision.proceed());
+        List<ScheduleExecutionResult.PendingExhausted> events = new ArrayList<>();
+
+        assertThatThrownBy(() -> engine(
+                store, source, executor,
+                credentialPolicy(new AtomicReference<>()), guard)
+                .execute(task(), events::add))
+                .isInstanceOf(ScheduleExecutionControlException.class)
+                .hasMessage("fixture.end-rejected");
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.workId()).isEqualTo("retry-001");
+            assertThat(event.attempts()).isEqualTo(5);
+        });
+    }
+
+    @Test
+    @DisplayName("复合租约取得后的取消在 pending 与凭证读取前生效")
+    void cancellationStopsBeforePendingAndCredentialReads() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        ScheduleRunState runState = new ScheduleRunState();
+        assertThat(runState.tryMarkRunning(1L)).isNotNull();
+        assertThat(runState.requestCancel(1L)).isTrue();
+        ScheduleExecutionEngine engine = engine(
+                store,
+                sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()),
+                guard(context -> ScheduledGuardDecision.proceed()),
+                runState,
+                new SyncTaskExecutor());
+
+        assertThatThrownBy(() -> engine.execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.category())
+                                .isEqualTo(ScheduledFailure.Category.CANCELLED));
+        verify(store, never()).listPendingWork(anyLong());
+        verify(store, never()).findCredentialSecret(anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("owner 撤回后已排队作品在 worker 启动时取消且不调用旧插件执行器")
+    void withdrawnOwnerCancelsQueuedWorkBeforePluginInvocation() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        when(store.upsertPendingWork(any())).thenReturn(1);
+        AtomicInteger workExecutions = new AtomicInteger();
+        AtomicReference<Runnable> queuedWork = new AtomicReference<>();
+        CountDownLatch dispatched = new CountDownLatch(1);
+        TaskExecutor queuedExecutor = task -> {
+            if (!queuedWork.compareAndSet(null, task)) {
+                throw new IllegalStateException("only one work item is expected");
+            }
+            dispatched.countDown();
+        };
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            context.workSink().submit(work("queued-before-withdraw"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            workExecutions.incrementAndGet();
+            return ScheduledWorkResult.completed();
+        });
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(
+                "fixture", "fixture-package", 1L);
+        ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
+                SOURCE, Set.of(), "fixture.definition", 1,
+                new ScheduledSourcePresentation(
+                        "fixture", "source.label", "source.summary", "schedule", "neutral"),
+                Set.of("fixture"), Set.of(WORK), Set.of(POLICY), Set.of(GUARD), null);
+        ScheduleCapabilityPublication publication = ScheduleCapabilityRegistryTestAccess.publish(
+                registry, ScheduleOwnerBundle.prepare(
+                        owner, List.of(), List.of(), List.of(descriptor), List.of(source),
+                        List.of(executor),
+                        List.of(credentialPolicy(new AtomicReference<>())),
+                        List.of(guard(context -> ScheduledGuardDecision.proceed()))));
+        ScheduleExecutionEngine engine = engine(
+                store, registry, new ScheduleRunState(), queuedExecutor);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<ScheduledExecutionException> execution = caller.submit(() -> {
+                try {
+                    engine.execute(task());
+                    return null;
+                } catch (ScheduledExecutionException failure) {
+                    return failure;
+                }
+            });
+
+            assertThat(dispatched.await(5, TimeUnit.SECONDS)).isTrue();
+            ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                    registry, publication).orElseThrow();
+            assertThat(drain.activeLeaseCount()).isEqualTo(1);
+            assertThat(drain.isDrained()).isFalse();
+
+            queuedWork.get().run();
+
+            ScheduledExecutionException failure = execution.get(5, TimeUnit.SECONDS);
+            assertThat(failure).isNotNull();
+            assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CANCELLED);
+            assertThat(failure.code()).isEqualTo("schedule.cancelled");
+            assertThat(workExecutions).hasValue(0);
+            assertThat(drain.awaitDrained(
+                    System.nanoTime() + TimeUnit.SECONDS.toNanos(5))).isTrue();
+        } finally {
+            caller.shutdownNow();
+            caller.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("前一个 Guard 撤回 owner 后取消会阻止调用同轮后续 Guard")
+    void ownerWithdrawalBetweenGuardsStopsLaterPluginInvocation() throws Exception {
+        String firstGuardId = "fixture-guard-first";
+        String secondGuardId = "fixture-guard-second";
+        AtomicInteger discoveryCalls = new AtomicInteger();
+        AtomicInteger secondGuardCalls = new AtomicInteger();
+        AtomicReference<ScheduleCapabilityPublication> publication = new AtomicReference<>();
+        AtomicReference<ScheduleGenerationDrain> withdrawn = new AtomicReference<>();
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return SOURCE;
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                return new ScheduledExecutionPlan(
+                        Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
+                        List.of(
+                                new ScheduledGuardBinding(
+                                        firstGuardId, Set.of(ScheduledGuardPoint.RUN_START), 0),
+                                new ScheduledGuardBinding(
+                                        secondGuardId, Set.of(ScheduledGuardPoint.RUN_START), 0)),
+                        null, 0, 1, 0L);
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                discoveryCalls.incrementAndGet();
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+        };
+        ScheduledExecutionGuard firstGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return firstGuardId;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+                withdrawn.set(ScheduleCapabilityRegistryTestAccess.withdraw(
+                        registry, publication.get()).orElseThrow());
+                return ScheduledGuardDecision.proceed();
+            }
+        };
+        ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return secondGuardId;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+                secondGuardCalls.incrementAndGet();
+                return ScheduledGuardDecision.proceed();
+            }
+        };
+        ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(
+                "fixture", "fixture-package", 1L);
+        ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
+                SOURCE, Set.of(), "fixture.definition", 1,
+                new ScheduledSourcePresentation(
+                        "fixture", "source.label", "source.summary", "schedule", "neutral"),
+                Set.of("fixture"), Set.of(WORK), Set.of(POLICY),
+                Set.of(firstGuardId, secondGuardId), null);
+        publication.set(ScheduleCapabilityRegistryTestAccess.publish(
+                registry, ScheduleOwnerBundle.prepare(
+                        owner, List.of(), List.of(), List.of(descriptor), List.of(source),
+                        List.of(workExecutor(context -> ScheduledWorkResult.completed())),
+                        List.of(credentialPolicy(new AtomicReference<>())),
+                        List.of(firstGuard, secondGuard))));
+
+        assertThatThrownBy(() -> engine(
+                storeWithCredential(), registry,
+                new ScheduleRunState(), new SyncTaskExecutor()).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo("schedule.cancelled");
+                    assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CANCELLED);
+                });
+        assertThat(discoveryCalls).hasValue(0);
+        assertThat(secondGuardCalls).hasValue(0);
+        assertThat(withdrawn.get()).isNotNull();
+        assertThat(withdrawn.get().isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("作品池拒绝派发时先写 pending 再失败且不遗留在途计数")
+    void rejectedDispatchIsPersistedBeforeFailure() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        when(store.upsertPendingWork(any())).thenReturn(1);
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            context.workSink().submit(work("rejected"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        TaskExecutor rejectingExecutor = task -> {
+            throw new IllegalStateException("executor stopped");
+        };
+        ScheduleExecutionEngine engine = engine(
+                store, source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()),
+                guard(context -> ScheduledGuardDecision.proceed()),
+                new ScheduleRunState(), rejectingExecutor);
+
+        assertThatThrownBy(() -> engine.execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.work.dispatch-failed"));
+        verify(store).upsertPendingWork(any());
+    }
+
+    @Test
+    @DisplayName("插件声明失败码含凭证形态时在 Guard、日志与持久化边界前归一")
+    void unsafePluginFailureCodeIsNormalized() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicReference<String> observedFailureCode = new AtomicReference<>();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.RETRYABLE_NETWORK,
+                    "Cookie: PHPSESSID=secret");
+        });
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                observedFailureCode.set(context.failure().code());
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        assertThatThrownBy(() -> engine(
+                store, source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()), guard).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.execution.invalid-failure-code"));
+        assertThat(observedFailureCode).hasValue("schedule.execution.invalid-failure-code");
+    }
+
+    @Test
+    @DisplayName("通用凭证熔断穿过引擎异常边界后仍保留计数与末次安全错误码")
+    void credentialCircuitControlDataSurvivesEngineBoundary() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        when(store.upsertPendingWork(any())).thenReturn(1);
+        ScheduledSourceExecutor source = sourceExecutor(5, context -> {
+            for (int index = 0; index < 5; index++) {
+                context.workSink().submit(work("credential-failure-" + index));
+            }
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.CREDENTIAL_INVALID,
+                    "fixture.credential-expired");
+        });
+
+        assertThatThrownBy(() -> engine(
+                store, source, executor,
+                credentialPolicy(new AtomicReference<>()),
+                guard(context -> ScheduledGuardDecision.proceed())).execute(task()))
+                .isInstanceOfSatisfying(
+                        ScheduleCredentialCircuitOpenException.class,
+                        failure -> {
+                            assertThat(failure.consecutiveFailures()).isEqualTo(5);
+                            assertThat(failure.lastFailureCode())
+                                    .isEqualTo("fixture.credential-expired");
+                        });
+    }
+
+    @Test
+    @DisplayName("多个 finalizer 与失败 Guard 各自调用一次且首错不阻断后续能力")
+    void allFinalizersAndFailureGuardsRunOnce() throws Exception {
+        String secondWorkType = "fixture-work-2";
+        String secondGuardId = "fixture-guard-2";
+        List<String> events = new ArrayList<>();
+        ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return SOURCE;
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                return new ScheduledExecutionPlan(
+                        Set.of(WORK, secondWorkType), POLICY,
+                        ScheduledCredentialRequirement.REQUIRED, false,
+                        List.of(
+                                new ScheduledGuardBinding(
+                                        GUARD, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0),
+                                new ScheduledGuardBinding(
+                                        secondGuardId, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0)),
+                        "fixture.checkpoint", 1, 1, 0L);
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+        };
+        ScheduledWorkExecutor firstWork = finalizingExecutor(WORK, events, true);
+        ScheduledWorkExecutor secondWork = finalizingExecutor(secondWorkType, events, false);
+        ScheduledExecutionGuard firstGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return GUARD;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context)
+                    throws ScheduledExecutionException {
+                events.add("guard-1");
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.INTERNAL, "fixture.guard-one-failed");
+            }
+        };
+        ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return secondGuardId;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+                events.add("guard-2");
+                return ScheduledGuardDecision.proceed();
+            }
+        };
+        ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
+                SOURCE, Set.of(), "fixture.definition", 1,
+                new ScheduledSourcePresentation(
+                        "fixture", "source.label", "source.summary", "schedule", "neutral"),
+                Set.of("fixture"), Set.of(WORK, secondWorkType),
+                Set.of(POLICY), Set.of(GUARD, secondGuardId), null);
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        publish(registry, ScheduleOwnerBundle.prepare(
+                new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
+                List.of(), List.of(), List.of(descriptor), List.of(source),
+                List.of(firstWork, secondWork),
+                List.of(credentialPolicy(new AtomicReference<>())),
+                List.of(firstGuard, secondGuard)));
+
+        assertThatThrownBy(() -> engine(
+                storeWithCredential(), registry,
+                new ScheduleRunState(), new SyncTaskExecutor()).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("fixture.finalizer-failed"));
+        assertThat(events).containsExactlyInAnyOrder(
+                "finalizer-" + WORK,
+                "finalizer-" + secondWorkType,
+                "abort-" + WORK,
+                "abort-" + secondWorkType,
+                "guard-1",
+                "guard-2");
+    }
+
+    @Test
+    @DisplayName("来源 work 在进入队列前拒绝凭证材料")
+    void sourceWorkIsValidatedBeforeQueueing() throws Exception {
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            context.workSink().submit(new ScheduledWork(
+                    new ScheduledWorkKey(WORK, "unsafe"),
+                    "fixture.work", 1,
+                    "{\"cookie\":\"PHPSESSID=secret\"}",
+                    ScheduledWorkPresentation.empty(), List.of()));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledTaskStore store = storeWithCredential();
+
+        assertThatThrownBy(() -> engine(
+                store, source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()),
+                guard(context -> ScheduledGuardDecision.proceed())).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.work.payload-invalid"));
+        verify(store, never()).upsertPendingWork(any());
+    }
+
+    @Test
+    @DisplayName("作品结果属性含凭证形态时转安全终止失败且不进入队列投影")
+    void unsafeWorkResultIsRejected() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        when(store.upsertPendingWork(any())).thenReturn(1);
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            context.workSink().submit(work("unsafe-result"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> new ScheduledWorkResult(
+                ScheduledWorkResult.Outcome.COMPLETED,
+                "fixture.completed",
+                Map.of("title", "Cookie: PHPSESSID=secret")));
+
+        assertThatThrownBy(() -> engine(
+                store, source, executor,
+                credentialPolicy(new AtomicReference<>()),
+                guard(context -> ScheduledGuardDecision.proceed())).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.work.invalid-result"));
+        verify(store).upsertPendingWork(any());
+    }
+
+    private static ScheduleExecutionEngine engine(
+            ScheduledTaskStore store,
+            ScheduledSourceExecutor source,
+            ScheduledWorkExecutor work,
+            ScheduledCredentialPolicy policy,
+            ScheduledExecutionGuard guard) throws Exception {
+        return engine(store, source, work, policy, guard,
+                new ScheduleRunState(), new SyncTaskExecutor());
+    }
+
+    private static ScheduleExecutionEngine engine(
+            ScheduledTaskStore store,
+            ScheduledSourceExecutor source,
+            ScheduledWorkExecutor work,
+            ScheduledCredentialPolicy policy,
+            ScheduledExecutionGuard guard,
+            ScheduleRunState runState,
+            TaskExecutor taskExecutor) throws Exception {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner("fixture", "fixture-package", 1L);
+        ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
+                SOURCE, Set.of(), "fixture.definition", 1,
+                new ScheduledSourcePresentation(
+                        "fixture", "source.label", "source.summary", "schedule", "neutral"),
+                Set.of("fixture"), Set.of(WORK), Set.of(POLICY), Set.of(GUARD), null);
+        ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
+                owner, List.of(), List.of(), List.of(descriptor), List.of(source),
+                List.of(work), List.of(policy), List.of(guard));
+        publish(registry, bundle);
+        return engine(store, registry, runState, taskExecutor);
+    }
+
+    private static void publish(
+            ScheduleCapabilityRegistry registry,
+            ScheduleOwnerBundle bundle) throws Exception {
+        Method publish = ScheduleCapabilityRegistry.class
+                .getDeclaredMethod("publish", ScheduleOwnerBundle.class);
+        publish.setAccessible(true);
+        publish.invoke(registry, bundle);
+    }
+
+    private static ScheduleExecutionEngine engine(
+            ScheduledTaskStore store,
+            ScheduleCapabilityRegistry registry,
+            ScheduleRunState runState,
+            TaskExecutor taskExecutor) {
+        ScheduleConfig config = new ScheduleConfig();
+        config.setPendingMaxAttempts(5);
+        config.setAuthFailureCircuitBreaker(5);
+        ObjectMapper objectMapper = new ObjectMapper();
+        OutboundProxySettings direct = new OutboundProxySettings() {
+            @Override
+            public boolean isEnabled() {
+                return false;
+            }
+
+            @Override
+            public String getHost() {
+                return null;
+            }
+
+            @Override
+            public int getPort() {
+                return 0;
+            }
+        };
+        return new ScheduleExecutionEngine(
+                store, registry, runState, new ScheduleRunQueue(), config,
+                new ScheduleWorkPersistenceCodec(objectMapper),
+                new ScheduleNetworkRouteResolver(direct), taskExecutor, objectMapper);
+    }
+
+    private static ScheduledWorkExecutor finalizingExecutor(
+            String workType,
+            List<String> events,
+            boolean fail) {
+        return new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return workType;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(ScheduledWork work, ScheduledWorkContext context) {
+                return ScheduledWorkResult.completed();
+            }
+
+            @Override
+            public void finishRun(ScheduledWorkRunContext context)
+                    throws ScheduledExecutionException {
+                events.add("finalizer-" + workType);
+                if (fail) {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.INTERNAL,
+                            "fixture.finalizer-failed");
+                }
+            }
+
+            @Override
+            public void abortRun(ScheduledTaskDefinition task) {
+                events.add("abort-" + workType);
+                if (fail) {
+                    throw new IllegalStateException("fixture cleanup failed");
+                }
+            }
+        };
+    }
+
+    private static ScheduledTaskStore storeWithCredential() {
+        ScheduledTaskStore store = mock(ScheduledTaskStore.class);
+        when(store.listPendingWork(anyLong())).thenReturn(List.of());
+        when(store.findCredentialSecret(anyLong(), anyString(), anyString())).thenReturn("fixture-secret");
+        return store;
+    }
+
+    private static ScheduledSourceExecutor sourceExecutor(int count, Discovery discovery) {
+        return sourceExecutor(count, ScheduledPendingReplayPolicy.ALWAYS, discovery);
+    }
+
+    private static ScheduledSourceExecutor sourceExecutor(
+            int count,
+            ScheduledPendingReplayPolicy replayPolicy,
+            Discovery discovery) {
+        return new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return SOURCE;
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                return new ScheduledExecutionPlan(
+                        Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
+                        List.of(new ScheduledGuardBinding(
+                                GUARD, Set.of(ScheduledGuardPoint.values()), 500)),
+                        "fixture.checkpoint", 1, Math.min(count, 8), 0L);
+            }
+
+            @Override
+            public ScheduledPendingReplayPolicy pendingReplayPolicy() {
+                return replayPolicy;
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(ScheduledSourceContext context)
+                    throws ScheduledExecutionException {
+                return discovery.discover(context);
+            }
+        };
+    }
+
+    private static ScheduledWorkExecutor workExecutor(Work work) {
+        return new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return WORK;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(ScheduledWork value, ScheduledWorkContext context)
+                    throws ScheduledExecutionException {
+                return work.execute(context);
+            }
+        };
+    }
+
+    private static ScheduledCredentialPolicy credentialPolicy(
+            AtomicReference<ScheduledNetworkRoute> routeIdentity) {
+        return new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                assertSameRoute(routeIdentity, context.route());
+                return ScheduledCredentialProbeResult.valid("account-1");
+            }
+        };
+    }
+
+    private static ScheduledExecutionGuard guard(Guard guard) {
+        return new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return GUARD;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context)
+                    throws ScheduledExecutionException {
+                return guard.evaluate(context);
+            }
+        };
+    }
+
+    private static ScheduledWork work(String id) {
+        return new ScheduledWork(
+                new ScheduledWorkKey(WORK, id), "fixture.work", 1, "{}",
+                ScheduledWorkPresentation.empty(), List.of());
+    }
+
+    private static ScheduledTask task() {
+        return taskWithCheckpoint(null, null, null);
+    }
+
+    private static ScheduledTask taskWithCheckpoint(
+            String checkpointSchema,
+            Integer checkpointVersion,
+            String checkpointJson) {
+        return new ScheduledTask(
+                1L, "fixture", true, SOURCE, "fixture",
+                "fixture.definition", 1, "{}", "{}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                null, 0L, null, checkpointSchema, checkpointVersion, checkpointJson,
+                ScheduledTask.CURRENT_STORAGE_VERSION,
+                null, null, ScheduleLastOutcome.NEVER, null, null,
+                null, null, null, 0L,
+                "fixture", POLICY, "account-1", "{}",
+                "fixture-reference", 1L, 1L);
+    }
+
+    private static void assertSameRoute(
+            AtomicReference<ScheduledNetworkRoute> expected,
+            ScheduledNetworkRoute actual) {
+        ScheduledNetworkRoute previous = expected.get();
+        if (previous == null) {
+            expected.compareAndSet(null, actual);
+        } else {
+            assertThat(actual).isSameAs(previous);
+        }
+    }
+
+    @FunctionalInterface
+    private interface Discovery {
+        ScheduledDiscoveryResult discover(ScheduledSourceContext context)
+                throws ScheduledExecutionException;
+    }
+
+    @FunctionalInterface
+    private interface Work {
+        ScheduledWorkResult execute(ScheduledWorkContext context)
+                throws ScheduledExecutionException;
+    }
+
+    @FunctionalInterface
+    private interface Guard {
+        ScheduledGuardDecision evaluate(ScheduledGuardContext context)
+                throws ScheduledExecutionException;
+    }
+}

@@ -337,6 +337,15 @@ class ScheduledTaskMapperTest {
         assertThat(afterConflict.payloadVersion()).isEqualTo(2);
         assertThat(afterConflict.relationsJson()).isEqualTo("[]");
 
+        mapper.upsertPendingWork(new ScheduledPendingWork(
+                1L, "fixture.work", "001", "fixture.payload", 2,
+                "{\"id\":\"001\",\"v\":3}", "[]", "{\"title\":\"newer\"}",
+                "retry-again", "{}", 3, 9_999L, 6_000L));
+        ScheduledPendingWork afterHigherAttempt =
+                mapper.findPendingWork(1L, "fixture.work", "001");
+        assertThat(afterHigherAttempt.attempts()).isEqualTo(3);
+        assertThat(afterHigherAttempt.firstSeenTime()).isEqualTo(now);
+
         assertThat(mapper.deletePendingWork(1L, "fixture.work", "1")).isEqualTo(1);
         assertThat(mapper.findPendingWork(1L, "other.work", "1")).isNotNull();
     }

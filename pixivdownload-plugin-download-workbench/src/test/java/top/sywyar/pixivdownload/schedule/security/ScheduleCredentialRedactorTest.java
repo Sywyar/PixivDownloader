@@ -33,6 +33,8 @@ class ScheduleCredentialRedactorTest {
     void recognizesCredentialMaterialAndLeavesOrdinaryTextAlone() {
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("refresh_token")).isTrue();
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("x-amz-credential")).isTrue();
+        assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("PHPSESSID")).isTrue();
+        assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("session_key")).isTrue();
         assertThat(ScheduleCredentialRedactor.isSensitiveFieldName("word")).isFalse();
         assertThat(ScheduleCredentialRedactor.containsCredentialMaterial(
                 "Proxy-Authorization: Basic basic-secret")).isTrue();

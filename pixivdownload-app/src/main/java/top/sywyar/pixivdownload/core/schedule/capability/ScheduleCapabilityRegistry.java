@@ -552,6 +552,7 @@ public class ScheduleCapabilityRegistry {
         Map<ScheduleCapabilityOwner, PublishedOwner> requiredOwners = new LinkedHashMap<>();
         requiredOwners.put(planning.owner(), sourceOwner);
         Map<String, ScheduledWorkExecutor> workExecutors = new LinkedHashMap<>();
+        Map<String, ScheduleCapabilityOwner> workExecutorOwners = new LinkedHashMap<>();
         Map<String, ScheduledWorkRunner> legacyWorkRunners = new LinkedHashMap<>();
         for (String workType : workTypes) {
             WorkRoute route = current.worksByType().get(workType);
@@ -566,12 +567,14 @@ public class ScheduleCapabilityRegistry {
             requiredOwners.put(route.owner(), published);
             if (useNewCapabilities) {
                 workExecutors.put(workType, route.executor());
+                workExecutorOwners.put(workType, route.owner());
             } else {
                 legacyWorkRunners.put(workType, route.legacyRunner());
             }
         }
 
         ScheduledCredentialPolicy credentialPolicy = null;
+        ScheduleCapabilityOwner credentialPolicyOwner = null;
         if (credentialPolicyId != null) {
             CapabilityEntry<ScheduledCredentialPolicy> entry =
                     current.credentialPolicies().get(credentialPolicyId);
@@ -585,9 +588,11 @@ public class ScheduleCapabilityRegistry {
             }
             requiredOwners.put(entry.owner(), published);
             credentialPolicy = entry.capability();
+            credentialPolicyOwner = entry.owner();
         }
 
         Map<String, ScheduledExecutionGuard> guards = new LinkedHashMap<>();
+        Map<String, ScheduleCapabilityOwner> guardOwners = new LinkedHashMap<>();
         for (String guardId : guardIds) {
             CapabilityEntry<ScheduledExecutionGuard> entry = current.guards().get(guardId);
             if (entry == null) {
@@ -600,6 +605,7 @@ public class ScheduleCapabilityRegistry {
             }
             requiredOwners.put(entry.owner(), published);
             guards.put(guardId, entry.capability());
+            guardOwners.put(guardId, entry.owner());
         }
 
         ScheduleLeaseState.CancellationSignal signal = planning.cancellationSignal();
@@ -622,7 +628,8 @@ public class ScheduleCapabilityRegistry {
         allOwners.addAll(acquired);
         return Optional.of(new ScheduleExecutionLease(
                 planning.sourceType(), signal, allOwners, source,
-                workExecutors, legacyWorkRunners, credentialPolicy, guards));
+                workExecutors, workExecutorOwners, legacyWorkRunners,
+                credentialPolicy, credentialPolicyOwner, guards, guardOwners));
     }
 
     private static void releaseAcquired(

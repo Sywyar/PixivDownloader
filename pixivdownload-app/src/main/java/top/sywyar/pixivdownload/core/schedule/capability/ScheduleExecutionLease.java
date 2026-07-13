@@ -33,9 +33,12 @@ public final class ScheduleExecutionLease implements AutoCloseable {
     private ScheduledSourceExecutor sourceExecutor;
     private ScheduledSourceProvider legacySourceProvider;
     private Map<String, ScheduledWorkExecutor> workExecutors;
+    private Map<String, ScheduleCapabilityOwner> workExecutorOwners;
     private Map<String, ScheduledWorkRunner> legacyWorkRunners;
     private ScheduledCredentialPolicy credentialPolicy;
+    private ScheduleCapabilityOwner credentialPolicyOwner;
     private Map<String, ScheduledExecutionGuard> guards;
+    private Map<String, ScheduleCapabilityOwner> guardOwners;
     private boolean active = true;
 
     ScheduleExecutionLease(
@@ -44,9 +47,12 @@ public final class ScheduleExecutionLease implements AutoCloseable {
             List<OwnerState> ownerStates,
             SchedulePlanningLease.TransferredSource source,
             Map<String, ScheduledWorkExecutor> workExecutors,
+            Map<String, ScheduleCapabilityOwner> workExecutorOwners,
             Map<String, ScheduledWorkRunner> legacyWorkRunners,
             ScheduledCredentialPolicy credentialPolicy,
-            Map<String, ScheduledExecutionGuard> guards) {
+            ScheduleCapabilityOwner credentialPolicyOwner,
+            Map<String, ScheduledExecutionGuard> guards,
+            Map<String, ScheduleCapabilityOwner> guardOwners) {
         this.sourceType = sourceType;
         this.cancellation = cancellation;
         this.ownerStates = List.copyOf(ownerStates);
@@ -56,9 +62,12 @@ public final class ScheduleExecutionLease implements AutoCloseable {
         this.sourceExecutor = source.sourceExecutor();
         this.legacySourceProvider = source.legacySourceProvider();
         this.workExecutors = Map.copyOf(workExecutors);
+        this.workExecutorOwners = Map.copyOf(workExecutorOwners);
         this.legacyWorkRunners = Map.copyOf(legacyWorkRunners);
         this.credentialPolicy = credentialPolicy;
+        this.credentialPolicyOwner = credentialPolicyOwner;
         this.guards = Map.copyOf(guards);
+        this.guardOwners = Map.copyOf(guardOwners);
     }
 
     public String sourceType() {
@@ -94,6 +103,16 @@ public final class ScheduleExecutionLease implements AutoCloseable {
         return Map.copyOf(workExecutors);
     }
 
+    public synchronized Optional<ScheduleCapabilityOwner> workExecutorOwner(String workType) {
+        ensureActive();
+        return Optional.ofNullable(workExecutorOwners.get(workType));
+    }
+
+    public synchronized Map<String, ScheduleCapabilityOwner> workExecutorOwners() {
+        ensureActive();
+        return Map.copyOf(workExecutorOwners);
+    }
+
     public synchronized Optional<ScheduledWorkRunner> legacyWorkRunner(String workType) {
         ensureActive();
         return Optional.ofNullable(legacyWorkRunners.get(workType));
@@ -109,6 +128,11 @@ public final class ScheduleExecutionLease implements AutoCloseable {
         return Optional.ofNullable(credentialPolicy);
     }
 
+    public synchronized Optional<ScheduleCapabilityOwner> credentialPolicyOwner() {
+        ensureActive();
+        return Optional.ofNullable(credentialPolicyOwner);
+    }
+
     public synchronized Optional<ScheduledExecutionGuard> guard(String guardId) {
         ensureActive();
         return Optional.ofNullable(guards.get(guardId));
@@ -117,6 +141,16 @@ public final class ScheduleExecutionLease implements AutoCloseable {
     public synchronized Map<String, ScheduledExecutionGuard> guards() {
         ensureActive();
         return Map.copyOf(guards);
+    }
+
+    public synchronized Optional<ScheduleCapabilityOwner> guardOwner(String guardId) {
+        ensureActive();
+        return Optional.ofNullable(guardOwners.get(guardId));
+    }
+
+    public synchronized Map<String, ScheduleCapabilityOwner> guardOwners() {
+        ensureActive();
+        return Map.copyOf(guardOwners);
     }
 
     public synchronized ScheduledCancellation cancellation() {
@@ -137,9 +171,12 @@ public final class ScheduleExecutionLease implements AutoCloseable {
                 sourceExecutor = null;
                 legacySourceProvider = null;
                 workExecutors = Map.of();
+                workExecutorOwners = Map.of();
                 legacyWorkRunners = Map.of();
                 credentialPolicy = null;
+                credentialPolicyOwner = null;
                 guards = Map.of();
+                guardOwners = Map.of();
                 active = false;
                 releases = new ArrayList<>(ownerStates);
             }

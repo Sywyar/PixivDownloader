@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -15,12 +16,17 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleNetworkRouteResolver;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleWorkConcurrencyLimiter;
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.setup.SetupService;
@@ -74,6 +80,55 @@ public class ScheduleHostPluginConfiguration {
     @Bean
     public PixivSchedulePersistenceCodec pixivSchedulePersistenceCodec(ObjectMapper objectMapper) {
         return new PixivSchedulePersistenceCodec(objectMapper);
+    }
+
+    @Bean
+    public ScheduleWorkPersistenceCodec scheduleWorkPersistenceCodec(ObjectMapper objectMapper) {
+        return new ScheduleWorkPersistenceCodec(objectMapper);
+    }
+
+    @Bean
+    public ScheduleNetworkRouteResolver scheduleNetworkRouteResolver(OutboundProxySettings proxySettings) {
+        return new ScheduleNetworkRouteResolver(proxySettings);
+    }
+
+    @Bean
+    public ScheduleWorkConcurrencyLimiter scheduleWorkConcurrencyLimiter() {
+        return new ScheduleWorkConcurrencyLimiter();
+    }
+
+    /**
+     * 调度宿主共享的作品执行池。真实并发由 execution plan、作品执行器与
+     * 进程级作品类型限制器共同约束；执行池仅提供与单任务最大在途数一致的线程上限。
+     * 跨任务的合法超额作品进入队列，不会因共享池瞬时满载被误记为派发失败。
+     */
+    @Bean("scheduleWorkTaskExecutor")
+    public ThreadPoolTaskExecutor scheduleWorkTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(ScheduleExecutionEngine.MAX_WORK_IN_FLIGHT);
+        executor.setMaxPoolSize(ScheduleExecutionEngine.MAX_WORK_IN_FLIGHT);
+        executor.setAllowCoreThreadTimeOut(true);
+        executor.setThreadNamePrefix("schedule-work-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        return executor;
+    }
+
+    @Bean
+    public ScheduleExecutionEngine scheduleExecutionEngine(
+            ScheduledTaskStore store,
+            ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+            ScheduleRunState runState,
+            ScheduleRunQueue runQueue,
+            ScheduleConfig scheduleConfig,
+            ScheduleWorkPersistenceCodec persistenceCodec,
+            ScheduleNetworkRouteResolver routeResolver,
+            @Qualifier("scheduleWorkTaskExecutor") TaskExecutor scheduleWorkTaskExecutor,
+            ScheduleWorkConcurrencyLimiter workConcurrencyLimiter,
+            ObjectMapper objectMapper) {
+        return new ScheduleExecutionEngine(
+                store, scheduleCapabilityRegistry, runState, runQueue, scheduleConfig,
+                persistenceCodec, routeResolver, scheduleWorkTaskExecutor,
+                workConcurrencyLimiter, objectMapper);
     }
 
     @Bean

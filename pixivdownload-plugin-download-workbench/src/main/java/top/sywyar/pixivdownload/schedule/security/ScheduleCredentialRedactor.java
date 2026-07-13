@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.schedule.security;
 
-import java.util.Locale;
+import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveFieldNames;
+import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredentialText;
+
 import java.util.regex.Pattern;
 
 /**
@@ -46,33 +48,11 @@ public final class ScheduleCredentialRedactor {
 
     /** 判断一个不透明文本值是否带有凭证头、token、签名或 Cookie 的可识别形态。 */
     public static boolean containsCredentialMaterial(String text) {
-        if (text == null || text.isEmpty()) {
-            return false;
-        }
-        return COOKIE_HEADER.matcher(text).find()
-                || AUTHORIZATION_HEADER.matcher(text).find()
-                || BEARER_VALUE.matcher(text).find()
-                || PHPSESSID.matcher(text).find()
-                || SENSITIVE_ASSIGNMENT.matcher(text).find();
+        return ScheduledCredentialText.containsCredentialMaterial(text);
     }
 
     /** 判断 JSON 字段名是否声明了凭证、secret、token、签名或会话身份。 */
     public static boolean isSensitiveFieldName(String fieldName) {
-        if (fieldName == null || fieldName.isBlank()) {
-            return false;
-        }
-        String normalized = fieldName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-        return normalized.contains("cookie")
-                || normalized.contains("authorization")
-                || normalized.contains("credential")
-                || normalized.contains("password")
-                || normalized.contains("passwd")
-                || normalized.endsWith("secret")
-                || normalized.endsWith("token")
-                || normalized.endsWith("apikey")
-                || normalized.endsWith("signature")
-                || normalized.endsWith("sessionid")
-                || normalized.equals("signedurl")
-                || normalized.equals("temporaryurl");
+        return ScheduledSensitiveFieldNames.isSensitiveFieldName(fieldName);
     }
 }
