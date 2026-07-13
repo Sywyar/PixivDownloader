@@ -14,6 +14,8 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigra
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
@@ -23,6 +25,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
@@ -46,6 +50,35 @@ import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
  */
 @DisplayName("外置插件子 context 生命周期 SmartLifecycle 驱动")
 class ExternalPluginContextManagerTest {
+
+    @Test
+    @DisplayName("SmartLifecycle 实际按 registry 先启动后停止、外置服务足迹后启动先停止")
+    void lifecyclePhasesEnforceCallbackAndServingOrder() {
+        List<String> events = new java.util.ArrayList<>();
+        PixivFeaturePlugin plugin = new PixivFeaturePlugin() {
+            @Override public String id() { return "order-demo"; }
+            @Override public String displayName() { return "plugin.name"; }
+            @Override public String description() { return "plugin.summary"; }
+            @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public void start() { events.add("plugin-start"); }
+            @Override public void stop() { events.add("plugin-stop"); }
+        };
+        PluginRegistry registry = new PluginRegistry(List.of(plugin));
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        doAnswer(ignored -> { events.add("serving-start"); return null; }).when(lifecycle).startAll();
+        doAnswer(ignored -> { events.add("serving-stop"); return null; }).when(lifecycle).stopAll();
+        ExternalPluginContextManager manager = new ExternalPluginContextManager(lifecycle);
+
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        context.registerBean("pluginRegistry", PluginRegistry.class, () -> registry);
+        context.registerBean("externalPluginContextManager", ExternalPluginContextManager.class, () -> manager);
+        context.refresh();
+        assertThat(events).containsExactly("plugin-start", "serving-start");
+
+        context.close();
+        assertThat(events).containsExactly(
+                "plugin-start", "serving-start", "serving-stop", "plugin-stop");
+    }
 
     @Test
     @DisplayName("start 驱动建立、stop 驱动拆除：转发 isRunning / count / pluginIds / contextFor")

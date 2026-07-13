@@ -2,11 +2,14 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -19,6 +22,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.ExternalRuntimeCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PluginCapabilityContributionAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PushChannelCapabilityAdapter;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.QueueOperationsCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPublication;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
@@ -29,6 +33,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionHandle;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
@@ -41,7 +46,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -53,6 +57,7 @@ import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("外置 capability invocation 与插件生命周期交叉验证")
@@ -61,8 +66,8 @@ class ExternalCapabilityLifecycleIntegrationTest {
     private static final String PLUGIN_ID = "capability-probe";
 
     @Test
-    @DisplayName("stop 撤回新调用后不可中断地排空旧调用，再停止插件并关闭 child context")
-    void stopDrainsCapabilityInvocationBeforeClosingContextAndRestoresInterrupt() throws Exception {
+    @DisplayName("stop 撤回新调用后等待阻塞调用退出，随后移除代理并关闭 child context")
+    void stopWaitsForActiveCapabilityInvocationBeforeClosingContext() throws Exception {
         BlockingControl control = new BlockingControl();
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.registerBean(BlockingControl.class, () -> control);
@@ -73,42 +78,59 @@ class ExternalCapabilityLifecycleIntegrationTest {
                     plugin, PluginSource.EXTERNAL, getClass().getClassLoader(), PLUGIN_ID, 9L);
             PluginRegistry pluginRegistry = mock(PluginRegistry.class);
             when(pluginRegistry.registeredPlugins()).thenReturn(List.of(registered));
+            when(pluginRegistry.featureStarted(same(registered))).thenReturn(true);
 
             PluginContextModule module = new PluginContextModule(
                     PLUGIN_ID, getClass().getClassLoader(), List.of(BlockingCapabilityConfiguration.class));
             PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
 
-            PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
-            when(scheduleRegistrar.register(any(), same(registered), any())).thenReturn(Optional.empty());
-            PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
-                    scheduleRegistrar, new PluginStreamRegistry(), new QueueOperationRegistry(List.of()));
+            PluginWebContributionHandle webHandle = mock(PluginWebContributionHandle.class);
+            PluginWebContributionRegistrar webRegistrar = mock(PluginWebContributionRegistrar.class);
+            when(webRegistrar.currentHandle(same(registered))).thenReturn(Optional.of(webHandle));
+            when(webRegistrar.withdrawRequests(same(webHandle))).thenReturn(Optional.empty());
+            when(webRegistrar.isCurrent(same(webHandle))).thenReturn(false);
 
-            ExternalCapabilityInvocationRegistry invocationRegistry = new ExternalCapabilityInvocationRegistry();
+            PluginScheduleContributionRegistrar scheduleRegistrar =
+                    mock(PluginScheduleContributionRegistrar.class);
+            when(scheduleRegistrar.register(any(), same(registered), any())).thenReturn(Optional.empty());
+            QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
+            PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+                    scheduleRegistrar, new PluginStreamRegistry(), queueRegistry);
+
+            ExternalCapabilityInvocationRegistry invocationRegistry =
+                    new ExternalCapabilityInvocationRegistry();
             PushChannelRegistry pushRegistry = new PushChannelRegistry(List.of());
             PushChannelCapabilityAdapter pushAdapter =
                     new PushChannelCapabilityAdapter(pushRegistry, invocationRegistry);
-            PluginCapabilityContributionRegistrar realRegistrar = new PluginCapabilityContributionRegistrar(
-                    List.<PluginCapabilityContributionAdapter<?>>of(pushAdapter),
-                    List.of(),
-                    List.<ExternalRuntimeCapabilityAdapter>of(pushAdapter),
-                    invocationRegistry);
-            PluginCapabilityContributionRegistrar capabilityRegistrar = spy(realRegistrar);
-            CountDownLatch withdrawn = new CountDownLatch(1);
+            QueueOperationsCapabilityAdapter queueAdapter =
+                    new QueueOperationsCapabilityAdapter(queueRegistry);
+            PluginCapabilityContributionRegistrar realCapabilityRegistrar =
+                    new PluginCapabilityContributionRegistrar(
+                            List.<PluginCapabilityContributionAdapter<?>>of(pushAdapter, queueAdapter),
+                            List.of(),
+                            List.<ExternalRuntimeCapabilityAdapter>of(pushAdapter),
+                            invocationRegistry);
+            PluginCapabilityContributionRegistrar capabilityRegistrar = spy(realCapabilityRegistrar);
+            CountDownLatch capabilityWithdrawn = new CountDownLatch(1);
             doAnswer(invocation -> {
                 Object result = invocation.callRealMethod();
-                withdrawn.countDown();
+                capabilityWithdrawn.countDown();
                 return result;
             }).when(capabilityRegistrar).withdraw(nullable(ExternalCapabilityPublication.class));
 
+            PluginLifecycleState lifecycleState = new PluginLifecycleState();
             PluginLifecycleService service = new PluginLifecycleService(
                     parent, runtime, new PluginApplicationContextFactory(),
-                    mock(PluginControllerRegistrar.class), mock(PluginWebContributionRegistrar.class),
-                    scheduleRegistrar, quiescer, capabilityRegistrar, pluginRegistry,
-                    new PluginLifecycleState());
+                    mock(PluginControllerRegistrar.class), webRegistrar, scheduleRegistrar,
+                    quiescer, capabilityRegistrar, pluginRegistry, lifecycleState);
             service.startAll();
             PushChannel proxy = pushRegistry.byType(PushChannelType.BARK).orElseThrow();
             ConfigurableApplicationContext child = service.contextFor(PLUGIN_ID).orElseThrow();
+            assertThat(service.generation(PLUGIN_ID)).contains(9L);
+            assertThat(queueRegistry.operationsForOwner(PLUGIN_ID)).singleElement()
+                    .extracting(QueueOperationRegistry.OwnedQueueOperations::queueType)
+                    .isEqualTo("capability-probe-queue");
 
             AtomicReference<Throwable> invocationFailure = new AtomicReference<>();
             Thread invocationThread = daemonThread("blocking-capability", () -> {
@@ -119,27 +141,21 @@ class ExternalCapabilityLifecycleIntegrationTest {
                 }
             });
             AtomicReference<Throwable> stopFailure = new AtomicReference<>();
-            AtomicBoolean interruptedAtReturn = new AtomicBoolean();
             Thread stopThread = daemonThread("capability-stop", () -> {
                 try {
                     service.stop(PLUGIN_ID);
                 } catch (Throwable failure) {
                     stopFailure.set(failure);
-                } finally {
-                    interruptedAtReturn.set(Thread.currentThread().isInterrupted());
                 }
             });
 
             invocationThread.start();
             assertThat(control.entered.await(5, TimeUnit.SECONDS)).isTrue();
             stopThread.start();
-            assertThat(withdrawn.await(5, TimeUnit.SECONDS)).isTrue();
-            stopThread.interrupt();
-
+            assertThat(capabilityWithdrawn.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(stopThread.isAlive()).isTrue();
             assertThat(service.phase(PLUGIN_ID)).contains(PluginRuntimePhase.QUIESCED);
             assertThat(child.isActive()).isTrue();
-            assertThat(plugin.stopCount).hasValue(0);
             assertThatThrownBy(proxy::isConfigured)
                     .isInstanceOf(ExternalCapabilityUnavailableException.class);
 
@@ -151,12 +167,12 @@ class ExternalCapabilityLifecycleIntegrationTest {
             assertThat(stopThread.isAlive()).isFalse();
             assertThat(invocationFailure.get()).isNull();
             assertThat(stopFailure.get()).isNull();
-            assertThat(interruptedAtReturn).isTrue();
             assertThat(pushRegistry.byType(PushChannelType.BARK)).isEmpty();
-            assertThat(plugin.stopCount).hasValue(1);
+            assertThat(queueRegistry.operationsForOwner(PLUGIN_ID)).isEmpty();
             assertThat(child.isActive()).isFalse();
             assertThat(service.contextFor(PLUGIN_ID)).isEmpty();
             assertThat(service.phase(PLUGIN_ID)).contains(PluginRuntimePhase.STOPPED);
+            verify(pluginRegistry).stopFeature(same(registered));
         } finally {
             control.release.countDown();
         }
@@ -211,6 +227,37 @@ class ExternalCapabilityLifecycleIntegrationTest {
                 @Override
                 public PushResult sendTest(PushChannelSettings settings, RenderedMessage message) {
                     return PushResult.ok(type());
+                }
+            };
+        }
+
+        @Bean
+        QueueOperations queueOperations() {
+            QueueTaskTracker tracker = new QueueTaskTracker("capability-probe-queue");
+            return new QueueOperations() {
+                @Override
+                public String queueType() {
+                    return "capability-probe-queue";
+                }
+
+                @Override
+                public top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain prepareQuiesce() {
+                    return tracker.prepareQuiesce();
+                }
+
+                @Override
+                public void cancelQuiescedTasks() {
+                    tracker.cancelQuiescedTasks();
+                }
+
+                @Override
+                public int clearAll() {
+                    return 0;
+                }
+
+                @Override
+                public int clearForOwner(String ownerUuid) {
+                    return 0;
                 }
             };
         }

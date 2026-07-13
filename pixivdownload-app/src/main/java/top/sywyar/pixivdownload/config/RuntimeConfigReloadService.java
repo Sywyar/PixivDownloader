@@ -371,15 +371,14 @@ public class RuntimeConfigReloadService {
 
         Set<String> reboundKeys = new LinkedHashSet<>();
         for (String pluginId : lifecycleService.servingPluginIds()) {
-            lifecycleService.contextFor(pluginId)
-                    .ifPresent(context -> {
-                        refreshPluginConfigSource(context.getEnvironment());
-                        PluginApplicationContextFactory.replaceScopedPropertySource(
-                                context.getEnvironment(), pluginId, credentialStoreValues(pluginId));
-                        Binder childBinder = new Binder(
-                                ConfigurationPropertySources.from(context.getEnvironment().getPropertySources()));
-                        rebindPluginContext(childBinder, context, requestedChangedKeys, reboundKeys);
-                    });
+            lifecycleService.withServingContext(pluginId, context -> {
+                refreshPluginConfigSource(context.getEnvironment());
+                PluginApplicationContextFactory.replaceScopedPropertySource(
+                        context.getEnvironment(), pluginId, credentialStoreValues(pluginId));
+                Binder childBinder = new Binder(
+                        ConfigurationPropertySources.from(context.getEnvironment().getPropertySources()));
+                rebindPluginContext(childBinder, context, requestedChangedKeys, reboundKeys);
+            });
         }
         for (String key : requestedChangedKeys) {
             if (reboundKeys.contains(key)) {

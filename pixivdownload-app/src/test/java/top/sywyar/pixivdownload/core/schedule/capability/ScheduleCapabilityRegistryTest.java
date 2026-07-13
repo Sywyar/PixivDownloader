@@ -395,7 +395,10 @@ class ScheduleCapabilityRegistryTest {
 
         assertThat(ScheduleCapabilityPublication.class.getDeclaredConstructors())
                 .allMatch(constructor -> !Modifier.isPublic(constructor.getModifiers()));
-        assertThat(List.of("publish", "withdraw", "publication"))
+        assertThat(List.of(
+                "allocateReservation", "reserve", "commit", "release",
+                "withdraw", "rollback", "acknowledgeRetired",
+                "forgetRetirementAcknowledgement", "publication"))
                 .allSatisfy(name -> assertThat(java.util.Arrays.stream(
                         ScheduleCapabilityRegistry.class.getDeclaredMethods())
                         .filter(method -> method.getName().equals(name)))
@@ -514,12 +517,17 @@ class ScheduleCapabilityRegistryTest {
     @DisplayName("其它未提交 reservation 中的凭证策略不能授权旧 secret 迁移")
     void uncommittedCredentialPolicyReservationCannotStampMigrationRoute() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityReservation policyReservation = registry.reserve(policyOnlyBundle(
-                owner("policy-feature", "policy-package", 1L), "credential:reserved"));
+        ScheduleOwnerBundle policyBundle = policyOnlyBundle(
+                owner("policy-feature", "policy-package", 1L), "credential:reserved");
+        ScheduleCapabilityReservation policyReservation =
+                registry.allocateReservation(policyBundle.owner());
+        registry.reserve(policyReservation, policyBundle);
         ScheduleOwnerBundle sourceBundle = legacyMigrationBundle(
                 owner("source-feature", "source-package", 2L),
                 "source:legacy", "SOURCE_LEGACY", "credential:reserved");
-        ScheduleCapabilityReservation sourceReservation = registry.reserve(sourceBundle);
+        ScheduleCapabilityReservation sourceReservation =
+                registry.allocateReservation(sourceBundle.owner());
+        registry.reserve(sourceReservation, sourceBundle);
 
         assertThatThrownBy(() -> registry.reservedMigrationSnapshot(sourceReservation))
                 .isInstanceOf(IllegalStateException.class)

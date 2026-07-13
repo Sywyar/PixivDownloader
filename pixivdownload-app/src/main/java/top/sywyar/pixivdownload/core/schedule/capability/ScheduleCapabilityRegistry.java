@@ -89,7 +89,8 @@ public class ScheduleCapabilityRegistry {
             long publicationId,
             String activationToken,
             ScheduleCapabilityPublication publication,
-            ScheduleLeaseState leaseState
+            ScheduleLeaseState leaseState,
+            ScheduleGenerationDrain drain
     ) {
     }
 
@@ -98,6 +99,40 @@ public class ScheduleCapabilityRegistry {
             ScheduleOwnerBundle bundle,
             Map<String, String> credentialPolicyOwnersById
     ) {
+    }
+
+    private enum RetirementPhase {
+        RETIRED,
+        ACKNOWLEDGED
+    }
+
+    /** Host-only proof for an exact withdrawn publication; never retains an owner bundle or plugin Bean. */
+    private record RetiredOwner(
+            ScheduleCapabilityPublication publication,
+            ScheduleLeaseState leaseState,
+            ScheduleGenerationDrain drain,
+            RetirementPhase phase
+    ) {
+        private static RetiredOwner from(PublishedOwner owner) {
+            return new RetiredOwner(
+                    owner.publication(), owner.leaseState(), owner.drain(), RetirementPhase.RETIRED);
+        }
+
+        private boolean matches(ScheduleCapabilityPublication expected) {
+            return publication == expected;
+        }
+
+        private boolean matches(ScheduleGenerationDrain expected) {
+            return drain == expected
+                    && publication.owner().equals(expected.owner())
+                    && publication.publicationId() == expected.publicationId();
+        }
+
+        private RetiredOwner acknowledged() {
+            return phase == RetirementPhase.ACKNOWLEDGED
+                    ? this
+                    : new RetiredOwner(publication, leaseState, drain, RetirementPhase.ACKNOWLEDGED);
+        }
     }
 
     private record NewSourceRoute(
@@ -178,8 +213,13 @@ public class ScheduleCapabilityRegistry {
     private final String epoch = UUID.randomUUID().toString();
     private volatile Snapshot snapshot = Snapshot.empty(epoch);
     private final Map<Long, ReservedOwner> reservations = new LinkedHashMap<>();
+    private final Map<Long, RetiredOwner> retirementProofs = new LinkedHashMap<>();
     private final Predicate<String> ownerAdmission;
+    private final Runnable postReserveProbe;
     private final Runnable postCommitProbe;
+    private final Runnable postWithdrawProbe;
+    private final Runnable postRetirementAcknowledgeProbe;
+    private final Runnable postRetirementForgetProbe;
     private final Runnable postLeaseAcquireProbe;
     private final Runnable beforeLeaseAcquirePublishProbe;
     private final Runnable beforeLeaseReleaseProbe;
@@ -233,8 +273,33 @@ public class ScheduleCapabilityRegistry {
             Runnable beforeLeaseAcquirePublishProbe,
             Runnable beforeLeaseReleaseProbe,
             Runnable afterLeaseReleaseProbe) {
+        this(ownerAdmission, () -> {
+        }, postCommitProbe, () -> {
+        }, () -> {
+        }, () -> {
+        }, postLeaseAcquireProbe, beforeLeaseAcquirePublishProbe,
+                beforeLeaseReleaseProbe, afterLeaseReleaseProbe);
+    }
+
+    ScheduleCapabilityRegistry(
+            Predicate<String> ownerAdmission,
+            Runnable postReserveProbe,
+            Runnable postCommitProbe,
+            Runnable postWithdrawProbe,
+            Runnable postRetirementAcknowledgeProbe,
+            Runnable postRetirementForgetProbe,
+            Runnable postLeaseAcquireProbe,
+            Runnable beforeLeaseAcquirePublishProbe,
+            Runnable beforeLeaseReleaseProbe,
+            Runnable afterLeaseReleaseProbe) {
         this.ownerAdmission = Objects.requireNonNull(ownerAdmission, "schedule owner admission");
+        this.postReserveProbe = Objects.requireNonNull(postReserveProbe, "post-reserve probe");
         this.postCommitProbe = Objects.requireNonNull(postCommitProbe, "post-commit probe");
+        this.postWithdrawProbe = Objects.requireNonNull(postWithdrawProbe, "post-withdraw probe");
+        this.postRetirementAcknowledgeProbe = Objects.requireNonNull(
+                postRetirementAcknowledgeProbe, "post-retirement-acknowledge probe");
+        this.postRetirementForgetProbe = Objects.requireNonNull(
+                postRetirementForgetProbe, "post-retirement-forget probe");
         this.postLeaseAcquireProbe = Objects.requireNonNull(
                 postLeaseAcquireProbe, "post-lease-acquire probe");
         this.beforeLeaseAcquirePublishProbe = Objects.requireNonNull(
@@ -250,47 +315,41 @@ public class ScheduleCapabilityRegistry {
     }
 
     /**
-     * 一次发布一个 owner 的完整 bundle。冲突或校验失败时，既有 snapshot 引用与 revision 均保持不变。
-     */
-    ScheduleCapabilityPublication publish(ScheduleOwnerBundle bundle) {
-        ScheduleCapabilityReservation reservation = reserve(bundle);
-        boolean committed = false;
-        try {
-            ScheduleCapabilityPublication publication = commit(reservation);
-            committed = true;
-            return publication;
-        } finally {
-            if (!committed) {
-                release(reservation);
-            }
-        }
-    }
-
-    /**
      * 在不改变可见 snapshot 的前提下完整校验并保留一个 owner 的全部命名 claim。
      * 迁移可在返回后于 registry 锁外执行；任何结束路径都必须 commit 或 release 同一个 token。
      */
-    ScheduleCapabilityReservation reserve(ScheduleOwnerBundle bundle) {
+    ScheduleCapabilityReservation allocateReservation(ScheduleCapabilityOwner owner) {
+        Objects.requireNonNull(owner, "schedule capability owner");
+        synchronized (lock) {
+            long reservationId = Math.incrementExact(nextReservationId);
+            ScheduleCapabilityReservation reservation = new ScheduleCapabilityReservation(owner, reservationId);
+            nextReservationId = reservationId;
+            return reservation;
+        }
+    }
+
+    void reserve(ScheduleCapabilityReservation reservation, ScheduleOwnerBundle bundle) {
+        Objects.requireNonNull(reservation, "schedule capability reservation");
         Objects.requireNonNull(bundle, "bundle");
         if (bundle.isEmpty()) {
             throw new IllegalStateException("empty schedule capability bundle: " + bundle.owner());
         }
+        if (!reservation.owner().equals(bundle.owner())) {
+            throw new IllegalStateException("schedule reservation owner does not match bundle: "
+                    + reservation.owner());
+        }
         synchronized (lock) {
             Map<ScheduleCapabilityOwner, PublishedOwner> validationOwners = validationOwners();
             rejectActiveOwnerClash(validationOwners, bundle.owner());
-            long reservationId = Math.incrementExact(nextReservationId);
             validationOwners.put(bundle.owner(), new PublishedOwner(
-                    bundle, -reservationId, reservationToken(reservationId), null,
-                    new ScheduleLeaseState()));
+                    bundle, -reservation.reservationId(), reservationToken(reservation.reservationId()),
+                    null, new ScheduleLeaseState(), null));
             rebuild(epoch, snapshot.revision(), validationOwners);
             Map<String, String> credentialPolicyOwnersById =
                     migrationCredentialPolicyOwners(bundle);
-            ScheduleCapabilityReservation token =
-                    new ScheduleCapabilityReservation(bundle.owner(), reservationId);
-            reservations.put(reservationId, new ReservedOwner(
-                    token, bundle, credentialPolicyOwnersById));
-            nextReservationId = reservationId;
-            return token;
+            reservations.put(reservation.reservationId(), new ReservedOwner(
+                    reservation, bundle, credentialPolicyOwnersById));
+            postReserveProbe.run();
         }
     }
 
@@ -331,9 +390,12 @@ public class ScheduleCapabilityRegistry {
                     beforeLeaseReleaseProbe,
                     afterLeaseReleaseProbe);
             String activationToken = UUID.randomUUID().toString();
+            reservation.bindCommit(publication, activationToken, leaseState);
+            ScheduleCapabilityReservation.CommitBinding binding = reservation.commitBinding();
             Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners = new LinkedHashMap<>(snapshot.owners());
             nextOwners.put(bundle.owner(), new PublishedOwner(
-                    bundle, publicationId, activationToken, publication, leaseState));
+                    bundle, publicationId, binding.activationToken(), publication,
+                    leaseState, binding.drain()));
             Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
             nextPublicationId = publicationId;
             snapshot = next;
@@ -363,7 +425,8 @@ public class ScheduleCapabilityRegistry {
         for (ReservedOwner reserved : reservations.values()) {
             owners.put(reserved.token().owner(), new PublishedOwner(
                     reserved.bundle(), -reserved.token().reservationId(),
-                    reservationToken(reserved.token().reservationId()), null, new ScheduleLeaseState()));
+                    reservationToken(reserved.token().reservationId()), null,
+                    new ScheduleLeaseState(), null));
         }
         return owners;
     }
@@ -390,16 +453,96 @@ public class ScheduleCapabilityRegistry {
         }
         synchronized (lock) {
             PublishedOwner current = snapshot.owners().get(publication.owner());
-            if (current == null || current.publication() != publication) {
+            if (current == null) {
+                RetiredOwner proof = retirementProofs.get(publication.publicationId());
+                return proof != null && proof.matches(publication)
+                        ? Optional.of(proof.drain()) : Optional.empty();
+            }
+            if (current.publication() != publication) {
                 return Optional.empty();
             }
+            Optional<ScheduleGenerationDrain> result = Optional.of(current.drain());
             Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners = new LinkedHashMap<>(snapshot.owners());
             nextOwners.remove(publication.owner());
             Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
             current.leaseState().retire();
+            retirementProofs.put(publication.publicationId(), RetiredOwner.from(current));
             snapshot = next;
-            return Optional.of(new ScheduleGenerationDrain(
-                    publication.owner(), publication.publicationId(), current.leaseState()));
+            postWithdrawProbe.run();
+            return result;
+        }
+    }
+
+    /**
+     * Roll back either side of a reservation commit. This also covers a fatal thrown after the visible snapshot
+     * changed but before the publication token reached the registrar.
+     */
+    ScheduleGenerationDrain rollback(ScheduleCapabilityReservation reservation) {
+        if (reservation == null) {
+            return null;
+        }
+        synchronized (lock) {
+            ScheduleCapabilityReservation.CommitBinding binding = reservation.commitBinding();
+            if (binding != null) {
+                PublishedOwner current = snapshot.owners().get(reservation.owner());
+                if (current != null && current.publication() == binding.publication()) {
+                    Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners =
+                            new LinkedHashMap<>(snapshot.owners());
+                    nextOwners.remove(reservation.owner());
+                    Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
+                    current.leaseState().retire();
+                    retirementProofs.put(
+                            binding.publication().publicationId(), RetiredOwner.from(current));
+                    snapshot = next;
+                    reservations.remove(reservation.reservationId());
+                    postWithdrawProbe.run();
+                    return current.drain();
+                }
+                RetiredOwner proof = retirementProofs.get(binding.publication().publicationId());
+                if (proof != null && proof.matches(binding.publication())) {
+                    reservations.remove(reservation.reservationId());
+                    return proof.drain();
+                }
+            }
+            ReservedOwner reserved = reservations.get(reservation.reservationId());
+            if (reserved != null && reserved.token() == reservation) {
+                reservations.remove(reservation.reservationId());
+            }
+            return null;
+        }
+    }
+
+    boolean acknowledgeRetired(ScheduleGenerationDrain drain) {
+        Objects.requireNonNull(drain, "schedule generation drain");
+        synchronized (lock) {
+            RetiredOwner proof = retirementProofs.get(drain.publicationId());
+            if (proof == null || !proof.matches(drain)) {
+                throw new IllegalStateException("schedule generation drain is not retired: "
+                        + drain.owner() + "#" + drain.publicationId());
+            }
+            if (proof.phase() == RetirementPhase.ACKNOWLEDGED) {
+                return true;
+            }
+            retirementProofs.put(drain.publicationId(), proof.acknowledged());
+            postRetirementAcknowledgeProbe.run();
+            return true;
+        }
+    }
+
+    boolean forgetRetirementAcknowledgement(ScheduleGenerationDrain drain) {
+        Objects.requireNonNull(drain, "schedule generation drain");
+        synchronized (lock) {
+            RetiredOwner proof = retirementProofs.get(drain.publicationId());
+            if (proof == null) {
+                return false;
+            }
+            if (!proof.matches(drain) || proof.phase() != RetirementPhase.ACKNOWLEDGED) {
+                throw new IllegalStateException("schedule generation drain acknowledgement mismatch: "
+                        + drain.owner() + "#" + drain.publicationId());
+            }
+            retirementProofs.remove(drain.publicationId());
+            postRetirementForgetProbe.run();
+            return true;
         }
     }
 

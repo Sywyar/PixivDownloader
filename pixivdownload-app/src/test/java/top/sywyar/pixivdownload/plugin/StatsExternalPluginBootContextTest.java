@@ -293,7 +293,8 @@ class StatsExternalPluginBootContextTest {
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(routeAccessRegistry.isDeclared("/pixiv-stats/pixiv-stats.css", HttpMethod.GET)).isTrue();
 
-        pluginWebContributionRegistrar.unregister(stats);
+        // 经生命周期服务拆除，确保其保存的精确 serving handle 与 registrar 当前身份同步。
+        pluginLifecycleService.stop("stats");
 
         // 注销后：route/static/navigation 快照不再含 stats，其 URL「未声明」→ AuthFilter「未声明即 404」、资源不可达。
         // i18n 仍按安装态只读 fallback 可解析插件身份展示文案，避免未启动包在管理 / GUI 状态中回退 id。
@@ -305,7 +306,7 @@ class StatsExternalPluginBootContextTest {
         assertThat(navigationRegistry.navigation()).noneMatch(n -> n.pluginId().equals("stats"));
 
         // 可逆：重新接入恢复（也还原本类其它用例 / AfterAll 依赖的已注册状态）。
-        pluginWebContributionRegistrar.register(stats);
+        pluginLifecycleService.start("stats");
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
         assertActiveStatsI18nBundle();

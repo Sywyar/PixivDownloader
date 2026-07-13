@@ -6,8 +6,17 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
@@ -17,6 +26,10 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
+import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.scripts.ScriptRegistry;
+import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -24,15 +37,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 
 /**
  * stats 外置插件启动期加载的端到端集成测试：用<b>真实</b> stats 插件 jar（由本模块编译产物 + 根部
@@ -43,8 +52,8 @@ import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
  *   <li>清点出统一描述符（id / sourceId / 合法 semver 版本 / requires 兼容 / plugin-class）、基线状态 {@code STARTED}，
  *       且 classloader 是外置插件自己的、<b>不是</b>核心壳应用 classloader；</li>
  *   <li>发现桥接把 stats 以 {@code EXTERNAL} 来源接入 {@link PluginRegistry}；</li>
- *   <li>stats 的 route / static / i18n / navigation contribution 经各下游注册中心注册到位，且静态资源 / i18n 的
- *       classloader-aware 解析走<b>外置插件 classloader</b>（核心壳应用 classloader 解析不到 stats 资源）。</li>
+ *   <li>stats 的 route / static / i18n / navigation contribution 经各下游注册中心注册到位；静态资源保留来源
+ *       classloader，i18n 在注册时经该 loader 物化后只发布宿主 map。</li>
  * </ol>
  *
  * <p>控范围：本测试只验证<b>启动期加载</b>与 contribution 注册。stats {@code @RestController} / {@code @Service}
@@ -161,20 +170,35 @@ class StatsExternalPluginIntegrationTest {
                 List.of(), new PluginToggleProperties(), manager.discoverFeaturePlugins());
         ClassLoader externalCl = registry.registeredPlugins().stream()
                 .filter(rp -> rp.id().equals("stats")).findFirst().orElseThrow().classLoader();
+        RouteAccessRegistry routes = new RouteAccessRegistry(registry);
+        StaticResourceRegistry staticResources = new StaticResourceRegistry(registry);
+        WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(registry);
+        NavigationRegistry navigation = new NavigationRegistry(registry);
+        WebUiSlotRegistry uiSlots = new WebUiSlotRegistry(registry);
+        UserscriptRegistry userscripts = new UserscriptRegistry(registry);
+        ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
+        DownloadExtensionRegistry downloads = new DownloadExtensionRegistry(
+                registry, staticResources, new PluginOwnedWebAssetValidator(staticResources));
+        PluginRequestLeaseRegistry requestLeases = new PluginRequestLeaseRegistry();
+        new PluginWebContributionRegistrar(
+                routes, staticResources, i18n, navigation, uiSlots, userscripts, scripts,
+                registry, downloads, requestLeases);
 
-        // route：三条 stats 路由进入 RouteAccessRegistry
-        assertThat(new RouteAccessRegistry(registry).routes())
+        // route：外置路由由 Web registrar 以 exact request owner 发布，不经过 owner-null boot 快照。
+        assertThat(routes.routes())
                 .filteredOn(r -> r.pluginId().equals("stats"))
+                .allSatisfy(route -> assertThat(route.requestOwner()).isNotNull())
                 .extracting(r -> r.route().pathPattern())
                 .containsExactlyInAnyOrder("/pixiv-stats.html", "/pixiv-stats/**", "/api/stats/**");
+        assertThat(requestLeases.currentOwner("stats")).isPresent();
 
         // navigation：stats 导航项进入 NavigationRegistry
-        assertThat(new NavigationRegistry(registry).navigation())
+        assertThat(navigation.navigation())
                 .anyMatch(n -> n.pluginId().equals("stats"));
 
         // static：stats 静态资源进入 StaticResourceRegistry，且其解析用 classloader 是外置插件 loader
         List<StaticResourceRegistry.RegisteredStaticResource> statsResources =
-                new StaticResourceRegistry(registry).resources().stream()
+                staticResources.resources().stream()
                         .filter(s -> s.pluginId().equals("stats")).toList();
         assertThat(statsResources).hasSize(2);
         assertThat(statsResources)
@@ -184,11 +208,11 @@ class StatsExternalPluginIntegrationTest {
                 assertThat(s.classLoader()).isSameAs(externalCl));
 
         // i18n：stats namespace 经外置插件 loader 物化后进入纯宿主快照。
-        WebI18nBundleRegistry.RegisteredBundle bundle = new WebI18nBundleRegistry(registry).resolve("stats");
+        WebI18nBundleRegistry.RegisteredBundle bundle = i18n.resolve("stats");
         assertThat(bundle).isNotNull();
-        assertThat(bundle.load(java.util.Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "统计");
+        assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("plugin.name", "统计");
 
-        // classloader-aware 实证：stats 静态资源 / i18n bundle 只能经外置 loader 解析到，核心壳应用 loader 解析不到。
+        // 来源隔离实证：stats 原始静态资源 / i18n 文件只存在外置 loader，核心壳应用 loader 解析不到。
         assertThat(externalCl.getResource("static/pixiv-stats/pixiv-stats.css")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/stats.properties")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-stats/pixiv-stats.css")).isNull();

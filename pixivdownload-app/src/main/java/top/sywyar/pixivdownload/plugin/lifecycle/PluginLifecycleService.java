@@ -1,14 +1,20 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar.PreparedOwner;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityDrain;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPublication;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestGenerationDrain;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
 import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -21,7 +27,9 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionHandle;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar.PreparedWebContribution;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -30,8 +38,11 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 
 /**
  * 外置插件运行期热启停 / quiesce 生命周期服务：把单个外置插件的 {@code load} / {@code start} / {@code quiesce} /
@@ -43,12 +54,12 @@ import java.util.Set;
  * （{@code SmartLifecycle}）在核心 context 刷新 / 关闭时调 {@link #startAll()} / {@link #stopAll()} 驱动启动期接入与关闭期收尾。
  *
  * <h2>停止顺序（与启动期接入对称）</h2>
- * {@code stop} 依次：<b>① 标记 {@link PluginRuntimePhase#QUIESCED}</b>（请求网关随即拒绝命中其路由的新请求）→
+ * {@code stop} 依次：<b>① 标记 {@link PluginRuntimePhase#QUIESCED} 并撤回本 serving 的 HTTP 请求准入</b>→
  * <b>② 精确撤回本 generation 的 schedule publication</b>（统一 registry 原子拒绝新 lease，并向旧 lease 发取消）→
  * <b>③ 保存 queue generation drain、关闭 SSE 并发送协作式取消</b> →
- * <b>④ 用同一绝对截止时间等待旧 schedule / queue generation 归零</b> → <b>⑤ 拆除服务足迹</b>
- * （{@link #tearDownServing}：注销 controller / runtime capability / web 贡献 → 调插件 {@code stop()} → 关闭子 context）。
- * schedule 撤回或 queue drain 准备失败不会被吞掉；运行期等待超时返回
+ * <b>④ 用同一绝对截止时间等待旧 request / schedule / queue generation 真实归零</b> → <b>⑤ 拆除服务足迹</b>
+ * （注销 controller / runtime capability / web 贡献 → 经 {@link PluginRegistry} 调插件 {@code stop()} → 关闭子 context）。
+ * schedule 或 queue 准备 / 取消失败不会被吞掉；运行期等待超时返回
  * {@link PluginManagementErrorCode#OPERATION_IN_PROGRESS} 并保持 {@link PluginRuntimePhase#QUIESCED}，绝不关闭仍被
  * schedule lease 或 queue task 引用的 child context。其余足迹拆除继续沿用 best-effort 隔离。
  *
@@ -56,10 +67,10 @@ import java.util.Set;
  * 插件自身的生命周期回调与服务足迹（web / controller / 子 context）分属不同时机：<b>启动期</b>全部活动插件的
  * {@code start()} 由 {@link PluginRegistry}（{@code SmartLifecycle}）统一调用一次，故 {@link #startAll()} 只建立服务
  * 足迹、<b>不重复调 {@code start()}</b>（启动期接入路径 {@link #bringUpFromBoot} 传 {@code invokePluginStart=false}）；
- * <b>运行期</b>则由本服务负责——{@link #stop(String)} 调插件 {@code stop()}、{@link #start(String)}（及
- * {@link #reload(String)} 的重启段）调插件 {@code start()}，使 {@code start → stop → start} 既重建服务足迹也恢复插件
- * 自身生命周期（与 {@code stop} 调 {@code stop()} 对称）。运行期 {@code start()} 在足迹建立后调用、若抛异常即回滚本次
- * 已建立的足迹（controller / web / 子 context）并落 {@link PluginRuntimePhase#STOPPED}、不进入 STARTED。
+ * <b>运行期</b>由本服务编排，但仍统一经 {@link PluginRegistry#startFeature} / {@link PluginRegistry#stopFeature}
+ * 调用精确代际回调，使 SmartLifecycle 与热启停共享同一个幂等事实源。应用关闭先由本服务撤回服务足迹，随后
+ * {@link PluginRegistry} 只停止仍处于 started 的身份；运行期已经成功停止的身份不会被重复回调。运行期 {@code start()}
+ * 若抛异常即回滚本次已建立的足迹（controller / web / 子 context）并落 {@link PluginRuntimePhase#STOPPED}、不进入 STARTED。
  *
  * <h2>幂等与可重复</h2>
  * 重复 {@code stop} / {@code unload} 不破坏状态（已停 / 已卸即静默返回）；{@code start → stop → start} 可重复
@@ -105,6 +116,11 @@ public class PluginLifecycleService {
     private final PluginCapabilityContributionRegistrar capabilityContributionRegistrar;
     private final PluginRegistry pluginRegistry;
     private final PluginLifecycleState lifecycleState;
+    private final Runnable afterCapabilityPublishReturnProbe;
+    private final Runnable afterCapabilityWithdrawReturnProbe;
+    private final Runnable afterCapabilityRetireReturnProbe;
+    private final Runnable afterCapabilityAcknowledgeReturnProbe;
+    private final Runnable afterCapabilityAcknowledgeFlagProbe;
     private final ScheduleContributionLifecycleAuthority scheduleMutationAuthority =
             new ScheduleContributionLifecycleAuthority();
 
@@ -113,6 +129,7 @@ public class PluginLifecycleService {
     private final Map<String, ManagedPlugin> managed = new LinkedHashMap<>();
     private volatile boolean started;
 
+    @Autowired
     public PluginLifecycleService(ApplicationContext parent,
                                   PluginRuntimeManager pluginRuntimeManager,
                                   PluginApplicationContextFactory contextFactory,
@@ -123,6 +140,43 @@ public class PluginLifecycleService {
                                   PluginCapabilityContributionRegistrar capabilityContributionRegistrar,
                                   PluginRegistry pluginRegistry,
                                   PluginLifecycleState lifecycleState) {
+        this(parent,
+                pluginRuntimeManager,
+                contextFactory,
+                controllerRegistrar,
+                webContributionRegistrar,
+                scheduleContributionRegistrar,
+                runtimeTaskQuiescer,
+                capabilityContributionRegistrar,
+                pluginRegistry,
+                lifecycleState,
+                () -> {
+                },
+                () -> {
+                },
+                () -> {
+                },
+                () -> {
+                },
+                () -> {
+                });
+    }
+
+    PluginLifecycleService(ApplicationContext parent,
+                           PluginRuntimeManager pluginRuntimeManager,
+                           PluginApplicationContextFactory contextFactory,
+                           PluginControllerRegistrar controllerRegistrar,
+                           PluginWebContributionRegistrar webContributionRegistrar,
+                           PluginScheduleContributionRegistrar scheduleContributionRegistrar,
+                           PluginRuntimeTaskQuiescer runtimeTaskQuiescer,
+                           PluginCapabilityContributionRegistrar capabilityContributionRegistrar,
+                           PluginRegistry pluginRegistry,
+                           PluginLifecycleState lifecycleState,
+                           Runnable afterCapabilityPublishReturnProbe,
+                           Runnable afterCapabilityWithdrawReturnProbe,
+                           Runnable afterCapabilityRetireReturnProbe,
+                           Runnable afterCapabilityAcknowledgeReturnProbe,
+                           Runnable afterCapabilityAcknowledgeFlagProbe) {
         this.parent = parent;
         this.pluginRuntimeManager = pluginRuntimeManager;
         this.contextFactory = contextFactory;
@@ -133,6 +187,16 @@ public class PluginLifecycleService {
         this.capabilityContributionRegistrar = capabilityContributionRegistrar;
         this.pluginRegistry = pluginRegistry;
         this.lifecycleState = lifecycleState;
+        this.afterCapabilityPublishReturnProbe = Objects.requireNonNull(
+                afterCapabilityPublishReturnProbe, "capability publish return probe");
+        this.afterCapabilityWithdrawReturnProbe = Objects.requireNonNull(
+                afterCapabilityWithdrawReturnProbe, "capability withdraw return probe");
+        this.afterCapabilityRetireReturnProbe = Objects.requireNonNull(
+                afterCapabilityRetireReturnProbe, "capability retire return probe");
+        this.afterCapabilityAcknowledgeReturnProbe = Objects.requireNonNull(
+                afterCapabilityAcknowledgeReturnProbe, "capability acknowledge return probe");
+        this.afterCapabilityAcknowledgeFlagProbe = Objects.requireNonNull(
+                afterCapabilityAcknowledgeFlagProbe, "capability acknowledge flag probe");
     }
 
     // ---- 启动期接入 / 关闭期收尾（由 ExternalPluginContextManager 驱动）----
@@ -184,30 +248,78 @@ public class PluginLifecycleService {
             }
             List<String> ids = new ArrayList<>(managed.keySet());
             Collections.reverse(ids);
+            Throwable fatal = null;
+            boolean interrupted = false;
             // 先对全部插件撤回 publication 并发出取消，避免逐插件等待时其它 owner 仍继续接收新执行。
+            List<String> pendingQuiesce = new ArrayList<>();
             for (String id : ids) {
-                ManagedPlugin record = managed.get(id);
                 PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
                 if (phase == PluginRuntimePhase.STARTED || phase == PluginRuntimePhase.QUIESCED) {
-                    ensureQuiesced(record);
+                    pendingQuiesce.add(id);
+                }
+            }
+            while (!pendingQuiesce.isEmpty()) {
+                for (int index = 0; index < pendingQuiesce.size();) {
+                    String id = pendingQuiesce.get(index);
+                    ManagedPlugin record = managed.get(id);
+                    try {
+                        ensureQuiesced(record);
+                        if (record.requestWithdrawalComplete && record.capabilityWithdrawalComplete
+                                && record.scheduleWithdrawalComplete
+                                && record.queuePreparationComplete
+                                && record.runtimeTasksQuiesced) {
+                            pendingQuiesce.remove(index);
+                        } else {
+                            index++;
+                        }
+                    } catch (Throwable failure) {
+                        fatal = mergeFatal(fatal, failure);
+                        log.warn("Core shutdown quiesce remains incomplete for plugin '{}' (failureType={}).",
+                                id, failure.getClass().getName());
+                        index++;
+                    }
+                }
+                if (!pendingQuiesce.isEmpty()) {
+                    interrupted |= parkShutdownRetry();
                 }
             }
 
             // 核心 context 关闭不能在 lease 仍活动时继续销毁父服务；忽略中断直到所有旧代执行真实归零。
-            boolean interrupted = false;
             for (String id : ids) {
                 ManagedPlugin record = managed.get(id);
                 PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
-                if (phase == PluginRuntimePhase.QUIESCED) {
-                    interrupted |= awaitDrainUninterruptibly(record);
-                    finishStop(record);
+                if (phase == PluginRuntimePhase.QUIESCED
+                        && record.requestWithdrawalComplete && record.capabilityWithdrawalComplete
+                        && record.scheduleWithdrawalComplete
+                        && record.queuePreparationComplete
+                        && record.runtimeTasksQuiesced) {
+                    interrupted |= awaitRuntimeDrainsUninterruptibly(record);
+                    while (lifecycleState.phase(id).orElse(null) == PluginRuntimePhase.QUIESCED) {
+                        try {
+                            finishStop(record, false);
+                        } catch (Throwable failure) {
+                            fatal = mergeFatal(fatal, failure);
+                            log.warn("Core shutdown service cleanup remains incomplete for plugin '{}' (failureType={}).",
+                                    id, failure.getClass().getName());
+                            interrupted |= parkShutdownRetry();
+                        }
+                    }
                 }
             }
             started = false;
             if (interrupted) {
                 Thread.currentThread().interrupt();
             }
+            if (fatal != null) {
+                rethrowFatal(fatal);
+            }
         }
+    }
+
+    private static boolean parkShutdownRetry() {
+        boolean interrupted = Thread.interrupted();
+        LockSupport.parkNanos(1_000_000L);
+        return interrupted | Thread.interrupted();
     }
 
     // ---- 运行期热启停 / quiesce API（按 pluginId）----
@@ -296,14 +408,31 @@ public class PluginLifecycleService {
             PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
                     installation.plugin(), PluginSource.EXTERNAL, installation.classLoader(),
                     packageId, loaded.generation());
+            PluginContextModule module = loaded.contextModules().isEmpty() ? null : loaded.contextModules().get(0);
+            ManagedPlugin record = new ManagedPlugin(packageId, loaded.generation(), module, registered);
+            Optional<PluginRuntimePhase> previousPhase = lifecycleState.phase(packageId);
             try {
                 pluginRegistry.register(registered);
-            } catch (RuntimeException e) {
-                throw new PluginLifecycleException("failed to register new generation for '" + packageId + "'", e);
+                managed.put(packageId, record);
+                lifecycleState.initialize(packageId, PluginRuntimePhase.LOADED);
+            } catch (Throwable failure) {
+                Throwable cleanupFailure = null;
+                try {
+                    if (previousPhase.isPresent()) {
+                        lifecycleState.set(packageId, previousPhase.get());
+                    } else {
+                        lifecycleState.remove(packageId);
+                    }
+                } catch (Throwable cleanup) {
+                    cleanupFailure = mergeFailure(cleanupFailure, cleanup);
+                }
+                if (managed.get(packageId) == record) {
+                    managed.remove(packageId);
+                }
+                cleanupFailure = unregisterAfterFailedRegistration(registered, cleanupFailure);
+                throwCompensatedLifecycleFailure(
+                        "failed to adopt new generation for '" + packageId + "'", failure, cleanupFailure);
             }
-            PluginContextModule module = loaded.contextModules().isEmpty() ? null : loaded.contextModules().get(0);
-            managed.put(packageId, new ManagedPlugin(packageId, loaded.generation(), module, registered));
-            lifecycleState.initialize(packageId, PluginRuntimePhase.LOADED);
         }
     }
 
@@ -326,6 +455,15 @@ public class PluginLifecycleService {
         synchronized (lock) {
             ManagedPlugin record = managed.get(packageId);
             return record == null ? Optional.empty() : Optional.of(record.generation);
+        }
+    }
+
+    /** 供物理卸载编排在跨越边界前复核本代精确核心身份已经删除。 */
+    public boolean coreRegistrationPresent(String packageId, long generation) {
+        synchronized (lock) {
+            ManagedPlugin record = managed.get(packageId);
+            return record != null && record.generation == generation && record.registered != null
+                    && pluginRegistry.containsIdentity(record.registered);
         }
     }
 
@@ -356,6 +494,46 @@ public class PluginLifecycleService {
         synchronized (lock) {
             ManagedPlugin record = managed.get(pluginId);
             return record == null ? Optional.empty() : Optional.ofNullable(record.context);
+        }
+    }
+
+    /**
+     * Runs host-owned synchronous work against one active child context under that exact serving's request lease.
+     * Returning {@code false} means the plugin is absent, quiesced, context-free, or lost admission before the
+     * operation started; in every case the callback is left untouched.
+     */
+    public boolean withServingContext(
+            String pluginId,
+            Consumer<ConfigurableApplicationContext> operation) {
+        Objects.requireNonNull(operation, "serving context operation");
+        ConfigurableApplicationContext context = null;
+        PluginRequestLease lease = null;
+        try {
+            synchronized (lock) {
+                ManagedPlugin record = managed.get(pluginId);
+                if (record == null
+                        || lifecycleState.phase(pluginId).orElse(null) != PluginRuntimePhase.STARTED
+                        || record.context == null
+                        || record.webHandle == null) {
+                    return false;
+                }
+                Optional<PluginRequestLease> prepared =
+                        webContributionRegistrar.prepareRequestLease(record.webHandle);
+                if (prepared.isEmpty()) {
+                    return false;
+                }
+                lease = prepared.orElseThrow();
+                if (!webContributionRegistrar.activateRequestLease(record.webHandle, lease)) {
+                    return false;
+                }
+                context = record.context;
+            }
+            operation.accept(context);
+            return true;
+        } finally {
+            if (lease != null) {
+                lease.close();
+            }
         }
     }
 
@@ -434,10 +612,10 @@ public class PluginLifecycleService {
                     PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "plugin '" + pluginId + "' remains quiesced with active " + activeDrain);
         }
-        finishStop(record);
+        finishStop(record, true);
     }
 
-    /** 标记 QUIESCED，并按 publication → queue drain 保存 → SSE / queue 取消的顺序发起运行期清退。 */
+    /** 标记 QUIESCED，并且恰好一次按 request → capability → schedule → queue 的顺序发起清退。 */
     private void ensureQuiesced(ManagedPlugin record) {
         PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
         if (phase == PluginRuntimePhase.STARTED) {
@@ -446,36 +624,157 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("cannot quiesce plugin '" + record.pluginId
                     + "' from phase " + phase);
         }
+        if (!record.requestWithdrawalComplete) {
+            PluginWebContributionHandle handle = record.webHandle;
+            record.requestDrain = handle == null
+                    ? null
+                    : webContributionRegistrar.withdrawRequests(handle).orElse(null);
+            record.requestWithdrawalComplete = true;
+        }
+        if (!record.capabilityWithdrawalComplete) {
+            record.capabilityDrain = withdrawCapabilityPublication(record, "withdrawal");
+            record.capabilityWithdrawalComplete = true;
+        }
+        if (!record.scheduleWithdrawalComplete) {
+            record.scheduleDrain = withdrawScheduleOrRetryFailedRegistration(record);
+            record.scheduleWithdrawalComplete = true;
+        }
+        if (!record.queuePreparationComplete) {
+            runtimeTaskQuiescer.prepareQueueDrains(
+                    record.pluginId, List.copyOf(record.queueDrains), record.queueDrains::add);
+            record.queuePreparationComplete = true;
+        }
         if (record.runtimeTasksQuiesced) {
             return;
         }
-        if (record.schedulePublication != null && record.scheduleDrain == null) {
-            PluginRuntimeTaskQuiescer.QuiesceResult result = runtimeTaskQuiescer.withdrawSchedule(
-                    scheduleMutationAuthority, record.schedulePublication);
-            record.scheduleDrain = result.scheduleDrain().orElse(null);
-        }
-        runtimeTaskQuiescer.prepareQueueDrains(
-                record.pluginId, List.copyOf(record.queueDrains), record.queueDrains::add);
         runtimeTaskQuiescer.quiesceAfterScheduleWithdrawal(
                 record.pluginId, List.copyOf(record.queueDrains));
         record.runtimeTasksQuiesced = true;
     }
 
-    /** lease 已归零后的唯一服务足迹关闭入口。 */
-    private void finishStop(ManagedPlugin record) {
-        tearDownServing(record);
-        record.schedulePublication = null;
-        record.scheduleDrain = null;
-        record.queueDrains.clear();
-        record.runtimeTasksQuiesced = false;
+    /** Recover a publication returned before lifecycle assignment, then withdraw the same exact central drain. */
+    private ExternalCapabilityDrain withdrawCapabilityPublication(ManagedPlugin record, String action) {
+        ExternalCapabilityPublication publication = recoverCapabilityPublication(record);
+        if (publication == null) {
+            return null;
+        }
+        record.capabilityRetirementComplete = false;
+        record.capabilityRetirementAcknowledged = false;
+        ExternalCapabilityDrain drain = capabilityContributionRegistrar.withdraw(publication)
+                .orElseThrow(() -> new IllegalStateException(
+                        "missing external capability publication during " + action + ": "
+                                + publication.owner()));
+        afterCapabilityWithdrawReturnProbe.run();
+        record.capabilityDrain = drain;
+        return drain;
+    }
+
+    /** Publication recovery always normalizes the retirement flags before exposing the recovered token. */
+    private ExternalCapabilityPublication recoverCapabilityPublication(ManagedPlugin record) {
+        ExternalCapabilityPublication publication = record.capabilityPublication;
+        PreparedOwner preparation = record.capabilityPreparation;
+        if (publication == null && preparation != null) {
+            publication = capabilityContributionRegistrar.recoverPublication(preparation).orElse(null);
+            if (publication != null) {
+                record.capabilityRetirementComplete = false;
+                record.capabilityRetirementAcknowledged = false;
+                record.capabilityPublication = publication;
+            }
+        }
+        if (publication != null && preparation != null) {
+            record.capabilityPreparation = null;
+        }
+        return publication;
+    }
+
+    /** Discard only a confirmed unpublished preparation; a successful publication is recovered instead. */
+    private void discardCapabilityPreparation(ManagedPlugin record) {
+        PreparedOwner preparation = record.capabilityPreparation;
+        if (preparation == null) {
+            return;
+        }
+        if (recoverCapabilityPublication(record) != null) {
+            return;
+        }
+        if (!capabilityContributionRegistrar.discardUnpublished(preparation)) {
+            if (recoverCapabilityPublication(record) != null) {
+                return;
+            }
+            throw new IllegalStateException("external capability preparation cleanup remains pending: "
+                    + preparation.owner());
+        }
+        record.capabilityPreparation = null;
+        record.capabilityRetirementComplete = true;
+        record.capabilityRetirementAcknowledged = true;
+    }
+
+    /** 全部 runtime drain 已归零后的唯一服务足迹关闭入口；核心关闭把 feature stop 留给后续 Registry phase。 */
+    private void finishStop(ManagedPlugin record, boolean invokeFeatureStop) {
+        assertRuntimeDrained(record);
+        // Request drain 归零后再封一次 stream：覆盖首次 closeForPlugin 返回后由旧请求迟到登记的失败回调。
+        runtimeTaskQuiescer.quiesceStreams(record.pluginId);
+        tearDownServing(record, invokeFeatureStop);
+        resetRuntimeDrainState(record);
         lifecycleState.set(record.pluginId, PluginRuntimePhase.STOPPED);
         log.info("Stopped plugin '{}'.", record.pluginId);
     }
 
-    /** clean context shutdown 使用：清除中断并持续等待，返回是否曾观察到中断。 */
-    private static boolean awaitDrainUninterruptibly(ManagedPlugin record) {
+    private static void resetRuntimeDrainState(ManagedPlugin record) {
+        record.requestDrain = null;
+        record.requestWithdrawalComplete = false;
+        record.capabilityPreparation = null;
+        record.capabilityPublication = null;
+        record.capabilityDrain = null;
+        record.capabilityWithdrawalComplete = false;
+        record.capabilityRetirementComplete = true;
+        record.capabilityRetirementAcknowledged = true;
+        record.schedulePublication = null;
+        record.scheduleDrain = null;
+        record.scheduleWithdrawalComplete = false;
+        record.scheduleRetirementAcknowledged = true;
+        record.queueDrains.clear();
+        record.queuePreparationComplete = false;
+        record.runtimeTasksQuiesced = false;
+    }
+
+    /** 对 request、schedule 与全部 queue drain 使用同一个绝对截止时间；返回首个仍活动的纯值诊断。 */
+    private static String awaitRuntimeDrains(ManagedPlugin record, long deadlineNanos) {
+        PluginRequestGenerationDrain requestDrain = record.requestDrain;
+        if (requestDrain != null && !requestDrain.awaitDrained(deadlineNanos)) {
+            return "request lease(s)=" + requestDrain.activeLeaseCount();
+        }
+        ExternalCapabilityDrain capabilityDrain = record.capabilityDrain;
+        if (capabilityDrain != null && !capabilityDrain.awaitDrained(deadlineNanos)) {
+            return "capability invocation(s)=" + capabilityDrain.activeLeaseCount();
+        }
         ScheduleGenerationDrain drain = record.scheduleDrain;
+        if (drain != null && !drain.awaitDrained(deadlineNanos)) {
+            return "schedule lease(s)=" + drain.activeLeaseCount();
+        }
+        for (QueueGenerationDrain queueDrain : record.queueDrains) {
+            if (!queueDrain.awaitDrained(deadlineNanos)) {
+                return "queue task(s) " + queueDrain.queueType() + "=" + queueDrain.activeCount();
+            }
+        }
+        return null;
+    }
+
+    /** clean context shutdown 使用：清除中断并持续等待全部 runtime drain，返回是否曾观察到中断。 */
+    private static boolean awaitRuntimeDrainsUninterruptibly(ManagedPlugin record) {
         boolean interrupted = false;
+        PluginRequestGenerationDrain requestDrain = record.requestDrain;
+        while (requestDrain != null && !requestDrain.isDrained()) {
+            if (!requestDrain.awaitDrained()) {
+                interrupted |= Thread.interrupted();
+            }
+        }
+        ExternalCapabilityDrain capabilityDrain = record.capabilityDrain;
+        while (capabilityDrain != null && !capabilityDrain.isDrained()) {
+            if (!capabilityDrain.awaitDrained()) {
+                interrupted |= Thread.interrupted();
+            }
+        }
+        ScheduleGenerationDrain drain = record.scheduleDrain;
         while (drain != null && !drain.isDrained()) {
             if (!drain.awaitDrained()) {
                 interrupted |= Thread.interrupted();
@@ -491,20 +790,6 @@ public class PluginLifecycleService {
         return interrupted;
     }
 
-    /** 对 schedule 与全部 queue drain 使用同一个绝对截止时间；返回首个仍活动的纯值诊断。 */
-    private static String awaitRuntimeDrains(ManagedPlugin record, long deadlineNanos) {
-        ScheduleGenerationDrain scheduleDrain = record.scheduleDrain;
-        if (scheduleDrain != null && !scheduleDrain.awaitDrained(deadlineNanos)) {
-            return "schedule lease(s)=" + scheduleDrain.activeLeaseCount();
-        }
-        for (QueueGenerationDrain queueDrain : record.queueDrains) {
-            if (!queueDrain.awaitDrained(deadlineNanos)) {
-                return "queue task(s) " + queueDrain.queueType() + "=" + queueDrain.activeCount();
-            }
-        }
-        return null;
-    }
-
     private void doUnload(ManagedPlugin record) {
         String pluginId = record.pluginId;
         PluginRuntimePhase phase = lifecycleState.phase(pluginId).orElse(null);
@@ -515,12 +800,19 @@ public class PluginLifecycleService {
             doStop(record); // 先拆服务足迹 → STOPPED
         }
         // 从核心注册中心移除（与启动期接入对称、可逆）；注销后下游 registry 重建不再合并其 schema / 贡献。
-        if (record.registered != null) {
+        if (record.registered != null && pluginRegistry.containsIdentity(record.registered)) {
             try {
-                pluginRegistry.unregister(pluginId);
-            } catch (RuntimeException e) {
-                log.warn("Error unregistering plugin '{}' from core registry: {}", pluginId, e.toString());
+                pluginRegistry.unregister(record.registered);
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
+                throw new PluginLifecycleException(
+                        "failed to unregister exact core identity for plugin '" + pluginId
+                                + "' (failureType=" + failure.getClass().getName() + ")");
             }
+        }
+        if (record.registered != null && pluginRegistry.containsIdentity(record.registered)) {
+            throw new PluginLifecycleException(
+                    "exact core registration remains present for plugin '" + pluginId + "'");
         }
         lifecycleState.transition(pluginId, PluginRuntimePhase.UNLOADED);
         log.info("Unloaded plugin '{}' from core registry.", pluginId);
@@ -538,12 +830,16 @@ public class PluginLifecycleService {
         if (record.registered != null) {
             try {
                 pluginRegistry.register(record.registered);
-            } catch (RuntimeException e) {
-                throw new PluginLifecycleException("failed to re-register plugin '" + pluginId
-                        + "' into core registry", e);
+                lifecycleState.transition(pluginId, PluginRuntimePhase.LOADED);
+            } catch (Throwable failure) {
+                Throwable cleanupFailure = unregisterAfterFailedRegistration(record.registered, null);
+                throwCompensatedLifecycleFailure(
+                        "failed to re-register plugin '" + pluginId + "' into core registry",
+                        failure, cleanupFailure);
             }
+        } else {
+            lifecycleState.transition(pluginId, PluginRuntimePhase.LOADED);
         }
-        lifecycleState.transition(pluginId, PluginRuntimePhase.LOADED);
         log.info("Loaded plugin '{}' into core registry.", pluginId);
     }
 
@@ -555,16 +851,28 @@ public class PluginLifecycleService {
      * （区别于运行期 {@link #doStart}）。
      */
     private void bringUpFromBoot(ManagedPlugin record) {
-        record.webRegistered = record.registered != null; // 构造期已接入其（非空）web 贡献
         lifecycleState.initialize(record.pluginId, PluginRuntimePhase.LOADED);
+        if (record.registered != null) {
+            try {
+                record.webHandle = webContributionRegistrar.currentHandle(record.registered)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "missing boot web contribution handle for plugin: " + record.pluginId));
+            } catch (Throwable failure) {
+                log.error("Failed to capture boot web contribution handle for plugin '{}' (failureType={}) - isolating.",
+                        record.pluginId, failure.getClass().getName());
+                handleBringUpFailure(
+                        record, failure, pluginRegistry.featureStarted(record.registered));
+                return;
+            }
+        }
         bringUpServing(record, /* invokePluginStart */ false); // 启动期 start() 归 PluginRegistry，本服务不重复
     }
 
     /**
-     * 建立服务足迹：（按需）接入 web 贡献 → 建子 context → 接入 runtime capability → 动态注册 controller →
-     *（仅运行期重启）调插件 {@code start()} → 最终原子发布 schedule owner bundle，成功后阶段落到
-     * {@link PluginRuntimePhase#STARTED}。任一步失败被隔离
-     *（回滚本次已建立的足迹、阶段落到 STOPPED），不向上抛、不影响其它插件。
+     * 建立服务足迹：建子 context → 接入 runtime capability → 动态注册 controller →
+     *（仅运行期重启）调插件 {@code start()} → 接入 web/download 贡献 → 最终原子发布 schedule owner bundle，成功后阶段落到
+     * {@link PluginRuntimePhase#STARTED}。任一步失败都尝试隔离：清理完整时落 STOPPED；若某个有状态 registry
+     * 尚未达成删除后置条件，则保留句柄、context 与插件并落 QUIESCED，向上抛出以阻断 unload，供后续 stop 重试。
      *
      * <p>schedule 行为 Bean 依赖 child context，但 publication 必须是 bring-up 的最后一个可失败步骤：这样 capability、
      * controller 或插件 {@code start()} 失败时统一 registry 从未暴露半可用 owner，也不存在回滚关闭已被租用 Bean 的窗口。
@@ -576,194 +884,631 @@ public class PluginLifecycleService {
      */
     private void bringUpServing(ManagedPlugin record, boolean invokePluginStart) {
         String pluginId = record.pluginId;
-        try {
-            runtimeTaskQuiescer.resumeStreams(pluginId);
-        } catch (Throwable failure) {
-            log.error("Failed to resume server-push streams for plugin '{}' (failureType={}) - isolating.",
-                    pluginId, failure.getClass().getName());
-            lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
-            if (failure instanceof VirtualMachineError fatal) {
-                throw fatal;
-            }
-            if (failure instanceof ThreadDeath fatal) {
-                throw fatal;
-            }
-            return;
-        }
-        // a) web 贡献：仅当当前未接入且有注册条目时接入（运行期重启路径在此重新接入；启动期构造期已接入故跳过）。
-        if (!record.webRegistered && record.registered != null) {
-            try {
-                webContributionRegistrar.register(record.registered);
-                record.webRegistered = true;
-            } catch (RuntimeException e) {
-                log.error("Failed to register web contributions for plugin '{}': {} - isolating.",
-                        pluginId, e.toString(), e);
-                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
-                return;
-            }
-        }
-        // b) 子 context（仅声明了配置类的插件包）。
+        PreparedWebContribution preparedWeb = null;
+        boolean featureStartedForRollback = !invokePluginStart && record.registered != null
+                && pluginRegistry.featureStarted(record.registered);
+        // a) 子 context（仅声明了配置类的插件包）。
         if (record.module != null) {
             ConfigurableApplicationContext child;
             try {
                 child = contextFactory.create(parent, record.module);
-            } catch (Exception e) {
-                log.error("Failed to start child context for plugin '{}': {} - isolating.",
-                        pluginId, e.toString(), e);
-                cleanUpFailedBringUp(record);
-                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+            } catch (Throwable failure) {
+                log.error("Failed to start child context for plugin '{}' (failureType={}) - isolating.",
+                        pluginId, failure.getClass().getName());
+                handleBringUpFailure(record, failure, featureStartedForRollback);
                 return;
             }
             record.context = child;
         }
-        // c) runtime capability beans from the child context.
+        // b) Prepare migrated runtime capability proxies without admission, then retain the legacy queue bridge.
         if (record.context != null) {
             try {
-                capabilityContributionRegistrar.register(pluginId, record.context);
-            } catch (RuntimeException e) {
-                log.error("Failed to register runtime capability contributions for plugin '{}': {} - rolling back service footprint.",
-                        pluginId, e.toString(), e);
-                if (rollBackBringUp(record, true, false)) {
-                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                String packageId = record.registered == null
+                        ? pluginId : record.registered.packageId();
+                record.capabilityPreparation = capabilityContributionRegistrar.allocateOwner(
+                        pluginId, packageId, record.generation);
+                if (record.capabilityPreparation != null) {
+                    record.capabilityRetirementComplete = false;
+                    record.capabilityRetirementAcknowledged = false;
+                    capabilityContributionRegistrar.prepareInto(
+                            record.capabilityPreparation, record.context);
                 }
+                record.capabilityCleanupComplete = false;
+                capabilityContributionRegistrar.registerLegacy(pluginId, record.context);
+            } catch (Throwable failure) {
+                log.error("Failed to prepare runtime capability contributions for plugin '{}' (failureType={}) - rolling back service footprint.",
+                        pluginId, failure.getClass().getName());
+                handleBringUpFailure(record, failure, featureStartedForRollback);
                 return;
             }
         }
-        // d) controller 动态注册进父 context 请求分发表（仅有子 context 的插件包）。
-        if (record.context != null) {
+        // c) 运行期先一次性读取 getter / 解析资源 / 校验下载扩展；此时任何 web/download 快照都尚未公开。
+        if (record.webHandle == null && record.registered != null) {
             try {
-                controllerRegistrar.registerControllers(pluginId, record.context);
-            } catch (Exception e) {
-                log.error("Failed to register controllers for plugin '{}': {} - rolling back service footprint.",
-                        pluginId, e.toString(), e);
-                if (rollBackBringUp(record, true, false)) {
-                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
-                }
+                preparedWeb = webContributionRegistrar.prepare(record.registered);
+            } catch (Throwable failure) {
+                log.error("Failed to prepare web contributions for plugin '{}' (failureType={}) - rolling back service footprint.",
+                        pluginId, failure.getClass().getName());
+                handleBringUpFailure(record, failure, featureStartedForRollback);
                 return;
             }
         }
-        // e) 插件自身 start()：仅运行期重启路径调用（启动期由 PluginRegistry 统一调用、不在此重复）。
+        // d) controller 动态注册；运行期 route 尚未发布，校验使用同一 prepared token 的路由快照。
+        if (record.context != null) {
+            record.controllerCleanupComplete = false;
+            try {
+                if (preparedWeb == null) {
+                    controllerRegistrar.registerControllers(pluginId, record.context);
+                } else {
+                    controllerRegistrar.registerControllers(pluginId, record.context, preparedWeb);
+                }
+            } catch (Throwable failure) {
+                log.error("Failed to register controllers for plugin '{}' (failureType={}) - rolling back service footprint.",
+                        pluginId, failure.getClass().getName());
+                handleBringUpFailure(record, failure, featureStartedForRollback);
+                return;
+            }
+        }
+        // e) 插件自身 start()：仅运行期重启路径经 PluginRegistry 的精确身份入口调用。
         if (invokePluginStart) {
             try {
-                record.plugin().ifPresent(PixivFeaturePlugin::start);
-            } catch (RuntimeException e) {
-                log.error("Plugin '{}' start() failed: {} - rolling back its service footprint.",
-                        pluginId, e.toString(), e);
-                if (rollBackBringUp(record, true, false)) {
-                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                if (record.registered != null) {
+                    featureStartedForRollback = pluginRegistry.startFeature(record.registered);
                 }
+            } catch (Throwable failure) {
+                log.error("Plugin '{}' start() failed (failureType={}) - rolling back its service footprint.",
+                        pluginId, failure.getClass().getName());
+                handleBringUpFailure(record, failure, featureStartedForRollback);
                 return;
             }
         }
-        // f) 最终原子发布 schedule owner bundle。此前失败均不会让调度器看到该 owner。
+        // f) 发布 serving 前重新开放推流 admission；失败残留未清零时拒绝混入新 serving。
+        try {
+            runtimeTaskQuiescer.resumeStreams(pluginId);
+        } catch (Throwable failure) {
+            log.error("Failed to resume server-push streams for plugin '{}' (failureType={}) - rolling back service footprint.",
+                    pluginId, failure.getClass().getName());
+            handleBringUpFailure(record, failure, featureStartedForRollback);
+            return;
+        }
+        // g) 运行期在 context/capability/controller/plugin 全部就绪后才提交同一份 prepared web/download。
+        // 启动期构造期已接入并保留精确句柄，故跳过。
+        if (record.webHandle == null && record.registered != null) {
+            try {
+                record.webHandle = Objects.requireNonNull(
+                        webContributionRegistrar.commit(Objects.requireNonNull(preparedWeb, "prepared web contribution")),
+                        "web contribution registrar returned null handle");
+            } catch (Throwable failure) {
+                record.webHandle = webContributionRegistrar.currentHandle(record.registered).orElse(null);
+                log.error("Failed to register web contributions for plugin '{}' (failureType={}) - isolating.",
+                        pluginId, failure.getClass().getName());
+                if (record.webHandle != null) {
+                    lifecycleState.set(pluginId, PluginRuntimePhase.QUIESCED);
+                    if (isFatal(failure)) {
+                        rethrowFatal(failure);
+                    }
+                    throw new PluginLifecycleException(
+                            "web contribution registration cleanup remains pending for plugin '"
+                                    + pluginId + "' (failureType=" + failure.getClass().getName() + ")");
+                }
+                handleBringUpFailure(record, failure, featureStartedForRollback);
+                return;
+            }
+        }
+        // h) Publish schedule only after the complete web/controller serving is ready.
         if (record.registered != null) {
             try {
                 record.schedulePublication = scheduleContributionRegistrar
                         .register(scheduleMutationAuthority, record.registered, record.context).orElse(null);
-            } catch (RuntimeException e) {
-                log.error("Failed to publish schedule capabilities for plugin '{}': {} - rolling back service footprint.",
-                        pluginId, e.toString(), e);
-                if (rollBackBringUp(record, true, invokePluginStart)) {
-                    lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                if (record.schedulePublication != null) {
+                    record.scheduleRetirementAcknowledged = false;
                 }
+            } catch (Throwable failure) {
+                log.error("Failed to publish schedule capabilities for plugin '{}' (failureType={}) - rolling back service footprint.",
+                        pluginId, failure.getClass().getName());
+                handleBringUpFailure(record, failure, featureStartedForRollback);
                 return;
             }
         }
-        lifecycleState.transition(pluginId, PluginRuntimePhase.STARTED);
+        // i) Open migrated capability admission last; every downstream proxy snapshot was prepared but invisible.
+        if (record.capabilityPreparation != null) {
+            try {
+                ExternalCapabilityPublication publication = Objects.requireNonNull(
+                        capabilityContributionRegistrar.publish(record.capabilityPreparation),
+                        "capability registrar returned null publication");
+                afterCapabilityPublishReturnProbe.run();
+                record.capabilityPublication = publication;
+                record.capabilityPreparation = null;
+            } catch (Throwable failure) {
+                log.error("Failed to publish runtime capability contributions for plugin '{}' (failureType={}) - rolling back service footprint.",
+                        pluginId, failure.getClass().getName());
+                handleBringUpFailure(record, failure, featureStartedForRollback);
+                return;
+            }
+        }
+        // 统一 stop 对所有插件执行幂等注销；纯贡献插件虽无 child context，adapter / controller registrar 仍按 id 清理。
+        record.controllerCleanupComplete = false;
+        record.capabilityCleanupComplete = record.context == null;
+        try {
+            lifecycleState.transition(pluginId, PluginRuntimePhase.STARTED);
+        } catch (Throwable failure) {
+            handleBringUpFailure(record, failure, featureStartedForRollback);
+        }
     }
 
     /**
-     * lease 已归零后拆除服务足迹，顺序为 controller → runtime capability → web → 插件 stop → child context。
-     * schedule publication 已在 quiesce 起点精确撤回，不在这里按 pluginId 重复注销。
+     * lease 已归零后拆除服务足迹，顺序为 web/download → controller → runtime capability → 可选 feature stop → child context。
+     * schedule publication 已在 quiesce 起点精确撤回，不在这里按 pluginId 重复注销。运行期 stop 请求 feature stop；
+     * 核心关闭则先撤回服务足迹，由随后执行的 PluginRegistry phase 停止仍 started 的精确身份。
      */
-    private void tearDownServing(ManagedPlugin record) {
+    private void tearDownServing(ManagedPlugin record, boolean invokeFeatureStop) {
         String pluginId = record.pluginId;
-        try {
-            controllerRegistrar.unregisterControllers(pluginId);
-        } catch (RuntimeException e) {
-            log.warn("Error unregistering controllers for plugin '{}': {}", pluginId, e.toString());
-        }
-        try {
-            capabilityContributionRegistrar.unregister(pluginId);
-        } catch (RuntimeException e) {
-            log.warn("Runtime capability cleanup for plugin '{}' remains pending: {}", pluginId, e.toString());
-            throw new PluginLifecycleException(
-                    "runtime capability cleanup remains pending for plugin '" + pluginId + "'", e);
-        }
-        try {
-            if (record.webRegistered) {
-                webContributionRegistrar.unregister(pluginId, classLoaderOf(record));
-                record.webRegistered = false;
+        // serving 句柄仍 current 时不破坏 controller/capability/plugin/context，保留完整 QUIESCED 足迹供重试。
+        withdrawWebContribution(record, "unregistering");
+        Throwable fatal = null;
+        List<String> pending = new ArrayList<>();
+        if (record.capabilityPreparation != null) {
+            try {
+                discardCapabilityPreparation(record);
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability-preparation=" + failure.getClass().getName());
             }
-        } catch (RuntimeException e) {
-            log.warn("Error unregistering web contributions for plugin '{}': {}", pluginId, e.toString());
         }
-        try {
-            record.plugin().ifPresent(PixivFeaturePlugin::stop);
-        } catch (RuntimeException e) {
-            log.warn("Error invoking stop() on plugin '{}': {}", pluginId, e.toString());
+        if (!record.controllerCleanupComplete) {
+            try {
+                controllerRegistrar.unregisterControllers(pluginId);
+                record.controllerCleanupComplete = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("controller=" + failure.getClass().getName());
+            }
+        }
+        if (!record.capabilityCleanupComplete) {
+            try {
+                capabilityContributionRegistrar.unregisterLegacy(pluginId);
+                record.capabilityCleanupComplete = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability=" + failure.getClass().getName());
+            }
+        }
+        if (!record.capabilityRetirementComplete && record.capabilityDrain != null) {
+            try {
+                ExternalCapabilityDrain drain = Objects.requireNonNull(
+                        record.capabilityDrain, "missing external capability drain");
+                capabilityContributionRegistrar.retireDrained(drain);
+                afterCapabilityRetireReturnProbe.run();
+                record.capabilityRetirementComplete = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability-retirement=" + failure.getClass().getName());
+            }
+        }
+        if (!record.capabilityRetirementAcknowledged && record.capabilityDrain != null) {
+            try {
+                ExternalCapabilityDrain drain = Objects.requireNonNull(
+                        record.capabilityDrain, "missing acknowledged external capability drain");
+                capabilityContributionRegistrar.acknowledgeRetired(drain);
+                afterCapabilityAcknowledgeReturnProbe.run();
+                record.capabilityRetirementAcknowledged = true;
+                afterCapabilityAcknowledgeFlagProbe.run();
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability-acknowledgement=" + failure.getClass().getName());
+            }
+        }
+        if (!record.scheduleRetirementAcknowledged && record.scheduleDrain != null) {
+            try {
+                scheduleContributionRegistrar.acknowledgeRetired(
+                        scheduleMutationAuthority, record.scheduleDrain);
+                record.scheduleRetirementAcknowledged = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("schedule-acknowledgement=" + failure.getClass().getName());
+            }
+        }
+        if (fatal != null) {
+            rethrowFatal(fatal);
+        }
+        if (!pending.isEmpty()) {
+            throw new PluginLifecycleException("service footprint cleanup remains pending for plugin '"
+                    + pluginId + "': " + pending);
+        }
+        if (invokeFeatureStop && record.registered != null) {
+            pluginRegistry.stopFeature(record.registered);
         }
         closeQuietly(record);
     }
 
     /**
-     * 回滚本次 {@link #bringUpServing} 已建立的服务足迹：<b>注销 controller → 按成功标记注销 runtime capability →
-     * 关闭 child context → 撤回 web 贡献</b>。能力注册本身失败时由
+     * 回滚本次 {@link #bringUpServing} 已建立的服务足迹：<b>先精确撤回 web/download serving，再注销
+     * controller → 按成功标记注销 runtime capability → 停止插件 → 关闭 child context</b>。能力注册本身失败时由
      * {@link PluginCapabilityContributionRegistrar} 完成内部回滚，此处不再二次注销原子旧快照。用于 schedule 贡献注册失败 /
      * capability 注册失败 / controller 注册失败 / 插件 {@code start()} 失败。各步幂等。仅当运行期插件 {@code start()}
      * 已成功、随后最终 schedule publication 失败时对称调用 {@code stop()}；启动期回调仍归 {@link PluginRegistry} 所有。
-     * 每步隔离、异常只记日志。
+     * 若 serving 撤回失败且原句柄仍是 current，先保留已启动的插件与 context 并落 {@link PluginRuntimePhase#QUIESCED}，
+     * 再向上抛出以阻断 unload；故障解除后可通过 stop 精确重试。其余各步隔离、异常只记日志。
      */
-    private boolean rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered,
-                                    boolean pluginStarted) {
+    private void rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered,
+                                 boolean pluginStarted) {
         try {
-            controllerRegistrar.unregisterControllers(record.pluginId);
-        } catch (RuntimeException e) {
-            log.warn("Error rolling back controllers for plugin '{}': {}", record.pluginId, e.toString());
+            cleanUpFailedBringUp(record);
+        } catch (PluginLifecycleException failure) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            throw failure;
         }
-        if (capabilitiesRegistered) {
+        Throwable fatal = null;
+        List<String> pending = new ArrayList<>();
+        if (record.capabilityPreparation != null) {
             try {
-                capabilityContributionRegistrar.unregister(record.pluginId);
-            } catch (Throwable e) {
-                log.warn("Error rolling back runtime capability contributions for plugin '{}': {}",
-                        record.pluginId, e.toString());
-                lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
-                if (e instanceof VirtualMachineError fatal) {
-                    throw fatal;
-                }
-                if (e instanceof ThreadDeath fatal) {
-                    throw fatal;
-                }
-                return false;
+                discardCapabilityPreparation(record);
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability-preparation=" + failure.getClass().getName());
             }
         }
-        if (pluginStarted) {
+        if (!record.controllerCleanupComplete) {
             try {
-                record.plugin().ifPresent(PixivFeaturePlugin::stop);
-            } catch (RuntimeException e) {
-                log.warn("Error stopping plugin '{}' after schedule publication failure: {}",
-                        record.pluginId, e.toString());
+                controllerRegistrar.unregisterControllers(record.pluginId);
+                record.controllerCleanupComplete = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("controller=" + failure.getClass().getName());
             }
         }
-        closeQuietly(record);
-        cleanUpFailedBringUp(record);
-        return true;
+        if (!record.capabilityCleanupComplete) {
+            try {
+                capabilityContributionRegistrar.unregisterLegacy(record.pluginId);
+                record.capabilityCleanupComplete = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability=" + failure.getClass().getName());
+            }
+        }
+        if (!record.capabilityRetirementComplete && record.capabilityDrain != null) {
+            try {
+                ExternalCapabilityDrain drain = Objects.requireNonNull(
+                        record.capabilityDrain, "missing external capability drain");
+                capabilityContributionRegistrar.retireDrained(drain);
+                afterCapabilityRetireReturnProbe.run();
+                record.capabilityRetirementComplete = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability-retirement=" + failure.getClass().getName());
+            }
+        }
+        if (!record.capabilityRetirementAcknowledged && record.capabilityDrain != null) {
+            try {
+                ExternalCapabilityDrain drain = Objects.requireNonNull(
+                        record.capabilityDrain, "missing acknowledged external capability drain");
+                capabilityContributionRegistrar.acknowledgeRetired(drain);
+                afterCapabilityAcknowledgeReturnProbe.run();
+                record.capabilityRetirementAcknowledged = true;
+                afterCapabilityAcknowledgeFlagProbe.run();
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("capability-acknowledgement=" + failure.getClass().getName());
+            }
+        }
+        if (!record.scheduleRetirementAcknowledged && record.scheduleDrain != null) {
+            try {
+                scheduleContributionRegistrar.acknowledgeRetired(
+                        scheduleMutationAuthority, record.scheduleDrain);
+                record.scheduleRetirementAcknowledged = true;
+            } catch (Throwable failure) {
+                fatal = mergeFatal(fatal, failure);
+                pending.add("schedule-acknowledgement=" + failure.getClass().getName());
+            }
+        }
+        if (fatal != null) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            rethrowFatal(fatal);
+        }
+        if (!pending.isEmpty()) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            throw new PluginLifecycleException("bring-up cleanup remains pending for plugin '"
+                    + record.pluginId + "': " + pending);
+        }
+        if (pluginStarted && record.registered != null) {
+            pluginRegistry.stopFeature(record.registered);
+        }
+        try {
+            closeQuietly(record);
+            resetRuntimeDrainState(record);
+        } catch (Throwable failure) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            throw failure;
+        }
+    }
+
+    /**
+     * Bring-up may fail after web, schedule, or capability publication. Withdraw every successful admission in
+     * the normal stop order and wait on one deadline before rollback is allowed to close child-owned objects.
+     */
+    private Throwable quiesceFailedBringUpRuntime(ManagedPlugin record) {
+        Throwable failure = null;
+        if (!record.requestWithdrawalComplete) {
+            try {
+                PluginWebContributionHandle handle = record.webHandle;
+                record.requestDrain = handle == null
+                        ? null
+                        : webContributionRegistrar.withdrawRequests(handle).orElse(null);
+                record.requestWithdrawalComplete = true;
+            } catch (Throwable withdrawalFailure) {
+                failure = mergeFailure(failure, withdrawalFailure);
+            }
+        }
+        if (!record.capabilityWithdrawalComplete) {
+            try {
+                record.capabilityDrain = withdrawCapabilityPublication(record, "rollback");
+                record.capabilityWithdrawalComplete = true;
+            } catch (Throwable withdrawalFailure) {
+                failure = mergeFailure(failure, withdrawalFailure);
+            }
+        }
+        if (!record.scheduleWithdrawalComplete) {
+            try {
+                record.scheduleDrain = withdrawScheduleOrRetryFailedRegistration(record);
+                record.scheduleWithdrawalComplete = true;
+            } catch (Throwable withdrawalFailure) {
+                failure = mergeFailure(failure, withdrawalFailure);
+            }
+        }
+        if (!record.queuePreparationComplete) {
+            try {
+                runtimeTaskQuiescer.prepareQueueDrains(
+                        record.pluginId, List.copyOf(record.queueDrains), record.queueDrains::add);
+                record.queuePreparationComplete = true;
+            } catch (Throwable preparationFailure) {
+                failure = mergeFailure(failure, preparationFailure);
+            }
+        }
+        if (record.requestWithdrawalComplete
+                && record.capabilityWithdrawalComplete
+                && record.scheduleWithdrawalComplete
+                && record.queuePreparationComplete
+                && !record.runtimeTasksQuiesced) {
+            try {
+                runtimeTaskQuiescer.quiesceAfterScheduleWithdrawal(
+                        record.pluginId, List.copyOf(record.queueDrains));
+                record.runtimeTasksQuiesced = true;
+            } catch (Throwable quiesceFailure) {
+                failure = mergeFailure(failure, quiesceFailure);
+            }
+        }
+        if (failure == null && record.runtimeTasksQuiesced) {
+            long deadline = System.nanoTime() + RUNTIME_DRAIN_TIMEOUT_NANOS;
+            String activeDrain = awaitRuntimeDrains(record, deadline);
+            if (activeDrain != null) {
+                failure = new ClassifiedPluginLifecycleException(
+                        PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                        "bring-up rollback for plugin '" + record.pluginId
+                                + "' remains quiesced with active " + activeDrain);
+            }
+        }
+        return failure;
+    }
+
+    private ScheduleGenerationDrain withdrawScheduleOrRetryFailedRegistration(ManagedPlugin record) {
+        ScheduleCapabilityPublication publication = record.schedulePublication;
+        PluginRegistry.RegisteredPlugin registered = record.registered;
+        ScheduleCapabilityOwner owner = registered == null ? null : new ScheduleCapabilityOwner(
+                registered.id(), registered.packageId(), registered.generation());
+        if (publication == null && owner != null) {
+            publication = scheduleContributionRegistrar.recoverPublication(
+                    scheduleMutationAuthority, owner).orElse(null);
+            if (publication != null) {
+                record.schedulePublication = publication;
+            }
+        }
+        if (publication != null) {
+            record.scheduleRetirementAcknowledged = false;
+            PluginRuntimeTaskQuiescer.QuiesceResult result = runtimeTaskQuiescer.withdrawSchedule(
+                    scheduleMutationAuthority, publication);
+            // 必须先保存唯一 drain，再进入可能抛 fatal 的 SSE / queue 清退；重试绝不二次撤回 publication。
+            return result.scheduleDrain().orElse(null);
+        }
+        if (owner != null) {
+            scheduleContributionRegistrar.retryFailedRegistrationCleanup(
+                    scheduleMutationAuthority, owner);
+        }
+        record.scheduleRetirementAcknowledged = true;
+        return null;
+    }
+
+    /** 先完成安全回滚并保存 pending 状态；首个 fatal 最后按原对象身份重抛。 */
+    private void handleBringUpFailure(
+            ManagedPlugin record, Throwable originalFailure, boolean pluginStarted) {
+        Throwable cleanupFailure = quiesceFailedBringUpRuntime(record);
+        if (cleanupFailure != null) {
+            // Any retained runtime entry may still reach child code; do not stop the feature or close its context.
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            if (isFatal(originalFailure)) {
+                addSuppressedSafely(originalFailure, cleanupFailure);
+                rethrowFatal(originalFailure);
+            }
+            if (isFatal(cleanupFailure)) {
+                addSuppressedSafely(cleanupFailure, originalFailure);
+                rethrowFatal(cleanupFailure);
+            }
+            addSuppressedSafely(cleanupFailure, originalFailure);
+            if (cleanupFailure instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            if (cleanupFailure instanceof Error error) {
+                throw error;
+            }
+            throw new PluginLifecycleException("runtime admission cleanup failed for plugin '"
+                    + record.pluginId + "' (failureType=" + cleanupFailure.getClass().getName() + ")",
+                    cleanupFailure);
+        }
+        try {
+            rollBackBringUp(record, true, pluginStarted);
+        } catch (Throwable failure) {
+            cleanupFailure = mergeFailure(cleanupFailure, failure);
+        }
+        lifecycleState.set(record.pluginId, cleanupFailure == null
+                ? PluginRuntimePhase.STOPPED : PluginRuntimePhase.QUIESCED);
+        if (isFatal(originalFailure)) {
+            addSuppressedSafely(originalFailure, cleanupFailure);
+            rethrowFatal(originalFailure);
+        }
+        if (isFatal(cleanupFailure)) {
+            addSuppressedSafely(cleanupFailure, originalFailure);
+            rethrowFatal(cleanupFailure);
+        }
+        if (cleanupFailure != null) {
+            if (cleanupFailure instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            throw new PluginLifecycleException("bring-up cleanup failed for plugin '"
+                    + record.pluginId + "' (failureType=" + cleanupFailure.getClass().getName() + ")");
+        }
     }
 
     /** 失败接入的清理：撤回本次接入的 web 贡献（幂等）。 */
     private void cleanUpFailedBringUp(ManagedPlugin record) {
         try {
-            webContributionRegistrar.unregister(record.pluginId, classLoaderOf(record));
-        } catch (RuntimeException e) {
-            log.warn("Error rolling back web contributions for plugin '{}': {}", record.pluginId, e.toString());
+            withdrawWebContribution(record, "rolling back");
+        } catch (PluginLifecycleException failure) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            throw failure;
         }
-        record.webRegistered = false;
+    }
+
+    /**
+     * 精确撤回当前 web serving。registrar 后段 best-effort cleanup 报错时句柄已经失效，清掉本地句柄并允许
+     * STOPPED → start 重建；下载 publication 前置撤回失败时 registrar 会恢复同一句柄，此时保持 QUIESCED 并阻断 stop。
+     */
+    private void withdrawWebContribution(ManagedPlugin record, String action) {
+        PluginWebContributionHandle handle = record.webHandle;
+        if (handle == null) {
+            return;
+        }
+        Throwable failure = null;
+        try {
+            webContributionRegistrar.unregister(handle);
+        } catch (Throwable unregisterFailure) {
+            failure = unregisterFailure;
+        }
+        boolean stillCurrent;
+        try {
+            stillCurrent = webContributionRegistrar.isCurrent(handle);
+        } catch (Throwable inspectionFailure) {
+            if (isFatal(failure)) {
+                addSuppressedSafely(failure, inspectionFailure);
+                rethrowFatal(failure);
+            }
+            if (isFatal(inspectionFailure)) {
+                addSuppressedSafely(inspectionFailure, failure);
+                rethrowFatal(inspectionFailure);
+            }
+            throw new PluginLifecycleException("cannot determine web serving withdrawal for plugin '"
+                    + record.pluginId + "' (failureType=" + inspectionFailure.getClass().getName() + ")");
+        }
+        if (!stillCurrent) {
+            record.webHandle = null;
+            if (isFatal(failure)) {
+                rethrowFatal(failure);
+            }
+            if (failure != null) {
+                log.warn("Error {} web contributions for plugin '{}' after serving withdrawal (failureType={})",
+                        action, record.pluginId, failure.getClass().getName());
+            }
+            return;
+        }
+        String failureType = failure == null ? "unknown" : failure.getClass().getName();
+        if (isFatal(failure)) {
+            rethrowFatal(failure);
+        }
+        throw new PluginLifecycleException("web serving remains current while " + action + " plugin '"
+                + record.pluginId + "' (failureType=" + failureType + ")");
     }
 
     private void closeQuietly(ManagedPlugin record) {
         ConfigurableApplicationContext child = record.context;
-        if (child == null) {
+        if (child == null && record.capabilityDrain == null) {
             return;
+        }
+        assertRuntimeDrained(record);
+        if (!record.capabilityRetirementComplete || !record.capabilityRetirementAcknowledged) {
+            throw new PluginLifecycleException("refusing to close child context before capability retirement: "
+                    + record.pluginId);
+        }
+        if (!record.scheduleRetirementAcknowledged) {
+            throw new PluginLifecycleException("refusing to close child context before schedule retirement: "
+                    + record.pluginId);
+        }
+        if (child != null) {
+            try {
+                child.close();
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
+                throw new PluginLifecycleException("child context close remains pending for plugin '"
+                        + record.pluginId + "' (failureType=" + failure.getClass().getName() + ")");
+            }
+        }
+        if (record.capabilityDrain != null) {
+            capabilityContributionRegistrar.releaseRetirementProof(record.capabilityDrain);
+        }
+        if (record.scheduleDrain != null) {
+            scheduleContributionRegistrar.releaseRetirementProof(
+                    scheduleMutationAuthority, record.scheduleDrain);
+        }
+        record.context = null;
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            throw fatal;
+        }
+    }
+
+    private static boolean isFatal(Throwable failure) {
+        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
+    }
+
+    private Throwable unregisterAfterFailedRegistration(
+            PluginRegistry.RegisteredPlugin registered, Throwable currentFailure) {
+        try {
+            if (pluginRegistry.containsIdentity(registered)) {
+                pluginRegistry.unregister(registered);
+            }
+        } catch (Throwable cleanupFailure) {
+            return mergeFailure(currentFailure, cleanupFailure);
+        }
+        return currentFailure;
+    }
+
+    private static void throwCompensatedLifecycleFailure(
+            String message, Throwable originalFailure, Throwable cleanupFailure) {
+        addSuppressedSafely(originalFailure, cleanupFailure);
+        if (isFatal(originalFailure)) {
+            rethrowFatal(originalFailure);
+        }
+        if (isFatal(cleanupFailure)) {
+            addSuppressedSafely(cleanupFailure, originalFailure);
+            rethrowFatal(cleanupFailure);
+        }
+        if (originalFailure instanceof Error error) {
+            throw error;
+        }
+        throw new PluginLifecycleException(message + " (failureType="
+                + originalFailure.getClass().getName() + ")", originalFailure);
+    }
+
+    private static void assertRuntimeDrained(ManagedPlugin record) {
+        if (record.requestDrain != null && !record.requestDrain.isDrained()) {
+            throw new PluginLifecycleException("refusing to close child context with active request leases: "
+                    + record.pluginId + " (active=" + record.requestDrain.activeLeaseCount() + ")");
+        }
+        if (record.capabilityDrain != null && !record.capabilityDrain.isDrained()) {
+            throw new PluginLifecycleException("refusing to close child context with active capability invocations: "
+                    + record.pluginId + " (active=" + record.capabilityDrain.activeLeaseCount() + ")");
         }
         if (record.scheduleDrain != null && !record.scheduleDrain.isDrained()) {
             throw new PluginLifecycleException("refusing to close child context with active schedule leases: "
@@ -776,12 +1521,44 @@ public class PluginLifecycleService {
                         + " (active=" + queueDrain.activeCount() + ")");
             }
         }
-        try {
-            child.close();
-        } catch (Exception e) {
-            log.warn("Error closing child context for plugin '{}': {}", record.pluginId, e.toString());
+    }
+
+    /** 保留首个 fatal 对象身份；后续 fatal 仅作诊断，不覆盖主失败。 */
+    private static Throwable mergeFatal(Throwable current, Throwable failure) {
+        if (!isFatal(failure)) {
+            return current;
         }
-        record.context = null;
+        if (current == null) {
+            return failure;
+        }
+        addSuppressedSafely(current, failure);
+        return current;
+    }
+
+    private static Throwable mergeFailure(Throwable current, Throwable failure) {
+        if (failure == null) {
+            return current;
+        }
+        if (current == null) {
+            return failure;
+        }
+        if (!isFatal(current) && isFatal(failure)) {
+            addSuppressedSafely(failure, current);
+            return failure;
+        }
+        addSuppressedSafely(current, failure);
+        return current;
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
+        if (target == null || suppressed == null || target == suppressed) {
+            return;
+        }
+        try {
+            target.addSuppressed(suppressed);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖主异常。
+        }
     }
 
     private List<PluginRegistry.RegisteredPlugin> externalRegisteredPlugins() {
@@ -795,13 +1572,6 @@ public class PluginLifecycleService {
         return external.stream().filter(rp -> rp.id().equals(pluginId)).findFirst().orElse(null);
     }
 
-    private static ClassLoader classLoaderOf(ManagedPlugin record) {
-        if (record.module != null) {
-            return record.module.classLoader();
-        }
-        return record.registered != null ? record.registered.classLoader() : null;
-    }
-
     private ManagedPlugin require(String pluginId) {
         ManagedPlugin record = managed.get(pluginId);
         if (record == null) {
@@ -810,18 +1580,31 @@ public class PluginLifecycleService {
         return record;
     }
 
-    /** 一个受管外置插件的可变运行期记录：标识 + 子 context 装配定义（可空）+ 注册条目（可空）+ 当前子 context + web 接入标志。 */
+    /** 一个受管外置插件的可变运行期记录：标识、装配定义、注册条目、当前子 context 与精确 web serving 句柄。 */
     private static final class ManagedPlugin {
         final String pluginId;
         final long generation;
         final PluginContextModule module;                 // 可空（纯贡献插件无子 context）
         final PluginRegistry.RegisteredPlugin registered; // 可空（无核心注册条目的测试夹具）
         volatile ConfigurableApplicationContext context;  // 不在服务时为空
-        boolean webRegistered;
+        PluginWebContributionHandle webHandle;
+        PluginRequestGenerationDrain requestDrain;
+        boolean requestWithdrawalComplete;
+        PreparedOwner capabilityPreparation;
+        ExternalCapabilityPublication capabilityPublication;
+        ExternalCapabilityDrain capabilityDrain;
+        boolean capabilityWithdrawalComplete;
+        boolean capabilityRetirementComplete = true;
+        boolean capabilityRetirementAcknowledged = true;
         ScheduleCapabilityPublication schedulePublication;
         ScheduleGenerationDrain scheduleDrain;
+        boolean scheduleWithdrawalComplete;
+        boolean scheduleRetirementAcknowledged = true;
         final List<QueueGenerationDrain> queueDrains = new ArrayList<>();
+        boolean queuePreparationComplete;
         boolean runtimeTasksQuiesced;
+        boolean controllerCleanupComplete = true;
+        boolean capabilityCleanupComplete = true;
 
         ManagedPlugin(String pluginId, PluginContextModule module, PluginRegistry.RegisteredPlugin registered) {
             this(pluginId, registered != null ? registered.generation() : 0L, module, registered);
@@ -833,10 +1616,6 @@ public class PluginLifecycleService {
             this.generation = generation;
             this.module = module;
             this.registered = registered;
-        }
-
-        Optional<PixivFeaturePlugin> plugin() {
-            return registered == null ? Optional.empty() : Optional.of(registered.plugin());
         }
     }
 }

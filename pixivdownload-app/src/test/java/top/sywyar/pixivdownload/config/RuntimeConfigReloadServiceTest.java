@@ -31,11 +31,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @DisplayName("运行期配置热重载")
@@ -78,8 +81,7 @@ class RuntimeConfigReloadServiceTest {
         child.refresh();
         try {
             PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
-            when(lifecycleService.servingPluginIds()).thenReturn(Set.of("fixture"));
-            when(lifecycleService.contextFor("fixture")).thenReturn(Optional.of(child));
+            serveContext(lifecycleService, "fixture", child);
 
             RuntimeConfigReloadService service = newService(provider(lifecycleService), new StandardEnvironment());
 
@@ -183,8 +185,7 @@ class RuntimeConfigReloadServiceTest {
         child.refresh();
         try {
             PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
-            when(lifecycleService.servingPluginIds()).thenReturn(Set.of("fixture"));
-            when(lifecycleService.contextFor("fixture")).thenReturn(Optional.of(child));
+            serveContext(lifecycleService, "fixture", child);
             StandardEnvironment parentEnvironment = new StandardEnvironment();
             RuntimeConfigReloadService service = newService(provider(lifecycleService), parentEnvironment);
 
@@ -221,6 +222,19 @@ class RuntimeConfigReloadServiceTest {
                 lifecycleService,
                 environment,
                 new PluginCredentialStore());
+    }
+
+    private static void serveContext(
+            PluginLifecycleService lifecycleService,
+            String pluginId,
+            AnnotationConfigApplicationContext context) {
+        when(lifecycleService.servingPluginIds()).thenReturn(Set.of(pluginId));
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Consumer<AnnotationConfigApplicationContext> operation = invocation.getArgument(1);
+            operation.accept(context);
+            return true;
+        }).when(lifecycleService).withServingContext(eq(pluginId), any());
     }
 
     private Path useTempConfigDir() {

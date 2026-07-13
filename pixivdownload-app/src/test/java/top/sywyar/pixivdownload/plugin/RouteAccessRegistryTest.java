@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -11,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -72,6 +75,21 @@ class RouteAccessRegistryTest {
         assertThat(registry.routes()).isEmpty();
         registry.register("demo", routes);
         assertThat(registry.routes()).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("启动期内置路由使用 RegisteredPlugin 稳定 id，不二次调用插件 id getter")
+    void bootBuiltInRoutesUseStableRegisteredIdentity() {
+        FlakyIdRoutePlugin plugin = new FlakyIdRoutePlugin();
+        PluginRegistry plugins = new PluginRegistry(List.of(plugin));
+
+        RouteAccessRegistry registry = new RouteAccessRegistry(plugins);
+
+        assertThat(plugin.idReads()).isOne();
+        assertThat(registry.routes()).singleElement().satisfies(registered -> {
+            assertThat(registered.pluginId()).isEqualTo("flaky-route-id");
+            assertThat(registered.requestOwner()).isNull();
+        });
     }
 
     @Test
@@ -277,4 +295,26 @@ class RouteAccessRegistryTest {
         assertThat(registry.isDeclared("/api/only-post")).isTrue();
     }
 
+    private static final class FlakyIdRoutePlugin implements PixivFeaturePlugin {
+        private final AtomicInteger idReads = new AtomicInteger();
+
+        @Override
+        public String id() {
+            if (idReads.incrementAndGet() != 1) {
+                throw new AssertionError("plugin id getter was read more than once");
+            }
+            return "flaky-route-id";
+        }
+
+        @Override public String displayName() { return "flaky-route-id.name"; }
+        @Override public String description() { return "flaky-route-id.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+        @Override public List<WebRouteContribution> routes() {
+            return List.of(route("/flaky-route-id/**"));
+        }
+
+        int idReads() {
+            return idReads.get();
+        }
+    }
 }

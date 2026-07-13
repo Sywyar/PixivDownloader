@@ -685,59 +685,6 @@ public class PluginWebContributionRegistrar {
         return true;
     }
 
-    /**
-     * 供仍按 pluginId 与 ClassLoader 精确身份清理 serving 的生命周期调用方使用。请求准入先在短锁内撤回，
-     * drain 等待始终发生在 registrar 锁外；旧代迟到清理不能按 id 撤回后来接入的新 serving。
-     */
-    public boolean unregister(String pluginId, ClassLoader expectedClassLoader) {
-        if (pluginId == null || pluginId.isBlank()) {
-            return false;
-        }
-        PluginWebContributionHandle handle;
-        synchronized (lock) {
-            Registration current = registrations.get(pluginId);
-            if (current == null
-                    || current.handle().registered().classLoader() != expectedClassLoader) {
-                return false;
-            }
-            handle = current.handle();
-        }
-        return unregisterAfterDrainingRequests(handle);
-    }
-
-    /** 同一个 RegisteredPlugin 对象身份才可解析到当前 serving，并在资源撤回前排空其请求。 */
-    public boolean unregister(PluginRegistry.RegisteredPlugin registered) {
-        if (registered == null) {
-            return false;
-        }
-        return currentHandle(registered)
-                .map(this::unregisterAfterDrainingRequests)
-                .orElse(false);
-    }
-
-    /**
-     * 兼容调用方没有统一截止时间，因此必须等到精确 serving 真正归零；中断只延后并在清理结束后恢复。
-     * 精确 handle 注销仍保持非阻塞语义，由显式生命周期编排自行协调 drain。
-     */
-    private boolean unregisterAfterDrainingRequests(PluginWebContributionHandle handle) {
-        Optional<PluginRequestGenerationDrain> requestedDrain = withdrawRequests(handle);
-        boolean interrupted = false;
-        try {
-            if (requestedDrain.isPresent()) {
-                PluginRequestGenerationDrain drain = requestedDrain.orElseThrow();
-                while (!drain.awaitDrained()) {
-                    interrupted = true;
-                    Thread.interrupted();
-                }
-            }
-            return unregister(handle);
-        } finally {
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
     private PluginWebContributionHandle newHandle(PluginRegistry.RegisteredPlugin registered) {
         synchronized (lock) {
             long servingId = Math.addExact(nextServingId, 1L);

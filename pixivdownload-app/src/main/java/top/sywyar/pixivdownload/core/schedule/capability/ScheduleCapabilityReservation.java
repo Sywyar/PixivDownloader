@@ -8,8 +8,43 @@ package top.sywyar.pixivdownload.core.schedule.capability;
  */
 public final class ScheduleCapabilityReservation {
 
+    static final class CommitBinding {
+        private final ScheduleCapabilityPublication publication;
+        private final String activationToken;
+        private final ScheduleLeaseState leaseState;
+        private final ScheduleGenerationDrain drain;
+
+        private CommitBinding(
+                ScheduleCapabilityPublication publication,
+                String activationToken,
+                ScheduleLeaseState leaseState) {
+            this.publication = publication;
+            this.activationToken = activationToken;
+            this.leaseState = leaseState;
+            this.drain = new ScheduleGenerationDrain(
+                    publication.owner(), publication.publicationId(), leaseState);
+        }
+
+        ScheduleCapabilityPublication publication() {
+            return publication;
+        }
+
+        String activationToken() {
+            return activationToken;
+        }
+
+        ScheduleLeaseState leaseState() {
+            return leaseState;
+        }
+
+        ScheduleGenerationDrain drain() {
+            return drain;
+        }
+    }
+
     private final ScheduleCapabilityOwner owner;
     private final long reservationId;
+    private CommitBinding commitBinding;
 
     ScheduleCapabilityReservation(ScheduleCapabilityOwner owner, long reservationId) {
         if (owner == null) {
@@ -28,6 +63,21 @@ public final class ScheduleCapabilityReservation {
 
     long reservationId() {
         return reservationId;
+    }
+
+    void bindCommit(
+            ScheduleCapabilityPublication publication,
+            String activationToken,
+            ScheduleLeaseState leaseState) {
+        if (commitBinding != null) {
+            throw new IllegalStateException("schedule reservation already has a commit binding");
+        }
+        CommitBinding binding = new CommitBinding(publication, activationToken, leaseState);
+        commitBinding = binding;
+    }
+
+    CommitBinding commitBinding() {
+        return commitBinding;
     }
 
     @Override

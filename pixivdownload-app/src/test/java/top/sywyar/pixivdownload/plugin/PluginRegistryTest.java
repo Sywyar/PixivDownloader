@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -172,6 +173,159 @@ class PluginRegistryTest {
     }
 
     @Test
+    @DisplayName("SmartLifecycle stop 延后 fatal 并继续逆序停止其余插件")
+    void smartLifecycleStopDefersFatalUntilAllPluginsAttempted() {
+        TestVirtualMachineError laterFatal = new TestVirtualMachineError("later fatal stop");
+        FatalStopPlugin later = new FatalStopPlugin("later", laterFatal);
+        RetryStopPlugin surviving = new RetryStopPlugin("surviving", 0);
+        TestVirtualMachineError firstFatal = new TestVirtualMachineError("first fatal stop");
+        FatalStopPlugin first = new FatalStopPlugin("first", firstFatal);
+        PluginRegistry registry = new PluginRegistry(List.of(later, surviving, first));
+        List<PluginRegistry.RegisteredPlugin> identities = registry.registeredPlugins();
+
+        registry.start();
+
+        assertThatThrownBy(registry::stop)
+                .isSameAs(firstFatal)
+                .satisfies(thrown -> assertThat(thrown.getSuppressed()).containsExactly(laterFatal));
+
+        assertThat(registry.isRunning()).isFalse();
+        assertThat(first.stopCount()).isEqualTo(1);
+        assertThat(surviving.stopCount()).isEqualTo(1);
+        assertThat(later.stopCount()).isEqualTo(1);
+        assertThat(registry.featureStarted(identities.get(0))).isTrue();
+        assertThat(registry.featureStarted(identities.get(1))).isFalse();
+        assertThat(registry.featureStarted(identities.get(2))).isTrue();
+    }
+
+    @Test
+    @DisplayName("SmartLifecycle 与运行期入口共享精确身份回调状态且不会重复停止")
+    void smartLifecycleAndRuntimeEntryShareCallbackState() {
+        List<String> lifecycleLog = new ArrayList<>();
+        PluginRegistry registry = new PluginRegistry(List.of(
+                new TestPlugin("stats", lifecycleLog, false)));
+        PluginRegistry.RegisteredPlugin registered = registry.registeredPlugins().get(0);
+
+        registry.start();
+        assertThat(registry.startFeature(registered)).isFalse();
+        assertThat(registry.featureStarted(registered)).isTrue();
+
+        assertThat(registry.stopFeature(registered)).isTrue();
+        registry.stop();
+
+        assertThat(registry.featureStarted(registered)).isFalse();
+        assertThat(lifecycleLog).containsExactly("start:stats", "stop:stats");
+    }
+
+    @Test
+    @DisplayName("feature stop 失败保留 started 身份并允许同一代重试")
+    void featureStopFailureRetainsIdentityForRetry() {
+        RetryStopPlugin plugin = new RetryStopPlugin("stats", 1);
+        PluginRegistry registry = new PluginRegistry(List.of(plugin));
+        PluginRegistry.RegisteredPlugin registered = registry.registeredPlugins().get(0);
+
+        assertThat(registry.startFeature(registered)).isTrue();
+        assertThatThrownBy(() -> registry.stopFeature(registered))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("transient stop failure");
+        assertThat(registry.featureStarted(registered)).isTrue();
+
+        assertThat(registry.stopFeature(registered)).isTrue();
+        assertThat(registry.featureStarted(registered)).isFalse();
+        assertThat(plugin.startCount()).isEqualTo(1);
+        assertThat(plugin.stopCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("SmartLifecycle 后续 start 失败时逆序停止本轮已启动身份")
+    void smartLifecycleStartFailureRollsBackStartedIdentities() {
+        RetryStopPlugin first = new RetryStopPlugin("first", 0);
+        IllegalStateException failure = new IllegalStateException("second start failed");
+        StartFailurePlugin second = new StartFailurePlugin("second", failure);
+        PluginRegistry registry = new PluginRegistry(List.of(first, second));
+        PluginRegistry.RegisteredPlugin firstIdentity = registry.registeredPlugins().get(0);
+        PluginRegistry.RegisteredPlugin secondIdentity = registry.registeredPlugins().get(1);
+
+        assertThatThrownBy(registry::start).isSameAs(failure);
+
+        assertThat(registry.isRunning()).isFalse();
+        assertThat(first.startCount()).isEqualTo(1);
+        assertThat(first.stopCount()).isEqualTo(1);
+        assertThat(second.startCount()).isEqualTo(1);
+        assertThat(registry.featureStarted(firstIdentity)).isFalse();
+        assertThat(registry.featureStarted(secondIdentity)).isFalse();
+    }
+
+    @Test
+    @DisplayName("fatal start 失败先回滚且保留原对象，回滚失败作为 suppressed 并保留 started 身份")
+    void fatalStartFailureDefersRethrowUntilRollback() {
+        RetryStopPlugin first = new RetryStopPlugin("first", 1);
+        TestVirtualMachineError fatal = new TestVirtualMachineError("fatal start");
+        StartFailurePlugin second = new StartFailurePlugin("second", fatal);
+        PluginRegistry registry = new PluginRegistry(List.of(first, second));
+        PluginRegistry.RegisteredPlugin firstIdentity = registry.registeredPlugins().get(0);
+
+        assertThatThrownBy(registry::start)
+                .isSameAs(fatal)
+                .satisfies(thrown -> assertThat(thrown.getSuppressed())
+                        .singleElement()
+                        .satisfies(suppressed -> {
+                            assertThat(suppressed).isInstanceOf(IllegalStateException.class);
+                            assertThat(suppressed.getMessage()).contains("transient stop failure");
+                        }));
+
+        assertThat(registry.isRunning()).isFalse();
+        assertThat(registry.featureStarted(firstIdentity)).isTrue();
+        assertThat(first.stopCount()).isEqualTo(1);
+        assertThat(registry.stopFeature(firstIdentity)).isTrue();
+    }
+
+    @Test
+    @DisplayName("普通 start 失败的回滚若抛 fatal 则 fatal 成为主失败且不被吞掉")
+    void fatalRollbackFailureOverridesNonFatalStartFailure() {
+        TestVirtualMachineError fatal = new TestVirtualMachineError("fatal rollback stop");
+        FatalStopPlugin first = new FatalStopPlugin("first", fatal);
+        IllegalStateException startFailure = new IllegalStateException("second start failed");
+        StartFailurePlugin second = new StartFailurePlugin("second", startFailure);
+        PluginRegistry registry = new PluginRegistry(List.of(first, second));
+        PluginRegistry.RegisteredPlugin firstIdentity = registry.registeredPlugins().get(0);
+
+        assertThatThrownBy(registry::start)
+                .isSameAs(fatal)
+                .satisfies(thrown -> assertThat(thrown.getSuppressed()).contains(startFailure));
+
+        assertThat(registry.featureStarted(firstIdentity)).isTrue();
+        assertThat(registry.isRunning()).isFalse();
+    }
+
+    @Test
+    @DisplayName("started 旧身份不能注销或误用到同 id 新身份")
+    void startedOldIdentityCannotLeakAcrossReplacement() {
+        RetryStopPlugin oldPlugin = new RetryStopPlugin("stats", 0);
+        PluginRegistry registry = new PluginRegistry(List.of(oldPlugin));
+        PluginRegistry.RegisteredPlugin oldIdentity = registry.registeredPlugins().get(0);
+
+        registry.startFeature(oldIdentity);
+        assertThatThrownBy(() -> registry.unregister(oldIdentity))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("feature callback is still started");
+
+        registry.stopFeature(oldIdentity);
+        registry.unregister(oldIdentity);
+        RetryStopPlugin newPlugin = new RetryStopPlugin("stats", 0);
+        PluginRegistry.RegisteredPlugin newIdentity = new PluginRegistry.RegisteredPlugin(
+                newPlugin, PluginSource.EXTERNAL, newPlugin.getClass().getClassLoader(), "stats", 2L);
+        registry.register(newIdentity);
+
+        assertThatThrownBy(() -> registry.startFeature(oldIdentity))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not the current active identity");
+        assertThat(registry.startFeature(newIdentity)).isTrue();
+        assertThat(oldPlugin.startCount()).isEqualTo(1);
+        assertThat(newPlugin.startCount()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("RegisteredPlugin 构造后不再回调可变 plugin id getter")
     void registeredPluginCapturesStableIdOnce() {
         FlakyIdPlugin plugin = new FlakyIdPlugin("flaky-owner");
@@ -209,7 +363,7 @@ class PluginRegistryTest {
     void registerPreparationFailurePublishesNoPrefixState() {
         ThrowingToggleProperties toggles = new ThrowingToggleProperties();
         PluginRegistry registry = new PluginRegistry(List.of(), toggles);
-        TestPlugin plugin = new TestPlugin("atomic-owner");
+        RetryStopPlugin plugin = new RetryStopPlugin("atomic-owner", 0);
         PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
                 plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader());
         AssertionError failure = new AssertionError("toggle lookup failed");
@@ -225,7 +379,7 @@ class PluginRegistryTest {
     @Test
     @DisplayName("外置注册身份要求包 id 与稳定 feature id 一致")
     void externalIdentityRequiresMatchingPackageId() {
-        TestPlugin plugin = new TestPlugin("feature-owner");
+        RetryStopPlugin plugin = new RetryStopPlugin("feature-owner", 0);
 
         assertThatThrownBy(() -> new PluginRegistry.RegisteredPlugin(
                 plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader(), "another-package", 1L))
@@ -236,7 +390,7 @@ class PluginRegistryTest {
     @Test
     @DisplayName("注册身份拒绝负 generation")
     void registeredIdentityRejectsNegativeGeneration() {
-        TestPlugin plugin = new TestPlugin("feature-owner");
+        RetryStopPlugin plugin = new RetryStopPlugin("feature-owner", 0);
 
         assertThatThrownBy(() -> new PluginRegistry.RegisteredPlugin(
                 plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader(), "feature-owner", -1L))
@@ -513,6 +667,103 @@ class PluginRegistryTest {
         @Override
         public boolean required() {
             return true;
+        }
+    }
+
+    private static final class RetryStopPlugin implements PixivFeaturePlugin {
+        private final String id;
+        private final AtomicInteger remainingStopFailures;
+        private final AtomicInteger starts = new AtomicInteger();
+        private final AtomicInteger stops = new AtomicInteger();
+
+        private RetryStopPlugin(String id, int stopFailures) {
+            this.id = id;
+            this.remainingStopFailures = new AtomicInteger(stopFailures);
+        }
+
+        @Override public String id() { return id; }
+        @Override public String displayName() { return "plugin.label"; }
+        @Override public String description() { return "plugin.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+
+        @Override
+        public void start() {
+            starts.incrementAndGet();
+        }
+
+        @Override
+        public void stop() {
+            stops.incrementAndGet();
+            if (remainingStopFailures.getAndUpdate(value -> Math.max(0, value - 1)) > 0) {
+                throw new IllegalStateException("transient stop failure");
+            }
+        }
+
+        int startCount() {
+            return starts.get();
+        }
+
+        int stopCount() {
+            return stops.get();
+        }
+    }
+
+    private static final class StartFailurePlugin implements PixivFeaturePlugin {
+        private final String id;
+        private final Throwable failure;
+        private int starts;
+
+        private StartFailurePlugin(String id, Throwable failure) {
+            this.id = id;
+            this.failure = failure;
+        }
+
+        @Override public String id() { return id; }
+        @Override public String displayName() { return "plugin.label"; }
+        @Override public String description() { return "plugin.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+
+        @Override
+        public void start() {
+            starts++;
+            if (failure instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            throw (Error) failure;
+        }
+
+        int startCount() {
+            return starts;
+        }
+    }
+
+    private static final class TestVirtualMachineError extends VirtualMachineError {
+        private TestVirtualMachineError(String message) {
+            super(message);
+        }
+    }
+
+    private static final class FatalStopPlugin implements PixivFeaturePlugin {
+        private final String id;
+        private final Error stopFailure;
+        private final AtomicInteger stops = new AtomicInteger();
+
+        private FatalStopPlugin(String id, Error stopFailure) {
+            this.id = id;
+            this.stopFailure = stopFailure;
+        }
+
+        @Override public String id() { return id; }
+        @Override public String displayName() { return "plugin.label"; }
+        @Override public String description() { return "plugin.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+        @Override public void stop() {
+            stops.incrementAndGet();
+            throw stopFailure;
+        }
+
+        int stopCount() {
+            return stops.get();
         }
     }
 

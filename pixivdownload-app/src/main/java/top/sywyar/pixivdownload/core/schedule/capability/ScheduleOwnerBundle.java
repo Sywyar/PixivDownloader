@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * 一个 owner 待发布的完整计划任务能力集合。所有插件 getter 都在构造阶段读取并校验，registry 锁内只处理
@@ -273,13 +274,13 @@ public final class ScheduleOwnerBundle {
             ScheduleCapabilityOwner owner, List<? extends ScheduledSourceProvider> sources) {
         List<LegacySourceEntry> result = new ArrayList<>();
         for (ScheduledSourceProvider provider : copyInput(owner, "legacy sources", sources)) {
-            try {
-                String sourceType = requireCapabilityId(provider.type(), "legacy source type");
-                Set<String> aliases = copyAliases(provider.legacyTypeNames(), sourceType);
-                result.add(new LegacySourceEntry(sourceType, aliases, provider));
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "legacy source", failure);
-            }
+            String sourceType = requireCapabilityId(
+                    readPluginCallback(owner, "legacy source type", provider::type),
+                    "legacy source type");
+            Set<String> rawAliases = readPluginCallback(
+                    owner, "legacy source aliases", () -> Set.copyOf(provider.legacyTypeNames()));
+            Set<String> aliases = copyAliases(rawAliases, sourceType);
+            result.add(new LegacySourceEntry(sourceType, aliases, provider));
         }
         return List.copyOf(result);
     }
@@ -345,36 +346,28 @@ public final class ScheduleOwnerBundle {
         List<LegacyPersistenceEntry> result = new ArrayList<>();
         for (LegacySchedulePersistenceDescriptorProvider provider :
                 copyInput(owner, "legacy persistence descriptor providers", providers)) {
-            try {
-                List<LegacySchedulePersistenceDescriptor> descriptors =
-                        provider.legacySchedulePersistenceDescriptors();
-                if (descriptors == null) {
-                    throw new IllegalStateException("legacy persistence descriptors must not be null");
+            List<LegacySchedulePersistenceDescriptor> descriptors = readPluginCallback(
+                    owner,
+                    "legacy persistence descriptors",
+                    () -> List.copyOf(provider.legacySchedulePersistenceDescriptors()));
+            for (LegacySchedulePersistenceDescriptor descriptor : descriptors) {
+                Set<String> workTypes = new LinkedHashSet<>();
+                for (String workType : descriptor.possibleWorkTypes()) {
+                    workTypes.add(requireCapabilityId(
+                            workType, "legacy persistence possible work type"));
                 }
-                for (LegacySchedulePersistenceDescriptor descriptor : descriptors) {
-                    if (descriptor == null) {
-                        throw new IllegalStateException("legacy persistence descriptor must not be null");
-                    }
-                    Set<String> workTypes = new LinkedHashSet<>();
-                    for (String workType : descriptor.possibleWorkTypes()) {
-                        workTypes.add(requireCapabilityId(
-                                workType, "legacy persistence possible work type"));
-                    }
-                    Set<String> credentialPolicyIds = new LinkedHashSet<>();
-                    for (String policyId : descriptor.credentialPolicyIds()) {
-                        credentialPolicyIds.add(requireCapabilityId(
-                                policyId, "legacy persistence credential policy id"));
-                    }
-                    result.add(new LegacyPersistenceEntry(
-                            requireCapabilityId(descriptor.sourceType(), "legacy persistence source type"),
-                            requireCapabilityId(descriptor.definitionSchema(),
-                                    "legacy persistence definition schema"),
-                            descriptor.definitionVersion(),
-                            Set.copyOf(workTypes),
-                            Set.copyOf(credentialPolicyIds)));
+                Set<String> credentialPolicyIds = new LinkedHashSet<>();
+                for (String policyId : descriptor.credentialPolicyIds()) {
+                    credentialPolicyIds.add(requireCapabilityId(
+                            policyId, "legacy persistence credential policy id"));
                 }
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "legacy persistence descriptor", failure);
+                result.add(new LegacyPersistenceEntry(
+                        requireCapabilityId(descriptor.sourceType(), "legacy persistence source type"),
+                        requireCapabilityId(descriptor.definitionSchema(),
+                                "legacy persistence definition schema"),
+                        descriptor.definitionVersion(),
+                        Set.copyOf(workTypes),
+                        Set.copyOf(credentialPolicyIds)));
             }
         }
         return List.copyOf(result);
@@ -384,23 +377,19 @@ public final class ScheduleOwnerBundle {
             ScheduleCapabilityOwner owner, List<? extends ScheduledSourceDescriptor> descriptors) {
         List<SourceDescriptorEntry> result = new ArrayList<>();
         for (ScheduledSourceDescriptor descriptor : copyInput(owner, "source descriptors", descriptors)) {
-            try {
-                String sourceType = requireCapabilityId(descriptor.sourceType(), "source type");
-                Set<String> aliases = copyAliases(descriptor.legacyAliases(), sourceType);
-                requireCapabilityId(descriptor.definitionSchema(), "source definition schema");
-                if (descriptor.definitionVersion() <= 0) {
-                    throw new IllegalStateException("source definition version must be positive");
-                }
-                descriptor.acquisitionModes().forEach(
-                        value -> requireCapabilityId(value, "source acquisition mode"));
-                descriptor.possibleWorkTypes().forEach(value -> requireCapabilityId(value, "possible work type"));
-                descriptor.credentialPolicyIds().forEach(value -> requireCapabilityId(value, "credential policy id"));
-                descriptor.guardIds().forEach(value -> requireCapabilityId(value, "guard id"));
-                validateFrontend(descriptor.frontend(), sourceType);
-                result.add(new SourceDescriptorEntry(sourceType, aliases, descriptor));
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "source descriptor", failure);
+            String sourceType = requireCapabilityId(descriptor.sourceType(), "source type");
+            Set<String> aliases = copyAliases(descriptor.legacyAliases(), sourceType);
+            requireCapabilityId(descriptor.definitionSchema(), "source definition schema");
+            if (descriptor.definitionVersion() <= 0) {
+                throw new IllegalStateException("source definition version must be positive");
             }
+            descriptor.acquisitionModes().forEach(
+                    value -> requireCapabilityId(value, "source acquisition mode"));
+            descriptor.possibleWorkTypes().forEach(value -> requireCapabilityId(value, "possible work type"));
+            descriptor.credentialPolicyIds().forEach(value -> requireCapabilityId(value, "credential policy id"));
+            descriptor.guardIds().forEach(value -> requireCapabilityId(value, "guard id"));
+            validateFrontend(descriptor.frontend(), sourceType);
+            result.add(new SourceDescriptorEntry(sourceType, aliases, descriptor));
         }
         return List.copyOf(result);
     }
@@ -409,12 +398,10 @@ public final class ScheduleOwnerBundle {
             ScheduleCapabilityOwner owner, List<? extends ScheduledSourceExecutor> executors) {
         List<SourceExecutorEntry> result = new ArrayList<>();
         for (ScheduledSourceExecutor executor : copyInput(owner, "source executors", executors)) {
-            try {
-                result.add(new SourceExecutorEntry(
-                        requireCapabilityId(executor.sourceType(), "source executor type"), executor));
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "source executor", failure);
-            }
+            String sourceType = readPluginCallback(
+                    owner, "source executor type", executor::sourceType);
+            result.add(new SourceExecutorEntry(
+                    requireCapabilityId(sourceType, "source executor type"), executor));
         }
         return List.copyOf(result);
     }
@@ -423,12 +410,10 @@ public final class ScheduleOwnerBundle {
             ScheduleCapabilityOwner owner, List<? extends ScheduledWorkExecutor> executors) {
         List<WorkExecutorEntry> result = new ArrayList<>();
         for (ScheduledWorkExecutor executor : copyInput(owner, "work executors", executors)) {
-            try {
-                result.add(new WorkExecutorEntry(
-                        requireCapabilityId(executor.workType(), "work executor type"), executor));
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "work executor", failure);
-            }
+            String workType = readPluginCallback(
+                    owner, "work executor type", executor::workType);
+            result.add(new WorkExecutorEntry(
+                    requireCapabilityId(workType, "work executor type"), executor));
         }
         return List.copyOf(result);
     }
@@ -437,12 +422,10 @@ public final class ScheduleOwnerBundle {
             ScheduleCapabilityOwner owner, List<? extends ScheduledCredentialPolicy> policies) {
         List<CredentialPolicyEntry> result = new ArrayList<>();
         for (ScheduledCredentialPolicy policy : copyInput(owner, "credential policies", policies)) {
-            try {
-                result.add(new CredentialPolicyEntry(
-                        requireCapabilityId(policy.policyId(), "credential policy id"), policy));
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "credential policy", failure);
-            }
+            String policyId = readPluginCallback(
+                    owner, "credential policy id", policy::policyId);
+            result.add(new CredentialPolicyEntry(
+                    requireCapabilityId(policyId, "credential policy id"), policy));
         }
         return List.copyOf(result);
     }
@@ -451,11 +434,8 @@ public final class ScheduleOwnerBundle {
             ScheduleCapabilityOwner owner, List<? extends ScheduledExecutionGuard> guards) {
         List<GuardEntry> result = new ArrayList<>();
         for (ScheduledExecutionGuard guard : copyInput(owner, "execution guards", guards)) {
-            try {
-                result.add(new GuardEntry(requireCapabilityId(guard.guardId(), "guard id"), guard));
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "execution guard", failure);
-            }
+            String guardId = readPluginCallback(owner, "guard id", guard::guardId);
+            result.add(new GuardEntry(requireCapabilityId(guardId, "guard id"), guard));
         }
         return List.copyOf(result);
     }
@@ -464,12 +444,10 @@ public final class ScheduleOwnerBundle {
             ScheduleCapabilityOwner owner, List<? extends ScheduledWorkRunner> runners) {
         List<LegacyWorkRunnerEntry> result = new ArrayList<>();
         for (ScheduledWorkRunner runner : copyInput(owner, "legacy work runners", runners)) {
-            try {
-                result.add(new LegacyWorkRunnerEntry(
-                        requireCapabilityId(runner.kind(), "legacy work runner type"), runner));
-            } catch (RuntimeException failure) {
-                throw readFailure(owner, "legacy work runner", failure);
-            }
+            String workType = readPluginCallback(
+                    owner, "legacy work runner type", runner::kind);
+            result.add(new LegacyWorkRunnerEntry(
+                    requireCapabilityId(workType, "legacy work runner type"), runner));
         }
         return List.copyOf(result);
     }
@@ -611,9 +589,28 @@ public final class ScheduleOwnerBundle {
     }
 
     private static IllegalStateException readFailure(
-            ScheduleCapabilityOwner owner, String label, RuntimeException cause) {
+            ScheduleCapabilityOwner owner, String label, Throwable cause) {
         return new IllegalStateException("failed to prepare schedule " + label + " (owner: " + owner
                 + "; plugin error type: " + cause.getClass().getName() + ")");
+    }
+
+    private static <T> T readPluginCallback(
+            ScheduleCapabilityOwner owner, String label, Supplier<T> callback) {
+        try {
+            return callback.get();
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            throw readFailure(owner, label, failure);
+        }
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            throw fatal;
+        }
     }
 
     private static IllegalStateException failure(ScheduleCapabilityOwner owner, String message) {

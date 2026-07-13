@@ -92,7 +92,6 @@ public class PluginCapabilityContributionRegistrar {
     private final Object publicationLock = new Object();
     private final Map<Long, PublishedOwner> published = new HashMap<>();
     private final Map<String, ExternalCapabilityPublication> legacyPublications = new HashMap<>();
-    private final Map<String, PreparedOwner> legacyPreparations = new HashMap<>();
     private final Map<String, ExternalCapabilityDrain> legacyDrains = new HashMap<>();
 
     /** Test/legacy constructor retaining the original immediate adapter contract. */
@@ -479,7 +478,6 @@ public class PluginCapabilityContributionRegistrar {
             }
             legacyPublications.remove(drain.owner().pluginId(), owner.publication());
             legacyDrains.remove(drain.owner().pluginId(), drain);
-            legacyPreparations.remove(drain.owner().pluginId(), owner.preparedOwner);
             owner.adapters().clear();
             owner.preparedOwner.cleanupBatch = null;
             published.remove(drain.owner().publicationId(), owner);
@@ -503,26 +501,17 @@ public class PluginCapabilityContributionRegistrar {
             legacyRegistered = true;
             if (!runtimeAdapters.isEmpty()) {
                 preparedOwner = allocateOwner(pluginId, pluginId, 0L);
-                synchronized (publicationLock) {
-                    legacyPreparations.put(pluginId, preparedOwner);
-                }
                 prepareInto(preparedOwner, context);
                 ExternalCapabilityPublication publication = publish(preparedOwner);
                 synchronized (publicationLock) {
                     legacyPublications.put(pluginId, publication);
-                    legacyPreparations.remove(pluginId, preparedOwner);
                 }
             }
         } catch (Throwable failure) {
-            Throwable cleanupFatal = null;
-            if (preparedOwner != null) {
-                try {
-                    cleanupLegacyRuntimeCapabilities(pluginId, preparedOwner);
-                } catch (Throwable cleanupFailure) {
-                    cleanupFatal = mergeFatal(cleanupFatal, cleanupFailure);
-                    addSuppressedSafely(failure, cleanupFailure);
-                }
+            if (preparedOwner != null && !preparedOwner.consumed) {
+                discardUnpublished(preparedOwner);
             }
+            Throwable cleanupFatal = null;
             if (legacyRegistered) {
                 try {
                     unregisterLegacy(pluginId);
@@ -582,95 +571,48 @@ public class PluginCapabilityContributionRegistrar {
         }
     }
 
-    /** Compatibility cleanup never abandons an exact prepared/publication token or an active invocation. */
-    private void cleanupLegacyRuntimeCapabilities(String pluginId, PreparedOwner fallbackPreparation) {
-        ExternalCapabilityPublication publication;
-        ExternalCapabilityDrain drain;
-        PreparedOwner preparation;
-        synchronized (publicationLock) {
-            publication = legacyPublications.get(pluginId);
-            drain = legacyDrains.get(pluginId);
-            preparation = legacyPreparations.get(pluginId);
-            if (preparation == null) {
-                preparation = fallbackPreparation;
-            }
-        }
-        if (publication == null && preparation != null) {
-            Optional<ExternalCapabilityPublication> recovered = recoverPublication(preparation);
-            if (recovered.isPresent()) {
-                publication = recovered.orElseThrow();
-                synchronized (publicationLock) {
-                    legacyPublications.put(pluginId, publication);
-                }
-            } else {
-                if (!discardUnpublished(preparation)) {
-                    throw new IllegalStateException(
-                            "external capability preparation remains pending: " + preparation.owner());
-                }
-                synchronized (publicationLock) {
-                    legacyPreparations.remove(pluginId, preparation);
-                }
-                return;
-            }
-        }
-        if (publication == null) {
-            return;
-        }
-
-        boolean interrupted = false;
-        try {
-            if (drain == null) {
-                ExternalCapabilityPublication exactPublication = publication;
-                drain = withdraw(publication).orElseThrow(() -> new IllegalStateException(
-                        "external capability publication could not be withdrawn: " + exactPublication.owner()));
-                synchronized (publicationLock) {
-                    legacyDrains.put(pluginId, drain);
-                }
-            }
-            while (!drain.isDrained()) {
-                if (!drain.awaitDrained()) {
-                    interrupted = true;
-                    Thread.interrupted();
-                }
-            }
-            retireDrained(drain);
-            acknowledgeRetired(drain);
-            releaseRetirementProof(drain);
-            synchronized (publicationLock) {
-                legacyPublications.remove(pluginId, publication);
-                legacyDrains.remove(pluginId, drain);
-                if (preparation != null) {
-                    legacyPreparations.remove(pluginId, preparation);
-                }
-            }
-        } finally {
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
     public void unregister(String pluginId) {
         List<String> failureTypes = new ArrayList<>();
         Throwable fatal = null;
-        boolean runtimeCleaned = false;
-        try {
-            cleanupLegacyRuntimeCapabilities(pluginId, null);
-            runtimeCleaned = true;
-        } catch (Throwable failure) {
-            fatal = mergeFatal(fatal, failure);
-            if (!isFatal(failure)) {
-                failureTypes.add(failure.getClass().getName());
-            }
+        ExternalCapabilityPublication publication;
+        ExternalCapabilityDrain existingDrain;
+        synchronized (publicationLock) {
+            publication = legacyPublications.get(pluginId);
+            existingDrain = legacyDrains.get(pluginId);
         }
-        if (runtimeCleaned) {
+        if (publication != null) {
             try {
-                unregisterLegacy(pluginId);
+                ExternalCapabilityDrain drain = existingDrain;
+                if (drain == null) {
+                    drain = withdraw(publication).orElse(null);
+                    if (drain != null) {
+                        synchronized (publicationLock) {
+                            legacyDrains.put(pluginId, drain);
+                        }
+                    }
+                }
+                if (drain != null) {
+                    if (!drain.isDrained()) {
+                        failureTypes.add("in-flight external capability invocation");
+                    } else {
+                        retireDrained(drain);
+                        acknowledgeRetired(drain);
+                        releaseRetirementProof(drain);
+                    }
+                }
             } catch (Throwable failure) {
                 fatal = mergeFatal(fatal, failure);
                 if (!isFatal(failure)) {
                     failureTypes.add(failure.getClass().getName());
                 }
+            }
+        }
+        try {
+            unregisterLegacy(pluginId);
+        } catch (Throwable failure) {
+            fatal = mergeFatal(fatal, failure);
+            if (!isFatal(failure)) {
+                failureTypes.add(failure.getClass().getName());
             }
         }
         if (fatal != null) {

@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -67,8 +68,8 @@ import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
  * {@code defineClass}（其实例的 {@code getClassLoader()} 即 probe loader），并把同一个 probe loader 作为插件注册
  * 条目的来源 classloader。由此 probe loader 同时经两条真实泄漏链被各注册中心持有：
  * <ul>
- *   <li><b>classLoader 字段链</b>：{@link StaticResourceRegistry} / {@link WebI18nBundleRegistry} /
- *       {@link UserscriptRegistry} 直接保存声明方 classloader（解析静态资源 / i18n / 油猴脚本用）；</li>
+ *   <li><b>classLoader 字段链</b>：{@link StaticResourceRegistry} / {@link UserscriptRegistry} 在活动来源中保存声明方
+ *       classloader；i18n 与脚本内容只在注册 / 刷新时用它读取，发布快照已物化为宿主值；</li>
  *   <li><b>Bean 实例链</b>：{@link ScheduleCapabilityRegistry} 的 owner snapshot 与执行租约保存 probe loader
  *       拥有的执行器 Bean 实例（实例经其 {@code Class} 反向持有定义它的 classloader）。</li>
  * </ul>
@@ -148,8 +149,7 @@ class PluginClassLoaderLeakProbeTest {
             // 业务级残留已被上面的确定性断言排除（各注册中心快照不含该插件）；到此仍未回收 → 归为环境 / JVM GC 不稳定。
             Assumptions.abort("probe classloader 未在本环境被 GC 回收，但确定性引用链已确认各注册中心无残留——"
                     + "判为环境不稳定（非业务泄漏）。" + leakDiagnostic(
-                    routes, statics, i18n, navigation, userscripts, scripts,
-                    schedule, streams, handles.runner()));
+                    routes, statics, i18n, navigation, userscripts, scripts, schedule, streams, handles.runner()));
         }
         assertThat(clCollected).as("probe classloader 注销后应可被 GC 回收").isTrue();
     }
@@ -398,12 +398,12 @@ class PluginClassLoaderLeakProbeTest {
                 ScheduleCapabilityRegistryTestAccess.publish(schedule, bundle);
         streams.register(PLUGIN_ID, "conn-1", () -> { /* no-op close */ });
 
-        // —— 接入后（确定性）：各注册中心暴露该插件；i18n 已从来源 loader 物化为宿主值 ——
+        // —— 接入后（确定性）：各注册中心暴露该插件；i18n / userscript 已从来源 loader 物化为宿主值 ——
         assertThat(routes.routes()).anyMatch(r -> r.pluginId().equals(PLUGIN_ID));
         assertThat(statics.resources())
                 .anyMatch(s -> s.pluginId().equals(PLUGIN_ID) && s.classLoader() == probeCl);
         assertThat(i18n.resolve(NAMESPACE)).isNotNull();
-        assertThat(i18n.resolve(NAMESPACE).load(java.util.Locale.US)).isNotEmpty();
+        assertThat(i18n.resolve(NAMESPACE).load(Locale.US)).isNotEmpty();
         assertThat(navigation.navigation()).anyMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts())
                 .anyMatch(u -> u.pluginId().equals(PLUGIN_ID) && u.classLoader() == probeCl);
@@ -479,16 +479,16 @@ class PluginClassLoaderLeakProbeTest {
                 + "]";
     }
 
+    private static ScheduledWorkRunner newProbeRunner(ProbeClassLoader cl) throws ReflectiveOperationException {
+        Class<?> runnerClass = cl.loadClass(LeakProbeWorkRunner.class.getName());
+        return (ScheduledWorkRunner) runnerClass.getDeclaredConstructor().newInstance();
+    }
+
     private static ScheduledSourceProvider probeSourceProvider() {
         return new ScheduledSourceProvider() {
             @Override public String type() { return SOURCE_TYPE; }
             @Override public Set<String> legacyTypeNames() { return Set.of(); }
         };
-    }
-
-    private static ScheduledWorkRunner newProbeRunner(ProbeClassLoader cl) throws ReflectiveOperationException {
-        Class<?> runnerClass = cl.loadClass(LeakProbeWorkRunner.class.getName());
-        return (ScheduledWorkRunner) runnerClass.getDeclaredConstructor().newInstance();
     }
 
     /** 一个声明全套 web + schedule 贡献的合成外置插件（实例由测试 loader 加载——被探针的是其来源 classloader，非本实例）。 */
@@ -540,6 +540,7 @@ class PluginClassLoaderLeakProbeTest {
         public List<UserscriptContribution> userscripts() {
             return List.of(new UserscriptContribution(PLUGIN_ID, "classpath:/test-userscripts/*.user.js"));
         }
+
     }
 
     /**

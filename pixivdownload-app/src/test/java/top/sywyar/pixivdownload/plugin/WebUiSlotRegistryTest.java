@@ -2,15 +2,18 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 @DisplayName("WebUiSlotRegistry UI 槽位注册中心")
 class WebUiSlotRegistryTest {
@@ -56,6 +59,19 @@ class WebUiSlotRegistryTest {
         assertThat(registry.slots()).isEmpty();
         registry.register("demo", items);
         assertThat(registry.slots()).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("启动期槽位使用 RegisteredPlugin 稳定 id，不二次调用插件 id getter")
+    void bootSlotsUseStableRegisteredIdentity() {
+        FlakyIdSlotPlugin plugin = new FlakyIdSlotPlugin();
+
+        WebUiSlotRegistry registry = new WebUiSlotRegistry(new PluginRegistry(List.of(plugin)));
+
+        assertThat(plugin.idReads()).isOne();
+        assertThat(registry.slots()).singleElement()
+                .extracting(WebUiSlotRegistry.RegisteredUiSlot::pluginId)
+                .isEqualTo("flaky-slot-id");
     }
 
     @Test
@@ -177,5 +193,28 @@ class WebUiSlotRegistryTest {
         assertThatThrownBy(() -> slots.add(
                 new WebUiSlotRegistry.RegisteredUiSlot("x", slot("x", "x.a"))))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private static final class FlakyIdSlotPlugin implements PixivFeaturePlugin {
+        private final AtomicInteger idReads = new AtomicInteger();
+
+        @Override
+        public String id() {
+            if (idReads.incrementAndGet() != 1) {
+                throw new AssertionError("plugin id getter was read more than once");
+            }
+            return "flaky-slot-id";
+        }
+
+        @Override public String displayName() { return "flaky-slot-id.name"; }
+        @Override public String description() { return "flaky-slot-id.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+        @Override public List<WebUiSlotContribution> uiSlots() {
+            return List.of(slot("flaky-slot-id", "flaky-slot-id.main"));
+        }
+
+        int idReads() {
+            return idReads.get();
+        }
     }
 }

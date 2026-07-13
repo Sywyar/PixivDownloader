@@ -17,12 +17,14 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -123,8 +125,12 @@ public class PluginRegistry implements SmartLifecycle {
     }
 
     private final Object lock = new Object();
+    private final Object featureCallbackLock = new Object();
     private final Map<RegisteredPlugin, ActiveIdentityReservationState> activeIdentityReservations =
             new IdentityHashMap<>();
+    /** PluginRegistry 与 runtime lifecycle 共享的 feature callback 事实源；对象身份区分代际。 */
+    private final Set<RegisteredPlugin> startedFeatures =
+            Collections.newSetFromMap(new IdentityHashMap<>());
 
     /** 启用开关：活动成员判定的事实源。构造期与运行期 {@link #register} 都据此决定插件是否进入活动快照。 */
     private final PluginToggleProperties toggles;
@@ -334,6 +340,10 @@ public class PluginRegistry implements SmartLifecycle {
                 && !containsIdentity(currentState.active(), target)) {
             throw new IllegalStateException(
                     "plugin registration changed while waiting for active identity reservation: " + pluginId);
+        }
+        if (startedFeatures.contains(target)) {
+            throw new IllegalStateException(
+                    "cannot unregister a plugin whose feature callback is still started: " + pluginId);
         }
         List<RegisteredPlugin> nextInstalled = currentState.installed().stream()
                 .filter(registered -> registered != target)
@@ -561,7 +571,39 @@ public class PluginRegistry implements SmartLifecycle {
     @Override
     public void start() {
         List<RegisteredPlugin> plugins = state.active();
-        plugins.forEach(registered -> registered.plugin().start());
+        List<RegisteredPlugin> startedThisAttempt = new ArrayList<>();
+        Throwable startFailure = null;
+        for (RegisteredPlugin registered : plugins) {
+            try {
+                if (startFeature(registered)) {
+                    startedThisAttempt.add(registered);
+                }
+            } catch (Throwable failure) {
+                startFailure = failure;
+                break;
+            }
+        }
+        if (startFailure != null) {
+            Throwable cleanupFatal = null;
+            for (int i = startedThisAttempt.size() - 1; i >= 0; i--) {
+                try {
+                    stopFeature(startedThisAttempt.get(i));
+                } catch (Throwable cleanupFailure) {
+                    if (!isFatal(startFailure) && isFatal(cleanupFailure)) {
+                        if (cleanupFatal == null) {
+                            cleanupFatal = cleanupFailure;
+                            addSuppressedSafely(cleanupFatal, startFailure);
+                        } else {
+                            addSuppressedSafely(cleanupFatal, cleanupFailure);
+                        }
+                    } else {
+                        addSuppressedSafely(cleanupFatal != null ? cleanupFatal : startFailure, cleanupFailure);
+                    }
+                }
+            }
+            running = false;
+            rethrowUnchecked(cleanupFatal != null ? cleanupFatal : startFailure);
+        }
         running = true;
         log.info(MessageBundles.get("plugin.log.started", plugins.size(),
                 plugins.stream().map(RegisteredPlugin::id).collect(Collectors.joining(", "))));
@@ -570,21 +612,126 @@ public class PluginRegistry implements SmartLifecycle {
     @Override
     public void stop() {
         List<RegisteredPlugin> plugins = state.active();
+        Throwable fatal = null;
         for (int i = plugins.size() - 1; i >= 0; i--) {
             RegisteredPlugin registered = plugins.get(i);
             try {
-                registered.plugin().stop();
-            } catch (Exception failure) {
-                log.warn(MessageBundles.get(
-                        "plugin.log.stop-failed", registered.id(), failure.getMessage()), failure);
+                stopFeature(registered);
+            } catch (Throwable failure) {
+                if (isFatal(failure)) {
+                    if (fatal == null) {
+                        fatal = failure;
+                    } else {
+                        addSuppressedSafely(fatal, failure);
+                    }
+                } else {
+                    if (fatal != null) {
+                        addSuppressedSafely(fatal, failure);
+                    }
+                    log.warn(MessageBundles.get(
+                            "plugin.log.stop-failed", registered.id(), failure.getMessage()), failure);
+                }
             }
         }
         running = false;
+        if (fatal != null) {
+            rethrowFatal(fatal);
+        }
+    }
+
+    /**
+     * 对精确活动身份幂等调用 feature start；成功返回后才记录 started。runtime restart 与 SmartLifecycle 共用此入口。
+     */
+    public boolean startFeature(RegisteredPlugin registered) {
+        Objects.requireNonNull(registered, "registered plugin");
+        synchronized (featureCallbackLock) {
+            synchronized (lock) {
+                if (startedFeatures.contains(registered)) {
+                    return false;
+                }
+            }
+            return withActiveIdentityReservation(registered, () -> {
+                registered.plugin().start();
+                synchronized (lock) {
+                    startedFeatures.add(registered);
+                }
+                return true;
+            });
+        }
+    }
+
+    /**
+     * 对精确活动身份幂等调用 feature stop；只有回调成功才移除 started 标记，失败保留以供 runtime / shutdown 重试。
+     */
+    public boolean stopFeature(RegisteredPlugin registered) {
+        Objects.requireNonNull(registered, "registered plugin");
+        synchronized (featureCallbackLock) {
+            synchronized (lock) {
+                if (!startedFeatures.contains(registered)) {
+                    return false;
+                }
+            }
+            return withActiveIdentityReservation(registered, () -> {
+                registered.plugin().stop();
+                synchronized (lock) {
+                    startedFeatures.remove(registered);
+                }
+                return true;
+            });
+        }
+    }
+
+    /** 当前精确身份的 feature start 回调是否已成功且尚未成功 stop。 */
+    public boolean featureStarted(RegisteredPlugin registered) {
+        Objects.requireNonNull(registered, "registered plugin");
+        synchronized (lock) {
+            return startedFeatures.contains(registered);
+        }
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            throw fatal;
+        }
+    }
+
+    private static boolean isFatal(Throwable failure) {
+        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
+    }
+
+    private static void rethrowUnchecked(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new IllegalStateException("feature lifecycle callback failed", failure);
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
+        if (target == suppressed) {
+            return;
+        }
+        try {
+            target.addSuppressed(suppressed);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖首个 start 失败。
+        }
     }
 
     @Override
     public boolean isRunning() {
         return running;
+    }
+
+    /** 先启动插件回调、后于外置服务足迹停止。 */
+    @Override
+    public int getPhase() {
+        return 0;
     }
 
     /** 完整准备派生视图后通过单个 volatile 引用一次性发布安装态与活动态。 */

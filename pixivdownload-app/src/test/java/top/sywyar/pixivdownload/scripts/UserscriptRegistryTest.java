@@ -129,7 +129,7 @@ class UserscriptRegistryTest {
         assertThat(external.getClass().getClassLoader()).isNotSameAs(bridgeClassLoader);
 
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(new DiscoveredFeaturePlugin("ext-script-pack", external, bridgeClassLoader)), List.of());
+                List.of(new DiscoveredFeaturePlugin("ext-script", external, bridgeClassLoader)), List.of());
         PluginRegistry registry = new PluginRegistry(
                 List.of(new CorePlaceholderPlugin()), new PluginToggleProperties(), discoveryProvider(discovery));
         UserscriptRegistry registry2 = new UserscriptRegistry(registry);

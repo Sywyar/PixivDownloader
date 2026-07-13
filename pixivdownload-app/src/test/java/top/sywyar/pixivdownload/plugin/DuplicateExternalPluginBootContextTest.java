@@ -12,6 +12,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
@@ -82,6 +83,8 @@ class DuplicateExternalPluginBootContextTest {
     private StaticResourceRegistry staticResourceRegistry;
     @Autowired
     private WebI18nBundleRegistry webI18nBundleRegistry;
+    @Autowired
+    private QueueOperationRegistry queueOperationRegistry;
     @Autowired
     private ExternalPluginContextManager externalPluginContextManager;
     @Autowired
@@ -175,6 +178,9 @@ class DuplicateExternalPluginBootContextTest {
         assertThat(child.getBeanNamesForType(backfillClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
         assertThat(duplicateGroupsHandlerBean()).isSameAs(child.getBean(controllerClass));
+        assertThat(queueOperationRegistry.operationsForOwner("duplicate"))
+                .extracting(QueueOperationRegistry.OwnedQueueOperations::queueType)
+                .containsExactly("duplicate-scan");
     }
 
     private Object duplicateGroupsHandlerBean() {

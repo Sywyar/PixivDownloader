@@ -52,6 +52,12 @@ public class ExternalPluginContextManager implements SmartLifecycle {
         return running;
     }
 
+    /** PluginRegistry 先启动，本管理器后建立服务足迹；关闭时按 phase 逆序先拆足迹、后停插件。 */
+    @Override
+    public int getPhase() {
+        return 100;
+    }
+
     /** 已建立子 context 的外置插件包 id（按建立顺序），只读快照。 */
     public Set<String> pluginIds() {
         return lifecycleService.servingPluginIds();
