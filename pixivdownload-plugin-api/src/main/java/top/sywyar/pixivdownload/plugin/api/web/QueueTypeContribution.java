@@ -40,4 +40,14 @@ public record QueueTypeContribution(
         this(pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl,
                 DownloadTypeDescriptor.legacy(pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl));
     }
+
+    /**
+     * 是否由 1.0 时代的六参数构造器生成。宿主只用该标记开启受当前后端 publication 与
+     * {@code document.currentScript} 双重约束的前端兼容入口；实际取得模式仍由已加载模块中
+     * 通过校验的 hook 推导，绝不预先猜测能力。
+     */
+    public boolean usesLegacyDescriptor() {
+        return descriptor != null && descriptor.equals(DownloadTypeDescriptor.legacy(
+                pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl));
+    }
 }

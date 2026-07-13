@@ -20,10 +20,10 @@ class PluginApiVersionTest {
     }
 
     @Test
-    @DisplayName("通用计划任务契约发布为向后兼容的 1.1 版本")
+    @DisplayName("通用计划任务契约发布为向后兼容的 1.2 版本")
     void frozenContractIsStableAndNonNegative() {
         assertThat(PluginApiVersion.MAJOR).isEqualTo(1);
-        assertThat(PluginApiVersion.MINOR).isEqualTo(1);
+        assertThat(PluginApiVersion.MINOR).isEqualTo(2);
         assertThat(PluginApiVersion.PATCH).isEqualTo(0);
     }
 

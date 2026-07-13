@@ -248,7 +248,7 @@ class PluginReleaseScriptsTest {
                 "CoreShellOnly and DefaultDownloader cannot be combined.");
         assertThat(windows).contains(
                 "$OfficialPluginCatalogUrl = \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
-                "$InstallerPluginApiVersion = \"1.1.0\"",
+                "$InstallerPluginApiVersion = \"1.2.0\"",
                 "Stage-InstallerPluginCatalogSnapshot",
                 "Write-InstallerPluginCatalogProjection",
                 "Write-InstallerPluginCatalogInclude",
@@ -271,6 +271,7 @@ class PluginReleaseScriptsTest {
                 "[System.IO.File]::WriteAllText($artifactSignaturePath",
                 "$artifactPath.sha256");
         assertThat(inno).contains(
+                "#define PluginApiVersion \"1.2.0\"",
                 "#define InstallerPluginCatalogEnabled \"0\"",
                 "#error SignatureToolJar must be defined when InstallerPluginCatalogEnabled is 1.",
                 "#if InstallerPluginCatalogEnabled == \"1\"",
@@ -334,6 +335,7 @@ class PluginReleaseScriptsTest {
                 "FinishInstallerPluginCatalogLoad",
                 "ExtractPluginInstallerSupportFiles");
         assertThat(installerInstall).contains(
+                "[string]$CoreApiVersion = \"1.2.0\"",
                 "$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)",
                 "$Utf8NoBom.GetBytes($Value + \"`n\")",
                 "function Escape-StateField",

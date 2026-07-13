@@ -30,6 +30,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFrontendContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledWorkSink;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
@@ -240,6 +241,43 @@ class ScheduleContractTest {
         assertThatThrownBy(() -> new ScheduledSourceFrontendContribution(
                 1, "/plugin-assets/../external.js"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("旧来源执行器默认把纯数据草稿提升为定义且保持二进制兼容")
+    void sourceExecutorDefaultPreparePreservesStampedDraft() throws Exception {
+        ScheduledTaskDraft draft = new ScheduledTaskDraft(
+                17L,
+                "fixture:source",
+                "fixture.definition",
+                2,
+                "{\"value\":1}",
+                new ScheduledTaskPresentation("任务", null, Map.of("kind", "fixture")));
+        ScheduledSourceExecutor executor = new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return "fixture:source";
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                return ScheduledExecutionPlan.credentialFree(Set.of("fixture:work"));
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+        };
+
+        ScheduledTaskDefinition definition = executor.prepare(draft);
+
+        assertThat(definition).isEqualTo(draft.toDefinition());
+        assertThat(definition.presentation().attributes())
+                .containsExactlyEntriesOf(Map.of("kind", "fixture"));
+        assertThat(ScheduledSourceExecutor.class
+                .getMethod("prepare", ScheduledTaskDraft.class)
+                .isDefault()).isTrue();
     }
 
     @Test
