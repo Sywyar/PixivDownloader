@@ -15,6 +15,9 @@ import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestGenerationDrain;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionPublication;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
@@ -43,7 +46,7 @@ import java.util.function.Supplier;
  *
  * <h2>注册方向（{@link #register}）</h2>
  * 多数下游注册中心在<b>构造期</b>已从 {@link PluginRegistry} 的活动快照收集贡献；路由注册中心只直接聚合内置路由，
- * 外置路由由本类在同一启动准备快照中携 exact owner 接入。本类的 {@code register} 用于
+ * 外置路由由本类在同一启动准备快照中先发布请求 owner、再携 exact owner 接入。本类的 {@code register} 用于
  * <b>先 {@link #unregister} 后再注册</b>的可逆链路——把同一插件的
  * 六类贡献按与构造期一致的口径重新接入，使「注册 → 注销 → 再注册」后各注册中心快照与首次一致。插件 getter、
  * 资源解析与 owner-local 校验先在所有 registrar 锁外完成；最终提交按
@@ -52,14 +55,14 @@ import java.util.function.Supplier;
  * 不会丢失残留足迹的 recovery token。
  *
  * <h2>注销方向（{@link #unregister}）</h2>
- * 先精确撤回下载 publication，随后按 pluginId 从六类注册中心逐一注销
+ * 先精确撤回新请求准入并确认在途请求已经排空，再撤回下载 publication，随后按 pluginId 从六类注册中心逐一注销
  * （各注册中心对未注册过的 pluginId 静默返回，故幂等），最后
  * <b>清该插件 classloader 的 {@link ResourceBundle} 缓存</b>（避免注销后仍按旧 classloader 读到陈旧 i18n），
  * 并刷新 {@link ScriptRegistry}（其聚合的脚本列表 / 内容来源随 {@link UserscriptRegistry} 快照重算，使被注销插件
  * 的油猴脚本不再残留）。注销后这六类的快照都不含该插件；查询期静态资源映射会感知快照变化并回收处理器，
  * 路由注销后 {@code AuthFilter} 也会对其 URL「未声明即 404」（与插件禁用语义一致）。
  *
- * <p>本类不触碰鉴权与请求分发表 handler（前者由 {@code AuthFilter} 按
+ * <p>本类只管理请求准入租约，不触碰鉴权与请求分发表 handler（前者由 {@code AuthFilter} 按
  * {@link RouteAccessRegistry} 独立执行，后者由 {@code PluginControllerRegistrar} 负责），也不碰 schema
  * （受管 schema 经 {@link PluginRegistry#allPlugins()}
  * 合并，禁用 / 卸载都保留已建表与数据）。只有最终发布 / 撤回修改在本对象锁内串行；插件回调与资源准备不持锁。
@@ -77,6 +80,7 @@ public class PluginWebContributionRegistrar {
     private final ScriptRegistry scriptRegistry;
     private final PluginRegistry pluginRegistry;
     private final DownloadExtensionRegistry downloadExtensionRegistry;
+    private final PluginRequestLeaseRegistry requestLeaseRegistry;
 
     private final Object lock = new Object();
     /** 每个 pluginId 只有一个当前 serving；撤回授权由其中的句柄对象身份决定。 */
@@ -90,6 +94,7 @@ public class PluginWebContributionRegistrar {
     }
 
     private enum CleanupStep {
+        REQUEST_ADMISSION,
         DOWNLOAD_EXTENSION,
         ROUTE,
         STATIC_RESOURCE,
@@ -235,7 +240,8 @@ public class PluginWebContributionRegistrar {
                                           UserscriptRegistry userscriptRegistry,
                                           ScriptRegistry scriptRegistry,
                                           PluginRegistry pluginRegistry,
-                                          DownloadExtensionRegistry downloadExtensionRegistry) {
+                                          DownloadExtensionRegistry downloadExtensionRegistry,
+                                          PluginRequestLeaseRegistry requestLeaseRegistry) {
         this.routeAccessRegistry = routeAccessRegistry;
         this.staticResourceRegistry = staticResourceRegistry;
         this.webI18nBundleRegistry = webI18nBundleRegistry;
@@ -245,11 +251,12 @@ public class PluginWebContributionRegistrar {
         this.scriptRegistry = scriptRegistry;
         this.pluginRegistry = pluginRegistry;
         this.downloadExtensionRegistry = downloadExtensionRegistry;
+        this.requestLeaseRegistry = requestLeaseRegistry;
         if (pluginRegistry != null && downloadExtensionRegistry != null) {
             for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
                 DownloadExtensionPublication publication =
                         downloadExtensionRegistry.currentPublication(registered).orElse(null);
-                if (isExternal(registered)) {
+                if (isRequestManaged(registered)) {
                     BootServingSnapshot prepared = prepareBootServing(registered);
                     commitBootRegistration(registered, prepared, publication);
                 } else {
@@ -259,6 +266,21 @@ public class PluginWebContributionRegistrar {
                 }
             }
         }
+    }
+
+    /** 兼容显式构造 registrar 的测试；生产装配额外注入请求租约 registry。 */
+    public PluginWebContributionRegistrar(RouteAccessRegistry routeAccessRegistry,
+                                          StaticResourceRegistry staticResourceRegistry,
+                                          WebI18nBundleRegistry webI18nBundleRegistry,
+                                          NavigationRegistry navigationRegistry,
+                                          WebUiSlotRegistry webUiSlotRegistry,
+                                          UserscriptRegistry userscriptRegistry,
+                                          ScriptRegistry scriptRegistry,
+                                          PluginRegistry pluginRegistry,
+                                          DownloadExtensionRegistry downloadExtensionRegistry) {
+        this(routeAccessRegistry, staticResourceRegistry, webI18nBundleRegistry,
+                navigationRegistry, webUiSlotRegistry, userscriptRegistry, scriptRegistry,
+                pluginRegistry, downloadExtensionRegistry, null);
     }
 
     /** 兼容独立 registry 单测；生产装配使用包含下载扩展 registry 的完整构造器。 */
@@ -271,7 +293,7 @@ public class PluginWebContributionRegistrar {
                                           ScriptRegistry scriptRegistry) {
         this(routeAccessRegistry, staticResourceRegistry, webI18nBundleRegistry,
                 navigationRegistry, webUiSlotRegistry, userscriptRegistry, scriptRegistry,
-                null, null);
+                null, null, null);
     }
 
     private BootServingSnapshot prepareBootServing(
@@ -291,6 +313,7 @@ public class PluginWebContributionRegistrar {
                 new Registration(handle, publication, RegistrationState.ACTIVE);
         boolean registrationPublished = false;
         try {
+            requestLeaseRegistry.publish(owner);
             if (!prepared.routes().isEmpty()) {
                 routeAccessRegistry.register(owner, prepared.routes());
             }
@@ -304,7 +327,7 @@ public class PluginWebContributionRegistrar {
             if (registrationPublished) {
                 registrations.remove(registered.id(), bootRegistration);
             }
-            Throwable cleanupFailure = rollbackBootRouteOwner(owner);
+            Throwable cleanupFailure = rollbackBootRequestOwner(owner);
             if (isFatal(failure)) {
                 addSuppressedSafely(failure, cleanupFailure);
                 rethrowFatal(failure);
@@ -315,24 +338,46 @@ public class PluginWebContributionRegistrar {
             }
             if (cleanupFailure != null) {
                 throw boundaryFailure(
-                        "failed to roll back boot route owner for plugin: " + registered.id(),
+                        "failed to roll back boot request owner for plugin: " + registered.id(),
                         cleanupFailure);
             }
             if (failure instanceof RuntimeException runtimeFailure) {
                 throw runtimeFailure;
             }
             throw boundaryFailure(
-                    "failed to bind boot route owner for plugin: " + registered.id(), failure);
+                    "failed to bind boot request owner for plugin: " + registered.id(), failure);
         }
     }
 
-    private Throwable rollbackBootRouteOwner(PluginRequestOwner owner) {
+    private Throwable rollbackBootRequestOwner(PluginRequestOwner owner) {
+        Throwable cleanupFailure = null;
+        boolean requestsDrained = true;
         try {
-            routeAccessRegistry.unregister(owner);
-            return null;
+            Optional<PluginRequestGenerationDrain> drain = requestLeaseRegistry.withdraw(owner);
+            if (drain.isPresent()) {
+                PluginRequestGenerationDrain servingDrain = drain.orElseThrow();
+                requestsDrained = servingDrain.isDrained();
+                if (!requestsDrained) {
+                    throw new IllegalStateException(
+                            "boot request serving still has active leases: " + owner.pluginId());
+                }
+                requestLeaseRegistry.retire(owner);
+            }
         } catch (Throwable rollbackFailure) {
-            return rollbackFailure;
+            cleanupFailure = rollbackFailure;
         }
+        if (requestsDrained) {
+            try {
+                routeAccessRegistry.unregister(owner);
+            } catch (Throwable rollbackFailure) {
+                cleanupFailure = mergeFailures(cleanupFailure, rollbackFailure);
+            }
+        }
+        return cleanupFailure;
+    }
+
+    private boolean isRequestManaged(PluginRegistry.RegisteredPlugin registered) {
+        return requestLeaseRegistry != null && isExternal(registered);
     }
 
     private static boolean isExternal(PluginRegistry.RegisteredPlugin registered) {
@@ -407,6 +452,10 @@ public class PluginWebContributionRegistrar {
                     prepared.handle, null, RegistrationState.COMMITTING);
             registrations.put(pluginId, registration);
             try {
+                if (isRequestManaged(registered)) {
+                    registration.requireCleanup(CleanupStep.REQUEST_ADMISSION);
+                    requestLeaseRegistry.publish(registration.handle().requestOwner());
+                }
                 if (!contributions.routes().isEmpty()) {
                     registration.requireCleanup(CleanupStep.ROUTE);
                     if (isExternal(registered)) {
@@ -545,6 +594,59 @@ public class PluginWebContributionRegistrar {
     }
 
     /**
+     * 撤回精确外置 serving 的新请求准入并返回其代际 drain。该动作幂等，且不等待 drain；调用方不得在
+     * registrar 锁内等待。内置 serving 或未装配请求租约 registry 的独立测试 registrar 返回空。
+     */
+    public Optional<PluginRequestGenerationDrain> withdrawRequests(
+            PluginWebContributionHandle handle) {
+        Objects.requireNonNull(handle, "web contribution handle");
+        if (!isRequestManaged(handle.registered())) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            Registration current = registrations.get(handle.pluginId());
+            if (current == null || current.handle() != handle) {
+                throw new IllegalStateException(
+                        "web contribution handle is not the current serving: " + handle.pluginId());
+            }
+            return requestLeaseRegistry.withdraw(handle.requestOwner());
+        }
+    }
+
+    /** Preallocate an inactive request lease for one exact current serving. */
+    public Optional<PluginRequestLease> prepareRequestLease(PluginWebContributionHandle handle) {
+        Objects.requireNonNull(handle, "web contribution handle");
+        if (!isRequestManaged(handle.registered())) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            Registration current = registrations.get(handle.pluginId());
+            if (current == null || current.handle() != handle) {
+                return Optional.empty();
+            }
+            return requestLeaseRegistry.prepareLease(handle.requestOwner());
+        }
+    }
+
+    /** Activate a prepared lease only while the same exact serving handle is still current. */
+    public boolean activateRequestLease(
+            PluginWebContributionHandle handle,
+            PluginRequestLease lease) {
+        Objects.requireNonNull(handle, "web contribution handle");
+        Objects.requireNonNull(lease, "prepared request lease");
+        if (!isRequestManaged(handle.registered()) || !lease.owner().equals(handle.requestOwner())) {
+            return false;
+        }
+        synchronized (lock) {
+            Registration current = registrations.get(handle.pluginId());
+            if (current == null || current.handle() != handle) {
+                return false;
+            }
+            return requestLeaseRegistry.activate(lease);
+        }
+    }
+
+    /**
      * 按 pluginId 注销一个插件的六类 web 贡献（幂等），清其 classloader 的 {@link ResourceBundle} 缓存，
      * 并刷新 {@link ScriptRegistry}。统一卸载流程会对每个外置插件调用，故对未注册过的 pluginId 静默完成。
      *
@@ -584,8 +686,8 @@ public class PluginWebContributionRegistrar {
     }
 
     /**
-     * 生命周期迁移期间使用的兼容入口。只把同一 pluginId 且 ClassLoader 对象身份完全一致的当前 serving
-     * 转换为精确句柄；旧代迟到清理不能按 id 撤回后来接入的新 serving。
+     * 供仍按 pluginId 与 ClassLoader 精确身份清理 serving 的生命周期调用方使用。请求准入先在短锁内撤回，
+     * drain 等待始终发生在 registrar 锁外；旧代迟到清理不能按 id 撤回后来接入的新 serving。
      */
     public boolean unregister(String pluginId, ClassLoader expectedClassLoader) {
         if (pluginId == null || pluginId.isBlank()) {
@@ -600,15 +702,40 @@ public class PluginWebContributionRegistrar {
             }
             handle = current.handle();
         }
-        return unregister(handle);
+        return unregisterAfterDrainingRequests(handle);
     }
 
-    /** 兼容旧调用方：仅同一个 RegisteredPlugin 对象身份可解析到当前 serving。 */
+    /** 同一个 RegisteredPlugin 对象身份才可解析到当前 serving，并在资源撤回前排空其请求。 */
     public boolean unregister(PluginRegistry.RegisteredPlugin registered) {
         if (registered == null) {
             return false;
         }
-        return currentHandle(registered).map(this::unregister).orElse(false);
+        return currentHandle(registered)
+                .map(this::unregisterAfterDrainingRequests)
+                .orElse(false);
+    }
+
+    /**
+     * 兼容调用方没有统一截止时间，因此必须等到精确 serving 真正归零；中断只延后并在清理结束后恢复。
+     * 精确 handle 注销仍保持非阻塞语义，由显式生命周期编排自行协调 drain。
+     */
+    private boolean unregisterAfterDrainingRequests(PluginWebContributionHandle handle) {
+        Optional<PluginRequestGenerationDrain> requestedDrain = withdrawRequests(handle);
+        boolean interrupted = false;
+        try {
+            if (requestedDrain.isPresent()) {
+                PluginRequestGenerationDrain drain = requestedDrain.orElseThrow();
+                while (!drain.awaitDrained()) {
+                    interrupted = true;
+                    Thread.interrupted();
+                }
+            }
+            return unregister(handle);
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     private PluginWebContributionHandle newHandle(PluginRegistry.RegisteredPlugin registered) {
@@ -619,10 +746,31 @@ public class PluginWebContributionRegistrar {
         }
     }
 
-    /** 重试尚未完成的清理步骤；成功步骤不再重复，下载 publication 始终先于其它可见足迹撤回。 */
+    /** 重试尚未完成的清理步骤；成功步骤不再重复，请求准入与 drain 始终先于其它可见足迹撤回。 */
     private Throwable cleanPendingRegistration(Registration registration) {
         String pluginId = registration.handle().pluginId();
         Throwable cleanupFailure = cleanupStep(
+                registration, CleanupStep.REQUEST_ADMISSION, () -> {
+                    if (!isRequestManaged(registration.handle().registered())) {
+                        return;
+                    }
+                    PluginRequestOwner owner = registration.handle().requestOwner();
+                    Optional<PluginRequestGenerationDrain> drain = requestLeaseRegistry.withdraw(owner);
+                    if (drain.isPresent()) {
+                        PluginRequestGenerationDrain servingDrain = drain.orElseThrow();
+                        if (!servingDrain.isDrained()) {
+                            throw new IllegalStateException(
+                                    "plugin request serving still has active leases: " + pluginId
+                                            + " (active=" + servingDrain.activeLeaseCount() + ")");
+                        }
+                        requestLeaseRegistry.retire(owner);
+                    }
+                }, null, pluginId, "request-admission");
+        if (!registration.cleanupSatisfied(CleanupStep.REQUEST_ADMISSION)) {
+            return cleanupFailure;
+        }
+
+        cleanupFailure = cleanupStep(
                 registration, CleanupStep.DOWNLOAD_EXTENSION, () -> {
                     DownloadExtensionPublication publication = registration.downloadPublication();
                     if (publication != null && downloadExtensionRegistry != null
