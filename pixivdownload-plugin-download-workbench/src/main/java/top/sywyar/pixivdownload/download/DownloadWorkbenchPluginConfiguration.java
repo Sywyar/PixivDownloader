@@ -18,7 +18,6 @@ import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
@@ -27,6 +26,18 @@ import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
 import top.sywyar.pixivdownload.download.controller.PixivProxyController;
 import top.sywyar.pixivdownload.download.controller.SSEController;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
+import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
+import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
+import top.sywyar.pixivdownload.download.schedule.guard.PixivOveruseExecutionGuard;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivCollectionScheduledSourceExecutor;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivFollowLatestScheduledSourceExecutor;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivMyBookmarksScheduledSourceExecutor;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledLocalWorkLookup;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledSourceSupport;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSearchScheduledSourceExecutor;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSeriesScheduledSourceExecutor;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
@@ -40,6 +51,11 @@ import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 import top.sywyar.pixivdownload.setup.SetupService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.schedule.OveruseWarningService;
+import top.sywyar.pixivdownload.schedule.ScheduleConfig;
+import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
 /**
  * 下载工作台外置插件的 Bean 装配收敛点。子上下文只注册本配置类，不扫描应用根包；因此下载执行器、
@@ -93,6 +109,115 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public ScheduledIllustWorkRunner scheduledIllustWorkRunner(ArtworkDownloader artworkDownloader) {
         return new ScheduledIllustWorkRunner(artworkDownloader);
+    }
+
+    @Bean
+    public PixivScheduledIllustWorkExecutor pixivScheduledIllustWorkExecutor(
+            PixivFetchService pixivFetchService,
+            PixivDatabase pixivDatabase,
+            ArtworkDownloader artworkDownloader,
+            WorkMetaCaptureService workMetaCaptureService,
+            ScheduledIllustWorkRunner scheduledIllustWorkRunner,
+            PixivSchedulePersistenceCodec persistenceCodec,
+            ObjectMapper objectMapper,
+            DownloadConfig downloadConfig) {
+        return new PixivScheduledIllustWorkExecutor(
+                pixivFetchService, pixivDatabase, artworkDownloader, workMetaCaptureService,
+                scheduledIllustWorkRunner, persistenceCodec, objectMapper, downloadConfig);
+    }
+
+    @Bean
+    public PixivScheduledCredentialPolicy pixivScheduledCredentialPolicy(
+            OveruseWarningService overuseWarningService,
+            PixivSchedulePersistenceCodec persistenceCodec) {
+        return new PixivScheduledCredentialPolicy(overuseWarningService, persistenceCodec);
+    }
+
+    @Bean
+    public PixivOveruseExecutionGuard pixivOveruseExecutionGuard(
+            OveruseWarningService overuseWarningService,
+            PixivSchedulePersistenceCodec persistenceCodec,
+            ObjectMapper objectMapper) {
+        return new PixivOveruseExecutionGuard(
+                overuseWarningService, persistenceCodec, objectMapper);
+    }
+
+    @Bean
+    public PixivScheduledLocalWorkLookup pixivScheduledLocalWorkLookup(
+            PixivDatabase pixivDatabase,
+            ArtworkDownloader artworkDownloader,
+            NovelMetadataRepository novelMetadataRepository) {
+        return (key, download) -> {
+            long id = Long.parseLong(key.id());
+            if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(key.workType())) {
+                return download.redownloadDeleted()
+                        ? novelMetadataRepository.hasActiveNovel(id)
+                        : novelMetadataRepository.hasNovel(id);
+            }
+            if (download.redownloadDeleted()) {
+                return download.verifyFiles()
+                        ? !pixivDatabase.isArtworkDeleted(id)
+                        && artworkDownloader.isArtworkDownloaded(id, true)
+                        : pixivDatabase.hasActiveArtwork(id);
+            }
+            return download.verifyFiles()
+                    ? artworkDownloader.isArtworkDownloaded(id, true)
+                    : pixivDatabase.hasArtwork(id);
+        };
+    }
+
+    @Bean
+    public PixivScheduledSourceSupport pixivScheduledSourceSupport(
+            ObjectMapper objectMapper,
+            PixivFetchService pixivFetchService,
+            PixivSchedulePersistenceCodec persistenceCodec,
+            PixivScheduledLocalWorkLookup localWorkLookup,
+            ScheduleConfig scheduleConfig) {
+        return new PixivScheduledSourceSupport(
+                objectMapper, pixivFetchService, persistenceCodec,
+                localWorkLookup, scheduleConfig::getInboxCheckEvery);
+    }
+
+    @Bean
+    public PixivUserNewScheduledSourceExecutor pixivUserNewScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new PixivUserNewScheduledSourceExecutor(support);
+    }
+
+    @Bean
+    public PixivUserRequestScheduledSourceExecutor pixivUserRequestScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new PixivUserRequestScheduledSourceExecutor(support);
+    }
+
+    @Bean
+    public PixivSearchScheduledSourceExecutor pixivSearchScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new PixivSearchScheduledSourceExecutor(support);
+    }
+
+    @Bean
+    public PixivSeriesScheduledSourceExecutor pixivSeriesScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new PixivSeriesScheduledSourceExecutor(support);
+    }
+
+    @Bean
+    public PixivMyBookmarksScheduledSourceExecutor pixivMyBookmarksScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new PixivMyBookmarksScheduledSourceExecutor(support);
+    }
+
+    @Bean
+    public PixivFollowLatestScheduledSourceExecutor pixivFollowLatestScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new PixivFollowLatestScheduledSourceExecutor(support);
+    }
+
+    @Bean
+    public PixivCollectionScheduledSourceExecutor pixivCollectionScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new PixivCollectionScheduledSourceExecutor(support);
     }
 
     /** 插画作品类型的跨类型队列宿主操作适配器（取消 / 清空），经核心队列宿主注册中心按 queueType 解析。 */

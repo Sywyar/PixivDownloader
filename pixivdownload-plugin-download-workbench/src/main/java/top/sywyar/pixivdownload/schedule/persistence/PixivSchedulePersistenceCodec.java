@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule.persistence;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentati
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -286,14 +288,20 @@ public final class PixivSchedulePersistenceCodec {
     }
 
     private JsonNode parseJson(String json, String label) {
-        try {
-            JsonNode root = objectMapper.readTree(requireText(json, label));
+        try (JsonParser parser = objectMapper.createParser(requireText(json, label))) {
+            parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+            JsonNode root = objectMapper.readTree(parser);
             if (root == null) {
                 throw new IllegalArgumentException(label + " must not be JSON null");
+            }
+            if (parser.nextToken() != null) {
+                throw new IllegalArgumentException(label + " must contain exactly one JSON value");
             }
             return root;
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException(label + " is invalid JSON", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to read " + label, e);
         }
     }
 
@@ -340,15 +348,27 @@ public final class PixivSchedulePersistenceCodec {
         if (node.isTextual()) {
             String nestedJson = node.textValue().trim();
             if (nestedJson.startsWith("{") || nestedJson.startsWith("[")) {
-                try {
-                    JsonNode nested = objectMapper.readTree(nestedJson);
-                    if (nested != null && (nested.isObject() || nested.isArray())) {
-                        rejectCredentialMaterial(nested, label);
-                    }
-                } catch (JsonProcessingException ignored) {
-                    // 普通展示文本可以以花括号开头；只有完整嵌套 JSON 才继续递归检查。
+                JsonNode nested = readEmbeddedJson(nestedJson, label);
+                if (nested != null) {
+                    rejectCredentialMaterial(nested, label);
                 }
             }
+        }
+    }
+
+    private JsonNode readEmbeddedJson(String json, String label) {
+        try {
+            return parseJson(json, label);
+        } catch (IllegalArgumentException strictFailure) {
+            try {
+                JsonNode permissive = objectMapper.readTree(json);
+                if (permissive != null && (permissive.isObject() || permissive.isArray())) {
+                    throw strictFailure;
+                }
+            } catch (JsonProcessingException ignored) {
+                // 以花括号开头的普通展示文本不是完整 JSON，不按嵌套载荷解释。
+            }
+            return null;
         }
     }
 

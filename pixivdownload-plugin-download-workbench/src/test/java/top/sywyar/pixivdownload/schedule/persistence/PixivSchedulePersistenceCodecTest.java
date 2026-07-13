@@ -79,6 +79,35 @@ class PixivSchedulePersistenceCodecTest {
     }
 
     @Test
+    @DisplayName("定义、失败详情与内嵌 JSON 都拒绝重复键绕过凭证扫描")
+    void rejectsDuplicateKeysAtEveryPixivJsonBoundary() {
+        String duplicateDefinition = "{\"kind\":\"illust\",\"note\":"
+                + "\"PHPSESSID=secret\",\"note\":\"safe\"}";
+        String trailingDefinition = "{} {}";
+        String duplicateDetail = "{\"note\":\"PHPSESSID=secret\",\"note\":\"safe\"}";
+        String embeddedDuplicate = "{\"message\":\"{\\\"cookie\\\":\\\"hidden\\\","
+                + "\\\"cookie\\\":\\\"safe\\\"}\"}";
+        ScheduledWork work = codec.createWorkEnvelope("illust", "7");
+
+        assertThatThrownBy(() -> codec.createDefinition(
+                0, "任务", "user-new", duplicateDefinition))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("invalid JSON");
+        assertThatThrownBy(() -> codec.createDefinition(
+                0, "任务", "user-new", trailingDefinition))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exactly one JSON value");
+        assertThatThrownBy(() -> codec.toPendingWork(
+                1, work, "NETWORK", duplicateDetail, 0, 1L, 1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("invalid JSON");
+        assertThatThrownBy(() -> codec.toPendingWork(
+                1, work, "NETWORK", embeddedDuplicate, 0, 1L, 1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("invalid JSON");
+    }
+
+    @Test
     @DisplayName("long 最大值水位线按 JSON 字符串精确保真")
     void checkpointUsesDecimalString() throws Exception {
         ScheduledCheckpoint checkpoint = codec.encodeCheckpoint(Long.MAX_VALUE);
@@ -138,14 +167,10 @@ class PixivSchedulePersistenceCodecTest {
                 .hasMessage("schedule work payload contains forbidden credential material")
                 .hasMessageNotContaining("pending-secret");
 
-        ScheduledWork unsafePresentation = new ScheduledWork(
-                base.key(), base.payloadSchema(), base.payloadVersion(), base.payloadJson(),
-                new ScheduledWorkPresentation("Authorization: Bearer pending-secret", null, null, Map.of()),
-                base.relations());
-        assertThatThrownBy(() -> codec.toPendingWork(
-                1, unsafePresentation, "NETWORK", "{}", 0, 1L, 1L))
+        assertThatThrownBy(() -> new ScheduledWorkPresentation(
+                "Authorization: Bearer pending-secret", null, null, Map.of()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("schedule work presentation contains forbidden credential material")
+                .hasMessageContaining("credential material")
                 .hasMessageNotContaining("pending-secret");
 
         ScheduledWork unsafeRelation = new ScheduledWork(

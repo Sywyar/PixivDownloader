@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.download;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
@@ -26,6 +27,7 @@ import top.sywyar.pixivdownload.download.schedule.source.SearchSource;
 import top.sywyar.pixivdownload.download.schedule.source.SeriesSource;
 import top.sywyar.pixivdownload.download.schedule.source.UserNewSource;
 import top.sywyar.pixivdownload.download.schedule.source.UserRequestSource;
+import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 
 import java.util.List;
 import java.util.Set;
@@ -226,5 +228,10 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 new MyBookmarksSource(),
                 new FollowLatestSource(),
                 new CollectionSource());
+    }
+
+    @Override
+    public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
+        return PixivScheduledSourceDescriptors.createAll();
     }
 }
