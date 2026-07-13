@@ -163,7 +163,35 @@ public class ScheduleHostPluginConfiguration {
                                              SetupService setupService,
                                              DownloadConfig downloadConfig,
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-                                             @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor) {
+                                             @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor,
+                                             ScheduleExecutionEngine scheduleExecutionEngine) {
+        return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
+                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
+                notificationService, messages, setupService, downloadConfig,
+                downloadTaskExecutor, novelDownloadTaskExecutor, scheduleExecutionEngine);
+    }
+
+    /** 只供既有配置装配单测构造 legacy 执行壳；Spring 使用上面的完整 Bean 工厂。 */
+    public ScheduleExecutor scheduleExecutor(ScheduledTaskStore store,
+                                             ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+                                             PixivFetchService pixivFetchService,
+                                             PixivDatabase pixivDatabase,
+                                             WorkMetaCaptureService workMetaCaptureService,
+                                             ArtworkDownloader artworkDownloader,
+                                             NovelMetadataRepository novelMetadataRepository,
+                                             ScheduleConfig scheduleConfig,
+                                             ScheduleRunState runState,
+                                             ScheduleRunQueue runQueue,
+                                             ObjectMapper objectMapper,
+                                             PixivSchedulePersistenceCodec persistenceCodec,
+                                             OveruseWarningService overuseWarningService,
+                                             NotificationService notificationService,
+                                             AppMessages messages,
+                                             SetupService setupService,
+                                             DownloadConfig downloadConfig,
+                                             TaskExecutor downloadTaskExecutor,
+                                             TaskExecutor novelDownloadTaskExecutor) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
@@ -179,11 +207,11 @@ public class ScheduleHostPluginConfiguration {
                                            ScheduleRunQueue runQueue,
                                            ObjectMapper objectMapper,
                                            PixivSchedulePersistenceCodec persistenceCodec,
-                                           OveruseWarningService overuseWarningService,
+                                           ScheduleExecutionEngine scheduleExecutionEngine,
                                            PlatformTransactionManager transactionManager,
                                            ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
         return new ScheduleService(store, executor, config, runState, runQueue,
-                objectMapper, persistenceCodec, overuseWarningService,
+                objectMapper, persistenceCodec, scheduleExecutionEngine,
                 new TransactionTemplate(transactionManager), scheduleCapabilityRegistry);
     }
 

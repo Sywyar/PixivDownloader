@@ -32,6 +32,7 @@ import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -51,6 +52,10 @@ import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleWorkFilter;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlException;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialCircuitOpenException;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionResult;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -128,6 +133,35 @@ public class ScheduleExecutor {
     // 字段名与 bean 名一致，借此按名解析到对应下载池（避免 @Primary 的 applicationTaskExecutor）。
     private final TaskExecutor downloadTaskExecutor;
     private final TaskExecutor novelDownloadTaskExecutor;
+    private final ScheduleExecutionEngine scheduleExecutionEngine;
+
+    /** 旧执行壳单测与兼容适配器使用的构造入口；只允许其发布 legacy capability。 */
+    public ScheduleExecutor(
+            ScheduledTaskStore store,
+            ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+            PixivFetchService pixivFetchService,
+            PixivDatabase pixivDatabase,
+            WorkMetaCaptureService workMetaCaptureService,
+            ArtworkDownloader artworkDownloader,
+            NovelMetadataRepository novelMetadataRepository,
+            ScheduleConfig scheduleConfig,
+            ScheduleRunState runState,
+            ScheduleRunQueue runQueue,
+            ObjectMapper objectMapper,
+            PixivSchedulePersistenceCodec persistenceCodec,
+            OveruseWarningService overuseWarningService,
+            NotificationService notificationService,
+            AppMessages messages,
+            SetupService setupService,
+            DownloadConfig downloadConfig,
+            TaskExecutor downloadTaskExecutor,
+            TaskExecutor novelDownloadTaskExecutor) {
+        this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
+                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
+                overuseWarningService, notificationService, messages, setupService,
+                downloadConfig, downloadTaskExecutor, novelDownloadTaskExecutor, null);
+    }
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
@@ -404,6 +438,16 @@ public class ScheduleExecutor {
                     || !Objects.equals(task.sourceType(), planning.sourceType())) {
                 return false;
             }
+            if (planning.sourceExecutor().isPresent()) {
+                planning.close();
+                return scheduleExecutionEngine.canResolve(task);
+            }
+            if (scheduleExecutionEngine != null) {
+                return false;
+            }
+            if (!DownloadWorkbenchPlugin.ID.equals(planning.owner().featurePluginId())) {
+                return false;
+            }
             ScheduledSource sourceProvider = planning.legacySourceProvider()
                     .filter(ScheduledSource.class::isInstance)
                     .map(ScheduledSource.class::cast)
@@ -513,8 +557,10 @@ public class ScheduleExecutor {
                 Collections.synchronizedList(new ArrayList<>());
         AtomicReference<ScheduledCheckpoint> candidateCheckpoint = new AtomicReference<>();
         ScheduleSuspendReason requestedSuspend = null;
+        boolean suspendPolicyAccount = false;
         String suspendCode = null;
         String suspendDetailJson = null;
+        long retryAfterMillis = 0L;
         try {
             ensureCapabilityAvailable(hostCancellation, task.sourceType());
             // 任务级单独代理：覆盖调度主线程上本轮的全部 Pixiv 请求（发现 / 元数据 / 站内信检测）；
@@ -530,6 +576,7 @@ public class ScheduleExecutor {
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completedCount);
         } catch (OveruseWarningException e) {
             requestedSuspend = ScheduleSuspendReason.POLICY;
+            suspendPolicyAccount = true;
             suspendCode = "PIXIV_OVERUSE";
             suspendDetailJson = safeDetailJson("modifiedAt", e.modifiedAt(), "excerpt", e.excerpt());
             outcomeCode = suspendCode;
@@ -546,6 +593,70 @@ public class ScheduleExecutor {
             suspendNotification = e;
             suspendTriggerTime = System.currentTimeMillis();
             log.warn("Scheduled task {} ({}) suspended: {}", task.id(), task.name(), e.reason());
+        } catch (ScheduleExecutionControlException e) {
+            outcomeCode = e.reasonCode();
+            message = e.reasonCode();
+            suspendDetailJson = safeGuardDetailJson(e);
+            retryAfterMillis = e.retryAfterMillis();
+            switch (e.action()) {
+                case SUSPEND_CREDENTIAL -> {
+                    requestedSuspend = ScheduleSuspendReason.CREDENTIAL;
+                    suspendNotification = new ScheduleSuspendException(
+                            ScheduleSuspendException.Reason.COOKIE_DEAD);
+                    suspendTriggerTime = System.currentTimeMillis();
+                }
+                case SUSPEND_POLICY_TASK -> requestedSuspend = ScheduleSuspendReason.POLICY;
+                case SUSPEND_POLICY_ACCOUNT -> {
+                    requestedSuspend = ScheduleSuspendReason.POLICY;
+                    suspendPolicyAccount = true;
+                    if ("PIXIV_OVERUSE".equals(e.reasonCode())) {
+                        long modifiedAt = parseLongOrZero(
+                                e.evidence().attributes().get("modifiedAt"));
+                        String excerpt = e.evidence().attributes().getOrDefault("excerpt", "");
+                        overuseNotification = new OveruseWarningException(modifiedAt, excerpt);
+                    }
+                }
+                case RETRY_LATER, FAIL, REVOKE_CREDENTIAL_AND_CONTINUE, CONTINUE -> {
+                    outcome = ScheduleLastOutcome.ERROR;
+                    notifyRunFailed = task.lastOutcome() != ScheduleLastOutcome.ERROR;
+                }
+            }
+            suspendCode = requestedSuspend == null ? null : e.reasonCode();
+            log.warn("Scheduled task {} ({}) stopped by execution policy: {}",
+                    task.id(), task.name(), e.reasonCode());
+        } catch (ScheduledExecutionException e) {
+            outcomeCode = e.code();
+            message = e.code();
+            retryAfterMillis = e.retryAfterMillis();
+            switch (e.category()) {
+                case CANCELLED -> outcome = ScheduleLastOutcome.CANCELLED;
+                case CREDENTIAL_INVALID -> {
+                    requestedSuspend = ScheduleSuspendReason.CREDENTIAL;
+                    suspendCode = e.code();
+                    suspendTriggerTime = System.currentTimeMillis();
+                    if (e instanceof ScheduleCredentialCircuitOpenException circuit) {
+                        suspendDetailJson = safeDetailJson(
+                                "consecutiveFailures", circuit.consecutiveFailures(),
+                                "lastErrorExcerpt", circuit.lastFailureCode());
+                        suspendNotification = new ScheduleSuspendException(
+                                ScheduleSuspendException.Reason.CIRCUIT_BREAKER,
+                                circuit.consecutiveFailures(), circuit.lastFailureCode());
+                    } else {
+                        suspendNotification = new ScheduleSuspendException(
+                                ScheduleSuspendException.Reason.COOKIE_DEAD);
+                    }
+                }
+                case INVALID_DEFINITION, PAYLOAD_UNSUPPORTED -> {
+                    requestedSuspend = ScheduleSuspendReason.MIGRATION_ERROR;
+                    suspendCode = e.code();
+                }
+                default -> {
+                    outcome = ScheduleLastOutcome.ERROR;
+                    notifyRunFailed = task.lastOutcome() != ScheduleLastOutcome.ERROR;
+                }
+            }
+            log.warn("Scheduled task {} ({}) execution failed: {}",
+                    task.id(), task.name(), e.code());
         } catch (SchedulePauseException e) {
             ScheduledTask suspended = store.findById(task.id());
             if (suspended != null
@@ -606,8 +717,14 @@ public class ScheduleExecutor {
         try {
             nextRun = ScheduleTiming.computeNextRun(
                     task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
+            if (retryAfterMillis > 0) {
+                nextRun = Math.max(
+                        nextRun == null ? 0L : nextRun,
+                        saturatingFutureTime(completedAt, retryAfterMillis));
+            }
             if (requestedSuspend != null) {
-                suspendForRun(task, runningToken, requestedSuspend, suspendCode, suspendDetailJson);
+                suspendForRun(task, runningToken, requestedSuspend, suspendCode,
+                        suspendDetailJson, suspendPolicyAccount);
                 ScheduleLastOutcome cancelledOutcome = requestedSuspend == ScheduleSuspendReason.QUIESCED
                         ? ScheduleLastOutcome.CANCELLED
                         : ScheduleLastOutcome.ERROR;
@@ -656,10 +773,13 @@ public class ScheduleExecutor {
         if (degraded[0]
                 && requestedSuspend == null
                 && outcome == ScheduleLastOutcome.OK) {
-            OptionalLong removed = store.removeCredential(
-                    task.id(), persistedResult.getAsLong(), DownloadWorkbenchPlugin.ID,
-                    PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
-            if (removed.isEmpty()) {
+            String policyOwnerPluginId = task.credentialPolicyOwnerPluginId();
+            String policyId = task.credentialPolicyId();
+            OptionalLong removed = policyOwnerPluginId == null || policyId == null
+                    ? OptionalLong.empty()
+                    : store.removeCredential(
+                            task.id(), persistedResult.getAsLong(), policyOwnerPluginId, policyId);
+            if (removed.isEmpty() && policyOwnerPluginId != null && policyId != null) {
                 log.info("Scheduled task {} kept credential changed concurrently after anonymous downgrade",
                         task.id());
             }
@@ -689,8 +809,10 @@ public class ScheduleExecutor {
             ScheduleRunToken runningToken,
             ScheduleSuspendReason reason,
             String code,
-            String detailJson) {
+            String detailJson,
+            boolean accountPolicy) {
         if (reason == ScheduleSuspendReason.POLICY
+                && accountPolicy
                 && task.credentialPolicyOwnerPluginId() != null
                 && task.credentialPolicyId() != null
                 && task.credentialAccountKey() != null) {
@@ -737,6 +859,25 @@ public class ScheduleExecutor {
         }
     }
 
+    private String safeGuardDetailJson(ScheduleExecutionControlException decision) {
+        try {
+            Map<String, String> sanitized = new LinkedHashMap<>();
+            decision.evidence().attributes().forEach((key, value) -> sanitized.put(
+                    key, ScheduleCredentialRedactor.redact(value)));
+            return objectMapper.writeValueAsString(sanitized);
+        } catch (Exception ignored) {
+            return "{}";
+        }
+    }
+
+    private static long parseLongOrZero(String value) {
+        try {
+            return value == null ? 0L : Long.parseLong(value);
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
+    }
+
     /**
      * 把异常压缩成可安全展示的失败原因摘要：取 {@code getMessage()}（缺失时退化为异常简单类名），
      * 折叠空白、统一脱敏 Cookie、Authorization、token 与签名凭证，并截断到
@@ -752,6 +893,15 @@ public class ScheduleExecutor {
             collapsed = collapsed.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "…";
         }
         return collapsed;
+    }
+
+    private static long saturatingFutureTime(long baseTime, long delayMillis) {
+        if (delayMillis <= 0L) {
+            return baseTime;
+        }
+        return baseTime > Long.MAX_VALUE - delayMillis
+                ? Long.MAX_VALUE
+                : baseTime + delayMillis;
     }
 
     /** 更新运行结果后读取数据库中的真实 next_run_time；若读取失败则回退到本轮刚计算出的值。 */
@@ -800,6 +950,28 @@ public class ScheduleExecutor {
             if (!Objects.equals(task.sourceOwnerPluginId(), planning.owner().featurePluginId())
                     || !Objects.equals(task.sourceType(), planning.sourceType())) {
                 throw new ScheduleSourceUnavailableException(task.sourceType() + " (owner mismatch)");
+            }
+            if (planning.sourceExecutor().isPresent()) {
+                planning.close();
+                ScheduleExecutionResult result = scheduleExecutionEngine.execute(task, event -> {
+                    try {
+                        pendingNotifications.add(new PendingExhaustedNotification(
+                                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(event.workType()),
+                                Long.parseLong(event.workId()), event.attempts(),
+                                event.triggerTime(), event.reasonCode()));
+                    } catch (NumberFormatException ignored) {
+                        log.debug("Scheduled task {} omitted non-numeric pending notification id", task.id());
+                    }
+                });
+                candidateCheckpoint.set(result.candidateCheckpoint());
+                degraded[0] = result.credentialRevoked();
+                return result.completedWorkCount();
+            }
+            if (scheduleExecutionEngine != null) {
+                throw new ScheduleSourceUnavailableException(task.sourceType());
+            }
+            if (!DownloadWorkbenchPlugin.ID.equals(planning.owner().featurePluginId())) {
+                throw new ScheduleSourceUnavailableException(task.sourceType());
             }
             ScheduledSource sourceProvider = planning.legacySourceProvider()
                     .filter(ScheduledSource.class::isInstance)

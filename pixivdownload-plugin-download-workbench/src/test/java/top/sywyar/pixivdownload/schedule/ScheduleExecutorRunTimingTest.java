@@ -16,7 +16,9 @@ import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
@@ -30,6 +32,20 @@ import top.sywyar.pixivdownload.download.schedule.source.ScheduledSource;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialCircuitOpenException;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlException;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionResult;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.io.IOException;
@@ -37,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -331,6 +348,92 @@ class ScheduleExecutorRunTimingTest {
         assertThat(placeholders.getValue()).doesNotContainKey("next_run_time");
         verify(store, never()).completeRun(
                 eq(18L), any(ScheduleRunToken.class), any(ScheduleRunCompletion.class));
+    }
+
+    @Test
+    @DisplayName("通用凭证挂起仍发送鉴权失效通知且不携带下次运行时间")
+    void genericCredentialSuspensionSendsAuthExpiredNotification() throws Exception {
+        ScheduledTask task = task(181L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+                ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
+                "COOKIE_DEAD", 0L, ScheduledGuardEvidence.empty()));
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        verify(store).suspend(
+                eq(181L), eq(2L), eq(ScheduleSuspendReason.CREDENTIAL), eq("COOKIE_DEAD"), eq("{}"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
+        verify(notificationService).notify(
+                eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
+        assertThat(placeholders.getValue()).doesNotContainKey("next_run_time");
+    }
+
+    @Test
+    @DisplayName("通用凭证熔断保留安全计数与末次错误码并发送熔断通知")
+    void genericCredentialCircuitSendsCircuitBreakerNotification() throws Exception {
+        ScheduledTask task = task(182L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any())).thenThrow(
+                new ScheduleCredentialCircuitOpenException(
+                        5, "pixiv.illust.access-unavailable"));
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
+        verify(store).suspend(
+                eq(182L), eq(2L), eq(ScheduleSuspendReason.CREDENTIAL),
+                eq("schedule.credential.failure-circuit-open"), detail.capture());
+        assertThat(objectMapper.readTree(detail.getValue()).path("consecutiveFailures").asInt())
+                .isEqualTo(5);
+        assertThat(objectMapper.readTree(detail.getValue()).path("lastErrorExcerpt").asText())
+                .isEqualTo("pixiv.illust.access-unavailable");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
+        verify(notificationService).notify(
+                eq(NotificationScenario.CIRCUIT_BREAKER), any(), placeholders.capture());
+        assertThat(placeholders.getValue())
+                .containsEntry("consecutive_failures", "5")
+                .containsEntry("last_error_excerpt", "pixiv.illust.access-unavailable")
+                .doesNotContainKey("next_run_time");
+    }
+
+    @Test
+    @DisplayName("通用匿名降级按任务实际策略身份删除失效凭证")
+    void genericAnonymousDowngradeRemovesActualPolicyCredential() throws Exception {
+        ScheduledTask task = org.mockito.Mockito.spy(task(
+                183L, "user-new", userDefinition("100"), null, "{}", "credential-ref"));
+        when(task.credentialPolicyOwnerPluginId()).thenReturn("fixture-policy-owner");
+        when(task.credentialPolicyId()).thenReturn("fixture-policy");
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any())).thenReturn(
+                new ScheduleExecutionResult(0, null, true, List.of()));
+        when(store.removeCredential(
+                183L, 3L, "fixture-policy-owner", "fixture-policy"))
+                .thenReturn(OptionalLong.of(4L));
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        verify(store).removeCredential(
+                183L, 3L, "fixture-policy-owner", "fixture-policy");
+        verify(store, never()).removeCredential(
+                183L, 3L, DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
+    }
+
+    @Test
+    @DisplayName("超大重试延迟饱和到 long 上限而不会溢出提前运行")
+    void retryDelaySaturatesAtLongMaxValue() throws Exception {
+        ScheduledTask task = task(184L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any())).thenThrow(new ScheduledExecutionException(
+                ScheduledFailure.Category.RETRYABLE_NETWORK,
+                "fixture.retry-later", Long.MAX_VALUE));
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        assertThat(captureCompletion(184L).nextRunTime()).isEqualTo(Long.MAX_VALUE);
     }
 
     @Test
@@ -828,6 +931,46 @@ class ScheduleExecutorRunTimingTest {
                 notificationService, appMessages, setupService,
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(),
                 downloadExecutor, novelExecutor);
+    }
+
+    private ScheduleExecutor genericExecutor(ScheduleExecutionEngine engine) {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return "user-new";
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                return ScheduledExecutionPlan.credentialFree(Set.of("illust"));
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(
+                    top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext context) {
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+        };
+        ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
+                "user-new", Set.of(), PixivSchedulePersistenceCodec.DEFINITION_SCHEMA,
+                PixivSchedulePersistenceCodec.DEFINITION_VERSION,
+                new ScheduledSourcePresentation(
+                        "pixiv", "schedule.type.user-new", "schedule.type.user-new", "schedule", "neutral"),
+                Set.of(), Set.of("illust"), Set.of(), Set.of(), null);
+        ScheduleCapabilityTestFixture.publish(registry, ScheduleOwnerBundle.prepare(
+                new ScheduleCapabilityOwner(DownloadWorkbenchPlugin.ID, DownloadWorkbenchPlugin.ID, 1L),
+                List.of(), List.of(), List.of(descriptor), List.of(source),
+                List.of(), List.of(), List.of()));
+        return new ScheduleExecutor(
+                store, registry, pixivFetchService, pixivDatabase,
+                org.mockito.Mockito.mock(
+                        top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
+                artworkDownloader, novelMetadataRepository, new ScheduleConfig(), localRunState,
+                new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
+                notificationService, appMessages, setupService,
+                new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(),
+                SYNC_EXECUTOR, SYNC_EXECUTOR, engine);
     }
 
     private ScheduleRunCompletion captureCompletion(long taskId) {

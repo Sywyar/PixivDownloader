@@ -85,7 +85,7 @@ class ScheduleHostPluginConfigurationTest {
                 direct);
         ScheduleService service = configuration.scheduleService(
                 store, executor, config, runState, runQueue,
-                objectMapper, persistenceCodec, overuseWarningService,
+                objectMapper, persistenceCodec, mock(ScheduleExecutionEngine.class),
                 mock(PlatformTransactionManager.class), registry);
 
         assertThat(ReflectionTestUtils.getField(executor, "scheduleCapabilityRegistry"))

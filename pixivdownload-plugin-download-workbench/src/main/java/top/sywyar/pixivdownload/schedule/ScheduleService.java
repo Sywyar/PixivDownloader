@@ -25,19 +25,29 @@ import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialBindingLease;
+import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 计划任务的增删改查、Cookie 授权与「立即运行」入口。
@@ -49,6 +59,12 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class ScheduleService {
 
+    private static final Set<String> TRANSLATE_PHASES = Set.of(
+            "QUEUED", "WAITING_SERIES", "RESOLVING", "TRANSLATING",
+            "MERGING", "SAME_LANGUAGE", "DONE", "FAILED");
+    private static final int MAX_PLUGIN_STATUS_ENTRIES = 16;
+    private static final int MAX_PLUGIN_STATUS_VALUE_BYTES = 256;
+
     private final ScheduledTaskStore store;
     private final ScheduleExecutor executor;
     private final ScheduleConfig config;
@@ -56,7 +72,7 @@ public class ScheduleService {
     private final ScheduleRunQueue runQueue;
     private final ObjectMapper objectMapper;
     private final PixivSchedulePersistenceCodec persistenceCodec;
-    private final OveruseWarningService overuseWarningService;
+    private final ScheduleExecutionEngine scheduleExecutionEngine;
     private final TransactionTemplate transactionTemplate;
     /**
      * 作品类型执行器注册中心：队列视图的翻译状态叠加经小说执行器（{@code novel}）取得——它实现可选的
@@ -177,15 +193,28 @@ public class ScheduleService {
         if (ScheduleRunQueue.KIND_NOVEL.equals(it.getKind()) && it.isAutoTranslateSubmitted()) {
             try {
                 long novelId = Long.parseLong(it.getId());
-                // 经核心契约取小说执行器的翻译状态能力；执行器缺席（小说插件被禁 / 卸载）则不叠加。
                 ScheduledWorkTranslateStatus tv = null;
-                var handle = scheduleCapabilityRegistry.resolveLegacyWorkRunner(ScheduledWorkKind.NOVEL)
+                var executorHandle = scheduleCapabilityRegistry.resolveWorkExecutor(ScheduledWorkKind.NOVEL)
                         .orElse(null);
-                if (handle != null) {
-                    try (ScheduleSingleCapabilityLease<ScheduledWorkRunner> lease =
-                                 scheduleCapabilityRegistry.tryAcquire(handle).orElse(null)) {
+                if (executorHandle != null) {
+                    try (ScheduleSingleCapabilityLease<ScheduledWorkExecutor> lease =
+                                 scheduleCapabilityRegistry.tryAcquire(executorHandle).orElse(null)) {
                         if (lease != null) {
-                            tv = lease.capability().translateStatus(novelId);
+                            Map<String, String> status = lease.capability().status(
+                                    new ScheduledWorkKey(ScheduledWorkKind.NOVEL, it.getId()));
+                            tv = safeTranslateStatus(status);
+                        }
+                    }
+                } else {
+                    // 仅保留给尚未迁移的内置测试适配器；第三方旧插件不会进入新 Schedule 执行流。
+                    var legacyHandle = scheduleCapabilityRegistry.resolveLegacyWorkRunner(ScheduledWorkKind.NOVEL)
+                            .orElse(null);
+                    if (legacyHandle != null) {
+                        try (ScheduleSingleCapabilityLease<ScheduledWorkRunner> lease =
+                                     scheduleCapabilityRegistry.tryAcquire(legacyHandle).orElse(null)) {
+                            if (lease != null) {
+                                tv = lease.capability().translateStatus(novelId);
+                            }
                         }
                     }
                 }
@@ -207,107 +236,101 @@ public class ScheduleService {
                 translatePhase, translateElapsed, translatePending);
     }
 
-    /** PHPSESSID 形如 {@code {userId}_{session}}：下划线前缀即非敏感 Pixiv userId。 */
-    private static final Pattern PHPSESSID_PATTERN = Pattern.compile("PHPSESSID=([^;\\s]+)");
-
     /**
-     * 为任务快照绑定 Cookie。校验含 {@code PHPSESSID} 后写入；cookie 绝不写日志 / 回显。
+     * 为任务绑定执行计划声明的凭证。格式校验、账号键、主动探活与绑定后策略决定均经
+     * {@code ScheduledCredentialPolicy}；secret 绝不写日志 / 回显。
      *
-     * <p>同时解析非敏感 {@code account_id}（PHPSESSID 下划线前缀 = Pixiv userId）写入；
-     * 这是 {@code AUTH_EXPIRED} 的恢复入口——仅当任务当前为 {@code AUTH_EXPIRED} 时才清挂起 + 重算 next_run。
-     * 处于 {@code OVERUSE_PAUSED} / 手动 {@code PAUSED} 的任务在重新授权后不会被静默恢复（必须走对应的恢复入口）。
-     * 隔离表不再需要"武装"：{@link ScheduleExecutor#runTask} 每轮无条件先消费隔离表。
+     * <p>这是凭证失效挂起的恢复入口——仅恢复当前任务的凭证挂起；其它挂起原因不会被静默恢复。
      *
-     * <p><b>重新授权必须用「新的」Cookie</b>：提交的 Cookie 与当前已绑定的快照完全一致时直接拒绝、不做任何写入。
-     * 这同时兜住「任务因 Cookie 失效（{@code AUTH_EXPIRED}）被挂起后，管理员误用同一份失效 Cookie 重新授权」——
-     * 同一份 Cookie 不可能修复失效，若放行只会清掉挂起态、下一轮再次失效并重复发通知，白白空跑。
-     * 由于在任何写库之前就抛出，故既不覆盖快照、也不清除 {@code AUTH_EXPIRED} 状态。
+     * <p><b>重新授权必须使用新的凭证</b>：提交值与当前绑定快照完全一致时，在探活和写库前拒绝，
+     * 避免用同一份失效凭证清除挂起后再次空跑。
      */
     public ScheduleTaskView authorizeCookie(long id, String cookie) {
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
-        requirePixivTask(task);
-        if (cookie == null || !cookie.contains("PHPSESSID")) {
+        if (cookie == null || cookie.isBlank()) {
             throw LocalizedException.badRequest(
-                    "schedule.error.cookie-invalid", "Cookie 无效：缺少 PHPSESSID");
+                    "schedule.error.cookie-invalid", "Cookie 无效或为空");
         }
         String trimmed = cookie.trim();
-        String existing = store.findCredentialSecret(
-                id, DownloadWorkbenchPlugin.ID, PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
-        if (existing != null && existing.equals(trimmed)) {
-            throw LocalizedException.badRequest(
-                    "schedule.error.cookie-unchanged",
-                    "Cookie 与当前已绑定的相同，未做更新；若任务因 Cookie 失效被挂起，请改用新的有效 Cookie");
-        }
-        OveruseWarningService.Result probe;
-        try {
-            probe = overuseWarningService.probe(trimmed, System.currentTimeMillis());
-        } catch (OveruseWarningService.CredentialProbeException e) {
-            throw LocalizedException.badRequest(
-                    "schedule.error.cookie-probe-failed", "暂时无法验证 Cookie，请检查网络后重试");
-        }
-        if (probe.isCookieDead()) {
-            throw LocalizedException.badRequest(
-                    "schedule.error.cookie-invalid", "Cookie 无效或已失效，请重新登录 Pixiv 后复制新 Cookie");
-        }
-        transactionTemplate.executeWithoutResult(status -> {
-            ScheduledTask current = requireExisting(id);
-            if (current.stateVersion() != task.stateVersion()) {
-                throw concurrentChange();
-            }
-            requireNotBusy(current);
-            requirePixivTask(current);
-            String currentSecret = store.findCredentialSecret(
-                    id, DownloadWorkbenchPlugin.ID,
-                    PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
-            if (currentSecret != null && currentSecret.equals(trimmed)) {
+        try (ScheduleCredentialBindingLease binding =
+                     scheduleExecutionEngine.prepareCredentialBinding(task)) {
+            String policyOwnerPluginId = binding.policyOwnerPluginId();
+            String policyId = binding.policyId();
+            String existing = store.findCredentialSecret(id, policyOwnerPluginId, policyId);
+            if (existing != null && existing.equals(trimmed)) {
                 throw LocalizedException.badRequest(
                         "schedule.error.cookie-unchanged",
                         "Cookie 与当前已绑定的相同，未做更新；若任务因 Cookie 失效被挂起，请改用新的有效 Cookie");
             }
-            String policyState = current.credentialPolicyStateJson() == null
-                    ? persistenceCodec.encodePolicyState(null)
-                    : current.credentialPolicyStateJson();
-            OptionalLong bound = store.bindCredential(
-                    id, current.stateVersion(), DownloadWorkbenchPlugin.ID,
-                    PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
-                    parsePixivUserId(trimmed), policyState, trimmed,
-                    "scheduled-task:" + id + ":credential", System.currentTimeMillis());
-            requireChanged(bound);
-            long version = bound.getAsLong();
-            if (current.suspendReason() == ScheduleSuspendReason.CREDENTIAL) {
-                OptionalLong resumed = store.resume(
-                        id, version, ScheduleSuspendReason.CREDENTIAL,
-                        current.suspendCode(), nextRunFor(current));
-                requireChanged(resumed);
-                version = resumed.getAsLong();
+            ScheduledCredentialBindResult bindResult = binding.probe(trimmed);
+            ScheduledCredentialProbeResult probe = bindResult.probeResult();
+            if (probe.status() == ScheduledCredentialProbeResult.Status.INVALID) {
+                throw LocalizedException.badRequest(
+                        "schedule.error.cookie-invalid",
+                        "Cookie 无效或已失效，请重新登录 Pixiv 后复制新 Cookie");
             }
-            if (probe.isWarned()
-                    && (current.suspendReason() == null
-                    || current.suspendReason() == ScheduleSuspendReason.CREDENTIAL)) {
-                requireChanged(store.suspend(
-                        id, version, ScheduleSuspendReason.POLICY, "PIXIV_OVERUSE",
-                        writeJson(java.util.Map.of(
-                                "modifiedAt", Long.toString(probe.modifiedAt()),
-                                "excerpt", probe.excerpt()))));
+            if (probe.status() == ScheduledCredentialProbeResult.Status.RETRY_LATER) {
+                throw LocalizedException.badRequest(
+                        "schedule.error.cookie-probe-failed",
+                        "暂时无法验证 Cookie，请检查网络后重试");
             }
-        });
+            transactionTemplate.executeWithoutResult(status -> {
+                ScheduledTask current = requireExisting(id);
+                if (current.stateVersion() != task.stateVersion()) {
+                    throw concurrentChange();
+                }
+                requireNotBusy(current);
+                requireBindingActive(binding);
+                String currentSecret = store.findCredentialSecret(
+                        id, policyOwnerPluginId, policyId);
+                if (currentSecret != null && currentSecret.equals(trimmed)) {
+                    throw LocalizedException.badRequest(
+                            "schedule.error.cookie-unchanged",
+                            "Cookie 与当前已绑定的相同，未做更新；若任务因 Cookie 失效被挂起，请改用新的有效 Cookie");
+                }
+                boolean samePolicy = policyOwnerPluginId.equals(
+                        current.credentialPolicyOwnerPluginId())
+                        && policyId.equals(current.credentialPolicyId());
+                String policyState = samePolicy && current.credentialPolicyStateJson() != null
+                        ? current.credentialPolicyStateJson()
+                        : bindResult.initialPolicyStateJson();
+                OptionalLong bound = store.bindCredential(
+                        id, current.stateVersion(), policyOwnerPluginId, policyId,
+                        probe.accountKey(), policyState, trimmed,
+                        "scheduled-task:" + id + ":credential", System.currentTimeMillis());
+                requireChanged(bound);
+                long version = bound.getAsLong();
+                if (current.suspendReason() == ScheduleSuspendReason.CREDENTIAL) {
+                    OptionalLong resumed = store.resume(
+                            id, version, ScheduleSuspendReason.CREDENTIAL,
+                            current.suspendCode(), nextRunFor(current));
+                    requireChanged(resumed);
+                    version = resumed.getAsLong();
+                }
+                ScheduledGuardDecision postBind = bindResult.postBindResult().decision();
+                if (postBind.action() == ScheduledGuardDecision.Action.SUSPEND_POLICY_TASK
+                        && (current.suspendReason() == null
+                        || current.suspendReason() == ScheduleSuspendReason.CREDENTIAL)) {
+                    requireChanged(store.suspend(
+                            id, version, ScheduleSuspendReason.POLICY,
+                            postBind.reasonCode(),
+                            writeJson(bindResult.postBindResult().evidence().attributes())));
+                }
+                requireBindingActive(binding);
+            });
+        } catch (ScheduleSourceUnavailableException
+                 | ScheduleExecutorUnavailableException
+                 | ScheduleDefinitionException failure) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.source-unavailable",
+                    "计划任务来源或执行能力当前不可用");
+        } catch (ScheduledExecutionException failure) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.cookie-probe-failed",
+                    "暂时无法验证 Cookie，请检查网络后重试");
+        }
         return get(id);
-    }
-
-    /**
-     * 从 Cookie 串解析非敏感 Pixiv userId（PHPSESSID 下划线前缀）。
-     * 无 PHPSESSID / 无下划线前缀 / 前缀非数字 → 返回 {@code null}（不阻断授权）。
-     */
-    static String parsePixivUserId(String cookie) {
-        if (cookie == null) return null;
-        Matcher m = PHPSESSID_PATTERN.matcher(cookie);
-        if (!m.find()) return null;
-        String value = m.group(1);
-        int underscore = value.indexOf('_');
-        if (underscore <= 0) return null;
-        String prefix = value.substring(0, underscore);
-        return prefix.chars().allMatch(Character::isDigit) ? prefix : null;
     }
 
     /**
@@ -432,6 +455,47 @@ public class ScheduleService {
                     }
                 }
             }
+        }
+    }
+
+    private static Long parseLong(String value) {
+        try {
+            return value == null ? null : Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static ScheduledWorkTranslateStatus safeTranslateStatus(Map<String, String> status) {
+        if (status == null || status.isEmpty() || status.size() > MAX_PLUGIN_STATUS_ENTRIES) {
+            return null;
+        }
+        String phase = safeStatusValue(status.get("phase"));
+        if (phase == null || !TRANSLATE_PHASES.contains(phase)) {
+            return null;
+        }
+        Long elapsed = parseLong(safeStatusValue(status.get("elapsedSeconds")));
+        Integer pending = parseInteger(safeStatusValue(status.get("seriesPending")));
+        if ((elapsed != null && elapsed < 0L) || (pending != null && pending < 0)) {
+            return null;
+        }
+        return new ScheduledWorkTranslateStatus(phase, elapsed, pending);
+    }
+
+    private static String safeStatusValue(String value) {
+        if (value == null
+                || value.getBytes(StandardCharsets.UTF_8).length > MAX_PLUGIN_STATUS_VALUE_BYTES
+                || ScheduleCredentialRedactor.containsCredentialMaterial(value)) {
+            return null;
+        }
+        return value;
+    }
+
+    private static Integer parseInteger(String value) {
+        try {
+            return value == null ? null : Integer.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 
@@ -615,6 +679,14 @@ public class ScheduleService {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
         return task;
+    }
+
+    private void requireBindingActive(ScheduleCredentialBindingLease binding) {
+        try {
+            binding.throwIfCancellationRequested();
+        } catch (ScheduledExecutionException failure) {
+            throw concurrentChange();
+        }
     }
 
     /** 持久化认领是运行真相；内存镜像只补同步提交到查询之间的极短窗口。 */
