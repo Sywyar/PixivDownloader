@@ -26,6 +26,9 @@ class RecoverySentinelRequiredPolicyTest {
 
         assertThat(policy.isRequired("recovery-sentinel")).isFalse();
         assertThat(policy.isRequired("download-workbench")).isTrue();
+        RequiredPlugin downloadWorkbench = policy.requirement("download-workbench").orElseThrow();
+        assertThat(downloadWorkbench.compatibleVersion().major()).isEqualTo(1);
+        assertThat(downloadWorkbench.compatibleVersion().minor()).isZero();
     }
 
     @Test

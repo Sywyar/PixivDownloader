@@ -26,7 +26,7 @@ class RecoveryModeServiceTest {
 
     private static final RequiredPluginPolicy POLICY = RequiredPluginPolicy.of(List.of(
             new RequiredPlugin("download-workbench",
-                    PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                    PluginApiRequirement.of(1, 0),
                     false, "plugin.recovery.missing.download-workbench")));
 
     private static RecoveryModeService service(RequiredPluginPolicy policy, PixivFeaturePlugin... plugins) {

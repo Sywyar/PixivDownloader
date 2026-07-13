@@ -7,7 +7,6 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.PluginCredentialStore;
-import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -49,6 +48,9 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
  */
 @Configuration
 public class PluginRuntimeConfiguration {
+
+    private static final int DOWNLOAD_WORKBENCH_REQUIRED_MAJOR = 1;
+    private static final int DOWNLOAD_WORKBENCH_REQUIRED_MINOR = 0;
 
     /**
      * 唯一 bootstrap 会话 Bean。
@@ -151,7 +153,11 @@ public class PluginRuntimeConfiguration {
         List<RequiredPluginPolicy.RequiredPlugin> required = new ArrayList<>();
         required.add(new RequiredPluginPolicy.RequiredPlugin(
                 "download-workbench",
-                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                // 这里约束 download-workbench 自身版本，不是宿主 Plugin API 版本；
+                // 宿主 API 升级不能把仍兼容的既有下载工作台误判为过期。
+                PluginApiRequirement.of(
+                        DOWNLOAD_WORKBENCH_REQUIRED_MAJOR,
+                        DOWNLOAD_WORKBENCH_REQUIRED_MINOR),
                 false,
                 "plugin.recovery.missing.download-workbench"));
         if (environment.getProperty("pixivdownload.recovery-sentinel.required", Boolean.class, false)) {
