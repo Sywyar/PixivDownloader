@@ -10,4 +10,13 @@ public interface ScheduledExecutionGuard {
 
     ScheduledGuardDecision evaluate(ScheduledGuardContext context)
             throws ScheduledExecutionException;
+
+    /**
+     * 返回稳定决定及可选的受控证据。宿主统一调用本方法；默认包装既有
+     * {@link #evaluate(ScheduledGuardContext)}，保持旧 Guard 实现二进制兼容。
+     */
+    default ScheduledGuardResult evaluateResult(ScheduledGuardContext context)
+            throws ScheduledExecutionException {
+        return ScheduledGuardResult.decision(evaluate(context));
+    }
 }

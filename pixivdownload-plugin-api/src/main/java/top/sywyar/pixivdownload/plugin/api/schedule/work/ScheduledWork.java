@@ -17,6 +17,7 @@ public record ScheduledWork(
 ) {
 
     public static final int MAX_PAYLOAD_BYTES = 1_048_576;
+    public static final int MAX_RELATIONS = 128;
 
     public ScheduledWork {
         if (key == null) {
@@ -37,5 +38,8 @@ public record ScheduledWork(
         payloadSchema = payloadSchema.trim();
         presentation = presentation == null ? ScheduledWorkPresentation.empty() : presentation;
         relations = relations == null ? List.of() : List.copyOf(relations);
+        if (relations.size() > MAX_RELATIONS) {
+            throw new IllegalArgumentException("work relations exceed count limit");
+        }
     }
 }

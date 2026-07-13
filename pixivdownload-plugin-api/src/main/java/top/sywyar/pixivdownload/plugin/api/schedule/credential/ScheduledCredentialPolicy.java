@@ -12,4 +12,16 @@ public interface ScheduledCredentialPolicy {
 
     ScheduledCredentialProbeResult probe(ScheduledCredentialContext context)
             throws ScheduledExecutionException;
+
+    /**
+     * 绑定时的一次性探活。旧策略默认复用 {@link #probe(ScheduledCredentialContext)}，新策略可在一次网络调用中
+     * 同时返回安全 evidence 与绑定后的任务级策略决定。
+     */
+    default ScheduledCredentialBindResult probeForBinding(ScheduledCredentialContext context)
+            throws ScheduledExecutionException {
+        if (context == null || context.purpose() != ScheduledCredentialContext.Purpose.BIND) {
+            throw new IllegalArgumentException("credential binding probe requires BIND purpose");
+        }
+        return ScheduledCredentialBindResult.fromProbe(probe(context));
+    }
 }

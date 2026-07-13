@@ -15,24 +15,37 @@ public record ScheduledWorkRelation(
 ) {
 
     public static final int MAX_PAYLOAD_BYTES = 65_536;
+    public static final int MAX_RELATION_TYPE_BYTES = 128;
+    public static final int MAX_RELATION_ID_BYTES = 512;
+    public static final int MAX_PAYLOAD_SCHEMA_BYTES = 128;
 
     public ScheduledWorkRelation {
-        relationType = requireText(relationType, "relation type");
-        relationId = requireText(relationId, "relation id");
-        payloadSchema = requireText(payloadSchema, "relation payload schema");
+        relationType = requireText(
+                relationType, "relation type", MAX_RELATION_TYPE_BYTES);
+        relationId = requireText(
+                relationId, "relation id", MAX_RELATION_ID_BYTES);
+        payloadSchema = requireText(
+                payloadSchema, "relation payload schema", MAX_PAYLOAD_SCHEMA_BYTES);
         if (payloadVersion <= 0) {
             throw new IllegalArgumentException("relation payload version must be positive");
         }
-        requireText(payloadJson, "relation payload");
+        requireText(payloadJson, "relation payload", MAX_PAYLOAD_BYTES);
         if (payloadJson.getBytes(StandardCharsets.UTF_8).length > MAX_PAYLOAD_BYTES) {
             throw new IllegalArgumentException("relation payload exceeds size limit");
         }
     }
 
-    private static String requireText(String value, String label) {
+    private static String requireText(String value, String label, int maxBytes) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(label + " must not be blank");
         }
-        return value.trim();
+        String normalized = value.trim();
+        if (normalized.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException(label + " must not contain NUL");
+        }
+        if (normalized.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
+            throw new IllegalArgumentException(label + " exceeds size limit");
+        }
+        return normalized;
     }
 }

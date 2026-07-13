@@ -8,6 +8,11 @@ public interface ScheduledSourceExecutor {
 
     String sourceType();
 
+    /** 本来源的 pending 重放策略；默认保持既有每轮重放全部 pending 的行为。 */
+    default ScheduledPendingReplayPolicy pendingReplayPolicy() {
+        return ScheduledPendingReplayPolicy.ALWAYS;
+    }
+
     ScheduledExecutionPlan plan(ScheduledTaskDefinition task) throws ScheduledExecutionException;
 
     ScheduledDiscoveryResult discover(ScheduledSourceContext context) throws ScheduledExecutionException;
