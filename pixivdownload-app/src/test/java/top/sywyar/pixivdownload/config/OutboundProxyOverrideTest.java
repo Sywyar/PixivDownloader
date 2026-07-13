@@ -94,4 +94,18 @@ class OutboundProxyOverrideTest {
         OutboundProxyOverride.set("not-a-proxy");
         assertThat(OutboundProxyOverride.current()).isNull();
     }
+
+    @Test
+    @DisplayName("显式直连与未设置覆盖可以区分")
+    void directOverrideIsDistinguishableFromAbsentOverride() {
+        assertThat(OutboundProxyOverride.isActive()).isFalse();
+
+        OutboundProxyOverride.setDirect();
+
+        assertThat(OutboundProxyOverride.isActive()).isTrue();
+        assertThat(OutboundProxyOverride.current()).isNull();
+
+        OutboundProxyOverride.clear();
+        assertThat(OutboundProxyOverride.isActive()).isFalse();
+    }
 }

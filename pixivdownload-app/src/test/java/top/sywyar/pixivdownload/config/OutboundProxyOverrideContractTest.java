@@ -95,4 +95,16 @@ class OutboundProxyOverrideContractTest {
         assertThat(second.get().getPort()).isEqualTo(8001);
         assertThat(OutboundProxyOverride.current()).isNull();
     }
+
+    @Test
+    @DisplayName("显式直连作用域在异常后也会清理")
+    void directScopeClearsAfterFailure() {
+        assertThatThrownBy(() -> OutboundProxyOverride.runDirectScoped(() -> {
+            assertThat(OutboundProxyOverride.isActive()).isTrue();
+            assertThat(OutboundProxyOverride.current()).isNull();
+            throw new IllegalStateException("boom");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(OutboundProxyOverride.isActive()).isFalse();
+    }
 }

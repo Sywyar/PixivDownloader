@@ -17,7 +17,14 @@ import java.util.regex.Pattern;
  */
 public final class OutboundProxyOverride {
 
-    private static final ThreadLocal<HttpHost> OVERRIDE = new ThreadLocal<>();
+    /**
+     * 独立保存“是否已覆盖”和代理值：活动覆盖中的 {@code null} 明确表示直连，
+     * 未设置覆盖才允许路由规划器回退到全局代理。
+     */
+    private static final ThreadLocal<RouteOverride> OVERRIDE = new ThreadLocal<>();
+
+    private record RouteOverride(HttpHost proxy) {
+    }
 
     /**
      * host 段允许的字符：主机名 / IPv4（字母、数字、{@code .}、{@code -}、{@code _}）。
@@ -39,8 +46,13 @@ public final class OutboundProxyOverride {
         if (host == null) {
             OVERRIDE.remove();
         } else {
-            OVERRIDE.set(host);
+            OVERRIDE.set(new RouteOverride(host));
         }
+    }
+
+    /** 为当前线程设置显式直连覆盖；即使全局代理已启用也不会使用代理。 */
+    public static void setDirect() {
+        OVERRIDE.set(new RouteOverride(null));
     }
 
     /** 清除当前线程的代理覆盖（必须在 finally 中调用）。 */
@@ -65,9 +77,25 @@ public final class OutboundProxyOverride {
         }
     }
 
+    /** 在当前线程上显式直连运行任务，并在结束时清除覆盖。 */
+    public static void runDirectScoped(Runnable task) {
+        setDirect();
+        try {
+            task.run();
+        } finally {
+            clear();
+        }
+    }
+
+    /** 当前线程是否存在覆盖；活动覆盖的代理值可以为 {@code null}（显式直连）。 */
+    public static boolean isActive() {
+        return OVERRIDE.get() != null;
+    }
+
     /** 当前线程的代理覆盖；未设置返回 {@code null}。 */
     public static HttpHost current() {
-        return OVERRIDE.get();
+        RouteOverride override = OVERRIDE.get();
+        return override == null ? null : override.proxy();
     }
 
     /**

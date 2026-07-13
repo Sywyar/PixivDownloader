@@ -176,9 +176,8 @@ public class RestTemplateConfig {
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
-            HttpHost override = OutboundProxyOverride.current();
-            if (override != null) {
-                return override;
+            if (OutboundProxyOverride.isActive()) {
+                return OutboundProxyOverride.current();
             }
             if (!proxyConfig.isEnabled()) {
                 return null;
