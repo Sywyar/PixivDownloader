@@ -59,10 +59,18 @@ public class TtsPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
+    public EdgeTtsWebSocketConnector edgeTtsWebSocketConnector(OutboundProxySettings proxySettings,
+                                                               EdgeTtsVersionService versionService) {
+        return new JdkEdgeTtsWebSocketConnector(proxySettings, versionService);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(TtsPlugin.ID)
     public EdgeTtsClient edgeTtsClient(OutboundProxySettings proxySettings,
                                        EdgeTtsVersionService versionService,
+                                       EdgeTtsWebSocketConnector connector,
                                        @Qualifier("ttsPluginMessages") MessageResolver messages) {
-        return new EdgeTtsClient(proxySettings, versionService, messages);
+        return new EdgeTtsClient(proxySettings, versionService, connector, messages);
     }
 
     @Bean
