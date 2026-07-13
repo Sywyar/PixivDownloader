@@ -71,7 +71,7 @@ class GuiLauncherStartupSchemaTest {
 
     private static PluginDiscoveryResult discovery(PixivFeaturePlugin plugin) {
         return new PluginDiscoveryResult(List.of(new DiscoveredFeaturePlugin(
-                "external-schema-pack", plugin, GuiLauncherStartupSchemaTest.class.getClassLoader())), List.of());
+                PLUGIN_ID, plugin, GuiLauncherStartupSchemaTest.class.getClassLoader())), List.of());
     }
 
     private static void exec(Connection connection, String sql) throws Exception {

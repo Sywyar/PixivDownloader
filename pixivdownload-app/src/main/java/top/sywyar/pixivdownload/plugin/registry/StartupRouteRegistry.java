@@ -33,10 +33,11 @@ public class StartupRouteRegistry {
     private volatile List<RegisteredStartupRoute> snapshot = List.of();
 
     public StartupRouteRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<StartupRouteContribution> routes = plugin.startupRoutes();
             if (!routes.isEmpty()) {
-                register(plugin.id(), routes);
+                register(registered.id(), routes);
             }
         }
     }

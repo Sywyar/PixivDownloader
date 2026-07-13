@@ -39,10 +39,11 @@ public class RouteAccessRegistry {
     private volatile List<RegisteredRoute> snapshot = List.of();
 
     public RouteAccessRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<WebRouteContribution> routes = plugin.routes();
             if (!routes.isEmpty()) {
-                register(plugin.id(), routes);
+                register(registered.id(), routes);
             }
         }
     }

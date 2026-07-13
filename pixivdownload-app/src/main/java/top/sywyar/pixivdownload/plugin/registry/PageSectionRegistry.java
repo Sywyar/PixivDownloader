@@ -31,10 +31,11 @@ public class PageSectionRegistry {
     private volatile List<RegisteredSection> snapshot = List.of();
 
     public PageSectionRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<PageSectionContribution> sections = plugin.pageSections();
             if (!sections.isEmpty()) {
-                register(plugin.id(), sections);
+                register(registered.id(), sections);
             }
         }
     }

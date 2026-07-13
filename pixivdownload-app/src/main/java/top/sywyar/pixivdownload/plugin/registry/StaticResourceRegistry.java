@@ -42,7 +42,7 @@ public class StaticResourceRegistry {
             PixivFeaturePlugin plugin = registered.plugin();
             List<StaticResourceContribution> resources = plugin.staticResources();
             if (!resources.isEmpty()) {
-                register(plugin.id(), registered.classLoader(), resources);
+                register(registered.id(), registered.classLoader(), resources);
             }
         }
     }

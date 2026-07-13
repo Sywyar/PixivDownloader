@@ -17,10 +17,14 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -61,36 +65,66 @@ public class PluginRegistry implements SmartLifecycle {
 
     /** 一条已注册插件、其来源与解析用 classloader。 */
     public record RegisteredPlugin(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader,
-                                   String packageId, long generation) {
+                                   String packageId, long generation, String id) {
 
         public RegisteredPlugin {
             if (plugin == null) {
                 throw new IllegalStateException("registered plugin must not be null");
             }
+            if (id == null || id.isBlank()) {
+                throw new IllegalStateException("registered plugin id must not be blank");
+            }
             if (source == null) {
                 throw new IllegalStateException("registered plugin source must not be null (plugin: "
-                        + plugin.id() + ")");
+                        + id + ")");
             }
             if (classLoader == null) {
                 throw new IllegalStateException("registered plugin classLoader must not be null (plugin: "
-                        + plugin.id() + ")");
+                        + id + ")");
             }
             if (packageId == null || packageId.isBlank()) {
                 throw new IllegalStateException("registered plugin packageId must not be blank (plugin: "
-                        + plugin.id() + ")");
+                        + id + ")");
+            }
+            if (generation < 0L) {
+                throw new IllegalStateException("registered plugin generation must not be negative (plugin: "
+                        + id + ")");
+            }
+            if (source == PluginSource.EXTERNAL && !packageId.equals(id)) {
+                throw new IllegalStateException("external plugin packageId must match its stable feature id: "
+                        + packageId + " != " + id);
             }
         }
 
         public RegisteredPlugin(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader) {
-            this(plugin, source, classLoader, plugin.id(), 0L);
+            this(capture(plugin), source, classLoader, null, 0L);
         }
 
-        public String id() {
-            return plugin.id();
+        public RegisteredPlugin(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader,
+                                String packageId, long generation) {
+            this(capture(plugin), source, classLoader, packageId, generation);
+        }
+
+        private RegisteredPlugin(PluginIdentitySnapshot identity, PluginSource source, ClassLoader classLoader,
+                                 String packageId, long generation) {
+            this(identity.plugin(), source, classLoader,
+                    packageId == null ? identity.id() : packageId, generation, identity.id());
+        }
+
+        private static PluginIdentitySnapshot capture(PixivFeaturePlugin plugin) {
+            if (plugin == null) {
+                throw new IllegalStateException("registered plugin must not be null");
+            }
+            return new PluginIdentitySnapshot(plugin, plugin.id());
         }
     }
 
+    private record PluginIdentitySnapshot(PixivFeaturePlugin plugin, String id) {
+    }
+
     private final Object lock = new Object();
+    private final Map<RegisteredPlugin, ActiveIdentityReservationState> activeIdentityReservations =
+            new IdentityHashMap<>();
 
     /** 启用开关：活动成员判定的事实源。构造期与运行期 {@link #register} 都据此决定插件是否进入活动快照。 */
     private final PluginToggleProperties toggles;
@@ -101,11 +135,8 @@ public class PluginRegistry implements SmartLifecycle {
      * 注销后该插件不再出现在安装态中（与从未注册过一致）。读路径走不可变快照：变更时整体替换引用（读侧无锁）。
      * schema 合并经此读取，不受启用开关影响（禁用插件仍在安装态，注销插件不在）。
      */
-    private volatile List<RegisteredPlugin> installed = List.of();
-    private volatile List<PixivFeaturePlugin> installedPlugins = List.of();
-
-    private volatile List<RegisteredPlugin> snapshot = List.of();
-    private volatile List<PixivFeaturePlugin> snapshotPlugins = List.of();
+    /** 安装态、活动态及其派生视图一次性发布，读侧永不观察到 register/unregister 的前缀状态。 */
+    private volatile RegistryState state = RegistryState.empty();
     private volatile boolean running;
 
     /** Spring 上下文外（{@code BuiltInPlugins.createAll()}、单元测试）构造：全部插件视为启用、无外置插件。 */
@@ -169,15 +200,13 @@ public class PluginRegistry implements SmartLifecycle {
         }
         logExternalDiscovery(external);
 
-        setInstalled(List.copyOf(all));
-
         List<RegisteredPlugin> active = new ArrayList<>();
         for (RegisteredPlugin registered : all) {
             if (isActive(registered)) {
                 active.add(registered);
             }
         }
-        setSnapshot(List.copyOf(active));
+        publishState(List.copyOf(all), List.copyOf(active));
     }
 
     /** 校验 id 规范并把插件加入安装清单；id 重复（跨来源）立即抛出并指出冲突双方来源，使应用启动失败而不是带病运行。 */
@@ -235,17 +264,18 @@ public class PluginRegistry implements SmartLifecycle {
             throw new IllegalStateException("invalid plugin id: " + pluginId);
         }
         synchronized (lock) {
-            if (containsId(installed, pluginId) || containsId(snapshot, pluginId)) {
+            RegistryState current = state;
+            if (containsId(current.installed(), pluginId) || containsId(current.active(), pluginId)) {
                 throw new IllegalStateException("duplicate plugin id: " + pluginId);
             }
-            List<RegisteredPlugin> nextInstalled = new ArrayList<>(installed);
+            boolean active = isActive(candidate);
+            List<RegisteredPlugin> nextInstalled = new ArrayList<>(current.installed());
             nextInstalled.add(candidate);
-            setInstalled(List.copyOf(nextInstalled));
-            if (isActive(candidate)) {
-                List<RegisteredPlugin> nextActive = new ArrayList<>(snapshot);
+            List<RegisteredPlugin> nextActive = new ArrayList<>(current.active());
+            if (active) {
                 nextActive.add(candidate);
-                setSnapshot(List.copyOf(nextActive));
             }
+            publishState(List.copyOf(nextInstalled), List.copyOf(nextActive));
         }
     }
 
@@ -257,16 +287,61 @@ public class PluginRegistry implements SmartLifecycle {
      */
     public void unregister(String pluginId) {
         synchronized (lock) {
-            if (!containsId(installed, pluginId) && !containsId(snapshot, pluginId)) {
+            RegistryState currentState = state;
+            RegisteredPlugin target = findById(currentState.installed(), pluginId);
+            if (target == null) {
+                target = findById(currentState.active(), pluginId);
+            }
+            if (target == null) {
                 throw new IllegalArgumentException("unknown plugin id: " + pluginId);
             }
-            setInstalled(installed.stream()
-                    .filter(registered -> !registered.id().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf)));
-            setSnapshot(snapshot.stream()
-                    .filter(registered -> !registered.id().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf)));
+            unregisterIdentity(target);
         }
+    }
+
+    /**
+     * 注销精确注册对象；等待该身份的锁外 reservation 释放后再次复核对象身份，绝不按 id 删除后来接入的新代。
+     */
+    public void unregister(RegisteredPlugin expected) {
+        Objects.requireNonNull(expected, "expected registered plugin");
+        synchronized (lock) {
+            RegistryState currentState = state;
+            RegisteredPlugin current = findById(currentState.installed(), expected.id());
+            if (current == null) {
+                current = findById(currentState.active(), expected.id());
+            }
+            if (current != expected) {
+                throw new IllegalStateException(
+                        "plugin registration is not the expected identity: " + expected.id());
+            }
+            unregisterIdentity(expected);
+        }
+    }
+
+    /** 当前安装态或活动快照是否仍包含同一个 RegisteredPlugin 对象。 */
+    public boolean containsIdentity(RegisteredPlugin expected) {
+        Objects.requireNonNull(expected, "expected registered plugin");
+        RegistryState currentState = state;
+        return currentState.installed().stream().anyMatch(current -> current == expected)
+                || currentState.active().stream().anyMatch(current -> current == expected);
+    }
+
+    private void unregisterIdentity(RegisteredPlugin target) {
+        String pluginId = target.id();
+        awaitIdentityReservationRelease(target);
+        RegistryState currentState = state;
+        if (!containsIdentity(currentState.installed(), target)
+                && !containsIdentity(currentState.active(), target)) {
+            throw new IllegalStateException(
+                    "plugin registration changed while waiting for active identity reservation: " + pluginId);
+        }
+        List<RegisteredPlugin> nextInstalled = currentState.installed().stream()
+                .filter(registered -> registered != target)
+                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+        List<RegisteredPlugin> nextActive = currentState.active().stream()
+                .filter(registered -> registered != target)
+                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+        publishState(nextInstalled, nextActive);
     }
 
     /**
@@ -275,12 +350,173 @@ public class PluginRegistry implements SmartLifecycle {
      * 时用 {@link #allPlugins()}（如 schema 合并）；需要来源 / classloader 信息时用 {@link #registeredPlugins()}。
      */
     public List<PixivFeaturePlugin> plugins() {
-        return snapshotPlugins;
+        return state.activePlugins();
     }
 
     /** 按注册顺序返回<b>活动</b>插件的源信息快照（插件 + 来源 + 解析用 classloader），不可变。 */
     public List<RegisteredPlugin> registeredPlugins() {
-        return snapshot;
+        return state.active();
+    }
+
+    /** 当前活动快照是否仍包含同一个注册对象身份。 */
+    boolean isActiveIdentity(RegisteredPlugin registered) {
+        Objects.requireNonNull(registered, "registered plugin");
+        return state.active().stream().anyMatch(current -> current == registered);
+    }
+
+    /**
+     * 为当前精确活动身份保留一个短期、锁外执行窗口。reservation 建立与身份复核在同一个注册中心锁内完成；
+     * 回调执行时不持有该锁，但同一身份的 {@link #unregister(String)} 会等待回调结束。适用于最终提交前存在
+     * 不可逆副作用、又不能在注册中心锁内调用插件代码的准备步骤。回调结束（包括异常路径）后 reservation 必定释放。
+     */
+    public <T> T withActiveIdentityReservation(RegisteredPlugin registered, Supplier<T> action) {
+        Objects.requireNonNull(registered, "registered plugin");
+        Objects.requireNonNull(action, "action");
+        Thread holder = Thread.currentThread();
+        ActiveIdentityReservationState reservation;
+        synchronized (lock) {
+            if (state.active().stream().noneMatch(current -> current == registered)) {
+                throw new IllegalStateException(
+                        "plugin registration is not the current active identity: " + registered.id());
+            }
+            reservation = activeIdentityReservations.computeIfAbsent(
+                    registered, ignored -> new ActiveIdentityReservationState());
+            reservation.acquire(holder);
+        }
+        try {
+            return action.get();
+        } finally {
+            synchronized (lock) {
+                ActiveIdentityReservationState current = activeIdentityReservations.get(registered);
+                if (current != reservation || !reservation.release(holder)) {
+                    throw new IllegalStateException("invalid plugin active identity reservation state");
+                }
+                if (reservation.isEmpty()) {
+                    activeIdentityReservations.remove(registered);
+                    lock.notifyAll();
+                }
+            }
+        }
+    }
+
+    /**
+     * 在插件注册中心锁内复核精确活动身份并执行一次最终提交。调用方必须先在锁外完成耗时准备；
+     * 提交动作不得反向调用插件注册中心的变更方法。跨 registry 的固定锁序是 PluginRegistry → 下游 registry，
+     * 因而 unregister / 同 id replacement 不可能插入身份复核与下游提交之间。
+     */
+    public <T> T commitIfActiveIdentity(RegisteredPlugin registered, Supplier<T> commit) {
+        Objects.requireNonNull(registered, "registered plugin");
+        Objects.requireNonNull(commit, "commit");
+        synchronized (lock) {
+            if (state.active().stream().noneMatch(current -> current == registered)) {
+                throw new IllegalStateException(
+                        "plugin registration is not the current active identity: " + registered.id());
+            }
+            return commit.get();
+        }
+    }
+
+    /** 只在 {@link #commitIfActiveIdentity(RegisteredPlugin, Function)} 回调栈内有效的不透明身份提交令牌。 */
+    public static final class ActiveIdentityCommit {
+        private PluginRegistry authority;
+        private RegisteredPlugin registered;
+        private boolean active = true;
+
+        private ActiveIdentityCommit(PluginRegistry authority, RegisteredPlugin registered) {
+            this.authority = authority;
+            this.registered = registered;
+        }
+
+        private void deactivate() {
+            active = false;
+            registered = null;
+            authority = null;
+        }
+    }
+
+    /**
+     * 与 Supplier 版语义相同，但向回调提供一个限定在当前锁内栈使用的令牌，供下游避免反向重入
+     * PluginRegistry 身份检查。
+     */
+    public <T> T commitIfActiveIdentity(
+            RegisteredPlugin registered,
+            Function<ActiveIdentityCommit, T> commit) {
+        Objects.requireNonNull(registered, "registered plugin");
+        Objects.requireNonNull(commit, "commit");
+        synchronized (lock) {
+            if (state.active().stream().noneMatch(current -> current == registered)) {
+                throw new IllegalStateException(
+                        "plugin registration is not the current active identity: " + registered.id());
+            }
+            ActiveIdentityCommit authority = new ActiveIdentityCommit(this, registered);
+            try {
+                return commit.apply(authority);
+            } finally {
+                authority.deactivate();
+            }
+        }
+    }
+
+    void requireActiveIdentityCommit(ActiveIdentityCommit commit, RegisteredPlugin registered) {
+        if (commit == null || commit.authority != this || commit.registered != registered
+                || !commit.active || !Thread.holdsLock(lock)) {
+            throw new IllegalStateException("invalid plugin active identity commit authority");
+        }
+    }
+
+    private void awaitIdentityReservationRelease(RegisteredPlugin registered) {
+        boolean interrupted = false;
+        try {
+            ActiveIdentityReservationState reservation = activeIdentityReservations.get(registered);
+            while (reservation != null) {
+                if (reservation.isHeldBy(Thread.currentThread())) {
+                    throw new IllegalStateException(
+                            "cannot unregister plugin from its active identity reservation: " + registered.id());
+                }
+                try {
+                    lock.wait();
+                } catch (InterruptedException failure) {
+                    interrupted = true;
+                }
+                reservation = activeIdentityReservations.get(registered);
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private static final class ActiveIdentityReservationState {
+        private final Map<Thread, Integer> holders = new IdentityHashMap<>();
+        private int count;
+
+        private void acquire(Thread holder) {
+            holders.merge(holder, 1, Math::addExact);
+            count = Math.incrementExact(count);
+        }
+
+        private boolean release(Thread holder) {
+            Integer held = holders.get(holder);
+            if (held == null || held < 1 || count < 1) {
+                return false;
+            }
+            if (held == 1) {
+                holders.remove(holder);
+            } else {
+                holders.put(holder, held - 1);
+            }
+            count--;
+            return true;
+        }
+
+        private boolean isHeldBy(Thread thread) {
+            return holders.containsKey(thread);
+        }
+
+        private boolean isEmpty() {
+            return count == 0;
+        }
     }
 
     /**
@@ -289,13 +525,19 @@ public class PluginRegistry implements SmartLifecycle {
      * 的场景使用——典型是 schema 合并（禁用插件的表 / 列仍需创建、数据保留；注销插件的 schema 不再合并）。
      */
     public List<PixivFeaturePlugin> allPlugins() {
-        return installedPlugins;
+        return state.installedPlugins();
+    }
+
+    /** 全部安装态插件的稳定身份记录；下游建立 owner key 时不得再次调用可变的 {@code plugin.id()}。 */
+    public List<RegisteredPlugin> allRegisteredPlugins() {
+        return state.installed();
     }
 
     /** 返回被禁用（安装但未进入活动快照）的插件。供维护任务按归属跳过禁用插件的任务等场景使用。 */
     public List<PixivFeaturePlugin> disabledPlugins() {
-        List<RegisteredPlugin> activeNow = snapshot;
-        List<RegisteredPlugin> installedNow = installed;
+        RegistryState currentState = state;
+        List<RegisteredPlugin> activeNow = currentState.active();
+        List<RegisteredPlugin> installedNow = currentState.installed();
         java.util.Set<String> activeIds = activeNow.stream()
                 .map(RegisteredPlugin::id)
                 .collect(Collectors.toSet());
@@ -306,34 +548,35 @@ public class PluginRegistry implements SmartLifecycle {
     }
 
     public Optional<PixivFeaturePlugin> find(String pluginId) {
-        return snapshot.stream().filter(registered -> registered.id().equals(pluginId))
+        return state.active().stream().filter(registered -> registered.id().equals(pluginId))
                 .map(RegisteredPlugin::plugin).findFirst();
     }
 
     /** 活动插件的来源（{@link PluginSource}），未注册（或已禁用）时为空。 */
     public Optional<PluginSource> source(String pluginId) {
-        return snapshot.stream().filter(registered -> registered.id().equals(pluginId))
+        return state.active().stream().filter(registered -> registered.id().equals(pluginId))
                 .map(RegisteredPlugin::source).findFirst();
     }
 
     @Override
     public void start() {
-        List<PixivFeaturePlugin> plugins = snapshotPlugins;
-        plugins.forEach(PixivFeaturePlugin::start);
+        List<RegisteredPlugin> plugins = state.active();
+        plugins.forEach(registered -> registered.plugin().start());
         running = true;
         log.info(MessageBundles.get("plugin.log.started", plugins.size(),
-                plugins.stream().map(PixivFeaturePlugin::id).collect(Collectors.joining(", "))));
+                plugins.stream().map(RegisteredPlugin::id).collect(Collectors.joining(", "))));
     }
 
     @Override
     public void stop() {
-        List<PixivFeaturePlugin> plugins = snapshotPlugins;
+        List<RegisteredPlugin> plugins = state.active();
         for (int i = plugins.size() - 1; i >= 0; i--) {
-            PixivFeaturePlugin plugin = plugins.get(i);
+            RegisteredPlugin registered = plugins.get(i);
             try {
-                plugin.stop();
-            } catch (Exception e) {
-                log.warn(MessageBundles.get("plugin.log.stop-failed", plugin.id(), e.getMessage()), e);
+                registered.plugin().stop();
+            } catch (Exception failure) {
+                log.warn(MessageBundles.get(
+                        "plugin.log.stop-failed", registered.id(), failure.getMessage()), failure);
             }
         }
         running = false;
@@ -344,18 +587,24 @@ public class PluginRegistry implements SmartLifecycle {
         return running;
     }
 
-    /** 同步更新活动快照及其派生的插件视图（读侧无锁，整体替换引用）。须在 {@link #lock} 内调用（构造期除外，彼时无并发）。 */
-    private void setSnapshot(List<RegisteredPlugin> next) {
-        this.snapshot = next;
-        this.snapshotPlugins = next.stream().map(RegisteredPlugin::plugin)
+    /** 完整准备派生视图后通过单个 volatile 引用一次性发布安装态与活动态。 */
+    private void publishState(List<RegisteredPlugin> installed, List<RegisteredPlugin> active) {
+        List<PixivFeaturePlugin> installedPlugins = installed.stream().map(RegisteredPlugin::plugin)
                 .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+        List<PixivFeaturePlugin> activePlugins = active.stream().map(RegisteredPlugin::plugin)
+                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+        state = new RegistryState(installed, installedPlugins, active, activePlugins);
     }
 
-    /** 同步更新安装态快照及其派生的插件视图（读侧无锁，整体替换引用）。须在 {@link #lock} 内调用（构造期除外，彼时无并发）。 */
-    private void setInstalled(List<RegisteredPlugin> next) {
-        this.installed = next;
-        this.installedPlugins = next.stream().map(RegisteredPlugin::plugin)
-                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+    private record RegistryState(
+            List<RegisteredPlugin> installed,
+            List<PixivFeaturePlugin> installedPlugins,
+            List<RegisteredPlugin> active,
+            List<PixivFeaturePlugin> activePlugins) {
+
+        private static RegistryState empty() {
+            return new RegistryState(List.of(), List.of(), List.of(), List.of());
+        }
     }
 
     /** 是否应进入活动快照：内置核心与核心策略必选项恒活动，其它插件按启用开关。 */
@@ -376,5 +625,18 @@ public class PluginRegistry implements SmartLifecycle {
 
     private static boolean containsId(List<RegisteredPlugin> plugins, String pluginId) {
         return plugins.stream().anyMatch(registered -> registered.id().equals(pluginId));
+    }
+
+    private static boolean containsIdentity(
+            List<RegisteredPlugin> plugins, RegisteredPlugin expected) {
+        return plugins.stream().anyMatch(registered -> registered == expected);
+    }
+
+    private static RegisteredPlugin findById(
+            List<RegisteredPlugin> plugins, String pluginId) {
+        return plugins.stream()
+                .filter(registered -> registered.id().equals(pluginId))
+                .findFirst()
+                .orElse(null);
     }
 }

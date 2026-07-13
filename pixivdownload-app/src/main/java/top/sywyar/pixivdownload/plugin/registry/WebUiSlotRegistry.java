@@ -33,10 +33,11 @@ public class WebUiSlotRegistry {
     private volatile List<RegisteredUiSlot> snapshot = List.of();
 
     public WebUiSlotRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<WebUiSlotContribution> slots = plugin.uiSlots();
             if (!slots.isEmpty()) {
-                register(plugin.id(), slots);
+                register(registered.id(), slots);
             }
         }
     }

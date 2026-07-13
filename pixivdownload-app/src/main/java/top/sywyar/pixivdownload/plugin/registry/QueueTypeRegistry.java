@@ -34,10 +34,11 @@ public class QueueTypeRegistry {
     private volatile List<RegisteredQueueType> snapshot = List.of();
 
     public QueueTypeRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<QueueTypeContribution> queueTypes = plugin.queueTypes();
             if (!queueTypes.isEmpty()) {
-                register(plugin.id(), queueTypes);
+                register(registered.id(), queueTypes);
             }
         }
     }

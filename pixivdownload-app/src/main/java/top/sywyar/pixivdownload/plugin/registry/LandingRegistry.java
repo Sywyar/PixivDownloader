@@ -39,10 +39,11 @@ public class LandingRegistry {
     private volatile List<RegisteredLanding> snapshot = List.of();
 
     public LandingRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<LandingContribution> landings = plugin.landings();
             if (!landings.isEmpty()) {
-                register(plugin.id(), landings);
+                register(registered.id(), landings);
             }
         }
     }

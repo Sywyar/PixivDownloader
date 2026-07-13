@@ -91,9 +91,17 @@ public record PluginDescriptor(
      */
     public static PluginDescriptor forBuiltIn(PixivFeaturePlugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
+        return forBuiltIn(plugin, plugin.id());
+    }
+
+    /**
+     * 使用调用方已捕获的稳定功能插件 id 构造内置描述符，避免注册后再次调用插件的身份 getter。
+     */
+    public static PluginDescriptor forBuiltIn(PixivFeaturePlugin plugin, String pluginId) {
+        Objects.requireNonNull(plugin, "plugin");
         return new PluginDescriptor(
-                plugin.id(),
-                plugin.id(),
+                pluginId,
+                pluginId,
                 PluginApiVersion.VERSION,
                 PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
                 List.of(),

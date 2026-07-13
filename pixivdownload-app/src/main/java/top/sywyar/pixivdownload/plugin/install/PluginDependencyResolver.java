@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -138,9 +139,9 @@ public class PluginDependencyResolver {
         if (pluginRegistry == null || lifecycleService == null) {
             return installedTargets();
         }
-        Set<String> activeBuiltIns = pluginRegistry.plugins().stream()
-                .map(PixivFeaturePlugin::id)
-                .filter(BuiltInPlugins::isBuiltIn)
+        Set<String> activeBuiltIns = pluginRegistry.registeredPlugins().stream()
+                .filter(registered -> registered.source() == PluginSource.BUILT_IN)
+                .map(PluginRegistry.RegisteredPlugin::id)
                 .collect(Collectors.toSet());
         Map<String, DependencyTarget> targets = new LinkedHashMap<>();
         for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {

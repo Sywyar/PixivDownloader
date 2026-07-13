@@ -36,7 +36,7 @@ class PluginDependencyResolverTest {
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
         when(installer.listInstalled()).thenReturn(List.of(
                 new InstalledPlugin(staleInstalledTarget, Path.of("plugins", "dev-target.jar"))));
-        when(registry.plugins()).thenReturn(List.of());
+        when(registry.registeredPlugins()).thenReturn(List.of());
         when(lifecycle.managedPluginIds()).thenReturn(Set.of("dev-dependency", "dev-target"));
         when(lifecycle.descriptor("dev-dependency")).thenReturn(Optional.of(dependency));
         when(lifecycle.descriptor("dev-target")).thenReturn(Optional.of(target));

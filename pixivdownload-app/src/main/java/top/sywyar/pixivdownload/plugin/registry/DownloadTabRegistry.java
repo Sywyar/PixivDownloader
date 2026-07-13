@@ -30,10 +30,11 @@ public class DownloadTabRegistry {
     private volatile List<RegisteredTab> snapshot = List.of();
 
     public DownloadTabRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<TabContribution> tabs = plugin.downloadTabs();
             if (!tabs.isEmpty()) {
-                register(plugin.id(), tabs);
+                register(registered.id(), tabs);
             }
         }
     }

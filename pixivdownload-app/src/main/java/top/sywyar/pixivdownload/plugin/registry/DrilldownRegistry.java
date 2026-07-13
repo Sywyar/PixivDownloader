@@ -31,10 +31,11 @@ public class DrilldownRegistry {
     private volatile List<RegisteredDrilldown> snapshot = List.of();
 
     public DrilldownRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<DrilldownContribution> drilldowns = plugin.drilldowns();
             if (!drilldowns.isEmpty()) {
-                register(plugin.id(), drilldowns);
+                register(registered.id(), drilldowns);
             }
         }
     }

@@ -38,7 +38,7 @@ class ExternalPluginContributionIntegrationTest {
     private static PluginRegistry registryWithExternal(PixivFeaturePlugin external) {
         ClassLoader pluginClassLoader = external.getClass().getClassLoader();
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(new DiscoveredFeaturePlugin("ext-demo-pack", external, pluginClassLoader)), List.of());
+                List.of(new DiscoveredFeaturePlugin(external.id(), external, pluginClassLoader)), List.of());
         return new PluginRegistry(List.of(new MinimalCorePlugin()), new PluginToggleProperties(), discovery);
     }
 

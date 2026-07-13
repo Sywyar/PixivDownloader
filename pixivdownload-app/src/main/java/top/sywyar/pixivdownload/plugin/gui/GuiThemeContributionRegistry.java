@@ -29,14 +29,15 @@ public class GuiThemeContributionRegistry {
     private volatile Map<String, RegisteredTheme> byThemeId = Map.of();
 
     public GuiThemeContributionRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<GuiThemeContribution> themes = plugin.guiThemes();
             if (themes == null) {
                 throw new IllegalStateException("GUI theme contribution list is null (plugin: "
-                        + plugin.id() + ")");
+                        + registered.id() + ")");
             }
             if (!themes.isEmpty()) {
-                register(plugin.id(), themes);
+                register(registered.id(), themes);
             }
         }
     }

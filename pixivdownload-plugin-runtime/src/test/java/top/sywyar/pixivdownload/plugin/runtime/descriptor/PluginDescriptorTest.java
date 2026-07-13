@@ -32,6 +32,16 @@ class PluginDescriptorTest {
     }
 
     @Test
+    @DisplayName("显式稳定 id 构造内置描述符时不再读取插件身份 getter")
+    void forBuiltInUsesCapturedStableId() {
+        PluginDescriptor descriptor = PluginDescriptor.forBuiltIn(new IdRejectingPlugin(), "stable-plugin");
+
+        assertThat(descriptor.id()).isEqualTo("stable-plugin");
+        assertThat(descriptor.sourcePluginId()).isEqualTo("stable-plugin");
+        assertThat(descriptor.validationErrors()).isEmpty();
+    }
+
+    @Test
     @DisplayName("完整外置描述符通过通用与外置完整性校验")
     void completeExternalDescriptorIsValid() {
         PluginDescriptor descriptor = external("ext-stats", "1.2.0", "1.0",
@@ -168,6 +178,28 @@ class PluginDescriptorTest {
         @Override
         public String description() {
             return id + ".summary";
+        }
+
+        @Override
+        public PluginKind kind() {
+            return PluginKind.FEATURE;
+        }
+    }
+
+    private static final class IdRejectingPlugin implements PixivFeaturePlugin {
+        @Override
+        public String id() {
+            throw new AssertionError("id getter must not be called");
+        }
+
+        @Override
+        public String displayName() {
+            return "stable.label";
+        }
+
+        @Override
+        public String description() {
+            return "stable.summary";
         }
 
         @Override

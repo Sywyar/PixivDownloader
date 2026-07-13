@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin.management;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
@@ -26,7 +25,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
 /**
  * 插件状态查询服务（后端、admin-grade，不依赖任何 UI）：把运行时观测（内置插件注册中心 {@link PluginRegistry} +
@@ -89,16 +88,18 @@ public class PluginStatusService {
 
     /** 计算当前插件状态报告。每次调用按当前注册中心 / 清点快照重新评估。 */
     public PluginStatusReport report() {
-        Set<String> activeIds = pluginRegistry.plugins().stream()
-                .map(PixivFeaturePlugin::id)
+        Set<String> activeIds = pluginRegistry.registeredPlugins().stream()
+                .map(PluginRegistry.RegisteredPlugin::id)
                 .collect(Collectors.toSet());
 
         List<ObservedPlugin> observed = new ArrayList<>();
         // 内置插件：描述符现造，活动=已启动、安装但未活动=已禁用。
-        for (PixivFeaturePlugin plugin : pluginRegistry.allPlugins()) {
-            if (BuiltInPlugins.isBuiltIn(plugin.id())) {
-                PluginStatus base = activeIds.contains(plugin.id()) ? PluginStatus.STARTED : PluginStatus.DISABLED;
-                observed.add(new ObservedPlugin(PluginDescriptor.forBuiltIn(plugin), base));
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.allRegisteredPlugins()) {
+            if (registered.source() == PluginSource.BUILT_IN) {
+                PluginStatus base = activeIds.contains(registered.id())
+                        ? PluginStatus.STARTED : PluginStatus.DISABLED;
+                observed.add(new ObservedPlugin(
+                        PluginDescriptor.forBuiltIn(registered.plugin(), registered.id()), base));
             }
         }
         // 外置插件：取清点结果的描述符与基线状态（不兼容条目原样保留，由评估器判 INCOMPATIBLE）。

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
@@ -17,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 
 class PluginRegistryTest {
 
@@ -170,6 +172,79 @@ class PluginRegistryTest {
     }
 
     @Test
+    @DisplayName("RegisteredPlugin 构造后不再回调可变 plugin id getter")
+    void registeredPluginCapturesStableIdOnce() {
+        FlakyIdPlugin plugin = new FlakyIdPlugin("flaky-owner");
+        PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader(), "flaky-owner", 1L);
+        PluginRegistry registry = new PluginRegistry(List.of());
+
+        registry.register(registered);
+
+        assertThat(plugin.idCalls()).isEqualTo(1);
+        assertThat(registry.registeredPlugins()).containsExactly(registered);
+        assertThat(registry.allPlugins()).containsExactly(plugin);
+    }
+
+    @Test
+    @DisplayName("下游贡献注册使用捕获的稳定 owner id 而不再次调用插件 getter")
+    void downstreamRegistryUsesCapturedOwnerId() {
+        FlakyQueuePlugin plugin = new FlakyQueuePlugin("flaky-owner");
+        PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader());
+        PluginRegistry registry = new PluginRegistry(List.of());
+        registry.register(registered);
+
+        QueueTypeRegistry queueTypes = new QueueTypeRegistry(registry);
+
+        assertThat(plugin.idCalls()).isEqualTo(1);
+        assertThat(queueTypes.queueTypes()).singleElement().satisfies(queue -> {
+            assertThat(queue.pluginId()).isEqualTo("flaky-owner");
+            assertThat(queue.queueType().type()).isEqualTo("flaky-type");
+        });
+    }
+
+    @Test
+    @DisplayName("register 准备活动状态失败时安装态与活动态均不发布")
+    void registerPreparationFailurePublishesNoPrefixState() {
+        ThrowingToggleProperties toggles = new ThrowingToggleProperties();
+        PluginRegistry registry = new PluginRegistry(List.of(), toggles);
+        TestPlugin plugin = new TestPlugin("atomic-owner");
+        PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader());
+        AssertionError failure = new AssertionError("toggle lookup failed");
+        toggles.failure = failure;
+
+        assertThatThrownBy(() -> registry.register(registered)).isSameAs(failure);
+
+        assertThat(registry.containsIdentity(registered)).isFalse();
+        assertThat(registry.registeredPlugins()).isEmpty();
+        assertThat(registry.allPlugins()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("外置注册身份要求包 id 与稳定 feature id 一致")
+    void externalIdentityRequiresMatchingPackageId() {
+        TestPlugin plugin = new TestPlugin("feature-owner");
+
+        assertThatThrownBy(() -> new PluginRegistry.RegisteredPlugin(
+                plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader(), "another-package", 1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("packageId must match");
+    }
+
+    @Test
+    @DisplayName("注册身份拒绝负 generation")
+    void registeredIdentityRejectsNegativeGeneration() {
+        TestPlugin plugin = new TestPlugin("feature-owner");
+
+        assertThatThrownBy(() -> new PluginRegistry.RegisteredPlugin(
+                plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader(), "feature-owner", -1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("must not be negative");
+    }
+
+    @Test
     @DisplayName("禁用的功能插件不进入活动快照，但仍保留在 allPlugins 并出现在 disabledPlugins")
     void disabledFeaturePluginExcludedFromActiveSnapshotButKeptInstalled() {
         PluginToggleProperties toggles = new PluginToggleProperties();
@@ -208,7 +283,7 @@ class PluginRegistryTest {
         PluginToggleProperties toggles = new PluginToggleProperties();
         toggles.put("third-party", disabledToggle());
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(external("third-party-pack", new RequiredTestPlugin("third-party"), extCl)), List.of());
+                List.of(external("third-party", new RequiredTestPlugin("third-party"), extCl)), List.of());
 
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), toggles, discovery);
@@ -270,8 +345,8 @@ class PluginRegistryTest {
     void builtInAndExternalRegisterTogetherWithStableOrderAndSource() {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(List.of(
-                external("zeta-pack", new TestPlugin("ext-zeta"), extCl),
-                external("alpha-pack", new TestPlugin("ext-alpha"), extCl)), List.of());
+                external("ext-zeta", new TestPlugin("ext-zeta"), extCl),
+                external("ext-alpha", new TestPlugin("ext-alpha"), extCl)), List.of());
 
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE), new TestPlugin("gallery")),
@@ -295,7 +370,7 @@ class PluginRegistryTest {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
         TestPlugin extPlugin = new TestPlugin("ext-stats");
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(external("stats-pack", extPlugin, extCl)), List.of());
+                List.of(external("ext-stats", extPlugin, extCl)), List.of());
 
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(), discovery);
@@ -313,7 +388,7 @@ class PluginRegistryTest {
     @DisplayName("外置 pluginId 与内置冲突：构造期 fail-fast 并指出冲突双方来源")
     void externalIdConflictingWithBuiltInFailsFast() {
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(external("rogue-pack", new TestPlugin("gallery"),
+                List.of(external("gallery", new TestPlugin("gallery"),
                         new ClassLoader(getClass().getClassLoader()) {})), List.of());
 
         assertThatThrownBy(() -> new PluginRegistry(
@@ -322,7 +397,7 @@ class PluginRegistryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("duplicate plugin id 'gallery'")
                 .hasMessageContaining("BUILT_IN")
-                .hasMessageContaining("rogue-pack");
+                .hasMessageContaining("external plugin package 'gallery'");
     }
 
     @Test
@@ -330,8 +405,8 @@ class PluginRegistryTest {
     void twoExternalsWithSameIdFailFast() {
         ClassLoader cl = new ClassLoader(getClass().getClassLoader()) {};
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(List.of(
-                external("pack-a", new TestPlugin("ext-dup"), cl),
-                external("pack-b", new TestPlugin("ext-dup"), cl)), List.of());
+                external("ext-dup", new TestPlugin("ext-dup"), cl),
+                external("ext-dup", new TestPlugin("ext-dup"), cl)), List.of());
 
         assertThatThrownBy(() -> new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(), discovery))
@@ -346,7 +421,7 @@ class PluginRegistryTest {
         TestPlugin extPlugin = new TestPlugin("ext-stats");
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(),
-                new PluginDiscoveryResult(List.of(external("stats-pack", extPlugin, extCl)), List.of()));
+                new PluginDiscoveryResult(List.of(external("ext-stats", extPlugin, extCl)), List.of()));
         List<PixivFeaturePlugin> initial = registry.plugins();
         List<PixivFeaturePlugin> initialAll = registry.allPlugins();
         List<PluginRegistry.RegisteredPlugin> initialRegistered = registry.registeredPlugins();
@@ -380,7 +455,7 @@ class PluginRegistryTest {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(),
-                new PluginDiscoveryResult(List.of(external("stats-pack", new TestPlugin("ext-stats"), extCl)),
+                new PluginDiscoveryResult(List.of(external("ext-stats", new TestPlugin("ext-stats"), extCl)),
                         List.of()));
         assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).contains("ext-stats");
 
@@ -414,7 +489,7 @@ class PluginRegistryTest {
     void externalDiscoveryFailuresAreNonFatal() {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(external("good-pack", new TestPlugin("ext-good"), extCl)),
+                List.of(external("ext-good", new TestPlugin("ext-good"), extCl)),
                 List.of(new PluginLoadFailure("broken-pack", "does not implement PixivPluginProvider")));
 
         PluginRegistry registry = new PluginRegistry(
@@ -438,6 +513,74 @@ class PluginRegistryTest {
         @Override
         public boolean required() {
             return true;
+        }
+    }
+
+    private static final class FlakyIdPlugin implements PixivFeaturePlugin {
+        private final String id;
+        private int idCalls;
+
+        private FlakyIdPlugin(String id) {
+            this.id = id;
+        }
+
+        @Override
+        public String id() {
+            if (++idCalls > 1) {
+                throw new AssertionError("plugin id getter must not be called again");
+            }
+            return id;
+        }
+
+        @Override public String displayName() { return "plugin.label"; }
+        @Override public String description() { return "plugin.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+
+        int idCalls() {
+            return idCalls;
+        }
+    }
+
+    private static final class ThrowingToggleProperties extends PluginToggleProperties {
+        private AssertionError failure;
+
+        @Override
+        public boolean isEnabled(String pluginId) {
+            if (failure != null) {
+                throw failure;
+            }
+            return super.isEnabled(pluginId);
+        }
+    }
+
+    private static final class FlakyQueuePlugin implements PixivFeaturePlugin {
+        private final String id;
+        private int idCalls;
+
+        private FlakyQueuePlugin(String id) {
+            this.id = id;
+        }
+
+        @Override
+        public String id() {
+            if (++idCalls > 1) {
+                throw new AssertionError("plugin id getter must not be called again");
+            }
+            return id;
+        }
+
+        @Override public String displayName() { return "plugin.label"; }
+        @Override public String description() { return "plugin.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+
+        @Override
+        public List<QueueTypeContribution> queueTypes() {
+            return List.of(new QueueTypeContribution(
+                    "flaky-owner", "flaky-type", "flaky", "label", 1, null));
+        }
+
+        int idCalls() {
+            return idCalls;
         }
     }
 }
