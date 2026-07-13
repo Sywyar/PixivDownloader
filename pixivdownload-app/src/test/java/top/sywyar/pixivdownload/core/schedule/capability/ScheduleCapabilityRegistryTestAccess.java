@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigra
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /** 仅供 app 测试调用 registry 包级生命周期入口与构造伪造身份；生产代码没有对应入口。 */
 public final class ScheduleCapabilityRegistryTestAccess {
@@ -30,6 +31,35 @@ public final class ScheduleCapabilityRegistryTestAccess {
     public static ScheduleCapabilityPublication publish(
             ScheduleCapabilityRegistry registry, ScheduleOwnerBundle bundle) {
         return registry.publish(bundle);
+    }
+
+    public static ScheduleCapabilityRegistry withCommitProbe(Runnable postCommitProbe) {
+        return new ScheduleCapabilityRegistry(ignored -> true, postCommitProbe);
+    }
+
+    public static ScheduleCapabilityRegistry withAcquireProbe(Runnable postAcquireProbe) {
+        return new ScheduleCapabilityRegistry(ignored -> true, () -> {
+        }, postAcquireProbe);
+    }
+
+    public static ScheduleCapabilityRegistry withReleaseProbes(
+            Runnable beforeReleaseProbe,
+            Runnable afterReleaseProbe) {
+        return new ScheduleCapabilityRegistry(
+                ignored -> true,
+                () -> {
+                },
+                () -> {
+                },
+                () -> {
+                },
+                beforeReleaseProbe,
+                afterReleaseProbe);
+    }
+
+    public static ScheduleCapabilityRegistry withAdmission(Predicate<String> ownerAdmission) {
+        return new ScheduleCapabilityRegistry(ownerAdmission, () -> {
+        });
     }
 
     public static Optional<ScheduleGenerationDrain> withdraw(

@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
@@ -160,6 +161,7 @@ public class ScheduleHostPluginConfiguration {
                                              OveruseWarningService overuseWarningService,
                                              NotificationService notificationService,
                                              AppMessages messages,
+                                             WebI18nBundleRegistry webI18nBundleRegistry,
                                              SetupService setupService,
                                              DownloadConfig downloadConfig,
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
@@ -168,7 +170,7 @@ public class ScheduleHostPluginConfiguration {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
-                notificationService, messages, setupService, downloadConfig,
+                notificationService, messages, webI18nBundleRegistry, setupService, downloadConfig,
                 downloadTaskExecutor, novelDownloadTaskExecutor, scheduleExecutionEngine);
     }
 

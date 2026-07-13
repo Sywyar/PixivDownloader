@@ -4,23 +4,25 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellat
 
 import java.util.Objects;
 
-/** 短时读取单个行为能力的租约；close 后清除行为对象引用。 */
+/** 短时读取单个行为能力的租约；由调用方先持有对象，再在 try/finally 内激活。 */
 public final class ScheduleSingleCapabilityLease<T> implements AutoCloseable {
 
     private final ScheduleCapabilityHandle<T> handle;
     private final ScheduleLeaseState leaseState;
-    private final ScheduleLeaseState.CancellationSignal cancellation;
+    private final ScheduleLeaseRoot root;
+    private final ScheduleLeaseState.LeaseToken leaseToken;
     private T capability;
-    private boolean active = true;
 
     ScheduleSingleCapabilityLease(
             ScheduleCapabilityHandle<T> handle,
             ScheduleLeaseState leaseState,
-            ScheduleLeaseState.CancellationSignal cancellation,
+            ScheduleLeaseRoot root,
+            ScheduleLeaseState.LeaseToken leaseToken,
             T capability) {
         this.handle = Objects.requireNonNull(handle, "handle");
         this.leaseState = Objects.requireNonNull(leaseState, "leaseState");
-        this.cancellation = Objects.requireNonNull(cancellation, "cancellation");
+        this.root = Objects.requireNonNull(root, "root");
+        this.leaseToken = Objects.requireNonNull(leaseToken, "leaseToken");
         this.capability = Objects.requireNonNull(capability, "capability");
     }
 
@@ -39,29 +41,55 @@ public final class ScheduleSingleCapabilityLease<T> implements AutoCloseable {
 
     public synchronized ScheduledCancellation cancellation() {
         ensureActive();
-        return cancellation;
+        return root.cancellation();
     }
 
-    public synchronized boolean isActive() {
-        return active;
+    public boolean isActive() {
+        return root.isSingle();
+    }
+
+    ScheduleLeaseState leaseState() {
+        return leaseState;
+    }
+
+    ScheduleLeaseRoot root() {
+        return root;
+    }
+
+    ScheduleLeaseState.LeaseToken leaseToken() {
+        return leaseToken;
     }
 
     @Override
-    public void close() {
-        boolean release;
-        synchronized (this) {
-            release = active;
+    public synchronized void close() {
+        root.closeSingleOrPrepared();
+        Throwable failure = null;
+        try {
+            leaseState.release(leaseToken);
+        } catch (Throwable releaseFailure) {
+            failure = releaseFailure;
+        } finally {
             capability = null;
-            active = false;
         }
-        if (release) {
-            leaseState.release(cancellation);
-        }
+        rethrow(failure);
     }
 
     private void ensureActive() {
-        if (!active) {
-            throw new IllegalStateException("schedule capability lease is closed");
+        if (!root.isSingle()) {
+            throw new IllegalStateException("schedule capability lease is not active");
         }
+    }
+
+    static void rethrow(Throwable failure) {
+        if (failure == null) {
+            return;
+        }
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new IllegalStateException("schedule capability lease cleanup failed", failure);
     }
 }

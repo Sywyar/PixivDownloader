@@ -9,9 +9,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-/**
- * 来源 planning 的短租约。调用来源行为并取得纯数据执行计划后，应由 registry 原子扩展为执行租约。
- */
+/** 来源 planning 的短租约；由调用方先持有对象，再在 try/finally 内激活。 */
 public final class SchedulePlanningLease implements AutoCloseable {
 
     record TransferredSource(
@@ -23,32 +21,32 @@ public final class SchedulePlanningLease implements AutoCloseable {
 
     private final ScheduleCapabilityOwner owner;
     private final long publicationId;
+    private final String activationToken;
     private final String sourceType;
     private final ScheduleLeaseState leaseState;
-    private final ScheduleLeaseState.CancellationSignal cancellation;
-
-    private ScheduledSourceDescriptor descriptor;
-    private ScheduledSourceExecutor sourceExecutor;
-    private ScheduledSourceProvider legacySourceProvider;
-    private boolean active = true;
+    private final ScheduleLeaseRoot root;
+    private final ScheduleLeaseState.LeaseToken leaseToken;
+    private TransferredSource source;
 
     SchedulePlanningLease(
             ScheduleCapabilityOwner owner,
             long publicationId,
+            String activationToken,
             String sourceType,
             ScheduleLeaseState leaseState,
-            ScheduleLeaseState.CancellationSignal cancellation,
+            ScheduleLeaseRoot root,
+            ScheduleLeaseState.LeaseToken leaseToken,
             ScheduledSourceDescriptor descriptor,
             ScheduledSourceExecutor sourceExecutor,
             ScheduledSourceProvider legacySourceProvider) {
         this.owner = owner;
         this.publicationId = publicationId;
+        this.activationToken = Objects.requireNonNull(activationToken, "activationToken");
         this.sourceType = sourceType;
         this.leaseState = leaseState;
-        this.cancellation = cancellation;
-        this.descriptor = descriptor;
-        this.sourceExecutor = sourceExecutor;
-        this.legacySourceProvider = legacySourceProvider;
+        this.root = Objects.requireNonNull(root, "root");
+        this.leaseToken = Objects.requireNonNull(leaseToken, "leaseToken");
+        this.source = new TransferredSource(descriptor, sourceExecutor, legacySourceProvider);
     }
 
     public ScheduleCapabilityOwner owner() {
@@ -59,84 +57,90 @@ public final class SchedulePlanningLease implements AutoCloseable {
         return publicationId;
     }
 
+    public String activationToken() {
+        return activationToken;
+    }
+
     public String sourceType() {
         return sourceType;
     }
 
     public synchronized Optional<ScheduledSourceDescriptor> descriptor() {
-        ensureActive();
-        return Optional.ofNullable(descriptor);
+        ensurePlanning();
+        return Optional.ofNullable(source.descriptor());
     }
 
     public synchronized Optional<ScheduledSourceExecutor> sourceExecutor() {
-        ensureActive();
-        return Optional.ofNullable(sourceExecutor);
+        ensurePlanning();
+        return Optional.ofNullable(source.sourceExecutor());
     }
 
     public synchronized Optional<ScheduledSourceProvider> legacySourceProvider() {
-        ensureActive();
-        return Optional.ofNullable(legacySourceProvider);
+        ensurePlanning();
+        return Optional.ofNullable(source.legacySourceProvider());
     }
 
     public synchronized ScheduledCancellation cancellation() {
-        ensureActive();
-        return cancellation;
+        ensurePlanning();
+        return root.cancellation();
     }
 
-    public synchronized boolean isActive() {
-        return active;
+    public boolean isActive() {
+        return root.isPlanning();
     }
 
-    /**
-     * 在 close 无法插入的同一临界区内完成一次活动租约操作。
-     * registry 用它把状态检查、来源读取、其它 owner 租约获取与 transfer 组成一个线性化操作。
-     */
     synchronized <T> Optional<T> whileActive(Supplier<Optional<T>> operation) {
         Objects.requireNonNull(operation, "operation");
-        if (!active) {
+        if (!root.isPlanning() || source == null) {
             return Optional.empty();
         }
         return Objects.requireNonNull(operation.get(), "operation result");
     }
 
-    synchronized TransferredSource transfer() {
-        ensureActive();
-        TransferredSource transferred = new TransferredSource(descriptor, sourceExecutor, legacySourceProvider);
-        descriptor = null;
-        sourceExecutor = null;
-        legacySourceProvider = null;
-        active = false;
-        return transferred;
+    synchronized TransferredSource prepareTransfer() {
+        ensurePlanning();
+        return source;
+    }
+
+    synchronized void finishTransfer(TransferredSource transferred) {
+        Objects.requireNonNull(transferred, "transferred source");
+        if (transferred != source || !root.isExecution()) {
+            throw new IllegalStateException("schedule planning transfer no longer matches source");
+        }
+        source = null;
     }
 
     ScheduleLeaseState leaseState() {
         return leaseState;
     }
 
-    ScheduleLeaseState.CancellationSignal cancellationSignal() {
-        return cancellation;
+    ScheduleLeaseRoot root() {
+        return root;
+    }
+
+    ScheduleLeaseState.LeaseToken leaseToken() {
+        return leaseToken;
     }
 
     @Override
-    public void close() {
-        boolean release;
-        synchronized (this) {
-            release = active;
-            if (active) {
-                descriptor = null;
-                sourceExecutor = null;
-                legacySourceProvider = null;
-                active = false;
+    public synchronized void close() {
+        boolean ownedRoot = root.closePlanningOrPrepared();
+        Throwable failure = null;
+        try {
+            if (ownedRoot || root.isClosed()) {
+                leaseState.release(leaseToken);
             }
+        } catch (Throwable releaseFailure) {
+            failure = releaseFailure;
+        } finally {
+            source = null;
         }
-        if (release) {
-            leaseState.release(cancellation);
-        }
+        ScheduleSingleCapabilityLease.rethrow(failure);
     }
 
-    private void ensureActive() {
-        if (!active) {
-            throw new IllegalStateException("schedule planning lease is closed or transferred");
+    private void ensurePlanning() {
+        if (!root.isPlanning() || source == null) {
+            throw new IllegalStateException("schedule planning lease is not active");
         }
     }
 }

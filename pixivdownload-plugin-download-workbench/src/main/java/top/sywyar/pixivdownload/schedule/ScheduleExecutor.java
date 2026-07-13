@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
@@ -77,6 +78,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongPredicate;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 
 /**
@@ -128,6 +130,7 @@ public class ScheduleExecutor {
     private final OveruseWarningService overuseWarningService;
     private final NotificationService notificationService;
     private final AppMessages messages;
+    private final WebI18nBundleRegistry webI18nBundleRegistry;
     private final SetupService setupService;
     private final DownloadConfig downloadConfig;
     // 字段名与 bean 名一致，借此按名解析到对应下载池（避免 @Primary 的 applicationTaskExecutor）。
@@ -161,6 +164,36 @@ public class ScheduleExecutor {
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
                 overuseWarningService, notificationService, messages, setupService,
                 downloadConfig, downloadTaskExecutor, novelDownloadTaskExecutor, null);
+    }
+
+    /** 保留既有显式构造调用；descriptor i18n registry 仅由正式插件装配注入。 */
+    public ScheduleExecutor(
+            ScheduledTaskStore store,
+            ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+            PixivFetchService pixivFetchService,
+            PixivDatabase pixivDatabase,
+            WorkMetaCaptureService workMetaCaptureService,
+            ArtworkDownloader artworkDownloader,
+            NovelMetadataRepository novelMetadataRepository,
+            ScheduleConfig scheduleConfig,
+            ScheduleRunState runState,
+            ScheduleRunQueue runQueue,
+            ObjectMapper objectMapper,
+            PixivSchedulePersistenceCodec persistenceCodec,
+            OveruseWarningService overuseWarningService,
+            NotificationService notificationService,
+            AppMessages messages,
+            SetupService setupService,
+            DownloadConfig downloadConfig,
+            TaskExecutor downloadTaskExecutor,
+            TaskExecutor novelDownloadTaskExecutor,
+            ScheduleExecutionEngine scheduleExecutionEngine) {
+        this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
+                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
+                overuseWarningService, notificationService, messages, null, setupService,
+                downloadConfig, downloadTaskExecutor, novelDownloadTaskExecutor,
+                scheduleExecutionEngine);
     }
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
@@ -241,8 +274,9 @@ public class ScheduleExecutor {
      * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
-        try (ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = tryAcquireHostLease()) {
-            if (hostLease == null) {
+        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
+        try (hostLease) {
+            if (hostLease == null || !scheduleCapabilityRegistry.activate(hostLease)) {
                 log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
                 return;
             }
@@ -287,7 +321,7 @@ public class ScheduleExecutor {
             ScheduleRunToken queuedToken) {
         ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease;
         try {
-            hostLease = tryAcquireHostLease();
+            hostLease = prepareHostLease();
         } catch (Throwable e) {
             try {
                 releaseQueued(task.id(), queuedToken);
@@ -311,6 +345,31 @@ public class ScheduleExecutor {
             return;
         }
         try (hostLease) {
+            boolean activated;
+            try {
+                activated = scheduleCapabilityRegistry.activate(hostLease);
+            } catch (Throwable e) {
+                try {
+                    releaseQueued(task.id(), queuedToken);
+                } catch (Throwable cleanupFailure) {
+                    addCleanupFailure(e, cleanupFailure);
+                }
+                try {
+                    runState.clear(claim);
+                } catch (Throwable cleanupFailure) {
+                    addCleanupFailure(e, cleanupFailure);
+                }
+                throw propagate(e);
+            }
+            if (!activated) {
+                try {
+                    releaseQueued(task.id(), queuedToken);
+                } finally {
+                    runState.clear(claim);
+                }
+                log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
+                return;
+            }
             runTaskAndRecordLeased(task, claim, queuedToken, hostLease.cancellation());
         }
     }
@@ -418,12 +477,12 @@ public class ScheduleExecutor {
         throw new IllegalStateException("active schedule claim could not be finalized");
     }
 
-    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> tryAcquireHostLease() {
+    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
         var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
         if (handle == null) {
             return null;
         }
-        return scheduleCapabilityRegistry.tryAcquire(handle).orElse(null);
+        return scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
     }
 
     /**
@@ -431,9 +490,9 @@ public class ScheduleExecutor {
      * 能取得同代复合租约时返回 true；所有租约都在返回前释放。
      */
     boolean canResolveExecution(ScheduledTask task) {
-        try (SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(task.sourceType())
-                .orElse(null)) {
-            if (planning == null
+        SchedulePlanningLease planning = scheduleCapabilityRegistry.prepareSource(task.sourceType()).orElse(null);
+        try (planning) {
+            if (planning == null || !scheduleCapabilityRegistry.activate(planning)
                     || !Objects.equals(task.sourceOwnerPluginId(), planning.owner().featurePluginId())
                     || !Objects.equals(task.sourceType(), planning.sourceType())) {
                 return false;
@@ -461,18 +520,22 @@ public class ScheduleExecutor {
                     ? Set.of(ScheduledWorkKind.ILLUST, ScheduledWorkKind.NOVEL)
                     : Set.of(snapshot.novel() ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST);
             ScheduleExecutionLease execution = scheduleCapabilityRegistry
-                    .tryExpandLegacy(planning, workTypes)
+                    .prepareLegacyExpansion(planning, workTypes)
                     .orElse(null);
             if (execution == null) {
                 return false;
             }
-            ScheduledCancellation cancellation = execution.cancellation();
             try (execution) {
+                if (!scheduleCapabilityRegistry.activate(execution)) {
+                    return false;
+                }
+                ScheduledCancellation cancellation = execution.cancellation();
                 if (cancellation.isCancellationRequested()) {
                     return false;
                 }
+                execution.close();
+                return !cancellation.isCancellationRequested();
             }
-            return !cancellation.isCancellationRequested();
         } catch (Exception e) {
             log.debug("Scheduled task {} capability recovery probe failed: {}",
                     task.id(), e.getClass().getSimpleName());
@@ -945,8 +1008,12 @@ public class ScheduleExecutor {
             boolean[] degraded,
             AtomicReference<ScheduledCheckpoint> candidateCheckpoint) throws Exception {
         // 来源 planning 只允许读取任务定义和选择执行模式；cookie、探活与任何来源网络访问必须等复合 lease 完整取得。
-        try (SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(task.sourceType())
-                .orElseThrow(() -> new ScheduleSourceUnavailableException(task.sourceType()))) {
+        SchedulePlanningLease planning = scheduleCapabilityRegistry.prepareSource(task.sourceType())
+                .orElseThrow(() -> new ScheduleSourceUnavailableException(task.sourceType()));
+        try (planning) {
+            if (!scheduleCapabilityRegistry.activate(planning)) {
+                throw new ScheduleSourceUnavailableException(task.sourceType());
+            }
             if (!Objects.equals(task.sourceOwnerPluginId(), planning.owner().featurePluginId())
                     || !Objects.equals(task.sourceType(), planning.sourceType())) {
                 throw new ScheduleSourceUnavailableException(task.sourceType() + " (owner mismatch)");
@@ -954,14 +1021,9 @@ public class ScheduleExecutor {
             if (planning.sourceExecutor().isPresent()) {
                 planning.close();
                 ScheduleExecutionResult result = scheduleExecutionEngine.execute(task, event -> {
-                    try {
-                        pendingNotifications.add(new PendingExhaustedNotification(
-                                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(event.workType()),
-                                Long.parseLong(event.workId()), event.attempts(),
-                                event.triggerTime(), event.reasonCode()));
-                    } catch (NumberFormatException ignored) {
-                        log.debug("Scheduled task {} omitted non-numeric pending notification id", task.id());
-                    }
+                    pendingNotifications.add(new PendingExhaustedNotification(
+                            event.workType(), event.workId(), event.attempts(),
+                            event.triggerTime(), event.reasonCode()));
                 });
                 candidateCheckpoint.set(result.candidateCheckpoint());
                 degraded[0] = result.credentialRevoked();
@@ -986,19 +1048,21 @@ public class ScheduleExecutor {
                     : Set.of(novel ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST);
 
             ScheduleExecutionLease execution = scheduleCapabilityRegistry
-                    .tryExpandLegacy(planning, requiredWorkTypes)
+                    .prepareLegacyExpansion(planning, requiredWorkTypes)
                     .orElseThrow(() -> new ScheduleExecutorUnavailableException(
                             task.sourceType(), requiredWorkTypes));
-            ScheduledCancellation executionCancellation = execution.cancellation();
             int completed;
             try (execution) {
+                if (!scheduleCapabilityRegistry.activate(execution)) {
+                    throw new ScheduleExecutorUnavailableException(task.sourceType(), requiredWorkTypes);
+                }
+                ScheduledCancellation executionCancellation = execution.cancellation();
                 completed = runTaskWithLease(task, pendingNotifications, degraded, candidateCheckpoint, sourceProvider,
                         snapshot, novel, source, discoveryMode, execution.legacyWorkRunners(),
                         executionCancellation);
+                execution.close();
+                ensureCapabilityAvailable(executionCancellation, task.sourceType());
             }
-            // close 与 owner retire 在线程安全计数槽上线性化：retire 先发生会留下取消信号，
-            // close 先发生则说明所有插件行为已完成。close 后检查可消除「末次检查→释放租约」窗口。
-            ensureCapabilityAvailable(executionCancellation, task.sourceType());
             return completed;
         }
     }
@@ -1757,7 +1821,7 @@ public class ScheduleExecutor {
 
     /** 本轮中达到自动重试上限、需要在最终 next_run_time 确定后再发送的通知事件。 */
     private record PendingExhaustedNotification(
-            boolean novel, long workId, int attempts, long triggerTime, String reason) {}
+            String workType, String workId, int attempts, long triggerTime, String reason) {}
 
     /**
      * 一轮运行内对单作品派发做异常分类、隔离表记账、连续失败熔断与到 N 过度访问检查的有状态封装。
@@ -2019,7 +2083,10 @@ public class ScheduleExecutor {
             }
             if (exhausted) {
                 // worker 线程里只登记事件；最终 next_run_time 要等 runTask join 完、completedAt 确定后才能准确计算。
-                pendingNotifications.add(new PendingExhaustedNotification(novel, workId, attemptsAtLimit, now, reason));
+                pendingNotifications.add(new PendingExhaustedNotification(
+                        novel ? PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL
+                                : PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST,
+                        Long.toString(workId), attemptsAtLimit, now, reason));
             }
         }
 
@@ -2105,17 +2172,14 @@ public class ScheduleExecutor {
     /** 单个 pending-exhausted 事件的邮件 + 推送通知，best-effort、不影响调度。 */
     private void notifyPendingExhausted(ScheduledTask task, PendingExhaustedNotification event, Long nextRun) {
         Locale locale = AppLocale.normalize(Locale.getDefault());
-        String kindLabel = messages.get(locale, event.novel()
-                ? "mail.template.pending-exhausted.kind.novel"
-                : "mail.template.pending-exhausted.kind.illust");
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
         ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
-        ph.put("work_id", String.valueOf(event.workId()));
-        ph.put("work_kind", kindLabel);
-        ph.put("work_url", workUrl(event.novel(), event.workId()));
+        ph.put("work_id", displayToken(event.workId()));
+        ph.put("work_kind", workKindLabel(locale, event.workType()));
+        ph.put("work_url", workUrl(event.workType(), event.workId()));
         ph.put("attempts", String.valueOf(event.attempts()));
         ph.put("trigger_time", formatTime(event.triggerTime()));
         ph.put("next_run_time", formatTime(nextRun));
@@ -2210,20 +2274,41 @@ public class ScheduleExecutor {
         return String.join(html ? "<br>" : "\n", lines);
     }
 
-    /**
-     * 计划任务类型的本地化标签（与邮件 / 推送共用同一组 i18n key）。类型→标签 key 由各来源对象
-     * （{@link ScheduledSource#notificationLabelKey()}）承载，经来源注册中心解析——调度器不再按
-     * 枚举 switch 取标签。解析不到（不应发生：自动挂起态不发通知）退化为「-」。
-     */
+    /** 计划任务类型标签：新来源按 descriptor presentation 解析，legacy 来源保留原通知 key。 */
     private String taskTypeLabel(Locale locale, String sourceType) {
         if (sourceType == null || sourceType.isBlank()) {
             return "-";
         }
-        SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(sourceType).orElse(null);
+        SchedulePlanningLease planning = scheduleCapabilityRegistry.prepareSource(sourceType).orElse(null);
         if (planning == null) {
             return "-";
         }
         try (planning) {
+            if (!scheduleCapabilityRegistry.activate(planning)) {
+                return "-";
+            }
+            ScheduledSourceDescriptor descriptor = planning.descriptor().orElse(null);
+            if (descriptor != null && planning.sourceExecutor().isPresent()) {
+                String namespace = descriptor.presentation().displayNamespace();
+                String key = descriptor.presentation().displayNameKey();
+                if (webI18nBundleRegistry != null) {
+                    try {
+                        WebI18nBundleRegistry.RegisteredBundle bundle =
+                                webI18nBundleRegistry.resolve(namespace);
+                        if (bundle != null) {
+                            String label = bundle.load(locale).get(key);
+                            if (label != null && !label.isBlank()) {
+                                return label;
+                            }
+                        }
+                    } catch (RuntimeException failure) {
+                        log.debug("Scheduled source {} display label could not be resolved from namespace {}",
+                                sourceType, namespace, failure);
+                    }
+                }
+                String fallback = messages.getOrDefault(locale, key, key);
+                return fallback == null || fallback.isBlank() ? key : fallback;
+            }
             ScheduledSource source = planning.legacySourceProvider()
                     .filter(ScheduledSource.class::isInstance)
                     .map(ScheduledSource.class::cast)
@@ -2233,6 +2318,16 @@ public class ScheduleExecutor {
             }
             return messages.get(locale, source.notificationLabelKey());
         }
+    }
+
+    private String workKindLabel(Locale locale, String workType) {
+        if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(workType)) {
+            return messages.get(locale, "mail.template.pending-exhausted.kind.novel");
+        }
+        if (PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST.equals(workType)) {
+            return messages.get(locale, "mail.template.pending-exhausted.kind.illust");
+        }
+        return displayToken(workType);
     }
 
     /** 触发方式的本地化标签：{@code interval} → 「每 N 分钟」、{@code cron} → 「Cron：表达式」。 */
@@ -2245,11 +2340,23 @@ public class ScheduleExecutor {
                 intervalMinutes == null ? "-" : String.valueOf(intervalMinutes));
     }
 
-    /** 失败作品的 Pixiv 直链（外部静态链接，不指向本服务）：小说走 novel show，其余走 artworks。 */
-    private static String workUrl(boolean novel, long workId) {
-        return novel
-                ? "https://www.pixiv.net/novel/show.php?id=" + workId
-                : "https://www.pixiv.net/artworks/" + workId;
+    /** 仅为已知 Pixiv 类型与十进制 ID 生成直链；其它插件的 opaque identity 不由宿主猜测 URL。 */
+    private static String workUrl(String workType, String workId) {
+        if (workId == null || workId.isBlank()
+                || !workId.chars().allMatch(Character::isDigit)) {
+            return "";
+        }
+        if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(workType)) {
+            return "https://www.pixiv.net/novel/show.php?id=" + workId;
+        }
+        if (PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST.equals(workType)) {
+            return "https://www.pixiv.net/artworks/" + workId;
+        }
+        return "";
+    }
+
+    private static String displayToken(String value) {
+        return value == null || value.isBlank() ? "-" : value;
     }
 
     /** 把任意空白（含换行）折叠为单个空格并去除首尾空白；{@code null} 视作空串。用于通知展示前的单行化。 */

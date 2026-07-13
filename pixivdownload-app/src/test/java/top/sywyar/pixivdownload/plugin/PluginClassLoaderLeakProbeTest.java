@@ -136,10 +136,10 @@ class PluginClassLoaderLeakProbeTest {
 
         // probe loader / 插件 / 执行器 / 注册条目全部 confined 在该方法栈帧内：返回后即不可达，仅留弱引用句柄。
         WeakHandles handles = registerAssertAndTearDown(
-                web, routes, statics, i18n, navigation, userscripts, schedule, streams);
+                empty, web, routes, statics, i18n, navigation, userscripts, scripts, schedule, streams);
 
         // —— 注销后（确定性引用链检查：业务级「无残留引用」硬性保证，与环境无关）——
-        assertNoResidualReference(routes, statics, i18n, navigation, userscripts, schedule, streams);
+        assertNoResidualReference(routes, statics, i18n, navigation, userscripts, scripts, schedule, streams);
 
         // —— GC 探针（环境容忍）：强引用已出帧后 probe loader 应可回收 ——
         ClassLoaderLeakProbes.awaitCollected(handles.runner());
@@ -148,7 +148,8 @@ class PluginClassLoaderLeakProbeTest {
             // 业务级残留已被上面的确定性断言排除（各注册中心快照不含该插件）；到此仍未回收 → 归为环境 / JVM GC 不稳定。
             Assumptions.abort("probe classloader 未在本环境被 GC 回收，但确定性引用链已确认各注册中心无残留——"
                     + "判为环境不稳定（非业务泄漏）。" + leakDiagnostic(
-                    routes, statics, i18n, navigation, userscripts, schedule, streams, handles.runner()));
+                    routes, statics, i18n, navigation, userscripts, scripts,
+                    schedule, streams, handles.runner()));
         }
         assertThat(clCollected).as("probe classloader 注销后应可被 GC 回收").isTrue();
     }
@@ -161,7 +162,7 @@ class PluginClassLoaderLeakProbeTest {
         CompositeWeakHandles handles = registerCompositeAssertWithdrawAndClose(schedule);
 
         assertThat(schedule.snapshotView().owners()).isEmpty();
-        assertThat(schedule.tryAcquireSource(COMPOSITE_SOURCE_TYPE)).isEmpty();
+        assertThat(schedule.prepareSource(COMPOSITE_SOURCE_TYPE)).isEmpty();
         assertThat(schedule.resolveSourceExecutor(COMPOSITE_SOURCE_TYPE)).isEmpty();
         assertThat(schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE)).isEmpty();
         assertThat(schedule.resolveCredentialPolicy(COMPOSITE_POLICY_ID)).isEmpty();
@@ -248,7 +249,8 @@ class PluginClassLoaderLeakProbeTest {
                         guardOwner, List.of(), List.of(), List.of(), List.of(),
                         List.of(), List.of(), List.of(guard)));
 
-        SchedulePlanningLease planning = schedule.tryAcquireSource(COMPOSITE_SOURCE_TYPE).orElseThrow();
+        SchedulePlanningLease planning = schedule.prepareSource(COMPOSITE_SOURCE_TYPE).orElseThrow();
+        assertThat(schedule.activate(planning)).isTrue();
         ScheduledExecutionPlan plan = new ScheduledExecutionPlan(
                 Set.of(COMPOSITE_WORK_TYPE),
                 COMPOSITE_POLICY_ID,
@@ -260,7 +262,8 @@ class PluginClassLoaderLeakProbeTest {
                 0,
                 1,
                 0L);
-        ScheduleExecutionLease execution = schedule.tryExpand(planning, plan).orElseThrow();
+        ScheduleExecutionLease execution = schedule.prepareExpansion(planning, plan).orElseThrow();
+        assertThat(schedule.activate(execution)).isTrue();
         assertThat(planning.isActive()).isFalse();
         assertThat(execution.owners()).containsExactlyInAnyOrder(
                 sourceOwner, workOwner, policyOwner, guardOwner);
@@ -365,25 +368,31 @@ class PluginClassLoaderLeakProbeTest {
      * 执行器 / 注册条目）都是本方法局部，返回即出帧不可达——避免在调用方留下任何 pin 住 probe loader 的局部变量。
      */
     private static WeakHandles registerAssertAndTearDown(
-            PluginWebContributionRegistrar web, RouteAccessRegistry routes, StaticResourceRegistry statics,
+            PluginRegistry pluginRegistry, PluginWebContributionRegistrar web,
+            RouteAccessRegistry routes, StaticResourceRegistry statics,
             WebI18nBundleRegistry i18n, NavigationRegistry navigation, UserscriptRegistry userscripts,
-            ScheduleCapabilityRegistry schedule, PluginStreamRegistry streams)
+            ScriptRegistry scripts, ScheduleCapabilityRegistry schedule, PluginStreamRegistry streams)
             throws Exception {
-        ProbeClassLoader probeCl = new ProbeClassLoader(PluginClassLoaderLeakProbeTest.class.getClassLoader());
+        ProbeClassLoader probeCl = new ProbeClassLoader(
+                PluginClassLoaderLeakProbeTest.class.getClassLoader(),
+                LeakProbeWorkRunner.class, ProbePlugin.class);
         ScheduledWorkRunner runner = newProbeRunner(probeCl);
         assertThat(runner.getClass().getClassLoader())
                 .as("probe 执行器实例必须由受控子 loader 加载")
                 .isSameAs(probeCl);
 
-        ProbePlugin plugin = new ProbePlugin();
+        var pluginConstructor = probeCl.loadClass(ProbePlugin.class.getName()).getDeclaredConstructor();
+        pluginConstructor.setAccessible(true);
+        PixivFeaturePlugin plugin = (PixivFeaturePlugin) pluginConstructor.newInstance();
         PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
                 plugin, PluginSource.EXTERNAL, probeCl);
+        pluginRegistry.register(registered);
 
         // 接入：五类 web 贡献（static / i18n / userscript 经 probe loader 解析）+ 来源 + 执行器（probe loader 拥有的 Bean）+ 一条 SSE 推流。
-        web.register(registered);
+        var webHandle = web.register(registered);
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(PLUGIN_ID, PLUGIN_ID, 17L);
         ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
-                owner, plugin.scheduledSources(), List.of(runner), List.of(), List.of(),
+                owner, List.of(probeSourceProvider()), List.of(runner), List.of(), List.of(),
                 List.of(), List.of(), List.of());
         ScheduleCapabilityPublication publication =
                 ScheduleCapabilityRegistryTestAccess.publish(schedule, bundle);
@@ -398,17 +407,23 @@ class PluginClassLoaderLeakProbeTest {
         assertThat(navigation.navigation()).anyMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts())
                 .anyMatch(u -> u.pluginId().equals(PLUGIN_ID) && u.classLoader() == probeCl);
+        assertThat(scripts.readContent("sample-plugin.user.js"))
+                .contains("Sample Plugin Userscript");
         assertThat(schedule.resolveLegacySource(SOURCE_TYPE)).isPresent();
         var runnerHandle = schedule.resolveLegacyWorkRunner(RUNNER_KIND).orElseThrow();
         ScheduleSingleCapabilityLease<ScheduledWorkRunner> runnerLease =
-                schedule.tryAcquire(runnerHandle).orElseThrow();
+                schedule.prepareAcquire(runnerHandle).orElseThrow();
+        assertThat(schedule.activate(runnerLease)).isTrue();
         assertThat(streams.activeStreamCount(PLUGIN_ID)).isEqualTo(1);
 
         WeakReference<ClassLoader> weakCl = new WeakReference<>(probeCl);
         WeakReference<Object> weakRunner = new WeakReference<>(runner);
 
         // —— 注销（与生命周期 teardown 等价的注册中心注销路径）——
-        web.unregister(registered); // 五类 web 贡献注销 + ResourceBundle.clearCache(probeCl) + scriptRegistry.refresh
+        web.unregister(webHandle); // 精确 serving 注销 + ResourceBundle.clearCache(probeCl) + scriptRegistry.refresh
+        assertThat(scripts.getScripts()).isEmpty();
+        assertThatThrownBy(() -> scripts.readContent("sample-plugin.user.js"))
+                .isInstanceOf(IOException.class);
         ScheduleGenerationDrain drain =
                 ScheduleCapabilityRegistryTestAccess.withdraw(schedule, publication).orElseThrow();
         assertThat(schedule.snapshotView().owners()).isEmpty();
@@ -421,6 +436,7 @@ class PluginClassLoaderLeakProbeTest {
         streams.closeForPlugin(PLUGIN_ID);
         runnerLease.close();
         assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(1))).isTrue();
+        pluginRegistry.unregister(registered);
 
         return new WeakHandles(weakCl, weakRunner);
     }
@@ -429,12 +445,13 @@ class PluginClassLoaderLeakProbeTest {
     private static void assertNoResidualReference(
             RouteAccessRegistry routes, StaticResourceRegistry statics, WebI18nBundleRegistry i18n,
             NavigationRegistry navigation, UserscriptRegistry userscripts,
-            ScheduleCapabilityRegistry schedule, PluginStreamRegistry streams) {
+            ScriptRegistry scripts, ScheduleCapabilityRegistry schedule, PluginStreamRegistry streams) {
         assertThat(routes.routes()).noneMatch(r -> r.pluginId().equals(PLUGIN_ID));
         assertThat(statics.resources()).noneMatch(s -> s.pluginId().equals(PLUGIN_ID));
         assertThat(i18n.resolve(NAMESPACE)).isNull();
         assertThat(navigation.navigation()).noneMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts()).noneMatch(u -> u.pluginId().equals(PLUGIN_ID));
+        assertThat(scripts.getScripts()).isEmpty();
         assertThat(schedule.snapshotView().owners()).isEmpty();
         assertThat(schedule.resolveLegacySource(SOURCE_TYPE)).isEmpty();
         assertThat(schedule.resolveLegacyWorkRunner(RUNNER_KIND)).isEmpty();
@@ -445,19 +462,28 @@ class PluginClassLoaderLeakProbeTest {
     private static String leakDiagnostic(
             RouteAccessRegistry routes, StaticResourceRegistry statics, WebI18nBundleRegistry i18n,
             NavigationRegistry navigation, UserscriptRegistry userscripts,
-            ScheduleCapabilityRegistry schedule, PluginStreamRegistry streams, WeakReference<?> weakRunner) {
+            ScriptRegistry scripts, ScheduleCapabilityRegistry schedule, PluginStreamRegistry streams,
+            WeakReference<?> weakRunner) {
         return " 诊断["
                 + "routes=" + routes.routes().stream().anyMatch(r -> r.pluginId().equals(PLUGIN_ID))
                 + ", static=" + statics.resources().stream().anyMatch(s -> s.pluginId().equals(PLUGIN_ID))
                 + ", i18n=" + (i18n.resolve(NAMESPACE) != null)
                 + ", nav=" + navigation.navigation().stream().anyMatch(n -> n.pluginId().equals(PLUGIN_ID))
                 + ", userscript=" + userscripts.userscripts().stream().anyMatch(u -> u.pluginId().equals(PLUGIN_ID))
+                + ", scriptSnapshot=" + scripts.getScripts().size()
                 + ", scheduleOwners=" + schedule.snapshotView().owners().size()
                 + ", source=" + schedule.resolveLegacySource(SOURCE_TYPE).isPresent()
                 + ", runner=" + schedule.resolveLegacyWorkRunner(RUNNER_KIND).isPresent()
                 + ", stream=" + streams.activeStreamCount(PLUGIN_ID)
                 + ", runnerInstanceCollected=" + (weakRunner.get() == null)
                 + "]";
+    }
+
+    private static ScheduledSourceProvider probeSourceProvider() {
+        return new ScheduledSourceProvider() {
+            @Override public String type() { return SOURCE_TYPE; }
+            @Override public Set<String> legacyTypeNames() { return Set.of(); }
+        };
     }
 
     private static ScheduledWorkRunner newProbeRunner(ProbeClassLoader cl) throws ReflectiveOperationException {
@@ -501,7 +527,7 @@ class PluginClassLoaderLeakProbeTest {
 
         @Override
         public List<I18nContribution> i18n() {
-            return List.of(new I18nContribution(NAMESPACE, "i18n/web/ext-leak-probe"));
+            return List.of(new I18nContribution(NAMESPACE, "i18n.web.common"));
         }
 
         @Override
@@ -512,22 +538,7 @@ class PluginClassLoaderLeakProbeTest {
 
         @Override
         public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution(PLUGIN_ID, "classpath*:userscript/ext-leak-probe/*.user.js"));
-        }
-
-        @Override
-        public List<ScheduledSourceProvider> scheduledSources() {
-            return List.of(new ScheduledSourceProvider() {
-                @Override
-                public String type() {
-                    return SOURCE_TYPE;
-                }
-
-                @Override
-                public Set<String> legacyTypeNames() {
-                    return Set.of();
-                }
-            });
+            return List.of(new UserscriptContribution(PLUGIN_ID, "classpath:/test-userscripts/*.user.js"));
         }
     }
 
@@ -631,25 +642,28 @@ class PluginClassLoaderLeakProbeTest {
      * 其余一律委托父 loader。由此可精确建立「插件 Bean 实例 → 定义它的 classloader」引用链。
      */
     static final class ProbeClassLoader extends ClassLoader {
-        private final Set<String> probeClasses;
+        private final List<Class<?>> probeClasses;
 
         ProbeClassLoader(ClassLoader parent) {
             this(parent, LeakProbeWorkRunner.class);
         }
 
-        ProbeClassLoader(ClassLoader parent, Class<?> probeClass) {
+        ProbeClassLoader(ClassLoader parent, Class<?>... probeClasses) {
             super(parent);
-            this.probeClasses = Set.of(probeClass.getName());
+            this.probeClasses = List.of(probeClasses);
         }
 
         @Override
         protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-            if (probeClasses.contains(name)) {
+            Class<?> template = probeClasses.stream()
+                    .filter(candidate -> candidate.getName().equals(name))
+                    .findFirst().orElse(null);
+            if (template != null) {
                 synchronized (getClassLoadingLock(name)) {
                     Class<?> existing = findLoadedClass(name);
                     if (existing == null) {
                         byte[] bytes = readClassBytes(name);
-                        existing = defineClass(name, bytes, 0, bytes.length);
+                        existing = defineClass(name, bytes, 0, bytes.length, template.getProtectionDomain());
                     }
                     if (resolve) {
                         resolveClass(existing);

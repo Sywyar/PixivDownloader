@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledPendingRepla
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledWorkSink;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
@@ -81,13 +82,151 @@ class PixivScheduledSourceExecutorTest {
                         "my-bookmarks", "follow-latest", "collection");
 
         for (ScheduledSourceExecutor executor : executors) {
-            String kind = "collection".equals(executor.sourceType()) ? "mixed" : "illust";
-            executor.plan(definition(executor.sourceType(), """
-                    {"kind":"%s","source":{},"download":{"concurrent":2}}
-                    """.formatted(kind)));
+            executor.plan(definition(
+                    executor.sourceType(), validDefinitionJson(executor.sourceType())));
         }
 
         verifyNoInteractions(isolatedFetch, isolatedCodec, isolatedLookup);
+    }
+
+    @Test
+    @DisplayName("七类适配器统一经 Pixiv codec 规范化保存草稿")
+    void sevenExecutorsPrepareDraftsThroughPixivCodec() throws Exception {
+        for (ScheduledSourceExecutor executor : executors(support)) {
+            String definitionJson = validDefinitionJson(executor.sourceType());
+            ScheduledTaskDefinition prepared = executor.prepare(new ScheduledTaskDraft(
+                    19L,
+                    executor.sourceType(),
+                    "untrusted.schema",
+                    9,
+                    definitionJson,
+                    new ScheduledTaskPresentation("任务", null, java.util.Map.of())));
+
+            assertThat(prepared.taskId()).isEqualTo(19L);
+            assertThat(prepared.sourceType()).isEqualTo(executor.sourceType());
+            assertThat(prepared.definitionSchema())
+                    .isEqualTo(PixivSchedulePersistenceCodec.DEFINITION_SCHEMA);
+            assertThat(prepared.definitionVersion())
+                    .isEqualTo(PixivSchedulePersistenceCodec.DEFINITION_VERSION);
+            assertThat(prepared.definitionJson()).isEqualTo(definitionJson);
+            assertThat(prepared.presentation().title()).isEqualTo("任务");
+        }
+    }
+
+    @Test
+    @DisplayName("保存规范化与计划边界共同拒绝七类来源的非法业务字段")
+    void rejectsInvalidBusinessSchemaDuringPrepareAndPlan() {
+        List<InvalidDefinition> invalidDefinitions = List.of(
+                new InvalidDefinition("user-new", """
+                        {"kind":"illust","source":{"userId":""}}
+                        """),
+                new InvalidDefinition("user-request", """
+                        {"kind":"illust","source":{"userId":"not-a-number"}}
+                        """),
+                new InvalidDefinition("series", """
+                        {"kind":"illust","source":{"seriesId":-1}}
+                        """),
+                new InvalidDefinition("collection", """
+                        {"kind":"mixed","source":{"collectionId":1.5}}
+                        """),
+                new InvalidDefinition("search", """
+                        {"kind":"illust","source":{"word":"  ","maxPages":1}}
+                        """),
+                new InvalidDefinition("search", """
+                        {"kind":"illust","source":{"word":"猫","order":"score","maxPages":1}}
+                        """),
+                new InvalidDefinition("search", """
+                        {"kind":"illust","source":{"word":"猫","mode":"adult","maxPages":1}}
+                        """),
+                new InvalidDefinition("search", """
+                        {"kind":"illust","source":{"word":"猫","sMode":"title","maxPages":1}}
+                        """),
+                new InvalidDefinition("search", """
+                        {"kind":"illust","source":{"word":"猫","maxPages":0}}
+                        """),
+                new InvalidDefinition("my-bookmarks", """
+                        {"kind":"illust","source":{"rest":"private"}}
+                        """),
+                new InvalidDefinition("follow-latest", """
+                        {"kind":"illust","source":{"unexpected":true}}
+                        """),
+                new InvalidDefinition("user-new", """
+                        {"kind":"illust","source":{"userId":"8"},
+                         "filters":{"content":"unknown"}}
+                        """),
+                new InvalidDefinition("user-new", """
+                        {"kind":"illust","source":{"userId":"8"},
+                         "filters":{"pagesMin":5,"pagesMax":2}}
+                        """),
+                new InvalidDefinition("user-new", """
+                        {"kind":"illust","source":{"userId":"8"},
+                         "download":{"concurrent":0}}
+                        """));
+
+        for (InvalidDefinition invalid : invalidDefinitions) {
+            ScheduledSourceExecutor executor = executor(invalid.sourceType());
+            ScheduledTaskDraft draft = new ScheduledTaskDraft(
+                    7L,
+                    invalid.sourceType(),
+                    "untrusted.schema",
+                    9,
+                    invalid.json(),
+                    ScheduledTaskPresentation.empty());
+
+            assertThatThrownBy(() -> executor.prepare(draft))
+                    .as("prepare %s", invalid.sourceType())
+                    .isInstanceOf(ScheduledExecutionException.class)
+                    .satisfies(failure -> assertThat(((ScheduledExecutionException) failure).category())
+                            .isEqualTo(ScheduledFailure.Category.INVALID_DEFINITION));
+            assertThatThrownBy(() -> executor.plan(definition(invalid.sourceType(), invalid.json())))
+                    .as("plan %s", invalid.sourceType())
+                    .isInstanceOf(ScheduledExecutionException.class)
+                    .satisfies(failure -> assertThat(((ScheduledExecutionException) failure).code())
+                            .isEqualTo("schedule.pixiv.definition-business-invalid"));
+        }
+    }
+
+    @Test
+    @DisplayName("正整数 ID 的字符串和 JSON 整数形式均被接受且旧默认与未知字段保留")
+    void acceptsSafeIdFormsDefaultsAndUnknownOptionalFields() throws Exception {
+        new PixivUserNewScheduledSourceExecutor(support).plan(definition("user-new", """
+                {"kind":"illust","source":{"userId":8,"futureSourceOption":true},
+                 "filters":{"wordsMin":0,"futureFilter":"kept"},
+                 "download":{"intervalMs":4294967296,"futureDownloadOption":"kept"}}
+                """));
+        new PixivSeriesScheduledSourceExecutor(support).plan(definition("series", """
+                {"kind":"illust","source":{"seriesId":"9"}}
+                """));
+        new PixivCollectionScheduledSourceExecutor(support).plan(definition("collection", """
+                {"kind":"mixed","source":{"collectionId":10}}
+                """));
+
+        ScheduledExecutionPlan defaults = new PixivSearchScheduledSourceExecutor(support).plan(
+                definition("search", """
+                        {"kind":"illust","source":{"word":"猫"}}
+                        """));
+        assertThat(defaults.maxInFlight()).isEqualTo(1);
+        assertThat(defaults.politeDelayMillis()).isZero();
+    }
+
+    @Test
+    @DisplayName("JSON 数值 ID 受安全整数上限约束而十进制字符串保持无损")
+    void enforcesSafeJsonNumericIdBoundary() throws Exception {
+        PixivUserNewScheduledSourceExecutor executor =
+                new PixivUserNewScheduledSourceExecutor(support);
+
+        executor.plan(definition("user-new", """
+                {"kind":"illust","source":{"userId":9007199254740991}}
+                """));
+        assertThatThrownBy(() -> executor.plan(definition("user-new", """
+                {"kind":"illust","source":{"userId":9007199254740992}}
+                """)))
+                .isInstanceOf(ScheduledExecutionException.class)
+                .satisfies(failure -> assertThat(((ScheduledExecutionException) failure).code())
+                        .isEqualTo("schedule.pixiv.definition-business-invalid"));
+        executor.plan(definition("user-new", """
+                {"kind":"illust","source":{"userId":"9007199254740992"}}
+                """));
     }
 
     @Test
@@ -135,11 +274,11 @@ class PixivScheduledSourceExecutorTest {
 
         ScheduledExecutionPlan watermarkSearch = new PixivSearchScheduledSourceExecutor(support).plan(
                 definition("search", """
-                        {"kind":"illust","source":{"order":"date_d","maxPages":-1}}
+                        {"kind":"illust","source":{"word":"猫","order":"date_d","maxPages":-1}}
                         """));
         ScheduledExecutionPlan boundarySearch = new PixivSearchScheduledSourceExecutor(support).plan(
                 definition("search", """
-                        {"kind":"illust","source":{"order":"popular_d","maxPages":-1}}
+                        {"kind":"illust","source":{"word":"猫","order":"popular_d","maxPages":-1}}
                         """));
         assertThat(watermarkSearch.checkpointSchema()).isNotNull();
         assertThat(boundarySearch.checkpointSchema()).isNull();
@@ -447,6 +586,31 @@ class PixivScheduledSourceExecutorTest {
                 new PixivCollectionScheduledSourceExecutor(sourceSupport));
     }
 
+    private ScheduledSourceExecutor executor(String sourceType) {
+        return executors(support).stream()
+                .filter(candidate -> candidate.sourceType().equals(sourceType))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static String validDefinitionJson(String sourceType) {
+        return switch (sourceType) {
+            case "user-new", "user-request" ->
+                    "{\"kind\":\"illust\",\"source\":{\"userId\":\"8\"},\"download\":{\"concurrent\":2}}";
+            case "search" ->
+                    "{\"kind\":\"illust\",\"source\":{\"word\":\"猫\",\"maxPages\":1},\"download\":{\"concurrent\":2}}";
+            case "series" ->
+                    "{\"kind\":\"illust\",\"source\":{\"seriesId\":\"8\"},\"download\":{\"concurrent\":2}}";
+            case "my-bookmarks" ->
+                    "{\"kind\":\"illust\",\"source\":{\"rest\":\"show\"},\"download\":{\"concurrent\":2}}";
+            case "follow-latest" ->
+                    "{\"kind\":\"illust\",\"source\":{},\"download\":{\"concurrent\":2}}";
+            case "collection" ->
+                    "{\"kind\":\"mixed\",\"source\":{\"collectionId\":\"8\"},\"download\":{\"concurrent\":2}}";
+            default -> throw new IllegalArgumentException("unknown Pixiv source type: " + sourceType);
+        };
+    }
+
     private ScheduledTaskDefinition definition(String sourceType, String json) {
         return new ScheduledTaskDefinition(
                 1L,
@@ -455,6 +619,9 @@ class PixivScheduledSourceExecutorTest {
                 PixivSchedulePersistenceCodec.DEFINITION_VERSION,
                 json,
                 ScheduledTaskPresentation.empty());
+    }
+
+    private record InvalidDefinition(String sourceType, String json) {
     }
 
     private TestContext context(ScheduledTaskDefinition task, ScheduledCheckpoint checkpoint) {

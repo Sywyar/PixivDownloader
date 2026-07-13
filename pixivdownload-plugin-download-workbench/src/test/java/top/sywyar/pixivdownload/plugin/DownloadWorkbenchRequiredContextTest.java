@@ -43,14 +43,14 @@ class DownloadWorkbenchRequiredContextTest {
     }
 
     @Test
-    @DisplayName("插件描述符要求提供通用计划任务契约的核心 API 1.1")
-    void descriptorRequiresScheduleApi11() throws Exception {
+    @DisplayName("插件描述符要求提供通用计划任务保存契约的核心 API 1.2")
+    void descriptorRequiresScheduleApi12() throws Exception {
         Properties descriptor = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
             assertThat(input).isNotNull();
             descriptor.load(input);
         }
-        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.1");
+        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.2");
     }
 
     @Test
@@ -155,10 +155,11 @@ class DownloadWorkbenchRequiredContextTest {
         assertThat(registry.snapshotView().owners().get(0).legacySourceTypes())
                 .containsExactlyInAnyOrder("user-new", "user-request", "search", "series",
                         "my-bookmarks", "follow-latest", "collection");
-        try (SchedulePlanningLease userNew = registry.tryAcquireSource(
-                "USER_NEW").orElseThrow();
-             SchedulePlanningLease collection = registry.tryAcquireSource(
-                     "COLLECTION").orElseThrow()) {
+        SchedulePlanningLease userNew = registry.prepareSource("USER_NEW").orElseThrow();
+        SchedulePlanningLease collection = registry.prepareSource("COLLECTION").orElseThrow();
+        try (userNew; collection) {
+            assertThat(registry.activate(userNew)).isTrue();
+            assertThat(registry.activate(collection)).isTrue();
             assertThat(userNew.legacySourceProvider()).map(ScheduledSourceProvider::type)
                     .contains("user-new");
             assertThat(collection.legacySourceProvider()).map(ScheduledSourceProvider::type)

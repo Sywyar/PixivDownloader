@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
@@ -112,6 +113,7 @@ class ScheduleHostProductionWiringTest {
                 mock(OveruseWarningService.class),
                 mock(NotificationService.class),
                 mock(AppMessages.class),
+                mock(WebI18nBundleRegistry.class),
                 mock(SetupService.class),
                 new DownloadConfig(),
                 direct,

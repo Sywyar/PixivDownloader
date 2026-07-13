@@ -25,6 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -186,6 +188,39 @@ class NovelAutoTranslateServiceTest {
                 fixture.registry(), fixture.publication()).orElseThrow();
         assertTrue(drain.isDrained());
         assertEquals(0, drain.activeLeaseCount());
+    }
+
+    @Test
+    @DisplayName("执行器接纳前致命失败时释放独立与系列 owner 租约")
+    void fatalBeforeExecutorAcceptanceReleasesOwnerLease() {
+        long novelId = 200L;
+        for (Long seriesId : new Long[]{null, 500L}) {
+            for (Error expected : new Error[]{
+                    new OutOfMemoryError("novel-executor-fatal"), new ThreadDeath()}) {
+                TaskExecutor fatalExecutor = task -> {
+                    throw expected;
+                };
+                ServiceFixture fixture = fixture(fatalExecutor);
+                long currentNovelId = novelId++;
+
+                if (seriesId == null) {
+                    Error observed = assertThrows(Error.class, () -> fixture.service().submit(
+                            currentNovelId, null, "english", 0, false, "epub"));
+                    assertSame(expected, observed);
+                } else {
+                    fixture.service().submit(
+                            currentNovelId, seriesId, "english", 0, false, "epub").join();
+                }
+                NovelAutoTranslateService.StatusView status = fixture.service().getStatus(currentNovelId);
+                assertEquals("FAILED", status.phase());
+                assertEquals("executor-rejected", status.failureReason());
+                assertEquals(0, status.seriesPending());
+                var drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                        fixture.registry(), fixture.publication()).orElseThrow();
+                assertTrue(drain.isDrained());
+                assertEquals(0, drain.activeLeaseCount());
+            }
+        }
     }
 
     @Test

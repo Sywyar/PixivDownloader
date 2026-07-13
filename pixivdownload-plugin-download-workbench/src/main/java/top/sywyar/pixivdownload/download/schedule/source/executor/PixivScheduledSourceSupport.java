@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.schedule.network.PixivScheduledRouteScope;
+import top.sywyar.pixivdownload.download.schedule.source.definition.PixivScheduledDefinitionValidator;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
@@ -17,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
@@ -91,6 +93,19 @@ public final class PixivScheduledSourceSupport {
             throw new IllegalArgumentException("search page delay must not be negative");
         }
         this.searchPageDelayMillis = searchPageDelayMillis;
+    }
+
+    /** 用正式 Pixiv codec 规范化浏览器提交的不透明定义并生成安全展示快照。 */
+    public ScheduledTaskDefinition prepare(ScheduledTaskDraft draft)
+            throws ScheduledExecutionException {
+        Objects.requireNonNull(draft, "schedule task draft");
+        ScheduledTaskDefinition definition = persistenceCodec.createDefinition(
+                draft.taskId(),
+                draft.presentation().title(),
+                draft.sourceType(),
+                draft.definitionJson());
+        parseDefinition(definition, draft.sourceType());
+        return definition;
     }
 
     public ScheduledExecutionPlan planUserNew(ScheduledTaskDefinition task)
@@ -589,6 +604,7 @@ public final class PixivScheduledSourceSupport {
             throw failure(ScheduledFailure.Category.INVALID_DEFINITION,
                     "schedule.pixiv.definition-json-invalid");
         }
+        PixivScheduledDefinitionValidator.validate(root, expectedSourceType);
         ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.from(root);
         String kind = root.path("kind").asText("illust").toLowerCase(Locale.ROOT);
         if (kind.isEmpty()) {

@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -196,6 +198,163 @@ class ScheduleWorkCoordinatorTest {
                 ILLUST, "3", "schedule.work.infrastructure-failure"));
         assertThat(ReflectionTestUtils.getField(coordinator, "inFlight")).isEqualTo(0);
         assertThat(inFlightByType).containsEntry(ILLUST, 0);
+    }
+
+    @Test
+    @DisplayName("作品 worker 的 VMError 与 ThreadDeath 在排空后原样传播并归零容量")
+    void workerFatalsPropagateAfterDrainAndReleaseCapacity() throws Exception {
+        List<Error> fatals = List.of(
+                new TestVirtualMachineError("fixture worker vm error"),
+                new ThreadDeath());
+        int sequence = 0;
+        for (Error fatal : fatals) {
+            String workId = "fatal-" + sequence++;
+            ScheduledTaskStore store = store();
+            ScheduleWorkConcurrencyLimiter limiter = new ScheduleWorkConcurrencyLimiter();
+            ScheduleWorkCoordinator coordinator = coordinator(
+                    store,
+                    Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                        throw fatal;
+                    })),
+                    new SyncTaskExecutor(),
+                    5,
+                    limiter,
+                    1);
+
+            coordinator.submit(work(ILLUST, workId));
+            Throwable observed = catchThrowable(coordinator::drain);
+
+            assertThat(observed).isSameAs(fatal);
+            verify(store).upsertPendingWork(argThatPending(
+                    ILLUST, workId, "schedule.work.plugin-failure"));
+            assertCoordinatorAccountingCleared(coordinator, limiter);
+            ScheduleRunQueue.Run queue = (ScheduleRunQueue.Run) ReflectionTestUtils.getField(
+                    coordinator, "runQueue");
+            assertThat(queue).isNotNull();
+            assertThat(queue.snapshot()).singleElement().satisfies(item -> {
+                assertThat(item.getId()).isEqualTo(workId);
+                assertThat(item.getStatus()).isEqualTo(ScheduleRunQueue.STATUS_FAILED);
+                assertThat(item.getMessage()).isEqualTo("schedule.work.plugin-failure");
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("多个 worker fatal 按完成顺序保留首错与 suppressed 并排空全部作品")
+    void multipleWorkerFatalsPreserveCompletionOrderAfterFullDrain() throws Exception {
+        TestVirtualMachineError firstFatal = new TestVirtualMachineError("fixture first worker fatal");
+        ThreadDeath secondFatal = new ThreadDeath();
+        List<Runnable> queued = new ArrayList<>();
+        ScheduledTaskStore store = store();
+        ScheduleWorkConcurrencyLimiter limiter = new ScheduleWorkConcurrencyLimiter();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    if ("first".equals(work.key().id())) {
+                        throw firstFatal;
+                    }
+                    throw secondFatal;
+                })),
+                queued::add,
+                5,
+                limiter,
+                2);
+
+        coordinator.submit(work(ILLUST, "first"));
+        coordinator.submit(work(ILLUST, "second"));
+        assertThat(queued).hasSize(2);
+        queued.get(0).run();
+        queued.get(1).run();
+
+        Throwable observed = catchThrowable(coordinator::drain);
+
+        assertThat(observed).isSameAs(firstFatal);
+        assertThat(observed.getSuppressed()).containsExactly(secondFatal);
+        verify(store, times(2)).upsertPendingWork(any());
+        assertCoordinatorAccountingCleared(coordinator, limiter);
+        ScheduleRunQueue.Run queue = (ScheduleRunQueue.Run) ReflectionTestUtils.getField(
+                coordinator, "runQueue");
+        assertThat(queue).isNotNull();
+        assertThat(queue.snapshot())
+                .extracting(ScheduleRunQueue.Item::getStatus)
+                .containsExactly(
+                        ScheduleRunQueue.STATUS_FAILED,
+                        ScheduleRunQueue.STATUS_FAILED);
+    }
+
+    @Test
+    @DisplayName("fatal 作品记账失败不替换 worker 首错且仅追加后续 fatal")
+    void fatalCompletionRecordingCannotReplaceWorkerFatal() throws Exception {
+        TestVirtualMachineError ordinaryWorkerFatal =
+                new TestVirtualMachineError("fixture worker fatal with ordinary cleanup failure");
+        ScheduledTaskStore ordinaryStore = store();
+        when(ordinaryStore.upsertPendingWork(any()))
+                .thenThrow(new IllegalStateException("fixture ordinary persistence failure"));
+        ScheduleWorkConcurrencyLimiter ordinaryLimiter = new ScheduleWorkConcurrencyLimiter();
+        ScheduleWorkCoordinator ordinaryCoordinator = coordinator(
+                ordinaryStore,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    throw ordinaryWorkerFatal;
+                })),
+                new SyncTaskExecutor(),
+                5,
+                ordinaryLimiter,
+                1);
+
+        ordinaryCoordinator.submit(work(ILLUST, "ordinary-cleanup"));
+        Throwable ordinaryObserved = catchThrowable(ordinaryCoordinator::drain);
+
+        assertThat(ordinaryObserved).isSameAs(ordinaryWorkerFatal);
+        assertThat(ordinaryObserved.getSuppressed()).isEmpty();
+        assertCoordinatorAccountingCleared(ordinaryCoordinator, ordinaryLimiter);
+
+        TestVirtualMachineError fatalWorker =
+                new TestVirtualMachineError("fixture worker fatal with fatal cleanup failure");
+        ThreadDeath fatalCleanup = new ThreadDeath();
+        ScheduledTaskStore fatalStore = store();
+        when(fatalStore.upsertPendingWork(any())).thenThrow(fatalCleanup);
+        ScheduleWorkConcurrencyLimiter fatalLimiter = new ScheduleWorkConcurrencyLimiter();
+        ScheduleWorkCoordinator fatalCoordinator = coordinator(
+                fatalStore,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    throw fatalWorker;
+                })),
+                new SyncTaskExecutor(),
+                5,
+                fatalLimiter,
+                1);
+
+        fatalCoordinator.submit(work(ILLUST, "fatal-cleanup"));
+        Throwable fatalObserved = catchThrowable(fatalCoordinator::drain);
+
+        assertThat(fatalObserved).isSameAs(fatalWorker);
+        assertThat(fatalObserved.getSuppressed()).containsExactly(fatalCleanup);
+        assertCoordinatorAccountingCleared(fatalCoordinator, fatalLimiter);
+    }
+
+    @Test
+    @DisplayName("TaskExecutor 接纳前抛 fatal 时归还 permit 且不遗留 completion")
+    void taskExecutorFatalBeforeAcceptanceReleasesDispatchResources() throws Exception {
+        TestVirtualMachineError fatal = new TestVirtualMachineError("fixture dispatch fatal");
+        ScheduledTaskStore store = store();
+        ScheduleWorkConcurrencyLimiter limiter = new ScheduleWorkConcurrencyLimiter();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store,
+                Map.of(ILLUST, executor(
+                        ILLUST, (work, context) -> ScheduledWorkResult.completed())),
+                ignored -> {
+                    throw fatal;
+                },
+                5,
+                limiter,
+                1);
+
+        Throwable observed = catchThrowable(() -> coordinator.submit(work(ILLUST, "dispatch")));
+
+        assertThat(observed).isSameAs(fatal);
+        verify(store).upsertPendingWork(argThatPending(
+                ILLUST, "dispatch", "schedule.work.dispatch-failed"));
+        assertCoordinatorAccountingCleared(coordinator, limiter);
     }
 
     @Test
@@ -409,9 +568,33 @@ class ScheduleWorkCoordinatorTest {
                         && reasonCode.equals(pending.reasonCode()));
     }
 
+    @SuppressWarnings("unchecked")
+    private static void assertCoordinatorAccountingCleared(
+            ScheduleWorkCoordinator coordinator,
+            ScheduleWorkConcurrencyLimiter limiter) {
+        assertThat(ReflectionTestUtils.getField(coordinator, "inFlight")).isEqualTo(0);
+        Map<String, Integer> inFlightByType = (Map<String, Integer>) ReflectionTestUtils.getField(
+                coordinator, "inFlightByType");
+        Map<?, ?> inFlightWork = (Map<?, ?>) ReflectionTestUtils.getField(
+                coordinator, "inFlightWork");
+        BlockingQueue<?> completions = (BlockingQueue<?>) ReflectionTestUtils.getField(
+                coordinator, "completions");
+        Map<?, ?> limiterStates = (Map<?, ?>) ReflectionTestUtils.getField(limiter, "states");
+        assertThat(inFlightByType).containsEntry(ILLUST, 0);
+        assertThat(inFlightWork).isEmpty();
+        assertThat(completions).isEmpty();
+        assertThat(limiterStates).isEmpty();
+    }
+
     @FunctionalInterface
     private interface WorkExecution {
         ScheduledWorkResult execute(ScheduledWork work, ScheduledWorkContext context)
                 throws ScheduledExecutionException;
+    }
+
+    private static final class TestVirtualMachineError extends VirtualMachineError {
+        private TestVirtualMachineError(String message) {
+            super(message);
+        }
     }
 }

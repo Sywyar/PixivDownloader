@@ -4,8 +4,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.support.CronExpression;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
@@ -28,23 +31,32 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
+import top.sywyar.pixivdownload.schedule.definition.ScheduleTaskDefinitionValidator;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialBindingLease;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
@@ -81,9 +93,21 @@ public class ScheduleService {
      */
     private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
 
+    public ScheduleSourceManifestView sources() {
+        ScheduleCapabilityRegistry.SnapshotView snapshot = scheduleCapabilityRegistry.snapshotView();
+        List<ScheduleSourceManifestView.Source> sources = snapshot.owners().stream()
+                .flatMap(owner -> owner.sourceDescriptors().stream()
+                        .map(descriptor -> sourceView(owner, descriptor)))
+                .sorted(java.util.Comparator.comparing(ScheduleSourceManifestView.Source::sourceType))
+                .toList();
+        return new ScheduleSourceManifestView(snapshot.epoch(), snapshot.revision(), sources);
+    }
+
     public List<ScheduleTaskView> list() {
+        Map<SourceActivationKey, String> activations = sourceActivations(
+                scheduleCapabilityRegistry.snapshotView());
         return store.findAll().stream()
-                .map(t -> ScheduleTaskView.of(t, runState.get(t.id()), persistenceCodec))
+                .map(t -> taskView(t, runState.get(t.id()), activations))
                 .toList();
     }
 
@@ -92,56 +116,80 @@ public class ScheduleService {
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
-        return ScheduleTaskView.of(task, runState.get(id), persistenceCodec);
+        return taskView(task, runState.get(id), sourceActivations(
+                scheduleCapabilityRegistry.snapshotView()));
     }
 
-    @Transactional
     public ScheduleTaskView create(ScheduleTaskRequest req) {
-        if (store.countAll() >= config.getMaxTasks()) {
+        if (req.getExpectedStateVersion() != null) {
             throw LocalizedException.badRequest(
-                    "schedule.error.max-tasks", "计划任务数量已达上限: {0}", config.getMaxTasks());
+                    "schedule.error.definition-invalid",
+                    "创建计划任务时不能携带任务状态版本");
         }
-        String triggerKind = validateTrigger(req);
-        long now = System.currentTimeMillis();
-        ResolvedDefinition resolved = resolveDefinition(0, req);
+        SchedulePlanningLease planning = preparePlanningLease(req);
+        try (planning) {
+            requirePlanningActivation(planning, req.getSourceType());
+            String triggerKind = validateTrigger(req);
+            long now = System.currentTimeMillis();
+            ResolvedDefinition resolved = resolveDefinition(0, req, null, planning);
+            ScheduledTaskInsert row = new ScheduledTaskInsert();
+            row.setName(req.getName().trim());
+            row.setEnabled(true);
+            row.setSourceType(resolved.definition().sourceType());
+            row.setSourceOwnerPluginId(resolved.sourceOwnerPluginId());
+            row.setDefinitionSchema(resolved.definition().definitionSchema());
+            row.setDefinitionVersion(resolved.definition().definitionVersion());
+            row.setDefinitionJson(resolved.definition().definitionJson());
+            row.setPresentationJson(writeJson(resolved.definition().presentation()));
+            row.setTriggerKind(triggerKind);
+            row.setIntervalMinutes(req.getIntervalMinutes());
+            row.setCronExpr(emptyToNull(req.getCronExpr()));
+            row.setProxySnapshot(null);
+            row.setNextRunTime(ScheduleTiming.computeNextRun(
+                    triggerKind, req.getIntervalMinutes(), req.getCronExpr(), now));
+            row.setCreatedTime(now);
 
-        ScheduledTaskInsert row = new ScheduledTaskInsert();
-        row.setName(req.getName().trim());
-        row.setEnabled(true);
-        row.setSourceType(resolved.definition().sourceType());
-        row.setSourceOwnerPluginId(resolved.sourceOwnerPluginId());
-        row.setDefinitionSchema(resolved.definition().definitionSchema());
-        row.setDefinitionVersion(resolved.definition().definitionVersion());
-        row.setDefinitionJson(resolved.definition().definitionJson());
-        row.setPresentationJson(writeJson(resolved.definition().presentation()));
-        row.setTriggerKind(triggerKind);
-        row.setIntervalMinutes(req.getIntervalMinutes());
-        row.setCronExpr(emptyToNull(req.getCronExpr()));
-        row.setProxySnapshot(null);
-        row.setNextRunTime(ScheduleTiming.computeNextRun(
-                triggerKind, req.getIntervalMinutes(), req.getCronExpr(), now));
-        row.setCreatedTime(now);
-
-        store.insert(row);
-        return get(row.getId());
+            return executeDefinitionSave(planning, status -> {
+                if (store.countAll() >= config.getMaxTasks()) {
+                    throw LocalizedException.badRequest(
+                            "schedule.error.max-tasks", "计划任务数量已达上限: {0}", config.getMaxTasks());
+                }
+                store.insert(row);
+                return get(row.getId());
+            });
+        }
     }
 
-    @Transactional
     public ScheduleTaskView update(long id, ScheduleTaskRequest req) {
-        ScheduledTask task = requireExisting(id);
-        requireNotBusy(task);
-        requirePixivTask(task);
-        String triggerKind = validateTrigger(req);
-        ResolvedDefinition resolved = resolveDefinition(id, req);
-        Long nextRun = ScheduleTiming.computeNextRun(
-                triggerKind, req.getIntervalMinutes(), req.getCronExpr(), System.currentTimeMillis());
-        ScheduleTaskDefinitionUpdate update = new ScheduleTaskDefinitionUpdate(
-                req.getName().trim(), resolved.definition().sourceType(), resolved.sourceOwnerPluginId(),
-                resolved.definition().definitionSchema(), resolved.definition().definitionVersion(),
-                resolved.definition().definitionJson(), writeJson(resolved.definition().presentation()),
-                triggerKind, req.getIntervalMinutes(), emptyToNull(req.getCronExpr()), nextRun);
-        requireChanged(store.updateDefinition(id, task.stateVersion(), update));
-        return get(id);
+        long expectedStateVersion = requireExpectedStateVersion(req);
+        ScheduledTask expected = requireExisting(id);
+        requireNotBusy(expected);
+        requireExpectedStateVersion(expected, expectedStateVersion);
+        SchedulePlanningLease planning = preparePlanningLease(req);
+        try (planning) {
+            requirePlanningActivation(planning, req.getSourceType());
+            String triggerKind = validateTrigger(req);
+            ResolvedDefinition resolved = resolveDefinition(
+                    id, req, expected.sourceOwnerPluginId(), planning);
+            Long nextRun = ScheduleTiming.computeNextRun(
+                    triggerKind, req.getIntervalMinutes(), req.getCronExpr(), System.currentTimeMillis());
+            ScheduleTaskDefinitionUpdate update = new ScheduleTaskDefinitionUpdate(
+                    req.getName().trim(), resolved.definition().sourceType(), resolved.sourceOwnerPluginId(),
+                    resolved.definition().definitionSchema(), resolved.definition().definitionVersion(),
+                    resolved.definition().definitionJson(), writeJson(resolved.definition().presentation()),
+                    triggerKind, req.getIntervalMinutes(), emptyToNull(req.getCronExpr()), nextRun);
+
+            return executeDefinitionSave(planning, status -> {
+                ScheduledTask task = requireExisting(id);
+                requireNotBusy(task);
+                requireExpectedStateVersion(task, expectedStateVersion);
+                requireCompatibleCredentialBinding(task, resolved);
+                if (store.updateDefinition(id, task.stateVersion(), update).isEmpty()) {
+                    throw definitionConcurrentChange();
+                }
+                return get(id);
+            });
+        }
     }
 
     @Transactional
@@ -197,9 +245,10 @@ public class ScheduleService {
                 var executorHandle = scheduleCapabilityRegistry.resolveWorkExecutor(ScheduledWorkKind.NOVEL)
                         .orElse(null);
                 if (executorHandle != null) {
-                    try (ScheduleSingleCapabilityLease<ScheduledWorkExecutor> lease =
-                                 scheduleCapabilityRegistry.tryAcquire(executorHandle).orElse(null)) {
-                        if (lease != null) {
+                    ScheduleSingleCapabilityLease<ScheduledWorkExecutor> lease =
+                            scheduleCapabilityRegistry.prepareAcquire(executorHandle).orElse(null);
+                    try (lease) {
+                        if (lease != null && scheduleCapabilityRegistry.activate(lease)) {
                             Map<String, String> status = lease.capability().status(
                                     new ScheduledWorkKey(ScheduledWorkKind.NOVEL, it.getId()));
                             tv = safeTranslateStatus(status);
@@ -210,9 +259,10 @@ public class ScheduleService {
                     var legacyHandle = scheduleCapabilityRegistry.resolveLegacyWorkRunner(ScheduledWorkKind.NOVEL)
                             .orElse(null);
                     if (legacyHandle != null) {
-                        try (ScheduleSingleCapabilityLease<ScheduledWorkRunner> lease =
-                                     scheduleCapabilityRegistry.tryAcquire(legacyHandle).orElse(null)) {
-                            if (lease != null) {
+                        ScheduleSingleCapabilityLease<ScheduledWorkRunner> lease =
+                                scheduleCapabilityRegistry.prepareAcquire(legacyHandle).orElse(null);
+                        try (lease) {
+                            if (lease != null && scheduleCapabilityRegistry.activate(lease)) {
                                 tv = lease.capability().translateStatus(novelId);
                             }
                         }
@@ -245,7 +295,10 @@ public class ScheduleService {
      * <p><b>重新授权必须使用新的凭证</b>：提交值与当前绑定快照完全一致时，在探活和写库前拒绝，
      * 避免用同一份失效凭证清除挂起后再次空跑。
      */
-    public ScheduleTaskView authorizeCookie(long id, String cookie) {
+    public ScheduleTaskView authorizeCookie(
+            long id,
+            String cookie,
+            String expectedActivationToken) {
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
         if (cookie == null || cookie.isBlank()) {
@@ -254,7 +307,8 @@ public class ScheduleService {
         }
         String trimmed = cookie.trim();
         try (ScheduleCredentialBindingLease binding =
-                     scheduleExecutionEngine.prepareCredentialBinding(task)) {
+                     scheduleExecutionEngine.prepareCredentialBinding(
+                             task, expectedActivationToken)) {
             String policyOwnerPluginId = binding.policyOwnerPluginId();
             String policyId = binding.policyId();
             String existing = store.findCredentialSecret(id, policyOwnerPluginId, policyId);
@@ -319,6 +373,8 @@ public class ScheduleService {
                 }
                 requireBindingActive(binding);
             });
+        } catch (ScheduleSourcePublicationChangedException failure) {
+            throw definitionConcurrentChange();
         } catch (ScheduleSourceUnavailableException
                  | ScheduleExecutorUnavailableException
                  | ScheduleDefinitionException failure) {
@@ -333,22 +389,21 @@ public class ScheduleService {
         return get(id);
     }
 
-    /**
-     * 解除 Cookie 授权：清空快照回到受限模式，并一并清除由 Cookie 派生的账号绑定
-     * （{@code account_id} / {@code ack_warning_time}）——否则任务虽已转受限（匿名），仍会被同账号
-     * 的过度访问冻结、横幅分组与账号级恢复误命中。
-     */
+    /** 解除当前任务持久化记录的凭证策略绑定；旧 URL 保留为兼容入口。 */
     @Transactional
     public ScheduleTaskView revokeCookie(long id) {
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
-        requirePixivTask(task);
         if (task.credentialPolicyOwnerPluginId() == null) {
             return get(id);
         }
+        if (task.credentialPolicyId() == null) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.source-unavailable", "计划任务凭证策略当前不可用");
+        }
         requireChanged(store.removeCredential(
-                id, task.stateVersion(), DownloadWorkbenchPlugin.ID,
-                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID));
+                id, task.stateVersion(), task.credentialPolicyOwnerPluginId(),
+                task.credentialPolicyId()));
         return get(id);
     }
 
@@ -395,7 +450,7 @@ public class ScheduleService {
      * 已在运行 / 排队（有 Claim）时静默跳过，靠 next_run 兜底由 tick 接管。
      */
     public void runOnce(long id) {
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = tryAcquireHostLease();
+        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
         if (hostLease == null) {
             log.debug("Scheduled task {} manual run ignored: schedule host is quiesced", id);
             return;
@@ -407,6 +462,10 @@ public class ScheduleService {
         Long nextRun = null;
         Throwable failure = null;
         try {
+            if (!scheduleCapabilityRegistry.activate(hostLease)) {
+                log.debug("Scheduled task {} manual run ignored: schedule host is quiesced", id);
+                return;
+            }
             ScheduledTask task = requireExisting(id);
             nextRun = task.nextRunTime();
             claim = runState.tryMarkQueued(id);
@@ -499,12 +558,12 @@ public class ScheduleService {
         }
     }
 
-    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> tryAcquireHostLease() {
+    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
         var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
         if (handle == null) {
             return null;
         }
-        return scheduleCapabilityRegistry.tryAcquire(handle).orElse(null);
+        return scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
     }
 
     // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────
@@ -714,28 +773,166 @@ public class ScheduleService {
         }
     }
 
-    private ResolvedDefinition resolveDefinition(long taskId, ScheduleTaskRequest req) {
-        String requestedType = req.getType() == null ? null : req.getType().trim();
-        SchedulePlanningLease planning = scheduleCapabilityRegistry.tryAcquireSource(requestedType).orElse(null);
+    private SchedulePlanningLease preparePlanningLease(ScheduleTaskRequest req) {
+        String requestedType = req.getSourceType() == null ? null : req.getSourceType().trim();
+        SchedulePlanningLease planning = scheduleCapabilityRegistry.prepareSource(requestedType).orElse(null);
         if (planning == null) {
             throw LocalizedException.badRequest(
                     "schedule.error.source-unavailable", "计划任务来源当前不可用: {0}", requestedType);
         }
-        try (planning) {
-            if (!DownloadWorkbenchPlugin.ID.equals(planning.owner().featurePluginId())) {
-                throw LocalizedException.badRequest(
-                        "schedule.error.source-unavailable", "该来源不能由 Pixiv 计划编辑器创建或修改");
-            }
-            ScheduledTaskDefinition definition;
-            try {
-                definition = persistenceCodec.createDefinition(
-                        taskId, req.getName().trim(), planning.sourceType(), req.getParamsJson());
-            } catch (IllegalArgumentException e) {
-                throw LocalizedException.badRequest(
-                        "schedule.error.definition-invalid", "计划任务定义无效");
-            }
-            return new ResolvedDefinition(definition, planning.owner().featurePluginId());
+        return planning;
+    }
+
+    private void requirePlanningActivation(SchedulePlanningLease planning, String requestedType) {
+        if (!scheduleCapabilityRegistry.activate(planning)) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.source-unavailable", "计划任务来源当前不可用: {0}", requestedType);
         }
+    }
+
+    private long requireExpectedStateVersion(ScheduleTaskRequest req) {
+        Long expectedStateVersion = req.getExpectedStateVersion();
+        if (expectedStateVersion == null || expectedStateVersion < 0) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.definition-invalid",
+                    "编辑计划任务时必须携带有效的任务状态版本");
+        }
+        return expectedStateVersion;
+    }
+
+    private void requireExpectedStateVersion(
+            ScheduledTask task,
+            long expectedStateVersion) {
+        if (task.stateVersion() != expectedStateVersion) {
+            throw definitionConcurrentChange();
+        }
+    }
+
+    private LocalizedException definitionConcurrentChange() {
+        return new LocalizedException(
+                HttpStatus.CONFLICT,
+                "schedule.error.concurrent-change",
+                "任务状态已变化，请刷新后重试");
+    }
+
+    private <T> T executeDefinitionSave(
+            SchedulePlanningLease planning,
+            TransactionCallback<T> callback) {
+        TransactionTemplate definitionSaveTransaction = new TransactionTemplate(
+                Objects.requireNonNull(
+                        transactionTemplate.getTransactionManager(),
+                        "schedule transaction manager"),
+                transactionTemplate);
+        definitionSaveTransaction.setPropagationBehavior(
+                TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return scheduleCapabilityRegistry.whileCurrentPublication(
+                        planning,
+                        () -> definitionSaveTransaction.execute(callback))
+                .orElseThrow(this::definitionConcurrentChange);
+    }
+
+    private ResolvedDefinition resolveDefinition(
+            long taskId,
+            ScheduleTaskRequest req,
+            String existingOwnerPluginId,
+            SchedulePlanningLease planning) {
+        if (!Objects.equals(req.getActivationToken(), planning.activationToken())) {
+            throw new LocalizedException(
+                    HttpStatus.CONFLICT,
+                    "schedule.error.concurrent-change",
+                    "计划任务来源已刷新，请重新加载后重试");
+        }
+        String ownerPluginId = planning.owner().featurePluginId();
+        if (existingOwnerPluginId != null
+                && !existingOwnerPluginId.equals(ownerPluginId)) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.source-unavailable", "不能把计划任务改为其它来源 owner");
+        }
+
+        ScheduledSourceDescriptor descriptor = planning.descriptor().orElse(null);
+        ScheduledSourceExecutor sourceExecutor = planning.sourceExecutor().orElse(null);
+        if (descriptor == null || sourceExecutor == null) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.source-unavailable", "计划任务来源当前不可用于创建或修改");
+        }
+
+        try {
+            ScheduledTaskPresentation seedPresentation = new ScheduledTaskPresentation(
+                    req.getName().trim(), null, Map.of());
+            ScheduledTaskDraft draft = new ScheduledTaskDraft(
+                    taskId,
+                    planning.sourceType(),
+                    descriptor.definitionSchema(),
+                    descriptor.definitionVersion(),
+                    req.getDefinitionJson(),
+                    seedPresentation);
+            ScheduleTaskDefinitionValidator validator =
+                    new ScheduleTaskDefinitionValidator(objectMapper);
+            validator.validatePrepared(
+                    draft.toDefinition(),
+                    taskId,
+                    planning.sourceType(),
+                    descriptor.definitionSchema(),
+                    descriptor.definitionVersion());
+            planning.cancellation().throwIfCancellationRequested();
+            ScheduledTaskDefinition prepared = invokeSourceCallback(
+                    () -> sourceExecutor.prepare(draft));
+            planning.cancellation().throwIfCancellationRequested();
+            ScheduledTaskDefinition definition = validator.validatePrepared(
+                    prepared,
+                    taskId,
+                    planning.sourceType(),
+                    descriptor.definitionSchema(),
+                    descriptor.definitionVersion());
+            ScheduledExecutionPlan plan = invokeSourceCallback(
+                    () -> sourceExecutor.plan(definition));
+            planning.cancellation().throwIfCancellationRequested();
+            validator.validatePlan(descriptor, plan);
+            planning.cancellation().throwIfCancellationRequested();
+            String credentialPolicyId = plan.credentialPolicyId();
+            String credentialPolicyOwnerPluginId = credentialPolicyId == null
+                    ? null
+                    : scheduleCapabilityRegistry.resolveCredentialPolicy(credentialPolicyId)
+                            .map(handle -> handle.owner().featurePluginId())
+                            .orElse(null);
+            return new ResolvedDefinition(
+                    definition,
+                    ownerPluginId,
+                    credentialPolicyOwnerPluginId,
+                    credentialPolicyId);
+        } catch (ScheduledExecutionException | RuntimeException failure) {
+            throw invalidDefinition();
+        }
+    }
+
+    private static <T> T invokeSourceCallback(SourceCallback<T> callback) {
+        try {
+            return callback.call();
+        } catch (ScheduledExecutionException | RuntimeException failure) {
+            throw invalidDefinition();
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            throw invalidDefinition();
+        }
+    }
+
+    private static LocalizedException invalidDefinition() {
+        return LocalizedException.badRequest(
+                "schedule.error.definition-invalid", "计划任务定义无效");
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            throw fatal;
+        }
+    }
+
+    @FunctionalInterface
+    private interface SourceCallback<T> {
+        T call() throws ScheduledExecutionException;
     }
 
     private String writeJson(Object value) {
@@ -746,9 +943,108 @@ public class ScheduleService {
         }
     }
 
+    private static ScheduleSourceManifestView.Source sourceView(
+            ScheduleCapabilityRegistry.OwnerView owner,
+            ScheduledSourceDescriptor descriptor) {
+        ScheduleSourceManifestView.Presentation presentation =
+                new ScheduleSourceManifestView.Presentation(
+                        descriptor.presentation().displayNamespace(),
+                        descriptor.presentation().displayNameKey(),
+                        descriptor.presentation().descriptionKey(),
+                        descriptor.presentation().iconKey(),
+                        descriptor.presentation().colorToken());
+        ScheduleSourceManifestView.Frontend frontend = descriptor.frontend() == null
+                ? null
+                : new ScheduleSourceManifestView.Frontend(
+                        descriptor.frontend().contractVersion(),
+                        descriptor.frontend().moduleUrl());
+        return new ScheduleSourceManifestView.Source(
+                descriptor.sourceType(),
+                descriptor.legacyAliases().stream().sorted().toList(),
+                owner.owner().featurePluginId(),
+                owner.owner().packageId(),
+                owner.owner().pluginGeneration(),
+                owner.publicationId(),
+                owner.activationToken(),
+                descriptor.definitionSchema(),
+                descriptor.definitionVersion(),
+                presentation,
+                descriptor.acquisitionModes().stream().sorted().toList(),
+                descriptor.possibleWorkTypes().stream().sorted().toList(),
+                frontend);
+    }
+
+    private ScheduleTaskView taskView(
+            ScheduledTask task,
+            String effectiveRunState,
+            Map<SourceActivationKey, String> activations) {
+        String activationToken = activations.get(new SourceActivationKey(
+                task.sourceOwnerPluginId(), task.sourceType()));
+        return ScheduleTaskView.of(
+                task,
+                effectiveRunState,
+                persistenceCodec,
+                readPresentation(task.presentationJson()),
+                activationToken != null,
+                activationToken);
+    }
+
+    private Map<SourceActivationKey, String> sourceActivations(
+            ScheduleCapabilityRegistry.SnapshotView snapshot) {
+        Map<SourceActivationKey, String> activations = new LinkedHashMap<>();
+        for (ScheduleCapabilityRegistry.OwnerView owner : snapshot.owners()) {
+            for (ScheduledSourceDescriptor descriptor : owner.sourceDescriptors()) {
+                SourceActivationKey canonical = new SourceActivationKey(
+                        owner.owner().featurePluginId(), descriptor.sourceType());
+                activations.put(canonical, owner.activationToken());
+                for (String alias : descriptor.legacyAliases()) {
+                    activations.put(new SourceActivationKey(
+                            owner.owner().featurePluginId(), alias), owner.activationToken());
+                }
+            }
+        }
+        return Map.copyOf(activations);
+    }
+
+    private ScheduledTaskPresentation readPresentation(String presentationJson) {
+        if (presentationJson == null || presentationJson.isBlank()) {
+            return ScheduledTaskPresentation.empty();
+        }
+        try {
+            ScheduledTaskPresentation presentation = objectMapper.readValue(
+                    presentationJson, ScheduledTaskPresentation.class);
+            return new ScheduleTaskDefinitionValidator(objectMapper)
+                    .validatePresentation(presentation);
+        } catch (JsonProcessingException | IllegalArgumentException failure) {
+            return ScheduledTaskPresentation.empty();
+        }
+    }
+
     private void requireChanged(OptionalLong changed) {
         if (changed.isEmpty()) {
             throw concurrentChange();
+        }
+    }
+
+    private void requireCompatibleCredentialBinding(
+            ScheduledTask task,
+            ResolvedDefinition resolved) {
+        boolean hasCredentialBinding = task.credentialPolicyOwnerPluginId() != null
+                || task.credentialPolicyId() != null
+                || task.credentialSecretReference() != null;
+        if (!hasCredentialBinding) {
+            return;
+        }
+        boolean completeExistingIdentity = task.credentialPolicyOwnerPluginId() != null
+                && task.credentialPolicyId() != null;
+        if (!completeExistingIdentity
+                || !Objects.equals(
+                        task.credentialPolicyOwnerPluginId(),
+                        resolved.credentialPolicyOwnerPluginId())
+                || !Objects.equals(task.credentialPolicyId(), resolved.credentialPolicyId())) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.definition-invalid",
+                    "当前任务已绑定不同的凭证策略，请先解除凭证或重新创建任务");
         }
     }
 
@@ -759,7 +1055,14 @@ public class ScheduleService {
 
     private record ResolvedDefinition(
             ScheduledTaskDefinition definition,
-            String sourceOwnerPluginId) {
+            String sourceOwnerPluginId,
+            String credentialPolicyOwnerPluginId,
+            String credentialPolicyId) {
+    }
+
+    private record SourceActivationKey(
+            String ownerPluginId,
+            String sourceType) {
     }
 
     private String validateTrigger(ScheduleTaskRequest req) {

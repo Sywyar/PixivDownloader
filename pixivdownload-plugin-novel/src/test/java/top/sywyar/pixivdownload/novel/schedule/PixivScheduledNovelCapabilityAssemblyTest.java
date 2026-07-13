@@ -88,16 +88,20 @@ class PixivScheduledNovelCapabilityAssemblyTest {
                 List.of(), List.of(), List.of(), List.of(),
                 List.of(novelExecutor), List.of(), List.of()));
 
-        SchedulePlanningLease planning = registry.tryAcquireSource("collection").orElseThrow();
-        ScheduleExecutionLease execution = registry.tryExpand(planning, collectionPlan()).orElseThrow();
-        try (execution) {
-            assertThat(execution.owners()).containsExactlyInAnyOrder(WORKBENCH_OWNER, NOVEL_OWNER);
-            assertThat(execution.sourceExecutor()).containsSame(collectionExecutor);
-            assertThat(execution.workExecutor("illust")).containsSame(illustExecutor);
-            assertThat(execution.workExecutor("novel")).containsSame(novelExecutor);
-            assertThat(execution.workExecutorOwner("novel")).contains(NOVEL_OWNER);
-            assertThat(execution.credentialPolicyOwner()).contains(WORKBENCH_OWNER);
-            assertThat(execution.guardOwner("pixiv-overuse")).contains(WORKBENCH_OWNER);
+        SchedulePlanningLease planning = registry.prepareSource("collection").orElseThrow();
+        try (planning) {
+            assertThat(registry.activate(planning)).isTrue();
+            ScheduleExecutionLease execution = registry.prepareExpansion(planning, collectionPlan()).orElseThrow();
+            try (execution) {
+                assertThat(registry.activate(execution)).isTrue();
+                assertThat(execution.owners()).containsExactlyInAnyOrder(WORKBENCH_OWNER, NOVEL_OWNER);
+                assertThat(execution.sourceExecutor()).containsSame(collectionExecutor);
+                assertThat(execution.workExecutor("illust")).containsSame(illustExecutor);
+                assertThat(execution.workExecutor("novel")).containsSame(novelExecutor);
+                assertThat(execution.workExecutorOwner("novel")).contains(NOVEL_OWNER);
+                assertThat(execution.credentialPolicyOwner()).contains(WORKBENCH_OWNER);
+                assertThat(execution.guardOwner("pixiv-overuse")).contains(WORKBENCH_OWNER);
+            }
         }
     }
 

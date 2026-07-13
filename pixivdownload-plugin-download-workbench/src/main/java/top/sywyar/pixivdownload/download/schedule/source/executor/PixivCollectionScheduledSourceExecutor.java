@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledPendingRepla
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 
 import java.util.Objects;
 
@@ -24,6 +25,11 @@ public final class PixivCollectionScheduledSourceExecutor implements ScheduledSo
     @Override
     public String sourceType() {
         return "collection";
+    }
+
+    @Override
+    public ScheduledTaskDefinition prepare(ScheduledTaskDraft draft) throws ScheduledExecutionException {
+        return support.prepare(draft);
     }
 
     @Override

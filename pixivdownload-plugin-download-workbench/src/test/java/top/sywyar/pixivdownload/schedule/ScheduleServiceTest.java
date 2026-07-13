@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -72,6 +73,7 @@ class ScheduleServiceTest {
 
     private static final long STATE_VERSION = 7L;
     private static final String SOURCE_TYPE = "user-new";
+    private static final String ACTIVATION_TOKEN = "activation-current";
     private static final String EMPTY_POLICY_STATE =
             "{\"schema\":\"pixiv.schedule.credential-policy-state\",\"version\":1}";
 
@@ -131,7 +133,7 @@ class ScheduleServiceTest {
     }
 
     private void stubBindingIdentity() throws Exception {
-        when(scheduleExecutionEngine.prepareCredentialBinding(any()))
+        when(scheduleExecutionEngine.prepareCredentialBinding(any(), eq(ACTIVATION_TOKEN)))
                 .thenReturn(credentialBindingLease);
         when(credentialBindingLease.policyOwnerPluginId())
                 .thenReturn(DownloadWorkbenchPlugin.ID);
@@ -172,6 +174,23 @@ class ScheduleServiceTest {
                                       String accountId,
                                       String policyStateJson,
                                       boolean credentialBound) {
+        return task(id, enabled, runState, suspendReason, suspendCode,
+                suspendDetailJson, accountId, policyStateJson, credentialBound,
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
+    }
+
+    private static ScheduledTask task(long id,
+                                      boolean enabled,
+                                      top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState runState,
+                                      ScheduleSuspendReason suspendReason,
+                                      String suspendCode,
+                                      String suspendDetailJson,
+                                      String accountId,
+                                      String policyStateJson,
+                                      boolean credentialBound,
+                                      String credentialPolicyOwnerPluginId,
+                                      String credentialPolicyId) {
         String effectivePolicyState = credentialBound
                 ? policyStateJson == null ? EMPTY_POLICY_STATE : policyStateJson
                 : null;
@@ -204,8 +223,8 @@ class ScheduleServiceTest {
                 suspendCode,
                 suspendDetailJson,
                 STATE_VERSION,
-                credentialBound ? DownloadWorkbenchPlugin.ID : null,
-                credentialBound ? PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID : null,
+                credentialBound ? credentialPolicyOwnerPluginId : null,
+                credentialBound ? credentialPolicyId : null,
                 credentialBound ? accountId : null,
                 effectivePolicyState,
                 credentialBound ? "scheduled-task:" + id + ":credential" : null,
@@ -520,7 +539,8 @@ class ScheduleServiceTest {
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID))
                 .thenReturn(cookie);
 
-        assertThatThrownBy(() -> newService().authorizeCookie(5L, "  " + cookie + "  "))
+        assertThatThrownBy(() -> newService().authorizeCookie(
+                5L, "  " + cookie + "  ", ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
         verify(credentialBindingLease, never()).probe(anyString());
@@ -556,7 +576,7 @@ class ScheduleServiceTest {
                 eq("PIXIV_COOKIE_INVALID"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 2));
 
-        newService().authorizeCookie(6L, cookie);
+        newService().authorizeCookie(6L, cookie, ACTIVATION_TOKEN);
 
         verify(credentialBindingLease).probe(cookie);
         verify(store).bindCredential(
@@ -582,7 +602,7 @@ class ScheduleServiceTest {
                 eq("scheduled-task:7:credential"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().authorizeCookie(7L, cookie);
+        newService().authorizeCookie(7L, cookie, ACTIVATION_TOKEN);
 
         verify(store).bindCredential(
                 eq(7L), eq(STATE_VERSION), eq(DownloadWorkbenchPlugin.ID),
@@ -600,7 +620,8 @@ class ScheduleServiceTest {
                 EMPTY_POLICY_STATE, null));
         when(store.findById(8L)).thenReturn(task(8L));
 
-        assertThatThrownBy(() -> newService().authorizeCookie(8L, cookie))
+        assertThatThrownBy(() -> newService().authorizeCookie(
+                8L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
         verify(store, never()).bindCredential(
@@ -625,7 +646,7 @@ class ScheduleServiceTest {
                 eq("PIXIV_OVERUSE"), anyString()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 2));
 
-        newService().authorizeCookie(9L, cookie);
+        newService().authorizeCookie(9L, cookie, ACTIVATION_TOKEN);
 
         ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
         verify(store).suspend(
@@ -660,7 +681,8 @@ class ScheduleServiceTest {
                 beforeProbe.credentialUpdatedTime(), beforeProbe.createdTime());
         when(store.findById(10L)).thenReturn(beforeProbe, changed);
 
-        assertThatThrownBy(() -> newService().authorizeCookie(10L, cookie))
+        assertThatThrownBy(() -> newService().authorizeCookie(
+                10L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOf(LocalizedException.class);
 
         verify(store, never()).bindCredential(
@@ -687,13 +709,33 @@ class ScheduleServiceTest {
                 eq("scheduled-task:11:credential"), anyLong()))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().authorizeCookie(11L, cookie);
+        newService().authorizeCookie(11L, cookie, ACTIVATION_TOKEN);
 
         verify(store, times(2)).findCredentialSecret(11L, owner, policyId);
         verify(store).bindCredential(
                 eq(11L), eq(STATE_VERSION), eq(owner), eq(policyId),
                 eq("external-account"), eq(policyState), eq(cookie),
                 eq("scheduled-task:11:credential"), anyLong());
+    }
+
+    @Test
+    @DisplayName("authorizeCookie：来源 publication 已切换时返回冲突且不探活凭证")
+    void authorizeCookieMapsPublicationChangeToConflictBeforeProbe() throws Exception {
+        String cookie = "PHPSESSID=999_stale";
+        when(store.findById(12L)).thenReturn(task(12L));
+        when(scheduleExecutionEngine.prepareCredentialBinding(
+                any(), eq(ACTIVATION_TOKEN)))
+                .thenThrow(new ScheduleSourcePublicationChangedException(SOURCE_TYPE));
+
+        assertThatThrownBy(() -> newService().authorizeCookie(
+                12L, cookie, ACTIVATION_TOKEN))
+                .isInstanceOfSatisfying(LocalizedException.class, failure ->
+                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(credentialBindingLease, never()).probe(anyString());
+        verify(store, never()).bindCredential(
+                anyLong(), anyLong(), anyString(), anyString(), any(),
+                anyString(), anyString(), anyString(), anyLong());
     }
 
     @Test
@@ -711,6 +753,25 @@ class ScheduleServiceTest {
 
         verify(store).removeCredential(
                 20L, STATE_VERSION, DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
+    }
+
+    @Test
+    @DisplayName("revokeCookie：按任务记录的外部 owner 与 policy 身份执行 CAS 删除")
+    void revokeCookieUsesPersistedExternalCredentialIdentity() {
+        String owner = "example.schedule-source";
+        String policyId = "credential.policy.v1";
+        when(store.findById(21L)).thenReturn(task(
+                21L, true, null, null, null, null,
+                "external-account", "{}", true, owner, policyId));
+        when(store.removeCredential(21L, STATE_VERSION, owner, policyId))
+                .thenReturn(OptionalLong.of(STATE_VERSION + 1));
+
+        newService().revokeCookie(21L);
+
+        verify(store).removeCredential(21L, STATE_VERSION, owner, policyId);
+        verify(store, never()).removeCredential(
+                21L, STATE_VERSION, DownloadWorkbenchPlugin.ID,
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
     }
 

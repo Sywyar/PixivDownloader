@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationRoute;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
@@ -11,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,6 +23,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.Supplier;
+import java.util.function.Predicate;
 
 /**
  * 计划任务能力的 owner 原子注册中心。每个 owner 的来源、作品、凭证与 Guard 只通过一个不可变快照发布；
@@ -46,6 +51,7 @@ public class ScheduleCapabilityRegistry {
     public record OwnerView(
             ScheduleCapabilityOwner owner,
             long publicationId,
+            String activationToken,
             Set<String> legacySourceTypes,
             Set<String> sourceTypes,
             Set<String> sourceAliases,
@@ -55,6 +61,9 @@ public class ScheduleCapabilityRegistry {
             List<ScheduledSourceDescriptor> sourceDescriptors
     ) {
         public OwnerView {
+            if (activationToken == null || activationToken.isBlank()) {
+                throw new IllegalArgumentException("schedule activation token must not be blank");
+            }
             legacySourceTypes = Set.copyOf(legacySourceTypes);
             sourceTypes = Set.copyOf(sourceTypes);
             sourceAliases = Set.copyOf(sourceAliases);
@@ -66,8 +75,11 @@ public class ScheduleCapabilityRegistry {
     }
 
     /** 单次 volatile 发布的纯数据观测视图。 */
-    public record SnapshotView(long revision, List<OwnerView> owners) {
+    public record SnapshotView(String epoch, long revision, List<OwnerView> owners) {
         public SnapshotView {
+            if (epoch == null || epoch.isBlank()) {
+                throw new IllegalArgumentException("schedule capability epoch must not be blank");
+            }
             owners = List.copyOf(owners);
         }
     }
@@ -75,6 +87,7 @@ public class ScheduleCapabilityRegistry {
     private record PublishedOwner(
             ScheduleOwnerBundle bundle,
             long publicationId,
+            String activationToken,
             ScheduleCapabilityPublication publication,
             ScheduleLeaseState leaseState
     ) {
@@ -154,18 +167,83 @@ public class ScheduleCapabilityRegistry {
             Map<String, CapabilityEntry<ScheduledExecutionGuard>> guards,
             SnapshotView view
     ) {
-        static Snapshot empty() {
-            SnapshotView view = new SnapshotView(0L, List.of());
+        static Snapshot empty(String epoch) {
+            SnapshotView view = new SnapshotView(epoch, 0L, List.of());
             return new Snapshot(0L, Map.of(), Map.of(), Map.of(), Map.of(), Map.of(),
                     Map.of(), Map.of(), Map.of(), view);
         }
     }
 
     private final Object lock = new Object();
-    private volatile Snapshot snapshot = Snapshot.empty();
+    private final String epoch = UUID.randomUUID().toString();
+    private volatile Snapshot snapshot = Snapshot.empty(epoch);
     private final Map<Long, ReservedOwner> reservations = new LinkedHashMap<>();
+    private final Predicate<String> ownerAdmission;
+    private final Runnable postCommitProbe;
+    private final Runnable postLeaseAcquireProbe;
+    private final Runnable beforeLeaseAcquirePublishProbe;
+    private final Runnable beforeLeaseReleaseProbe;
+    private final Runnable afterLeaseReleaseProbe;
     private long nextPublicationId;
     private long nextReservationId;
+
+    /** Standalone registry constructor used by focused tests and host-only migration fixtures. */
+    public ScheduleCapabilityRegistry() {
+        this(ignored -> true, () -> {
+        }, () -> {
+        }, () -> {
+        }, () -> {
+        }, () -> {
+        });
+    }
+
+    /** Production admission follows the same lifecycle STARTED barrier as plugin HTTP serving. */
+    @Autowired
+    public ScheduleCapabilityRegistry(PluginLifecycleState lifecycleState) {
+        this(lifecycleState::acceptsNewRequests, () -> {
+        }, () -> {
+        }, () -> {
+        }, () -> {
+        }, () -> {
+        });
+    }
+
+    ScheduleCapabilityRegistry(Predicate<String> ownerAdmission, Runnable postCommitProbe) {
+        this(ownerAdmission, postCommitProbe, () -> {
+        }, () -> {
+        }, () -> {
+        }, () -> {
+        });
+    }
+
+    ScheduleCapabilityRegistry(
+            Predicate<String> ownerAdmission,
+            Runnable postCommitProbe,
+            Runnable postLeaseAcquireProbe) {
+        this(ownerAdmission, postCommitProbe, postLeaseAcquireProbe, () -> {
+        }, () -> {
+        }, () -> {
+        });
+    }
+
+    ScheduleCapabilityRegistry(
+            Predicate<String> ownerAdmission,
+            Runnable postCommitProbe,
+            Runnable postLeaseAcquireProbe,
+            Runnable beforeLeaseAcquirePublishProbe,
+            Runnable beforeLeaseReleaseProbe,
+            Runnable afterLeaseReleaseProbe) {
+        this.ownerAdmission = Objects.requireNonNull(ownerAdmission, "schedule owner admission");
+        this.postCommitProbe = Objects.requireNonNull(postCommitProbe, "post-commit probe");
+        this.postLeaseAcquireProbe = Objects.requireNonNull(
+                postLeaseAcquireProbe, "post-lease-acquire probe");
+        this.beforeLeaseAcquirePublishProbe = Objects.requireNonNull(
+                beforeLeaseAcquirePublishProbe, "before schedule lease acquire publish probe");
+        this.beforeLeaseReleaseProbe = Objects.requireNonNull(
+                beforeLeaseReleaseProbe, "before schedule lease release probe");
+        this.afterLeaseReleaseProbe = Objects.requireNonNull(
+                afterLeaseReleaseProbe, "after schedule lease release probe");
+    }
 
     public SnapshotView snapshotView() {
         return snapshot.view();
@@ -202,8 +280,9 @@ public class ScheduleCapabilityRegistry {
             rejectActiveOwnerClash(validationOwners, bundle.owner());
             long reservationId = Math.incrementExact(nextReservationId);
             validationOwners.put(bundle.owner(), new PublishedOwner(
-                    bundle, -reservationId, null, new ScheduleLeaseState()));
-            rebuild(snapshot.revision(), validationOwners);
+                    bundle, -reservationId, reservationToken(reservationId), null,
+                    new ScheduleLeaseState()));
+            rebuild(epoch, snapshot.revision(), validationOwners);
             Map<String, String> credentialPolicyOwnersById =
                     migrationCredentialPolicyOwners(bundle);
             ScheduleCapabilityReservation token =
@@ -247,13 +326,18 @@ public class ScheduleCapabilityRegistry {
             long publicationId = nextPublicationId + 1L;
             ScheduleCapabilityPublication publication =
                     new ScheduleCapabilityPublication(bundle.owner(), publicationId);
-            ScheduleLeaseState leaseState = new ScheduleLeaseState();
+            ScheduleLeaseState leaseState = new ScheduleLeaseState(
+                    beforeLeaseAcquirePublishProbe,
+                    beforeLeaseReleaseProbe,
+                    afterLeaseReleaseProbe);
+            String activationToken = UUID.randomUUID().toString();
             Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners = new LinkedHashMap<>(snapshot.owners());
             nextOwners.put(bundle.owner(), new PublishedOwner(
-                    bundle, publicationId, publication, leaseState));
-            Snapshot next = rebuild(snapshot.revision() + 1L, nextOwners);
+                    bundle, publicationId, activationToken, publication, leaseState));
+            Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
             nextPublicationId = publicationId;
             snapshot = next;
+            postCommitProbe.run();
             reservations.remove(reservation.reservationId());
             return publication;
         }
@@ -278,8 +362,8 @@ public class ScheduleCapabilityRegistry {
         Map<ScheduleCapabilityOwner, PublishedOwner> owners = new LinkedHashMap<>(snapshot.owners());
         for (ReservedOwner reserved : reservations.values()) {
             owners.put(reserved.token().owner(), new PublishedOwner(
-                    reserved.bundle(), -reserved.token().reservationId(), null,
-                    new ScheduleLeaseState()));
+                    reserved.bundle(), -reserved.token().reservationId(),
+                    reservationToken(reserved.token().reservationId()), null, new ScheduleLeaseState()));
         }
         return owners;
     }
@@ -311,7 +395,7 @@ public class ScheduleCapabilityRegistry {
             }
             Map<ScheduleCapabilityOwner, PublishedOwner> nextOwners = new LinkedHashMap<>(snapshot.owners());
             nextOwners.remove(publication.owner());
-            Snapshot next = rebuild(snapshot.revision() + 1L, nextOwners);
+            Snapshot next = rebuild(epoch, snapshot.revision() + 1L, nextOwners);
             current.leaseState().retire();
             snapshot = next;
             return Optional.of(new ScheduleGenerationDrain(
@@ -401,8 +485,10 @@ public class ScheduleCapabilityRegistry {
                 entry.publicationId()));
     }
 
-    /** 以纯句柄短时取得一个行为能力；旧句柄、撤回 owner 或不匹配的 kind 均返回空。 */
-    public <T> Optional<ScheduleSingleCapabilityLease<T>> tryAcquire(ScheduleCapabilityHandle<T> handle) {
+    /**
+     * 以纯句柄准备一个尚未激活的行为能力租约；调用方必须先建立 try/finally，再调用 {@link #activate}。
+     */
+    public <T> Optional<ScheduleSingleCapabilityLease<T>> prepareAcquire(ScheduleCapabilityHandle<T> handle) {
         if (handle == null) {
             return Optional.empty();
         }
@@ -415,19 +501,42 @@ public class ScheduleCapabilityRegistry {
             if (capability == null) {
                 return Optional.empty();
             }
-            ScheduleLeaseState.CancellationSignal signal = new ScheduleLeaseState.CancellationSignal();
-            if (!published.leaseState().tryAcquire(signal)) {
-                return Optional.empty();
-            }
+            ScheduleLeaseRoot root = new ScheduleLeaseRoot();
+            ScheduleLeaseState.LeaseToken leaseToken = ScheduleLeaseState.LeaseToken.root(root);
             return Optional.of(new ScheduleSingleCapabilityLease<>(
-                    handle, published.leaseState(), signal, capability));
+                    handle, published.leaseState(), root, leaseToken, capability));
+        }
+    }
+
+    /** 在调用方已持有 lease 的 try/finally 内激活单能力租约。 */
+    public boolean activate(ScheduleSingleCapabilityLease<?> lease) {
+        if (lease == null) {
+            return false;
+        }
+        synchronized (lock) {
+            ScheduleCapabilityHandle<?> handle = lease.handle();
+            PublishedOwner published = currentPublishedOwner(
+                    snapshot, handle.owner(), handle.publicationId());
+            if (published == null || published.leaseState() != lease.leaseState()
+                    || resolveCapability(snapshot, handle) == null) {
+                return false;
+            }
+            if (!published.leaseState().tryAcquire(lease.leaseToken())) {
+                return false;
+            }
+            if (!lease.root().activateSingle()) {
+                published.leaseState().release(lease.leaseToken());
+                return false;
+            }
+            postLeaseAcquireProbe.run();
+            return true;
         }
     }
 
     /**
-     * 按 canonical 或 legacy alias 取得来源 planning lease。新旧来源同 owner 共享 alias 时会在一个租约中同时提供。
+     * 按 canonical 或 legacy alias 准备来源 planning lease；调用方必须先建立 try/finally，再调用 {@link #activate}。
      */
-    public Optional<SchedulePlanningLease> tryAcquireSource(String sourceTypeOrAlias) {
+    public Optional<SchedulePlanningLease> prepareSource(String sourceTypeOrAlias) {
         if (sourceTypeOrAlias == null || sourceTypeOrAlias.isBlank()) {
             return Optional.empty();
         }
@@ -449,27 +558,87 @@ public class ScheduleCapabilityRegistry {
             if (published == null) {
                 return Optional.empty();
             }
-            ScheduleLeaseState.CancellationSignal signal = new ScheduleLeaseState.CancellationSignal();
-            if (!published.leaseState().tryAcquire(signal)) {
-                return Optional.empty();
-            }
             String canonical = currentNew != null ? currentNew.sourceType() : currentLegacy.sourceType();
+            ScheduleLeaseRoot root = new ScheduleLeaseRoot();
+            ScheduleLeaseState.LeaseToken leaseToken = ScheduleLeaseState.LeaseToken.root(root);
             return Optional.of(new SchedulePlanningLease(
                     owner,
                     publicationId,
+                    published.activationToken(),
                     canonical,
                     published.leaseState(),
-                    signal,
+                    root,
+                    leaseToken,
                     currentNew == null ? null : currentNew.descriptor(),
                     currentNew == null ? null : currentNew.executor(),
                     currentLegacy == null ? null : currentLegacy.provider()));
         }
     }
 
+    /** 在调用方已持有 lease 的 try/finally 内激活来源 planning 租约。 */
+    public boolean activate(SchedulePlanningLease lease) {
+        if (lease == null) {
+            return false;
+        }
+        synchronized (lock) {
+            PublishedOwner published = currentPublishedOwner(
+                    snapshot, lease.owner(), lease.publicationId());
+            NewSourceRoute currentNew = snapshot.newSourcesByCanonical().get(lease.sourceType());
+            LegacySourceRoute currentLegacy = snapshot.legacySourcesByCanonical().get(lease.sourceType());
+            if (published == null || published.leaseState() != lease.leaseState()
+                    || !published.activationToken().equals(lease.activationToken())
+                    || !matchesSourceOwner(currentNew, currentLegacy, lease)) {
+                return false;
+            }
+            if (!published.leaseState().tryAcquire(lease.leaseToken())) {
+                return false;
+            }
+            if (!lease.root().activatePlanning()) {
+                published.leaseState().release(lease.leaseToken());
+                return false;
+            }
+            postLeaseAcquireProbe.run();
+            return true;
+        }
+    }
+
+    /**
+     * 仅当来源 planning 仍属于当前 publication 时执行一次短宿主持久化操作。
+     *
+     * <p>current 复核、操作执行与 publication 撤回共用 registry 锁，因此撤回要么先完成并使操作不执行，
+     * 要么等待操作（包括其事务提交）返回。调用方必须在进入本方法前完成全部插件回调，操作内不得调用插件行为。
+     */
+    public <T> Optional<T> whileCurrentPublication(
+            SchedulePlanningLease planning,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (planning == null) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            return planning.whileActive(() -> {
+                Snapshot current = snapshot;
+                PublishedOwner published = currentPublishedOwner(
+                        current, planning.owner(), planning.publicationId());
+                NewSourceRoute source = current.newSourcesByCanonical().get(planning.sourceType());
+                if (published == null
+                        || published.leaseState() != planning.leaseState()
+                        || !published.activationToken().equals(planning.activationToken())
+                        || source == null
+                        || !source.owner().equals(planning.owner())
+                        || source.publicationId() != planning.publicationId()) {
+                    return Optional.empty();
+                }
+                return Optional.of(Objects.requireNonNull(
+                        operation.get(), "current publication operation result"));
+            });
+        }
+    }
+
     /**
      * 按新 execution plan 一次取得全部 work/policy/Guard owner；任一缺失或 owner 正在撤回时不取得部分租约。
      */
-    public Optional<ScheduleExecutionLease> tryExpand(
+    public Optional<ScheduleExecutionLease> prepareExpansion(
             SchedulePlanningLease planning, ScheduledExecutionPlan plan) {
         Objects.requireNonNull(plan, "plan");
         Set<String> workTypes = normalizedIds(plan.requiredWorkTypes(), "required work type");
@@ -487,17 +656,17 @@ public class ScheduleCapabilityRegistry {
         if (policyId != null) {
             policyId = normalizedId(policyId, "credential policy id");
         }
-        return expand(planning, workTypes, policyId, guardIds, true);
+        return prepareExpansion(planning, workTypes, policyId, guardIds, true);
     }
 
     /** 为现有 Pixiv/小说执行壳一次取得全部旧 work runner owner。 */
-    public Optional<ScheduleExecutionLease> tryExpandLegacy(
+    public Optional<ScheduleExecutionLease> prepareLegacyExpansion(
             SchedulePlanningLease planning, Set<String> requiredWorkTypes) {
         Set<String> workTypes = normalizedIds(requiredWorkTypes, "legacy work type");
-        return expand(planning, workTypes, null, Set.of(), false);
+        return prepareExpansion(planning, workTypes, null, Set.of(), false);
     }
 
-    private Optional<ScheduleExecutionLease> expand(
+    private Optional<ScheduleExecutionLease> prepareExpansion(
             SchedulePlanningLease planning,
             Set<String> workTypes,
             String credentialPolicyId,
@@ -507,12 +676,12 @@ public class ScheduleCapabilityRegistry {
             return Optional.empty();
         }
         synchronized (lock) {
-            return planning.whileActive(() -> expandActivePlanning(
+            return planning.whileActive(() -> prepareActiveExpansion(
                     planning, workTypes, credentialPolicyId, guardIds, useNewCapabilities));
         }
     }
 
-    private Optional<ScheduleExecutionLease> expandActivePlanning(
+    private Optional<ScheduleExecutionLease> prepareActiveExpansion(
             SchedulePlanningLease planning,
             Set<String> workTypes,
             String credentialPolicyId,
@@ -608,40 +777,88 @@ public class ScheduleCapabilityRegistry {
             guardOwners.put(guardId, entry.owner());
         }
 
-        ScheduleLeaseState.CancellationSignal signal = planning.cancellationSignal();
-        List<ScheduleExecutionLease.OwnerState> acquired = new ArrayList<>();
+        SchedulePlanningLease.TransferredSource source = planning.prepareTransfer();
+        ScheduleLeaseBranch branch = new ScheduleLeaseBranch(planning.root());
+        ScheduleExecutionLease.OwnerState sourceState = new ScheduleExecutionLease.OwnerState(
+                planning.owner(), planning.publicationId(), sourceOwner.leaseState(), planning.leaseToken());
+        List<ScheduleExecutionLease.OwnerState> additionalOwners = new ArrayList<>(requiredOwners.size() - 1);
         for (Map.Entry<ScheduleCapabilityOwner, PublishedOwner> required : requiredOwners.entrySet()) {
             if (required.getKey().equals(planning.owner())) {
                 continue;
             }
-            if (!required.getValue().leaseState().tryAcquire(signal)) {
-                releaseAcquired(acquired, signal);
-                return Optional.empty();
-            }
-            acquired.add(new ScheduleExecutionLease.OwnerState(
-                    required.getKey(), required.getValue().leaseState()));
+            additionalOwners.add(new ScheduleExecutionLease.OwnerState(
+                    required.getKey(), required.getValue().publicationId(), required.getValue().leaseState(),
+                    ScheduleLeaseState.LeaseToken.branch(planning.root(), branch)));
         }
 
-        SchedulePlanningLease.TransferredSource source = planning.transfer();
-        List<ScheduleExecutionLease.OwnerState> allOwners = new ArrayList<>(acquired.size() + 1);
-        allOwners.add(new ScheduleExecutionLease.OwnerState(planning.owner(), sourceOwner.leaseState()));
-        allOwners.addAll(acquired);
         return Optional.of(new ScheduleExecutionLease(
-                planning.sourceType(), signal, allOwners, source,
+                planning, branch, sourceState, additionalOwners, source,
                 workExecutors, workExecutorOwners, legacyWorkRunners,
                 credentialPolicy, credentialPolicyOwner, guards, guardOwners));
     }
 
-    private static void releaseAcquired(
-            List<ScheduleExecutionLease.OwnerState> acquired,
-            ScheduleLeaseState.CancellationSignal signal) {
-        for (ScheduleExecutionLease.OwnerState ownerState : acquired) {
-            ownerState.state().release(signal);
+    /** 在调用方已持有 execution lease 的 try/finally 内原子激活全部附加 owner 并转移根状态。 */
+    public boolean activate(ScheduleExecutionLease execution) {
+        if (execution == null) {
+            return false;
+        }
+        synchronized (lock) {
+            SchedulePlanningLease planning = execution.planning();
+            if (!planning.isActive() || !matchesOwnerState(execution.sourceOwnerState())) {
+                return false;
+            }
+            for (ScheduleExecutionLease.OwnerState ownerState : execution.additionalOwnerStates()) {
+                if (!matchesOwnerState(ownerState)) {
+                    return false;
+                }
+            }
+            for (ScheduleExecutionLease.OwnerState ownerState : execution.additionalOwnerStates()) {
+                if (!ownerState.state().tryAcquire(ownerState.leaseToken())) {
+                    execution.branch().close();
+                    return false;
+                }
+                postLeaseAcquireProbe.run();
+            }
+            if (!execution.branch().activate()) {
+                return false;
+            }
+            if (!execution.additionalOwnerStates().isEmpty()) {
+                postLeaseAcquireProbe.run();
+            }
+            SchedulePlanningLease.TransferredSource source = planning.prepareTransfer();
+            if (!planning.root().transferPlanningToExecution()) {
+                execution.branch().close();
+                return false;
+            }
+            planning.finishTransfer(source);
+            postLeaseAcquireProbe.run();
+            return true;
         }
     }
 
+    private boolean matchesOwnerState(ScheduleExecutionLease.OwnerState expected) {
+        PublishedOwner current = currentPublishedOwner(
+                snapshot, expected.owner(), expected.publicationId());
+        return current != null && current.leaseState() == expected.state();
+    }
+
+    private static boolean matchesSourceOwner(
+            NewSourceRoute currentNew,
+            LegacySourceRoute currentLegacy,
+            SchedulePlanningLease lease) {
+        boolean newMatches = currentNew != null
+                && currentNew.owner().equals(lease.owner())
+                && currentNew.publicationId() == lease.publicationId();
+        boolean legacyMatches = currentLegacy != null
+                && currentLegacy.owner().equals(lease.owner())
+                && currentLegacy.publicationId() == lease.publicationId();
+        return newMatches || legacyMatches;
+    }
+
     private static Snapshot rebuild(
-            long revision, Map<ScheduleCapabilityOwner, PublishedOwner> mutableOwners) {
+            String epoch,
+            long revision,
+            Map<ScheduleCapabilityOwner, PublishedOwner> mutableOwners) {
         Map<ScheduleCapabilityOwner, PublishedOwner> owners = Map.copyOf(mutableOwners);
         Map<String, NewSourceRoute> newByName = new LinkedHashMap<>();
         Map<String, NewSourceRoute> newByCanonical = new LinkedHashMap<>();
@@ -739,6 +956,7 @@ public class ScheduleCapabilityRegistry {
             ownerViews.add(new OwnerView(
                     owner,
                     published.publicationId(),
+                    published.activationToken(),
                     sortedSet(bundle.legacySources().stream()
                             .map(ScheduleOwnerBundle.LegacySourceEntry::sourceType).toList()),
                     sortedSet(bundle.sourceDescriptors().stream()
@@ -754,7 +972,7 @@ public class ScheduleCapabilityRegistry {
                             .toList()));
         }
 
-        SnapshotView view = new SnapshotView(revision, ownerViews);
+        SnapshotView view = new SnapshotView(epoch, revision, ownerViews);
         return new Snapshot(
                 revision,
                 owners,
@@ -766,6 +984,10 @@ public class ScheduleCapabilityRegistry {
                 Map.copyOf(policies),
                 Map.copyOf(guards),
                 view);
+    }
+
+    private static String reservationToken(long reservationId) {
+        return "reservation-" + reservationId;
     }
 
     private static void claimSource(
@@ -822,11 +1044,12 @@ public class ScheduleCapabilityRegistry {
         }
     }
 
-    private static PublishedOwner currentPublishedOwner(
+    private PublishedOwner currentPublishedOwner(
             Snapshot current, ScheduleCapabilityOwner owner, long publicationId) {
         PublishedOwner published = current.owners().get(owner);
         if (published == null || published.publicationId() != publicationId
-                || !published.leaseState().isAccepting()) {
+                || !published.leaseState().isAccepting()
+                || !ownerAdmission.test(owner.featurePluginId())) {
             return null;
         }
         return published;

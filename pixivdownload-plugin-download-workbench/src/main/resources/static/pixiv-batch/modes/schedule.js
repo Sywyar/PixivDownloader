@@ -1,9 +1,12 @@
 'use strict';
     // ── 计划任务（管理员专用） ────────────────────────────────────────────────────
-    // 方案：删除独立的「创建表单」，改为在 User / Search / 系列模式的工作区底部用
+    // 当前界面删除独立的「创建表单」，改为在 User / Search / 系列模式的工作区底部用
     // 「存为计划任务」卡片，直接快照当前模式来源 + 上方全部下载 / 筛选设置；第 5 个
     // Tab 仅做任务列表与管理（运行 / 授权 / 启停 / 编辑 / 删除）。
     let scheduleEditingId = null;
+    // 编辑器打开时固定任务版本与来源 publication；列表轮询不得替换这份 token。
+    let scheduleEditingToken = null;
+    const scheduleSourceTokens = new Map();
     // 编辑「快捷获取来源」类任务（收藏 / 关注新作 / 珍藏集）时锁定的来源 {type, source, kind, label}：
     // 这类任务无专属模式标签页，编辑时来源只读（换来源请删除重建），保存快照取此值而非当前 quick 视图。
     let scheduleEditingQuickSource = null;
@@ -22,6 +25,22 @@
     // 初始为 true：静态 HTML 的 #schedule-list 自带 .schedule-empty 占位符，首次加载到任务时需要先清空它再 diff。
     let scheduleEmptyStateRendered = true;
     const scheduleCardSignatures = new Map();
+
+    async function resolveScheduleSourceToken(sourceTypeOrAlias) {
+        const res = await fetch(`${BASE}/api/schedule/sources`, {credentials: 'same-origin'});
+        if (!res.ok) throw new Error(bt('schedule.error.save', '保存失败'));
+        const manifest = await res.json();
+        scheduleSourceTokens.clear();
+        (manifest && Array.isArray(manifest.sources) ? manifest.sources : []).forEach(source => {
+            if (!source || !source.sourceType || !source.activationToken) return;
+            scheduleSourceTokens.set(source.sourceType, source);
+            (Array.isArray(source.legacyAliases) ? source.legacyAliases : []).forEach(alias =>
+                scheduleSourceTokens.set(alias, source));
+        });
+        const source = scheduleSourceTokens.get(sourceTypeOrAlias);
+        if (!source) throw new Error(bt('schedule.error.save', '保存失败'));
+        return source;
+    }
     // 上次成功 diff 渲染计划任务列表时的 UI 语言。卡片签名只看任务数据、不含语言，所以仅靠
     // signature diff 无法在语言切换后重渲染卡片；loadScheduleTasks 用这个变量比对，当语言变化时
     // 强制丢弃签名 / 已渲染态，让卡片走 replace 路径，再补刷展开的「本轮队列详情」与待重试面板。
@@ -297,8 +316,14 @@
             return;
         }
         // 单独代理 / 单独 cookie 的输入先行校验（创建与编辑共用一套规则，避免任务保存后才发现设置失败）。
-        const editing = scheduleEditingId != null;
-        const prevTask = editing ? scheduleTaskById(scheduleEditingId) : null;
+        const editingId = scheduleEditingId;
+        const editing = editingId != null;
+        const editingToken = scheduleEditingToken;
+        const prevTask = editing ? scheduleTaskById(editingId) : null;
+        if (editing && (!editingToken || editingToken.taskId !== Number(editingId))) {
+            setScheduleFormStatus(bt('schedule.error.save', '保存失败'), 'error');
+            return;
+        }
         const ov = readScheduleOverrideInputs('sch');
         const ovError = validateScheduleOverrideInputs(ov, prevTask);
         if (ovError) {
@@ -316,14 +341,32 @@
         if (!await confirmScheduleOverrideClears(ov, prevTask)) {
             return;
         }
+        let source;
+        try {
+            source = editing ? {
+                sourceType: editingToken.sourceType,
+                activationToken: editingToken.activationToken
+            } : await resolveScheduleSourceToken(snap.type);
+        } catch (e) {
+            setScheduleFormStatus(e.message || bt('schedule.error.save', '保存失败'), 'error');
+            return;
+        }
+        if (scheduleEditingToken !== editingToken || scheduleEditingId !== editingId) return;
         const triggerKind = document.getElementById('sch-trigger').value;
-        const body = {name, type: snap.type, paramsJson: JSON.stringify(snap.params), triggerKind};
+        const body = {
+            name,
+            sourceType: source.sourceType,
+            activationToken: source.activationToken,
+            definitionJson: JSON.stringify(snap.params),
+            triggerKind
+        };
+        if (editing) body.expectedStateVersion = editingToken.stateVersion;
         if (triggerKind === 'interval') {
             body.intervalMinutes = parseInt(document.getElementById('sch-interval').value, 10) || 0;
         } else {
             body.cronExpr = (document.getElementById('sch-cron').value || '').trim();
         }
-        const url = editing ? `${BASE}/api/schedule/tasks/${scheduleEditingId}` : `${BASE}/api/schedule/tasks`;
+        const url = editing ? `${BASE}/api/schedule/tasks/${editingId}` : `${BASE}/api/schedule/tasks`;
         try {
             const res = await fetch(url, {
                 method: editing ? 'PUT' : 'POST',
@@ -339,17 +382,20 @@
                 return;
             }
             const saved = await res.json().catch(() => null);
-            const taskId = editing ? scheduleEditingId : (saved && saved.id != null ? saved.id : null);
+            const taskId = editing ? editingId : (saved && saved.id != null ? saved.id : null);
+            const taskActivationToken = saved && saved.sourceActivationToken
+                ? saved.sourceActivationToken : source.activationToken;
             // 应用单独代理 / 单独 cookie（任务本体已保存，失败不回滚，提示去列表弹窗重试）。
             let overrideResult = {ok: true, applied: false};
             if (taskId != null) {
-                overrideResult = await applyScheduleOverrides(taskId, ov, prevTask);
+                overrideResult = await applyScheduleOverrides(
+                    taskId, ov, prevTask, taskActivationToken);
             }
             // solo 模式下新建任务且未指定单独 cookie 时，用当前输入框里的 Cookie 自动授权绑定，
             // 省去手动绑定一步（指定了单独 cookie 则以 applyScheduleOverrides 的绑定为准）。
             let autoAuthResult = null;
             if (!editing && appMode === 'solo' && !ov.cookieChecked && taskId != null) {
-                autoAuthResult = await autoAuthorizeScheduleCookie(taskId);
+                autoAuthResult = await autoAuthorizeScheduleCookie(taskId, taskActivationToken);
             }
             // 先重置表单（resetScheduleForm 末尾会清空状态），再写入成功提示，
             // 否则成功提示会被 resetScheduleForm 的 setScheduleFormStatus('') 立刻清掉。
@@ -375,6 +421,7 @@
 
     function resetScheduleForm() {
         scheduleEditingId = null;
+        scheduleEditingToken = null;
         scheduleEditingQuickSource = null;
         const nameEl = document.getElementById('sch-name');
         if (nameEl) nameEl.value = '';
@@ -502,7 +549,7 @@
      * applied=true 表示至少发生了一次变更。任何一步失败即中止后续调用（任务本体的保存不回滚）。
      * cookie 留空且此前已绑定 = 保持不变；代理值与现状相同也不重复提交。
      */
-    async function applyScheduleOverrides(taskId, ov, prevTask) {
+    async function applyScheduleOverrides(taskId, ov, prevTask, activationToken) {
         const hadProxy = !!(prevTask && prevTask.proxy);
         const wasBound = !!(prevTask && prevTask.cookieBound);
         let applied = false;
@@ -516,7 +563,7 @@
             applied = true;
         }
         if (ov.cookieChecked && ov.cookieValue) {
-            const err = await postScheduleCookie(taskId, ov.cookieValue);
+            const err = await postScheduleCookie(taskId, ov.cookieValue, activationToken);
             if (err) return {ok: false, applied, error: err};
             applied = true;
         } else if (!ov.cookieChecked && wasBound) {
@@ -545,13 +592,13 @@
     }
 
     // 授权绑定单独 cookie。成功返回 null，失败返回错误文案（含后端「与已绑定相同」等原因）。
-    async function postScheduleCookie(taskId, cookie) {
+    async function postScheduleCookie(taskId, cookie, activationToken) {
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({cookie})
+                body: JSON.stringify({cookie, activationToken})
             });
             if (res.ok) return null;
             const err = await res.json().catch(() => ({}));
@@ -598,6 +645,17 @@
     function startEditScheduleTask(id) {
         const task = scheduleTasksCache.find(t => t.id === id);
         if (!task) return;
+        const stateVersion = Number(task.stateVersion);
+        const sourceType = task.sourceType || task.type;
+        const activationToken = typeof task.sourceActivationToken === 'string'
+            ? task.sourceActivationToken : '';
+        if (!sourceType || !activationToken || !Number.isSafeInteger(stateVersion) || stateVersion < 0) {
+            setScheduleFormStatus(bt('schedule.error.save', '保存失败'), 'error');
+            return;
+        }
+        scheduleEditingToken = Object.freeze({
+            taskId: Number(task.id), stateVersion, sourceType, activationToken
+        });
         // 进入编辑态时清掉上一次创建 / 保存留下的成功或失败提示。
         setScheduleFormStatus('');
         let params = {};
@@ -1224,8 +1282,9 @@
     function showScheduleOverrideModal(id) {
         const task = scheduleTaskById(id);
         const modal = document.getElementById('schedule-override-modal');
-        if (!task || !modal) return;
+        if (!task || !modal || !task.sourceActivationToken) return;
         modal.dataset.taskId = String(Number(id));
+        modal.dataset.sourceActivationToken = task.sourceActivationToken;
         const proxyEn = document.getElementById('sch-ov-proxy-enabled');
         if (proxyEn) proxyEn.checked = !!task.proxy;
         const proxyIn = document.getElementById('sch-ov-proxy');
@@ -1244,6 +1303,7 @@
         if (!modal) return;
         modal.hidden = true;
         delete modal.dataset.taskId;
+        delete modal.dataset.sourceActivationToken;
         document.body.classList.remove('schedule-modal-open');
     }
 
@@ -1258,6 +1318,12 @@
             setScheduleOverrideStatus(bt('schedule.snapshot.error.not-found', '未找到任务，请重新加载列表'), 'error');
             return;
         }
+        const expectedActivationToken = modal.dataset.sourceActivationToken || '';
+        if (!expectedActivationToken || task.sourceActivationToken !== expectedActivationToken) {
+            setScheduleOverrideStatus(
+                bt('schedule.snapshot.error.not-found', '任务状态已变化，请刷新后重试'), 'error');
+            return;
+        }
         const ov = readScheduleOverrideInputs('sch-ov');
         const error = validateScheduleOverrideInputs(ov, task);
         if (error) {
@@ -1267,7 +1333,7 @@
         if (!await confirmScheduleOverrideClears(ov, task)) {
             return;
         }
-        const result = await applyScheduleOverrides(id, ov, task);
+        const result = await applyScheduleOverrides(id, ov, task, expectedActivationToken);
         if (!result.ok) {
             setScheduleOverrideStatus(result.error, 'error');
             loadScheduleTasks();
@@ -2390,7 +2456,7 @@
 
     // solo 模式创建任务后自动用当前输入框里的 Cookie 绑定该任务；best-effort，不阻断创建流程。
     // 返回值：'authorized' 成功 / 'no-cookie' 当前无可用含 PHPSESSID 的 Cookie / 'failed' 请求失败。
-    async function autoAuthorizeScheduleCookie(id) {
+    async function autoAuthorizeScheduleCookie(id, activationToken) {
         const cookie = getCookieInputHeaderString().trim();
         if (!cookie || !/(?:^|;\s*)PHPSESSID=/.test(cookie)) return 'no-cookie';
         try {
@@ -2398,7 +2464,7 @@
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({cookie})
+                body: JSON.stringify({cookie, activationToken})
             });
             return res.ok ? 'authorized' : 'failed';
         } catch (e) {

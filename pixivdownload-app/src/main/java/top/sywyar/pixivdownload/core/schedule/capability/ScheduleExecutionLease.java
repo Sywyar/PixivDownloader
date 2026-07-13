@@ -9,24 +9,27 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescri
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/**
- * 一次调度执行所需全部 owner 的复合租约。任一 owner 撤回都会触发共享取消信号；close 后不再持插件 Bean。
- */
+/** 一次调度执行的复合租约；所有 owner 由一个根状态和一个附加 owner 分支共同控制。 */
 public final class ScheduleExecutionLease implements AutoCloseable {
 
-    record OwnerState(ScheduleCapabilityOwner owner, ScheduleLeaseState state) {
+    record OwnerState(
+            ScheduleCapabilityOwner owner,
+            long publicationId,
+            ScheduleLeaseState state,
+            ScheduleLeaseState.LeaseToken leaseToken) {
     }
 
+    private final SchedulePlanningLease planning;
+    private final ScheduleLeaseRoot root;
+    private final ScheduleLeaseBranch branch;
+    private final OwnerState sourceOwnerState;
+    private final List<OwnerState> additionalOwnerStates;
     private final String sourceType;
-    private final ScheduleLeaseState.CancellationSignal cancellation;
-    private final List<OwnerState> ownerStates;
     private final Set<ScheduleCapabilityOwner> owners;
 
     private ScheduledSourceDescriptor descriptor;
@@ -39,12 +42,12 @@ public final class ScheduleExecutionLease implements AutoCloseable {
     private ScheduleCapabilityOwner credentialPolicyOwner;
     private Map<String, ScheduledExecutionGuard> guards;
     private Map<String, ScheduleCapabilityOwner> guardOwners;
-    private boolean active = true;
 
     ScheduleExecutionLease(
-            String sourceType,
-            ScheduleLeaseState.CancellationSignal cancellation,
-            List<OwnerState> ownerStates,
+            SchedulePlanningLease planning,
+            ScheduleLeaseBranch branch,
+            OwnerState sourceOwnerState,
+            List<OwnerState> additionalOwnerStates,
             SchedulePlanningLease.TransferredSource source,
             Map<String, ScheduledWorkExecutor> workExecutors,
             Map<String, ScheduleCapabilityOwner> workExecutorOwners,
@@ -53,11 +56,16 @@ public final class ScheduleExecutionLease implements AutoCloseable {
             ScheduleCapabilityOwner credentialPolicyOwner,
             Map<String, ScheduledExecutionGuard> guards,
             Map<String, ScheduleCapabilityOwner> guardOwners) {
-        this.sourceType = sourceType;
-        this.cancellation = cancellation;
-        this.ownerStates = List.copyOf(ownerStates);
-        this.owners = ownerStates.stream().map(OwnerState::owner)
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        this.planning = planning;
+        this.root = planning.root();
+        this.branch = branch;
+        this.sourceOwnerState = sourceOwnerState;
+        this.additionalOwnerStates = List.copyOf(additionalOwnerStates);
+        this.sourceType = planning.sourceType();
+        java.util.LinkedHashSet<ScheduleCapabilityOwner> ownerSet = new java.util.LinkedHashSet<>();
+        ownerSet.add(sourceOwnerState.owner());
+        additionalOwnerStates.forEach(owner -> ownerSet.add(owner.owner()));
+        this.owners = Set.copyOf(ownerSet);
         this.descriptor = source.descriptor();
         this.sourceExecutor = source.sourceExecutor();
         this.legacySourceProvider = source.legacySourceProvider();
@@ -155,40 +163,76 @@ public final class ScheduleExecutionLease implements AutoCloseable {
 
     public synchronized ScheduledCancellation cancellation() {
         ensureActive();
-        return cancellation;
+        return root.cancellation();
     }
 
-    public synchronized boolean isActive() {
-        return active;
+    public boolean isActive() {
+        return root.isExecution();
+    }
+
+    SchedulePlanningLease planning() {
+        return planning;
+    }
+
+    ScheduleLeaseBranch branch() {
+        return branch;
+    }
+
+    OwnerState sourceOwnerState() {
+        return sourceOwnerState;
+    }
+
+    List<OwnerState> additionalOwnerStates() {
+        return additionalOwnerStates;
     }
 
     @Override
-    public void close() {
-        List<OwnerState> releases = List.of();
-        synchronized (this) {
-            if (active) {
-                descriptor = null;
-                sourceExecutor = null;
-                legacySourceProvider = null;
-                workExecutors = Map.of();
-                workExecutorOwners = Map.of();
-                legacyWorkRunners = Map.of();
-                credentialPolicy = null;
-                credentialPolicyOwner = null;
-                guards = Map.of();
-                guardOwners = Map.of();
-                active = false;
-                releases = new ArrayList<>(ownerStates);
+    public synchronized void close() {
+        boolean closedExecution = root.closeExecution();
+        branch.close();
+        Throwable failure = null;
+        try {
+            for (OwnerState ownerState : additionalOwnerStates) {
+                try {
+                    ownerState.state().release(ownerState.leaseToken());
+                } catch (Throwable releaseFailure) {
+                    failure = preferred(failure, releaseFailure);
+                }
             }
+            if (closedExecution || root.isClosed()) {
+                try {
+                    sourceOwnerState.state().release(sourceOwnerState.leaseToken());
+                } catch (Throwable releaseFailure) {
+                    failure = preferred(failure, releaseFailure);
+                }
+            }
+        } finally {
+            descriptor = null;
+            sourceExecutor = null;
+            legacySourceProvider = null;
+            workExecutors = Map.of();
+            workExecutorOwners = Map.of();
+            legacyWorkRunners = Map.of();
+            credentialPolicy = null;
+            credentialPolicyOwner = null;
+            guards = Map.of();
+            guardOwners = Map.of();
         }
-        for (OwnerState ownerState : releases) {
-            ownerState.state().release(cancellation);
+        ScheduleSingleCapabilityLease.rethrow(failure);
+    }
+
+    private static Throwable preferred(Throwable current, Throwable candidate) {
+        if (current == null || (!(current instanceof VirtualMachineError)
+                && !(current instanceof ThreadDeath)
+                && (candidate instanceof VirtualMachineError || candidate instanceof ThreadDeath))) {
+            return candidate;
         }
+        return current;
     }
 
     private void ensureActive() {
-        if (!active) {
-            throw new IllegalStateException("schedule execution lease is closed");
+        if (!root.isExecution()) {
+            throw new IllegalStateException("schedule execution lease is not active");
         }
     }
 }

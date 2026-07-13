@@ -48,9 +48,10 @@ public class ScheduleRunner {
         if (handle == null) {
             return;
         }
-        try (ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease =
-                     scheduleCapabilityRegistry.tryAcquire(handle).orElse(null)) {
-            if (hostLease == null) {
+        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease =
+                scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
+        try (hostLease) {
+            if (hostLease == null || !scheduleCapabilityRegistry.activate(hostLease)) {
                 return;
             }
             tickLeased(hostLease.cancellation());

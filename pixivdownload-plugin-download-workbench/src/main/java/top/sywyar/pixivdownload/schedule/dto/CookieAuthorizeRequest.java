@@ -12,6 +12,10 @@ import lombok.Data;
 @Data
 public class CookieAuthorizeRequest {
 
+    /** 来源清单给出的当前 publication 激活令牌。 */
+    @NotBlank
+    private String activationToken;
+
     @NotBlank
     private String cookie;
 }

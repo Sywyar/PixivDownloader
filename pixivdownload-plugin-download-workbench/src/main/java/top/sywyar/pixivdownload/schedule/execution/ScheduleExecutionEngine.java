@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,7 +45,9 @@ import top.sywyar.pixivdownload.schedule.ScheduleDefinitionException;
 import top.sywyar.pixivdownload.schedule.ScheduleExecutorUnavailableException;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
+import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedException;
 import top.sywyar.pixivdownload.schedule.ScheduleSourceUnavailableException;
+import top.sywyar.pixivdownload.schedule.definition.ScheduleExecutionPlanGate;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
@@ -64,7 +67,7 @@ import java.util.function.Consumer;
 public final class ScheduleExecutionEngine {
 
     /** 单个计划任务允许的宿主级最大在途作品数。 */
-    public static final int MAX_WORK_IN_FLIGHT = 256;
+    public static final int MAX_WORK_IN_FLIGHT = ScheduleExecutionPlanGate.MAX_IN_FLIGHT;
 
     private final ScheduledTaskStore store;
     private final ScheduleCapabilityRegistry registry;
@@ -116,15 +119,21 @@ public final class ScheduleExecutionEngine {
     }
 
     public boolean canResolve(ScheduledTask task) {
-        try (SchedulePlanningLease planning = registry.tryAcquireSource(task.sourceType()).orElse(null)) {
-            if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
+        SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
+        try (planning) {
+            if (planning == null || !registry.activate(planning)
+                    || !matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
                 return false;
             }
-            ScheduledExecutionPlan plan = requirePlan(planning.sourceExecutor().orElseThrow()
-                    .plan(toDefinition(task)));
+            ScheduledSourceDescriptor descriptor = planning.descriptor().orElseThrow();
+            ScheduledExecutionPlan plan = requirePlan(
+                    descriptor,
+                    invokeSourcePlan(planning.sourceExecutor().orElseThrow(), toDefinition(task)));
             validateStoredCheckpoint(plan, task);
-            try (ScheduleExecutionLease execution = registry.tryExpand(planning, plan).orElse(null)) {
-                return execution != null && !execution.cancellation().isCancellationRequested();
+            ScheduleExecutionLease execution = registry.prepareExpansion(planning, plan).orElse(null);
+            try (execution) {
+                return execution != null && registry.activate(execution)
+                        && !execution.cancellation().isCancellationRequested();
             }
         } catch (Exception ignored) {
             return false;
@@ -134,43 +143,73 @@ public final class ScheduleExecutionEngine {
     /**
      * 为一次凭证绑定取得来源 plan 声明的完整复合租约，并解析任务级 route。调用方须持有返回租约直到 CAS 完成。
      */
-    public ScheduleCredentialBindingLease prepareCredentialBinding(ScheduledTask task)
+    public ScheduleCredentialBindingLease prepareCredentialBinding(
+            ScheduledTask task,
+            String expectedActivationToken)
             throws ScheduleSourceUnavailableException,
+            ScheduleSourcePublicationChangedException,
             ScheduleExecutorUnavailableException,
             ScheduleDefinitionException,
             ScheduledExecutionException {
         Objects.requireNonNull(task, "task");
-        SchedulePlanningLease planning = registry.tryAcquireSource(task.sourceType()).orElse(null);
-        if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
-            if (planning != null) {
+        SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
+        if (planning != null
+                && !Objects.equals(expectedActivationToken, planning.activationToken())) {
+            planning.close();
+            throw new ScheduleSourcePublicationChangedException(task.sourceType());
+        }
+        if (planning == null) {
+            throw new ScheduleSourceUnavailableException(task.sourceType());
+        }
+        try (planning) {
+        try {
+            if (!registry.activate(planning)) {
                 planning.close();
+                throw new ScheduleSourceUnavailableException(task.sourceType());
             }
+        } catch (ScheduleSourceUnavailableException failure) {
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.source.activation-failed");
+        }
+        if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
+            planning.close();
             throw new ScheduleSourceUnavailableException(task.sourceType());
         }
         ScheduledTaskDefinition definition;
+        ScheduledSourceDescriptor descriptor;
         ScheduledSourceExecutor sourceExecutor;
         try {
             definition = toDefinition(task);
-            validateDefinition(task, planning.descriptor().orElseThrow());
+            descriptor = planning.descriptor().orElseThrow();
+            validateDefinition(task, descriptor);
             sourceExecutor = planning.sourceExecutor().orElseThrow();
         } catch (ScheduleDefinitionException failure) {
             planning.close();
             throw failure;
-        } catch (Throwable ignored) {
-            planning.close();
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
             throw pluginFailure("schedule.source.definition-failed");
         }
         ScheduledExecutionPlan plan;
         try {
-            plan = requirePlan(sourceExecutor.plan(definition));
+            plan = invokeSourcePlan(sourceExecutor, definition);
         } catch (ScheduledExecutionException failure) {
-            ScheduledExecutionException safeFailure =
-                    safePluginException(failure, "schedule.source.plan-failed");
             planning.close();
-            throw safeFailure;
-        } catch (Throwable ignored) {
-            planning.close();
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
             throw pluginFailure("schedule.source.plan-failed");
+        }
+        try {
+            plan = requirePlan(descriptor, plan);
+        } catch (ScheduledExecutionException failure) {
+            planning.close();
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.plan.capability-mismatch");
         }
         if (plan.credentialRequirement() == ScheduledCredentialRequirement.NONE) {
             planning.close();
@@ -180,14 +219,14 @@ public final class ScheduleExecutionEngine {
         }
         ScheduleExecutionLease execution;
         try {
-            execution = registry.tryExpand(planning, plan).orElse(null);
+            execution = registry.prepareExpansion(planning, plan).orElse(null);
         } catch (IllegalArgumentException failure) {
             planning.close();
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.INVALID_DEFINITION,
                     "schedule.plan.capability-mismatch");
-        } catch (Throwable ignored) {
-            planning.close();
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
             throw pluginFailure("schedule.plan.expansion-failed");
         }
         if (execution == null) {
@@ -196,6 +235,11 @@ public final class ScheduleExecutionEngine {
                     task.sourceType(), plan.requiredWorkTypes());
         }
         try {
+            if (!registry.activate(execution)) {
+                throw new ScheduleExecutorUnavailableException(
+                        task.sourceType(), plan.requiredWorkTypes());
+            }
+            planning.close();
             execution.cancellation().throwIfCancellationRequested();
             ScheduleCapabilityOwner policyOwner = execution.credentialPolicyOwner()
                     .orElseThrow(() -> pluginFailure("schedule.credential.policy-unavailable"));
@@ -211,12 +255,18 @@ public final class ScheduleExecutionEngine {
             return new ScheduleCredentialBindingLease(
                     this, task.id(), policyOwner.featurePluginId(), plan.credentialPolicyId(),
                     execution, definition, route);
+        } catch (ScheduleExecutorUnavailableException failure) {
+            execution.close();
+            planning.close();
+            throw failure;
         } catch (ScheduleDefinitionException | ScheduledExecutionException failure) {
             execution.close();
+            planning.close();
             throw failure;
-        } catch (Throwable ignored) {
-            execution.close();
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(execution, planning, failure);
             throw pluginFailure("schedule.credential.binding-prepare-failed");
+        }
         }
     }
 
@@ -239,11 +289,24 @@ public final class ScheduleExecutionEngine {
             ScheduleExecutionControlException,
             ScheduledExecutionException {
         Objects.requireNonNull(pendingExhaustedListener, "pendingExhaustedListener");
-        SchedulePlanningLease planning = registry.tryAcquireSource(task.sourceType()).orElse(null);
-        if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
-            if (planning != null) {
+        SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
+        if (planning == null) {
+            throw new ScheduleSourceUnavailableException(task.sourceType());
+        }
+        try (planning) {
+        try {
+            if (!registry.activate(planning)) {
                 planning.close();
+                throw new ScheduleSourceUnavailableException(task.sourceType());
             }
+        } catch (ScheduleSourceUnavailableException failure) {
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.source.activation-failed");
+        }
+        if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
+            planning.close();
             throw new ScheduleSourceUnavailableException(task.sourceType());
         }
         ScheduledTaskDefinition definition;
@@ -257,21 +320,28 @@ public final class ScheduleExecutionEngine {
         } catch (ScheduleDefinitionException failure) {
             planning.close();
             throw failure;
-        } catch (Throwable ignored) {
-            planning.close();
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
             throw pluginFailure("schedule.source.definition-failed");
         }
         ScheduledExecutionPlan plan;
         try {
-            plan = requirePlan(sourceExecutor.plan(definition));
+            plan = invokeSourcePlan(sourceExecutor, definition);
         } catch (ScheduledExecutionException failure) {
-            ScheduledExecutionException safeFailure =
-                    safePluginException(failure, "schedule.source.plan-failed");
             planning.close();
-            throw safeFailure;
-        } catch (Throwable ignored) {
-            planning.close();
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
             throw pluginFailure("schedule.source.plan-failed");
+        }
+        try {
+            plan = requirePlan(descriptor, plan);
+        } catch (ScheduledExecutionException failure) {
+            planning.close();
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.plan.capability-mismatch");
         }
         ScheduledCheckpoint storedCheckpoint;
         try {
@@ -279,18 +349,21 @@ public final class ScheduleExecutionEngine {
         } catch (ScheduledExecutionException failure) {
             planning.close();
             throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.checkpoint.payload-invalid");
         }
 
         ScheduleExecutionLease execution;
         try {
-            execution = registry.tryExpand(planning, plan).orElse(null);
+            execution = registry.prepareExpansion(planning, plan).orElse(null);
         } catch (IllegalArgumentException failure) {
             planning.close();
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.INVALID_DEFINITION,
                     "schedule.plan.capability-mismatch");
-        } catch (Throwable ignored) {
-            planning.close();
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
             throw pluginFailure("schedule.plan.expansion-failed");
         }
         if (execution == null) {
@@ -298,6 +371,10 @@ public final class ScheduleExecutionEngine {
             throw new ScheduleExecutorUnavailableException(task.sourceType(), plan.requiredWorkTypes());
         }
         try {
+            if (!registry.activate(execution)) {
+                throw new ScheduleExecutorUnavailableException(
+                        task.sourceType(), plan.requiredWorkTypes());
+            }
             ScheduledCancellation leaseCancellation = execution.cancellation();
             ScheduledCancellation cancellation = () -> leaseCancellation.isCancellationRequested()
                     || runState.isCancelRequested(task.id());
@@ -415,25 +492,43 @@ public final class ScheduleExecutionEngine {
                         Throwable primary = caught instanceof ScheduleWorkCoordinator.CoordinatorSignal signal
                                 ? signal.failure()
                                 : caught;
+                        DeferredFatal fatalFailures = new DeferredFatal();
+                        fatalFailures.capture(primary);
                         coordinator.stopAccepting();
-                        ScheduledFailure safeFailure = safeFailure(primary);
                         try {
                             coordinator.drain();
-                        } catch (Throwable ignored) {
-                            // 失败 Guard 必须保留原始安全分类；drain 的次生失败不能覆盖它。
+                        } catch (Throwable drainFailure) {
+                            // 非致命次生失败不能覆盖原始分类；fatal 延后到全部清理完成后传播。
+                            fatalFailures.capture(drainFailure);
                         }
-                        abortExecutors(definition, execution.workExecutors());
-                        if (!(primary instanceof ScheduleExecutionControlException)
-                                && safeFailure.category() != ScheduledFailure.Category.CANCELLED) {
-                            guardInvoker.invokeFailureOnce(
-                                    coordinator.attemptedWorkCount(), safeFailure);
+                        abortExecutors(
+                                definition, execution.workExecutors(), fatalFailures);
+                        if (!fatalFailures.hasFailure()) {
+                            ScheduledFailure safeFailure;
+                            try {
+                                safeFailure = safeFailure(primary);
+                            } catch (Throwable failureProjectionFailure) {
+                                fatalFailures.capture(failureProjectionFailure);
+                                safeFailure = new ScheduledFailure(
+                                        ScheduledFailure.Category.INTERNAL,
+                                        "schedule.execution.failed",
+                                        0L);
+                            }
+                            if (!fatalFailures.hasFailure()
+                                    && !(primary instanceof ScheduleExecutionControlException)
+                                    && safeFailure.category() != ScheduledFailure.Category.CANCELLED) {
+                                guardInvoker.invokeFailureOnce(
+                                        coordinator.attemptedWorkCount(), safeFailure, fatalFailures);
+                            }
                         }
+                        fatalFailures.rethrowIfPresent();
                         rethrow(primary);
                         throw new AssertionError("unreachable");
                     }
                 } catch (ScheduleExecutionControlException | ScheduledExecutionException failure) {
                     throw failure;
-                } catch (Throwable ignored) {
+                } catch (Throwable failure) {
+                    rethrowFatal(failure);
                     throw pluginFailure("schedule.execution.plugin-failure");
                 }
             }
@@ -447,6 +542,8 @@ public final class ScheduleExecutionEngine {
             return result;
         } finally {
             execution.close();
+            planning.close();
+        }
         }
     }
 
@@ -542,7 +639,8 @@ public final class ScheduleExecutionEngine {
                 probe = policy.probe(context);
             } catch (ScheduledExecutionException failure) {
                 throw safePluginException(failure, "schedule.credential.probe-failed");
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
                 throw pluginFailure("schedule.credential.probe-failed");
             }
         }
@@ -620,7 +718,8 @@ public final class ScheduleExecutionEngine {
                 result = policy.probeForBinding(context);
             } catch (ScheduledExecutionException failure) {
                 throw safePluginException(failure, "schedule.credential.bind-probe-failed");
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
                 throw pluginFailure("schedule.credential.bind-probe-failed");
             }
         }
@@ -649,7 +748,7 @@ public final class ScheduleExecutionEngine {
                     probe, initialPolicyStateJson, postBind);
         } catch (ScheduledExecutionException failure) {
             throw failure;
-        } catch (Throwable ignored) {
+        } catch (RuntimeException ignored) {
             throw pluginFailure("schedule.credential.invalid-bind-result");
         }
     }
@@ -696,7 +795,7 @@ public final class ScheduleExecutionEngine {
             throws ScheduledExecutionException {
         try {
             return strictReader.readTree(json);
-        } catch (Throwable ignored) {
+        } catch (JsonProcessingException | IllegalArgumentException ignored) {
             throw pluginFailure("schedule.credential.invalid-policy-state");
         }
     }
@@ -710,7 +809,7 @@ public final class ScheduleExecutionEngine {
         try {
             JsonNode nested = strictReader.readTree(candidate);
             return nested != null && (nested.isObject() || nested.isArray()) ? nested : null;
-        } catch (Throwable strictFailure) {
+        } catch (JsonProcessingException | IllegalArgumentException strictFailure) {
             try {
                 JsonNode permissive = objectMapper.readTree(candidate);
                 if (permissive != null && (permissive.isObject() || permissive.isArray())) {
@@ -718,7 +817,7 @@ public final class ScheduleExecutionEngine {
                 }
             } catch (ScheduledExecutionException failure) {
                 throw failure;
-            } catch (Throwable ignored) {
+            } catch (JsonProcessingException | IllegalArgumentException ignored) {
                 // 以花括号开头的普通文本不是嵌套 JSON，不按策略状态解释。
             }
             return null;
@@ -733,6 +832,7 @@ public final class ScheduleExecutionEngine {
             Map<String, ScheduledWorkExecutor> executors,
             Map<String, ScheduledWorkRunStatistics> statistics) throws ScheduledExecutionException {
         ScheduledExecutionException firstFailure = null;
+        DeferredFatal fatalFailures = new DeferredFatal();
         for (Map.Entry<String, ScheduledWorkExecutor> entry : executors.entrySet()) {
             String workType = entry.getKey();
             ScheduledWorkRunStatistics typeStatistics = statistics.get(workType);
@@ -773,16 +873,25 @@ public final class ScheduleExecutionEngine {
                     entry.getValue().finishRun(context);
                 }
             } catch (ScheduledExecutionException failure) {
-                if (firstFailure == null) {
-                    firstFailure = safePluginException(
+                try {
+                    ScheduledExecutionException safeFailure = safePluginException(
                             failure, "schedule.work.finalizer-failed");
+                    if (firstFailure == null) {
+                        firstFailure = safeFailure;
+                    }
+                } catch (Throwable failureProjectionFailure) {
+                    if (!fatalFailures.capture(failureProjectionFailure)
+                            && firstFailure == null) {
+                        firstFailure = pluginFailure("schedule.work.finalizer-failed");
+                    }
                 }
-            } catch (Throwable ignored) {
-                if (firstFailure == null) {
+            } catch (Throwable failure) {
+                if (!fatalFailures.capture(failure) && firstFailure == null) {
                     firstFailure = pluginFailure("schedule.work.finalizer-failed");
                 }
             }
         }
+        fatalFailures.rethrowIfPresent();
         if (firstFailure != null) {
             throw firstFailure;
         }
@@ -790,12 +899,14 @@ public final class ScheduleExecutionEngine {
 
     private static void abortExecutors(
             ScheduledTaskDefinition definition,
-            Map<String, ScheduledWorkExecutor> executors) {
+            Map<String, ScheduledWorkExecutor> executors,
+            DeferredFatal fatalFailures) {
         for (ScheduledWorkExecutor executor : executors.values()) {
             try {
                 executor.abortRun(definition);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
                 // 异常终止清理逐个 best-effort，不能阻断后续 executor 或覆盖原始失败。
+                fatalFailures.capture(failure);
             }
         }
     }
@@ -889,24 +1000,129 @@ public final class ScheduleExecutionEngine {
         }
     }
 
-    private static ScheduledExecutionPlan requirePlan(ScheduledExecutionPlan plan)
+    private static ScheduledExecutionPlan requirePlan(
+            ScheduledSourceDescriptor descriptor,
+            ScheduledExecutionPlan plan)
             throws ScheduledExecutionException {
-        if (plan == null) {
-            throw pluginFailure("schedule.source.null-plan");
-        }
-        if (plan.maxInFlight() > MAX_WORK_IN_FLIGHT) {
-            throw new ScheduledExecutionException(
-                    ScheduledFailure.Category.INVALID_DEFINITION,
-                    "schedule.plan.max-in-flight-too-large");
-        }
-        for (ScheduledGuardBinding binding : plan.guards()) {
-            if (binding.workBatchSize() > 100_000) {
-                throw new ScheduledExecutionException(
+        try {
+            return ScheduleExecutionPlanGate.validate(descriptor, plan);
+        } catch (ScheduleExecutionPlanGate.Violation failure) {
+            throw switch (failure.reason()) {
+                case NULL_PLAN -> pluginFailure("schedule.source.null-plan");
+                case MAX_IN_FLIGHT_TOO_LARGE -> new ScheduledExecutionException(
+                        ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.plan.max-in-flight-too-large");
+                case WORK_BATCH_TOO_LARGE -> new ScheduledExecutionException(
                         ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.plan.guard-batch-too-large");
+                case DUPLICATE_GUARD, UNDECLARED_WORK_TYPE,
+                        UNDECLARED_CREDENTIAL_POLICY, UNDECLARED_GUARD ->
+                        new ScheduledExecutionException(
+                                ScheduledFailure.Category.INVALID_DEFINITION,
+                                "schedule.plan.capability-mismatch");
+            };
+        }
+    }
+
+    private static ScheduledExecutionPlan invokeSourcePlan(
+            ScheduledSourceExecutor sourceExecutor,
+            ScheduledTaskDefinition definition) throws ScheduledExecutionException {
+        try {
+            return sourceExecutor.plan(definition);
+        } catch (ScheduledExecutionException failure) {
+            throw safePluginException(failure, "schedule.source.plan-failed");
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            throw pluginFailure("schedule.source.plan-failed");
+        }
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            throw fatal;
+        }
+    }
+
+    /** 先完成租约释放，再决定 fatal 是否必须原样越过插件异常归一边界。 */
+    private static void closeBeforeFatalPropagation(AutoCloseable lease, Throwable failure) {
+        DeferredFatal fatalFailures = new DeferredFatal();
+        fatalFailures.capture(failure);
+        try {
+            lease.close();
+        } catch (Throwable closeFailure) {
+            if (!fatalFailures.capture(closeFailure) && failure != closeFailure) {
+                failure.addSuppressed(closeFailure);
             }
         }
-        return plan;
+        fatalFailures.rethrowIfPresent();
+    }
+
+    private static void closeBeforeFatalPropagation(
+            AutoCloseable first,
+            AutoCloseable second,
+            Throwable failure) {
+        DeferredFatal fatalFailures = new DeferredFatal();
+        fatalFailures.capture(failure);
+        closeForPropagation(first, failure, fatalFailures);
+        closeForPropagation(second, failure, fatalFailures);
+        fatalFailures.rethrowIfPresent();
+    }
+
+    private static void closeForPropagation(
+            AutoCloseable lease,
+            Throwable failure,
+            DeferredFatal fatalFailures) {
+        try {
+            lease.close();
+        } catch (Throwable closeFailure) {
+            if (!fatalFailures.capture(closeFailure) && failure != closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+        }
+    }
+
+    /**
+     * best-effort 清理不能因首个失败中断；fatal 仍必须在全部清理完成后原样传播，后续 fatal 作为 suppressed 保留。
+     */
+    private static final class DeferredFatal {
+        private Error first;
+
+        boolean capture(Throwable failure) {
+            Error fatal = fatalError(failure);
+            if (fatal == null) {
+                return false;
+            }
+            if (first == null) {
+                first = fatal;
+            } else if (first != fatal) {
+                first.addSuppressed(fatal);
+            }
+            return true;
+        }
+
+        boolean hasFailure() {
+            return first != null;
+        }
+
+        void rethrowIfPresent() {
+            if (first == null) {
+                return;
+            }
+            throw first;
+        }
+
+        private static Error fatalError(Throwable failure) {
+            if (failure instanceof VirtualMachineError fatal) {
+                return fatal;
+            }
+            if (failure instanceof ThreadDeath fatal) {
+                return fatal;
+            }
+            return null;
+        }
     }
 
     private static Map<String, Integer> resolveWorkConcurrencyLimits(
@@ -917,7 +1133,8 @@ public final class ScheduleExecutionEngine {
             int executorLimit;
             try {
                 executorLimit = entry.getValue().maxConcurrency();
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                rethrowFatal(failure);
                 throw pluginFailure("schedule.work.concurrency-limit-failed");
             }
             if (executorLimit <= 0) {
@@ -961,6 +1178,7 @@ public final class ScheduleExecutionEngine {
 
     private static void rethrow(Throwable failure)
             throws ScheduleExecutionControlException, ScheduledExecutionException {
+        rethrowFatal(failure);
         if (failure instanceof ScheduleExecutionControlException control) {
             throw control;
         }
@@ -983,7 +1201,8 @@ public final class ScheduleExecutionEngine {
             }
             return new ScheduledExecutionException(
                     failure.category(), code, failure.retryAfterMillis());
-        } catch (Throwable ignored) {
+        } catch (Throwable projectionFailure) {
+            rethrowFatal(projectionFailure);
             return pluginFailure(fallbackCode);
         }
     }
@@ -1095,7 +1314,10 @@ public final class ScheduleExecutionEngine {
             return revoked;
         }
 
-        void invokeFailureOnce(long attempted, ScheduledFailure failure) {
+        void invokeFailureOnce(
+                long attempted,
+                ScheduledFailure failure,
+                DeferredFatal fatalFailures) {
             if (failureInvoked) {
                 return;
             }
@@ -1109,8 +1331,9 @@ public final class ScheduleExecutionEngine {
                             .orElseThrow(() -> pluginFailure("schedule.guard.unavailable"));
                     invokeOne(guard, binding.guardId(), ScheduledGuardPoint.RUN_FAILURE,
                             attempted, failure);
-                } catch (Exception ignored) {
-                    // 每个 failure Guard 独立 best-effort，不能阻断后续 Guard 或覆盖原始失败。
+                } catch (Throwable guardFailure) {
+                    // 每个 failure Guard 独立 best-effort；非致命失败不覆盖主失败，fatal 延后传播。
+                    fatalFailures.capture(guardFailure);
                 }
             }
         }
@@ -1176,7 +1399,8 @@ public final class ScheduleExecutionEngine {
                     return result;
                 } catch (ScheduledExecutionException scheduled) {
                     throw safePluginException(scheduled, "schedule.guard.plugin-failure");
-                } catch (Throwable ignored) {
+                } catch (Throwable callbackFailure) {
+                    rethrowFatal(callbackFailure);
                     throw pluginFailure("schedule.guard.plugin-failure");
                 }
             }

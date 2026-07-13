@@ -68,7 +68,7 @@ class PluginScheduleContributionRegistrarTest {
         ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
         PluginRegistry activeRegistry = new PluginRegistry(List.of());
         PluginRegistry.RegisteredPlugin actual = registeredFeature(
-                "ext-authorized", "ext-authorized-package", 1L,
+                "ext-authorized", "ext-authorized", 1L,
                 List.of(sourceProvider("authorized", "AUTHORIZED")), List.of());
         activeRegistry.register(actual);
         LegacyScheduledTaskMigrationService migrationService = (reservation, adapter) ->
@@ -106,12 +106,12 @@ class PluginScheduleContributionRegistrarTest {
 
         try (AnnotationConfigApplicationContext child = completeChildContext("alpha", "alpha-work")) {
             ScheduleCapabilityPublication publication = register(registrar,
-                    registeredFeature("ext-a", "ext-package", 7L,
+                    registeredFeature("ext-a", "ext-a", 7L,
                             List.of(sourceProvider("alpha", "ALPHA")),
                             List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA"))), child).orElseThrow();
 
             assertThat(publication.owner()).isEqualTo(
-                    new ScheduleCapabilityOwner("ext-a", "ext-package", 7L));
+                    new ScheduleCapabilityOwner("ext-a", "ext-a", 7L));
             assertThat(registry.snapshotView().owners()).singleElement().satisfies(owner -> {
                 assertThat(owner.owner()).isEqualTo(publication.owner());
                 assertThat(owner.legacySourceTypes()).containsExactly("alpha");
@@ -171,11 +171,12 @@ class PluginScheduleContributionRegistrarTest {
         ScheduleCapabilityPublication publication = register(registrar,
                 registeredFeature("ext-a", "ext-a", 3L,
                         List.of(sourceProvider("alpha", "ALPHA")), List.of()), null).orElseThrow();
-        SchedulePlanningLease lease = registry.tryAcquireSource("alpha").orElseThrow();
+        SchedulePlanningLease lease = registry.prepareSource("alpha").orElseThrow();
+        assertThat(registry.activate(lease)).isTrue();
 
         ScheduleGenerationDrain drain = registrar.withdraw(AUTHORITY, publication).orElseThrow();
 
-        assertThat(registry.tryAcquireSource("alpha")).isEmpty();
+        assertThat(registry.prepareSource("alpha")).isEmpty();
         assertThat(lease.cancellation().isCancellationRequested()).isTrue();
         assertThat(drain.activeLeaseCount()).isEqualTo(1);
         assertThat(drain.isDrained()).isFalse();
@@ -295,7 +296,7 @@ class PluginScheduleContributionRegistrarTest {
             child.refresh();
 
             assertThat(register(registrar, registeredFeature(
-                    "ext-a", "ext-package", 9L,
+                    "ext-a", "ext-a", 9L,
                     List.of(sourceProvider("alpha", "ALPHA")),
                     List.of()), child)).isPresent();
         }
@@ -343,7 +344,7 @@ class PluginScheduleContributionRegistrarTest {
             child.refresh();
 
             assertThat(register(registrar, registeredFeature(
-                    "source-owner", "source-package", 2L,
+                    "source-owner", "source-owner", 2L,
                     List.of(sourceProvider("alpha", "ALPHA")), List.of()), child)).isPresent();
         }
 
@@ -373,7 +374,7 @@ class PluginScheduleContributionRegistrarTest {
             child.refresh();
 
             assertThatThrownBy(() -> register(registrar, registeredFeature(
-                    "source-owner", "source-package", 3L,
+                    "source-owner", "source-owner", 3L,
                     List.of(sourceProvider("alpha", "ALPHA")), List.of()), child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("unavailable credential policy missing-policy");
@@ -390,7 +391,7 @@ class PluginScheduleContributionRegistrarTest {
         PluginScheduleContributionRegistrar registrar = registrar(registry);
 
         assertThatThrownBy(() -> register(registrar, registeredFeature(
-                "ext-a", "ext-package", 10L,
+                "ext-a", "ext-a", 10L,
                 List.of(sourceProvider("alpha", "SHARED"), sourceProvider("beta", "SHARED")),
                 List.of()), null))
                 .isInstanceOf(IllegalStateException.class)
@@ -417,7 +418,7 @@ class PluginScheduleContributionRegistrarTest {
             child.refresh();
 
             assertThatThrownBy(() -> register(registrar, registeredFeature(
-                    "ext-a", "ext-package", 10L,
+                    "ext-a", "ext-a", 10L,
                     List.of(sourceProvider("alpha", "ALPHA")), List.of()), child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("duplicate legacy persistence descriptor: alpha")
@@ -442,7 +443,7 @@ class PluginScheduleContributionRegistrarTest {
             child.refresh();
 
             assertThatThrownBy(() -> register(registrar, registeredFeature(
-                    "ext-a", "ext-package", 11L,
+                    "ext-a", "ext-a", 11L,
                     List.of(sourceProvider("alpha", "ALPHA")), List.of()), child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("multiple legacy schedule migration adapters")
@@ -473,7 +474,7 @@ class PluginScheduleContributionRegistrarTest {
         PluginScheduleContributionRegistrar registrar = registrar(registry, migrationService);
 
         assertThatThrownBy(() -> register(registrar, registeredFeature(
-                "ext-b", "package-b", 1L,
+                "ext-b", "ext-b", 1L,
                 List.of(sourceProvider("beta", "SHARED")), List.of()), null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("duplicate scheduled source name")
@@ -499,7 +500,7 @@ class PluginScheduleContributionRegistrarTest {
 
         try (AnnotationConfigApplicationContext child = completeChildContext("alpha", "alpha-work")) {
             assertThat(register(registrar, registeredFeature(
-                    "ext-a", "package-a", 1L,
+                    "ext-a", "ext-a", 1L,
                     List.of(sourceProvider("alpha", "ALPHA")),
                     List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA"))), child)).isPresent();
         }

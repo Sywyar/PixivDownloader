@@ -265,12 +265,29 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             inFlight++;
             inFlightByType.merge(workType, 1, Integer::sum);
             inFlightWork.put(future, new InFlightWork(work, retry, workType));
-        } catch (RuntimeException failure) {
-            future.cancel(false);
-            completions.remove(future);
-            recordCompletion(Completion.failure(work, retry, new ScheduledFailure(
-                    ScheduledFailure.Category.INTERNAL,
-                    "schedule.work.dispatch-failed", 0L)));
+        } catch (Throwable failure) {
+            Error fatalFailure = fatalError(failure);
+            try {
+                future.cancel(false);
+            } catch (Throwable cleanupFailure) {
+                fatalFailure = appendFatal(fatalFailure, cleanupFailure);
+            }
+            try {
+                completions.remove(future);
+            } catch (Throwable cleanupFailure) {
+                fatalFailure = appendFatal(fatalFailure, cleanupFailure);
+            }
+            try {
+                recordCompletion(Completion.failure(work, retry, new ScheduledFailure(
+                        ScheduledFailure.Category.INTERNAL,
+                        "schedule.work.dispatch-failed", 0L)));
+            } catch (Throwable cleanupFailure) {
+                fatalFailure = appendFatal(fatalFailure, cleanupFailure);
+            }
+            rethrowFatal(fatalFailure);
+            if (failure instanceof Error error) {
+                throw error;
+            }
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.INTERNAL,
                     "schedule.work.dispatch-failed");
@@ -323,7 +340,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             }
         } catch (ScheduledExecutionException failure) {
             return Completion.failure(work, retry, sanitizeFailure(failure.toFailure()));
-        } catch (Throwable ignored) {
+        } catch (Throwable failure) {
+            rethrowFatal(fatalError(failure));
             return Completion.failure(work, retry, new ScheduledFailure(
                     ScheduledFailure.Category.INTERNAL,
                     "schedule.work.plugin-failure", 0L));
@@ -333,9 +351,12 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     @Override
     public void drain() throws ScheduledExecutionException {
         RuntimeException drainFailure = null;
+        Error fatalFailure = null;
         while (inFlight > 0) {
             try {
                 awaitOne();
+            } catch (VirtualMachineError | ThreadDeath failure) {
+                fatalFailure = appendFatal(fatalFailure, failure);
             } catch (RuntimeException failure) {
                 if (drainFailure == null) {
                     drainFailure = failure;
@@ -346,6 +367,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             interruptedWhileWaiting = false;
             Thread.currentThread().interrupt();
         }
+        rethrowFatal(fatalFailure);
         if (drainFailure != null) {
             throw drainFailure;
         }
@@ -386,6 +408,31 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                 setTerminalFailure(ScheduledExecutionException.cancelled());
             }
         }
+        Error fatalFailure = null;
+        try {
+            consumeCompletedFuture(future, dispatched);
+        } catch (VirtualMachineError | ThreadDeath failure) {
+            fatalFailure = failure;
+        } finally {
+            try {
+                inFlight--;
+                inFlightByType.computeIfPresent(
+                        dispatched.workType(), (ignored, count) -> count - 1);
+            } catch (Throwable cleanupFailure) {
+                Error accumulated = appendFatal(fatalFailure, cleanupFailure);
+                if (accumulated != null) {
+                    fatalFailure = accumulated;
+                } else {
+                    rethrowUnchecked(cleanupFailure);
+                }
+            }
+        }
+        rethrowFatal(fatalFailure);
+    }
+
+    private void consumeCompletedFuture(
+            Future<Completion> future,
+            InFlightWork dispatched) {
         try {
             Completion completion = null;
             while (completion == null) {
@@ -398,6 +445,18 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             }
             recordCompletion(completion);
         } catch (ExecutionException failure) {
+            Error workerFatal = fatalError(failure.getCause());
+            if (workerFatal != null) {
+                try {
+                    recordCompletion(Completion.failure(
+                            dispatched.work(), dispatched.retry(), new ScheduledFailure(
+                                    ScheduledFailure.Category.INTERNAL,
+                                    "schedule.work.plugin-failure", 0L)));
+                } catch (Throwable cleanupFailure) {
+                    workerFatal = appendFatal(workerFatal, cleanupFailure);
+                }
+                throw workerFatal;
+            }
             ScheduledExecutionException terminal = new ScheduledExecutionException(
                     ScheduledFailure.Category.INTERNAL,
                     "schedule.work.infrastructure-failure");
@@ -417,11 +476,47 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             } finally {
                 setTerminalFailure(terminal);
             }
-        } finally {
-            inFlight--;
-            inFlightByType.computeIfPresent(
-                    dispatched.workType(), (ignored, count) -> count - 1);
         }
+    }
+
+    private static Error appendFatal(Error first, Throwable failure) {
+        Error fatal = fatalError(failure);
+        if (fatal == null) {
+            return first;
+        }
+        if (first == null) {
+            return fatal;
+        }
+        if (first != fatal) {
+            first.addSuppressed(fatal);
+        }
+        return first;
+    }
+
+    private static Error fatalError(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            return fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            return fatal;
+        }
+        return null;
+    }
+
+    private static void rethrowFatal(Error fatal) {
+        if (fatal != null) {
+            throw fatal;
+        }
+    }
+
+    private static void rethrowUnchecked(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new IllegalStateException("schedule work completion cleanup failed");
     }
 
     private void recordCompletion(Completion completion) {

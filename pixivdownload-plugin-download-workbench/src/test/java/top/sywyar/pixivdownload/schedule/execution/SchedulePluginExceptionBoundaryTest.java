@@ -136,7 +136,7 @@ class SchedulePluginExceptionBoundaryTest {
             normalized = failure;
         }
 
-        assertThat(registry.tryAcquireSource(SOURCE)).isEmpty();
+        assertThat(registry.prepareSource(SOURCE)).isEmpty();
         assertThat(drain.get()).isNotNull();
         assertThat(drain.get().isDrained()).isTrue();
         return new ExceptionBoundaryHandles(

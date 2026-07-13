@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.schedule.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,6 +21,7 @@ import top.sywyar.pixivdownload.schedule.dto.ProxyOverrideRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingDeleteRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 
@@ -40,6 +43,13 @@ import java.util.Map;
 public class ScheduleController {
 
     private final ScheduleService scheduleService;
+
+    @GetMapping("/sources")
+    public ResponseEntity<ScheduleSourceManifestView> sources() {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(scheduleService.sources());
+    }
 
     @GetMapping("/tasks")
     public List<ScheduleTaskView> list() {
@@ -81,7 +91,8 @@ public class ScheduleController {
     @PostMapping("/tasks/{id}/authorize-cookie")
     public ScheduleTaskView authorizeCookie(@PathVariable long id,
                                             @Valid @RequestBody CookieAuthorizeRequest req) {
-        return scheduleService.authorizeCookie(id, req.getCookie());
+        return scheduleService.authorizeCookie(
+                id, req.getCookie(), req.getActivationToken());
     }
 
     @PostMapping("/tasks/{id}/revoke-cookie")

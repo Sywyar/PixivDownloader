@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.schedule.dto;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 
 /**
@@ -33,6 +34,9 @@ public record ScheduleTaskView(
         Integer definitionVersion,
         String paramsJson,
         String presentationJson,
+        ScheduledTaskPresentation presentation,
+        boolean sourceAvailable,
+        String sourceActivationToken,
         String triggerKind,
         Integer intervalMinutes,
         String cronExpr,
@@ -68,6 +72,22 @@ public record ScheduleTaskView(
             ScheduledTask t,
             String runState,
             PixivSchedulePersistenceCodec persistenceCodec) {
+        return of(
+                t,
+                runState,
+                persistenceCodec,
+                ScheduledTaskPresentation.empty(),
+                false,
+                null);
+    }
+
+    public static ScheduleTaskView of(
+            ScheduledTask t,
+            String runState,
+            PixivSchedulePersistenceCodec persistenceCodec,
+            ScheduledTaskPresentation presentation,
+            boolean sourceAvailable,
+            String sourceActivationToken) {
         String effectiveRunState = runState != null
                 ? runState
                 : t.runState() == null ? null : t.runState().name();
@@ -95,7 +115,8 @@ public record ScheduleTaskView(
         return new ScheduleTaskView(
                 t.id(), t.name(), t.enabled(), legacyType,
                 t.sourceType(), t.sourceOwnerPluginId(), t.definitionSchema(), t.definitionVersion(),
-                t.definitionJson(), t.presentationJson(),
+                t.definitionJson(), t.presentationJson(), presentation,
+                sourceAvailable, sourceActivationToken,
                 t.triggerKind(), t.intervalMinutes(), t.cronExpr(),
                 credentialBound ? COOKIE_BOUND : COOKIE_RESTRICTED,
                 credentialBound,

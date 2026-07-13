@@ -48,9 +48,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
+import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedException;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +66,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -81,6 +82,95 @@ class ScheduleExecutionEngineTest {
     private static final String WORK = "fixture-work";
     private static final String POLICY = "fixture-policy";
     private static final String GUARD = "fixture-guard";
+
+    @Test
+    @DisplayName("运行期共享计划 gate 保留既有分类和机器码并阻止任何执行副作用")
+    void runtimeSharedPlanGatePreservesFailureCodes() throws Exception {
+        ScheduledGuardBinding normalGuard = new ScheduledGuardBinding(
+                GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0);
+        List<PlanFailureCase> cases = List.of(
+                new PlanFailureCase(
+                        null,
+                        ScheduledFailure.Category.INTERNAL,
+                        "schedule.source.null-plan"),
+                new PlanFailureCase(
+                        new ScheduledExecutionPlan(
+                                Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
+                                List.of(), null, 0, 257, 0L),
+                        ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.plan.max-in-flight-too-large"),
+                new PlanFailureCase(
+                        new ScheduledExecutionPlan(
+                                Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
+                                List.of(new ScheduledGuardBinding(
+                                        GUARD, Set.of(ScheduledGuardPoint.WORK_BATCH), 100_001)),
+                                null, 0, 1, 0L),
+                        ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.plan.guard-batch-too-large"),
+                new PlanFailureCase(
+                        new ScheduledExecutionPlan(
+                                Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
+                                List.of(normalGuard, normalGuard), null, 0, 1, 0L),
+                        ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.plan.capability-mismatch"),
+                new PlanFailureCase(
+                        new ScheduledExecutionPlan(
+                                Set.of("other-work"), POLICY,
+                                ScheduledCredentialRequirement.REQUIRED, false,
+                                List.of(), null, 0, 1, 0L),
+                        ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.plan.capability-mismatch"),
+                new PlanFailureCase(
+                        new ScheduledExecutionPlan(
+                                Set.of(WORK), "other-policy",
+                                ScheduledCredentialRequirement.REQUIRED, false,
+                                List.of(), null, 0, 1, 0L),
+                        ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.plan.capability-mismatch"),
+                new PlanFailureCase(
+                        new ScheduledExecutionPlan(
+                                Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
+                                List.of(new ScheduledGuardBinding(
+                                        "other-guard", Set.of(ScheduledGuardPoint.RUN_START), 0)),
+                                null, 0, 1, 0L),
+                        ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.plan.capability-mismatch"));
+
+        for (PlanFailureCase failureCase : cases) {
+            ScheduledTaskStore store = mock(ScheduledTaskStore.class);
+            AtomicBoolean discovered = new AtomicBoolean();
+            ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
+                @Override
+                public String sourceType() {
+                    return SOURCE;
+                }
+
+                @Override
+                public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                    return failureCase.plan();
+                }
+
+                @Override
+                public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                    discovered.set(true);
+                    return ScheduledDiscoveryResult.withoutCheckpoint();
+                }
+            };
+
+            assertThatThrownBy(() -> engine(
+                    store,
+                    source,
+                    workExecutor(context -> ScheduledWorkResult.completed()),
+                    credentialPolicy(new AtomicReference<>()),
+                    guard(context -> ScheduledGuardDecision.proceed())).execute(task()))
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
+                        assertThat(failure.category()).isEqualTo(failureCase.category());
+                        assertThat(failure.code()).isEqualTo(failureCase.code());
+                    });
+            assertThat(discovered).isFalse();
+            verify(store, never()).upsertPendingWork(any());
+        }
+    }
 
     @Test
     @DisplayName("绑定探活在复合租约内使用同一 resolved route 且不执行来源作品或 Guard")
@@ -134,9 +224,10 @@ class ScheduleExecutionEngineTest {
             guarded.set(true);
             return ScheduledGuardDecision.proceed();
         });
-        ScheduleExecutionEngine engine = engine(store, source, work, policy, guard);
+        CredentialEngineFixture fixture = credentialEngine(store, source, work, policy, guard);
 
-        try (ScheduleCredentialBindingLease binding = engine.prepareCredentialBinding(task())) {
+        try (ScheduleCredentialBindingLease binding = fixture.engine().prepareCredentialBinding(
+                task(), fixture.activationToken())) {
             assertThat(binding.policyOwnerPluginId()).isEqualTo("fixture");
             assertThat(binding.policyId()).isEqualTo(POLICY);
             ScheduledCredentialBindResult result = binding.probe("candidate-secret");
@@ -175,7 +266,7 @@ class ScheduleExecutionEngineTest {
                         policyState.get(), null);
             }
         };
-        ScheduleExecutionEngine engine = engine(
+        CredentialEngineFixture fixture = credentialEngine(
                 mock(ScheduledTaskStore.class),
                 sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
                 workExecutor(context -> ScheduledWorkResult.completed()),
@@ -191,7 +282,8 @@ class ScheduleExecutionEngineTest {
                         + "\\\"cookie\\\":\\\"safe\\\"}\"}")) {
             policyState.set(unsafeState);
             try (ScheduleCredentialBindingLease binding =
-                         engine.prepareCredentialBinding(task())) {
+                         fixture.engine().prepareCredentialBinding(
+                                 task(), fixture.activationToken())) {
                 assertThatThrownBy(() -> binding.probe("candidate-secret"))
                         .isInstanceOfSatisfying(ScheduledExecutionException.class,
                                 failure -> assertThat(failure.code())
@@ -201,10 +293,133 @@ class ScheduleExecutionEngineTest {
 
         String safeState = "{\"details\":\"{\\\"kind\\\":\\\"safe\\\"}\"}";
         policyState.set(safeState);
-        try (ScheduleCredentialBindingLease binding = engine.prepareCredentialBinding(task())) {
+        try (ScheduleCredentialBindingLease binding = fixture.engine().prepareCredentialBinding(
+                task(), fixture.activationToken())) {
             assertThat(binding.probe("candidate-secret").initialPolicyStateJson())
                     .isEqualTo(safeState);
         }
+    }
+
+    @Test
+    @DisplayName("旧 activation token 在新 publication 上于来源回调前拒绝且不探活凭证")
+    void staleActivationTokenNeverReachesReplacementSourceOrPolicy() throws Exception {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduledWorkExecutor work = workExecutor(context -> ScheduledWorkResult.completed());
+        ScheduledExecutionGuard guard = guard(context -> ScheduledGuardDecision.proceed());
+        ScheduledSourceExecutor sourceA = sourceWithPlan(
+                plan(Set.of(WORK), List.of(new ScheduledGuardBinding(
+                        GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0))),
+                context -> ScheduledDiscoveryResult.withoutCheckpoint());
+        ScheduleCapabilityPublication publicationA = ScheduleCapabilityRegistryTestAccess.publish(
+                registry,
+                bindingBundle(
+                        new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
+                        sourceA, work, bindingPolicy(new AtomicInteger()), guard));
+        String activationA = activationToken(registry);
+        ScheduleGenerationDrain drainA = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publicationA).orElseThrow();
+        assertThat(drainA.isDrained()).isTrue();
+
+        AtomicInteger replacementPlans = new AtomicInteger();
+        AtomicInteger replacementProbes = new AtomicInteger();
+        ScheduledSourceExecutor sourceB = new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return SOURCE;
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                replacementPlans.incrementAndGet();
+                return ScheduleExecutionEngineTest.plan(
+                        Set.of(WORK), List.of(new ScheduledGuardBinding(
+                                GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0)));
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+        };
+        ScheduleCapabilityRegistryTestAccess.publish(
+                registry,
+                bindingBundle(
+                        new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),
+                        sourceB, work, bindingPolicy(replacementProbes), guard));
+        ScheduleExecutionEngine engine = engine(
+                mock(ScheduledTaskStore.class), registry,
+                new ScheduleRunState(), new SyncTaskExecutor());
+
+        assertThatThrownBy(() -> engine.prepareCredentialBinding(task(), activationA))
+                .isInstanceOf(ScheduleSourcePublicationChangedException.class);
+        assertThat(replacementPlans).hasValue(0);
+        assertThat(replacementProbes).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("已取得旧 publication 复合租约后切换代际不会把凭证交给任一策略")
+    void acquiredBindingLeaseIsCancelledAcrossPublicationSwitchBeforeProbe() throws Exception {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduledWorkExecutor work = workExecutor(context -> ScheduledWorkResult.completed());
+        ScheduledExecutionGuard guard = guard(context -> ScheduledGuardDecision.proceed());
+        ScheduledExecutionPlan executionPlan = plan(
+                Set.of(WORK), List.of(new ScheduledGuardBinding(
+                        GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0)));
+        AtomicInteger oldProbes = new AtomicInteger();
+        ScheduleCapabilityPublication publicationA = ScheduleCapabilityRegistryTestAccess.publish(
+                registry,
+                bindingBundle(
+                        new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
+                        sourceWithPlan(
+                                executionPlan,
+                                context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                        work, bindingPolicy(oldProbes), guard));
+        String activationA = activationToken(registry);
+        ScheduleExecutionEngine engine = engine(
+                mock(ScheduledTaskStore.class), registry,
+                new ScheduleRunState(), new SyncTaskExecutor());
+
+        ScheduleGenerationDrain drainA;
+        AtomicInteger replacementPlans = new AtomicInteger();
+        AtomicInteger replacementProbes = new AtomicInteger();
+        try (ScheduleCredentialBindingLease binding = engine.prepareCredentialBinding(
+                task(), activationA)) {
+            drainA = ScheduleCapabilityRegistryTestAccess.withdraw(
+                    registry, publicationA).orElseThrow();
+            ScheduledSourceExecutor sourceB = new ScheduledSourceExecutor() {
+                @Override
+                public String sourceType() {
+                    return SOURCE;
+                }
+
+                @Override
+                public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                    replacementPlans.incrementAndGet();
+                    return executionPlan;
+                }
+
+                @Override
+                public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                    return ScheduledDiscoveryResult.withoutCheckpoint();
+                }
+            };
+            ScheduleCapabilityRegistryTestAccess.publish(
+                    registry,
+                    bindingBundle(
+                            new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),
+                            sourceB, work, bindingPolicy(replacementProbes), guard));
+
+            assertThat(drainA.isDrained()).isFalse();
+            assertThatThrownBy(() -> binding.probe("candidate-secret"))
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
+                        assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CANCELLED);
+                        assertThat(failure.code()).isEqualTo("schedule.cancelled");
+                    });
+            assertThat(oldProbes).hasValue(0);
+            assertThat(replacementPlans).hasValue(0);
+            assertThat(replacementProbes).hasValue(0);
+        }
+        assertThat(drainA.isDrained()).isTrue();
     }
 
     @Test
@@ -1052,6 +1267,359 @@ class ScheduleExecutionEngineTest {
     }
 
     @Test
+    @DisplayName("来源 ThreadDeath 在 abort 与复合租约释放后原样传播")
+    void sourceThreadDeathPropagatesAfterCleanupAndLeaseRelease() throws Exception {
+        ThreadDeath fatal = new ThreadDeath();
+        AtomicInteger aborts = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceWithPlan(
+                plan(Set.of(WORK), List.of()),
+                context -> {
+                    throw fatal;
+                });
+        ScheduledWorkExecutor work = new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return WORK;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork value,
+                    ScheduledWorkContext context) {
+                return ScheduledWorkResult.completed();
+            }
+
+            @Override
+            public void abortRun(ScheduledTaskDefinition task) {
+                aborts.incrementAndGet();
+            }
+        };
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = publishExecutionFixture(
+                registry, source, List.of(work), List.of(), Set.of(WORK), Set.of());
+
+        ThreadDeath observed;
+        try {
+            engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            throw new AssertionError("expected source ThreadDeath");
+        } catch (ThreadDeath failure) {
+            observed = failure;
+        }
+
+        assertThat(observed).isSameAs(fatal);
+        assertThat(aborts).hasValue(1);
+        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("作品 worker 的 VMError 与 ThreadDeath 在 abort 和租约清理后原样传播")
+    void workerFatalsPropagateAfterAbortAndLeaseRelease() throws Exception {
+        List<Error> fatals = List.of(
+                new TestVirtualMachineError("fixture worker vm error"),
+                new ThreadDeath());
+        int sequence = 0;
+        for (Error fatal : fatals) {
+            String workId = "fatal-worker-" + sequence++;
+            AtomicInteger aborts = new AtomicInteger();
+            ScheduledSourceExecutor source = sourceWithPlan(
+                    plan(Set.of(WORK), List.of()),
+                    context -> {
+                        context.workSink().submit(work(workId));
+                        return ScheduledDiscoveryResult.withoutCheckpoint();
+                    });
+            ScheduledWorkExecutor work = new ScheduledWorkExecutor() {
+                @Override
+                public String workType() {
+                    return WORK;
+                }
+
+                @Override
+                public ScheduledWorkResult execute(
+                        ScheduledWork value,
+                        ScheduledWorkContext context) {
+                    throw fatal;
+                }
+
+                @Override
+                public void abortRun(ScheduledTaskDefinition task) {
+                    aborts.incrementAndGet();
+                }
+            };
+            ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+            ScheduleCapabilityPublication publication = publishExecutionFixture(
+                    registry, source, List.of(work), List.of(), Set.of(WORK), Set.of());
+            ScheduledTaskStore store = storeWithCredential();
+
+            Throwable observed = catchThrowable(() -> engine(
+                    store, registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task()));
+
+            assertThat(observed).isSameAs(fatal);
+            assertThat(aborts).hasValue(1);
+            verify(store).upsertPendingWork(any());
+            ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                    registry, publication).orElseThrow();
+            assertThat(drain.isDrained()).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("计划失败投影抛出 ThreadDeath 时先释放 planning 租约再原样传播")
+    void fatalPlanFailureProjectionReleasesPlanningLease() throws Exception {
+        ThreadDeath fatal = new ThreadDeath();
+        ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return SOURCE;
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task)
+                    throws ScheduledExecutionException {
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.INTERNAL,
+                        "fixture.plan-failure") {
+                    @Override
+                    public String code() {
+                        throw fatal;
+                    }
+                };
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+        };
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = publishExecutionFixture(
+                registry,
+                source,
+                List.of(workExecutor(context -> ScheduledWorkResult.completed())),
+                List.of(),
+                Set.of(WORK),
+                Set.of());
+
+        ThreadDeath observed;
+        try {
+            engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            throw new AssertionError("expected plan failure projection ThreadDeath");
+        } catch (ThreadDeath failure) {
+            observed = failure;
+        }
+
+        assertThat(observed).isSameAs(fatal);
+        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("失败 Guard 的非致命 Error 不覆盖主失败且不阻断后续 Guard")
+    void nonFatalFailureGuardErrorPreservesPrimaryAndContinues() throws Exception {
+        String secondGuardId = "fixture-guard-second";
+        List<String> events = new ArrayList<>();
+        ScheduledSourceExecutor source = sourceWithPlan(
+                plan(Set.of(WORK), List.of(
+                        new ScheduledGuardBinding(
+                                GUARD, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0),
+                        new ScheduledGuardBinding(
+                                secondGuardId, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0))),
+                context -> {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "fixture.primary-source-failure");
+                });
+        ScheduledExecutionGuard firstGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return GUARD;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+                events.add("guard-1");
+                throw new AssertionError("fixture non-fatal guard failure");
+            }
+        };
+        ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return secondGuardId;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+                events.add("guard-2");
+                return ScheduledGuardDecision.proceed();
+            }
+        };
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        publishExecutionFixture(
+                registry,
+                source,
+                List.of(workExecutor(context -> ScheduledWorkResult.completed())),
+                List.of(firstGuard, secondGuard),
+                Set.of(WORK),
+                Set.of(GUARD, secondGuardId));
+
+        assertThatThrownBy(() -> engine(
+                storeWithCredential(), registry,
+                new ScheduleRunState(), new SyncTaskExecutor()).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("fixture.primary-source-failure"));
+        assertThat(events).containsExactly("guard-1", "guard-2");
+    }
+
+    @Test
+    @DisplayName("失败 Guard 的 fatal 延后到后续 Guard 与租约清理完成后原样传播")
+    void fatalFailureGuardContinuesThenPropagatesAfterLeaseRelease() throws Exception {
+        String secondGuardId = "fixture-guard-second";
+        TestVirtualMachineError fatal = new TestVirtualMachineError("fixture fatal guard failure");
+        AtomicInteger secondGuardCalls = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceWithPlan(
+                plan(Set.of(WORK), List.of(
+                        new ScheduledGuardBinding(
+                                GUARD, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0),
+                        new ScheduledGuardBinding(
+                                secondGuardId, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0))),
+                context -> {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "fixture.primary-source-failure");
+                });
+        ScheduledExecutionGuard firstGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return GUARD;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+                throw fatal;
+            }
+        };
+        ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
+            @Override
+            public String guardId() {
+                return secondGuardId;
+            }
+
+            @Override
+            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+                secondGuardCalls.incrementAndGet();
+                return ScheduledGuardDecision.proceed();
+            }
+        };
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = publishExecutionFixture(
+                registry,
+                source,
+                List.of(workExecutor(context -> ScheduledWorkResult.completed())),
+                List.of(firstGuard, secondGuard),
+                Set.of(WORK),
+                Set.of(GUARD, secondGuardId));
+
+        VirtualMachineError observed;
+        try {
+            engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            throw new AssertionError("expected failure Guard fatal error");
+        } catch (VirtualMachineError failure) {
+            observed = failure;
+        }
+
+        assertThat(observed).isSameAs(fatal);
+        assertThat(secondGuardCalls).hasValue(1);
+        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("多个 abort fatal 完成全部清理后以 suppressed 保留并传播首错")
+    void multipleAbortFatalsAreSuppressedAfterAllCleanup() throws Exception {
+        String secondWorkType = "fixture-work-2";
+        TestVirtualMachineError firstFatal = new TestVirtualMachineError("fixture abort fatal one");
+        TestVirtualMachineError secondFatal = new TestVirtualMachineError("fixture abort fatal two");
+        List<String> aborts = new ArrayList<>();
+        ScheduledSourceExecutor source = sourceWithPlan(
+                plan(Set.of(WORK, secondWorkType), List.of()),
+                context -> {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "fixture.primary-source-failure");
+                });
+        ScheduledWorkExecutor firstWork = abortingExecutor(WORK, firstFatal, aborts);
+        ScheduledWorkExecutor secondWork = abortingExecutor(secondWorkType, secondFatal, aborts);
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = publishExecutionFixture(
+                registry, source, List.of(firstWork, secondWork), List.of(),
+                Set.of(WORK, secondWorkType), Set.of());
+
+        VirtualMachineError observed;
+        try {
+            engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            throw new AssertionError("expected abort fatal error");
+        } catch (VirtualMachineError failure) {
+            observed = failure;
+        }
+
+        VirtualMachineError other = observed == firstFatal ? secondFatal : firstFatal;
+        assertThat(observed).isIn(firstFatal, secondFatal);
+        assertThat(observed.getSuppressed()).contains(other);
+        assertThat(aborts).containsExactlyInAnyOrder(WORK, secondWorkType);
+        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("多个 finalizer fatal 完成全部 finalizer 与 abort 后以 suppressed 保留")
+    void multipleFinalizerFatalsAreSuppressedAfterAllCleanup() throws Exception {
+        String secondWorkType = "fixture-work-2";
+        TestVirtualMachineError firstFatal = new TestVirtualMachineError("fixture finalizer fatal one");
+        TestVirtualMachineError secondFatal = new TestVirtualMachineError("fixture finalizer fatal two");
+        List<String> events = new ArrayList<>();
+        ScheduledSourceExecutor source = sourceWithPlan(
+                plan(Set.of(WORK, secondWorkType), List.of()),
+                context -> ScheduledDiscoveryResult.withoutCheckpoint());
+        ScheduledWorkExecutor firstWork = fatalFinalizingExecutor(WORK, firstFatal, events);
+        ScheduledWorkExecutor secondWork = fatalFinalizingExecutor(secondWorkType, secondFatal, events);
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = publishExecutionFixture(
+                registry, source, List.of(firstWork, secondWork), List.of(),
+                Set.of(WORK, secondWorkType), Set.of());
+
+        VirtualMachineError observed;
+        try {
+            engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            throw new AssertionError("expected finalizer fatal error");
+        } catch (VirtualMachineError failure) {
+            observed = failure;
+        }
+
+        VirtualMachineError other = observed == firstFatal ? secondFatal : firstFatal;
+        assertThat(observed).isIn(firstFatal, secondFatal);
+        assertThat(observed.getSuppressed()).contains(other);
+        assertThat(events).containsExactlyInAnyOrder(
+                "finish-" + WORK,
+                "finish-" + secondWorkType,
+                "abort-" + WORK,
+                "abort-" + secondWorkType);
+        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
     @DisplayName("来源 work 在进入队列前拒绝凭证材料")
     void sourceWorkIsValidatedBeforeQueueing() throws Exception {
         ScheduledSourceExecutor source = sourceExecutor(1, context -> {
@@ -1105,7 +1673,16 @@ class ScheduleExecutionEngineTest {
             ScheduledWorkExecutor work,
             ScheduledCredentialPolicy policy,
             ScheduledExecutionGuard guard) throws Exception {
-        return engine(store, source, work, policy, guard,
+        return credentialEngine(store, source, work, policy, guard).engine();
+    }
+
+    private static CredentialEngineFixture credentialEngine(
+            ScheduledTaskStore store,
+            ScheduledSourceExecutor source,
+            ScheduledWorkExecutor work,
+            ScheduledCredentialPolicy policy,
+            ScheduledExecutionGuard guard) throws Exception {
+        return credentialEngine(store, source, work, policy, guard,
                 new ScheduleRunState(), new SyncTaskExecutor());
     }
 
@@ -1117,27 +1694,54 @@ class ScheduleExecutionEngineTest {
             ScheduledExecutionGuard guard,
             ScheduleRunState runState,
             TaskExecutor taskExecutor) throws Exception {
+        return credentialEngine(
+                store, source, work, policy, guard, runState, taskExecutor).engine();
+    }
+
+    private static CredentialEngineFixture credentialEngine(
+            ScheduledTaskStore store,
+            ScheduledSourceExecutor source,
+            ScheduledWorkExecutor work,
+            ScheduledCredentialPolicy policy,
+            ScheduledExecutionGuard guard,
+            ScheduleRunState runState,
+            TaskExecutor taskExecutor) throws Exception {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner("fixture", "fixture-package", 1L);
+        publish(registry, bindingBundle(owner, source, work, policy, guard));
+        return new CredentialEngineFixture(
+                engine(store, registry, runState, taskExecutor),
+                activationToken(registry));
+    }
+
+    private static void publish(
+            ScheduleCapabilityRegistry registry,
+            ScheduleOwnerBundle bundle) {
+        ScheduleCapabilityRegistryTestAccess.publish(registry, bundle);
+    }
+
+    private static ScheduleOwnerBundle bindingBundle(
+            ScheduleCapabilityOwner owner,
+            ScheduledSourceExecutor source,
+            ScheduledWorkExecutor work,
+            ScheduledCredentialPolicy policy,
+            ScheduledExecutionGuard guard) {
         ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
                 SOURCE, Set.of(), "fixture.definition", 1,
                 new ScheduledSourcePresentation(
                         "fixture", "source.label", "source.summary", "schedule", "neutral"),
                 Set.of("fixture"), Set.of(WORK), Set.of(POLICY), Set.of(GUARD), null);
-        ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
+        return ScheduleOwnerBundle.prepare(
                 owner, List.of(), List.of(), List.of(descriptor), List.of(source),
                 List.of(work), List.of(policy), List.of(guard));
-        publish(registry, bundle);
-        return engine(store, registry, runState, taskExecutor);
     }
 
-    private static void publish(
-            ScheduleCapabilityRegistry registry,
-            ScheduleOwnerBundle bundle) throws Exception {
-        Method publish = ScheduleCapabilityRegistry.class
-                .getDeclaredMethod("publish", ScheduleOwnerBundle.class);
-        publish.setAccessible(true);
-        publish.invoke(registry, bundle);
+    private static String activationToken(ScheduleCapabilityRegistry registry) {
+        return registry.snapshotView().owners().stream()
+                .filter(owner -> owner.owner().featurePluginId().equals("fixture"))
+                .findFirst()
+                .orElseThrow()
+                .activationToken();
     }
 
     private static ScheduleExecutionEngine engine(
@@ -1207,11 +1811,141 @@ class ScheduleExecutionEngineTest {
         };
     }
 
+    private static ScheduledExecutionPlan plan(
+            Set<String> workTypes,
+            List<ScheduledGuardBinding> guards) {
+        return new ScheduledExecutionPlan(
+                workTypes,
+                POLICY,
+                ScheduledCredentialRequirement.REQUIRED,
+                false,
+                guards,
+                null,
+                0,
+                1,
+                0L);
+    }
+
+    private static ScheduledSourceExecutor sourceWithPlan(
+            ScheduledExecutionPlan plan,
+            Discovery discovery) {
+        return new ScheduledSourceExecutor() {
+            @Override
+            public String sourceType() {
+                return SOURCE;
+            }
+
+            @Override
+            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                return plan;
+            }
+
+            @Override
+            public ScheduledDiscoveryResult discover(ScheduledSourceContext context)
+                    throws ScheduledExecutionException {
+                return discovery.discover(context);
+            }
+        };
+    }
+
+    private static ScheduleCapabilityPublication publishExecutionFixture(
+            ScheduleCapabilityRegistry registry,
+            ScheduledSourceExecutor source,
+            List<ScheduledWorkExecutor> workExecutors,
+            List<ScheduledExecutionGuard> guards,
+            Set<String> workTypes,
+            Set<String> guardIds) {
+        ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
+                SOURCE,
+                Set.of(),
+                "fixture.definition",
+                1,
+                new ScheduledSourcePresentation(
+                        "fixture", "source.label", "source.summary", "schedule", "neutral"),
+                Set.of("fixture"),
+                workTypes,
+                Set.of(POLICY),
+                guardIds,
+                null);
+        return ScheduleCapabilityRegistryTestAccess.publish(
+                registry,
+                ScheduleOwnerBundle.prepare(
+                        new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
+                        List.of(),
+                        List.of(),
+                        List.of(descriptor),
+                        List.of(source),
+                        workExecutors,
+                        List.of(credentialPolicy(new AtomicReference<>())),
+                        guards));
+    }
+
+    private static ScheduledWorkExecutor abortingExecutor(
+            String workType,
+            VirtualMachineError failure,
+            List<String> aborts) {
+        return new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return workType;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork work,
+                    ScheduledWorkContext context) {
+                return ScheduledWorkResult.completed();
+            }
+
+            @Override
+            public void abortRun(ScheduledTaskDefinition task) {
+                aborts.add(workType);
+                throw failure;
+            }
+        };
+    }
+
+    private static ScheduledWorkExecutor fatalFinalizingExecutor(
+            String workType,
+            VirtualMachineError failure,
+            List<String> events) {
+        return new ScheduledWorkExecutor() {
+            @Override
+            public String workType() {
+                return workType;
+            }
+
+            @Override
+            public ScheduledWorkResult execute(
+                    ScheduledWork work,
+                    ScheduledWorkContext context) {
+                return ScheduledWorkResult.completed();
+            }
+
+            @Override
+            public void finishRun(ScheduledWorkRunContext context) {
+                events.add("finish-" + workType);
+                throw failure;
+            }
+
+            @Override
+            public void abortRun(ScheduledTaskDefinition task) {
+                events.add("abort-" + workType);
+            }
+        };
+    }
+
     private static ScheduledTaskStore storeWithCredential() {
         ScheduledTaskStore store = mock(ScheduledTaskStore.class);
         when(store.listPendingWork(anyLong())).thenReturn(List.of());
         when(store.findCredentialSecret(anyLong(), anyString(), anyString())).thenReturn("fixture-secret");
         return store;
+    }
+
+    private record PlanFailureCase(
+            ScheduledExecutionPlan plan,
+            ScheduledFailure.Category category,
+            String code) {
     }
 
     private static ScheduledSourceExecutor sourceExecutor(int count, Discovery discovery) {
@@ -1281,6 +2015,28 @@ class ScheduleExecutionEngineTest {
         };
     }
 
+    private static ScheduledCredentialPolicy bindingPolicy(AtomicInteger probes) {
+        return new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                throw new AssertionError("binding must use probeForBinding");
+            }
+
+            @Override
+            public ScheduledCredentialBindResult probeForBinding(
+                    ScheduledCredentialContext context) {
+                probes.incrementAndGet();
+                return ScheduledCredentialBindResult.fromProbe(
+                        ScheduledCredentialProbeResult.valid("account-1"));
+            }
+        };
+    }
+
     private static ScheduledExecutionGuard guard(Guard guard) {
         return new ScheduledExecutionGuard() {
             @Override
@@ -1304,6 +2060,11 @@ class ScheduleExecutionEngineTest {
 
     private static ScheduledTask task() {
         return taskWithCheckpoint(null, null, null);
+    }
+
+    private record CredentialEngineFixture(
+            ScheduleExecutionEngine engine,
+            String activationToken) {
     }
 
     private static ScheduledTask taskWithCheckpoint(
@@ -1349,5 +2110,11 @@ class ScheduleExecutionEngineTest {
     private interface Guard {
         ScheduledGuardDecision evaluate(ScheduledGuardContext context)
                 throws ScheduledExecutionException;
+    }
+
+    private static final class TestVirtualMachineError extends VirtualMachineError {
+        private TestVirtualMachineError(String message) {
+            super(message);
+        }
     }
 }

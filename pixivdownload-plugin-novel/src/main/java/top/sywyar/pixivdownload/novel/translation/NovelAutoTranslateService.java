@@ -132,54 +132,135 @@ public class NovelAutoTranslateService {
         }
         statuses.put(novelId, status);
 
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> ownerLease = tryAcquireOwnerLease();
+        AtomicBoolean jobStarted = new AtomicBoolean();
+        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> ownerLease = prepareOwnerLease();
         if (ownerLease == null) {
             fail(status, "plugin-unavailable");
             markSeriesDone(status);
             return CompletableFuture.completedFuture(null);
         }
-        ScheduledCancellation cancellation = ownerLease.cancellation();
-        AtomicBoolean jobStarted = new AtomicBoolean();
-        Runnable job = () -> {
-            jobStarted.set(true);
-            try {
-                runJob(novelId, status, targetLanguage, segmentSize,
-                        mergeAfter, mergeFormat, cancellation);
-            } finally {
-                markSeriesDone(status);
-            }
-        };
         try {
+            if (!scheduleCapabilityRegistry.activate(ownerLease)) {
+                ownerLease.close();
+                fail(status, "plugin-unavailable");
+                markSeriesDone(status);
+                return CompletableFuture.completedFuture(null);
+            }
+        } catch (RuntimeException | Error activationFailure) {
+            Throwable propagation = closeLease(ownerLease, activationFailure);
+            rethrow(propagation);
+            throw new IllegalStateException("unreachable");
+        }
+        CompletableFuture<Void> leaseFuture = null;
+        boolean futureOwnsLease = false;
+        try {
+            ScheduledCancellation cancellation = ownerLease.cancellation();
+            Runnable job = () -> {
+                jobStarted.set(true);
+                try {
+                    runJob(novelId, status, targetLanguage, segmentSize,
+                            mergeAfter, mergeFormat, cancellation);
+                } finally {
+                    markSeriesDone(status);
+                }
+            };
             if (series == null) {
-                return closeLeaseWhenComplete(
+                leaseFuture = closeLeaseWhenComplete(
                         CompletableFuture.runAsync(job, executor), ownerLease,
                         novelId, status, jobStarted);
+                futureOwnsLease = true;
+                return leaseFuture;
             }
             // 同系列接龙：handle 吞掉前序异常，保证后续章节仍会执行；owner lease 覆盖排队等待和实际执行。
             synchronized (seriesTails) {
                 CompletableFuture<Void> prev = seriesTails.getOrDefault(
                         series, CompletableFuture.completedFuture(null));
-                CompletableFuture<Void> next = closeLeaseWhenComplete(
+                leaseFuture = closeLeaseWhenComplete(
                         prev.handle((ignored, ex) -> null).thenRunAsync(job, executor),
                         ownerLease, novelId, status, jobStarted);
-                seriesTails.put(series, next);
-                return next;
+                futureOwnsLease = true;
+                seriesTails.put(series, leaseFuture);
+                return leaseFuture;
             }
-        } catch (RuntimeException submissionFailure) {
+        } catch (RuntimeException | Error submissionFailure) {
+            if (futureOwnsLease) {
+                if (submissionFailure instanceof Error error) {
+                    throw error;
+                }
+                log.warn("Auto-translate novel {} series-tail tracking failed [{}]: {}",
+                        novelId, submissionFailure.getClass().getSimpleName(), submissionFailure.getMessage());
+                return leaseFuture;
+            }
+            Throwable propagation = submissionFailure;
             if (!jobStarted.get()) {
-                markSubmissionRejected(novelId, status, submissionFailure);
+                try {
+                    markSubmissionRejected(novelId, status, submissionFailure);
+                } catch (Throwable statusFailure) {
+                    propagation = mergeFailure(propagation, statusFailure);
+                }
             }
-            ownerLease.close();
+            propagation = closeLease(ownerLease, propagation);
+            if (propagation instanceof Error error) {
+                throw error;
+            }
             return CompletableFuture.completedFuture(null);
         }
     }
 
-    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> tryAcquireOwnerLease() {
+    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> prepareOwnerLease() {
         var handle = scheduleCapabilityRegistry.resolveOwner(NovelPlugin.ID).orElse(null);
         if (handle == null) {
             return null;
         }
-        return scheduleCapabilityRegistry.tryAcquire(handle).orElse(null);
+        return scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
+    }
+
+    private static Throwable closeLease(AutoCloseable lease, Throwable failure) {
+        try {
+            lease.close();
+        } catch (Throwable closeFailure) {
+            return mergeFailure(failure, closeFailure);
+        }
+        return failure;
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    private static Throwable mergeFailure(Throwable current, Throwable failure) {
+        if (current == null) {
+            return failure;
+        }
+        if (failureRank(failure) > failureRank(current)) {
+            addSuppressedSafely(failure, current);
+            return failure;
+        }
+        addSuppressedSafely(current, failure);
+        return current;
+    }
+
+    private static int failureRank(Throwable failure) {
+        if (failure instanceof VirtualMachineError || failure instanceof ThreadDeath) {
+            return 2;
+        }
+        return failure instanceof Error ? 1 : 0;
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable failure) {
+        if (target == failure) {
+            return;
+        }
+        try {
+            target.addSuppressed(failure);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖主失败对象。
+        }
     }
 
     private CompletableFuture<Void> closeLeaseWhenComplete(

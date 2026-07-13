@@ -1,20 +1,12 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 
 /**
- * 计划任务的创建 / 编辑请求体。
- *
- * <p>{@code paramsJson} 按 {@code type} 解释（顶层另含 {@code kind} 与 {@code filters} / {@code download} 段）：
- * <ul>
- *   <li>{@code USER_NEW}：{@code {"source":{"userId":"123"}}}</li>
- *   <li>{@code SEARCH}：{@code {"source":{"word":"...","order":"date_d","mode":"all","sMode":"s_tag","maxPages":3}}}</li>
- *   <li>{@code SERIES}：{@code {"source":{"seriesId":"123"}}}</li>
- *   <li>{@code MY_BOOKMARKS}：{@code {"kind":"illust|novel","source":{"rest":"show|hide"}}}（账号私有，需 cookie）</li>
- *   <li>{@code FOLLOW_LATEST}：{@code {"kind":"illust","source":{}}}（账号私有，需 cookie）</li>
- *   <li>{@code COLLECTION}：{@code {"source":{"collectionId":"123"}}}（插画+小说混合都下，账号私有，需 cookie）</li>
- * </ul>
+ * 计划任务的创建 / 编辑请求体。来源定义由所选来源的前端贡献生成，宿主只把不透明 JSON 交给
+ * 当前激活 owner 规范化和校验。
  */
 @Data
 public class ScheduleTaskRequest {
@@ -23,11 +15,22 @@ public class ScheduleTaskRequest {
     private String name;
 
     @NotBlank
-    private String type;
+    private String sourceType;
 
-    /** 任务参数 JSON（按 type 解释，见类注释） */
+    /** 来源清单给出的当前 publication 激活令牌。 */
     @NotBlank
-    private String paramsJson;
+    private String activationToken;
+
+    /** 来源插件拥有的不透明定义 JSON。 */
+    @NotBlank
+    private String definitionJson;
+
+    /**
+     * 编辑器打开任务时固定的状态版本。创建请求禁止携带；编辑请求必须携带非负版本，
+     * 后续列表轮询不得用较新的版本替换它。
+     */
+    @PositiveOrZero
+    private Long expectedStateVersion;
 
     /** {@code interval} 或 {@code cron} */
     @NotBlank

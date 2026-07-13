@@ -133,21 +133,25 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 .findFirst()
                 .orElseThrow();
 
-        SchedulePlanningLease planning = registry.tryAcquireSource("collection").orElseThrow();
-        assertThat(planning.sourceExecutor()).containsSame(collectionExecutor);
-        ScheduleExecutionLease execution = registry.tryExpand(
-                planning, collectionExecutor.plan(definition)).orElseThrow();
-        try (execution) {
-            assertThat(execution.owners()).containsExactlyInAnyOrder(WORKBENCH_OWNER, NOVEL_OWNER);
-            assertThat(execution.sourceExecutor()).containsSame(collectionExecutor);
-            assertThat(execution.workExecutor("illust")).containsSame(illustExecutor);
-            assertThat(execution.workExecutor("novel")).containsSame(novelExecutor);
-            assertThat(execution.workExecutorOwner("illust")).contains(WORKBENCH_OWNER);
-            assertThat(execution.workExecutorOwner("novel")).contains(NOVEL_OWNER);
-            assertThat(execution.credentialPolicy()).containsSame(credentialPolicy);
-            assertThat(execution.credentialPolicyOwner()).contains(WORKBENCH_OWNER);
-            assertThat(execution.guard("pixiv-overuse")).containsSame(guard);
-            assertThat(execution.guardOwner("pixiv-overuse")).contains(WORKBENCH_OWNER);
+        SchedulePlanningLease planning = registry.prepareSource("collection").orElseThrow();
+        try (planning) {
+            assertThat(registry.activate(planning)).isTrue();
+            assertThat(planning.sourceExecutor()).containsSame(collectionExecutor);
+            ScheduleExecutionLease execution = registry.prepareExpansion(
+                    planning, collectionExecutor.plan(definition)).orElseThrow();
+            try (execution) {
+                assertThat(registry.activate(execution)).isTrue();
+                assertThat(execution.owners()).containsExactlyInAnyOrder(WORKBENCH_OWNER, NOVEL_OWNER);
+                assertThat(execution.sourceExecutor()).containsSame(collectionExecutor);
+                assertThat(execution.workExecutor("illust")).containsSame(illustExecutor);
+                assertThat(execution.workExecutor("novel")).containsSame(novelExecutor);
+                assertThat(execution.workExecutorOwner("illust")).contains(WORKBENCH_OWNER);
+                assertThat(execution.workExecutorOwner("novel")).contains(NOVEL_OWNER);
+                assertThat(execution.credentialPolicy()).containsSame(credentialPolicy);
+                assertThat(execution.credentialPolicyOwner()).contains(WORKBENCH_OWNER);
+                assertThat(execution.guard("pixiv-overuse")).containsSame(guard);
+                assertThat(execution.guardOwner("pixiv-overuse")).contains(WORKBENCH_OWNER);
+            }
         }
     }
 

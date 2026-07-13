@@ -31,6 +31,7 @@ import top.sywyar.pixivdownload.download.schedule.source.DiscoveryMode;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSource;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
@@ -42,6 +43,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescri
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialCircuitOpenException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
@@ -99,6 +101,8 @@ class ScheduleExecutorRunTimingTest {
     private top.sywyar.pixivdownload.core.notification.NotificationService notificationService;
     @Mock
     private top.sywyar.pixivdownload.i18n.AppMessages appMessages;
+    @Mock
+    private WebI18nBundleRegistry webI18nBundleRegistry;
     @Mock
     private top.sywyar.pixivdownload.setup.SetupService setupService;
 
@@ -420,6 +424,73 @@ class ScheduleExecutorRunTimingTest {
         verify(store, never()).removeCredential(
                 183L, 3L, DownloadWorkbenchPlugin.ID,
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
+    }
+
+    @Test
+    @DisplayName("通用 pending 通知保留不透明作品身份且只为已知 Pixiv 类型生成直链")
+    void genericPendingNotificationPreservesOpaqueIdentity() throws Exception {
+        ScheduledTask task = task(185L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<ScheduleExecutionResult.PendingExhausted> listener =
+                    invocation.getArgument(1);
+            listener.accept(new ScheduleExecutionResult.PendingExhausted(
+                    "video", "video:abc/1", 5, 1_000L, "video.failed"));
+            listener.accept(new ScheduleExecutionResult.PendingExhausted(
+                    "video", "123456", 5, 1_500L, "video.failed"));
+            listener.accept(new ScheduleExecutionResult.PendingExhausted(
+                    "novel", "184467440737095516160", 5, 2_000L, "novel.failed"));
+            return new ScheduleExecutionResult(0, null, false, List.of());
+        }).when(engine).execute(eq(task), any());
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
+        verify(notificationService, times(3)).notify(
+                eq(NotificationScenario.PENDING_EXHAUSTED), any(), placeholders.capture());
+        Map<String, String> opaqueVideo = placeholders.getAllValues().get(0);
+        assertThat(opaqueVideo)
+                .containsEntry("work_id", "video:abc/1")
+                .containsEntry("work_kind", "video")
+                .containsEntry("work_url", "");
+        Map<String, String> numericVideo = placeholders.getAllValues().get(1);
+        assertThat(numericVideo)
+                .containsEntry("work_id", "123456")
+                .containsEntry("work_kind", "video")
+                .containsEntry("work_url", "");
+        Map<String, String> novel = placeholders.getAllValues().get(2);
+        assertThat(novel)
+                .containsEntry("work_id", "184467440737095516160")
+                .containsEntry("work_url",
+                        "https://www.pixiv.net/novel/show.php?id=184467440737095516160");
+    }
+
+    @Test
+    @DisplayName("通用来源通知从 descriptor presentation 命名空间解析任务类型")
+    void genericNotificationResolvesDescriptorTaskTypeLabel() throws Exception {
+        ScheduledTask task = task(186L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+                ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
+                "COOKIE_DEAD", 0L, ScheduledGuardEvidence.empty()));
+        WebI18nBundleRegistry.RegisteredBundle bundle = new WebI18nBundleRegistry.RegisteredBundle(
+                "fixture",
+                new I18nContribution("fixture", "i18n.web.fixture"),
+                Map.of(
+                        "en-US", Map.of("source.label", "Fixture source"),
+                        "zh-CN", Map.of("source.label", "Fixture source")),
+                null);
+        when(webI18nBundleRegistry.resolve("fixture")).thenReturn(bundle);
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
+        verify(notificationService).notify(
+                eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
+        assertThat(placeholders.getValue()).containsEntry("task_type", "Fixture source");
     }
 
     @Test
@@ -956,7 +1027,7 @@ class ScheduleExecutorRunTimingTest {
                 "user-new", Set.of(), PixivSchedulePersistenceCodec.DEFINITION_SCHEMA,
                 PixivSchedulePersistenceCodec.DEFINITION_VERSION,
                 new ScheduledSourcePresentation(
-                        "pixiv", "schedule.type.user-new", "schedule.type.user-new", "schedule", "neutral"),
+                        "fixture", "source.label", "source.description", "schedule", "neutral"),
                 Set.of(), Set.of("illust"), Set.of(), Set.of(), null);
         ScheduleCapabilityTestFixture.publish(registry, ScheduleOwnerBundle.prepare(
                 new ScheduleCapabilityOwner(DownloadWorkbenchPlugin.ID, DownloadWorkbenchPlugin.ID, 1L),
@@ -968,7 +1039,7 @@ class ScheduleExecutorRunTimingTest {
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
                 artworkDownloader, novelMetadataRepository, new ScheduleConfig(), localRunState,
                 new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
-                notificationService, appMessages, setupService,
+                notificationService, appMessages, webI18nBundleRegistry, setupService,
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(),
                 SYNC_EXECUTOR, SYNC_EXECUTOR, engine);
     }
