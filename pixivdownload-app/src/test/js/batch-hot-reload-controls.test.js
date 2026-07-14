@@ -349,6 +349,68 @@ ok('search submode switcher 使用稳定 root 事件委托',
         && !elements['quick-add-all'].disabled);
 }
 
+{
+    let capturedContext = null;
+    const contributedSource = Object.freeze({
+        sourceType: 'owner-a.collection',
+        source: {collectionId: 'collection-a'},
+        kind: 'owner-a'
+    });
+    const registry = {
+        acquisitionList(mode) {
+            return mode === 'quick' ? [{
+                type: 'owner-a',
+                actions: {
+                    'owner-a-collections': {
+                        scheduleSource(context) {
+                            capturedContext = context;
+                            return contributedSource;
+                        }
+                    }
+                }
+            }] : [];
+        },
+        supports() { return true; },
+        resolveTypeForMode(kind) { return kind; },
+        acquisition() { return null; }
+    };
+    const h = realModeHarness(QUICK_SOURCE, '({outer: quickState, inner: quickInner})', {}, {
+        window: {PixivBatch: {queueTypes: registry, modes: {}}}
+    });
+    h.sandbox.state.mode = 'quick-fetch';
+    Object.assign(h.state.outer, {
+        action: 'owner-a-collections',
+        accountOwner: 'owner-a',
+        uid: 'account-a',
+        kind: 'owner-a'
+    });
+    Object.assign(h.state.inner, {
+        open: true,
+        type: 'collection',
+        id: 'collection-a',
+        name: 'Collection A',
+        kind: 'owner-a'
+    });
+    const selected = h.sandbox.window.PixivBatch.modes.quick.quickScheduleSource();
+    ok('quick 二层来源优先交给当前 owner 动作贡献',
+        selected === contributedSource
+        && capturedContext.action === 'owner-a-collections'
+        && capturedContext.accountOwner === 'owner-a'
+        && capturedContext.inner.id === 'collection-a');
+
+    h.state.outer.action = 'owner-without-schedule-hook';
+    Object.assign(h.state.inner, {
+        open: true,
+        type: 'following-user',
+        userId: 'legacy-user',
+        name: 'Legacy user',
+        kind: 'illust'
+    });
+    const legacy = h.sandbox.window.PixivBatch.modes.quick.quickScheduleSource();
+    ok('owner 未贡献二层来源时保留既有 Pixiv 用户回退',
+        legacy.sourceType === 'user-new' && legacy.source.userId === 'legacy-user');
+}
+
 const runtimeListeners = new Map();
 const previewClears = {user: 0, search: 0, series: 0, quick: 0};
 let settingReconciles = 0;

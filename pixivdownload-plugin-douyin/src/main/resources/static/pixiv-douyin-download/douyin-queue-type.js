@@ -847,6 +847,17 @@ function hydrateDouyinUi() {
     if (typeof applyQuickActionCredentialUi === 'function') applyQuickActionCredentialUi();
 }
 
+function douyinScheduleSource(sourceType, source, label) {
+    return {
+        sourceType,
+        type: sourceType,
+        source: source || {},
+        kind: 'douyin',
+        workTypes: ['douyin'],
+        label: label || ''
+    };
+}
+
 const DOUYIN_DESCRIPTOR = {
     slots: DOUYIN_SLOTS,
     process: processDouyinItem,
@@ -1079,6 +1090,10 @@ const DOUYIN_DESCRIPTOR = {
                     load(_action, context) {
                         douyinAssertQuickActionContext(context);
                         return loadQuickMyWorks('douyin', 1, context);
+                    },
+                    scheduleSource() {
+                        return douyinScheduleSource('douyin.account.own-works', {},
+                            douyinText('quick.own-works', 'My Douyin works'));
                     }
                 },
                 'douyin-liked': {
@@ -1092,6 +1107,10 @@ const DOUYIN_DESCRIPTOR = {
                     load(_action, context) {
                         return loadQuickDouyinAccount('liked', 'douyin.account.liked-works',
                             'quick.liked', 'Liked works', 1, context);
+                    },
+                    scheduleSource() {
+                        return douyinScheduleSource('douyin.account.liked-works', {},
+                            douyinText('quick.liked', 'Liked works'));
                     }
                 },
                 'douyin-favorites': {
@@ -1105,6 +1124,10 @@ const DOUYIN_DESCRIPTOR = {
                     load(_action, context) {
                         return loadQuickDouyinAccount('favorites', 'douyin.account.favorite-works',
                             'quick.favorites', 'Favorite works', 1, context);
+                    },
+                    scheduleSource() {
+                        return douyinScheduleSource('douyin.account.favorite-works', {},
+                            douyinText('quick.favorites', 'Favorite works'));
                     }
                 },
                 'douyin-favorite-collections': {
@@ -1118,7 +1141,18 @@ const DOUYIN_DESCRIPTOR = {
                     buildCollectionWorksPageRequest(collectionId, context) {
                         return {endpoint: douyinFavoriteCollectionWorksEndpoint(collectionId, context)};
                     },
-                    load(_action, context) { return loadQuickDouyinFavoriteCollections(1, context); }
+                    load(_action, context) { return loadQuickDouyinFavoriteCollections(1, context); },
+                    scheduleSource(context) {
+                        const inner = context && context.inner;
+                        if (!inner || inner.type !== 'collection' || !inner.id) return null;
+                        return douyinScheduleSource('douyin.account.favorite-collection', {
+                            collectionId: String(inner.id)
+                        }, douyinText('schedule.quick.favorite-collection',
+                            'Favorite collection {name} (ID {id})', {
+                                name: inner.name || inner.id,
+                                id: inner.id
+                            }));
+                    }
                 }
             }
         }

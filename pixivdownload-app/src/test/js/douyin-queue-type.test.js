@@ -289,6 +289,26 @@ function ok(label, cond) {
     ok('acquisition.quick 贡献账号作品、喜欢、收藏与合集入口',
         Object.keys(qt.quickActionsFor('douyin')).sort().join(',') ===
         'douyin-favorite-collections,douyin-favorites,douyin-liked,douyin-own-works');
+    const douyinQuickActions = qt.quickActionsFor('douyin');
+    const ownScheduleSource = douyinQuickActions['douyin-own-works'].scheduleSource({});
+    const likedScheduleSource = douyinQuickActions['douyin-liked'].scheduleSource({});
+    const favoriteScheduleSource = douyinQuickActions['douyin-favorites'].scheduleSource({});
+    ok('账号作品快捷动作贡献精确的 Douyin 计划来源与作品类型',
+        ownScheduleSource.sourceType === 'douyin.account.own-works'
+        && likedScheduleSource.sourceType === 'douyin.account.liked-works'
+        && favoriteScheduleSource.sourceType === 'douyin.account.favorite-works'
+        && [ownScheduleSource, likedScheduleSource, favoriteScheduleSource]
+            .every(source => source.kind === 'douyin' && source.workTypes.join(',') === 'douyin'));
+    const favoriteCollectionSchedule = douyinQuickActions['douyin-favorite-collections'];
+    ok('收藏合集列表未选具体合集时不伪造周期来源',
+        favoriteCollectionSchedule.scheduleSource({inner: null}) === null);
+    const favoriteCollectionScheduleSource = favoriteCollectionSchedule.scheduleSource({
+        inner: {type: 'collection', id: 'mix-7', name: 'My collection'}
+    });
+    ok('收藏合集内层贡献可恢复的具体合集计划来源',
+        favoriteCollectionScheduleSource.sourceType === 'douyin.account.favorite-collection'
+        && favoriteCollectionScheduleSource.source.collectionId === 'mix-7'
+        && favoriteCollectionScheduleSource.kind === 'douyin');
     const quickButtonsHtml = descriptor.slots['quick-actions-bookmarks']
         + descriptor.slots['quick-actions-mine'];
     const quickButtonActions = Array.from(quickButtonsHtml.matchAll(/<button\b[^>]*data-quick="([^"]+)"[^>]*>/g),

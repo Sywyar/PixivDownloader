@@ -219,6 +219,24 @@
 
     function quickScheduleSource() {
         if (state.mode !== QUICK_FETCH_MODE) return null;
+        const desc = quickActionMap()[quickState.action];
+        if (desc && typeof desc.scheduleSource === 'function') {
+            const contributed = desc.scheduleSource({
+                uid: quickState.uid,
+                kind: quickState.kind,
+                action: quickState.action,
+                accountOwner: quickState.accountOwner,
+                accountId: quickState.uid == null ? null : String(quickState.uid),
+                inner: quickInner.open ? {
+                    type: quickInner.type,
+                    id: quickInner.id == null ? null : String(quickInner.id),
+                    userId: quickInner.userId == null ? null : String(quickInner.userId),
+                    name: quickInner.name || '',
+                    kind: quickInner.kind
+                } : null
+            });
+            if (contributed) return contributed;
+        }
         // 二层钻取：关注画师 → USER_NEW；珍藏集 → COLLECTION（含各类型混合）
         if (quickInner.open) {
             if (quickInner.type === 'following-user' && quickInner.userId) {
@@ -243,11 +261,7 @@
             }
             return null;
         }
-        // 外层动作的 canonical 来源与类型由 owner action 回调生成。
-        const desc = quickActionMap()[quickState.action];
-        return desc && typeof desc.scheduleSource === 'function'
-            ? desc.scheduleSource({uid: quickState.uid, kind: quickState.kind, action: quickState.action})
-            : null;
+        return null;
     }
 
     // 附加筛选预览统计行（与 User 模式同口径）：仅在启用了任一附加筛选时显示「当前页 X / 筛选后 Y / N 个收藏数不可用已排除」。
