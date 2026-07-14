@@ -6,9 +6,11 @@ import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
+import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -30,10 +32,16 @@ public class DouyinHistoryService {
     }
 
     @Transactional
+    public int backfillRelations() {
+        return repository.backfillRelations();
+    }
+
+    @Transactional
     public boolean recordCompleted(DouyinWork work,
                                    Path folder,
                                    List<DouyinDownloadedFile> files) {
-        return recordCompleted(work, folder, files, null, null, null, null);
+        return recordCompleted(work, folder, files, null, null, null, null,
+                (DouyinSourceRelation) null);
     }
 
     @Transactional
@@ -44,6 +52,19 @@ public class DouyinHistoryService {
                                    String collectionId,
                                    String collectionTitle,
                                    Integer collectionOrder) {
+        return recordCompleted(work, folder, files, sourceUrl, collectionId, collectionTitle,
+                collectionOrder, (DouyinSourceRelation) null);
+    }
+
+    @Transactional
+    public boolean recordCompleted(DouyinWork work,
+                                   Path folder,
+                                   List<DouyinDownloadedFile> files,
+                                   String sourceUrl,
+                                   String collectionId,
+                                   String collectionTitle,
+                                   Integer collectionOrder,
+                                   DouyinSourceRelation sourceRelation) {
         if (work == null || isBlank(work.id()) || folder == null || files == null || files.isEmpty()) {
             return false;
         }
@@ -51,7 +72,7 @@ public class DouyinHistoryService {
         String workId = work.id().trim();
         DouyinWorkRecord record = new DouyinWorkRecord(
                 workId,
-                defaultText(work.title(), "Douyin " + workId),
+                defaultText(work.title(), workId),
                 folder.toAbsolutePath().normalize().toString(),
                 files.size(),
                 extensions(files, work.media()),
@@ -72,20 +93,84 @@ public class DouyinHistoryService {
                 collectionOrder
         );
         List<DouyinWorkFileRecord> fileRecords = fileRecords(workId, work.media(), files, time);
-        return recordCompleted(record, fileRecords);
+        DouyinSourceRelation relation = sourceRelation == null
+                ? inferredRelation(workId, sourceUrl, collectionId, collectionTitle, collectionOrder, time)
+                : sourceRelation.withWorkId(workId);
+        return recordCompleted(record, fileRecords, relation);
+    }
+
+    @Transactional
+    public boolean recordCompleted(DouyinWork work,
+                                   Path folder,
+                                   List<DouyinDownloadedFile> files,
+                                   String sourceUrl,
+                                   String collectionId,
+                                   String collectionTitle,
+                                   Integer collectionOrder,
+                                   List<DouyinSourceRelation> sourceRelations) {
+        if (work == null || isBlank(work.id()) || folder == null || files == null || files.isEmpty()) {
+            return false;
+        }
+        long time = nextUniqueTime(System.currentTimeMillis());
+        String workId = work.id().trim();
+        DouyinWorkRecord record = new DouyinWorkRecord(
+                workId,
+                defaultText(work.title(), workId),
+                folder.toAbsolutePath().normalize().toString(),
+                files.size(),
+                extensions(files, work.media()),
+                time,
+                false,
+                kindName(work.kind()),
+                blankToNull(sourceUrl),
+                blankToNull(work.pageUrl()),
+                blankToNull(work.thumbnailUrl()),
+                blankToNull(work.authorId()),
+                blankToNull(work.authorName()),
+                blankToNull(work.description()),
+                blankToNull(work.itemTitle()),
+                blankToNull(work.caption()),
+                publishTimeMillis(work.publishTimeEpochSeconds()),
+                firstNonBlank(collectionId, work.collectionId()),
+                firstNonBlank(collectionTitle, work.collectionTitle()),
+                collectionOrder
+        );
+        return recordCompleted(record, fileRecords(workId, work.media(), files, time), sourceRelations);
     }
 
     @Transactional
     public boolean recordCompleted(DouyinWorkRecord work, List<DouyinWorkFileRecord> files) {
+        DouyinSourceRelation relation = inferredRelation(work.workId(), work.sourceUrl(),
+                work.collectionId(), work.collectionTitle(), work.collectionOrder(), work.time());
+        return recordCompleted(work, files, relation);
+    }
+
+    @Transactional
+    public boolean recordCompleted(DouyinWorkRecord work,
+                                   List<DouyinWorkFileRecord> files,
+                                   DouyinSourceRelation relation) {
+        return recordCompleted(work, files, relation == null ? List.of() : List.of(relation));
+    }
+
+    @Transactional
+    public boolean recordCompleted(DouyinWorkRecord work,
+                                   List<DouyinWorkFileRecord> files,
+                                   List<DouyinSourceRelation> relations) {
         if (work == null || isBlank(work.workId()) || files == null || files.isEmpty()) {
             return false;
         }
+        String workId = work.workId().trim();
+        if (files.stream().anyMatch(file -> file == null || !workId.equals(file.workId()))) {
+            throw new IllegalArgumentException("Douyin history files must belong to the completed work");
+        }
         repository.deleteIfMarkedDeleted(work.workId());
         int inserted = repository.insertWork(work);
-        if (inserted <= 0) {
-            return false;
+        if (inserted > 0) {
+            repository.insertFiles(files);
+        } else if (!repository.replaceActiveWork(work, files)) {
+            throw new IllegalStateException("Douyin active history could not be refreshed: " + workId);
         }
-        repository.insertFiles(files);
+        persistRelations(workId, relations);
         return true;
     }
 
@@ -101,6 +186,30 @@ public class DouyinHistoryService {
             return List.of();
         }
         return repository.findFilesByWorkId(workId.trim());
+    }
+
+    public List<DouyinSourceRelation> findRelationsByWorkId(String workId) {
+        if (isBlank(workId)) {
+            return List.of();
+        }
+        return repository.findRelationsByWorkId(workId.trim());
+    }
+
+    @Transactional
+    public boolean recordRelation(DouyinSourceRelation relation) {
+        if (relation == null) {
+            return false;
+        }
+        return recordRelations(relation.workId(), List.of(relation));
+    }
+
+    @Transactional
+    public boolean recordRelations(String workId, List<DouyinSourceRelation> relations) {
+        if (isBlank(workId) || !repository.hasActiveWork(workId.trim())) {
+            return false;
+        }
+        persistRelations(workId.trim(), relations);
+        return true;
     }
 
     @Transactional(readOnly = true)
@@ -139,6 +248,24 @@ public class DouyinHistoryService {
         return !isBlank(workId) && repository.deleteIfMarkedDeleted(workId.trim());
     }
 
+    private void persistRelations(String workId, List<DouyinSourceRelation> relations) {
+        LinkedHashMap<String, DouyinSourceRelation> unique = new LinkedHashMap<>();
+        if (relations != null) {
+            for (DouyinSourceRelation relation : relations) {
+                if (relation == null) {
+                    continue;
+                }
+                DouyinSourceRelation normalized = relation.withWorkId(workId);
+                unique.put(normalized.sourceType() + "\u0000" + normalized.sourceId(), normalized);
+            }
+        }
+        for (DouyinSourceRelation relation : unique.values()) {
+            if (repository.upsertRelation(relation) <= 0) {
+                throw new IllegalStateException("Douyin source relation could not be persisted: " + workId);
+            }
+        }
+    }
+
     private long nextUniqueTime(long preferredTime) {
         long base = preferredTime > 0 ? toMillis(preferredTime) : System.currentTimeMillis();
         long candidate;
@@ -153,6 +280,23 @@ public class DouyinHistoryService {
             candidate = lastIssuedTime.incrementAndGet();
         }
         return candidate;
+    }
+
+    private static DouyinSourceRelation inferredRelation(String workId,
+                                                         String sourceUrl,
+                                                         String collectionId,
+                                                         String collectionTitle,
+                                                         Integer collectionOrder,
+                                                         long discoveredTime) {
+        String stableCollectionId = blankToNull(collectionId);
+        return new DouyinSourceRelation(
+                workId,
+                stableCollectionId == null ? DouyinSourceTypes.SINGLE : DouyinSourceTypes.COLLECTION,
+                stableCollectionId == null ? workId : stableCollectionId,
+                stableCollectionId == null ? null : blankToNull(collectionTitle),
+                blankToNull(sourceUrl),
+                stableCollectionId == null ? null : collectionOrder,
+                discoveredTime);
     }
 
     private static List<DouyinWorkFileRecord> fileRecords(String workId,

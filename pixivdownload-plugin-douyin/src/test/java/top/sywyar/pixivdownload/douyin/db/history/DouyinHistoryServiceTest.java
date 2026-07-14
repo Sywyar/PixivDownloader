@@ -30,6 +30,7 @@ import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
+import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.CorePlugin;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
@@ -161,6 +162,55 @@ class DouyinHistoryServiceTest {
     }
 
     @Test
+    @DisplayName("活动历史缺失文件行时重新下载会刷新作品元数据并完整替换文件")
+    void redownloadActiveWorkRepairsMissingFiles() throws Exception {
+        try (TestDb db = new TestDb(tempDir)) {
+            db.service.recordCompleted(record("repair", "Old", 1000L, "author", "Author"),
+                    files("repair", 1000L));
+            db.mapper.deleteFilesByWorkId("repair");
+            DouyinWorkRecord repaired = record("repair", "Repaired", 2000L, "author", "Author");
+            List<DouyinWorkFileRecord> repairedFiles = List.of(
+                    file("repair", 0, DouyinMediaType.VIDEO.name()),
+                    file("repair", 1, DouyinMediaType.COVER.name()));
+
+            assertThat(db.service.recordCompleted(repaired, repairedFiles)).isTrue();
+
+            assertThat(db.service.findById("repair")).get().satisfies(row -> {
+                assertThat(row.title()).isEqualTo("Repaired");
+                assertThat(row.count()).isEqualTo(1);
+                assertThat(row.time()).isEqualTo(2000L);
+            });
+            assertThat(db.service.findFilesByWorkId("repair"))
+                    .extracting(DouyinWorkFileRecord::fileIndex, DouyinWorkFileRecord::mediaType)
+                    .containsExactly(
+                            org.assertj.core.groups.Tuple.tuple(0, DouyinMediaType.VIDEO.name()),
+                            org.assertj.core.groups.Tuple.tuple(1, DouyinMediaType.COVER.name()));
+        }
+    }
+
+    @Test
+    @DisplayName("活动历史后来启用封面时会替换文件集合并保留已有来源关系")
+    void redownloadActiveWorkAddsCoverAndKeepsRelations() throws Exception {
+        try (TestDb db = new TestDb(tempDir)) {
+            DouyinSourceRelation relation = new DouyinSourceRelation(
+                    "cover-repair", DouyinSourceTypes.SEARCH, "cat", "cat", null, 0, 1000L);
+            DouyinWorkRecord initial = record("cover-repair", "Initial", 1000L, "author", "Author");
+            db.service.recordCompleted(initial, files("cover-repair", 1000L), relation);
+            DouyinWorkRecord refreshed = record("cover-repair", "Refreshed", 2000L, "author", "Author");
+
+            assertThat(db.service.recordCompleted(refreshed, List.of(
+                    file("cover-repair", 0, DouyinMediaType.VIDEO.name()),
+                    file("cover-repair", 1, DouyinMediaType.COVER.name())), List.of())).isTrue();
+
+            assertThat(db.service.findFilesByWorkId("cover-repair"))
+                    .extracting(DouyinWorkFileRecord::mediaType)
+                    .containsExactly(DouyinMediaType.VIDEO.name(), DouyinMediaType.COVER.name());
+            assertThat(db.service.findRelationsByWorkId("cover-repair")).singleElement()
+                    .satisfies(row -> assertThat(row.sourceId()).isEqualTo("cat"));
+        }
+    }
+
+    @Test
     @DisplayName("分页搜索和作者 facet 只读取未软删除历史")
     void searchAndAuthorFacetsReadOnlyActiveHistory() throws Exception {
         try (TestDb db = new TestDb(tempDir)) {
@@ -220,6 +270,57 @@ class DouyinHistoryServiceTest {
             assertThat(db.service.search(videoQuery).total()).isEqualTo(2);
             assertThat(db.service.authorFacets(videoQuery)).extracting(DouyinAuthorSummary::authorId)
                     .containsExactlyInAnyOrder("author-video", "author-mixed");
+        }
+    }
+
+    @Test
+    @DisplayName("同一作品重复发现时不重复主记录并幂等保留全部来源关系")
+    void repeatedDiscoveryAddsRelationsWithoutDuplicatingWork() throws Exception {
+        try (TestDb db = new TestDb(tempDir)) {
+            Path folder = tempDir.resolve("owner").resolve("relation-work");
+            List<DouyinDownloadedFile> files = List.of(
+                    new DouyinDownloadedFile(folder.resolve("relation-work.mp4"), 12L));
+            DouyinSourceRelation search = new DouyinSourceRelation(
+                    "relation-work", DouyinSourceTypes.SEARCH, "猫", "猫", null, 0, 1000L);
+            DouyinSourceRelation user = new DouyinSourceRelation(
+                    "relation-work", DouyinSourceTypes.USER, "sec-user", "作者", null, 1, 2000L);
+
+            assertThat(db.service.recordCompleted(work("relation-work"), folder, files,
+                    null, null, null, null, search)).isTrue();
+            assertThat(db.service.recordCompleted(work("relation-work"), folder, files,
+                    null, null, null, null, user)).isTrue();
+            assertThat(db.service.recordRelation(search)).isTrue();
+
+            assertThat(db.mapper.countById("relation-work")).isEqualTo(1);
+            assertThat(db.service.findRelationsByWorkId("relation-work"))
+                    .extracting(DouyinSourceRelation::sourceType, DouyinSourceRelation::sourceId)
+                    .containsExactly(
+                            org.assertj.core.groups.Tuple.tuple(DouyinSourceTypes.SEARCH, "猫"),
+                            org.assertj.core.groups.Tuple.tuple(DouyinSourceTypes.USER, "sec-user"));
+        }
+    }
+
+    @Test
+    @DisplayName("旧历史可按已知合集字段回填来源关系且不编造未知容器")
+    void backfillsRelationsFromPublishedHistoryFields() throws Exception {
+        try (TestDb db = new TestDb(tempDir)) {
+            DouyinWorkRecord legacy = record("legacy", "Legacy", 5000L, "author", "Author");
+            legacy = new DouyinWorkRecord(legacy.workId(), legacy.title(), legacy.folder(), legacy.count(),
+                    legacy.extensions(), legacy.time(), legacy.deleted(), legacy.kind(), legacy.sourceUrl(),
+                    legacy.canonicalUrl(), legacy.thumbnailUrl(), legacy.authorId(), legacy.authorName(),
+                    legacy.description(), legacy.itemTitle(), legacy.caption(), legacy.publishTime(),
+                    "mix-known", "Known mix", 3);
+            db.mapper.insertWork(legacy);
+            assertThat(db.service.findRelationsByWorkId("legacy")).isEmpty();
+
+            assertThat(db.service.backfillRelations()).isEqualTo(1);
+
+            assertThat(db.service.findRelationsByWorkId("legacy")).singleElement()
+                    .satisfies(relation -> {
+                        assertThat(relation.sourceType()).isEqualTo(DouyinSourceTypes.COLLECTION);
+                        assertThat(relation.sourceId()).isEqualTo("mix-known");
+                        assertThat(relation.sourceOrder()).isEqualTo(3);
+                    });
         }
     }
 

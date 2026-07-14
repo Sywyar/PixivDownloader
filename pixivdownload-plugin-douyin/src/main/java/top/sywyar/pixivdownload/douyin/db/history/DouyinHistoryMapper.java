@@ -147,11 +147,48 @@ public interface DouyinHistoryMapper {
             + " #{itemTitle}, #{caption}, #{publishTime}, #{collectionId}, #{collectionTitle}, #{collectionOrder})")
     int insertWork(DouyinWorkRecord record);
 
+    @Update("UPDATE douyin_works SET title = #{title}, folder = #{folder}, count = #{count},"
+            + " extensions = #{extensions}, time = #{time}, deleted = 0, kind = #{kind},"
+            + " source_url = #{sourceUrl}, canonical_url = #{canonicalUrl}, thumbnail_url = #{thumbnailUrl},"
+            + " author_id = #{authorId}, author_name = #{authorName}, description = #{description},"
+            + " item_title = #{itemTitle}, caption = #{caption}, publish_time = #{publishTime},"
+            + " collection_id = #{collectionId}, collection_title = #{collectionTitle},"
+            + " collection_order = #{collectionOrder} WHERE work_id = #{workId} AND deleted = 0")
+    int updateActiveWork(DouyinWorkRecord record);
+
     @Insert("INSERT OR REPLACE INTO douyin_work_files"
             + " (work_id, file_index, media_id, media_type, file_name, extension, bytes, content_type, created_time)"
             + " VALUES (#{workId}, #{fileIndex}, #{mediaId}, #{mediaType}, #{fileName},"
             + " #{extension}, #{bytes}, #{contentType}, #{createdTime})")
     int upsertFile(DouyinWorkFileRecord record);
+
+    @Insert("INSERT INTO douyin_work_relations"
+            + " (work_id, source_type, source_id, source_title, source_url, source_order, discovered_time)"
+            + " VALUES (#{workId}, #{sourceType}, #{sourceId}, #{sourceTitle}, #{sourceUrl},"
+            + " #{sourceOrder}, #{discoveredTime})"
+            + " ON CONFLICT(work_id, source_type, source_id) DO UPDATE SET"
+            + " source_title = COALESCE(excluded.source_title, douyin_work_relations.source_title),"
+            + " source_url = COALESCE(excluded.source_url, douyin_work_relations.source_url),"
+            + " source_order = COALESCE(douyin_work_relations.source_order, excluded.source_order),"
+            + " discovered_time = MIN(douyin_work_relations.discovered_time, excluded.discovered_time)")
+    int upsertRelation(DouyinSourceRelation relation);
+
+    @Select("SELECT work_id AS workId, source_type AS sourceType, source_id AS sourceId,"
+            + " source_title AS sourceTitle, source_url AS sourceUrl, source_order AS sourceOrder,"
+            + " discovered_time AS discoveredTime FROM douyin_work_relations"
+            + " WHERE work_id = #{workId} ORDER BY discovered_time, source_type, source_id")
+    List<DouyinSourceRelation> findRelationsByWorkId(@Param("workId") String workId);
+
+    @Insert("INSERT OR IGNORE INTO douyin_work_relations"
+            + " (work_id, source_type, source_id, source_title, source_url, source_order, discovered_time)"
+            + " SELECT work_id,"
+            + " CASE WHEN collection_id IS NOT NULL AND TRIM(collection_id) != ''"
+            + " THEN 'douyin.collection' ELSE 'douyin.single' END,"
+            + " COALESCE(NULLIF(TRIM(collection_id), ''), work_id),"
+            + " COALESCE(NULLIF(TRIM(collection_title), ''), title),"
+            + " COALESCE(NULLIF(TRIM(source_url), ''), canonical_url),"
+            + " collection_order, time FROM douyin_works")
+    int backfillRelations();
 
     @Select("SELECT COUNT(*) FROM douyin_works WHERE work_id = #{workId}")
     int countById(@Param("workId") String workId);
@@ -174,9 +211,16 @@ public interface DouyinHistoryMapper {
     @Delete("DELETE FROM douyin_work_files WHERE work_id = #{workId}")
     int deleteFilesByWorkId(@Param("workId") String workId);
 
+    @Delete("DELETE FROM douyin_work_relations WHERE work_id = #{workId}")
+    int deleteRelationsByWorkId(@Param("workId") String workId);
+
     @Delete("DELETE FROM douyin_work_files WHERE work_id IN"
             + " (SELECT work_id FROM douyin_works WHERE work_id = #{workId} AND deleted = 1)")
     int deleteFilesIfWorkMarkedDeleted(@Param("workId") String workId);
+
+    @Delete("DELETE FROM douyin_work_relations WHERE work_id IN"
+            + " (SELECT work_id FROM douyin_works WHERE work_id = #{workId} AND deleted = 1)")
+    int deleteRelationsIfWorkMarkedDeleted(@Param("workId") String workId);
 
     @Delete("DELETE FROM douyin_works WHERE work_id = #{workId} AND deleted = 1")
     int deleteWorkIfMarkedDeleted(@Param("workId") String workId);

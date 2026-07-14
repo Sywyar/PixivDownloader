@@ -24,13 +24,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DouyinSchemaContributionTest {
 
     @Test
-    @DisplayName("插件 schema 贡献抖音下载历史两张受管表")
+    @DisplayName("插件 schema 分离作品、文件与多来源关系三张受管表")
     void contributesDouyinHistoryTables() {
         DatabaseSchemaRegistry registry = new DatabaseSchemaRegistry(
                 new PluginRegistry(List.of(new DouyinPlugin())));
 
         assertThat(registry.mergedSchema().tables().keySet())
-                .contains("douyin_works", "douyin_work_files");
+                .contains("douyin_works", "douyin_work_files", "douyin_work_relations");
         ManagedDatabaseSchema.TableSpec works = registry.mergedSchema().tables().get("douyin_works");
         assertThat(works.columns())
                 .anySatisfy(column -> {
@@ -59,6 +59,15 @@ class DouyinSchemaContributionTest {
         assertThat(registry.mergedSchema().tables().get("douyin_work_files").indexes())
                 .singleElement()
                 .satisfies(index -> assertThat(index.name()).isEqualTo("idx_douyin_work_files_work_id"));
+        ManagedDatabaseSchema.TableSpec relations = registry.mergedSchema().tables().get("douyin_work_relations");
+        assertThat(relations.columns()).extracting(ManagedDatabaseSchema.ColumnSpec::name)
+                .containsExactly("work_id", "source_type", "source_id", "source_title", "source_url",
+                        "source_order", "discovered_time");
+        assertThat(relations.indexes()).singleElement()
+                .satisfies(index -> {
+                    assertThat(index.name()).isEqualTo("idx_douyin_work_relations_source");
+                    assertThat(index.columns()).containsExactly("source_type", "source_id", "source_order");
+                });
     }
 
     @Test
@@ -83,7 +92,7 @@ class DouyinSchemaContributionTest {
         assertThat(pluginRegistry.plugins()).isEmpty();
         assertThat(pluginRegistry.allPlugins()).extracting(plugin -> plugin.id()).containsExactly(DouyinPlugin.ID);
         assertThat(new DatabaseSchemaRegistry(pluginRegistry).mergedSchema().tables().keySet())
-                .contains("douyin_works", "douyin_work_files");
+                .contains("douyin_works", "douyin_work_files", "douyin_work_relations");
     }
 
     @Test

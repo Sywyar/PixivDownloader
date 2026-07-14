@@ -59,6 +59,29 @@ public class DouyinHistoryRepository {
         files.forEach(mapper::upsertFile);
     }
 
+    public boolean replaceActiveWork(DouyinWorkRecord record, List<DouyinWorkFileRecord> files) {
+        DouyinWorkRecord encoded = record.withFolder(encodeFolder(record.folder())).withDeleted(false);
+        if (mapper.updateActiveWork(encoded) <= 0) {
+            return false;
+        }
+        mapper.deleteFilesByWorkId(record.workId());
+        insertFiles(files);
+        return true;
+    }
+
+    public int upsertRelation(DouyinSourceRelation relation) {
+        return mapper.upsertRelation(relation);
+    }
+
+    public List<DouyinSourceRelation> findRelationsByWorkId(String workId) {
+        List<DouyinSourceRelation> rows = mapper.findRelationsByWorkId(workId);
+        return rows == null ? List.of() : rows;
+    }
+
+    public int backfillRelations() {
+        return mapper.backfillRelations();
+    }
+
     public boolean hasWork(String workId) {
         return mapper.countById(workId) > 0;
     }
@@ -84,9 +107,10 @@ public class DouyinHistoryRepository {
     }
 
     public boolean deleteIfMarkedDeleted(String workId) {
+        int relations = mapper.deleteRelationsIfWorkMarkedDeleted(workId);
         int files = mapper.deleteFilesIfWorkMarkedDeleted(workId);
         int works = mapper.deleteWorkIfMarkedDeleted(workId);
-        return files > 0 || works > 0;
+        return relations > 0 || files > 0 || works > 0;
     }
 
     private DouyinWorkRecord resolve(DouyinWorkRecord record) {

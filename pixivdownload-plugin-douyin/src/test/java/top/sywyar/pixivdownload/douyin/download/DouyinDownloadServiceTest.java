@@ -11,6 +11,9 @@ import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryRepository;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
+import top.sywyar.pixivdownload.douyin.db.history.DouyinSourceRelation;
+import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkFileRecord;
+import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkRecord;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalDownload;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadPhase;
@@ -26,6 +29,7 @@ import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
+import top.sywyar.pixivdownload.douyin.source.DouyinSourceRequest;
 
 import java.lang.reflect.RecordComponent;
 import java.net.URI;
@@ -40,6 +44,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,6 +59,10 @@ class DouyinDownloadServiceTest {
             "ttwid=tt; passport_csrf_token=csrf; sessionid=sid; sid_tt=sid; sid_guard=guard";
     private static final byte[] DOWNLOADED_VIDEO_BYTES = {
             0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o'
+    };
+    private static final byte[] EXISTING_VIDEO_BYTES = {0, 0, 0, 0x18, 'f', 't', 'y', 'p'};
+    private static final byte[] EXISTING_IMAGE_BYTES = {
+            (byte) 0xff, (byte) 0xd8, (byte) 0xff, (byte) 0xe0, 0, 0, 0, 0
     };
 
     @TempDir
@@ -180,6 +189,121 @@ class DouyinDownloadServiceTest {
         assertThat(second.workId()).isEqualTo("10001");
         executor.runAll();
         assertThat(client.downloader.calls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("同一 owner 的运行中作品合并多个发现来源且只下载一次")
+    void runningWorkMergesAllDiscoverySources() throws Exception {
+        FakeClient client = new FakeClient();
+        CapturingExecutor executor = new CapturingExecutor();
+        RecordingHistoryService history = recordingHistoryService();
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                executor,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT),
+                history);
+        String workId = "10001";
+
+        var first = service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE,
+                null, null, null, null, null, null, null,
+                List.of(new DouyinSourceRequest(
+                        "douyin.search", "猫", "猫", "https://www.douyin.com/search/猫", 3))),
+                "owner-a");
+        var second = service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE,
+                null, null, null, null, null, null, null,
+                List.of(new DouyinSourceRequest(
+                        "douyin.user", "author-1", "Author", "https://www.douyin.com/user/author-1", 8))),
+                "owner-a");
+
+        assertThat(second.id()).isEqualTo(first.id());
+        executor.runAll();
+
+        assertThat(client.downloader.calls).isEqualTo(1);
+        assertThat(history.relations)
+                .extracting(DouyinSourceRelation::sourceType, DouyinSourceRelation::sourceId,
+                        DouyinSourceRelation::sourceOrder)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("douyin.search", "猫", 3),
+                        org.assertj.core.groups.Tuple.tuple("douyin.user", "author-1", 8));
+    }
+
+    @Test
+    @DisplayName("来源分页序号只补充未声明顺序的关系")
+    void generatedSourceOrderDoesNotOverwriteExplicitRelationOrder() throws Exception {
+        FakeClient client = new FakeClient();
+        String workId = "10001";
+        client.seriesWorks = List.of(FakeClient.work(workId));
+        RecordingHistoryService history = recordingHistoryService();
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                Runnable::run,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT),
+                history);
+
+        service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/mix/12345", "", VALID_COOKIE,
+                null, null, null, null, null, null, null,
+                List.of(
+                        new DouyinSourceRequest("douyin.collection", "12345", "合集", null, null),
+                        new DouyinSourceRequest("douyin.search", "猫", "猫", null, 8))),
+                "owner-a");
+
+        assertThat(history.relations)
+                .extracting(DouyinSourceRelation::sourceType, DouyinSourceRelation::sourceOrder)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("douyin.collection", 0),
+                        org.assertj.core.groups.Tuple.tuple("douyin.search", 8));
+    }
+
+    @Test
+    @DisplayName("历史首次写入期间吸收的新来源会在成功终态前补写")
+    void sourceAbsorbedDuringHistoryWriteIsFinalizedBeforeCompletion() throws Exception {
+        FakeClient client = new FakeClient();
+        RecordingHistoryService history = recordingHistoryService();
+        CountDownLatch recordEntered = new CountDownLatch(1);
+        CountDownLatch releaseRecord = new CountDownLatch(1);
+        history.blockRecord(recordEntered, releaseRecord);
+        AtomicReference<Thread> worker = new AtomicReference<>();
+        TaskExecutor executor = task -> {
+            Thread thread = new Thread(task, "douyin-history-finalize-test");
+            thread.setDaemon(true);
+            worker.set(thread);
+            thread.start();
+        };
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                executor,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT),
+                history);
+        String workId = "10001";
+
+        var first = service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE,
+                null, null, null, null, null, null, null,
+                List.of(new DouyinSourceRequest("douyin.search", "猫", null, null, 3))), "owner-a");
+        assertThat(recordEntered.await(2, TimeUnit.SECONDS)).isTrue();
+
+        var second = service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE,
+                null, null, null, null, null, null, null,
+                List.of(new DouyinSourceRequest("douyin.user", "author-1", null, null, 8))), "owner-a");
+        releaseRecord.countDown();
+        worker.get().join(2_000);
+
+        assertThat(second.id()).isEqualTo(first.id());
+        assertThat(worker.get().isAlive()).isFalse();
+        assertThat(service.status(first.id(), "owner-a", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.COMPLETED);
+        assertThat(history.relations)
+                .extracting(DouyinSourceRelation::sourceType, DouyinSourceRelation::sourceId)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("douyin.search", "猫"),
+                        org.assertj.core.groups.Tuple.tuple("douyin.user", "author-1"));
     }
 
     @Test
@@ -621,8 +745,180 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
-    @DisplayName("下载历史写入失败不改变媒体下载成功结果")
-    void historyRecordFailureDoesNotFailSuccessfulDownload() throws Exception {
+    @DisplayName("已下载作品由新来源重复发现时只补关系而不重复下载文件")
+    void existingDownloadAddsRelationWithoutDownloadingAgain() throws Exception {
+        FakeClient client = new FakeClient();
+        RecordingHistoryService history = recordingHistoryService();
+        String workId = "7351234567890123456";
+        Path folder = tempDir.resolve("existing").resolve(workId);
+        Files.createDirectories(folder);
+        Path file = folder.resolve(workId + ".mp4");
+        Files.write(file, EXISTING_VIDEO_BYTES);
+        history.existingRecord = new DouyinWorkRecord(
+                workId, "Existing", folder.toString(), 1, "mp4", 1000L, false,
+                DouyinWorkKind.VIDEO.name(), null, "https://www.douyin.com/video/" + workId,
+                null, "author", "Author", null, null, null, null, null, null, null);
+        history.existingFiles = List.of(new DouyinWorkFileRecord(
+                workId, 0, workId, DouyinMediaType.VIDEO.name(), file.getFileName().toString(),
+                "mp4", 8L, "video/mp4", 1000L));
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                Runnable::run,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT),
+                history);
+
+        var response = service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE,
+                null, null, "douyin.search", "猫", "猫", null, 4), "owner-a");
+
+        assertThat(service.status(response.id(), "owner-a", false).orElseThrow().phase())
+                .isEqualTo(DouyinDownloadPhase.COMPLETED);
+        assertThat(client.downloader.calls).isZero();
+        assertThat(history.relations).singleElement().satisfies(relation -> {
+            assertThat(relation.sourceType()).isEqualTo("douyin.search");
+            assertThat(relation.sourceId()).isEqualTo("猫");
+            assertThat(relation.sourceOrder()).isEqualTo(4);
+        });
+    }
+
+    @Test
+    @DisplayName("关闭封面后不会复用仍包含旧封面的历史媒体组")
+    void historyWithOldCoverIsNotReusedAfterCoverDisabled() throws Exception {
+        FakeClient client = new FakeClient();
+        RecordingHistoryService history = recordingHistoryService();
+        String workId = "7351234567890123456";
+        Path folder = tempDir.resolve("existing-cover").resolve(workId);
+        Files.createDirectories(folder);
+        Path video = folder.resolve(workId + ".mp4");
+        Path cover = folder.resolve(workId + "-cover.webp");
+        Files.write(video, EXISTING_VIDEO_BYTES);
+        Files.write(cover, EXISTING_IMAGE_BYTES);
+        history.existingRecord = new DouyinWorkRecord(
+                workId, "Existing", folder.toString(), 2, "mp4,webp", 1000L, false,
+                DouyinWorkKind.VIDEO.name(), null, "https://www.douyin.com/video/" + workId,
+                null, "author", "Author", null, null, null, null, null, null, null);
+        history.existingFiles = List.of(
+                new DouyinWorkFileRecord(workId, 0, workId, DouyinMediaType.VIDEO.name(),
+                        video.getFileName().toString(), "mp4", 8L, "video/mp4", 1000L),
+                new DouyinWorkFileRecord(workId, 1, workId + "-cover", DouyinMediaType.COVER.name(),
+                        cover.getFileName().toString(), "webp", 8L, "image/webp", 1000L));
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                Runnable::run,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT, "", 0, false),
+                history);
+
+        service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.downloader.calls).isEqualTo(1);
+        assertThat(client.downloader.downloadedFiles).isEqualTo(1);
+        assertThat(history.calls).isEqualTo(1);
+        assertThat(history.work.media()).extracting(DouyinMedia::type)
+                .containsExactly(DouyinMediaType.VIDEO);
+    }
+
+    @Test
+    @DisplayName("旧历史缺少实况视频时重新下载完整媒体组")
+    void incompleteLivePhotoHistoryIsNotReused() throws Exception {
+        FakeClient client = new FakeClient();
+        client.livePhoto = true;
+        RecordingHistoryService history = recordingHistoryService();
+        String workId = "7351234567890123456";
+        Path folder = tempDir.resolve("existing-live").resolve(workId);
+        Files.createDirectories(folder);
+        Path image = folder.resolve(workId + "-image.jpg");
+        Files.write(image, EXISTING_IMAGE_BYTES);
+        history.existingRecord = new DouyinWorkRecord(
+                workId, "Existing", folder.toString(), 1, "jpg", 1000L, false,
+                DouyinWorkKind.LIVE_PHOTO.name(), null, "https://www.douyin.com/video/" + workId,
+                null, "author", "Author", null, null, null, null, null, null, null);
+        history.existingFiles = List.of(new DouyinWorkFileRecord(
+                workId, 0, workId + "-image", DouyinMediaType.IMAGE.name(),
+                image.getFileName().toString(), "jpg", 8L, "image/jpeg", 1000L));
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                Runnable::run,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT),
+                history);
+
+        service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.downloader.calls).isEqualTo(1);
+        assertThat(client.downloader.downloadedFiles).isEqualTo(2);
+        assertThat(history.calls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("空的历史媒体文件不会被当作完整下载复用")
+    void emptyHistoryFileIsNotReused() throws Exception {
+        FakeClient client = new FakeClient();
+        RecordingHistoryService history = recordingHistoryService();
+        String workId = "7351234567890123456";
+        Path folder = tempDir.resolve("empty-existing").resolve(workId);
+        Files.createDirectories(folder);
+        Path file = folder.resolve(workId + ".mp4");
+        Files.createFile(file);
+        history.existingRecord = new DouyinWorkRecord(
+                workId, "Existing", folder.toString(), 1, "mp4", 1000L, false,
+                DouyinWorkKind.VIDEO.name(), null, "https://www.douyin.com/video/" + workId,
+                null, "author", "Author", null, null, null, null, null, null, null);
+        history.existingFiles = List.of(new DouyinWorkFileRecord(
+                workId, 0, workId, DouyinMediaType.VIDEO.name(), file.getFileName().toString(),
+                "mp4", 0L, "video/mp4", 1000L));
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                Runnable::run,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT),
+                history);
+
+        service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.downloader.calls).isEqualTo(1);
+        assertThat(history.calls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("旧历史中的验证页载荷不会被当作媒体复用")
+    void legacyVerificationPayloadIsNotReused() throws Exception {
+        FakeClient client = new FakeClient();
+        RecordingHistoryService history = recordingHistoryService();
+        String workId = "7351234567890123456";
+        Path folder = tempDir.resolve("verification-existing").resolve(workId);
+        Files.createDirectories(folder);
+        Path file = folder.resolve(workId + ".mp4");
+        byte[] verificationPage = "<html>captcha verify</html>".getBytes(StandardCharsets.UTF_8);
+        Files.write(file, verificationPage);
+        history.existingRecord = new DouyinWorkRecord(
+                workId, "Existing", folder.toString(), 1, "mp4", 1000L, false,
+                DouyinWorkKind.VIDEO.name(), null, "https://www.douyin.com/video/" + workId,
+                null, "author", "Author", null, null, null, null, null, null, null);
+        history.existingFiles = List.of(new DouyinWorkFileRecord(
+                workId, 0, workId, DouyinMediaType.VIDEO.name(), file.getFileName().toString(),
+                "mp4", (long) verificationPage.length, "video/mp4", 1000L));
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                Runnable::run,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT),
+                history);
+
+        service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/" + workId, "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.downloader.calls).isEqualTo(1);
+        assertThat(history.calls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("下载历史或来源关系写入失败时任务不能标为完整成功")
+    void historyRecordFailureFailsCompletedDownload() throws Exception {
         FakeClient client = new FakeClient();
         RecordingHistoryService history = recordingHistoryService();
         history.throwOnRecord = true;
@@ -637,7 +933,7 @@ class DouyinDownloadServiceTest {
                 "https://www.douyin.com/video/7351234567890123456", "", VALID_COOKIE), "owner-a");
         DouyinDownloadSnapshot status = service.status(response.id(), "owner-a", false).orElseThrow();
 
-        assertThat(status.phase()).isEqualTo(DouyinDownloadPhase.COMPLETED);
+        assertThat(status.phase()).isEqualTo(DouyinDownloadPhase.FAILED);
         assertThat(status.completed()).isTrue();
         assertThat(history.calls).isEqualTo(1);
         assertThat(Files.exists(client.downloader.lastTarget)).isTrue();
@@ -695,6 +991,7 @@ class DouyinDownloadServiceTest {
         private CountDownLatch resolveEntered;
         private CountDownLatch releaseResolve;
         private String thumbnailUrl = "";
+        private boolean livePhoto;
 
         void blockResolve(CountDownLatch entered, CountDownLatch release) {
             this.resolveEntered = entered;
@@ -786,7 +1083,7 @@ class DouyinDownloadServiceTest {
         }
 
         private DouyinWork resolvedWork(String id) {
-            DouyinWork base = work(id);
+            DouyinWork base = livePhoto ? workWithTwoMedia(id) : work(id);
             if (thumbnailUrl == null || thumbnailUrl.isBlank()) {
                 return base;
             }
@@ -878,9 +1175,19 @@ class DouyinDownloadServiceTest {
         private String sourceUrl;
         private String collectionId;
         private boolean throwOnRecord;
+        private CountDownLatch recordEntered;
+        private CountDownLatch releaseRecord;
+        private DouyinWorkRecord existingRecord;
+        private List<DouyinWorkFileRecord> existingFiles = List.of();
+        private final List<DouyinSourceRelation> relations = new ArrayList<>();
 
         private RecordingHistoryService(DouyinHistoryRepository repository) {
             super(repository);
+        }
+
+        private void blockRecord(CountDownLatch entered, CountDownLatch release) {
+            this.recordEntered = entered;
+            this.releaseRecord = release;
         }
 
         @Override
@@ -890,17 +1197,81 @@ class DouyinDownloadServiceTest {
                                        String sourceUrl,
                                        String collectionId,
                                        String collectionTitle,
-                                       Integer collectionOrder) {
+                                       Integer collectionOrder,
+                                       DouyinSourceRelation relation) {
+            return captureCompleted(work, folder, files, sourceUrl, collectionId,
+                    relation == null ? List.of() : List.of(relation));
+        }
+
+        @Override
+        public boolean recordCompleted(DouyinWork work,
+                                       Path folder,
+                                       List<DouyinDownloadedFile> files,
+                                       String sourceUrl,
+                                       String collectionId,
+                                       String collectionTitle,
+                                       Integer collectionOrder,
+                                       List<DouyinSourceRelation> sourceRelations) {
+            return captureCompleted(work, folder, files, sourceUrl, collectionId, sourceRelations);
+        }
+
+        private boolean captureCompleted(DouyinWork work,
+                                         Path folder,
+                                         List<DouyinDownloadedFile> files,
+                                         String sourceUrl,
+                                         String collectionId,
+                                         List<DouyinSourceRelation> sourceRelations) {
             this.calls++;
             if (throwOnRecord) {
                 throw new IllegalStateException("history unavailable");
+            }
+            if (recordEntered != null) {
+                recordEntered.countDown();
+                try {
+                    releaseRecord.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("history recording interrupted", interrupted);
+                }
             }
             this.work = work;
             this.folder = folder;
             this.files = List.copyOf(files);
             this.sourceUrl = sourceUrl;
             this.collectionId = collectionId;
+            addRelations(sourceRelations);
             return true;
+        }
+
+        @Override
+        public Optional<DouyinWorkRecord> findById(String workId) {
+            return Optional.ofNullable(existingRecord);
+        }
+
+        @Override
+        public List<DouyinWorkFileRecord> findFilesByWorkId(String workId) {
+            return existingFiles;
+        }
+
+        @Override
+        public boolean recordRelation(DouyinSourceRelation relation) {
+            addRelations(List.of(relation));
+            return true;
+        }
+
+        @Override
+        public boolean recordRelations(String workId, List<DouyinSourceRelation> sourceRelations) {
+            addRelations(sourceRelations);
+            return true;
+        }
+
+        private void addRelations(List<DouyinSourceRelation> sourceRelations) {
+            for (DouyinSourceRelation relation : sourceRelations) {
+                relations.removeIf(existing -> existing.workId().equals(relation.workId())
+                        && existing.sourceType().equals(relation.sourceType())
+                        && existing.sourceId().equals(relation.sourceId()));
+                relations.add(relation);
+            }
         }
     }
 }

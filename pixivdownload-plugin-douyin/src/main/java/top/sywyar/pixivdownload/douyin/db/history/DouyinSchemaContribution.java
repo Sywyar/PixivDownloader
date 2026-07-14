@@ -66,6 +66,22 @@ public final class DouyinSchemaContribution {
                         List.of(
                                 explicitIndex("idx_douyin_work_files_work_id", false, "work_id")
                         )
+                ),
+                new TableSpec(
+                        "douyin_work_relations",
+                        List.of(
+                                column("work_id", "TEXT", true, null, 1),
+                                column("source_type", "TEXT", true, null, 2),
+                                column("source_id", "TEXT", true, null, 3),
+                                column("source_title", "TEXT", false, null, 0),
+                                column("source_url", "TEXT", false, null, 0),
+                                column("source_order", "INTEGER", false, null, 0),
+                                column("discovered_time", "INTEGER", true, null, 0)
+                        ),
+                        List.of(
+                                explicitIndex("idx_douyin_work_relations_source", false,
+                                        "source_type", "source_id", "source_order")
+                        )
                 )
         );
 

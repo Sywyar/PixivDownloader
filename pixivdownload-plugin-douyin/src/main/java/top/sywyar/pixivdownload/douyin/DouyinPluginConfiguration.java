@@ -62,7 +62,9 @@ public class DouyinPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("douyin")
     public DouyinHistoryService douyinHistoryService(DouyinHistoryRepository repository) {
-        return new DouyinHistoryService(repository);
+        DouyinHistoryService service = new DouyinHistoryService(repository);
+        service.backfillRelations();
+        return service;
     }
 
     @Bean
