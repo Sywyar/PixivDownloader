@@ -56,6 +56,7 @@ public final class DouyinRestTemplateFactory {
                 .build();
         var builder = HttpClients.custom()
                 .disableRedirectHandling()
+                .disableCookieManagement()
                 .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(requestConfig);
         if (routePlanner != null) {

@@ -45,11 +45,14 @@ class DouyinScheduledFailureMapperTest {
                     ScheduledFailure.Category.ACCESS_UNAVAILABLE;
             case CANCELLED -> ScheduledFailure.Category.CANCELLED;
             case INVALID_URL, INVALID_SHORT_URL, NON_DOUYIN_TARGET,
-                    UNSUPPORTED_FINAL_URL, UNSUPPORTED_CONTENT, MEDIA_URL_MISSING ->
+                    UNSUPPORTED_FINAL_URL, UNSUPPORTED_CONTENT, MEDIA_URL_MISSING,
+                    UPSTREAM_NOT_FOUND ->
                     ScheduledFailure.Category.NOT_FOUND;
             case NETWORK_TIMEOUT, SHORT_LINK_UNRESOLVED, REDIRECT_LOOP,
-                    PAGINATION_STALLED, NETWORK_ERROR, DOWNLOAD_SIZE_MISMATCH ->
+                    PAGINATION_STALLED, NETWORK_ERROR, DOWNLOAD_SIZE_MISMATCH,
+                    UPSTREAM_SERVER_ERROR ->
                     ScheduledFailure.Category.RETRYABLE_NETWORK;
+            case UPSTREAM_CLIENT_ERROR, RESPONSE_STRUCTURE_UNRECOGNIZED -> ScheduledFailure.Category.INTERNAL;
         };
     }
 }

@@ -415,12 +415,14 @@ public class DouyinController {
     private static ResponseEntity<ErrorView> clientError(DouyinClientException e) {
         HttpStatus status = switch (e.code()) {
             case INVALID_URL, INVALID_SHORT_URL, UNSUPPORTED_CONTENT, SHORT_LINK_UNRESOLVED,
-                 UNSUPPORTED_FINAL_URL, MEDIA_URL_MISSING, SIGNATURE_REQUIRED -> HttpStatus.BAD_REQUEST;
+                 UNSUPPORTED_FINAL_URL, MEDIA_URL_MISSING -> HttpStatus.BAD_REQUEST;
             case COOKIE_REQUIRED, COOKIE_MISSING_FIELDS, COOKIE_EXPIRED, LOGIN_OR_VERIFY_PAGE -> HttpStatus.UNAUTHORIZED;
             case RATE_LIMITED, HTTP_RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
             case HTTP_FORBIDDEN, REGION_RESTRICTED, PERMISSION_DENIED -> HttpStatus.FORBIDDEN;
             case REDIRECT_LOOP, NON_DOUYIN_TARGET, DOWNLOAD_SIZE_MISMATCH, PAGINATION_STALLED -> HttpStatus.BAD_GATEWAY;
-            case NETWORK_TIMEOUT, NETWORK_ERROR -> HttpStatus.BAD_GATEWAY;
+            case SIGNATURE_REQUIRED, UPSTREAM_CLIENT_ERROR, UPSTREAM_NOT_FOUND, UPSTREAM_SERVER_ERROR,
+                    RESPONSE_STRUCTURE_UNRECOGNIZED,
+                    NETWORK_TIMEOUT, NETWORK_ERROR -> HttpStatus.BAD_GATEWAY;
             case CANCELLED -> HttpStatus.CONFLICT;
         };
         return ResponseEntity.status(status).body(new ErrorView(false, e.code().name(), errorKey(e), e.getMessage()));

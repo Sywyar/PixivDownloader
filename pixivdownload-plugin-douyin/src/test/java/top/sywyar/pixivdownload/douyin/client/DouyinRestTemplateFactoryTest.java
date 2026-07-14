@@ -4,6 +4,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.client.ResourceAccessException;
 import top.sywyar.pixivdownload.config.ProxyConfig;
@@ -15,6 +17,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,6 +78,42 @@ class DouyinRestTemplateFactoryTest {
                 .exchange(target, HttpMethod.GET, null, byte[].class))
                 .isInstanceOf(ResourceAccessException.class);
         assertThat(targetHits).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("上游 Set-Cookie 不会进入共享客户端并泄露给后续匿名请求")
+    void responseCookiesAreNotRetainedAcrossRequests() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        AtomicInteger requestIndex = new AtomicInteger();
+        AtomicBoolean firstRequestHadCookie = new AtomicBoolean();
+        AtomicBoolean secondRequestHadCookie = new AtomicBoolean();
+        server.createContext("/", exchange -> {
+            int index = requestIndex.incrementAndGet();
+            boolean hasCookie = exchange.getRequestHeaders().getFirst(HttpHeaders.COOKIE) != null;
+            if (index == 1) {
+                firstRequestHadCookie.set(hasCookie);
+                exchange.getResponseHeaders().add(HttpHeaders.SET_COOKIE,
+                        "upstream_session=synthetic; Path=/");
+            } else if (index == 2) {
+                secondRequestHadCookie.set(hasCookie);
+            }
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        URI target = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/");
+        var template = DouyinRestTemplateFactory.directDownloadTemplate();
+        HttpHeaders credentialedHeaders = new HttpHeaders();
+        credentialedHeaders.set(HttpHeaders.COOKIE, "sessionid=synthetic");
+
+        template.exchange(target, HttpMethod.GET,
+                new HttpEntity<>(credentialedHeaders), byte[].class);
+        template.exchange(target, HttpMethod.GET,
+                new HttpEntity<>(new HttpHeaders()), byte[].class);
+
+        assertThat(requestIndex).hasValue(2);
+        assertThat(firstRequestHadCookie).isTrue();
+        assertThat(secondRequestHadCookie).isFalse();
     }
 
     private URI startTarget(AtomicInteger targetHits) throws IOException {

@@ -35,13 +35,16 @@ public final class DouyinScheduledFailureMapper {
             case CANCELLED -> ScheduledExecutionException.cancelled();
             case INVALID_URL, INVALID_SHORT_URL, NON_DOUYIN_TARGET,
                     UNSUPPORTED_FINAL_URL, UNSUPPORTED_CONTENT,
-                    MEDIA_URL_MISSING ->
+                    MEDIA_URL_MISSING, UPSTREAM_NOT_FOUND ->
                     failure(ScheduledFailure.Category.NOT_FOUND,
                             "douyin.schedule.work-unavailable");
             case NETWORK_TIMEOUT, SHORT_LINK_UNRESOLVED, REDIRECT_LOOP,
-                    PAGINATION_STALLED, NETWORK_ERROR, DOWNLOAD_SIZE_MISMATCH ->
+                    PAGINATION_STALLED, NETWORK_ERROR, DOWNLOAD_SIZE_MISMATCH,
+                    UPSTREAM_SERVER_ERROR ->
                     failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
                             "douyin.schedule.network-failed");
+            case UPSTREAM_CLIENT_ERROR, RESPONSE_STRUCTURE_UNRECOGNIZED ->
+                    internal("douyin.schedule.upstream-response-invalid");
         };
     }
 

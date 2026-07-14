@@ -49,6 +49,41 @@ public final class DouyinErrorClassifier {
                 || normalized.contains("风控");
     }
 
+    public static boolean looksLikeSignatureText(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        return normalized.contains("a_bogus")
+                || normalized.contains("x-bogus")
+                || normalized.contains("signature")
+                || normalized.contains("签名");
+    }
+
+    public static DouyinClientErrorCode classifyHttpStatus(int status, byte[] body) {
+        if (status == 401) {
+            return DouyinClientErrorCode.COOKIE_EXPIRED;
+        }
+        if (status == 403) {
+            return looksLikeLoginOrRiskPage(body)
+                    ? DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE
+                    : DouyinClientErrorCode.HTTP_FORBIDDEN;
+        }
+        if (status == 404) {
+            return DouyinClientErrorCode.UPSTREAM_NOT_FOUND;
+        }
+        if (status == 429) {
+            return DouyinClientErrorCode.RATE_LIMITED;
+        }
+        if (status >= 500) {
+            return DouyinClientErrorCode.UPSTREAM_SERVER_ERROR;
+        }
+        if (status >= 400) {
+            return DouyinClientErrorCode.UPSTREAM_CLIENT_ERROR;
+        }
+        return null;
+    }
+
     public static DouyinClientErrorCode classifyJsonStatus(JsonNode root) {
         if (root == null || root.isMissingNode() || root.isNull()) {
             return null;
@@ -64,7 +99,7 @@ public final class DouyinErrorClassifier {
         if (containsAny(message, "verify", "captcha", "验证码", "验证")) {
             return DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE;
         }
-        if (containsAny(message, "a_bogus", "x-bogus", "signature", "签名")) {
+        if (looksLikeSignatureText(message)) {
             return DouyinClientErrorCode.SIGNATURE_REQUIRED;
         }
         if (containsAny(message, "region", "country", "地区", "区域", "当前区域")) {
@@ -82,7 +117,7 @@ public final class DouyinErrorClassifier {
         if (containsAny(message, "风险", "风控")) {
             return DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE;
         }
-        return status == 0 ? null : DouyinClientErrorCode.UNSUPPORTED_CONTENT;
+        return status == 0 ? null : DouyinClientErrorCode.UPSTREAM_CLIENT_ERROR;
     }
 
     private static boolean isRateLimited(int status, String message) {

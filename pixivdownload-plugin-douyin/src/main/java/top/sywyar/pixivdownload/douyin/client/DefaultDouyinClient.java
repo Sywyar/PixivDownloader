@@ -42,7 +42,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -61,27 +60,40 @@ public class DefaultDouyinClient implements DouyinClient {
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final int DEFAULT_MIX_PAGE_SIZE = 20;
     private static final int MAX_CURSOR_PAGES = 1_000;
+    private static final int MAX_API_ATTEMPTS = 3;
+    private static final long[] API_RETRY_DELAYS_MS = {1_000L, 2_000L};
     private static final List<String> DETAIL_AID_CANDIDATES = List.of("6383", "1128");
 
     private final DouyinUrlParser parser;
     private final RestTemplate downloadRestTemplate;
     private final DouyinShortLinkResolver shortLinkResolver;
     private final DouyinSignedUriBuilder signedUriBuilder;
+    private final RetrySleeper retrySleeper;
 
     public DefaultDouyinClient(DouyinUrlParser parser,
                                RestTemplate downloadRestTemplate,
                                DouyinShortLinkResolver shortLinkResolver) {
-        this(parser, downloadRestTemplate, shortLinkResolver, new DouyinSignedUriBuilder());
+        this(parser, downloadRestTemplate, shortLinkResolver,
+                new DouyinSignedUriBuilder(), Thread::sleep);
     }
 
     DefaultDouyinClient(DouyinUrlParser parser,
                         RestTemplate downloadRestTemplate,
                         DouyinShortLinkResolver shortLinkResolver,
                         DouyinSignedUriBuilder signedUriBuilder) {
+        this(parser, downloadRestTemplate, shortLinkResolver, signedUriBuilder, Thread::sleep);
+    }
+
+    DefaultDouyinClient(DouyinUrlParser parser,
+                        RestTemplate downloadRestTemplate,
+                        DouyinShortLinkResolver shortLinkResolver,
+                        DouyinSignedUriBuilder signedUriBuilder,
+                        RetrySleeper retrySleeper) {
         this.parser = parser;
         this.downloadRestTemplate = downloadRestTemplate;
         this.shortLinkResolver = shortLinkResolver;
         this.signedUriBuilder = signedUriBuilder;
+        this.retrySleeper = retrySleeper;
     }
 
     @Override
@@ -161,10 +173,16 @@ public class DefaultDouyinClient implements DouyinClient {
                                            String cookie) throws DouyinClientException {
         String stableUserId = requireStableId(userId, "Douyin user id is required");
         String currentCursor = normalizeCursor(cursor);
-        JsonNode root = fetchSignedJson("/aweme/v1/web/aweme/post/", params(
+        JsonNode root = fetchApiJson("/aweme/v1/web/aweme/post/", params(
                 "sec_user_id", stableUserId,
                 "max_cursor", currentCursor,
                 "count", positivePageSize(limit),
+                "locate_query", false,
+                "show_live_replay_strategy", 1,
+                "need_time_list", 1,
+                "time_list_query", 0,
+                "whale_cut_token", "",
+                "cut_version", 1,
                 "publish_video_strategy_type", 2), cookie);
         DouyinListing listing = workListing(root, 1, positivePageSize(limit),
                 new ListingContext(stableUserId, null, null, null),
@@ -229,7 +247,7 @@ public class DefaultDouyinClient implements DouyinClient {
         String currentCursor = normalizeCursor(cursor);
         int safeLimit = positivePageSize(limit);
         MixInfo mix = fetchMixInfo(stableSeriesId, cookie);
-        JsonNode root = fetchSignedJson("/aweme/v1/web/mix/aweme/", params(
+        JsonNode root = fetchApiJson("/aweme/v1/web/mix/aweme/", params(
                 "mix_id", stableSeriesId,
                 "cursor", currentCursor,
                 "count", safeLimit), cookie);
@@ -259,9 +277,11 @@ public class DefaultDouyinClient implements DouyinClient {
         String keyword = requireStableId(word, "Douyin search keyword is required");
         int safeLimit = positivePageSize(limit);
         String offset = normalizeCursor(cursor);
-        JsonNode root = fetchSignedJson("/aweme/v1/web/general/search/single/", params(
-                "search_channel", "aweme_general",
+        JsonNode root = fetchApiJson("/aweme/v1/web/general/search/single/", params(
                 "keyword", keyword,
+                "search_channel", "aweme_video_web",
+                "sort_type", 0,
+                "publish_time", 0,
                 "search_source", "normal_search",
                 "query_correct_type", 1,
                 "is_filter_search", 0,
@@ -278,7 +298,7 @@ public class DefaultDouyinClient implements DouyinClient {
         String stableMusicId = requireStableId(musicId, "Douyin music id is required");
         int safeLimit = positivePageSize(limit);
         String currentCursor = normalizeCursor(cursor);
-        JsonNode root = fetchSignedJson("/aweme/v1/web/music/aweme/", params(
+        JsonNode root = fetchApiJson("/aweme/v1/web/music/aweme/", params(
                 "music_id", stableMusicId,
                 "cursor", currentCursor,
                 "count", safeLimit), cookie);
@@ -290,7 +310,7 @@ public class DefaultDouyinClient implements DouyinClient {
 
     @Override
     public DouyinAccount resolveAccount(String cookie) throws DouyinClientException {
-        JsonNode root = fetchSignedJson("/aweme/v1/web/user/profile/self/", Map.of(), cookie);
+        JsonNode root = fetchApiJson("/aweme/v1/web/user/profile/self/", Map.of(), cookie);
         ensureSuccessful(root, "Douyin account profile");
         JsonNode user = firstObject(root, "user", "user_info", "data")
                 .orElse(root.path("user"));
@@ -334,12 +354,16 @@ public class DefaultDouyinClient implements DouyinClient {
         String cursorName = source == DouyinAccountSource.LIKED_WORKS ? "max_cursor" : "cursor";
         String currentCursor = normalizeCursor(cursor);
         LinkedHashMap<String, Object> request = new LinkedHashMap<>();
-        request.put(cursorName, currentCursor);
-        request.put("count", positivePageSize(limit));
         if (source == DouyinAccountSource.LIKED_WORKS) {
             request.put("sec_user_id", account.secUserId());
+            request.put(cursorName, currentCursor);
+            request.put("count", positivePageSize(limit));
+            request.put("locate_query", false);
+        } else {
+            request.put(cursorName, currentCursor);
+            request.put("count", positivePageSize(limit));
         }
-        JsonNode root = fetchSignedJson(path, request, cookie);
+        JsonNode root = fetchApiJson(path, request, cookie);
         DouyinListing listing = workListing(root, 1, positivePageSize(limit),
                 new ListingContext(account.accountKey(), account.displayName(), null, null), cursorName,
                 "aweme_list", "items", "data");
@@ -356,7 +380,7 @@ public class DefaultDouyinClient implements DouyinClient {
                                                             String cookie) throws DouyinClientException {
         int safeLimit = positivePageSize(limit);
         String currentCursor = normalizeCursor(cursor);
-        JsonNode root = fetchSignedJson("/aweme/v1/web/mix/listcollection/", params(
+        JsonNode root = fetchApiJson("/aweme/v1/web/mix/listcollection/", params(
                 "cursor", currentCursor,
                 "count", safeLimit), cookie);
         ensureSuccessful(root, "Douyin favorite collection listing");
@@ -676,7 +700,7 @@ public class DefaultDouyinClient implements DouyinClient {
     }
 
     private MixInfo fetchMixInfo(String mixId, String cookie) throws DouyinClientException {
-        JsonNode root = fetchSignedJson("/aweme/v1/web/mix/detail/", params("mix_id", mixId), cookie);
+        JsonNode root = fetchApiJson("/aweme/v1/web/mix/detail/", params("mix_id", mixId), cookie);
         DouyinClientErrorCode classified = DouyinErrorClassifier.classifyJsonStatus(root);
         if (classified != null) {
             throw new DouyinClientException(classified, "Douyin mix detail reported " + classified);
@@ -691,7 +715,7 @@ public class DefaultDouyinClient implements DouyinClient {
     }
 
     private MixPage fetchMixPage(String mixId, long cursor, int count, String cookie) throws DouyinClientException {
-        JsonNode root = fetchSignedJson("/aweme/v1/web/mix/aweme/", params(
+        JsonNode root = fetchApiJson("/aweme/v1/web/mix/aweme/", params(
                 "mix_id", mixId,
                 "cursor", cursor,
                 "count", Math.max(1, Math.min(count, DEFAULT_MIX_PAGE_SIZE))), cookie);
@@ -720,75 +744,59 @@ public class DefaultDouyinClient implements DouyinClient {
 
     private JsonNode fetchAwemeDetailRoot(DouyinParsedInput parsed, String aid, String cookie)
             throws DouyinClientException {
-        return fetchSignedJson("/aweme/v1/web/aweme/detail/",
-                params("aweme_id", parsed.id(), "aid", aid),
-                cookie,
-                root -> {
-                    DouyinClientErrorCode classified = DouyinErrorClassifier.classifyJsonStatus(root);
-                    if (shouldTrySignatureCandidateFallback(classified)) {
-                        return true;
-                    }
-                    JsonNode detail = root.path("aweme_detail");
-                    if (detail.isObject()) {
-                        return false;
-                    }
-                    JsonNode filterInfo = root.path("filter_detail");
-                    return filterInfo.isObject() && firstText(filterInfo, "filter_reason") != null;
-                });
+        return fetchApiJson("/aweme/v1/web/aweme/detail/",
+                params("aweme_id", parsed.id(), "aid", aid), cookie);
     }
 
-    private JsonNode fetchSignedJson(String path, Map<String, ?> endpointParams, String cookie)
+    private JsonNode fetchApiJson(String path, Map<String, ?> endpointParams, String cookie)
             throws DouyinClientException {
-        return fetchSignedJson(path, endpointParams, cookie,
-                root -> shouldTrySignatureCandidateFallback(DouyinErrorClassifier.classifyJsonStatus(root)));
-    }
-
-    private JsonNode fetchSignedJson(String path,
-                                     Map<String, ?> endpointParams,
-                                     String cookie,
-                                     Predicate<JsonNode> shouldTryNextCandidate)
-            throws DouyinClientException {
-        List<URI> candidates = signedUriBuilder.apiCandidates(path, endpointParams, cookie);
-        DouyinClientException lastFailure = null;
-        for (int i = 0; i < candidates.size(); i++) {
-            boolean last = i == candidates.size() - 1;
+        RetryableApiRequestException lastFailure = null;
+        for (int attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
+            DouyinSignedUriBuilder.SignedRequest request =
+                    signedUriBuilder.request(path, endpointParams, cookie);
             try {
-                JsonNode root = fetchJson(candidates.get(i), cookie);
-                if (!last && shouldTryNextCandidate.test(root)) {
-                    lastFailure = new DouyinClientException(DouyinClientErrorCode.SIGNATURE_REQUIRED,
-                            "Douyin API candidate requires fallback signature");
-                    continue;
+                return fetchJson(request.uri(), request.cookie());
+            } catch (RetryableApiRequestException error) {
+                lastFailure = error;
+                if (attempt + 1 >= MAX_API_ATTEMPTS) {
+                    throw error;
                 }
-                return root;
-            } catch (DouyinClientException e) {
-                if (!last && shouldTrySignatureCandidateFallback(e.code())) {
-                    lastFailure = e;
-                    log.debug("Douyin signed API candidate failed, trying fallback: path={}, code={}",
-                            path, e.code());
-                    continue;
-                }
-                throw e;
+                log.debug("Retrying Douyin API request after retryable upstream response: path={}, attempt={}",
+                        path, attempt + 1);
+                pauseBeforeRetry(API_RETRY_DELAYS_MS[attempt]);
             }
         }
-        if (lastFailure != null) {
-            throw lastFailure;
-        }
-        throw new DouyinClientException(DouyinClientErrorCode.SIGNATURE_REQUIRED,
-                "Douyin API did not provide a usable signed candidate");
+        throw lastFailure == null
+                ? new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+                "Douyin API request did not execute")
+                : lastFailure;
     }
 
     private JsonNode fetchJson(URI uri, String cookie) throws DouyinClientException {
         byte[] bytes = fetchBytes(uri, cookie);
+        if (bytes.length == 0) {
+            throw new RetryableApiRequestException(DouyinClientErrorCode.SIGNATURE_REQUIRED,
+                    "Douyin endpoint returned an empty response");
+        }
+        String body = new String(bytes, StandardCharsets.UTF_8);
         try {
-            return MAPPER.readTree(new String(bytes, StandardCharsets.UTF_8));
+            JsonNode root = MAPPER.readTree(body);
+            if (root == null || root.isMissingNode() || root.isNull()) {
+                throw new DouyinClientException(DouyinClientErrorCode.RESPONSE_STRUCTURE_UNRECOGNIZED,
+                        "Douyin endpoint returned an empty JSON response");
+            }
+            return root;
         } catch (JsonProcessingException e) {
-            String body = new String(bytes, StandardCharsets.UTF_8);
             if (DouyinErrorClassifier.looksLikeLoginOrRiskText(body)) {
                 throw new DouyinClientException(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE,
                         "Douyin response requires login or verification", e);
             }
-            throw new DouyinClientException(DouyinClientErrorCode.SIGNATURE_REQUIRED,
-                    "Douyin endpoint did not return public JSON", e);
+            if (DouyinErrorClassifier.looksLikeSignatureText(body)) {
+                throw new DouyinClientException(DouyinClientErrorCode.SIGNATURE_REQUIRED,
+                        "Douyin endpoint rejected the signed request", e);
+            }
+            throw new DouyinClientException(DouyinClientErrorCode.RESPONSE_STRUCTURE_UNRECOGNIZED,
+                    "Douyin endpoint did not return valid JSON", e);
         }
     }
 
@@ -802,27 +810,32 @@ public class DefaultDouyinClient implements DouyinClient {
             return body == null ? new byte[0] : body;
         } catch (HttpStatusCodeException e) {
             byte[] body = e.getResponseBodyAsByteArray();
-            if (e.getStatusCode().value() == 403) {
-                if (DouyinErrorClassifier.looksLikeLoginOrRiskPage(body)) {
-                    throw new DouyinClientException(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE,
-                            "Douyin request reached a login or verification page", e);
-                }
-                throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN,
-                        "Douyin request returned 403", e);
+            DouyinClientErrorCode code = DouyinErrorClassifier.classifyHttpStatus(
+                    e.getStatusCode().value(), body);
+            DouyinClientErrorCode resolved = code == null ? DouyinClientErrorCode.NETWORK_ERROR : code;
+            if (e.getStatusCode().value() == 429 || e.getStatusCode().value() >= 500) {
+                throw new RetryableApiRequestException(resolved,
+                        "Douyin request returned HTTP " + e.getStatusCode().value(), e);
             }
-            if (e.getStatusCode().value() == 429) {
-                throw new DouyinClientException(DouyinClientErrorCode.RATE_LIMITED,
-                        "Douyin request was rate limited", e);
-            }
-            throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+            throw new DouyinClientException(resolved,
                     "Douyin request returned HTTP " + e.getStatusCode().value(), e);
         } catch (ResourceAccessException e) {
             if (isTimeout(e)) {
-                throw new DouyinClientException(DouyinClientErrorCode.NETWORK_TIMEOUT,
+                throw new RetryableApiRequestException(DouyinClientErrorCode.NETWORK_TIMEOUT,
                         "Douyin request timed out", e);
             }
-            throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+            throw new RetryableApiRequestException(DouyinClientErrorCode.NETWORK_ERROR,
                     "Douyin network request failed", e);
+        }
+    }
+
+    private void pauseBeforeRetry(long delayMs) throws DouyinClientException {
+        try {
+            retrySleeper.sleep(delayMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DouyinClientException(DouyinClientErrorCode.CANCELLED,
+                    "Douyin API retry interrupted", e);
         }
     }
 
@@ -1212,14 +1225,9 @@ public class DefaultDouyinClient implements DouyinClient {
 
     private static boolean shouldTryPageFallback(DouyinClientErrorCode code) {
         return code == DouyinClientErrorCode.SIGNATURE_REQUIRED
+                || code == DouyinClientErrorCode.RESPONSE_STRUCTURE_UNRECOGNIZED
                 || code == DouyinClientErrorCode.MEDIA_URL_MISSING
                 || code == DouyinClientErrorCode.UNSUPPORTED_CONTENT;
-    }
-
-    private static boolean shouldTrySignatureCandidateFallback(DouyinClientErrorCode code) {
-        return code == DouyinClientErrorCode.SIGNATURE_REQUIRED
-                || code == DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE
-                || code == DouyinClientErrorCode.HTTP_FORBIDDEN;
     }
 
     private static boolean isTimeout(Throwable error) {
@@ -1236,6 +1244,21 @@ public class DefaultDouyinClient implements DouyinClient {
 
     private static String safeId(String raw) {
         return raw == null ? "" : raw.replaceAll("[^A-Za-z0-9_-]+", "_");
+    }
+
+    @FunctionalInterface
+    interface RetrySleeper {
+        void sleep(long delayMs) throws InterruptedException;
+    }
+
+    private static final class RetryableApiRequestException extends DouyinClientException {
+        private RetryableApiRequestException(DouyinClientErrorCode code, String message) {
+            super(code, message);
+        }
+
+        private RetryableApiRequestException(DouyinClientErrorCode code, String message, Throwable cause) {
+            super(code, message, cause);
+        }
     }
 
     private record VideoCandidate(String url, long quality, JsonNode node) {

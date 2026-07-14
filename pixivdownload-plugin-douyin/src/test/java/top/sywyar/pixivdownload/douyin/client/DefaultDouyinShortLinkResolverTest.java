@@ -122,6 +122,15 @@ class DefaultDouyinShortLinkResolverTest {
     }
 
     @Test
+    @DisplayName("404 响应中的普通登录链接不会覆盖精确 HTTP 分类")
+    void keepsNotFoundClassificationWhenErrorPageMentionsLogin() {
+        assertCode(() -> resolver(new FakeRedirectClient()
+                        .statusWithBody(404, "<a href=\"/login\">login</a>"))
+                        .resolve("https://v.douyin.com/A/", null),
+                DouyinClientErrorCode.UPSTREAM_NOT_FOUND);
+    }
+
+    @Test
     @DisplayName("网络超时返回 network-timeout")
     void classifiesTimeout() {
         assertCode(() -> resolver(new FakeRedirectClient().timeout()).resolve("https://v.douyin.com/A/", null),
@@ -185,6 +194,12 @@ class DefaultDouyinShortLinkResolverTest {
 
         FakeRedirectClient status(int status) {
             responses.add(new DouyinRedirectResponse(status, null, "text/html", new byte[0]));
+            return this;
+        }
+
+        FakeRedirectClient statusWithBody(int status, String body) {
+            responses.add(new DouyinRedirectResponse(status, null, "text/html",
+                    body.getBytes(StandardCharsets.UTF_8)));
             return this;
         }
 

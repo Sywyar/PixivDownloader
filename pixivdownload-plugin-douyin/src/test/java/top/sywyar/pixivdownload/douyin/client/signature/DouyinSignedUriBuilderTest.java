@@ -3,80 +3,141 @@ package top.sywyar.pixivdownload.douyin.client.signature;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("DouyinSignedUriBuilder 抖音 Web API 签名参数")
+@DisplayName("DouyinSignedUriBuilder 示例项目签名请求")
 class DouyinSignedUriBuilderTest {
 
     private static final Pattern MS_TOKEN = Pattern.compile("(?:^|&)msToken=([^&]+)");
 
     @Test
-    @DisplayName("复用 Cookie 中的 msToken 并追加 a_bogus")
-    void reusesCookieMsTokenAndAppendsABogus() {
-        var uri = new DouyinSignedUriBuilder().api("/aweme/v1/web/aweme/detail/",
-                Map.of("aweme_id", "7351", "aid", "1128"),
-                "ttwid=tt; msToken=fromCookie; odin_tt=odin");
+    @DisplayName("a_bogus 成功时不会预生成或发送 X-Bogus")
+    void usesABogusWithoutEagerXBogusFallback() {
+        AtomicInteger xBogusCalls = new AtomicInteger();
+        var builder = new DouyinSignedUriBuilder(
+                query -> query + "&a_bogus=primary",
+                url -> {
+                    xBogusCalls.incrementAndGet();
+                    throw new AssertionError("X-Bogus must remain lazy");
+                });
 
-        assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/aweme/detail/");
-        assertThat(uri.getRawQuery())
-                .contains("device_platform=webapp")
-                .contains("browser_name=Chrome")
-                .contains("browser_version=139.0.0.0")
-                .contains("aweme_id=7351")
-                .contains("aid=1128")
-                .contains("msToken=fromCookie")
-                .contains("a_bogus=");
+        var request = builder.request(
+                "/aweme/v1/web/aweme/detail/",
+                Map.of("aweme_id", "7351", "aid", "6383"),
+                "ttwid=tt; msToken=fromCookie");
+
+        assertThat(request.uri().getRawQuery())
+                .contains("aweme_id=7351", "aid=6383", "msToken=fromCookie", "a_bogus=")
+                .doesNotContain("X-Bogus=");
+        assertThat(xBogusCalls).hasValue(0);
     }
 
     @Test
-    @DisplayName("缺少 msToken 时生成兜底 token")
-    void generatesFallbackMsTokenWhenCookieMissesIt() {
-        var uri = new DouyinSignedUriBuilder().api("/aweme/v1/web/mix/detail/",
-                Map.of("mix_id", "12345"),
-                "ttwid=tt");
+    @DisplayName("仅在 a_bogus 本地生成异常时回退到 X-Bogus")
+    void fallsBackToXBogusOnlyWhenABogusGenerationThrows() {
+        AtomicInteger xBogusCalls = new AtomicInteger();
+        var builder = new DouyinSignedUriBuilder(
+                query -> {
+                    throw new IllegalStateException("synthetic signer failure");
+                },
+                url -> {
+                    xBogusCalls.incrementAndGet();
+                    return URI.create(url + "&X-Bogus=fallback");
+                });
 
-        String token = msToken(uri.getRawQuery());
+        var request = builder.request(
+                "/aweme/v1/web/aweme/detail/",
+                Map.of("aweme_id", "7351"),
+                "msToken=fromCookie; ttwid=tt");
 
-        assertThat(token).hasSize(184).endsWith("==");
-        assertThat(uri.getRawQuery()).contains("mix_id=12345", "a_bogus=");
+        assertThat(request.uri().getRawQuery())
+                .contains("aweme_id=7351", "msToken=fromCookie", "X-Bogus=fallback")
+                .doesNotContain("a_bogus=");
+        assertThat(xBogusCalls).hasValue(1);
     }
 
     @Test
-    @DisplayName("查询参数只编码一次")
-    void encodesQueryParamsOnce() {
-        var uri = new DouyinSignedUriBuilder().api("/aweme/v1/web/general/search/single/",
-                Map.of("keyword", "猫 图"),
-                "msToken=fromCookie");
+    @DisplayName("签名覆盖最终编码后的完整查询参数")
+    void signsFinalEncodedQuery() {
+        var uri = new DouyinSignedUriBuilder().api(
+                "/aweme/v1/web/general/search/single/",
+                Map.of("keyword", "猫 图", "search_channel", "aweme_video_web"),
+                "msToken=fromCookie; ttwid=tt");
 
         assertThat(uri.getRawQuery())
-                .contains("keyword=%E7%8C%AB+%E5%9B%BE")
+                .contains("keyword=%E7%8C%AB+%E5%9B%BE", "search_channel=aweme_video_web")
                 .doesNotContain("%25E7%258C%25AB");
     }
 
     @Test
-    @DisplayName("签名候选先使用 a_bogus，再提供 X-Bogus 兜底")
-    void providesXbogusFallbackCandidate() {
-        var candidates = new DouyinSignedUriBuilder().apiCandidates("/aweme/v1/web/aweme/detail/",
-                Map.of("aweme_id", "7351"),
-                "msToken=fromCookie; ttwid=tt");
+    @DisplayName("生成的 msToken 同时进入签名查询与请求 Cookie")
+    void keepsGeneratedMsTokenConsistentWithRequestCookie() {
+        var request = new DouyinSignedUriBuilder().request(
+                "/aweme/v1/web/aweme/detail/", Map.of("aweme_id", "7351"), "ttwid=tt");
+        String token = tokenFromQuery(request.uri().getRawQuery());
 
-        assertThat(candidates).hasSize(2);
-        assertThat(candidates.get(0).getRawQuery())
-                .contains("aweme_id=7351", "msToken=fromCookie", "a_bogus=")
-                .doesNotContain("X-Bogus=");
-        assertThat(candidates.get(1).getRawQuery())
-                .contains("aweme_id=7351", "msToken=fromCookie", "X-Bogus=")
-                .doesNotContain("a_bogus=");
+        assertThat(token).hasSize(184).endsWith("==");
+        boolean cookieHasToken = java.util.Arrays.stream(request.cookie().split(";"))
+                .map(String::trim)
+                .anyMatch(part -> part.equals("msToken=" + token));
+        assertThat(cookieHasToken).isTrue();
     }
 
-    private static String msToken(String rawQuery) {
-        var matcher = MS_TOKEN.matcher(rawQuery);
-        assertThat(matcher.find()).isTrue();
+    @Test
+    @DisplayName("同一缺少 msToken 的凭证在连续与并发请求中复用同一会话 token")
+    void reusesGeneratedMsTokenAcrossRequests() {
+        var builder = new DouyinSignedUriBuilder(
+                query -> query + "&a_bogus=test",
+                url -> {
+                    throw new AssertionError("X-Bogus must remain lazy");
+                });
+
+        var tokens = IntStream.range(0, 24)
+                .parallel()
+                .mapToObj(index -> builder.request(
+                        "/aweme/v1/web/aweme/post/",
+                        Map.of("sec_user_id", "user", "max_cursor", index),
+                        "ttwid=tt; sessionid=session"))
+                .map(request -> tokenFromQuery(request.uri().getRawQuery()))
+                .toList();
+
+        assertThat(tokens.stream().distinct().count()).isOne();
+    }
+
+    @Test
+    @DisplayName("空或重复的 msToken Cookie 会被替换为唯一会话 token")
+    void replacesEmptyAndDuplicateMsTokenCookieParts() {
+        var request = new DouyinSignedUriBuilder().request(
+                "/aweme/v1/web/aweme/detail/",
+                Map.of("aweme_id", "7351"),
+                "msToken=; ttwid=tt; MSTOKEN=");
+        String token = tokenFromQuery(request.uri().getRawQuery());
+        long tokenParts = java.util.Arrays.stream(request.cookie().split(";"))
+                .map(String::trim)
+                .filter(part -> part.regionMatches(true, 0, "msToken=", 0, "msToken=".length()))
+                .count();
+
+        assertThat(tokenParts).isOne();
+        boolean cookieHasToken = java.util.Arrays.stream(request.cookie().split(";"))
+                .map(String::trim)
+                .anyMatch(part -> part.equals("msToken=" + token));
+        assertThat(cookieHasToken).isTrue();
+        assertThat(request.cookie().contains("msToken=;")).isFalse();
+    }
+
+    private static String tokenFromQuery(String query) {
+        var matcher = MS_TOKEN.matcher(query);
+        if (!matcher.find()) {
+            throw new AssertionError("msToken query parameter is missing");
+        }
         return URLDecoder.decode(matcher.group(1), StandardCharsets.UTF_8);
     }
 }

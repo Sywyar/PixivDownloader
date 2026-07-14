@@ -90,11 +90,11 @@ class DouyinErrorClassifierTest {
     }
 
     @Test
-    @DisplayName("未知非零状态与单纯风控提示保持原有分类")
-    void keepsUnknownAndRiskClassifications() {
+    @DisplayName("未知非零上游状态与单纯风控提示保持可诊断分类")
+    void classifiesUnknownAndRiskResponses() {
         assertThat(DouyinErrorClassifier.classifyJsonStatus(
                 status(90_003, "invalid parameter")))
-                .isEqualTo(DouyinClientErrorCode.UNSUPPORTED_CONTENT);
+                .isEqualTo(DouyinClientErrorCode.UPSTREAM_CLIENT_ERROR);
         assertThat(DouyinErrorClassifier.classifyJsonStatus(
                 status(90_004, "命中风控")))
                 .isEqualTo(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE);

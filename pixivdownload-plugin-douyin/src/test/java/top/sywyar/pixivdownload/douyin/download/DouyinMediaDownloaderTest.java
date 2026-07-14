@@ -177,6 +177,42 @@ class DouyinMediaDownloaderTest {
     }
 
     @Test
+    @DisplayName("首个 CDN 候选为 404 时仍轮换到同一媒体的备用地址")
+    void rotatesToFallbackMediaUrlAfterNotFound() throws Exception {
+        startServer();
+        AtomicInteger fallbackHits = new AtomicInteger();
+        serve("/missing-primary.mp4", 404, new byte[0], -1);
+        server.createContext("/available-fallback.mp4", exchange -> {
+            fallbackHits.incrementAndGet();
+            send(exchange, 200, OK_BYTES, -1, "video/mp4");
+        });
+        DouyinMedia media = new DouyinMedia(
+                "m", DouyinMediaType.VIDEO, URI.create(baseUrl() + "/missing-primary.mp4"),
+                "fallback-404", "mp4", 2L, "video/mp4",
+                List.of(URI.create(baseUrl() + "/available-fallback.mp4")));
+
+        List<DouyinDownloadedFile> files = downloader().download(
+                List.of(media), tempDir, () -> false);
+
+        assertThat(files).singleElement().satisfies(file -> assertThat(file.bytes()).isEqualTo(2L));
+        assertThat(fallbackHits).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("非凭证媒体原点的 401 不会误报账号 Cookie 失效")
+    void classifiesNonCredentialMediaUnauthorizedAsUpstreamClientError() throws Exception {
+        startServer();
+        serve("/cdn-unauthorized.mp4", 401, new byte[0], -1);
+
+        assertThatThrownBy(() -> downloader().download(
+                List.of(media("/cdn-unauthorized.mp4", "unauthorized", "mp4")),
+                tempDir, () -> false, "sessionid=test"))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.UPSTREAM_CLIENT_ERROR);
+    }
+
+    @Test
     @DisplayName("可重试错误后再次请求成功")
     void retriesAndSucceeds() throws Exception {
         startServer();

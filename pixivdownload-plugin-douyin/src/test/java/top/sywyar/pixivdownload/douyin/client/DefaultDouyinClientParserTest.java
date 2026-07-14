@@ -8,7 +8,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.douyin.client.signature.DouyinSignedUriBuilder;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
@@ -17,6 +19,7 @@ import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -198,12 +201,12 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
-    @DisplayName("优先使用带签名的作品详情 API")
-    void usesSignedDetailApiBeforePageFallback() throws Exception {
+    @DisplayName("作品详情请求使用示例项目的完整参数与本地签名")
+    void usesReferenceCompatibleSignedDetailApiBeforePageFallback() throws Exception {
         FakeRestTemplate rest = new FakeRestTemplate();
         rest.enqueue(200, """
-                {"aweme_detail":{"aweme_id":"7358","desc":"Signed",
-                "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/signed.mp4"]}}}}
+                {"aweme_detail":{"aweme_id":"7358","desc":"Detail",
+                "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/detail.mp4"]}}}}
                 """);
         DouyinUrlParser parser = new DouyinUrlParser();
         var client = new DefaultDouyinClient(parser, rest,
@@ -215,19 +218,23 @@ class DefaultDouyinClientParserTest {
         assertThat(rest.requests()).singleElement()
                 .satisfies(uri -> {
                     assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/aweme/detail/");
-                    assertThat(uri.getRawQuery()).contains("aweme_id=7358", "msToken=fromCookie", "a_bogus=");
+                    assertThat(uri.getRawQuery())
+                            .contains("aweme_id=7358", "msToken=fromCookie", "a_bogus=")
+                            .contains("version_code=290100", "version_name=29.1.0")
+                            .doesNotContain("X-Bogus=");
                 });
+        assertThat(rest.cookies()).containsExactly("msToken=fromCookie; ttwid=tt");
     }
 
     @Test
-    @DisplayName("a_bogus 候选失败时使用 X-Bogus 兜底解析作品")
-    void fallsBackToXbogusWhenABogusCandidateFails() throws Exception {
+    @DisplayName("最小详情 API 不可用时回退到公开作品页")
+    void fallsBackToPublicPageWhenMinimalDetailApiFails() throws Exception {
         FakeRestTemplate rest = new FakeRestTemplate();
         rest.enqueue(200, "<html>signature blocked</html>");
-        rest.enqueue(200, """
-                {"aweme_detail":{"aweme_id":"7359","desc":"XBogus",
-                "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/xbogus.mp4"]}}}}
-                """);
+        rest.enqueue(200, page("""
+                {"aweme_detail":{"aweme_id":"7359","desc":"Page fallback",
+                "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/page.mp4"]}}}}
+                """));
         DouyinUrlParser parser = new DouyinUrlParser();
         var client = new DefaultDouyinClient(parser, rest,
                 (input, cookie) -> parser.parse(input).orElseThrow());
@@ -237,8 +244,50 @@ class DefaultDouyinClientParserTest {
 
         assertThat(work.id()).isEqualTo("7359");
         assertThat(rest.requests()).hasSize(2);
-        assertThat(rest.requests().get(0).getRawQuery()).contains("a_bogus=").doesNotContain("X-Bogus=");
-        assertThat(rest.requests().get(1).getRawQuery()).contains("X-Bogus=").doesNotContain("a_bogus=");
+        assertThat(rest.requests().get(0).getRawQuery())
+                .contains("msToken=fromCookie", "a_bogus=")
+                .doesNotContain("X-Bogus=");
+        assertThat(rest.requests().get(1).getPath()).isEqualTo("/video/7359");
+    }
+
+    @Test
+    @DisplayName("API 返回 403 时立即停止且不发送第二个签名请求")
+    void stopsImmediatelyAfterForbiddenApiResponse() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(403, "forbidden");
+        DouyinUrlParser parser = new DouyinUrlParser();
+        var client = new DefaultDouyinClient(parser, rest,
+                (input, cookie) -> parser.parse(input).orElseThrow());
+
+        assertCode(() -> client.resolvePublicWork(
+                        "https://www.douyin.com/video/7361", "msToken=fromCookie; ttwid=tt"),
+                DouyinClientErrorCode.HTTP_FORBIDDEN);
+
+        assertThat(rest.requests()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("生产调用在连续请求中复用生成的 msToken 并同步发送 Cookie")
+    void reusesGeneratedMsTokenInQueryAndCookieHeaders() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"aweme_list\":[],\"has_more\":0,\"max_cursor\":\"0\"}");
+        rest.enqueue(200, "{\"aweme_list\":[],\"has_more\":0,\"max_cursor\":\"0\"}");
+        DouyinUrlParser parser = new DouyinUrlParser();
+        var client = new DefaultDouyinClient(parser, rest,
+                (input, cookie) -> parser.parse(input).orElseThrow());
+
+        client.listUserWorksPage("sec-user", "0", 1, "ttwid=tt");
+        client.listUserWorksPage("sec-user", "0", 1, "ttwid=tt");
+
+        String firstToken = queryValue(rest.requests().get(0), "msToken");
+        String secondToken = queryValue(rest.requests().get(1), "msToken");
+        assertThat(firstToken.equals(secondToken)).isTrue();
+        boolean cookiesMatch = rest.cookies().size() == 2
+                && rest.cookies().get(0) != null
+                && rest.cookies().get(1) != null
+                && rest.cookies().get(0).endsWith("msToken=" + firstToken)
+                && rest.cookies().get(1).endsWith("msToken=" + firstToken);
+        assertThat(cookiesMatch).isTrue();
     }
 
     @Test
@@ -461,7 +510,16 @@ class DefaultDouyinClientParserTest {
         assertThat(listing.nextCursor()).isEqualTo("opaque-2");
         assertThat(rest.requests()).singleElement().satisfies(uri -> {
             assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/aweme/post/");
-            assertThat(uri.getRawQuery()).contains("sec_user_id=sec-demo", "max_cursor=opaque-1");
+            assertThat(uri.getRawQuery()).contains(
+                    "sec_user_id=sec-demo",
+                    "max_cursor=opaque-1",
+                    "locate_query=false",
+                    "show_live_replay_strategy=1",
+                    "need_time_list=1",
+                    "time_list_query=0",
+                    "whale_cut_token=",
+                    "cut_version=1",
+                    "publish_video_strategy_type=2");
         });
     }
 
@@ -533,8 +591,79 @@ class DefaultDouyinClientParserTest {
         assertThat(listing.nextCursor()).isEqualTo("48");
         assertThat(rest.requests()).singleElement().satisfies(uri -> {
             assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/general/search/single/");
-            assertThat(uri.getRawQuery()).contains("keyword=%E7%8C%AB", "offset=24");
+            assertThat(uri.getRawQuery()).contains(
+                    "search_channel=aweme_video_web",
+                    "keyword=%E7%8C%AB",
+                    "sort_type=0",
+                    "publish_time=0",
+                    "offset=24");
         });
+    }
+
+    @Test
+    @DisplayName("关键词搜索上游返回空响应体时明确报告签名受阻")
+    void rejectsEmptySearchResponseBody() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "");
+        rest.enqueue(200, "");
+        rest.enqueue(200, "");
+
+        assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"),
+                "SIGNATURE_REQUIRED");
+        assertThat(rest.requests()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("空响应会按 1 秒和 2 秒间隔重新签名并在第三次成功")
+    void retriesEmptyApiResponsesWithFreshSignatures() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "");
+        rest.enqueue(200, "");
+        rest.enqueue(200, "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"data\":[]}");
+        DouyinUrlParser parser = new DouyinUrlParser();
+        java.util.concurrent.atomic.AtomicInteger signatures = new java.util.concurrent.atomic.AtomicInteger();
+        DouyinSignedUriBuilder signer = new DouyinSignedUriBuilder() {
+            @Override
+            public SignedRequest request(String path, java.util.Map<String, ?> params, String cookie) {
+                int attempt = signatures.incrementAndGet();
+                return new SignedRequest(URI.create("https://www.douyin.com" + path + "?attempt=" + attempt),
+                        cookie);
+            }
+        };
+        List<Long> delays = new ArrayList<>();
+        var client = new DefaultDouyinClient(parser, rest,
+                (input, cookie) -> parser.parse(input).orElseThrow(), signer, delays::add);
+
+        var listing = client.searchWorksPage("猫", "0", 24, "sessionid=test");
+
+        assertThat(listing.items()).isEmpty();
+        assertThat(signatures).hasValue(3);
+        assertThat(rest.requests()).extracting(URI::getRawQuery)
+                .containsExactly("attempt=1", "attempt=2", "attempt=3");
+        assertThat(delays).containsExactly(1_000L, 2_000L);
+    }
+
+    @Test
+    @DisplayName("网络异常会重试并可在后续请求恢复")
+    void retriesNetworkFailures() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueueNetworkFailure();
+        rest.enqueueNetworkFailure();
+        rest.enqueue(200, "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"data\":[]}");
+
+        var listing = client(rest).searchWorksPage("猫", "0", 24, "sessionid=test");
+
+        assertThat(listing.items()).isEmpty();
+        assertThat(rest.requests()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("关键词搜索按 HTTP 状态保留可诊断错误类别")
+    void classifiesSearchHttpStatusFamilies() {
+        assertSearchHttpCode(401, "COOKIE_EXPIRED");
+        assertSearchHttpCode(404, "UPSTREAM_NOT_FOUND");
+        assertSearchHttpCode(400, "UPSTREAM_CLIENT_ERROR");
+        assertSearchHttpCode(503, "UPSTREAM_SERVER_ERROR");
     }
 
     @Test
@@ -700,6 +829,22 @@ class DefaultDouyinClientParserTest {
                 .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
     }
 
+    private static void assertCodeName(ThrowingRunnable action, String code) {
+        assertThatThrownBy(action::run)
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code().name())
+                .isEqualTo(code);
+    }
+
+    private static void assertSearchHttpCode(int status, String code) {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        int attempts = status == 429 || status >= 500 ? 3 : 1;
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            rest.enqueue(status, "{}");
+        }
+        assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"), code);
+        assertThat(rest.requests()).hasSize(attempts);
+    }
     private static DefaultDouyinClient client(String... bodies) {
         FakeRestTemplate rest = new FakeRestTemplate();
         for (String body : bodies) {
@@ -707,13 +852,17 @@ class DefaultDouyinClientParserTest {
         }
         DouyinUrlParser parser = new DouyinUrlParser();
         return new DefaultDouyinClient(parser, rest,
-                (input, cookie) -> parser.parse(input).orElseThrow());
+                (input, cookie) -> parser.parse(input).orElseThrow(),
+                new DouyinSignedUriBuilder(), ignored -> {
+                });
     }
 
     private static DefaultDouyinClient client(FakeRestTemplate rest) {
         DouyinUrlParser parser = new DouyinUrlParser();
         return new DefaultDouyinClient(parser, rest,
-                (input, cookie) -> parser.parse(input).orElseThrow());
+                (input, cookie) -> parser.parse(input).orElseThrow(),
+                new DouyinSignedUriBuilder(), ignored -> {
+                });
     }
 
     private static String mixInfo() {
@@ -778,8 +927,9 @@ class DefaultDouyinClientParserTest {
     }
 
     private static final class FakeRestTemplate extends RestTemplate {
-        private final Queue<ResponseEntity<byte[]>> responses = new ArrayDeque<>();
+        private final Queue<Object> responses = new ArrayDeque<>();
         private final List<URI> requests = new ArrayList<>();
+        private final List<String> cookies = new ArrayList<>();
 
         void enqueue(int status, String body) {
             responses.add(new ResponseEntity<>(
@@ -788,14 +938,25 @@ class DefaultDouyinClientParserTest {
                     HttpStatusCode.valueOf(status)));
         }
 
+        void enqueueNetworkFailure() {
+            responses.add(new ResourceAccessException("synthetic network failure"));
+        }
+
         @Override
         @SuppressWarnings("unchecked")
         public <T> ResponseEntity<T> exchange(URI url, HttpMethod method, HttpEntity<?> requestEntity,
                                               Class<T> responseType) {
             requests.add(url);
-            ResponseEntity<byte[]> response = responses.isEmpty()
+            cookies.add(requestEntity == null
+                    ? null
+                    : requestEntity.getHeaders().getFirst(HttpHeaders.COOKIE));
+            Object next = responses.isEmpty()
                     ? new ResponseEntity<>("{}".getBytes(StandardCharsets.UTF_8), HttpStatusCode.valueOf(200))
                     : responses.remove();
+            if (next instanceof RuntimeException failure) {
+                throw failure;
+            }
+            ResponseEntity<byte[]> response = (ResponseEntity<byte[]>) next;
             if (response.getStatusCode().isError()) {
                 throw HttpClientErrorException.create(
                         response.getStatusCode(),
@@ -810,5 +971,19 @@ class DefaultDouyinClientParserTest {
         List<URI> requests() {
             return requests;
         }
+
+        List<String> cookies() {
+            return cookies;
+        }
+    }
+
+    private static String queryValue(URI uri, String name) {
+        for (String part : uri.getRawQuery().split("&")) {
+            int equals = part.indexOf('=');
+            if (equals > 0 && name.equals(part.substring(0, equals))) {
+                return URLDecoder.decode(part.substring(equals + 1), StandardCharsets.UTF_8);
+            }
+        }
+        throw new AssertionError("Required query parameter is missing");
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
+import top.sywyar.pixivdownload.douyin.client.DouyinErrorClassifier;
 import top.sywyar.pixivdownload.douyin.client.DouyinRequestHeaders;
 import top.sywyar.pixivdownload.douyin.download.validation.DouyinMediaPayloadValidator;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
@@ -134,7 +135,7 @@ public class DouyinMediaDownloader {
                     boolean alternateCandidateAvailable = candidateUrls.size() > 1 && attempt < maxAttempts;
                     if (attempt >= maxAttempts || (!retryable(e.code())
                             && !(alternateCandidateAvailable
-                            && e.code() == DouyinClientErrorCode.HTTP_FORBIDDEN))) {
+                            && candidateSpecificFailure(e.code())))) {
                         throw e;
                     }
                     sleepBeforeRetry(attempt, cancellationRequested);
@@ -205,15 +206,10 @@ public class DouyinMediaDownloader {
                 throw e.exception;
             } catch (HttpStatusCodeException e) {
                 int status = e.getStatusCode().value();
-                if (status == 403) {
-                    throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN,
-                            "Douyin media returned 403", e);
-                }
-                if (status == 429) {
-                    throw new DouyinClientException(DouyinClientErrorCode.RATE_LIMITED,
-                            "Douyin media was rate limited", e);
-                }
-                throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+                DouyinClientErrorCode code = classifyMediaHttpStatus(
+                        status, e.getResponseBodyAsByteArray(), requestUri);
+                throw new DouyinClientException(
+                        code == null ? DouyinClientErrorCode.NETWORK_ERROR : code,
                         "Douyin media returned HTTP " + status, e);
             }
         }
@@ -229,15 +225,9 @@ public class DouyinMediaDownloader {
             throws IOException, DouyinClientException {
         if (!response.getStatusCode().is2xxSuccessful()) {
             int status = response.getStatusCode().value();
-            if (status == 403) {
-                throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN,
-                        "Douyin media returned 403");
-            }
-            if (status == 429) {
-                throw new DouyinClientException(DouyinClientErrorCode.RATE_LIMITED,
-                        "Douyin media was rate limited");
-            }
-            throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+            DouyinClientErrorCode code = classifyMediaHttpStatus(status, null, requestUri);
+            throw new DouyinClientException(
+                    code == null ? DouyinClientErrorCode.NETWORK_ERROR : code,
                     "Douyin media returned HTTP " + status);
         }
         String responseContentType = response.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE);
@@ -366,7 +356,21 @@ public class DouyinMediaDownloader {
                 || code == DouyinClientErrorCode.NETWORK_TIMEOUT
                 || code == DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH
                 || code == DouyinClientErrorCode.RATE_LIMITED
-                || code == DouyinClientErrorCode.HTTP_RATE_LIMITED;
+                || code == DouyinClientErrorCode.HTTP_RATE_LIMITED
+                || code == DouyinClientErrorCode.UPSTREAM_SERVER_ERROR;
+    }
+
+    private static boolean candidateSpecificFailure(DouyinClientErrorCode code) {
+        return code == DouyinClientErrorCode.HTTP_FORBIDDEN
+                || code == DouyinClientErrorCode.UPSTREAM_CLIENT_ERROR
+                || code == DouyinClientErrorCode.UPSTREAM_NOT_FOUND;
+    }
+
+    private DouyinClientErrorCode classifyMediaHttpStatus(int status, byte[] body, URI uri) {
+        if (!credentialOriginAllowed.test(uri) && (status == 401 || status == 403)) {
+            return DouyinClientErrorCode.UPSTREAM_CLIENT_ERROR;
+        }
+        return DouyinErrorClassifier.classifyHttpStatus(status, body);
     }
 
     private static boolean isRedirect(ClientHttpResponse response) throws IOException {

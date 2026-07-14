@@ -45,12 +45,6 @@ public class DefaultDouyinShortLinkResolver implements DouyinShortLinkResolver {
             String hopCookie = DouyinRequestHeaders.isCredentialOrigin(current) ? cookie : null;
             DouyinRedirectResponse response = get(current, hopCookie);
             int status = response.statusCode();
-            if (status == 403) {
-                throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN, "Douyin short URL returned 403");
-            }
-            if (status == 429) {
-                throw new DouyinClientException(DouyinClientErrorCode.HTTP_RATE_LIMITED, "Douyin short URL was rate limited");
-            }
             if (status >= 300 && status < 400) {
                 URI next = resolveLocation(current, response.location());
                 if (next == null) {
@@ -65,13 +59,16 @@ public class DefaultDouyinShortLinkResolver implements DouyinShortLinkResolver {
                 current = next;
                 continue;
             }
+            if (status >= 400) {
+                DouyinClientErrorCode code = status == 429
+                        ? DouyinClientErrorCode.HTTP_RATE_LIMITED
+                        : DouyinErrorClassifier.classifyHttpStatus(status, response.body());
+                throw new DouyinClientException(code == null ? DouyinClientErrorCode.NETWORK_ERROR : code,
+                        "Douyin short URL returned HTTP " + status);
+            }
             if (DouyinErrorClassifier.looksLikeLoginOrRiskPage(response.body())) {
                 throw new DouyinClientException(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE,
                         "Douyin short URL reached a login or verification page");
-            }
-            if (status >= 400) {
-                throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
-                        "Douyin short URL returned HTTP " + status);
             }
             if (!isAllowedFinalHost(current.getHost())) {
                 throw new DouyinClientException(DouyinClientErrorCode.NON_DOUYIN_TARGET,
