@@ -324,7 +324,7 @@ test('quick host 保留旧 buildUserIdsRequest + buildCardsRequest 降级分支'
         /typeof action\.buildCollectionWorksPageRequest !== 'function'[\s\S]*typeof action\.buildCollectionWorksRequest !== 'function'/);
 });
 
-function quickAddAllHarness(pageResponses) {
+function quickAddAllHarness(pageResponses, fetchImpl) {
     const requests = [];
     const addCalls = [];
     const statuses = [];
@@ -376,6 +376,7 @@ function quickAddAllHarness(pageResponses) {
         BASE: '', QUICK_FETCH_MODE: 'quick-fetch',
         fetch(url) {
             requests.push(String(url));
+            if (fetchImpl) return fetchImpl(url);
             const body = pageResponses.shift() || {};
             return Promise.resolve({ok: true, json: () => Promise.resolve(body)});
         },
@@ -437,6 +438,24 @@ test('cursor quick 游标重复或为空时不会把部分结果加入队列', a
         assert.strictEqual(h.addCalls.length, 0);
         assert.ok(h.statuses.some(status => status.level === 'error'));
     }
+});
+
+test('cursor quick 全部加入在来源切换后静默丢弃旧请求结果', async () => {
+    const pending = deferred();
+    const h = quickAddAllHarness([], () => pending.promise.then(body => ({
+        ok: true,
+        json: () => Promise.resolve(body)
+    })));
+    const operation = h.exposed.quickAddAllToQueue();
+    await Promise.resolve();
+    h.exposed.quickState.loadSeq++;
+    h.exposed.quickState.action = null;
+    pending.resolve({items: [{id: 'stale'}], nextCursor: '', hasMore: false});
+
+    await operation;
+
+    assert.strictEqual(h.addCalls.length, 0);
+    assert.strictEqual(h.statuses.some(status => status.level === 'error'), false);
 });
 
 test('quick allIds 快路径不再分页请求并把 owner 账号上下文写入全部 meta', async () => {

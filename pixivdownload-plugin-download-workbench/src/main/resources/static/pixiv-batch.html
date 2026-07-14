@@ -120,15 +120,20 @@
     <!-- 中：配置区（各模式面板 / 附加筛选）。 -->
     <div class="center-col">
 
-        <!-- Quick-fetch panel：基于当前 Cookie 主人 uid 拉取「我的」收藏 / 关注 / 珍藏集 / 作品。
-             无 Cookie（缺 PHPSESSID）时禁用所有动作按钮并显示提示。 -->
+        <!-- Quick-fetch panel：活动作品类型模块贡献来源、账号识别与账户相关动作；
+             当前来源缺少所需凭据时，仅禁用该来源的动作并显示对应提示。 -->
         <div class="card mode-panel active" id="panel-quick-fetch">
             <div class="card-title" data-i18n="quick.title">快捷获取账户相关作品</div>
-            <div class="quick-intro" data-i18n="quick.intro">通过当前保存的 Cookie 自动识别账号（基于 PHPSESSID 前缀），一键查看你的收藏 / 关注 / 珍藏集 / 自己的作品，并可直接加入下载队列。包含 hide（不公开）数据。</div>
+            <div class="quick-intro" data-i18n="quick.intro">选择数据来源后，通过该来源保存的登录凭据自动识别账号，一键查看账户相关作品并直接加入下载队列。</div>
+            <div class="quick-data-source-control">
+                <span class="quick-data-source-label" id="quick-data-source-label" data-i18n="quick.data-source.label">数据来源</span>
+                <div class="kind-switcher" id="quick-data-source-switcher" role="radiogroup"
+                     aria-labelledby="quick-data-source-label"></div>
+            </div>
             <div class="quick-account" id="quick-account-bar">
                 <span data-i18n="quick.account.label">当前账号：</span>
                 <span id="quick-account-uid" class="quick-account-uid">-</span>
-                <span id="quick-account-hint" class="quick-account-hint" data-i18n="quick.account.hint-no-cookie">未检测到登录 Cookie，请先在上方保存含 PHPSESSID 的 Cookie</span>
+                <span id="quick-account-hint" class="quick-account-hint" data-i18n="quick.account.hint-no-credential">未检测到可用的登录凭据</span>
             </div>
             <div class="quick-actions">
                 <button class="btn btn-blue quick-action" data-quick="my-illust-bookmarks-show" onclick="quickLoad('my-illust-bookmarks-show')" data-i18n="quick.action.illust-bookmarks-show">📖 我的收藏（插画/漫画，公开）</button>

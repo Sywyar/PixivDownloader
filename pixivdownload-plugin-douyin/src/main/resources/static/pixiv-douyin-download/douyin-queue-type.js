@@ -1018,6 +1018,12 @@ const DOUYIN_DESCRIPTOR = {
             }
         },
         quick: {
+            dataSource: {
+                id: 'douyin',
+                displayNamespace: 'douyin',
+                displayI18nKey: 'source.douyin',
+                order: 20
+            },
             pageSize: DOUYIN_PAGE_SIZE,
             initialCursor: '0',
             skipThumbnail: true,

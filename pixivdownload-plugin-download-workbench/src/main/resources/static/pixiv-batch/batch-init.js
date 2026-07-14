@@ -29,6 +29,10 @@
             applySeriesFilters({});
         }
         if (normalizedMode === QUICK_FETCH_MODE) {
+            const quickMode = window.PixivBatch && window.PixivBatch.modes && window.PixivBatch.modes.quick;
+            if (quickMode && typeof quickMode.renderQuickDataSourceSwitcher === 'function') {
+                quickMode.renderQuickDataSourceSwitcher();
+            }
             updateQuickAccountBar();
             // 重新按当前附加筛选过滤已加载的快捷获取预览（筛选可能在别的模式被改过）
             if (quickHasWorksGrid()) quickReapplyFilters();
@@ -265,7 +269,7 @@
             modes && modes.quick && modes.quick.reconcileQuickTypeAvailability
         ].forEach(reconcile => {
             if (typeof reconcile !== 'function') return;
-            try { reconcile(); } catch (e) { console.warn('[batch] 作品类型 UI 收敛失败：', e); }
+            try { reconcile(ready); } catch (e) { console.warn('[batch] 作品类型 UI 收敛失败：', e); }
         });
         applyCookieHint();
         updateBatchLimitNote();
@@ -287,6 +291,14 @@
         refreshPageI18nNamespaces().catch(e => {
             console.warn('[batch] 刷新计划来源 i18n namespace 失败：', e);
         });
+    });
+    document.addEventListener('change', event => {
+        const target = event && event.target;
+        if (!target || target.name !== 'quick-data-source') return;
+        const quickMode = window.PixivBatch && window.PixivBatch.modes && window.PixivBatch.modes.quick;
+        if (quickMode && typeof quickMode.selectQuickDataSource === 'function') {
+            quickMode.selectQuickDataSource(target.value);
+        }
     });
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {

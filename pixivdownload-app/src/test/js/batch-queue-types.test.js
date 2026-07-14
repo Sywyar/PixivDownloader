@@ -360,6 +360,15 @@ const BASIC_INITIALIZER = `(function (context) {
     };
 })`;
 
+function quickDataSourceInitializer(sourceLiteral) {
+    return BASIC_INITIALIZER.replace(
+        'quick: {\n                    queueId:',
+        `quick: {
+                    dataSource: ${sourceLiteral},
+                    queueId:`
+    );
+}
+
 const REQUEST_OWNER_INITIALIZER = BASIC_INITIALIZER.replace(
     'user: {\n                    parseInput:',
     `user: {
@@ -538,6 +547,66 @@ const LATE_UI_INITIALIZER = `(function (context) {
         ok('scheduledQueueItem 调用 owner hook', h.qt.scheduledQueueItem('demo', {id: '7'}, {}).id === 'owned-7');
         ok('scheduled SSE 能力来自 descriptor', h.qt.supportsScheduledSse('demo') === false);
         ok('缺席类型不会默认订阅 scheduled SSE', h.qt.supportsScheduledSse('missing') === false);
+    }
+
+    {
+        const explicit = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: quickDataSourceInitializer(`{
+                        id: '  demo-source  ',
+                        displayNamespace: '  demo-source-i18n  ',
+                        displayI18nKey: '  source.demo  ',
+                        order: '7'
+                    }`)}
+        });
+        await explicit.qt.bootstrap();
+        const explicitSource = explicit.qt.acquisition('demo', 'quick').dataSource;
+        ok('quick dataSource 元数据会去除空白并规范化排序值',
+            explicitSource.id === 'demo-source'
+            && explicitSource.displayNamespace === 'demo-source-i18n'
+            && explicitSource.displayI18nKey === 'source.demo'
+            && explicitSource.order === 7);
+        ok('quick dataSource 经运行时投影后为只读冻结快照',
+            Object.isFrozen(explicitSource));
+        ok('quick dataSource 自有 i18n namespace 会加入运行时 namespace 集合',
+            (await explicit.qt.i18nNamespaces()).includes('demo-source-i18n'));
+        assert.throws(() => vm.runInContext(
+            "'use strict'; window.PixivBatch.queueTypes.acquisition('demo', 'quick').dataSource.id = 'forged'",
+            explicit.sandbox), /read only|Cannot assign/i);
+        passed++;
+        ok('冻结的 quick dataSource 拒绝改写后仍保留规范化 id',
+            explicit.qt.acquisition('demo', 'quick').dataSource.id === 'demo-source');
+
+        const fallback = harness([manifest(1, [typeDescriptor({
+            order: 27,
+            displayNamespace: 'demo-manifest',
+            displayI18nKey: 'type.demo'
+        })])], {
+            '/modules/demo.js': {initializer: quickDataSourceInitializer(`{
+                        id: 'fallback-source'
+                    }`)}
+        });
+        await fallback.qt.bootstrap();
+        const fallbackSource = fallback.qt.acquisition('demo', 'quick').dataSource;
+        ok('quick dataSource 缺省展示元数据时回退后端 manifest',
+            fallbackSource.id === 'fallback-source'
+            && fallbackSource.displayNamespace === 'demo-manifest'
+            && fallbackSource.displayI18nKey === 'type.demo'
+            && fallbackSource.order === 27);
+
+        const blank = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: quickDataSourceInitializer(`{id: '   '}`)}
+        });
+        await blank.qt.bootstrap();
+        ok('空白 quick dataSource id 会被运行时丢弃',
+            !Object.prototype.hasOwnProperty.call(blank.qt.acquisition('demo', 'quick'), 'dataSource'));
+
+        const oversizedId = 'x'.repeat(65);
+        const oversized = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: quickDataSourceInitializer(`{id: '${oversizedId}'}`)}
+        });
+        await oversized.qt.bootstrap();
+        ok('超过长度上限的 quick dataSource id 会被运行时丢弃',
+            !Object.prototype.hasOwnProperty.call(oversized.qt.acquisition('demo', 'quick'), 'dataSource'));
     }
 
     {

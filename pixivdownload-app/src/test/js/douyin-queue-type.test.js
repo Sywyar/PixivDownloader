@@ -286,6 +286,13 @@ function ok(label, cond) {
         .every(mode => qt.supports('douyin', mode)));
     ok('acquisition.search 提供真实关键词请求',
         qt.acquisition('douyin', 'search').buildRequest({word: '猫', page: 2}).params.word === '猫');
+    const douyinQuickSource = qt.acquisition('douyin', 'quick').dataSource;
+    ok('Douyin quick 由插件贡献独立且只读的数据来源元数据',
+        douyinQuickSource.id === 'douyin'
+        && douyinQuickSource.displayNamespace === 'douyin'
+        && douyinQuickSource.displayI18nKey === 'source.douyin'
+        && douyinQuickSource.order === 20
+        && Object.isFrozen(douyinQuickSource));
     ok('acquisition.quick 贡献账号作品、喜欢、收藏与合集入口',
         Object.keys(qt.quickActionsFor('douyin')).sort().join(',') ===
         'douyin-favorite-collections,douyin-favorites,douyin-liked,douyin-own-works');

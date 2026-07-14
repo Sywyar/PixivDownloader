@@ -1230,6 +1230,12 @@ const NOVEL_DESCRIPTOR = {
             }
         },
         quick: {
+            dataSource: {
+                id: 'pixiv',
+                displayNamespace: 'batch',
+                displayI18nKey: 'quick.data-source.pixiv',
+                order: 10
+            },
             pageSize: QUICK_PAGE_SIZE_NOVEL,
             requestInit: novelPreviewRequestInit,
             account: {

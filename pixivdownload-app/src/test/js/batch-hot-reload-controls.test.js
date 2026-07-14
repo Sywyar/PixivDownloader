@@ -93,11 +93,14 @@ function realModeHarness(source, stateExpression, elements, extra = {}) {
     const registry = {
         supports() { return false; },
         resolveTypeForMode() { return null; },
-        acquisition() { return null; }
+        acquisition() { return null; },
+        acquisitionList() { return []; }
     };
     const modeDocument = {
         getElementById(id) { return elements[id] || null; },
-        querySelectorAll() { return []; },
+        querySelectorAll(selector) {
+            return typeof elements.querySelectorAll === 'function' ? elements.querySelectorAll(selector) : [];
+        },
         querySelector() { return null; },
         addEventListener() {}
     };
@@ -288,6 +291,18 @@ ok('search submode switcher 使用稳定 root 事件委托',
 }
 
 {
+    const quickActionClasses = new Set(['quick-active', 'is-loading']);
+    const quickAction = modeElement();
+    quickAction.dataset.quick = 'owner-a-action';
+    quickAction.disabled = true;
+    quickAction.classList = {
+        contains(name) { return quickActionClasses.has(name); },
+        toggle(name, enabled) {
+            if (enabled) quickActionClasses.add(name);
+            else quickActionClasses.delete(name);
+        },
+        remove(name) { quickActionClasses.delete(name); }
+    };
     const elements = {
         'quick-preview-area': modeElement(),
         'quick-pagination': modeElement({html: 'A pages'}),
@@ -295,7 +310,8 @@ ok('search submode switcher 使用稳定 root 事件委托',
         'quick-preview-toolbar': modeElement(),
         'quick-add-page': modeElement(),
         'quick-add-all': modeElement(),
-        'quick-following-search': modeElement()
+        'quick-following-search': modeElement(),
+        querySelectorAll(selector) { return selector === '.quick-action' ? [quickAction] : []; }
     };
     const h = realModeHarness(QUICK_SOURCE, '({outer: quickState, inner: quickInner})', elements);
     Object.assign(h.state.outer, {
@@ -320,7 +336,7 @@ ok('search submode switcher 使用稳定 root 事件委托',
         items: [{id: '1'}],
         total: 1
     });
-    const reconciled = h.sandbox.window.PixivBatch.modes.quick.reconcileQuickTypeAvailability();
+    const reconciled = h.sandbox.window.PixivBatch.modes.quick.reconcileQuickTypeAvailability(false);
     ok('真实 quick reconcile 清空 publication A 的外层与内层 state',
         reconciled && h.state.outer.action === null && h.state.outer.ownerType === null
         && h.state.outer.kind === null
@@ -334,12 +350,19 @@ ok('search submode switcher 使用稳定 root 事件委托',
         && elements['quick-pagination'].style.display === 'none'
         && elements['quick-pagination'].innerHTML === ''
         && elements['quick-inner-section'].style.display === 'none');
+    ok('queue type loading 暂态使用普通空态，不遗留类型不可用提示',
+        elements['quick-preview-area'].innerHTML.includes('点击上方按钮加载内容')
+        && !elements['quick-preview-area'].innerHTML.includes('该类型当前不可用'));
     ok('真实 quick reconcile 隐藏并禁用旧预览入队按钮',
         elements['quick-preview-toolbar'].style.display === 'none'
         && elements['quick-add-page'].style.display === 'none'
         && elements['quick-add-page'].disabled
         && elements['quick-add-all'].style.display === 'none'
         && elements['quick-add-all'].disabled);
+    ok('真实 quick reconcile 清除旧 action 的高亮、loading 与残留禁用态',
+        !quickActionClasses.has('quick-active')
+        && !quickActionClasses.has('is-loading')
+        && !quickAction.disabled);
     h.sandbox.quickShowToolbar({showAdd: true, showSearch: false});
     ok('publication B 新结果可重新显示并启用 quick 入队按钮',
         elements['quick-preview-toolbar'].style.display === ''
@@ -413,6 +436,7 @@ ok('search submode switcher 使用稳定 root 事件委托',
 
 const runtimeListeners = new Map();
 const previewClears = {user: 0, search: 0, series: 0, quick: 0};
+const quickReadyStates = [];
 let settingReconciles = 0;
 const initSandbox = {
     window: {
@@ -423,7 +447,10 @@ const initSandbox = {
                 user: {reconcileUserTypeAvailability() { previewClears.user++; }},
                 search: {reconcileSearchTypeAvailability() { previewClears.search++; }},
                 series: {reconcileSeriesTypeAvailability() { previewClears.series++; }},
-                quick: {reconcileQuickTypeAvailability() { previewClears.quick++; }}
+                quick: {reconcileQuickTypeAvailability(ready) {
+                    previewClears.quick++;
+                    quickReadyStates.push(ready);
+                }}
             }
         },
         addEventListener(type, listener) { runtimeListeners.set(type, listener); }
@@ -450,5 +477,7 @@ ok('loading 窗口不改写持久化 kind 设置', settingReconciles === 0);
 runtimeListeners.get('pixivbatch:queuetypeschanged')({detail: {ready: true}});
 ok('ready 事件再收敛设置与预览且不丢失事件链',
     settingReconciles === 1 && Object.values(previewClears).every(count => count === 2));
+ok('queue type reconcile 把 loading/ready 状态传给 quick 来源选择收敛',
+    quickReadyStates.length === 2 && quickReadyStates[0] === false && quickReadyStates[1] === true);
 
 console.log(`batch-hot-reload-controls.test.js: ${passed} assertions passed ✓`);

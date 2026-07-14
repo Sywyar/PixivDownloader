@@ -237,6 +237,12 @@ vm.runInContext(SERIES_SOURCE + [
     let pixivCredentialMissing = false;
     const quickAcquisition = {
         type: 'illust',
+        dataSource: {
+            id: 'pixiv',
+            displayNamespace: 'batch',
+            displayI18nKey: 'quick.data-source.pixiv',
+            order: 10
+        },
         actions: {'pixiv-action': {viewType: 'works-list'}},
         account: {
             credentialMissing() { return pixivCredentialMissing; },
@@ -246,6 +252,12 @@ vm.runInContext(SERIES_SOURCE + [
     };
     const douyinQuickAcquisition = {
         type: 'douyin',
+        dataSource: {
+            id: 'douyin',
+            displayNamespace: 'douyin',
+            displayI18nKey: 'source.douyin',
+            order: 20
+        },
         actions: {'douyin-action': {viewType: 'works-list'}},
         account: {
             credentialMissing() { return false; },
@@ -253,15 +265,48 @@ vm.runInContext(SERIES_SOURCE + [
             readId(data) { return data.id; }
         }
     };
+    let quickAcquisitions = [quickAcquisition, douyinQuickAcquisition];
     const quickButtons = ['pixiv-action', 'douyin-action'].map(action => ({
-        dataset: {quick: action}, disabled: false, title: '',
+        dataset: {quick: action}, disabled: false, hidden: false, title: '',
         classList: {contains() { return false; }, toggle() {}}
     }));
+    function quickClassList() {
+        const values = new Set();
+        return {
+            contains(name) { return values.has(name); },
+            toggle(name, force) {
+                const active = force == null ? !values.has(name) : !!force;
+                if (active) values.add(name);
+                else values.delete(name);
+                return active;
+            }
+        };
+    }
+    function quickElement(tagName) {
+        return {
+            tagName: String(tagName).toUpperCase(),
+            dataset: {},
+            style: {},
+            children: [],
+            attributes: {},
+            classList: quickClassList(),
+            appendChild(child) { this.children.push(child); },
+            replaceChildren() { this.children = []; },
+            setAttribute(name, value) { this.attributes[name] = String(value); },
+            getAttribute(name) { return this.attributes[name] || null; },
+            querySelector(selector) {
+                return selector === 'input[type=radio]'
+                    ? (this.children.find(child => child.tagName === 'INPUT' && child.type === 'radio') || null)
+                    : null;
+            }
+        };
+    }
+    const quickSourceSwitcher = quickElement('div');
     const accountRequestUrls = [];
     const quickWindow = {
         PixivBatch: {
             queueTypes: {
-                acquisitionList() { return [quickAcquisition, douyinQuickAcquisition]; },
+                acquisitionList() { return quickAcquisitions; },
                 prepareAcquisitionRequest(_type, _mode, url) {
                     const publication = currentPublication;
                     return {
@@ -284,9 +329,15 @@ vm.runInContext(SERIES_SOURCE + [
             getElementById(id) {
                 if (id === 'quick-account-uid') return uidElement;
                 if (id === 'quick-account-hint') return hintElement;
+                if (id === 'quick-data-source-switcher') return quickSourceSwitcher;
                 return null;
             },
-            querySelectorAll(selector) { return selector === '.quick-action' ? quickButtons : []; }
+            createElement(tagName) { return quickElement(tagName); },
+            querySelectorAll(selector) {
+                if (selector === '.quick-action') return quickButtons;
+                if (selector === '#quick-data-source-switcher label') return quickSourceSwitcher.children;
+                return [];
+            }
         },
         console: {warn() {}, log() {}, error() {}},
         URL,
@@ -305,8 +356,41 @@ vm.runInContext(SERIES_SOURCE + [
     vm.createContext(quickSandbox);
     vm.runInContext(QUICK_SOURCE
         + '\nwindow.__quickOwnershipTest = {quickState, applyQuickActionCredentialUi, '
-        + 'updateQuickAccountBar, invalidateQuickAccount};', quickSandbox);
+        + 'updateQuickAccountBar, invalidateQuickAccount, quickDataSources, '
+        + 'renderQuickDataSourceSwitcher, selectQuickDataSource};', quickSandbox);
     const quickOwnership = quickWindow.__quickOwnershipTest;
+    quickOwnership.renderQuickDataSourceSwitcher();
+    ok('quick 数据来源切换器按插件元数据渲染 Pixiv 与 Douyin 两个选项',
+        quickSourceSwitcher.children.length === 2
+        && quickSourceSwitcher.children[0].children[0].value === 'pixiv'
+        && quickSourceSwitcher.children[0].children[1].getAttribute('data-i18n')
+            === 'batch:quick.data-source.pixiv'
+        && quickSourceSwitcher.children[1].children[0].value === 'douyin'
+        && quickSourceSwitcher.children[1].children[1].getAttribute('data-i18n')
+            === 'douyin:source.douyin');
+    ok('默认选择排序靠前的 Pixiv 来源并只显示其快捷动作',
+        quickOwnership.quickState.dataSourceId === 'pixiv'
+        && quickButtons[0].hidden === false
+        && quickButtons[1].hidden === true);
+    quickOwnership.selectQuickDataSource('douyin', false);
+    ok('切换到 Douyin 后只显示 Douyin 快捷动作',
+        quickOwnership.quickState.dataSourceId === 'douyin'
+        && quickButtons[0].hidden === true
+        && quickButtons[1].hidden === false);
+    quickAcquisitions = [];
+    quickOwnership.renderQuickDataSourceSwitcher(true);
+    ok('queue type loading 空快照会隐藏动作但保留期望的 Douyin 来源',
+        quickOwnership.quickState.dataSourceId === 'douyin'
+        && quickSourceSwitcher.children.length === 0
+        && quickButtons.every(button => button.hidden));
+    quickAcquisitions = [quickAcquisition, douyinQuickAcquisition];
+    quickOwnership.renderQuickDataSourceSwitcher();
+    ok('queue type ready 后若 Douyin 仍存在则恢复原选择而不回退 Pixiv',
+        quickOwnership.quickState.dataSourceId === 'douyin'
+        && quickSourceSwitcher.children.length === 2
+        && quickButtons[0].hidden === true
+        && quickButtons[1].hidden === false);
+    quickOwnership.selectQuickDataSource('pixiv', false);
     pixivCredentialMissing = true;
     quickOwnership.applyQuickActionCredentialUi();
     ok('quick credential gate 只禁用缺少凭据的 Pixiv action，不会误挡 Douyin action',
@@ -324,6 +408,16 @@ vm.runInContext(SERIES_SOURCE + [
         uidElement.textContent === 'B-account' && accountWrites === 0);
 
     quickSandbox.state.mode = 'quick-fetch';
+    const requestsBeforeForeignRefresh = accountRequestUrls.length;
+    const accountSeqBeforeForeignRefresh = quickOwnership.quickState.accountSeq;
+    quickOwnership.invalidateQuickAccount('douyin');
+    await quickOwnership.updateQuickAccountBar('douyin');
+    ok('非当前来源的插件失效与刷新不会取消 Pixiv 请求或覆盖账号栏',
+        quickOwnership.quickState.dataSourceId === 'pixiv'
+        && quickOwnership.quickState.accountSeq === accountSeqBeforeForeignRefresh
+        && accountRequestUrls.length === requestsBeforeForeignRefresh
+        && uidElement.textContent === 'B-account');
+    quickOwnership.selectQuickDataSource('douyin', false);
     const douyinAccountUpdate = quickOwnership.updateQuickAccountBar('douyin');
     assert.strictEqual(accountRequestUrls.at(-1), '/api/douyin/account',
         'Douyin owner 应使用自己的账号 provider');
@@ -338,6 +432,26 @@ vm.runInContext(SERIES_SOURCE + [
         quickOwnership.quickState.uid === null
         && !quickOwnership.quickState.accountIdsByOwner.has('douyin')
         && uidElement.textContent === '-');
+
+    quickAcquisitions = [
+        Object.assign({type: 'illust'}, pixivDescriptor.acquisition.quick),
+        Object.assign({type: 'novel'}, novelDescriptor.acquisition.quick),
+        Object.assign({type: 'douyin'}, douyinDescriptor.acquisition.quick)
+    ];
+    const realSources = quickOwnership.quickDataSources();
+    ok('真实 Pixiv 插画与小说 quick contribution 合并为同一个数据来源',
+        realSources.length === 2
+        && realSources[0].id === 'pixiv'
+        && realSources[0].ownerTypes.join(',') === 'illust,novel'
+        && realSources[0].displayNamespace === 'batch'
+        && realSources[0].displayI18nKey === 'quick.data-source.pixiv'
+        && realSources[0].order === 10);
+    ok('真实 Douyin quick contribution 保持独立且排在 Pixiv 来源之后',
+        realSources[1].id === 'douyin'
+        && realSources[1].ownerTypes.join(',') === 'douyin'
+        && realSources[1].displayNamespace === 'douyin'
+        && realSources[1].displayI18nKey === 'source.douyin'
+        && realSources[1].order === 20);
 
     console.log(`\npreview-request-ownership.test.js: ${passed} assertions passed ✓`);
 })().catch(err => {

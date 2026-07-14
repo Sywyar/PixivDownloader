@@ -354,7 +354,15 @@ window.PixivBatch.queueTypes = (function () {
         ['user', 'search', 'series', 'quick'].forEach(mode => {
             if (allowedModes.has(mode) && isPlainObject(rawAcquisition[mode])
                 && validAcquisitionHooks(mode, rawAcquisition[mode])) {
-                acquisition[mode] = rawAcquisition[mode];
+                if (mode === 'quick') {
+                    const quick = Object.assign({}, rawAcquisition[mode]);
+                    const dataSource = normalizeQuickDataSource(quick.dataSource, backend);
+                    if (dataSource) quick.dataSource = dataSource;
+                    else delete quick.dataSource;
+                    acquisition[mode] = quick;
+                } else {
+                    acquisition[mode] = rawAcquisition[mode];
+                }
             }
         });
         behavior.acquisition = acquisition;
@@ -427,6 +435,19 @@ window.PixivBatch.queueTypes = (function () {
             quick: ['queueId', 'gridCardId', 'innerCardHtml', 'render', 'buildQueueMeta']
         }[mode] || [];
         return required.every(name => typeof value[name] === 'function');
+    }
+
+    function normalizeQuickDataSource(value, backend) {
+        if (!isPlainObject(value)) return null;
+        const id = text(value.id);
+        if (!id || id.length > 64) return null;
+        const rawOrder = Number(value.order);
+        return Object.freeze({
+            id,
+            displayNamespace: text(value.displayNamespace || backend.displayNamespace),
+            displayI18nKey: text(value.displayI18nKey || backend.displayI18nKey),
+            order: Number.isFinite(rawOrder) ? rawOrder : backend.order
+        });
     }
 
     function declaredContributionMap(value, declaredKeys, acceptLegacyKeys) {
@@ -1289,6 +1310,12 @@ window.PixivBatch.queueTypes = (function () {
             addNamespace(out, seen, item && item.i18nNamespace);
             addNamespace(out, seen, item && item.gallery && item.gallery.reasonNamespace);
         });
+        if (current.identity) {
+            current.orderedTypes.forEach(type => {
+                const quick = acquisition(type, 'quick');
+                addNamespace(out, seen, quick && quick.dataSource && quick.dataSource.displayNamespace);
+            });
+        }
         return out;
     }
 
