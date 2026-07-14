@@ -43,6 +43,17 @@ public interface DouyinClient {
         return cursorFallback(listSeriesWorks(seriesId, page, limit, cookie), page);
     }
 
+    default DouyinListing listMusicWorksPage(String musicId,
+                                             String cursor,
+                                             int limit,
+                                             String cookie) throws DouyinClientException {
+        throw unsupported("Douyin music listing is not available");
+    }
+
+    private static DouyinClientException unsupported(String message) {
+        return new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT, message);
+    }
+
     private static DouyinListing cursorFallback(DouyinListing listing, int page) {
         if (listing == null || !listing.hasMore() || !listing.nextCursor().isBlank()) {
             return listing;

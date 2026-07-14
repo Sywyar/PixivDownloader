@@ -233,6 +233,30 @@ public class DouyinController {
         }
     }
 
+    @GetMapping("/music/{musicId}")
+    public ResponseEntity<?> music(@PathVariable String musicId,
+                                   @RequestParam(required = false) String cursor,
+                                   @RequestParam(defaultValue = "1") int page,
+                                   @RequestParam(defaultValue = "24") int pageSize,
+                                   @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                   HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            requirePreviewPage(page);
+            requirePreviewPageSize(pageSize);
+            String safeCursor = optionalCursor(cursor);
+            DouyinListing listing = safeCursor == null
+                    ? downloadService.listMusicWorks(musicId, page, pageSize, cookie)
+                    : downloadService.listMusicWorksPage(musicId, safeCursor, pageSize, cookie);
+            return ResponseEntity.ok(new ItemsView(
+                    listing.items().stream().map(DouyinWorkView::from).toList(),
+                    listing.total(), listing.nextCursor(), listing.hasMore()));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
     @GetMapping("/quick/public")
     public ResponseEntity<?> quickPublic(@RequestParam(defaultValue = "1") int page,
                                          @RequestParam(defaultValue = "24") int pageSize,

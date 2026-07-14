@@ -28,6 +28,7 @@ public record DouyinCanonicalDownload(
             case SINGLE_WORK -> "work:" + stableId;
             case COLLECTION -> "collection:" + stableId;
             case USER_SOURCE -> "user:" + stableId;
+            case MUSIC_SOURCE -> "music:" + stableId;
         };
     }
 }

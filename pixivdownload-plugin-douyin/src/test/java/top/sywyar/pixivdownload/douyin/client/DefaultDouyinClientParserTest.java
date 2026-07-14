@@ -548,6 +548,42 @@ class DefaultDouyinClientParserTest {
                 assertThat(uri.getRawQuery()).contains("offset=214748364600"));
     }
 
+    @Test
+    @DisplayName("音乐来源分页下载关联作品而不冒充音乐音频")
+    void listsMusicRelatedWorks() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":0,"aweme_list":[
+                  {"aweme_id":"9301","desc":"Music work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9301.mp4"]}}}
+                ]}
+                """);
+
+        var listing = client(rest).listMusicWorksPage("music-1", "0", 20, "sessionid=test");
+
+        assertThat(listing.items()).extracting("id").containsExactly("9301");
+        assertThat(listing.items().get(0).media()).allSatisfy(media ->
+                assertThat(media.type().name()).doesNotContain("AUDIO"));
+        assertThat(rest.requests().get(0).getPath()).isEqualTo("/aweme/v1/web/music/aweme/");
+    }
+
+    @Test
+    @DisplayName("音乐来源仍有下一页但游标未推进时明确失败")
+    void rejectsStalledMusicWorksCursor() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"music-current","aweme_list":[
+                  {"aweme_id":"9302","desc":"Music work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9302.mp4"]}}}
+                ]}
+                """);
+
+        assertThatThrownBy(() -> client(rest).listMusicWorksPage("music-1", "music-current", 20, null))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
+    }
+
     private static DefaultDouyinClient client(String... bodies) {
         FakeRestTemplate rest = new FakeRestTemplate();
         for (String body : bodies) {

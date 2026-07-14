@@ -114,16 +114,22 @@ class DouyinControllerSecurityTest {
     }
 
     @Test
-    @DisplayName("搜索单页预览入口拒绝越界页码与页大小")
-    void rejectsUnboundedSearchPagePreview() throws Exception {
-        String endpoint = "/api/douyin/search?word=cat&";
-        assertThat(mockMvc.perform(get(endpoint + "page=0"))
-                .andReturn().getResponse().getStatus()).isEqualTo(400);
-        assertThat(mockMvc.perform(get(endpoint + "page=" + (DouyinController.MAX_PREVIEW_PAGE + 1)))
-                .andReturn().getResponse().getStatus()).isEqualTo(400);
-        assertThat(mockMvc.perform(get(endpoint + "pageSize="
-                        + (DouyinController.MAX_PREVIEW_PAGE_SIZE + 1)))
-                .andReturn().getResponse().getStatus()).isEqualTo(400);
+    @DisplayName("单页预览入口拒绝越界页码与页大小")
+    void rejectsUnboundedSinglePagePreviews() throws Exception {
+        for (String endpoint : List.of(
+                "/api/douyin/series/series-1",
+                "/api/douyin/search?word=cat",
+                "/api/douyin/music/music-1")) {
+            String separator = endpoint.contains("?") ? "&" : "?";
+            assertThat(mockMvc.perform(get(endpoint + separator + "page=0"))
+                    .andReturn().getResponse().getStatus()).isEqualTo(400);
+            assertThat(mockMvc.perform(get(endpoint + separator + "page="
+                            + (DouyinController.MAX_PREVIEW_PAGE + 1)))
+                    .andReturn().getResponse().getStatus()).isEqualTo(400);
+            assertThat(mockMvc.perform(get(endpoint + separator + "pageSize="
+                            + (DouyinController.MAX_PREVIEW_PAGE_SIZE + 1)))
+                    .andReturn().getResponse().getStatus()).isEqualTo(400);
+        }
 
         verifyNoInteractions(service);
     }

@@ -234,7 +234,7 @@ function ok(label, cond) {
     ok('解析用户主页', parser('https://www.douyin.com/user/MS4wLjABAAAA-demo').kind === 'user');
     ok('解析合集 URL', parser('https://www.douyin.com/collection/12345').kind === 'series');
     ok('解析 mix URL', parser('https://www.douyin.com/mix/12345').kind === 'series');
-    ok('解析 music URL 为 unsupported 类型输入', parser('https://www.douyin.com/music/12345').kind === 'music');
+    ok('解析 music URL 为音乐关联作品来源', parser('https://www.douyin.com/music/12345').kind === 'music');
     ok('拒绝 TikTok URL', parser('https://www.tiktok.com/@demo/video/123') === null);
     ok('拒绝伪造子域', parser('https://douyin.example.com/video/123') === null);
 
@@ -365,6 +365,12 @@ function ok(label, cond) {
     ok('import 合集 URL 建立合集来源关系', collectionItem.typeData.sourceRelations.length === 1
         && collectionItem.typeData.sourceRelations[0].sourceType === 'douyin.collection'
         && collectionItem.typeData.sourceRelations[0].sourceId === '12345');
+
+    const musicMatch = importHook.matchUrl('https://www.douyin.com/music/12345');
+    const musicItem = importHook.buildItem(musicMatch, 'Music title');
+    ok('import 音乐 URL 建立音乐来源关系', musicItem.typeData.sourceRelations.length === 1
+        && musicItem.typeData.sourceRelations[0].sourceType === 'douyin.music'
+        && musicItem.typeData.sourceRelations[0].sourceId === '12345');
 
     ok('Douyin descriptor 暴露中性的 typeData 合并 hook', typeof descriptor.mergeQueueTypeData === 'function');
     ok('Douyin descriptor 暴露中性的 canonical URL hook', typeof descriptor.canonicalUrl === 'function');

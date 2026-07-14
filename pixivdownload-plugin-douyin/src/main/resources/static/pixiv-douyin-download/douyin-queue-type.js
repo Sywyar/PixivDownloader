@@ -718,9 +718,7 @@ const DOUYIN_DESCRIPTOR = {
         sectionType: 'douyin',
         matchUrl(line) {
             const parsed = douyinParseInput(line);
-            return parsed && ['single', 'short', 'series', 'user'].includes(parsed.kind)
-                ? parsed
-                : null;
+            return parsed && ['single', 'short', 'series', 'user', 'music'].includes(parsed.kind) ? parsed : null;
         },
         buildItem(match, title, _line) {
             const parsed = match && match.id ? match : douyinParseInput(String(match || ''));
@@ -740,7 +738,8 @@ const DOUYIN_DESCRIPTOR = {
                     seriesId: parsed.seriesId || null,
                     seriesTitle: '',
                     sourceType: parsed.kind === 'series' ? 'douyin.collection'
-                        : parsed.kind === 'user' ? 'douyin.user' : 'douyin.single',
+                        : parsed.kind === 'user' ? 'douyin.user'
+                            : parsed.kind === 'music' ? 'douyin.music' : 'douyin.single',
                     sourceId: displayId,
                     sourceTitle: title || '',
                     sourceUrl: parsed.url,
@@ -834,11 +833,17 @@ const DOUYIN_DESCRIPTOR = {
                 return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
             },
             apiPath(seriesId, page) {
+                if (String(seriesId).startsWith('music:')) {
+                    const musicId = String(seriesId).substring('music:'.length);
+                    return `/api/douyin/music/${encodeURIComponent(musicId)}?page=${page}&pageSize=${DOUYIN_PAGE_SIZE}`;
+                }
                 return `/api/douyin/series/${encodeURIComponent(seriesId)}?page=${page}&pageSize=${DOUYIN_PAGE_SIZE}`;
             },
             parseUrl(text) {
                 const parsed = douyinParseInput(text);
-                return parsed && parsed.kind === 'series' ? {seriesId: parsed.seriesId} : null;
+                if (parsed && parsed.kind === 'series') return {seriesId: parsed.seriesId};
+                if (parsed && parsed.kind === 'music') return {seriesId: `music:${parsed.musicId}`};
+                return null;
             },
             typeLabel() { return douyinText('series.type', 'Douyin collection'); },
             queueId: douyinQueueId,
@@ -852,12 +857,14 @@ const DOUYIN_DESCRIPTOR = {
                     seriesTitle: ctx.seriesTitle
                 });
                 meta.typeData = Object.assign({}, meta.typeData, {
-                    seriesId: ctx.seriesId,
+                    seriesId: String(ctx.seriesId).startsWith('music:') ? null : ctx.seriesId,
                     seriesTitle: ctx.seriesTitle,
-                    sourceType: 'douyin.collection',
-                    sourceId: ctx.seriesId,
+                    sourceType: String(ctx.seriesId).startsWith('music:') ? 'douyin.music' : 'douyin.collection',
+                    sourceId: String(ctx.seriesId).replace(/^music:/, ''),
                     sourceTitle: ctx.seriesTitle || '',
-                    sourceUrl: `https://www.douyin.com/mix/${encodeURIComponent(String(ctx.seriesId))}`,
+                    sourceUrl: String(ctx.seriesId).startsWith('music:')
+                        ? `https://www.douyin.com/music/${encodeURIComponent(String(ctx.seriesId).substring(6))}`
+                        : `https://www.douyin.com/mix/${encodeURIComponent(String(ctx.seriesId))}`,
                     sourceOrder: seriesOrder
                 });
                 return meta;

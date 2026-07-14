@@ -97,6 +97,10 @@ public class DefaultDouyinClient implements DouyinClient {
             return new DouyinCanonicalDownload(DouyinCanonicalKind.USER_SOURCE,
                     parsed.id(), parsed.canonicalUrl(), null, input);
         }
+        if (parsed.kind() == DouyinParsedKind.MUSIC) {
+            return new DouyinCanonicalDownload(DouyinCanonicalKind.MUSIC_SOURCE,
+                    parsed.id(), parsed.canonicalUrl(), null, input);
+        }
         throw unsupportedParsedKind(parsed.kind());
     }
 
@@ -260,6 +264,24 @@ public class DefaultDouyinClient implements DouyinClient {
                 "offset", offset,
                 "count", safeLimit), cookie);
         return searchListing(root, keyword, offset, safeLimit);
+    }
+
+    @Override
+    public DouyinListing listMusicWorksPage(String musicId,
+                                            String cursor,
+                                            int limit,
+                                            String cookie) throws DouyinClientException {
+        String stableMusicId = requireStableId(musicId, "Douyin music id is required");
+        int safeLimit = positivePageSize(limit);
+        String currentCursor = normalizeCursor(cursor);
+        JsonNode root = fetchSignedJson("/aweme/v1/web/music/aweme/", params(
+                "music_id", stableMusicId,
+                "cursor", currentCursor,
+                "count", safeLimit), cookie);
+        DouyinListing listing = workListing(root, 1, safeLimit,
+                new ListingContext(stableMusicId, stableMusicId, null, null),
+                "cursor", "aweme_list", "items", "data");
+        return requireAdvancingCursor(stableMusicId, currentCursor, listing);
     }
 
     private DouyinListing collectLogicalSlice(String ownerId,
