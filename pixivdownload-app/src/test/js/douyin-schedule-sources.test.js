@@ -41,6 +41,7 @@ function harness() {
     let initializer = null;
     let active = true;
     let assertActiveCalls = 0;
+    const requests = [];
     const runtime = {
         registerModule(moduleUrl, value) {
             assert.equal(moduleUrl, '/pixiv-douyin-download/douyin-schedule-sources.js');
@@ -97,7 +98,10 @@ function harness() {
         String,
         Array,
         Promise,
-        fetch: async () => ({ok: true}),
+        fetch: async (url, init) => {
+            requests.push({url, init});
+            return {ok: true};
+        },
         bt(_key, fallback, args) {
             let value = fallback;
             Object.entries(args || {}).forEach(([key, replacement]) => {
@@ -130,10 +134,30 @@ function harness() {
         seriesState,
         elements,
         contributions,
+        requests,
         deactivate() { active = false; },
         assertActiveCalls() { return assertActiveCalls; }
     };
 }
+
+test('Douyin 自动授权只通过中性凭证头传 Cookie', async () => {
+    const h = harness();
+    const actions = h.contributions.get('douyin.account.favorite-works').credentialActions();
+
+    const result = await actions.autoAuthorize(42, {
+        activationToken: 'activation-douyin',
+        signal: new AbortController().signal,
+        assertCurrent() {}
+    });
+
+    assert.equal(result, 'authorized');
+    assert.equal(h.requests[0].url, '/api/schedule/tasks/42/authorize-cookie');
+    assert.equal(h.requests[0].init.headers['X-Acquisition-Credential'],
+        'ttwid=tt; passport_csrf_token=csrf; sessionid=sid');
+    assert.deepEqual(JSON.parse(h.requests[0].init.body), {
+        activationToken: 'activation-douyin'
+    });
+});
 
 function manifestSource(sourceType, generation) {
     const mode = sourceType === 'douyin.user' ? 'user'

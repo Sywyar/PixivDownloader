@@ -624,10 +624,12 @@
                     const response = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
                         method: 'POST',
                         credentials: 'same-origin',
-                        headers: {'Content-Type': 'application/json'},
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Acquisition-Credential': cookie
+                        },
                         signal: lease && lease.signal ? lease.signal : api.signal,
                         body: JSON.stringify({
-                            cookie,
                             activationToken: lease && lease.activationToken
                         })
                     });

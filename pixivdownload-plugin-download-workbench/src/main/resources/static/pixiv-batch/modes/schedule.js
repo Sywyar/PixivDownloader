@@ -705,9 +705,12 @@
             const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Acquisition-Credential': cookie
+                },
                 signal,
-                body: JSON.stringify({cookie, activationToken})
+                body: JSON.stringify({activationToken})
             });
             if (res.ok) return null;
             const err = await res.json().catch(() => ({}));

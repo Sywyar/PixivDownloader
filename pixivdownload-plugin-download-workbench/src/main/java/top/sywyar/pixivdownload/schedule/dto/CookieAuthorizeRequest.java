@@ -4,10 +4,10 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
- * 为计划任务授权（快照）Cookie 的请求体。
+ * 为计划任务授权（快照）来源凭证的请求体。
  *
- * <p>前端把 Cookie 卡片里那份当前 cookie（即平时作为 {@code X-Pixiv-Cookie} 发出的值）POST 上来，
- * 服务端校验含 {@code PHPSESSID} 后快照进任务行。cookie 绝不写日志 / 回显。
+ * <p>新客户端把凭证放在 {@code X-Acquisition-Credential} 请求头；{@code cookie} 仅保留旧客户端兼容。
+ * 凭证绝不写日志 / 回显。
  */
 @Data
 public class CookieAuthorizeRequest {
@@ -16,6 +16,6 @@ public class CookieAuthorizeRequest {
     @NotBlank
     private String activationToken;
 
-    @NotBlank
+    /** 旧客户端兼容字段；新请求应保持为空。 */
     private String cookie;
 }

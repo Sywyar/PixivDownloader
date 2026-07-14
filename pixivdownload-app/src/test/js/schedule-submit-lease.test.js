@@ -191,8 +191,8 @@ test('单独来源凭证授权请求携带当前 publication 激活令牌', asyn
 
     assert.equal(error, null);
     assert.equal(h.requests[0].url, '/api/schedule/tasks/7/authorize-cookie');
+    assert.equal(h.requests[0].init.headers['X-Acquisition-Credential'], 'PHPSESSID=7_secret');
     assert.deepEqual(JSON.parse(h.requests[0].init.body), {
-        cookie: 'PHPSESSID=7_secret',
         activationToken: 'token-a'
     });
 });

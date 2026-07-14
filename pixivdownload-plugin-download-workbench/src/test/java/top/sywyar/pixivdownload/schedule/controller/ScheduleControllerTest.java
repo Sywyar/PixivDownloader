@@ -74,6 +74,20 @@ class ScheduleControllerTest {
     }
 
     @Test
+    @DisplayName("绑定来源凭证可只通过中性请求头传入而不进入 JSON 请求体")
+    void authorizeCookieAcceptsAcquisitionCredentialHeader() throws Exception {
+        mockMvc.perform(post("/api/schedule/tasks/{id}/authorize-cookie", 42L)
+                        .header("X-Acquisition-Credential", "header-credential-42")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "activationToken", "activation-42"))))
+                .andExpect(status().isOk());
+
+        verify(scheduleService).authorizeCookie(
+                42L, "header-credential-42", "activation-42");
+    }
+
+    @Test
     @DisplayName("来源清单返回 owner 盖章字段并禁止缓存")
     void sourceManifestIsNoStoreAndKeepsStampedFields() throws Exception {
         when(scheduleService.sources()).thenReturn(new ScheduleSourceManifestView(

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
@@ -90,9 +92,14 @@ public class ScheduleController {
 
     @PostMapping("/tasks/{id}/authorize-cookie")
     public ScheduleTaskView authorizeCookie(@PathVariable long id,
-                                            @Valid @RequestBody CookieAuthorizeRequest req) {
+                                             @Valid @RequestBody CookieAuthorizeRequest req,
+                                             HttpServletRequest request) {
+        String credential = AcquisitionCredentialResolver.resolve(
+                request == null ? null
+                        : request.getHeader(AcquisitionCredentialResolver.HEADER_NAME),
+                req.getCookie());
         return scheduleService.authorizeCookie(
-                id, req.getCookie(), req.getActivationToken());
+                id, credential, req.getActivationToken());
     }
 
     @PostMapping("/tasks/{id}/revoke-cookie")

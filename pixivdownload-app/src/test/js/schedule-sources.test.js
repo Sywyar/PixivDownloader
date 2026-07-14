@@ -757,8 +757,8 @@ test('Pixiv 来源模块只经受控 initializer 注册七个 canonical 来源�
     );
     assert.equal(result, 'authorized');
     assert.equal(requests[0].url, '/api/schedule/tasks/42/authorize-cookie');
+    assert.equal(requests[0].init.headers['X-Acquisition-Credential'], 'PHPSESSID=42_secret');
     assert.deepEqual(JSON.parse(requests[0].init.body), {
-        cookie: 'PHPSESSID=42_secret',
         activationToken: 'activation-pixiv'
     });
 });

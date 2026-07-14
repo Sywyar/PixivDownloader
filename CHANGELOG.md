@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 桌面 GUI 配置页按下载、运行与网络、访问控制、自动化与维护、插件等任务类别重组。
 
 ### Security
+- 计划任务来源凭证绑定改用中性 `X-Acquisition-Credential` 请求头，JSON 请求体仅保留非敏感的来源激活令牌；旧请求体字段仍兼容读取且不会回显。
 - 插件密码与敏感字段改存 owner-scoped 专用凭证文件，不再写入 `config.yaml` 或普通插件 properties；升级时会验证并迁移旧值，空白保存不会覆盖凭证，清除凭证需显式操作。
 - Douyin 全局下载历史、独立画廊 / 详情及媒体读取保持管理员专属；媒体端点只读取历史记录对应作品目录内的文件，中性画廊只读 API 和前端贡献清单不会向受邀访客暴露管理员数据集，公开诊断只返回受控机器字段且非管理员不接收全局 registry 诊断。
 - 收藏夹图标和多角色朗读参考音上传会校验真实文件结构并为读取响应添加 `nosniff`；图标、参考音、插件本地安装和插件市场安装写入口会校验同源 `Origin`/`Referer`，降低伪造后缀、伪造 MIME、内容嗅探和跨站写入风险。
