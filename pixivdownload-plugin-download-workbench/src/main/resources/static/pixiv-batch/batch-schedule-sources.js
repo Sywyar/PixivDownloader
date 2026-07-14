@@ -661,13 +661,20 @@ window.PixivBatch.scheduleSources = (function () {
         return !requested.length || requested.every(type => source.possibleWorkTypes.includes(type));
     }
 
+    function normalizeAcquisitionMode(mode) {
+        const normalized = text(mode);
+        // 页面状态沿用成熟工作台的 tab id；插件契约只消费稳定的中性取得模式码。
+        return normalized === 'quick-fetch' ? 'quick' : normalized;
+    }
+
     function exactContextEntry(mode, context) {
+        const normalizedMode = normalizeAcquisitionMode(mode);
         const requestedType = text(context && context.editingSourceType)
-            || (text(mode) === 'quick' ? text(context && context.quickSource
+            || (normalizedMode === 'quick' ? text(context && context.quickSource
                 && (context.quickSource.sourceType || context.quickSource.type)) : '');
         if (!requestedType) return undefined;
         const entry = handler(requestedType);
-        if (!entry || !entry.descriptor.acquisitionModes.includes(text(mode))
+        if (!entry || !entry.descriptor.acquisitionModes.includes(normalizedMode)
             || !sourceSupportsContext(entry.descriptor, context)) {
             return null;
         }
@@ -675,7 +682,7 @@ window.PixivBatch.scheduleSources = (function () {
     }
 
     function matchingEntry(mode, context) {
-        const normalizedMode = text(mode);
+        const normalizedMode = normalizeAcquisitionMode(mode);
         const exact = exactContextEntry(normalizedMode, context);
         if (exact !== undefined) return exact;
         const matchesFound = [];
