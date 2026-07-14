@@ -72,6 +72,7 @@ public class PluginRuntimeManager {
 
     private volatile PluginManager pluginManager;
     private volatile PluginRuntimeStatus status;
+    private PluginDevelopmentArtifacts.DevelopmentCacheSession developmentCacheSession;
 
     public PluginRuntimeManager(Path pluginsRoot) {
         this(pluginsRoot, new PluginSupplyChainVerifier());
@@ -171,6 +172,9 @@ public class PluginRuntimeManager {
 
     /** 从明确路径加载一个插件包并创建新 generation；不会启动插件入口。 */
     public synchronized LoadedPluginPackage loadPlugin(Path artifactPath) {
+        if (PluginDevelopmentArtifacts.enabled() && artifactPath != null && Files.isDirectory(artifactPath)) {
+            return loadDevelopmentPlugin(artifactPath);
+        }
         if (artifactPath == null || !Files.isRegularFile(artifactPath)) {
             throw new PluginRuntimeOperationException("plugin artifact not found: " + artifactPath);
         }
@@ -179,6 +183,27 @@ public class PluginRuntimeManager {
                 materializer.materialize(artifactPath, inspection);
         return loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot,
                 inspection.descriptor());
+    }
+
+    private LoadedPluginPackage loadDevelopmentPlugin(Path classesDirectory) {
+        Path normalizedClasses = classesDirectory.toAbsolutePath().normalize();
+        PluginDevelopmentArtifacts.DevelopmentDiscovery discovery =
+                PluginDevelopmentArtifacts.discover(pluginsRoot);
+        PluginDevelopmentArtifacts.DevelopmentPluginArtifact artifact = discovery.artifacts().stream()
+                .filter(candidate -> candidate.classesDirectory().equals(normalizedClasses))
+                .findFirst()
+                .orElseThrow(() -> new PluginRuntimeOperationException(
+                        "development plugin artifact not found: " + normalizedClasses));
+        PluginDescriptor descriptor = PluginPackageReader.inspectDescriptor(artifact.descriptorPath());
+        if (entries.containsKey(descriptor.id())) {
+            throw new PluginRuntimeOperationException("plugin package already loaded: " + descriptor.id());
+        }
+        PluginDevelopmentArtifacts.DevelopmentCacheSession session =
+                ensureDevelopmentCacheSession(discovery.cacheRoot());
+        PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized =
+                PluginDevelopmentArtifacts.materialize(artifact, session);
+        return loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
+                session.sessionRoot(), materialized.descriptor());
     }
 
     private PluginRuntimeStatus startDevelopmentMode(Path productionDirectory) {
@@ -202,10 +227,18 @@ public class PluginRuntimeManager {
                     List.of(), List.of(), failures));
         }
 
+        PluginDevelopmentArtifacts.DevelopmentCacheSession session;
+        try {
+            session = ensureDevelopmentCacheSession(discovery.cacheRoot());
+        } catch (RuntimeException e) {
+            failures.add(new PluginLoadFailure(discovery.cacheRoot().toString(), describe(e)));
+            log.error("Failed to open plugin development cache session {}", discovery.cacheRoot(), e);
+            return cache(buildStatus(developmentRoot, failures));
+        }
         List<PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> materializedPlugins = new ArrayList<>();
         for (PluginDevelopmentArtifacts.DevelopmentPluginArtifact artifact : discovery.artifacts()) {
             try {
-                materializedPlugins.add(PluginDevelopmentArtifacts.materialize(artifact, discovery.cacheRoot()));
+                materializedPlugins.add(PluginDevelopmentArtifacts.materialize(artifact, session));
             } catch (RuntimeException e) {
                 failures.add(new PluginLoadFailure(artifact.moduleRoot().getFileName().toString(), describe(e)));
                 log.error("Failed to materialize development plugin module {}",
@@ -216,7 +249,7 @@ public class PluginRuntimeManager {
                 : PluginDevelopmentArtifacts.dependencyOrder(materializedPlugins)) {
             try {
                 loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
-                        discovery.cacheRoot(), materialized.descriptor());
+                        session.sessionRoot(), materialized.descriptor());
             } catch (RuntimeException e) {
                 failures.add(new PluginLoadFailure(materialized.descriptor().id(), describe(e)));
                 log.error("Failed to load development plugin module {}",
@@ -569,20 +602,20 @@ public class PluginRuntimeManager {
      */
     public synchronized void shutdown() {
         PluginManager previous = pluginManager;
-        if (previous == null && entries.isEmpty()) {
+        PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
+        if (previous == null && entries.isEmpty() && previousDevelopmentSession == null) {
             // 已关闭（或从未扫描）：清空残余引用即返回，幂等。
             generations.clear();
             status = null;
             return;
         }
         pluginManager = null;
+        developmentCacheSession = null;
         entries.clear();
         generations.clear();
         status = null;
-        if (previous == null) {
-            return;
-        }
-        bestEffortStopAndUnload(previous, "shutdown");
+        boolean released = previous == null || bestEffortStopAndUnload(previous, "shutdown");
+        closeDevelopmentCacheSession(previousDevelopmentSession, released, "shutdown");
     }
 
     public Path pluginsRoot() {
@@ -683,12 +716,12 @@ public class PluginRuntimeManager {
 
     private synchronized void resetPluginManager() {
         PluginManager previous = pluginManager;
+        PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
         pluginManager = null;
+        developmentCacheSession = null;
         entries.clear();
-        if (previous == null) {
-            return;
-        }
-        bestEffortStopAndUnload(previous, "reset");
+        boolean released = previous == null || bestEffortStopAndUnload(previous, "reset");
+        closeDevelopmentCacheSession(previousDevelopmentSession, released, "reset");
     }
 
     private PluginRuntimeStatus cache(PluginRuntimeStatus value) {
@@ -696,14 +729,16 @@ public class PluginRuntimeManager {
         return value;
     }
 
-    private static void bestEffortStopAndUnload(PluginManager manager, String action) {
+    private static boolean bestEffortStopAndUnload(PluginManager manager, String action) {
         Throwable fatal = null;
+        boolean releasedCleanly = true;
         try {
             manager.stopPlugins();
         } catch (Throwable failure) {
             if (isFatal(failure)) {
                 fatal = failure;
             } else {
+                releasedCleanly = false;
                 log.warn("Error stopping plugins during runtime {}: {}", action, describe(failure));
             }
         }
@@ -717,11 +752,62 @@ public class PluginRuntimeManager {
                     addSuppressedSafely(fatal, failure);
                 }
             } else {
+                releasedCleanly = false;
                 log.warn("Error unloading plugins during runtime {}: {}", action, describe(failure));
             }
         }
         if (fatal != null) {
             rethrowFatal(fatal);
+        }
+        try {
+            if (!manager.getPlugins().isEmpty()) {
+                releasedCleanly = false;
+                log.warn("Plugin wrappers remain after runtime {}; development cache session will be retained",
+                        action);
+            }
+        } catch (Throwable failure) {
+            rethrowFatal(failure);
+            releasedCleanly = false;
+            log.warn("Failed to verify plugin wrapper release during runtime {}: {}", action, describe(failure));
+        }
+        return releasedCleanly;
+    }
+
+    private PluginDevelopmentArtifacts.DevelopmentCacheSession ensureDevelopmentCacheSession(Path cacheRoot) {
+        Path normalizedCacheRoot = cacheRoot.toAbsolutePath().normalize();
+        PluginDevelopmentArtifacts.DevelopmentCacheSession current = developmentCacheSession;
+        if (current != null) {
+            if (!current.cacheRoot().equals(normalizedCacheRoot)) {
+                throw new PluginRuntimeOperationException("plugin development cache root changed while active: "
+                        + current.cacheRoot() + " -> " + normalizedCacheRoot);
+            }
+            return current;
+        }
+        if (pluginManager != null) {
+            throw new PluginRuntimeOperationException(
+                    "cannot open plugin development cache session after PF4J manager initialization");
+        }
+        PluginDevelopmentArtifacts.DevelopmentCacheSession opened =
+                PluginDevelopmentArtifacts.openSession(normalizedCacheRoot);
+        developmentCacheSession = opened;
+        return opened;
+    }
+
+    private static void closeDevelopmentCacheSession(
+            PluginDevelopmentArtifacts.DevelopmentCacheSession session, boolean runtimeReleased, String action) {
+        if (session == null) {
+            return;
+        }
+        if (!runtimeReleased) {
+            log.warn("Retaining plugin development cache session {} because runtime {} did not release cleanly",
+                    session.sessionRoot(), action);
+            return;
+        }
+        try {
+            session.close();
+        } catch (IOException | RuntimeException e) {
+            log.warn("Failed to clean plugin development cache session {} during {}: {}",
+                    session.sessionRoot(), action, e.toString());
         }
     }
 

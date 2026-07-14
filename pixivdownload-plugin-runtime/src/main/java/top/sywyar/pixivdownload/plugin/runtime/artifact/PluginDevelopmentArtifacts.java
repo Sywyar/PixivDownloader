@@ -5,11 +5,13 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReade
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 
 import java.io.IOException;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.AtomicMoveNotSupportedException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -19,6 +21,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 /**
@@ -38,6 +42,10 @@ public final class PluginDevelopmentArtifacts {
     private static final String LIB_DIR = "lib";
     private static final String CACHE_DIR = "pixivdownload-plugin-dev-runtime";
     private static final String PLUGIN_PROPERTIES = "plugin.properties";
+    private static final String SESSION_MARKER = ".pixiv-plugin-dev-session";
+    private static final String SNAPSHOT_MARKER = ".pixiv-plugin-dev-snapshot";
+    private static final int SESSION_DELETE_ATTEMPTS = 5;
+    private static final long SESSION_DELETE_RETRY_MILLIS = 25L;
 
     private PluginDevelopmentArtifacts() {
     }
@@ -93,40 +101,62 @@ public final class PluginDevelopmentArtifacts {
         return List.copyOf(ordered);
     }
 
-    public static MaterializedDevelopmentPlugin materialize(DevelopmentPluginArtifact artifact, Path cacheRoot) {
-        Objects.requireNonNull(artifact, "artifact");
+    public static DevelopmentCacheSession openSession(Path cacheRoot) {
         Objects.requireNonNull(cacheRoot, "cacheRoot");
+        Path normalizedCacheRoot = cacheRoot.toAbsolutePath().normalize();
+        Path sessionRoot = null;
+        try {
+            Files.createDirectories(normalizedCacheRoot);
+            sessionRoot = Files.createTempDirectory(normalizedCacheRoot, ".session-");
+            String token = UUID.randomUUID().toString();
+            Files.writeString(sessionRoot.resolve(SESSION_MARKER), token, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            return new DevelopmentCacheSession(normalizedCacheRoot, sessionRoot, token);
+        } catch (IOException e) {
+            cleanupAfterFailure(sessionRoot, e);
+            throw new PluginRuntimeOperationException("failed to open plugin development cache session under "
+                    + normalizedCacheRoot, e);
+        }
+    }
+
+    public static MaterializedDevelopmentPlugin materialize(
+            DevelopmentPluginArtifact artifact, DevelopmentCacheSession session) {
+        Objects.requireNonNull(artifact, "artifact");
+        Objects.requireNonNull(session, "session");
+        synchronized (session) {
+            return materializeInSession(artifact, session);
+        }
+    }
+
+    private static MaterializedDevelopmentPlugin materializeInSession(
+            DevelopmentPluginArtifact artifact, DevelopmentCacheSession session) {
         PluginDescriptor descriptor = PluginPackageReader.inspectDescriptor(artifact.descriptorPath());
         List<String> descriptorErrors = descriptor.externalValidationErrors();
         if (!descriptorErrors.isEmpty()) {
             throw new PluginRuntimeOperationException("invalid development plugin descriptor in "
                     + artifact.descriptorPath() + ": " + String.join("; ", descriptorErrors));
         }
-        Path normalizedCacheRoot = cacheRoot.toAbsolutePath().normalize();
-        Path target = normalizedCacheRoot.resolve(cacheDirectoryName(descriptor)).normalize();
-        requireCacheChild(normalizedCacheRoot, target);
+        Path snapshot = null;
         try {
-            Files.createDirectories(normalizedCacheRoot);
-            Path temporary = Files.createTempDirectory(normalizedCacheRoot, ".dev-plugin-");
-            boolean moved = false;
-            try {
-                Files.copy(artifact.descriptorPath(), temporary.resolve(PLUGIN_PROPERTIES),
-                        StandardCopyOption.REPLACE_EXISTING);
-                copyDevelopmentClasses(artifact.classesDirectory(), temporary.resolve(CLASSES_DIR));
-                copyPrivateLibraries(artifact.classesDirectory(), temporary.resolve(LIB_DIR));
-                deleteRecursively(target);
-                moveDirectory(temporary, target);
-                moved = true;
-                return new MaterializedDevelopmentPlugin(artifact.moduleRoot(),
-                        artifact.classesDirectory(), target, descriptor);
-            } finally {
-                if (!moved) {
-                    deleteRecursively(temporary);
-                }
-            }
+            Path sessionRoot = session.requireOpenRoot();
+            snapshot = Files.createTempDirectory(sessionRoot,
+                    snapshotDirectoryPrefix(descriptor, session.nextSequence()));
+            Files.copy(artifact.descriptorPath(), snapshot.resolve(PLUGIN_PROPERTIES),
+                    StandardCopyOption.REPLACE_EXISTING);
+            copyDevelopmentClasses(artifact.classesDirectory(), snapshot.resolve(CLASSES_DIR));
+            copyPrivateLibraries(artifact.classesDirectory(), snapshot.resolve(LIB_DIR));
+            Files.writeString(snapshot.resolve(SNAPSHOT_MARKER),
+                    session.snapshotMarker(descriptor), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            return new MaterializedDevelopmentPlugin(artifact.moduleRoot(),
+                    artifact.classesDirectory(), snapshot, descriptor);
         } catch (IOException e) {
+            cleanupAfterFailure(snapshot, e);
             throw new PluginRuntimeOperationException("failed to materialize development plugin module "
                     + artifact.moduleRoot(), e);
+        } catch (RuntimeException e) {
+            cleanupAfterFailure(snapshot, e);
+            throw e;
         }
     }
 
@@ -223,8 +253,8 @@ public final class PluginDevelopmentArtifacts {
                 sourceDescriptor.toAbsolutePath().normalize(), pluginId));
     }
 
-    private static String cacheDirectoryName(PluginDescriptor descriptor) {
-        return safeSegment(descriptor.id()) + "-" + safeSegment(descriptor.version());
+    private static String snapshotDirectoryPrefix(PluginDescriptor descriptor, long sequence) {
+        return safeSegment(descriptor.id()) + "-" + safeSegment(descriptor.version()) + "-" + sequence + "-";
     }
 
     private static String safeSegment(String value) {
@@ -290,22 +320,88 @@ public final class PluginDevelopmentArtifacts {
         Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private static void requireCacheChild(Path cacheRoot, Path target) {
-        if (!target.startsWith(cacheRoot) || target.equals(cacheRoot)) {
-            throw new PluginRuntimeOperationException("unsafe plugin development cache target: " + target);
+    private static void cleanupAfterFailure(Path root, Throwable failure) {
+        if (root == null) {
+            return;
+        }
+        try {
+            deleteRecursively(root);
+        } catch (IOException | RuntimeException cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
         }
     }
 
-    private static void moveDirectory(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException | AccessDeniedException e) {
+    private static void deleteOwnedSession(Path sessionRoot, String token) throws IOException {
+        Path marker = sessionRoot.resolve(SESSION_MARKER);
+        IOException previousFailure = null;
+        for (int attempt = 1; attempt <= SESSION_DELETE_ATTEMPTS; attempt++) {
             try {
-                Files.move(source, target);
-            } catch (IOException fallbackFailure) {
-                fallbackFailure.addSuppressed(e);
-                throw fallbackFailure;
+                deleteSessionContents(sessionRoot, marker);
+                Files.deleteIfExists(marker);
+                Files.deleteIfExists(sessionRoot);
+                return;
+            } catch (IOException failure) {
+                if (Files.notExists(sessionRoot, LinkOption.NOFOLLOW_LINKS)) {
+                    return;
+                }
+                restoreSessionMarker(sessionRoot, marker, token, failure);
+                if (previousFailure != null) {
+                    failure.addSuppressed(previousFailure);
+                }
+                previousFailure = failure;
+                if (attempt == SESSION_DELETE_ATTEMPTS) {
+                    throw failure;
+                }
+                try {
+                    Thread.sleep(SESSION_DELETE_RETRY_MILLIS * attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    IOException interruptedFailure = new IOException(
+                            "interrupted while deleting plugin development cache session " + sessionRoot,
+                            interrupted);
+                    interruptedFailure.addSuppressed(failure);
+                    throw interruptedFailure;
+                }
             }
+        }
+    }
+
+    private static void deleteSessionContents(Path sessionRoot, Path marker) throws IOException {
+        try (Stream<Path> walk = Files.walk(sessionRoot)) {
+            try {
+                for (Path path : walk
+                        .filter(candidate -> !candidate.equals(sessionRoot) && !candidate.equals(marker))
+                        .sorted(Comparator.comparingInt(Path::getNameCount).reversed())
+                        .toList()) {
+                    Files.deleteIfExists(path);
+                }
+            } catch (UncheckedIOException failure) {
+                throw failure.getCause();
+            }
+        }
+    }
+
+    private static void restoreSessionMarker(
+            Path sessionRoot, Path marker, String token, IOException deletionFailure) throws IOException {
+        try {
+            if (Files.isSymbolicLink(sessionRoot)
+                    || !Files.isDirectory(sessionRoot, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("unsafe plugin development cache session root after cleanup failure: "
+                        + sessionRoot);
+            }
+            if (Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+                if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
+                        || !token.equals(Files.readString(marker, StandardCharsets.UTF_8))) {
+                    throw new IOException("plugin development cache session marker changed during cleanup: "
+                            + marker);
+                }
+                return;
+            }
+            Files.writeString(marker, token, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        } catch (IOException | RuntimeException restoreFailure) {
+            deletionFailure.addSuppressed(restoreFailure);
+            throw deletionFailure;
         }
     }
 
@@ -369,6 +465,75 @@ public final class PluginDevelopmentArtifacts {
             Objects.requireNonNull(classesDirectory, "classesDirectory");
             Objects.requireNonNull(pf4jLoadPath, "pf4jLoadPath");
             Objects.requireNonNull(descriptor, "descriptor");
+        }
+    }
+
+    public static final class DevelopmentCacheSession implements AutoCloseable {
+
+        private final Path cacheRoot;
+        private final Path sessionRoot;
+        private final String token;
+        private final AtomicLong snapshotSequence = new AtomicLong();
+        private boolean closed;
+
+        private DevelopmentCacheSession(Path cacheRoot, Path sessionRoot, String token) {
+            this.cacheRoot = cacheRoot.toAbsolutePath().normalize();
+            this.sessionRoot = sessionRoot.toAbsolutePath().normalize();
+            this.token = token;
+        }
+
+        public Path cacheRoot() {
+            return cacheRoot;
+        }
+
+        public Path sessionRoot() {
+            return sessionRoot;
+        }
+
+        private long nextSequence() {
+            return snapshotSequence.incrementAndGet();
+        }
+
+        private synchronized Path requireOpenRoot() throws IOException {
+            if (closed) {
+                throw new IOException("plugin development cache session is closed: " + sessionRoot);
+            }
+            requireOwnedSessionRoot();
+            return sessionRoot;
+        }
+
+        private String snapshotMarker(PluginDescriptor descriptor) {
+            return token + "\n" + descriptor.id() + "\n" + descriptor.version() + "\n";
+        }
+
+        @Override
+        public synchronized void close() throws IOException {
+            if (closed) {
+                return;
+            }
+            if (Files.notExists(sessionRoot, LinkOption.NOFOLLOW_LINKS)) {
+                closed = true;
+                return;
+            }
+            requireOwnedSessionRoot();
+            deleteOwnedSession(sessionRoot, token);
+            closed = true;
+        }
+
+        private void requireOwnedSessionRoot() throws IOException {
+            if (!cacheRoot.equals(sessionRoot.getParent())
+                    || Files.isSymbolicLink(sessionRoot)
+                    || !Files.isDirectory(sessionRoot, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("unsafe plugin development cache session root: " + sessionRoot);
+            }
+            Path marker = sessionRoot.resolve(SESSION_MARKER);
+            if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("plugin development cache session marker is missing: " + marker);
+            }
+            String persistedToken = Files.readString(marker, StandardCharsets.UTF_8);
+            if (!token.equals(persistedToken)) {
+                throw new IOException("plugin development cache session marker does not match: " + marker);
+            }
         }
     }
 

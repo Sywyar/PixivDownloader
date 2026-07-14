@@ -47,6 +47,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 
 /**
  * PF4J 运行时管理封装的诊断边界测试：覆盖「插件目录不存在 / 空目录 / 含坏包」三类，
@@ -251,7 +252,7 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("开发模式：忽略 plugins 目录内容，扫描仓库根模块 target/classes 并加载")
+    @DisplayName("开发模式：忽略 plugins 目录内容，并从模块 target/classes 加载与物理重载")
     void developmentModeLoadsCompiledModuleClassesAndIgnoresPluginsDirectory() throws IOException {
         Path repositoryRoot = tempDir.resolve("repo");
         Path pluginsRoot = repositoryRoot.resolve("plugins");
@@ -265,6 +266,7 @@ class PluginRuntimeManagerTest {
         PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
         String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
         String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        Path developmentSessionRoot = null;
         try {
             System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
             System.clearProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
@@ -273,6 +275,8 @@ class PluginRuntimeManagerTest {
 
             Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginPath().toAbsolutePath().normalize();
+            ClassLoader firstClassLoader = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                    .getPluginClassLoader();
             assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
             assertThat(status.directory()).isEqualTo(repositoryRoot.toAbsolutePath().normalize());
             assertThat(status.loadedPluginIds()).containsExactly(PROBE_ID);
@@ -281,20 +285,131 @@ class PluginRuntimeManagerTest {
             assertThat(manager.artifactPath(PROBE_ID)).contains(classesDirectory.toAbsolutePath().normalize());
             assertThat(pf4jPath).startsWith(repositoryRoot.resolve("target/pixivdownload-plugin-dev-runtime")
                     .toAbsolutePath().normalize());
-            assertThat(pf4jPath.getFileName().toString()).isEqualTo(PROBE_ID + "-" + PROBE_VERSION);
+            developmentSessionRoot = pf4jPath.getParent();
+            assertThat(developmentSessionRoot.getFileName().toString()).startsWith(".session-");
+            assertThat(pf4jPath.getFileName().toString()).startsWith(PROBE_ID + "-" + PROBE_VERSION + "-");
             assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/plugin/runtime/bootstrap/"
                     + "BootstrapProbePlugin.class")).exists();
             assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
             assertThat(manager.loadedDescriptor(PROBE_ID)).get()
                     .extracting(PluginDescriptor::id).isEqualTo(PROBE_ID);
+            Path activeCacheMarker = pf4jPath.resolve("active-generation.marker");
+            Files.writeString(activeCacheMarker, "active", StandardCharsets.UTF_8);
+            assertThatThrownBy(() -> manager.loadPlugin(classesDirectory))
+                    .hasMessageContaining("plugin package already loaded");
+            assertThat(activeCacheMarker).exists();
+            Path outsideDevelopmentRoot = tempDir.resolve("outside-development-root/classes");
+            Files.createDirectories(outsideDevelopmentRoot);
+            assertThatThrownBy(() -> manager.loadPlugin(outsideDevelopmentRoot))
+                    .hasMessageContaining("development plugin artifact not found");
             manager.stopPlugin(PROBE_ID);
             assertThat(manager.loadedDescriptors()).containsKey(PROBE_ID);
             manager.startPlugin(PROBE_ID);
+            long firstGeneration = manager.generation(PROBE_ID).orElseThrow();
+
+            manager.unloadPlugin(PROBE_ID);
+            LoadedPluginPackage reloaded = manager.loadPlugin(classesDirectory);
+            manager.startPlugin(PROBE_ID);
+            ClassLoader reloadedClassLoader = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                    .getPluginClassLoader();
+            Path reloadedPf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                    .getPluginPath().toAbsolutePath().normalize();
+
+            assertThat(reloaded.artifactPath()).isEqualTo(classesDirectory.toAbsolutePath().normalize());
+            assertThat(reloaded.generation()).isGreaterThan(firstGeneration);
+            assertThat(reloadedClassLoader).isNotSameAs(firstClassLoader);
+            assertThat(reloadedPf4jPath).isNotEqualTo(pf4jPath);
+            assertThat(reloadedPf4jPath.getParent()).isEqualTo(developmentSessionRoot);
+            assertThat(activeCacheMarker).exists();
+            assertThat(manager.packagePhases().get(PROBE_ID))
+                    .isEqualTo(PluginRuntimePackagePhase.STARTED);
         } finally {
             manager.shutdown();
             restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
             restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
         }
+        assertThat(developmentSessionRoot).isNotNull().doesNotExist();
+    }
+
+    @Test
+    @DisplayName("开发模式：同一仓库的两个运行时使用独立会话并只清理自身缓存")
+    void developmentModeManagersUseIsolatedCacheSessions() throws IOException {
+        Path repositoryRoot = tempDir.resolve("repo-isolated-sessions");
+        Path pluginsRoot = repositoryRoot.resolve("plugins");
+        Files.createDirectories(pluginsRoot);
+        Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
+        writeProbeSourceDescriptor(moduleRoot);
+        writeProbeClassesDirectory(moduleRoot.resolve("target/classes"), false);
+        PluginRuntimeManager firstManager = new PluginRuntimeManager(pluginsRoot);
+        PluginRuntimeManager secondManager = new PluginRuntimeManager(pluginsRoot);
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        Path firstSessionRoot = null;
+        Path secondSessionRoot = null;
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.clearProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+
+            assertThat(firstManager.start().failures()).isEmpty();
+            assertThat(secondManager.start().failures()).isEmpty();
+            Path firstPf4jPath = firstManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                    .getPluginPath().toAbsolutePath().normalize();
+            Path secondPf4jPath = secondManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                    .getPluginPath().toAbsolutePath().normalize();
+            firstSessionRoot = firstPf4jPath.getParent();
+            secondSessionRoot = secondPf4jPath.getParent();
+
+            assertThat(firstSessionRoot).isNotEqualTo(secondSessionRoot);
+            assertThat(firstPf4jPath).isNotEqualTo(secondPf4jPath);
+            assertThat(firstPf4jPath).isDirectory();
+            assertThat(secondPf4jPath).isDirectory();
+
+            firstManager.shutdown();
+
+            assertThat(firstSessionRoot).doesNotExist();
+            assertThat(secondSessionRoot).isDirectory();
+            assertThat(secondPf4jPath).isDirectory();
+            assertThat(secondManager.packagePhases().get(PROBE_ID))
+                    .isEqualTo(PluginRuntimePackagePhase.STARTED);
+        } finally {
+            firstManager.shutdown();
+            secondManager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+        assertThat(firstSessionRoot).isNotNull().doesNotExist();
+        assertThat(secondSessionRoot).isNotNull().doesNotExist();
+    }
+
+    @Test
+    @DisplayName("开发模式：PF4J 未完全卸载时保留会话缓存")
+    void developmentModeRetainsCacheSessionWhenPf4jDoesNotReleaseCleanly() throws Exception {
+        PluginRuntimeManager manager = new PluginRuntimeManager(tempDir.resolve("plugins-retained-session"));
+        PluginDevelopmentArtifacts.DevelopmentCacheSession session =
+                PluginDevelopmentArtifacts.openSession(tempDir.resolve("development-cache"));
+        Path activeSnapshot = session.sessionRoot().resolve("active-snapshot");
+        Path activeMarker = activeSnapshot.resolve("active.marker");
+        Files.createDirectories(activeSnapshot);
+        Files.writeString(activeMarker, "active", StandardCharsets.UTF_8);
+        PluginManager faulting = mock(PluginManager.class);
+        PluginWrapper retainedWrapper = mock(PluginWrapper.class);
+        doAnswer(invocation -> {
+            throw new AssertionError("unload all failed");
+        }).when(faulting).unloadPlugins();
+        when(faulting.getPlugins()).thenReturn(List.of(retainedWrapper));
+        replacePluginManager(manager, faulting);
+        replaceDevelopmentCacheSession(manager, session);
+        try {
+            manager.shutdown();
+
+            verify(faulting).stopPlugins();
+            verify(faulting).unloadPlugins();
+            assertThat(session.sessionRoot()).isDirectory();
+            assertThat(activeMarker).hasContent("active");
+        } finally {
+            session.close();
+        }
+        assertThat(session.sessionRoot()).doesNotExist();
     }
 
     @Test
@@ -669,6 +784,14 @@ class PluginRuntimeManagerTest {
         Field field = PluginRuntimeManager.class.getDeclaredField("pluginManager");
         field.setAccessible(true);
         field.set(runtimeManager, pluginManager);
+    }
+
+    private static void replaceDevelopmentCacheSession(
+            PluginRuntimeManager runtimeManager,
+            PluginDevelopmentArtifacts.DevelopmentCacheSession session) throws ReflectiveOperationException {
+        Field field = PluginRuntimeManager.class.getDeclaredField("developmentCacheSession");
+        field.setAccessible(true);
+        field.set(runtimeManager, session);
     }
 
     private PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materializedDevelopmentPlugin(
