@@ -394,11 +394,19 @@ public final class ScheduleExecutionEngine {
             cancellation.throwIfCancellationRequested();
             ScheduleCredentialMaterial credential = loadCredential(task, execution, plan);
             try (credential) {
-                CredentialProbeOutcome probeOutcome = probeCredential(
-                        task, definition, route, cancellation, credential, execution, plan);
-                credentialRevoked = probeOutcome.revoked();
                 GuardInvoker guardInvoker = new GuardInvoker(
                         task, definition, route, cancellation, credential, execution, plan);
+                CredentialProbeOutcome probeOutcome;
+                try {
+                    probeOutcome = probeCredential(
+                            task, definition, route, cancellation, credential, execution, plan);
+                } catch (Throwable primary) {
+                    DeferredFatal fatalFailures = new DeferredFatal();
+                    fatalFailures.capture(primary);
+                    propagateFailure(guardInvoker, 0L, primary, fatalFailures);
+                    throw new AssertionError("unreachable");
+                }
+                credentialRevoked = probeOutcome.revoked();
 
                 try {
                     credentialRevoked |= guardInvoker.invoke(ScheduledGuardPoint.RUN_START, 0L, null);
@@ -503,26 +511,8 @@ public final class ScheduleExecutionEngine {
                         }
                         abortExecutors(
                                 definition, execution.workExecutors(), fatalFailures);
-                        if (!fatalFailures.hasFailure()) {
-                            ScheduledFailure safeFailure;
-                            try {
-                                safeFailure = safeFailure(primary);
-                            } catch (Throwable failureProjectionFailure) {
-                                fatalFailures.capture(failureProjectionFailure);
-                                safeFailure = new ScheduledFailure(
-                                        ScheduledFailure.Category.INTERNAL,
-                                        "schedule.execution.failed",
-                                        0L);
-                            }
-                            if (!fatalFailures.hasFailure()
-                                    && !(primary instanceof ScheduleExecutionControlException)
-                                    && safeFailure.category() != ScheduledFailure.Category.CANCELLED) {
-                                guardInvoker.invokeFailureOnce(
-                                        coordinator.attemptedWorkCount(), safeFailure, fatalFailures);
-                            }
-                        }
-                        fatalFailures.rethrowIfPresent();
-                        rethrow(primary);
+                        propagateFailure(
+                                guardInvoker, coordinator.attemptedWorkCount(), primary, fatalFailures);
                         throw new AssertionError("unreachable");
                     }
                 } catch (ScheduleExecutionControlException | ScheduledExecutionException failure) {
@@ -1168,6 +1158,38 @@ public final class ScheduleExecutionEngine {
                 ScheduledFailure.Category.INTERNAL, "schedule.execution.failed", 0L);
     }
 
+    private void propagateFailure(
+            GuardInvoker guardInvoker,
+            long attempted,
+            Throwable primary,
+            DeferredFatal fatalFailures)
+            throws ScheduleExecutionControlException, ScheduledExecutionException {
+        ScheduleExecutionControlException guardDecision = null;
+        if (!fatalFailures.hasFailure()
+                && !(primary instanceof ScheduleExecutionControlException)) {
+            ScheduledFailure safeFailure;
+            try {
+                safeFailure = safeFailure(primary);
+            } catch (Throwable failureProjectionFailure) {
+                fatalFailures.capture(failureProjectionFailure);
+                safeFailure = new ScheduledFailure(
+                        ScheduledFailure.Category.INTERNAL,
+                        "schedule.execution.failed",
+                        0L);
+            }
+            if (!fatalFailures.hasFailure()
+                    && safeFailure.category() != ScheduledFailure.Category.CANCELLED) {
+                guardDecision = guardInvoker.invokeFailureOnce(
+                        attempted, safeFailure, fatalFailures);
+            }
+        }
+        fatalFailures.rethrowIfPresent();
+        if (guardDecision != null) {
+            throw guardDecision;
+        }
+        rethrow(primary);
+    }
+
     private static ScheduleExecutionControlException control(
             ScheduledGuardDecision.Action action,
             String code,
@@ -1250,6 +1272,7 @@ public final class ScheduleExecutionEngine {
         private final ScheduleExecutionLease execution;
         private final ScheduledExecutionPlan plan;
         private boolean failureInvoked;
+        private ScheduleExecutionControlException failureDecision;
 
         private GuardInvoker(
                 ScheduledTask taskRow,
@@ -1314,12 +1337,12 @@ public final class ScheduleExecutionEngine {
             return revoked;
         }
 
-        void invokeFailureOnce(
+        ScheduleExecutionControlException invokeFailureOnce(
                 long attempted,
                 ScheduledFailure failure,
                 DeferredFatal fatalFailures) {
             if (failureInvoked) {
-                return;
+                return failureDecision;
             }
             failureInvoked = true;
             for (ScheduledGuardBinding binding : plan.guards()) {
@@ -1329,13 +1352,31 @@ public final class ScheduleExecutionEngine {
                 try {
                     ScheduledExecutionGuard guard = execution.guard(binding.guardId())
                             .orElseThrow(() -> pluginFailure("schedule.guard.unavailable"));
-                    invokeOne(guard, binding.guardId(), ScheduledGuardPoint.RUN_FAILURE,
+                    ScheduledGuardResult result = invokeOne(
+                            guard, binding.guardId(), ScheduledGuardPoint.RUN_FAILURE,
                             attempted, failure);
+                    ScheduledGuardDecision decision = result.decision();
+                    if (decision.action() == ScheduledGuardDecision.Action.CONTINUE
+                            || decision.action()
+                            == ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE) {
+                        // 失败轮次不能伪装成匿名降级成功；凭证撤销只允许走成功返回通道。
+                        continue;
+                    }
+                    if (!isSafeMachineCode(decision.reasonCode())) {
+                        throw pluginFailure("schedule.guard.invalid-result");
+                    }
+                    ScheduleExecutionControlException candidate = control(
+                            decision.action(), decision.reasonCode(), decision.retryAfterMillis(),
+                            sanitizeEvidence(result.evidence()));
+                    if (failureDecision == null) {
+                        failureDecision = candidate;
+                    }
                 } catch (Throwable guardFailure) {
                     // 每个 failure Guard 独立 best-effort；非致命失败不覆盖主失败，fatal 延后传播。
                     fatalFailures.capture(guardFailure);
                 }
             }
+            return failureDecision;
         }
 
         private ScheduledGuardResult invokeOne(

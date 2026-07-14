@@ -375,6 +375,45 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
+    @DisplayName("通用账号策略挂起会覆盖同凭证账号")
+    void genericPolicyAccountSuspensionCoversCredentialAccount() throws Exception {
+        long taskId = 188L;
+        ScheduledTask task = task(
+                taskId, "user-new", userDefinition("100"), null, "{}", "credential-ref");
+        when(store.findByCredentialAccount(
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                Long.toString(taskId)))
+                .thenReturn(List.of(task));
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+                ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
+                "fixture.account-risk",
+                0L,
+                ScheduledGuardEvidence.empty()));
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        verify(store).suspendByCredentialAccount(
+                DownloadWorkbenchPlugin.ID,
+                PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID,
+                Long.toString(taskId),
+                ScheduleSuspendReason.POLICY,
+                "fixture.account-risk",
+                "{}");
+        verify(store, never()).suspend(
+                eq(taskId), anyLong(), any(ScheduleSuspendReason.class), any(), any());
+        verify(store).finishCancelled(
+                eq(taskId),
+                any(ScheduleRunToken.class),
+                eq(ScheduleLastOutcome.ERROR),
+                anyLong(),
+                eq("fixture.account-risk"),
+                eq("fixture.account-risk"),
+                any());
+    }
+
+    @Test
     @DisplayName("通用凭证熔断保留安全计数与末次错误码并发送熔断通知")
     void genericCredentialCircuitSendsCircuitBreakerNotification() throws Exception {
         ScheduledTask task = task(182L, "user-new", userDefinition("100"), null, null, null);
@@ -424,6 +463,38 @@ class ScheduleExecutorRunTimingTest {
         verify(store, never()).removeCredential(
                 183L, 3L, DownloadWorkbenchPlugin.ID,
                 PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID);
+    }
+
+    @Test
+    @DisplayName("异常形式的撤销后继续不会删除凭证或提交检查点")
+    void failureRevokeControlDoesNotDeleteCredentialOrCommitCheckpoint() throws Exception {
+        long taskId = 187L;
+        ScheduledTask task = task(
+                taskId,
+                "user-new",
+                userDefinition("100"),
+                new Checkpoint("fixture.checkpoint", 1, "{\"cursor\":\"safe\"}"),
+                "{}",
+                "credential-ref");
+        ScheduleExecutionEngine engine = org.mockito.Mockito.mock(ScheduleExecutionEngine.class);
+        when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
+                ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE,
+                "fixture.failure-revoke",
+                0L,
+                ScheduledGuardEvidence.empty()));
+
+        genericExecutor(engine).runTaskAndRecord(task);
+
+        ScheduleRunCompletion completion = captureCompletion(taskId);
+        assertThat(completion.outcome()).isEqualTo(ScheduleLastOutcome.ERROR);
+        assertThat(completion.outcomeCode()).isEqualTo("fixture.failure-revoke");
+        assertThat(completion.checkpointSchema()).isNull();
+        assertThat(completion.checkpointVersion()).isNull();
+        assertThat(completion.checkpointJson()).isNull();
+        verify(store, never()).removeCredential(
+                eq(taskId), anyLong(), anyString(), anyString());
+        verify(notificationService, never()).notify(
+                eq(NotificationScenario.DEGRADED_ANONYMOUS), any(), any());
     }
 
     @Test

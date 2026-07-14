@@ -776,6 +776,251 @@ class ScheduleExecutionEngineTest {
     }
 
     @Test
+    @DisplayName("凭证探活安全失败以零尝试次数调用一次失败 Guard")
+    void credentialProbeChallengeInvokesFailureGuardOnce() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        AtomicInteger discoveries = new AtomicInteger();
+        AtomicInteger executions = new AtomicInteger();
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            discoveries.incrementAndGet();
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor executor = workExecutor(context -> {
+            executions.incrementAndGet();
+            return ScheduledWorkResult.completed();
+        });
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context)
+                    throws ScheduledExecutionException {
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.CHALLENGE,
+                        "fixture.probe-challenge",
+                        1_234L);
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            failureGuards.incrementAndGet();
+            assertThat(context.point()).isEqualTo(ScheduledGuardPoint.RUN_FAILURE);
+            assertThat(context.attemptedWorkCount()).isZero();
+            assertThat(context.failure().category()).isEqualTo(ScheduledFailure.Category.CHALLENGE);
+            assertThat(context.failure().code()).isEqualTo("fixture.probe-challenge");
+            assertThat(context.failure().retryAfterMillis()).isEqualTo(1_234L);
+            return new ScheduledGuardDecision(
+                    ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
+                    "fixture.probe-policy-suspend",
+                    0L);
+        });
+
+        assertThatThrownBy(() -> engine(store, source, executor, policy, guard).execute(task()))
+                .isInstanceOfSatisfying(ScheduleExecutionControlException.class, control -> {
+                    assertThat(control.action()).isEqualTo(
+                            ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT);
+                    assertThat(control.reasonCode()).isEqualTo("fixture.probe-policy-suspend");
+                });
+        assertThat(failureGuards).hasValue(1);
+        assertThat(discoveries).hasValue(0);
+        assertThat(executions).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("凭证探活控制结果不会递归调用失败 Guard")
+    void credentialProbeControlResultSkipsFailureGuard() throws Exception {
+        for (ScheduledCredentialProbeResult probeResult : List.of(
+                ScheduledCredentialProbeResult.invalid("fixture.probe-invalid"),
+                ScheduledCredentialProbeResult.retryLater("fixture.probe-retry", 1_000L))) {
+            AtomicInteger failureGuards = new AtomicInteger();
+            ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+                @Override
+                public String policyId() {
+                    return POLICY;
+                }
+
+                @Override
+                public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                    return probeResult;
+                }
+            };
+            ScheduledExecutionGuard guard = guard(context -> {
+                if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                    failureGuards.incrementAndGet();
+                }
+                return ScheduledGuardDecision.proceed();
+            });
+
+            assertThatThrownBy(() -> engine(
+                    storeWithCredential(),
+                    sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                    workExecutor(context -> ScheduledWorkResult.completed()),
+                    policy,
+                    guard).execute(task()))
+                    .isInstanceOf(ScheduleExecutionControlException.class);
+            assertThat(failureGuards).hasValue(0);
+        }
+    }
+
+    @Test
+    @DisplayName("凭证探活取消不会调用失败 Guard")
+    void credentialProbeCancellationSkipsFailureGuard() throws Exception {
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context)
+                    throws ScheduledExecutionException {
+                throw ScheduledExecutionException.cancelled();
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        assertThatThrownBy(() -> engine(
+                storeWithCredential(),
+                sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                policy,
+                guard).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class, failure ->
+                        assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CANCELLED));
+        assertThat(failureGuards).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("凭证探活 fatal 不调用失败 Guard 且在租约释放后原样传播")
+    void credentialProbeFatalSkipsFailureGuardAndReleasesLease() throws Exception {
+        TestVirtualMachineError fatal = new TestVirtualMachineError("fixture probe fatal");
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                throw fatal;
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = publishExecutionFixture(
+                registry,
+                sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                List.of(workExecutor(context -> ScheduledWorkResult.completed())),
+                List.of(guard),
+                Set.of(WORK),
+                Set.of(GUARD));
+
+        // 用包含 fatal policy 的 owner 替换普通 fixture。
+        ScheduleCapabilityRegistryTestAccess.withdraw(registry, publication).orElseThrow();
+        publication = ScheduleCapabilityRegistryTestAccess.publish(
+                registry,
+                bindingBundle(
+                        new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),
+                        sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                        workExecutor(context -> ScheduledWorkResult.completed()),
+                        policy,
+                        guard));
+
+        VirtualMachineError observed;
+        try {
+            engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            throw new AssertionError("expected credential probe fatal error");
+        } catch (VirtualMachineError failure) {
+            observed = failure;
+        }
+
+        assertThat(observed).isSameAs(fatal);
+        assertThat(failureGuards).hasValue(0);
+        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("失败 Guard 继续时完整保留原始安全失败")
+    void continuingFailureGuardPreservesPrimary() throws Exception {
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.CHALLENGE,
+                    "fixture.primary-challenge",
+                    4_321L);
+        });
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        assertThatThrownBy(() -> engine(
+                storeWithCredential(), source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()), guard).execute(task()))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
+                    assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CHALLENGE);
+                    assertThat(failure.code()).isEqualTo("fixture.primary-challenge");
+                    assertThat(failure.retryAfterMillis()).isEqualTo(4_321L);
+                });
+        assertThat(failureGuards).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("失败 Guard 撤销后继续决定被拒绝且不覆盖主失败")
+    void failureGuardRevokeIsRejectedWithoutReplacingPrimary() throws Exception {
+        AtomicInteger failureGuards = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.RETRYABLE_NETWORK,
+                    "fixture.primary-failure",
+                    2_000L);
+        });
+        ScheduledExecutionGuard guard = guard(context -> {
+            if (context.point() == ScheduledGuardPoint.RUN_FAILURE) {
+                failureGuards.incrementAndGet();
+                return new ScheduledGuardDecision(
+                        ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE,
+                        "fixture.failure-revoke",
+                        0L);
+            }
+            return ScheduledGuardDecision.proceed();
+        });
+
+        Throwable observed = catchThrowable(() -> engine(
+                storeWithCredential(), source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()), guard).execute(task()));
+
+        assertThat(observed).isExactlyInstanceOf(ScheduledExecutionException.class);
+        ScheduledExecutionException failure = (ScheduledExecutionException) observed;
+        assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.RETRYABLE_NETWORK);
+        assertThat(failure.code()).isEqualTo("fixture.primary-failure");
+        assertThat(failure.retryAfterMillis()).isEqualTo(2_000L);
+        assertThat(failureGuards).hasValue(1);
+    }
+
+    @Test
     @DisplayName("持久化检查点异常在凭证读取和来源发现前失败")
     void invalidStoredCheckpointFailsBeforeCredentialOrDiscovery() throws Exception {
         ScheduledTaskStore store = storeWithCredential();
@@ -1267,6 +1512,61 @@ class ScheduleExecutionEngineTest {
     }
 
     @Test
+    @DisplayName("失败 Guard 全部执行后采用首个非继续决定")
+    void firstFailureGuardDecisionWinsAfterCleanup() throws Exception {
+        String secondGuardId = "fixture-guard-second";
+        List<String> events = new ArrayList<>();
+        ScheduledSourceExecutor source = sourceWithPlan(
+                plan(Set.of(WORK), List.of(
+                        new ScheduledGuardBinding(
+                                GUARD, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0),
+                        new ScheduledGuardBinding(
+                                secondGuardId, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0))),
+                context -> {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "fixture.primary-failure");
+                });
+        ScheduledExecutionGuard firstGuard = guard(GUARD, context -> {
+            events.add("guard-1");
+            return new ScheduledGuardDecision(
+                    ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
+                    "fixture.first-policy",
+                    0L);
+        });
+        ScheduledExecutionGuard secondGuard = guard(secondGuardId, context -> {
+            events.add("guard-2");
+            return new ScheduledGuardDecision(
+                    ScheduledGuardDecision.Action.FAIL,
+                    "fixture.second-fail",
+                    0L);
+        });
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        publishExecutionFixture(
+                registry,
+                source,
+                List.of(finalizingExecutor(WORK, events, false)),
+                List.of(firstGuard, secondGuard),
+                Set.of(WORK),
+                Set.of(GUARD, secondGuardId));
+
+        assertThatThrownBy(() -> engine(
+                storeWithCredential(), registry,
+                new ScheduleRunState(), new SyncTaskExecutor()).execute(task()))
+                .isInstanceOfSatisfying(ScheduleExecutionControlException.class, control -> {
+                    assertThat(control.action()).isEqualTo(
+                            ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT);
+                    assertThat(control.reasonCode()).isEqualTo("fixture.first-policy");
+                    assertThat(control.retryAfterMillis()).isZero();
+                    assertThat(control.evidence().attributes()).isEmpty();
+                });
+        assertThat(events).containsExactly(
+                "abort-" + WORK,
+                "guard-1",
+                "guard-2");
+    }
+
+    @Test
     @DisplayName("来源 ThreadDeath 在 abort 与复合租约释放后原样传播")
     void sourceThreadDeathPropagatesAfterCleanupAndLeaseRelease() throws Exception {
         ThreadDeath fatal = new ThreadDeath();
@@ -1536,6 +1836,58 @@ class ScheduleExecutionEngineTest {
 
         assertThat(observed).isSameAs(fatal);
         assertThat(secondGuardCalls).hasValue(1);
+        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
+                registry, publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("失败 Guard 已有决定时后续 fatal 仍在租约释放后优先传播")
+    void fatalAfterFailureGuardDecisionWinsAfterLeaseRelease() throws Exception {
+        String secondGuardId = "fixture-guard-second";
+        TestVirtualMachineError fatal = new TestVirtualMachineError("fixture fatal after decision");
+        AtomicInteger firstGuardCalls = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceWithPlan(
+                plan(Set.of(WORK), List.of(
+                        new ScheduledGuardBinding(
+                                GUARD, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0),
+                        new ScheduledGuardBinding(
+                                secondGuardId, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0))),
+                context -> {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "fixture.primary-source-failure");
+                });
+        ScheduledExecutionGuard firstGuard = guard(GUARD, context -> {
+            firstGuardCalls.incrementAndGet();
+            return new ScheduledGuardDecision(
+                    ScheduledGuardDecision.Action.SUSPEND_POLICY_TASK,
+                    "fixture.policy-suspend",
+                    0L);
+        });
+        ScheduledExecutionGuard secondGuard = guard(secondGuardId, context -> {
+            throw fatal;
+        });
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityPublication publication = publishExecutionFixture(
+                registry,
+                source,
+                List.of(workExecutor(context -> ScheduledWorkResult.completed())),
+                List.of(firstGuard, secondGuard),
+                Set.of(WORK),
+                Set.of(GUARD, secondGuardId));
+
+        VirtualMachineError observed;
+        try {
+            engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            throw new AssertionError("expected failure Guard fatal error");
+        } catch (VirtualMachineError failure) {
+            observed = failure;
+        }
+
+        assertThat(observed).isSameAs(fatal);
+        assertThat(firstGuardCalls).hasValue(1);
         ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
                 registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
@@ -2038,10 +2390,14 @@ class ScheduleExecutionEngineTest {
     }
 
     private static ScheduledExecutionGuard guard(Guard guard) {
+        return guard(GUARD, guard);
+    }
+
+    private static ScheduledExecutionGuard guard(String guardId, Guard guard) {
         return new ScheduledExecutionGuard() {
             @Override
             public String guardId() {
-                return GUARD;
+                return guardId;
             }
 
             @Override
