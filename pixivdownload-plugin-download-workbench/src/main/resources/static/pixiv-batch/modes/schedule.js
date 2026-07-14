@@ -833,6 +833,41 @@
         return code;
     }
 
+    function safeScheduleMachineCode(value) {
+        const code = typeof value === 'string' ? value.trim() : '';
+        return /^[a-z][a-z0-9._-]{1,159}$/.test(code) ? code : null;
+    }
+
+    function localizeScheduleMachineCode(value, sourceType) {
+        const code = safeScheduleMachineCode(value);
+        if (!code) return null;
+        if (code.startsWith('schedule.')) {
+            const translated = bt(code, '');
+            return translated && translated !== code ? translated : null;
+        }
+        try {
+            const runtime = scheduleSourceRuntime();
+            const descriptor = runtime && runtime.descriptor(sourceType);
+            const presentation = descriptor && descriptor.presentation;
+            const namespace = presentation && presentation.displayNamespace;
+            if (typeof namespace === 'string'
+                    && /^[a-z][a-z0-9._-]{0,63}$/.test(namespace)
+                    && code.startsWith(`${namespace}.`)
+                    && typeof pageI18n !== 'undefined' && pageI18n) {
+                const translated = pageI18n.t(
+                    `${namespace}:${code.slice(namespace.length + 1)}`, '');
+                return translated && translated !== code ? translated : null;
+            }
+        } catch (e) {
+            return null;
+        }
+        return null;
+    }
+
+    function scheduleFailureReason(t) {
+        return t ? localizeScheduleMachineCode(t.lastMessage, t.sourceType || t.type) : null;
+    }
+
     /**
      * 计算任务卡片右上角「状态灯」：返回 {tone, text}。
      * tone ∈ green / yellow / red / gray，决定灯色；text 为本地化的状态说明。
@@ -861,7 +896,13 @@
             return {tone: 'yellow', live: false, text: bt('schedule.light.quiesced', '插件正在安全停用，等待能力恢复')};
         }
         if (t.suspendReason === 'MIGRATION_ERROR') {
-            return {tone: 'red', live: false, text: bt('schedule.light.migration-error', '任务数据需要修复，无法运行')};
+            const reason = localizeScheduleMachineCode(
+                t.suspendCode, t.sourceType || t.type);
+            return {
+                tone: 'red',
+                live: false,
+                text: reason || bt('schedule.light.migration-error', '任务数据需要修复，无法运行')
+            };
         }
         // 挂起态优先于中断结果：挂起任务不会被自动重排，不能显示「已重新排期补齐」。
         if (t.lastStatus === 'OVERUSE_PAUSED') {
@@ -878,7 +919,7 @@
             return {tone: 'red', live: false, text: bt('schedule.light.interrupted', '运行失败，上次运行被中断，已重新排期补齐')};
         }
         if (t.lastStatus === 'ERROR') {
-            const reason = (t.lastMessage || '').trim();
+            const reason = scheduleFailureReason(t);
             return {
                 tone: 'red',
                 live: false,
@@ -1633,15 +1674,15 @@
             case 'skipped-filter':
                 return {status: 'skipped', rawStatus: 'skipped-filter'};
             case 'failed':
-                return {status: 'failed', rawStatus: 'failed', failureMessage: it.message || null};
+                return {status: 'failed', rawStatus: 'failed', failureCode: safeScheduleMachineCode(it.message)};
             default:
                 return {status: 'pending', rawStatus: 'pending'};
         }
     }
 
     // 后端队列项 → 工作区队列项（同 state.queue 形状），供 buildQueueItemHtml 渲染。
-    // 注意：title / lastMessage 不在这里写入；只存 rawTitle / rawStatus / failureMessage 这些与语言
-    // 无关的原始字段，渲染时由 localizeScheduleQueueItem 用当前 bt() 派生 title / lastMessage。
+    // 注意：title / lastMessage 不在这里写入；只存 rawTitle / rawStatus、校验后的 failureCode 与
+    // failureSourceType，渲染时由 localizeScheduleQueueItem 用当前语言派生 title / lastMessage。
     function scheduleItemToQueue(it, type, task) {
         const mapped = scheduleStatusToQueue(it);
         const workType = it.workType || it.kind;
@@ -1662,7 +1703,8 @@
         return Object.assign({}, base, {
             status: mapped.status,
             rawStatus: mapped.rawStatus,
-            failureMessage: mapped.failureMessage || null,
+            failureCode: mapped.failureCode || null,
+            failureSourceType: mapped.status === 'failed' ? (type || null) : null,
             totalImages: 0,
             downloadedCount: 0,
             imageProgress: null,
@@ -1684,7 +1726,8 @@
             ? (q.rawTitle || bt('schedule.queue.no-title', '（暂无标题信息）'))
             : q.title;
         let lastMessage;
-        switch (q.rawStatus) {
+        const rawStatus = q.status === 'failed' ? 'failed' : q.rawStatus;
+        switch (rawStatus) {
             case 'skipped-downloaded':
                 lastMessage = bt('schedule.queue.status.skipped-downloaded', '已存在，跳过');
                 break;
@@ -1692,7 +1735,12 @@
                 lastMessage = bt('schedule.queue.status.skipped-filter', '被筛选条件跳过');
                 break;
             case 'failed':
-                lastMessage = q.failureMessage || bt('schedule.queue.status.failed', '失败');
+                // failureMessage / lastMessage 仅用于兼容旧 localStorage；它们仍须通过机器码校验和
+                // 当前来源 namespace 翻译，绝不把旧缓存或后端自由文本直接展示。
+                lastMessage = localizeScheduleMachineCode(
+                    q.failureCode || q.failureMessage || q.lastMessage,
+                    q.failureSourceType || q.sourceType)
+                    || bt('schedule.queue.status.failed', '失败');
                 break;
             case 'downloaded':
             case 'pending':
@@ -2273,7 +2321,7 @@
                 const workType = scheduleKindLabel(p.workType);
                 const line = escHtml(bt('schedule.pending.item', '{workType} {workId}：已重试 {attempts} 次{manual}',
                     {workType, workId: p.workId, attempts: p.attempts, manual}));
-                const reasonText = pendingReasonText(p);
+                const reasonText = pendingReasonText(p, task && (task.sourceType || task.type));
                 const reason = reasonText
                     ? `<div class="schedule-pending-reason">${escHtml(bt('schedule.pending.reason', '原因：{reason}', {reason: reasonText}))}</div>`
                     : '';
@@ -2294,20 +2342,32 @@
         }
     }
 
-    function pendingReasonText(item) {
+    function pendingReasonText(item, sourceType) {
         if (!item) return '';
-        if (item.reasonDetailJson) {
+        const unavailable = () => bt('schedule.pending.reason-unavailable', '失败原因不可用');
+        let detailPresent = false;
+        let detailCode = null;
+        if (item.reasonDetailJson != null && String(item.reasonDetailJson).trim()) {
+            detailPresent = true;
             try {
                 const detail = JSON.parse(item.reasonDetailJson);
-                if (typeof detail === 'string') return detail;
-                if (detail && typeof detail.message === 'string') return detail.message;
-                if (detail && typeof detail.reason === 'string') return detail.reason;
-                if (detail && typeof detail.legacyReason === 'string') return detail.legacyReason;
+                if (typeof detail === 'string') {
+                    detailCode = detail;
+                } else if (detail && typeof detail === 'object') {
+                    detailCode = [detail.message, detail.reason, detail.reasonCode, detail.legacyReason]
+                        .find(value => typeof value === 'string' && value.trim()) || null;
+                }
             } catch (e) {
-                return item.reasonDetailJson;
+                return unavailable();
             }
         }
-        return item.reasonCode || '';
+        if (detailCode) {
+            return localizeScheduleMachineCode(detailCode, sourceType) || unavailable();
+        }
+        if (item.reasonCode != null && String(item.reasonCode).trim()) {
+            return localizeScheduleMachineCode(item.reasonCode, sourceType) || unavailable();
+        }
+        return detailPresent ? unavailable() : '';
     }
 
     async function clearPendingItem(id, workType, workId) {

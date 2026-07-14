@@ -29,6 +29,10 @@ window.__replaceScheduleTasks = function (tasks) {
     scheduleTasksCache = tasks || [];
 };
 window.__scheduleTaskCredentialUi = scheduleTaskCredentialUi;
+window.__scheduleStatusLight = scheduleStatusLight;
+window.__scheduleItemToQueue = scheduleItemToQueue;
+window.__localizeScheduleQueueItem = localizeScheduleQueueItem;
+window.__pendingReasonText = pendingReasonText;
 window.__renderScheduleTaskCard = renderScheduleTaskCard;
 window.__renderScheduleSnapshotBody = renderScheduleSnapshotBody;
 window.__deleteScheduleTask = deleteScheduleTask;
@@ -134,8 +138,19 @@ function harness(options) {
         appMode: 'solo',
         BASE: '',
         STATUS_COLORS: {info: 'info', error: 'error', success: 'success'},
-        bt: (key, fallback) => Object.prototype.hasOwnProperty.call(config.translations || {}, key)
-            ? config.translations[key] : fallback,
+        bt: (key, fallback, vars) => {
+            let value = Object.prototype.hasOwnProperty.call(config.translations || {}, key)
+                ? config.translations[key] : fallback;
+            Object.entries(vars || {}).forEach(([name, replacement]) => {
+                value = String(value).replaceAll(`{${name}}`, String(replacement));
+            });
+            return value;
+        },
+        pageI18n: {
+            t: (key, fallback) => Object.prototype.hasOwnProperty.call(
+                config.pluginTranslations || {}, key)
+                ? config.pluginTranslations[key] : fallback
+        },
         esc: value => String(value == null ? '' : value),
         escHtml: value => String(value == null ? '' : value),
         uiConfirmKey(key, fallback, vars) {
@@ -165,6 +180,10 @@ function harness(options) {
         setEditing: sandbox.window.__setScheduleEditing,
         replaceTasks: sandbox.window.__replaceScheduleTasks,
         credentialUi: sandbox.window.__scheduleTaskCredentialUi,
+        statusLight: sandbox.window.__scheduleStatusLight,
+        queueItem: sandbox.window.__scheduleItemToQueue,
+        localizeQueueItem: sandbox.window.__localizeScheduleQueueItem,
+        pendingReason: sandbox.window.__pendingReasonText,
         renderTaskCard: sandbox.window.__renderScheduleTaskCard,
         renderSnapshot: sandbox.window.__renderScheduleSnapshotBody,
         deleteTask: sandbox.window.__deleteScheduleTask,
@@ -344,6 +363,149 @@ test('NONE、仅代理、仅凭证与来源缺席使用中性动作并只读降�
         lastStatus: 'AUTH_EXPIRED'
     });
     assert.doesNotMatch(snapshot, /Pixiv|Cookie|PHPSESSID/i);
+});
+
+test('来源失败机器码经来源命名空间本地化且未知码不直接展示', () => {
+    const h = harness({
+        descriptorNamespace: 'douyin',
+        pluginTranslations: {
+            'douyin:schedule.upstream-response-invalid': '上游响应结构无法识别'
+        }
+    });
+
+    const translated = h.statusLight({
+        sourceType: 'douyin.search',
+        enabled: true,
+        lastStatus: 'ERROR',
+        lastMessage: 'douyin.schedule.upstream-response-invalid'
+    });
+    const unknown = h.statusLight({
+        sourceType: 'douyin.search',
+        enabled: true,
+        lastStatus: 'ERROR',
+        lastMessage: 'douyin.schedule.private-machine-code'
+    });
+
+    assert.match(translated.text, /上游响应结构无法识别/);
+    assert.doesNotMatch(translated.text, /douyin\.schedule/);
+    assert.doesNotMatch(unknown.text, /private-machine-code|douyin\.schedule/);
+});
+
+test('永久挂起优先展示已注册容量说明且未知挂起码仍使用中性迁移文案', () => {
+    const h = harness({
+        descriptorNamespace: 'douyin',
+        pluginTranslations: {
+            'douyin:schedule.checkpoint-capacity-exceeded': '收藏作品超过检查点容量'
+        }
+    });
+
+    const capacity = h.statusLight({
+        sourceType: 'douyin.account-favorite-works',
+        enabled: true,
+        suspendReason: 'MIGRATION_ERROR',
+        suspendCode: 'douyin.schedule.checkpoint-capacity-exceeded'
+    });
+    const unknown = h.statusLight({
+        sourceType: 'douyin.account-favorite-works',
+        enabled: true,
+        suspendReason: 'MIGRATION_ERROR',
+        suspendCode: 'douyin.schedule.private-machine-code'
+    });
+
+    assert.equal(capacity.text, '收藏作品超过检查点容量');
+    assert.equal(unknown.text, '任务数据需要修复，无法运行');
+    assert.doesNotMatch(unknown.text, /private-machine-code|douyin\.schedule/);
+});
+
+test('计划队列只持久化校验后的失败机器码并在渲染时按当前语言本地化', () => {
+    const key = 'douyin:schedule.upstream-response-invalid';
+    const pluginTranslations = {[key]: '上游响应结构无法识别'};
+    const h = harness({
+        descriptorNamespace: 'douyin',
+        pluginTranslations,
+        translations: {'schedule.queue.status.failed': '通用失败'}
+    });
+    const machineCode = 'douyin.schedule.upstream-response-invalid';
+    const model = h.queueItem({
+        status: 'failed',
+        message: machineCode,
+        workType: 'douyin',
+        workId: 'work-1'
+    }, 'douyin.search', null);
+
+    assert.equal(model.failureCode, machineCode);
+    assert.equal(model.failureSourceType, 'douyin.search');
+    assert.equal(Object.prototype.hasOwnProperty.call(model, 'failureMessage'), false);
+    assert.equal(h.localizeQueueItem(model).lastMessage, '上游响应结构无法识别');
+
+    pluginTranslations[key] = 'Upstream response is unrecognized';
+    assert.equal(h.localizeQueueItem(model).lastMessage, 'Upstream response is unrecognized');
+
+    const legacy = h.localizeQueueItem({
+        status: 'failed',
+        failureMessage: machineCode,
+        failureSourceType: 'douyin.search'
+    });
+    assert.equal(legacy.lastMessage, 'Upstream response is unrecognized');
+
+    const unknown = h.localizeQueueItem({
+        status: 'failed',
+        rawStatus: 'failed',
+        failureCode: 'douyin.schedule.private-machine-code',
+        failureSourceType: 'douyin.search'
+    });
+    const maliciousLegacy = h.localizeQueueItem({
+        status: 'failed',
+        rawStatus: 'forged-status',
+        failureMessage: '<img src=x onerror=alert(1)>',
+        failureSourceType: 'douyin.search'
+    });
+    const freeText = h.queueItem({
+        status: 'failed',
+        message: 'private backend failure details',
+        workType: 'douyin',
+        workId: 'work-2'
+    }, 'douyin.search', null);
+
+    assert.equal(unknown.lastMessage, '通用失败');
+    assert.equal(maliciousLegacy.lastMessage, '通用失败');
+    assert.equal(freeText.failureCode, null);
+    assert.equal(Object.prototype.hasOwnProperty.call(freeText, 'failureMessage'), false);
+    assert.equal(h.localizeQueueItem(freeText).lastMessage, '通用失败');
+});
+
+test('pending 原因只展示已注册机器码翻译且不回显未知或畸形详情', () => {
+    const machineCode = 'douyin.schedule.upstream-response-invalid';
+    const h = harness({
+        descriptorNamespace: 'douyin',
+        pluginTranslations: {
+            'douyin:schedule.upstream-response-invalid': '上游响应结构无法识别'
+        },
+        translations: {
+            'schedule.pending.reason-unavailable': '失败原因不可用'
+        }
+    });
+
+    assert.equal(h.pendingReason({reasonCode: machineCode}, 'douyin.search'), '上游响应结构无法识别');
+    assert.equal(h.pendingReason({
+        reasonDetailJson: JSON.stringify({reasonCode: machineCode})
+    }, 'douyin.search'), '上游响应结构无法识别');
+    assert.equal(h.pendingReason({
+        reasonDetailJson: JSON.stringify({legacyReason: machineCode})
+    }, 'douyin.search'), '上游响应结构无法识别');
+    assert.equal(h.pendingReason({
+        reasonCode: 'douyin.schedule.private-machine-code'
+    }, 'douyin.search'), '失败原因不可用');
+    assert.equal(h.pendingReason({
+        reasonDetailJson: JSON.stringify({message: '<img src=x onerror=alert(1)>'})
+    }, 'douyin.search'), '失败原因不可用');
+    assert.equal(h.pendingReason({
+        reasonDetailJson: JSON.stringify({legacyReason: 'private backend failure details'})
+    }, 'douyin.search'), '失败原因不可用');
+    assert.equal(h.pendingReason({
+        reasonDetailJson: '{not-json'
+    }, 'douyin.search'), '失败原因不可用');
+    assert.equal(h.pendingReason({}, 'douyin.search'), '');
 });
 
 test('清除确认只使用校验后的来源 key，第三方默认文案保持中性', async () => {
