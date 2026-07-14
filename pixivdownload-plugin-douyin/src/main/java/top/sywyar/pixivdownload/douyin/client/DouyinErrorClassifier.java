@@ -4,8 +4,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Set;
 
 public final class DouyinErrorClassifier {
+
+    private static final Set<Integer> RATE_LIMIT_STATUS_CODES = Set.of(
+            7,
+            429,
+            50_001,
+            2_190_001,
+            2_190_020,
+            28_003_017,
+            28_003_018);
 
     private DouyinErrorClassifier() {
     }
@@ -44,30 +54,76 @@ public final class DouyinErrorClassifier {
             return null;
         }
         int status = root.path("status_code").asInt(0);
-        String message = firstText(root, "status_msg", "message", "prompts", "log_pb");
+        String message = statusText(root, "status_msg", "message", "prompts", "log_pb");
         if (status == 0 && (message == null || !looksLikeLoginOrRiskText(message))) {
             return null;
         }
-        if (status == 2483 || containsAny(message, "cookie", "login", "登录", "请先登录")) {
+        if (status == 2483) {
             return DouyinClientErrorCode.COOKIE_EXPIRED;
         }
-        if (containsAny(message, "verify", "captcha", "验证", "风险", "风控")) {
+        if (containsAny(message, "verify", "captcha", "验证码", "验证")) {
             return DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE;
         }
         if (containsAny(message, "a_bogus", "x-bogus", "signature", "签名")) {
             return DouyinClientErrorCode.SIGNATURE_REQUIRED;
         }
+        if (containsAny(message, "region", "country", "地区", "区域", "当前区域")) {
+            return DouyinClientErrorCode.REGION_RESTRICTED;
+        }
+        if (containsAny(message, "permission", "private", "not allowed", "无权限", "私密", "不可见")) {
+            return DouyinClientErrorCode.PERMISSION_DENIED;
+        }
+        if (isRateLimited(status, message)) {
+            return DouyinClientErrorCode.RATE_LIMITED;
+        }
+        if (containsAny(message, "cookie", "login", "登录", "请先登录")) {
+            return DouyinClientErrorCode.COOKIE_EXPIRED;
+        }
+        if (containsAny(message, "风险", "风控")) {
+            return DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE;
+        }
         return status == 0 ? null : DouyinClientErrorCode.UNSUPPORTED_CONTENT;
     }
 
-    private static String firstText(JsonNode root, String... fields) {
+    private static boolean isRateLimited(int status, String message) {
+        return RATE_LIMIT_STATUS_CODES.contains(status)
+                || containsAny(message,
+                "rate limit", "rate-limit", "rate_limit",
+                "too many request", "too many attempt",
+                "too frequent", "frequent request", "request frequency",
+                "quota exceeded", "quota exhausted",
+                "访问频繁", "请求频繁", "操作频繁", "过于频繁", "太频繁", "频率过高",
+                "请求过快", "请求太快", "请求过多", "次数过多", "限流", "频控",
+                "配额已用完", "额度不足");
+    }
+
+    private static String statusText(JsonNode root, String... fields) {
+        StringBuilder combined = new StringBuilder();
         for (String field : fields) {
-            JsonNode value = root.path(field);
-            if (value.isTextual() && !value.asText().isBlank()) {
-                return value.asText();
+            appendText(root.path(field), combined);
+        }
+        return combined.isEmpty() ? null : combined.toString();
+    }
+
+    private static void appendText(JsonNode node, StringBuilder combined) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return;
+        }
+        if (node.isTextual()) {
+            String text = node.asText().trim();
+            if (!text.isEmpty()) {
+                if (!combined.isEmpty()) {
+                    combined.append(' ');
+                }
+                combined.append(text);
+            }
+            return;
+        }
+        if (node.isContainerNode()) {
+            for (JsonNode child : node) {
+                appendText(child, combined);
             }
         }
-        return null;
     }
 
     private static boolean containsAny(String value, String... needles) {
