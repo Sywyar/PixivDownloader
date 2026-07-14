@@ -284,6 +284,14 @@ public class DouyinDownloadService {
         return currentRuntime().client().searchPublic("", Math.max(1, page), positiveLimit(pageSize), cookie);
     }
 
+    public DouyinListing listSeriesWorksPage(String seriesId,
+                                             String cursor,
+                                             int pageSize,
+                                             String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client().listSeriesWorksPage(seriesId, cursor, positiveLimit(pageSize), cookie);
+    }
+
     private static List<String> collectAllIds(CursorListingFetcher fetcher) throws DouyinClientException {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
         LinkedHashSet<String> cursors = new LinkedHashSet<>();
@@ -483,36 +491,42 @@ public class DouyinDownloadService {
         status.messageKey = "douyin.status.downloading";
         List<DouyinDownloadedFile> all = new ArrayList<>();
         Set<String> downloadedWorkIds = new LinkedHashSet<>();
-        int page = 1;
+        Set<String> seenCursors = new LinkedHashSet<>();
+        String cursor = "0";
         int collectionOrder = 0;
-        boolean last = false;
-        while (!last && downloadedWorkIds.size() < 100) {
+        for (int page = 0; page < 1_000; page++) {
             failIfCancelled(status);
-            DouyinListing listing = status.runtime.client().listSeriesWorks(status.workId, page, 20, status.cookie);
+            if (!seenCursors.add(cursor)) {
+                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                        "Douyin collection pagination did not advance");
+            }
+            DouyinListing listing = status.runtime.client()
+                    .listSeriesWorksPage(status.workId, cursor, 20, status.cookie);
             status.collectionId = status.workId;
             if (listing.title() != null && !listing.title().isBlank()) {
-                status.collectionTitle = listing.title();
                 status.title = listing.title();
+                status.collectionTitle = listing.title();
             }
-            int downloadedBeforePage = downloadedWorkIds.size();
             for (DouyinWork work : listing.items()) {
                 if (work == null || work.id() == null || work.id().isBlank()
                         || !downloadedWorkIds.add(work.id())) {
                     continue;
                 }
                 failIfCancelled(status);
-                List<DouyinDownloadedFile> files = executeWork(status, work, collectionOrder).files();
-                collectionOrder++;
-                all.addAll(files);
-                if (downloadedWorkIds.size() >= 100) {
-                    break;
-                }
+                all.addAll(executeWork(status, work, collectionOrder++).files());
             }
-            last = listing.lastPage() || listing.items().isEmpty()
-                    || downloadedWorkIds.size() == downloadedBeforePage;
-            page++;
+            if (!listing.hasMore()) {
+                return all;
+            }
+            String next = listing.nextCursor();
+            if (next == null || next.isBlank() || cursor.equals(next.trim())) {
+                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                        "Douyin collection pagination did not advance");
+            }
+            cursor = next.trim();
         }
-        return all;
+        throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                "Douyin collection pagination exceeded the safety page limit");
     }
 
     private List<DouyinDownloadedFile> downloadUserSource(MutableStatus status)

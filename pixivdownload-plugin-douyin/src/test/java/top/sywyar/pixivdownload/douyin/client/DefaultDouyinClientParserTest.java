@@ -289,6 +289,47 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
+    @DisplayName("合集作品按真实游标与页大小请求并保留页内作品")
+    void pagesMixWorksWithOpaqueCursor() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, mixInfo());
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"max_cursor":"mix-next","total":9,"aweme_list":[
+                  {"aweme_id":"8012","desc":"Mix page work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/8012.mp4"]}}}
+                ]}
+                """);
+
+        var listing = client(rest).listSeriesWorksPage("mix1", "mix-current", 12, "sessionid=test");
+
+        assertThat(listing.items()).extracting("id").containsExactly("8012");
+        assertThat(listing.total()).isEqualTo(9);
+        assertThat(listing.nextCursor()).isEqualTo("mix-next");
+        assertThat(listing.hasMore()).isTrue();
+        assertThat(rest.requests()).hasSize(2);
+        assertThat(rest.requests().get(1).getRawQuery())
+                .contains("mix_id=mix1", "cursor=mix-current", "count=12");
+    }
+
+    @Test
+    @DisplayName("合集作品仍有下一页但游标未推进时明确失败")
+    void rejectsStalledMixWorksCursorPage() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, mixInfo());
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"max_cursor":"mix-current","aweme_list":[
+                  {"aweme_id":"8012","desc":"Mix page work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/8012.mp4"]}}}
+                ]}
+                """);
+
+        assertThatThrownBy(() -> client(rest).listSeriesWorksPage("mix1", "mix-current", 12, null))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
+    }
+
+    @Test
     @DisplayName("合集逻辑分页以 20 条上游游标遍历并在耗尽前保持未知总数")
     void mixLogicalPagesTraverseUpstreamChunks() throws Exception {
         FakeRestTemplate firstPageRest = new FakeRestTemplate();
@@ -322,30 +363,28 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
-    @DisplayName("合集分页遇到重复游标或空页时安全终止")
-    void mixPaginationStopsOnStalledCursorOrEmptyPage() throws Exception {
+    @DisplayName("合集分页拒绝重复游标并越过游标前进的空页")
+    void mixPaginationRejectsStalledCursorAndContinuesPastAdvancingEmptyPage() throws Exception {
         FakeRestTemplate stalledRest = new FakeRestTemplate();
         stalledRest.enqueue(200, mixInfo());
         stalledRest.enqueue(200, mixPage(1, 1, true, 7));
         stalledRest.enqueue(200, mixPage(2, 1, true, 7));
 
-        var stalled = client(stalledRest).listSeriesWorks("mix1", 2, 1, null);
-
-        assertThat(stalled.items()).extracting("id").containsExactly("8002");
-        assertThat(stalled.total()).isEqualTo(2);
-        assertThat(stalled.lastPage()).isTrue();
+        assertThatThrownBy(() -> client(stalledRest).listSeriesWorks("mix1", 2, 1, null))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
         assertThat(stalledRest.requests()).hasSize(3);
 
         FakeRestTemplate emptyRest = new FakeRestTemplate();
         emptyRest.enqueue(200, mixInfo());
         emptyRest.enqueue(200, mixPage(1, 0, true, 9));
+        emptyRest.enqueue(200, mixPage(2, 1, false, 0));
 
-        var empty = client(emptyRest).listSeriesWorks("mix1", 1, 20, null);
-
-        assertThat(empty.items()).isEmpty();
-        assertThat(empty.total()).isZero();
-        assertThat(empty.lastPage()).isTrue();
-        assertThat(emptyRest.requests()).hasSize(2);
+        assertThat(client(emptyRest).listSeriesWorks("mix1", 1, 20, null).items())
+                .extracting("id")
+                .containsExactly("8002");
+        assertThat(emptyRest.requests()).hasSize(3);
     }
 
     @Test

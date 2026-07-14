@@ -151,6 +151,8 @@ public class DouyinController {
         cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
+            requirePreviewPage(page);
+            requirePreviewPageSize(pageSize);
             DouyinListing listing = downloadService.listSeriesWorks(seriesId, page, pageSize, cookie);
             return ResponseEntity.ok(new SeriesPageView(
                     new SeriesMetaView(
@@ -160,7 +162,9 @@ public class DouyinController {
                             listing.ownerName()),
                     listing.items().stream().map(DouyinWorkView::from).toList(),
                     listing.lastPage(),
-                    listing.page()));
+                    listing.page(),
+                    listing.nextCursor(),
+                    listing.hasMore()));
         } catch (DouyinClientException e) {
             return clientError(e);
         }
@@ -387,7 +391,9 @@ public class DouyinController {
     public record SeriesPageView(SeriesMetaView series,
                                  List<DouyinWorkView> items,
                                  boolean isLastPage,
-                                 int page) {
+                                 int page,
+                                 String nextCursor,
+                                 boolean hasMore) {
     }
 
     public record SeriesMetaView(String title, int total, String authorId, String authorName) {

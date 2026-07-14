@@ -35,6 +35,14 @@ public interface DouyinClient {
         return cursorFallback(searchPublic(word, page, limit, cookie), page);
     }
 
+    default DouyinListing listSeriesWorksPage(String seriesId,
+                                              String cursor,
+                                              int limit,
+                                              String cookie) throws DouyinClientException {
+        int page = cursor == null || cursor.isBlank() || "0".equals(cursor.trim()) ? 1 : Integer.parseInt(cursor);
+        return cursorFallback(listSeriesWorks(seriesId, page, limit, cookie), page);
+    }
+
     private static DouyinListing cursorFallback(DouyinListing listing, int page) {
         if (listing == null || !listing.hasMore() || !listing.nextCursor().isBlank()) {
             return listing;

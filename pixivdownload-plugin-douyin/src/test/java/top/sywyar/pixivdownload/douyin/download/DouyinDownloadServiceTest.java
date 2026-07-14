@@ -235,7 +235,9 @@ class DouyinDownloadServiceTest {
     void generatedSourceOrderDoesNotOverwriteExplicitRelationOrder() throws Exception {
         FakeClient client = new FakeClient();
         String workId = "10001";
-        client.seriesWorks = List.of(FakeClient.work(workId));
+        client.seriesPageListing = new DouyinListing(
+                List.of(FakeClient.work(workId)), 1, 1, 20, true,
+                "合集", "12345", "作者", "", false);
         RecordingHistoryService history = recordingHistoryService();
         DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
                 client, client, client,
@@ -502,23 +504,25 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
-    @DisplayName("合集下载遇到只有重复作品的非末页时停止推进")
-    void collectionStopsWhenLogicalPageAddsNoWork() throws Exception {
+    @DisplayName("合集下载越过只有重复作品的中间页继续读取新作品")
+    void collectionContinuesPastDuplicateOnlyPageWhenCursorAdvances() throws Exception {
         FakeClient client = new FakeClient();
         client.mapCollection("MixStalled", "mix-stalled");
-        client.seriesPages = List.of(List.of(FakeClient.work("1")), List.of(FakeClient.work("1")));
-        client.seriesNeverLast = true;
+        client.seriesPages = List.of(
+                List.of(FakeClient.work("1")),
+                List.of(FakeClient.work("1")),
+                List.of(FakeClient.work("2")));
         DouyinDownloadService service = service(client, Runnable::run);
 
         service.start(new DouyinDownloadRequest("https://v.douyin.com/MixStalled/", "", VALID_COOKIE), "owner-a");
 
-        assertThat(client.seriesListCalls).isEqualTo(2);
-        assertThat(client.downloader.calls).isEqualTo(1);
+        assertThat(client.seriesListCalls).isEqualTo(3);
+        assertThat(client.downloader.calls).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("合集 100 上限按作品数而非媒体文件数计算")
-    void collectionLimitCountsWorksInsteadOfMediaFiles() throws Exception {
+    @DisplayName("合集超过 100 件仍继续按游标下载全部作品与媒体")
+    void collectionBeyondOneHundredDownloadsAllWorksAndMedia() throws Exception {
         FakeClient client = new FakeClient();
         client.mapCollection("MixLarge", "mix-large");
         client.seriesPages = List.of(
@@ -528,9 +532,9 @@ class DouyinDownloadServiceTest {
 
         service.start(new DouyinDownloadRequest("https://v.douyin.com/MixLarge/", "", VALID_COOKIE), "owner-a");
 
-        assertThat(client.seriesListCalls).isEqualTo(5);
-        assertThat(client.downloader.calls).isEqualTo(100);
-        assertThat(client.downloader.downloadedFiles).isEqualTo(200);
+        assertThat(client.seriesListCalls).isEqualTo(6);
+        assertThat(client.downloader.calls).isEqualTo(120);
+        assertThat(client.downloader.downloadedFiles).isEqualTo(240);
     }
 
     @Test
@@ -612,6 +616,22 @@ class DouyinDownloadServiceTest {
         assertThat(service.listSeriesWorks("s1", 0, 500, VALID_COOKIE).pageSize()).isEqualTo(100);
         assertThat(service.searchPublic("word", 0, 1, VALID_COOKIE).ownerName()).isEqualTo("search:word");
         assertThat(service.quickPublic(0, 0, VALID_COOKIE).ownerName()).isEqualTo("search:");
+    }
+
+    @Test
+    @DisplayName("合集作品游标页薄透传 Cookie 并限制页大小")
+    void delegatesBoundedSeriesCursorPageToClient() throws Exception {
+        FakeClient client = new FakeClient();
+        client.seriesPageListing = new DouyinListing(List.of(FakeClient.work("s-page")),
+                201, 1, 100, false, "合集", "series-1", "作者", "opaque-next", true);
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        DouyinListing listing = service.listSeriesWorksPage("series-1", "opaque-current", 500, VALID_COOKIE);
+
+        assertThat(listing.items()).extracting("id").containsExactly("s-page");
+        assertThat(client.lastSeriesPageCursor).isEqualTo("opaque-current");
+        assertThat(client.lastSeriesPageSize).isEqualTo(100);
+        assertThat(client.lastSeriesPageCookie).isEqualTo(VALID_COOKIE);
     }
 
     @Test
@@ -985,9 +1005,12 @@ class DouyinDownloadServiceTest {
         private DouyinClientErrorCode resolveFailure;
         private List<DouyinWork> seriesWorks = List.of(work("s-default"));
         private List<List<DouyinWork>> seriesPages;
-        private boolean seriesNeverLast;
         private int seriesListCalls;
         private String lastSeriesId;
+        private DouyinListing seriesPageListing;
+        private String lastSeriesPageCursor;
+        private int lastSeriesPageSize;
+        private String lastSeriesPageCookie;
         private CountDownLatch resolveEntered;
         private CountDownLatch releaseResolve;
         private String thumbnailUrl = "";
@@ -1059,13 +1082,24 @@ class DouyinDownloadServiceTest {
                 List<DouyinWork> items = page > 0 && page <= seriesPages.size()
                         ? seriesPages.get(page - 1)
                         : List.of();
-                boolean lastPage = !seriesNeverLast && page >= seriesPages.size();
+                boolean lastPage = page >= seriesPages.size();
                 int total = lastPage ? seriesPages.stream().mapToInt(List::size).sum() : 0;
                 return new DouyinListing(items, total, page, pageSize, lastPage,
                         "series:" + seriesId, seriesId, "owner");
             }
             return new DouyinListing(seriesWorks, seriesWorks.size(), page, pageSize, true,
                     "series:" + seriesId, seriesId, "owner");
+        }
+
+        @Override
+        public DouyinListing listSeriesWorksPage(String seriesId, String cursor, int limit, String cookie)
+                throws DouyinClientException {
+            lastSeriesPageCursor = cursor;
+            lastSeriesPageSize = limit;
+            lastSeriesPageCookie = cookie;
+            return seriesPageListing != null
+                    ? seriesPageListing
+                    : DouyinClient.super.listSeriesWorksPage(seriesId, cursor, limit, cookie);
         }
 
         @Override
