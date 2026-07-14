@@ -12,7 +12,10 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
+import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
 import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinCollectionSummary;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
@@ -348,6 +351,46 @@ class DouyinControllerSecurityTest {
                 "\"nextCursor\":\"cursor-2\"", "\"hasMore\":true");
         verify(service).listFavoriteCollections("cursor-1", 12, null);
         verify(service, never()).listAllFavoriteCollections(any());
+    }
+
+    @Test
+    @DisplayName("收藏作品复合游标由控制器透明传递并返回")
+    void transparentlyPassesFavoriteWorksCompositeCursor() throws Exception {
+        String current = "fw1.MA.Zm9sZGVyLWE.MA";
+        String next = "fw1.MA.Zm9sZGVyLWI.MA";
+        when(service.listAccountWorksPage(
+                DouyinAccountSource.FAVORITE_WORKS, current, 12, null))
+                .thenReturn(new DouyinListing(List.of(work("favorite-1")),
+                        2, 1, 12, false, "收藏作品", "account", "账号", next, true));
+
+        var response = mockMvc.perform(get("/api/douyin/me/favorite-works")
+                        .param("cursor", current).param("pageSize", "12"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"id\":\"favorite-1\"", "\"nextCursor\":\"" + next + "\"",
+                "\"hasMore\":true");
+        verify(service).listAccountWorksPage(
+                DouyinAccountSource.FAVORITE_WORKS, current, 12, null);
+    }
+
+    @Test
+    @DisplayName("收藏作品上游结构异常返回稳定的网关错误码与消息键")
+    void returnsStableFavoriteWorksUpstreamShapeError() throws Exception {
+        when(service.listAccountWorksPage(
+                DouyinAccountSource.FAVORITE_WORKS, "0", 24, null))
+                .thenThrow(new DouyinClientException(
+                        DouyinClientErrorCode.RESPONSE_STRUCTURE_UNRECOGNIZED,
+                        "safe diagnostic"));
+
+        var response = mockMvc.perform(get("/api/douyin/me/favorite-works"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(502);
+        assertThat(response.getContentAsString()).contains(
+                "\"code\":\"RESPONSE_STRUCTURE_UNRECOGNIZED\"",
+                "\"messageKey\":\"douyin.error.response-structure-unrecognized\"");
     }
 
     @Test

@@ -34,6 +34,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -60,8 +61,11 @@ public class DefaultDouyinClient implements DouyinClient {
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final int DEFAULT_MIX_PAGE_SIZE = 20;
     private static final int MAX_CURSOR_PAGES = 1_000;
+    private static final int MAX_FAVORITE_CURSOR_LENGTH = 512;
+    private static final int MAX_FAVORITE_CURSOR_PART_LENGTH = 256;
     private static final int MAX_API_ATTEMPTS = 3;
     private static final long[] API_RETRY_DELAYS_MS = {1_000L, 2_000L};
+    private static final String FAVORITE_CURSOR_PREFIX = "fw1";
     private static final List<String> DETAIL_AID_CANDIDATES = List.of("6383", "1128");
 
     private final DouyinUrlParser parser;
@@ -201,12 +205,14 @@ public class DefaultDouyinClient implements DouyinClient {
         long cursor = 0L;
         boolean hasMore = true;
         int pages = 0;
+        int candidateCount = 0;
         long requestedEnd = (long) safePage * safePageSize;
         while (hasMore && works.size() < requestedEnd) {
             if (!seenCursors.add(cursor) || pages++ >= MAX_CURSOR_PAGES) {
                 throw paginationStalled(stableSeriesId, Long.toString(cursor));
             }
             MixPage pageData = fetchMixPage(stableSeriesId, cursor, DEFAULT_MIX_PAGE_SIZE, cookie);
+            candidateCount += pageData.items().size();
             for (JsonNode item : pageData.items()) {
                 try {
                     DouyinWork work = workFromAweme(item,
@@ -229,6 +235,11 @@ public class DefaultDouyinClient implements DouyinClient {
                 throw paginationStalled(stableSeriesId, Long.toString(cursor));
             }
             cursor = next;
+        }
+        if (candidateCount > 0 && works.isEmpty()) {
+            throw new DouyinClientException(
+                    DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
+                    "Douyin mix page candidates did not contain a downloadable work");
         }
         List<DouyinWork> all = List.copyOf(works.values());
         int from = (int) Math.min((long) (safePage - 1) * safePageSize, all.size());
@@ -348,6 +359,9 @@ public class DefaultDouyinClient implements DouyinClient {
         if (source == null || source == DouyinAccountSource.OWN_WORKS) {
             return listUserWorksPage(account.secUserId(), cursor, limit, cookie);
         }
+        if (source == DouyinAccountSource.FAVORITE_WORKS) {
+            return listFavoriteWorksPage(account, cursor, limit, cookie);
+        }
         String path = source == DouyinAccountSource.LIKED_WORKS
                 ? "/aweme/v1/web/aweme/favorite/"
                 : "/aweme/v1/web/aweme/listcollection/";
@@ -374,6 +388,210 @@ public class DefaultDouyinClient implements DouyinClient {
         return requireAdvancingCursor(account.accountKey(), currentCursor, accountListing);
     }
 
+    private DouyinListing listFavoriteWorksPage(DouyinAccount account,
+                                                 String cursor,
+                                                 int limit,
+                                                 String cookie) throws DouyinClientException {
+        int safeLimit = positivePageSize(limit);
+        FavoriteWorksCursor state = decodeFavoriteWorksCursor(cursor);
+        for (int step = 0; step < MAX_CURSOR_PAGES; step++) {
+            FavoriteFolderPage folderPage = fetchFavoriteFolderPage(
+                    state.foldersCursor(), safeLimit, cookie);
+            if (folderPage.items().isEmpty()) {
+                if (folderPage.hasMore()) {
+                    state = new FavoriteWorksCursor(folderPage.nextCursor(), null, "0");
+                    continue;
+                }
+                return favoriteAccountListing(account, List.of(), safeLimit, null);
+            }
+
+            int folderIndex = state.folderId() == null
+                    ? 0
+                    : indexOfFavoriteFolder(folderPage.items(), state.folderId());
+            if (folderIndex < 0) {
+                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                        "Douyin favorite works cursor no longer identifies a folder");
+            }
+            FavoriteFolderRef folder = folderPage.items().get(folderIndex);
+            String worksCursor = folder.id().equals(state.folderId())
+                    ? state.worksCursor()
+                    : "0";
+            DouyinListing works = fetchFavoriteFolderWorksPage(
+                    folder, worksCursor, safeLimit, cookie);
+            FavoriteWorksCursor next = nextFavoriteWorksCursor(
+                    state.foldersCursor(), folderPage, folderIndex, folder, works);
+            if (works.items().isEmpty() && next != null) {
+                state = next;
+                continue;
+            }
+            return favoriteAccountListing(account, works.items(), safeLimit, next);
+        }
+        throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                "Douyin favorite works pagination exceeded the safe traversal limit");
+    }
+
+    private FavoriteFolderPage fetchFavoriteFolderPage(String cursor,
+                                                        int limit,
+                                                        String cookie) throws DouyinClientException {
+        String currentCursor = normalizeCursor(cursor);
+        JsonNode root = fetchApiJson("/aweme/v1/web/collects/list/", params(
+                "cursor", currentCursor,
+                "count", positivePageSize(limit)), cookie);
+        ensureSuccessful(root, "Douyin favorite folder listing");
+        JsonNode candidates = requireRecognizedArray(root,
+                "Douyin favorite folder response", "collects_list", "collect_list", "items", "data");
+        LinkedHashMap<String, FavoriteFolderRef> folders = new LinkedHashMap<>();
+        for (JsonNode raw : candidates) {
+            JsonNode folder = raw.path("collects_info").isObject()
+                    ? raw.path("collects_info") : raw;
+            String id = firstText(folder, "collects_id", "collects_id_str", "id");
+            if (id == null) {
+                continue;
+            }
+            folders.putIfAbsent(id, new FavoriteFolderRef(id,
+                    blankToDefault(firstText(folder, "collects_name", "name", "title"), id)));
+        }
+        if (!candidates.isEmpty() && folders.isEmpty()) {
+            throw new DouyinClientException(DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
+                    "Douyin favorite folder candidates did not contain a stable folder id");
+        }
+        boolean hasMore = hasMore(root);
+        String nextCursor = cursorValue(root, "cursor", "max_cursor");
+        if (hasMore && (nextCursor.isBlank() || nextCursor.equals(currentCursor))) {
+            throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                    "Douyin favorite folder cursor did not advance");
+        }
+        return new FavoriteFolderPage(List.copyOf(folders.values()), nextCursor, hasMore);
+    }
+
+    private DouyinListing fetchFavoriteFolderWorksPage(FavoriteFolderRef folder,
+                                                        String cursor,
+                                                        int limit,
+                                                        String cookie) throws DouyinClientException {
+        String currentCursor = normalizeCursor(cursor);
+        JsonNode root = fetchApiJson("/aweme/v1/web/collects/video/list/", params(
+                "collects_id", folder.id(),
+                "cursor", currentCursor,
+                "count", positivePageSize(limit)), cookie);
+        ensureSuccessful(root, "Douyin favorite folder works");
+        JsonNode candidates = requireRecognizedArray(root,
+                "Douyin favorite works response", "aweme_list", "items", "data");
+        DouyinListing listing = workListing(root, 1, positivePageSize(limit),
+                new ListingContext(folder.id(), folder.title(), folder.id(), folder.title()),
+                "cursor", "aweme_list", "items", "data");
+        if (!candidates.isEmpty() && listing.items().isEmpty()) {
+            throw new DouyinClientException(DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
+                    "Douyin favorite works candidates did not contain a downloadable work");
+        }
+        return requireAdvancingCursor(folder.id(), currentCursor, listing);
+    }
+
+    private static FavoriteWorksCursor nextFavoriteWorksCursor(String foldersCursor,
+                                                                FavoriteFolderPage folderPage,
+                                                                int folderIndex,
+                                                                FavoriteFolderRef folder,
+                                                                DouyinListing works) {
+        if (works.hasMore()) {
+            return new FavoriteWorksCursor(foldersCursor, folder.id(), works.nextCursor());
+        }
+        if (folderIndex + 1 < folderPage.items().size()) {
+            return new FavoriteWorksCursor(foldersCursor,
+                    folderPage.items().get(folderIndex + 1).id(), "0");
+        }
+        if (folderPage.hasMore()) {
+            return new FavoriteWorksCursor(folderPage.nextCursor(), null, "0");
+        }
+        return null;
+    }
+
+    private static DouyinListing favoriteAccountListing(DouyinAccount account,
+                                                         List<DouyinWork> items,
+                                                         int pageSize,
+                                                         FavoriteWorksCursor next)
+            throws DouyinClientException {
+        boolean hasMore = next != null;
+        String nextCursor = hasMore ? encodeFavoriteWorksCursor(next) : "";
+        int total = items.size() + (hasMore ? 1 : 0);
+        return new DouyinListing(List.copyOf(items), total, 1, pageSize,
+                !hasMore, account.displayName(), account.accountKey(), account.displayName(),
+                nextCursor, hasMore);
+    }
+
+    private static int indexOfFavoriteFolder(List<FavoriteFolderRef> folders, String folderId) {
+        for (int index = 0; index < folders.size(); index++) {
+            if (folders.get(index).id().equals(folderId)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static FavoriteWorksCursor decodeFavoriteWorksCursor(String cursor)
+            throws DouyinClientException {
+        String normalized = normalizeCursor(cursor);
+        if ("0".equals(normalized)) {
+            return new FavoriteWorksCursor("0", null, "0");
+        }
+        if (normalized.length() > MAX_FAVORITE_CURSOR_LENGTH) {
+            throw invalidFavoriteCursor();
+        }
+        String[] parts = normalized.split("\\.", -1);
+        if (parts.length != 4 || !FAVORITE_CURSOR_PREFIX.equals(parts[0])) {
+            throw invalidFavoriteCursor();
+        }
+        try {
+            String foldersCursor = decodeFavoriteCursorPart(parts[1]);
+            String folderId = decodeFavoriteCursorPart(parts[2]);
+            String worksCursor = decodeFavoriteCursorPart(parts[3]);
+            if (foldersCursor == null || worksCursor == null
+                    || (folderId == null && !"0".equals(worksCursor))) {
+                throw invalidFavoriteCursor();
+            }
+            return new FavoriteWorksCursor(foldersCursor, folderId, worksCursor);
+        } catch (IllegalArgumentException e) {
+            throw invalidFavoriteCursor();
+        }
+    }
+
+    private static String encodeFavoriteWorksCursor(FavoriteWorksCursor cursor)
+            throws DouyinClientException {
+        String encoded = FAVORITE_CURSOR_PREFIX + "."
+                + encodeFavoriteCursorPart(cursor.foldersCursor()) + "."
+                + encodeFavoriteCursorPart(cursor.folderId()) + "."
+                + encodeFavoriteCursorPart(cursor.worksCursor());
+        if (encoded.length() > MAX_FAVORITE_CURSOR_LENGTH) {
+            throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                    "Douyin favorite works cursor exceeded the supported length");
+        }
+        return encoded;
+    }
+
+    private static String encodeFavoriteCursorPart(String value) {
+        if (value == null) {
+            return "-";
+        }
+        return Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String decodeFavoriteCursorPart(String encoded) {
+        if ("-".equals(encoded)) {
+            return null;
+        }
+        byte[] decoded = Base64.getUrlDecoder().decode(encoded);
+        String value = new String(decoded, StandardCharsets.UTF_8);
+        if (value.isBlank() || value.length() > MAX_FAVORITE_CURSOR_PART_LENGTH
+                || value.chars().anyMatch(character -> Character.isISOControl(character))) {
+            throw new IllegalArgumentException("Invalid favorite cursor part");
+        }
+        return value;
+    }
+
+    private static DouyinClientException invalidFavoriteCursor() {
+        return new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT,
+                "Invalid Douyin favorite works cursor");
+    }
+
     @Override
     public DouyinCollectionListing listFavoriteCollections(String cursor,
                                                             int limit,
@@ -384,8 +602,9 @@ public class DefaultDouyinClient implements DouyinClient {
                 "cursor", currentCursor,
                 "count", safeLimit), cookie);
         ensureSuccessful(root, "Douyin favorite collection listing");
-        JsonNode array = firstArray(root, "mix_list", "mix_infos", "items", "data")
-                .orElse(MAPPER.createArrayNode());
+        JsonNode array = requireRecognizedArray(root,
+                "Douyin favorite collection response",
+                "mix_list", "mix_infos", "items", "data");
         List<DouyinCollectionSummary> items = new ArrayList<>();
         for (JsonNode raw : array) {
             JsonNode mix = raw.has("mix_info") ? raw.path("mix_info") : raw;
@@ -402,6 +621,11 @@ public class DefaultDouyinClient implements DouyinClient {
                     workCount,
                     firstText(author, "uid", "sec_uid"),
                     firstText(author, "nickname", "unique_id")));
+        }
+        if (!array.isEmpty() && items.isEmpty()) {
+            throw new DouyinClientException(
+                    DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
+                    "Douyin favorite collection candidates did not contain a stable collection id");
         }
         boolean hasMore = hasMore(root);
         String next = cursorValue(root, "cursor", "max_cursor");
@@ -465,7 +689,8 @@ public class DefaultDouyinClient implements DouyinClient {
                                       String cursorField,
                                       String... arrayFields) throws DouyinClientException {
         ensureSuccessful(root, "Douyin work listing");
-        JsonNode list = firstArray(root, arrayFields).orElse(MAPPER.createArrayNode());
+        JsonNode list = requireRecognizedArray(
+                root, "Douyin work listing response", arrayFields);
         LinkedHashMap<String, DouyinWork> works = new LinkedHashMap<>();
         for (JsonNode raw : list) {
             JsonNode aweme = unwrapAweme(raw);
@@ -483,6 +708,11 @@ public class DefaultDouyinClient implements DouyinClient {
                     throw e;
                 }
             }
+        }
+        if (!list.isEmpty() && works.isEmpty()) {
+            throw new DouyinClientException(
+                    DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
+                    "Douyin work listing candidates did not contain a downloadable work");
         }
         boolean hasMore = hasMore(root);
         String next = cursorValue(root, cursorField, "cursor", "max_cursor", "offset");
@@ -503,12 +733,16 @@ public class DefaultDouyinClient implements DouyinClient {
                                         String offset,
                                         int pageSize) throws DouyinClientException {
         ensureSuccessful(root, "Douyin search");
-        JsonNode list = firstArray(root, "data", "aweme_list", "items")
-                .orElse(MAPPER.createArrayNode());
+        JsonNode list = requireRecognizedArray(
+                root, "Douyin search response", "data", "aweme_list", "items");
         LinkedHashMap<String, DouyinWork> works = new LinkedHashMap<>();
+        int candidateCount = 0;
+        int filteredCount = 0;
         for (JsonNode raw : list) {
+            candidateCount++;
             JsonNode aweme = unwrapAweme(raw);
             if (!aweme.isObject()) {
+                filteredCount++;
                 continue;
             }
             try {
@@ -521,7 +755,14 @@ public class DefaultDouyinClient implements DouyinClient {
                         && e.code() != DouyinClientErrorCode.UNSUPPORTED_CONTENT) {
                     throw e;
                 }
+                filteredCount++;
             }
+        }
+        if (candidateCount > 0 && works.isEmpty()) {
+            log.warn("Douyin search candidates produced no downloadable works: candidates={}, filtered={}",
+                    candidateCount, filteredCount);
+            throw new DouyinClientException(DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
+                    "Douyin search response candidates did not contain a downloadable work");
         }
         long base = parseCursorNumber(offset);
         boolean hasMore = hasMore(root);
@@ -639,6 +880,19 @@ public class DefaultDouyinClient implements DouyinClient {
                                   String collectionTitle) {
     }
 
+    private record FavoriteFolderRef(String id, String title) {
+    }
+
+    private record FavoriteFolderPage(List<FavoriteFolderRef> items,
+                                      String nextCursor,
+                                      boolean hasMore) {
+    }
+
+    private record FavoriteWorksCursor(String foldersCursor,
+                                       String folderId,
+                                       String worksCursor) {
+    }
+
     private DouyinParsedInput parseAndResolve(String input, String cookie) throws DouyinClientException {
         DouyinParsedInput parsed = parser.parse(input)
                 .orElseThrow(() -> new DouyinClientException(DouyinClientErrorCode.INVALID_URL,
@@ -705,10 +959,10 @@ public class DefaultDouyinClient implements DouyinClient {
         if (classified != null) {
             throw new DouyinClientException(classified, "Douyin mix detail reported " + classified);
         }
-        JsonNode info = firstObject(root, "mix_info", "mix_detail").orElse(root.path("mix_info"));
-        if (!info.isObject()) {
-            return new MixInfo(mixId, mixId, null);
-        }
+        JsonNode info = firstObject(root, "mix_info", "mix_detail")
+                .orElseThrow(() -> new DouyinClientException(
+                        DouyinClientErrorCode.RESPONSE_STRUCTURE_UNRECOGNIZED,
+                        "Douyin mix detail response did not contain a recognized detail object"));
         String title = firstText(info, "mix_name", "name", "title");
         String owner = firstText(info.path("author"), "nickname", "unique_id", "short_id");
         return new MixInfo(mixId, blankToDefault(title, mixId), owner);
@@ -723,7 +977,8 @@ public class DefaultDouyinClient implements DouyinClient {
         if (classified != null) {
             throw new DouyinClientException(classified, "Douyin mix page reported " + classified);
         }
-        JsonNode list = firstArray(root, "aweme_list", "items", "data").orElse(MAPPER.createArrayNode());
+        JsonNode list = requireRecognizedArray(
+                root, "Douyin mix page response", "aweme_list", "items", "data");
         List<JsonNode> items = new ArrayList<>();
         list.forEach(items::add);
         long next = firstLong(root, "max_cursor", "cursor").orElse(0L);
@@ -879,7 +1134,7 @@ public class DefaultDouyinClient implements DouyinClient {
                 media, kind, publishTime, collectionId, collectionTitle);
     }
 
-    private List<DouyinMedia> collectMedia(String workId, JsonNode aweme) {
+    private List<DouyinMedia> collectMedia(String workId, JsonNode aweme) throws DouyinClientException {
         List<DouyinMedia> imagePostMedia = collectImagePostMedia(workId, imageNodes(aweme));
         if (!imagePostMedia.isEmpty()) {
             return imagePostMedia;
@@ -887,25 +1142,62 @@ public class DefaultDouyinClient implements DouyinClient {
         return collectVideos(workId, aweme.path("video"));
     }
 
-    private List<DouyinMedia> collectImagePostMedia(String workId, List<JsonNode> imageNodes) {
+    private List<DouyinMedia> collectImagePostMedia(String workId, List<JsonNode> imageNodes)
+            throws DouyinClientException {
         List<DouyinMedia> media = new ArrayList<>();
         for (int nodeIndex = 0; nodeIndex < imageNodes.size(); nodeIndex++) {
             JsonNode image = imageNodes.get(nodeIndex);
             int pageIndex = nodeIndex + 1;
-            Optional<UrlCandidate> url = bestImageUrl(image);
-            if (url.isPresent()) {
-                media.add(media(workId + "-p" + pageIndex, DouyinMediaType.IMAGE, url.get().url(),
-                        workId + "-p" + String.format(Locale.ROOT, "%02d", pageIndex), url.get().node()));
+            Optional<UrlCandidate> imageUrl = bestImageUrl(image);
+            Optional<DouyinMedia> motion = collectLivePhotoVideo(workId, pageIndex, image);
+            boolean declaresMotion = declaresLivePhotoMotion(image);
+            if (declaresMotion && (imageUrl.isEmpty() || motion.isEmpty())) {
+                throw new DouyinClientException(DouyinClientErrorCode.MEDIA_URL_MISSING,
+                        "Douyin live photo item did not contain a complete image and motion pair");
             }
-
-            List<DouyinMedia> videos = collectVideos(workId + "-live-p" + pageIndex, image.path("video"));
-            for (DouyinMedia video : videos) {
-                media.add(new DouyinMedia(video.id(), DouyinMediaType.LIVE_PHOTO_VIDEO, video.url(),
-                        workId + "-live-p" + String.format(Locale.ROOT, "%02d", pageIndex),
-                        video.extension(), video.sizeBytes(), video.contentType(), video.fallbackUrls()));
+            if (imageUrl.isEmpty()) {
+                continue;
             }
+            media.add(media(workId + "-p" + pageIndex, DouyinMediaType.IMAGE, imageUrl.get().url(),
+                    workId + "-p" + String.format(Locale.ROOT, "%02d", pageIndex), imageUrl.get().node()));
+            motion.ifPresent(media::add);
         }
         return media;
+    }
+
+    private Optional<DouyinMedia> collectLivePhotoVideo(String workId, int pageIndex, JsonNode image) {
+        String id = workId + "-live-p" + pageIndex;
+        String stem = workId + "-live-p" + String.format(Locale.ROOT, "%02d", pageIndex);
+        Optional<DouyinMedia> nested = collectVideos(id, image.path("video")).stream().findFirst();
+        if (nested.isPresent()) {
+            DouyinMedia video = nested.get();
+            return Optional.of(new DouyinMedia(video.id(), DouyinMediaType.LIVE_PHOTO_VIDEO, video.url(),
+                    stem, video.extension(), video.sizeBytes(), video.contentType(), video.fallbackUrls()));
+        }
+        for (String field : List.of("video_play_addr", "video_download_addr")) {
+            JsonNode address = image.path(field);
+            Optional<String> url = firstUrl(address);
+            if (url.isPresent()) {
+                return Optional.of(media(id, DouyinMediaType.LIVE_PHOTO_VIDEO,
+                        url.get(), stem, address));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static boolean declaresLivePhotoMotion(JsonNode image) {
+        JsonNode nested = image.path("video");
+        if (nested.isObject() && !nested.isEmpty()) {
+            return true;
+        }
+        for (String field : List.of("video_play_addr", "video_download_addr")) {
+            JsonNode address = image.path(field);
+            if (!address.isMissingNode() && !address.isNull()
+                    && !(address.isObject() && address.isEmpty())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<JsonNode> imageNodes(JsonNode aweme) {
@@ -1136,6 +1428,26 @@ public class DefaultDouyinClient implements DouyinClient {
             }
         }
         return Optional.empty();
+    }
+
+    private static JsonNode requireRecognizedArray(
+            JsonNode root,
+            String responseName,
+            String... fields) throws DouyinClientException {
+        Optional<JsonNode> array = firstArray(root, fields);
+        if (array.isPresent()) {
+            return array.get();
+        }
+        if (root != null) {
+            for (String field : fields) {
+                if (root.has(field) && root.get(field).isNull()) {
+                    return MAPPER.createArrayNode();
+                }
+            }
+        }
+        throw new DouyinClientException(
+                DouyinClientErrorCode.RESPONSE_STRUCTURE_UNRECOGNIZED,
+                responseName + " did not contain a recognized result array");
     }
 
     private static String firstText(JsonNode node, String... fields) {

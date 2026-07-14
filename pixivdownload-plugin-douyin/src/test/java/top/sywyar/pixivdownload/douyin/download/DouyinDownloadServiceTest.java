@@ -653,6 +653,24 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("收藏作品跨收藏夹分页时按稳定作品 ID 精确去重")
+    void favoriteWorkIdsDeduplicateAcrossFolders() throws Exception {
+        FakeClient client = new FakeClient();
+        client.accountPages = List.of(
+                new DouyinListing(List.of(FakeClient.work("favorite-a"), FakeClient.work("favorite-b")),
+                        4, 1, 50, false, null, "account", "账号", "fw1.next", true),
+                new DouyinListing(List.of(FakeClient.work("favorite-a"), FakeClient.work("favorite-c")),
+                        4, 2, 50, true, null, "account", "账号", "", false));
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        assertThat(service.listAllAccountWorkIds(
+                DouyinAccountSource.FAVORITE_WORKS, VALID_COOKIE))
+                .containsExactly("favorite-a", "favorite-b", "favorite-c");
+        assertThat(client.accountResolveCalls).isEqualTo(1);
+        assertThat(client.accountPageCalls).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("下载按插件设置选择保存目录与代理运行时")
     void usesPluginRuntimeSettingsForDownloads() throws Exception {
         FakeClient inheritClient = new FakeClient();

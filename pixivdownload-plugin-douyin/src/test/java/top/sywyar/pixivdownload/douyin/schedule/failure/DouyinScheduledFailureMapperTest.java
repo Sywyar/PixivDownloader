@@ -52,7 +52,8 @@ class DouyinScheduledFailureMapperTest {
                     PAGINATION_STALLED, NETWORK_ERROR, DOWNLOAD_SIZE_MISMATCH,
                     UPSTREAM_SERVER_ERROR ->
                     ScheduledFailure.Category.RETRYABLE_NETWORK;
-            case UPSTREAM_CLIENT_ERROR, RESPONSE_STRUCTURE_UNRECOGNIZED -> ScheduledFailure.Category.INTERNAL;
+            case UPSTREAM_CLIENT_ERROR, RESPONSE_STRUCTURE_UNRECOGNIZED,
+                    RESPONSE_CANDIDATES_FILTERED -> ScheduledFailure.Category.INTERNAL;
         };
     }
 }

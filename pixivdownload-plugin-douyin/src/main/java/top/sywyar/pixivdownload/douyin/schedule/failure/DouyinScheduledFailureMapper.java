@@ -43,7 +43,8 @@ public final class DouyinScheduledFailureMapper {
                     UPSTREAM_SERVER_ERROR ->
                     failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
                             "douyin.schedule.network-failed");
-            case UPSTREAM_CLIENT_ERROR, RESPONSE_STRUCTURE_UNRECOGNIZED ->
+            case UPSTREAM_CLIENT_ERROR, RESPONSE_STRUCTURE_UNRECOGNIZED,
+                    RESPONSE_CANDIDATES_FILTERED ->
                     internal("douyin.schedule.upstream-response-invalid");
         };
     }

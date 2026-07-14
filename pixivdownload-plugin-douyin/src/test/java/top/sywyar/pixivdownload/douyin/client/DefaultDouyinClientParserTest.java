@@ -12,6 +12,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.signature.DouyinSignedUriBuilder;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
 import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
@@ -128,7 +129,7 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
-    @DisplayName("实况照片按原始页索引配对并保留稀疏静态图位置")
+    @DisplayName("实况照片严格在同一原始页索引配对并保留静态图位置")
     void pairsLivePhotoByOriginalNodeIndex() throws Exception {
         DefaultDouyinClient client = client("""
                 {"aweme_detail":{"aweme_id":"7353","desc":"Live",
@@ -136,7 +137,6 @@ class DefaultDouyinClientParserTest {
                 "video":{}},
                 {"display_image":{"url_list":["https://p3.douyinpic.com/b.jpg"]},
                 "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/live-b.mp4","https://v6.douyinvod.com/live-b.mp4"]}}},
-                {"video":{"play_addr":{"url_list":["https://v3.douyinvod.com/live-c.mp4"]}}},
                 {"display_image":{"url_list":["https://p3.douyinpic.com/d.jpg"]}}]}}}
                 """);
 
@@ -144,20 +144,80 @@ class DefaultDouyinClientParserTest {
 
         assertThat(work.kind()).isEqualTo(DouyinWorkKind.LIVE_PHOTO);
         assertThat(work.media()).extracting("id")
-                .containsExactly("7353-p1", "7353-p2", "7353-live-p2", "7353-live-p3", "7353-p4");
+                .containsExactly("7353-p1", "7353-p2", "7353-live-p2", "7353-p3");
         assertThat(work.media()).extracting("fileNameStem")
-                .containsExactly("7353-p01", "7353-p02", "7353-live-p02", "7353-live-p03", "7353-p04");
+                .containsExactly("7353-p01", "7353-p02", "7353-live-p02", "7353-p03");
         assertThat(work.media()).extracting("type")
                 .containsExactly(
                         DouyinMediaType.IMAGE, DouyinMediaType.IMAGE,
-                        DouyinMediaType.LIVE_PHOTO_VIDEO, DouyinMediaType.LIVE_PHOTO_VIDEO,
-                        DouyinMediaType.IMAGE);
+                        DouyinMediaType.LIVE_PHOTO_VIDEO, DouyinMediaType.IMAGE);
         assertThat(work.media().get(2).url())
                 .isEqualTo(URI.create("https://v3.douyinvod.com/live-b.mp4"));
         assertThat(work.media().get(2).fallbackUrls())
                 .containsExactly(URI.create("https://v6.douyinvod.com/live-b.mp4"));
-        assertThat(work.media().get(3).url())
-                .isEqualTo(URI.create("https://v3.douyinvod.com/live-c.mp4"));
+    }
+
+    @Test
+    @DisplayName("不同图片项的静态图与动态视频不得跨项拼成实况照片")
+    void rejectsCrossItemLivePhotoPairing() {
+        assertCode(() -> client("""
+                        {"aweme_detail":{"aweme_id":"7361","desc":"Broken pair",
+                        "image_post_info":{"images":[
+                          {"display_image":{"url_list":["https://p3.douyinpic.com/a.jpg"]}},
+                          {"video":{"play_addr":{"url_list":["https://v3.douyinvod.com/b.mp4"]}}}
+                        ]}}}
+                        """)
+                        .resolvePublicWork("https://www.douyin.com/note/7361", null),
+                DouyinClientErrorCode.MEDIA_URL_MISSING);
+    }
+
+    @Test
+    @DisplayName("两个完整实况照片组按图片与动态视频相邻顺序输出")
+    void keepsEachLivePhotoPairAdjacent() throws Exception {
+        var work = client("""
+                {"aweme_detail":{"aweme_id":"7362","desc":"Two pairs",
+                "image_post_info":{"images":[
+                  {"display_image":{"url_list":["https://p3.douyinpic.com/a.jpg"]},
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/a.mp4"]}}},
+                  {"display_image":{"url_list":["https://p3.douyinpic.com/b.jpg"]},
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/b.mp4"]}}}
+                ]}}}
+                """).resolvePublicWork("https://www.douyin.com/note/7362", null);
+
+        assertThat(work.kind()).isEqualTo(DouyinWorkKind.LIVE_PHOTO);
+        assertThat(work.media()).extracting("id").containsExactly(
+                "7362-p1", "7362-live-p1", "7362-p2", "7362-live-p2");
+    }
+
+    @Test
+    @DisplayName("图片项级动态视频地址仍与同项静态图配对")
+    void pairsItemLevelLivePhotoVideoAddress() throws Exception {
+        var work = client("""
+                {"aweme_detail":{"aweme_id":"7363","desc":"Alias pair",
+                "image_post_info":{"images":[
+                  {"display_image":{"url_list":["https://p3.douyinpic.com/a.jpg"]},
+                   "video_play_addr":{"url_list":["https://v3.douyinvod.com/a.mp4"]}}
+                ]}}}
+                """).resolvePublicWork("https://www.douyin.com/note/7363", null);
+
+        assertThat(work.kind()).isEqualTo(DouyinWorkKind.LIVE_PHOTO);
+        assertThat(work.media()).extracting("id", "type").containsExactly(
+                org.assertj.core.groups.Tuple.tuple("7363-p1", DouyinMediaType.IMAGE),
+                org.assertj.core.groups.Tuple.tuple("7363-live-p1", DouyinMediaType.LIVE_PHOTO_VIDEO));
+    }
+
+    @Test
+    @DisplayName("声明了动态视频结构但没有有效地址时不得降级为普通图文")
+    void rejectsLivePhotoMotionWithoutUsableUrl() {
+        assertCode(() -> client("""
+                        {"aweme_detail":{"aweme_id":"7364","desc":"Missing motion",
+                        "image_post_info":{"images":[
+                          {"display_image":{"url_list":["https://p3.douyinpic.com/a.jpg"]},
+                           "video":{"play_addr":{"url_list":[]}}}
+                        ]}}}
+                        """)
+                        .resolvePublicWork("https://www.douyin.com/note/7364", null),
+                DouyinClientErrorCode.MEDIA_URL_MISSING);
     }
 
     @Test
@@ -601,6 +661,174 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
+    @DisplayName("关键词搜索已识别的空数组或 null 保持合法空结果")
+    void keepsRecognizedEmptySearchPage() throws Exception {
+        for (String body : List.of(
+                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"data\":[]}",
+                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"data\":null}")) {
+            FakeRestTemplate rest = new FakeRestTemplate();
+            rest.enqueue(200, body);
+
+            var listing = client(rest).searchWorksPage("猫", "0", 24, "sessionid=test");
+
+            assertThat(listing.items()).isEmpty();
+            assertThat(listing.hasMore()).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("关键词搜索响应缺少已知结果数组时明确报告结构异常")
+    void rejectsUnknownSearchResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":0,"unexpected":[]}
+                """);
+
+        assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("用户作品响应缺少已知识别数组时明确报告结构异常")
+    void rejectsUnknownUserWorksResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+
+        assertCodeName(() -> client(rest).listUserWorksPage(
+                        "sec-user-1", "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("账号喜欢作品响应缺少已知识别数组时明确报告结构异常")
+    void rejectsUnknownLikedWorksResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+
+        assertCodeName(() -> client(rest).listAccountWorksPage(
+                        favoriteAccount(), DouyinAccountSource.LIKED_WORKS,
+                        "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("音乐作品响应缺少已知识别数组时明确报告结构异常")
+    void rejectsUnknownMusicWorksResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+
+        assertCodeName(() -> client(rest).listMusicWorksPage(
+                        "music-1", "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("收藏合集列表响应缺少已知识别数组时明确报告结构异常")
+    void rejectsUnknownFavoriteCollectionsResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+
+        assertCodeName(() -> client(rest).listFavoriteCollections(
+                        "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("合集详情缺少已知识别对象时明确报告结构异常")
+    void rejectsUnknownMixInfoResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"status_code\":0,\"unexpected\":{}}");
+
+        assertCodeName(() -> client(rest).listSeriesWorksPage(
+                        "mix-1", "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("合集游标页响应缺少已知识别数组时明确报告结构异常")
+    void rejectsUnknownSeriesPageResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, mixInfo());
+        rest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+
+        assertCodeName(() -> client(rest).listSeriesWorksPage(
+                        "mix-1", "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("合集页码接口响应缺少已知识别数组时明确报告结构异常")
+    void rejectsUnknownSeriesLogicalPageResponseStructure() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, mixInfo());
+        rest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+
+        assertCodeName(() -> client(rest).listSeriesWorks(
+                        "mix-1", 1, 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("非搜索来源已识别的空数组仍保持合法空结果")
+    void keepsRecognizedEmptyNonSearchListings() throws Exception {
+        assertThat(client("{\"status_code\":0,\"has_more\":0,\"aweme_list\":[]}")
+                .listUserWorksPage("sec-user-1", "0", 20, "sessionid=test").items())
+                .isEmpty();
+        assertThat(client("{\"status_code\":0,\"has_more\":0,\"aweme_list\":[]}")
+                .listMusicWorksPage("music-1", "0", 20, "sessionid=test").items())
+                .isEmpty();
+        assertThat(client("{\"status_code\":0,\"has_more\":0,\"mix_list\":[]}")
+                .listFavoriteCollections("0", 20, "sessionid=test").items())
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("非搜索作品列表候选全部不可下载时明确报告过滤异常")
+    void rejectsNonSearchListingWhenAllCandidatesAreFiltered() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"aweme_list":[
+                  {"aweme_id":"filtered-user-work","desc":"Missing media"}
+                ]}
+                """);
+
+        assertCodeName(() -> client(rest).listUserWorksPage(
+                        "sec-user-1", "0", 20, "sessionid=test"),
+                "RESPONSE_CANDIDATES_FILTERED");
+    }
+
+    @Test
+    @DisplayName("收藏合集候选全部缺少稳定 ID 时明确报告过滤异常")
+    void rejectsFavoriteCollectionCandidatesWithoutStableId() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"mix_list":[
+                  {"mix_name":"Missing id"}
+                ]}
+                """);
+
+        assertCodeName(() -> client(rest).listFavoriteCollections(
+                        "0", 20, "sessionid=test"),
+                "RESPONSE_CANDIDATES_FILTERED");
+    }
+
+    @Test
+    @DisplayName("合集页码候选全部不可下载时明确报告过滤异常")
+    void rejectsSeriesLogicalPageWhenAllCandidatesAreFiltered() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, mixInfo());
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"aweme_list":[
+                  {"aweme_id":"filtered-series-work","desc":"Missing media"}
+                ]}
+                """);
+
+        assertCodeName(() -> client(rest).listSeriesWorks(
+                        "mix-1", 1, 20, "sessionid=test"),
+                "RESPONSE_CANDIDATES_FILTERED");
+    }
+
+    @Test
     @DisplayName("关键词搜索上游返回空响应体时明确报告签名受阻")
     void rejectsEmptySearchResponseBody() {
         FakeRestTemplate rest = new FakeRestTemplate();
@@ -655,6 +883,20 @@ class DefaultDouyinClientParserTest {
 
         assertThat(listing.items()).isEmpty();
         assertThat(rest.requests()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("关键词搜索候选全部无法形成可下载作品时明确报告过滤异常")
+    void rejectsSearchPageWhenAllCandidatesAreFiltered() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":0,"data":[
+                  {"aweme_info":{"aweme_id":"9202","desc":"Missing media"}}
+                ]}
+                """);
+
+        assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"),
+                "RESPONSE_CANDIDATES_FILTERED");
     }
 
     @Test
@@ -752,6 +994,121 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
+    @DisplayName("收藏作品按收藏夹逐层分页且复合游标可由新客户端继续")
+    void pagesFavoriteWorksAcrossFoldersWithRestartSafeCursor() throws Exception {
+        FakeRestTemplate firstRest = new FakeRestTemplate();
+        firstRest.enqueue(200, favoriteFolders(false, "0"));
+        firstRest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":"0","aweme_list":[
+                  {"aweme_id":"9501","desc":"Folder A",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9501.mp4"]}}}
+                ]}
+                """);
+
+        var first = client(firstRest).listAccountWorksPage(
+                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, "sessionid=test");
+
+        assertThat(first.items()).extracting("id").containsExactly("9501");
+        assertThat(first.hasMore()).isTrue();
+        assertThat(first.nextCursor()).startsWith("fw1.").hasSizeLessThan(512)
+                .doesNotContain("sessionid", "test");
+        assertThat(firstRest.requests()).extracting(URI::getPath).containsExactly(
+                "/aweme/v1/web/collects/list/",
+                "/aweme/v1/web/collects/video/list/");
+        assertThat(firstRest.requests().get(1).getRawQuery()).contains("collects_id=folder-a");
+
+        FakeRestTemplate resumedRest = new FakeRestTemplate();
+        resumedRest.enqueue(200, favoriteFolders(false, "0"));
+        resumedRest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":"0","aweme_list":[
+                  {"aweme_id":"9502","desc":"Folder B",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9502.mp4"]}}}
+                ]}
+                """);
+
+        var resumed = client(resumedRest).listAccountWorksPage(
+                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS,
+                first.nextCursor(), 20, "sessionid=test");
+
+        assertThat(resumed.items()).extracting("id").containsExactly("9502");
+        assertThat(resumed.hasMore()).isFalse();
+        assertThat(resumedRest.requests().get(1).getRawQuery()).contains("collects_id=folder-b");
+        assertThat(resumedRest.requests()).allSatisfy(uri ->
+                assertThat(uri.getPath()).doesNotContain("/aweme/listcollection/"));
+    }
+
+    @Test
+    @DisplayName("收藏作品同一收藏夹的内层游标稳定推进")
+    void pagesWithinFavoriteWorksFolder() throws Exception {
+        FakeRestTemplate firstRest = new FakeRestTemplate();
+        firstRest.enqueue(200, singleFavoriteFolder());
+        firstRest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"works-next","aweme_list":[
+                  {"aweme_id":"9511","desc":"First",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9511.mp4"]}}}
+                ]}
+                """);
+        var first = client(firstRest).listAccountWorksPage(
+                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null);
+
+        FakeRestTemplate secondRest = new FakeRestTemplate();
+        secondRest.enqueue(200, singleFavoriteFolder());
+        secondRest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":"done","aweme_list":[
+                  {"aweme_id":"9512","desc":"Second",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9512.mp4"]}}}
+                ]}
+                """);
+        var second = client(secondRest).listAccountWorksPage(
+                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS,
+                first.nextCursor(), 20, null);
+
+        assertThat(first.items()).extracting("id").containsExactly("9511");
+        assertThat(second.items()).extracting("id").containsExactly("9512");
+        assertThat(secondRest.requests().get(1).getRawQuery()).contains("cursor=works-next");
+    }
+
+    @Test
+    @DisplayName("收藏作品已识别的空数组或 null 收藏夹列表保持合法空结果")
+    void keepsRecognizedEmptyFavoriteFolders() throws Exception {
+        for (String body : List.of(
+                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"collects_list\":[]}",
+                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"collects_list\":null}")) {
+            FakeRestTemplate rest = new FakeRestTemplate();
+            rest.enqueue(200, body);
+
+            var listing = client(rest).listAccountWorksPage(
+                    favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null);
+
+            assertThat(listing.items()).isEmpty();
+            assertThat(listing.hasMore()).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("收藏作品候选收藏夹缺少稳定 ID 时明确失败")
+    void rejectsFavoriteFolderCandidatesWithoutStableId() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":0,
+                 "collects_list":[{"collects_name":"Missing id"}]}
+                """);
+
+        assertCodeName(() -> client(rest).listAccountWorksPage(
+                        favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null),
+                "RESPONSE_CANDIDATES_FILTERED");
+    }
+
+    @Test
+    @DisplayName("收藏作品按 HTTP 状态保留可诊断错误类别")
+    void classifiesFavoriteWorksHttpStatusFamilies() {
+        assertFavoriteHttpCode(401, "COOKIE_EXPIRED");
+        assertFavoriteHttpCode(404, "UPSTREAM_NOT_FOUND");
+        assertFavoriteHttpCode(429, "RATE_LIMITED");
+        assertFavoriteHttpCode(503, "UPSTREAM_SERVER_ERROR");
+    }
+
+    @Test
     @DisplayName("账号作品仍有下一页但游标未推进时明确失败")
     void rejectsStalledAccountWorksCursor() {
         FakeRestTemplate rest = new FakeRestTemplate();
@@ -829,22 +1186,6 @@ class DefaultDouyinClientParserTest {
                 .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
     }
 
-    private static void assertCodeName(ThrowingRunnable action, String code) {
-        assertThatThrownBy(action::run)
-                .isInstanceOf(DouyinClientException.class)
-                .extracting(error -> ((DouyinClientException) error).code().name())
-                .isEqualTo(code);
-    }
-
-    private static void assertSearchHttpCode(int status, String code) {
-        FakeRestTemplate rest = new FakeRestTemplate();
-        int attempts = status == 429 || status >= 500 ? 3 : 1;
-        for (int attempt = 0; attempt < attempts; attempt++) {
-            rest.enqueue(status, "{}");
-        }
-        assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"), code);
-        assertThat(rest.requests()).hasSize(attempts);
-    }
     private static DefaultDouyinClient client(String... bodies) {
         FakeRestTemplate rest = new FakeRestTemplate();
         for (String body : bodies) {
@@ -919,6 +1260,55 @@ class DefaultDouyinClientParserTest {
                 .isInstanceOf(DouyinClientException.class)
                 .extracting(error -> ((DouyinClientException) error).code())
                 .isEqualTo(code);
+    }
+
+    private static DouyinAccount favoriteAccount() {
+        return new DouyinAccount("uid-1", "sec-1", "Me", "mine");
+    }
+
+    private static String favoriteFolders(boolean hasMore, String cursor) {
+        return """
+                {"status_code":0,"has_more":%d,"cursor":"%s","collects_list":[
+                  {"collects_id_str":"folder-a","collects_name":"Folder A"},
+                  {"collects_info":{"collects_id":"folder-b","collects_name":"Folder B"}}
+                ]}
+                """.formatted(hasMore ? 1 : 0, cursor);
+    }
+
+    private static String singleFavoriteFolder() {
+        return """
+                {"status_code":0,"has_more":0,"cursor":"0","collects_list":[
+                  {"id":"folder-a","collects_name":"Folder A"}
+                ]}
+                """;
+    }
+
+    private static void assertCodeName(ThrowingRunnable action, String code) {
+        assertThatThrownBy(action::run)
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code().name())
+                .isEqualTo(code);
+    }
+
+    private static void assertSearchHttpCode(int status, String code) {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        int attempts = status == 429 || status >= 500 ? 3 : 1;
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            rest.enqueue(status, "{}");
+        }
+        assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"), code);
+        assertThat(rest.requests()).hasSize(attempts);
+    }
+
+    private static void assertFavoriteHttpCode(int status, String code) {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        int attempts = status == 429 || status >= 500 ? 3 : 1;
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            rest.enqueue(status, "{}");
+        }
+        assertCodeName(() -> client(rest).listAccountWorksPage(
+                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null), code);
+        assertThat(rest.requests()).hasSize(attempts);
     }
 
     @FunctionalInterface
