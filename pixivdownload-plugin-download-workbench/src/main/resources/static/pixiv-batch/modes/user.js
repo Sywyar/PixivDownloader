@@ -12,6 +12,10 @@
         userId: '',
         username: '',
         allIds: [],
+        total: 0,
+        pagedAcquisition: false,
+        pageCache: new Map(),
+        pageCursors: new Map(),
         currentPage: 1,
         totalPages: 1,
         rawItems: [],   // 当前页未过滤的卡片
@@ -81,6 +85,77 @@
         return userAcq().fetchIds(userId, {variant: userState.variant, signal: lease.signal});
     }
 
+    async function fetchUserPage(page, lease) {
+        const snapshot = {
+            kind: userState.kind,
+            variant: userState.variant,
+            userId: userState.userId,
+            pageCache: userState.pageCache,
+            pageCursors: userState.pageCursors,
+            acquisition: userAcq()
+        };
+        const assertSnapshotCurrent = () => {
+            lease.assertCurrent();
+            if (userState.kind !== snapshot.kind
+                || userState.variant !== snapshot.variant
+                || userState.userId !== snapshot.userId
+                || userState.pageCache !== snapshot.pageCache
+                || userState.pageCursors !== snapshot.pageCursors) {
+                const error = new Error(bt('pagination.error.stale-request', '分页请求已过期'));
+                error.code = 'STALE_ACQUISITION';
+                throw error;
+            }
+        };
+        const cached = snapshot.pageCache.get(page);
+        if (cached) {
+            assertSnapshotCurrent();
+            return cached;
+        }
+        const declaredPageSize = Number(snapshot.acquisition.pageSize);
+        const pageSize = Number.isFinite(declaredPageSize) && declaredPageSize > 0
+            ? declaredPageSize : USER_PAGE_SIZE;
+        const offset = (page - 1) * pageSize;
+        const cursor = page === 1
+            ? (snapshot.acquisition.initialCursor == null
+                ? null : String(snapshot.acquisition.initialCursor))
+            : snapshot.pageCursors.get(page);
+        if (page > 1 && cursor == null) {
+            throw new Error(bt('pagination.error.cursor-unavailable', '分页游标不可用，请重新从第一页加载'));
+        }
+        const data = await snapshot.acquisition.fetchPage(snapshot.userId, {
+            variant: snapshot.variant,
+            signal: lease.signal,
+            page,
+            offset,
+            limit: pageSize,
+            cursor
+        });
+        assertSnapshotCurrent();
+        const items = Array.isArray(data && data.items) ? data.items : [];
+        const hasMore = !!(data && data.hasMore);
+        const reportedTotal = Number(data && data.total);
+        const minimumTotal = offset + items.length + (hasMore ? 1 : 0);
+        const total = Number.isFinite(reportedTotal) && reportedTotal >= 0
+            ? Math.max(Math.floor(reportedTotal), minimumTotal) : minimumTotal;
+        const nextCursor = data && data.nextCursor != null ? String(data.nextCursor) : '';
+        if (hasMore && (!nextCursor || (cursor != null && nextCursor === String(cursor)))) {
+            throw new Error(bt('pagination.error.cursor-stalled', '分页游标未推进，已停止继续加载'));
+        }
+        const result = {items, total, hasMore, nextCursor};
+        assertSnapshotCurrent();
+        snapshot.pageCache.set(page, result);
+        if (hasMore && nextCursor) snapshot.pageCursors.set(page + 1, nextCursor);
+        return result;
+    }
+
+    function userResultTotal() {
+        return userState.pagedAcquisition ? userState.total : userState.allIds.length;
+    }
+
+    function hasUserResults() {
+        return userResultTotal() > 0;
+    }
+
     function cleanupUserBlobUrls() {
         userState.activeBlobUrls.forEach(u => {
             try { URL.revokeObjectURL(u); } catch {}
@@ -93,6 +168,10 @@
         userState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'user');
         userState.variant = variant;
         userState.allIds = [];
+        userState.total = 0;
+        userState.pagedAcquisition = false;
+        userState.pageCache = new Map();
+        userState.pageCursors = new Map();
         userState.currentPage = 1;
         userState.totalPages = 1;
         userState.rawItems = [];
@@ -125,6 +204,10 @@
         userState.userId = '';
         userState.username = '';
         userState.allIds = [];
+        userState.total = 0;
+        userState.pagedAcquisition = false;
+        userState.pageCache = new Map();
+        userState.pageCursors = new Map();
         userState.rawItems = [];
         userState.items = [];
         userState.cardCache = new Map();
@@ -188,18 +271,22 @@
                 ? bt('status.user-display', '用户：{name}（ID: {id}）', {name: userState.username, id: userId})
                 : bt('status.user-display-fetch-failed', 'ID: {id}（获取用户名失败）', {id: userId});
 
-            const ids = await fetchUserIds(userId, lease);
-            lease.assertCurrent();
-            if (requestSeq !== userState.requestSeq) return;
-            userState.allIds = Array.isArray(ids) ? ids.map(String) : [];
-            userState.totalPages = Math.max(1, Math.ceil(userState.allIds.length / userPageSize()));
-            if (!userState.allIds.length) {
-                setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
-                const area = document.getElementById('user-results-area');
-                if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
-                renderUserPagination();
-                updateUserQueueButtons();
-                return;
+            userState.pagedAcquisition = typeof userAcq().fetchPage === 'function';
+            if (!userState.pagedAcquisition) {
+                const ids = await fetchUserIds(userId, lease);
+                lease.assertCurrent();
+                if (requestSeq !== userState.requestSeq) return;
+                userState.allIds = Array.isArray(ids) ? ids.map(String) : [];
+                userState.total = userState.allIds.length;
+                userState.totalPages = Math.max(1, Math.ceil(userState.total / userPageSize()));
+                if (!userState.allIds.length) {
+                    setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
+                    const area = document.getElementById('user-results-area');
+                    if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
+                    renderUserPagination();
+                    updateUserQueueButtons();
+                    return;
+                }
             }
             await loadUserPreviewPage(1);
         } catch (e) {
@@ -236,7 +323,7 @@
     }
 
     async function loadUserPreviewPage(page) {
-        if (!userState.allIds.length) return;
+        if (!userState.pagedAcquisition && !userState.allIds.length) return;
         let p = Number(page);
         if (!Number.isFinite(p) || p < 1) p = 1;
         if (p > userState.totalPages) p = userState.totalPages;
@@ -249,10 +336,32 @@
         setUserLoading(bt('status.series-page-loading', '正在加载第 {page} 页...', {page: p}));
         const lease = window.PixivBatch.queueTypes.acquisitionLease(userState.kind, 'user');
         try {
-            const cards = await ensureUserCards(slice);
+            let cards;
+            if (userState.pagedAcquisition) {
+                const pageData = await fetchUserPage(p, lease);
+                cards = pageData.items;
+                userState.total = Math.max(userState.total, pageData.total);
+                userState.totalPages = Math.max(
+                    userState.totalPages,
+                    p,
+                    pageData.hasMore ? p + 1 : p,
+                    Math.max(1, Math.ceil(userState.total / pageSize))
+                );
+            } else {
+                cards = await ensureUserCards(slice);
+            }
             lease.assertCurrent();
             if (requestSeq !== userState.requestSeq) return;
             userState.rawItems = cards;
+            if (userState.pagedAcquisition && p === 1 && !cards.length
+                && !userState.pageCache.get(p).hasMore) {
+                setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
+                const area = document.getElementById('user-results-area');
+                if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
+                renderUserPagination();
+                updateUserQueueButtons();
+                return;
+            }
             await applyUserFilters({});
             lease.assertCurrent();
             if (requestSeq !== userState.requestSeq) return;
@@ -323,7 +432,7 @@
             return;
         }
         const summary = [
-            bt('series.meta.total', '共 {count} 个作品', {count: userState.allIds.length.toLocaleString()}),
+            bt('series.meta.total', '共 {count} 个作品', {count: userResultTotal().toLocaleString()}),
             bt('search.summary.current-page-index', '当前第 {page} 页', {page: userState.currentPage}),
             bt('search.summary.current-page', '当前页 {count} 个', {count: userState.rawItems.length})
         ];
@@ -354,7 +463,7 @@
         if (!pag) return;
         const totalPages = Math.max(1, Number(userState.totalPages || 1));
         const cur = Math.min(Math.max(1, Number(userState.currentPage || 1)), totalPages);
-        if (!userState.allIds.length || totalPages <= 1) {
+        if (!hasUserResults() || totalPages <= 1) {
             pag.style.display = 'none';
             pag.innerHTML = '';
             return;
@@ -376,7 +485,7 @@
             `<span class="pg-info">${esc(bt('search.pagination.info', '第 {current} / {total} 页 · 共 {count} 个', {
                 current: cur,
                 total: totalPages,
-                count: userState.allIds.length.toLocaleString()
+                count: userResultTotal().toLocaleString()
             }))}</span>`;
     }
 
@@ -418,7 +527,7 @@
         const pageBtn = document.getElementById('btn-user-add-page');
         const allBtn = document.getElementById('btn-user-add-all');
         if (pageBtn) pageBtn.disabled = isLoading || userState.items.length === 0;
-        if (allBtn) allBtn.disabled = isLoading || userState.allIds.length === 0;
+        if (allBtn) allBtn.disabled = isLoading || !hasUserResults();
     }
 
     function addUserItemToQueue(idx) {
@@ -477,12 +586,12 @@
     }
 
     async function addAllUserResultsToQueue() {
-        if (!userState.allIds.length) return;
+        if (!hasUserResults()) return;
         const acq = userAcq();
         const metaCtx = {userId: userState.userId, username: userState.username};
         const uiFilters = normalizeSearchFilters(getSearchFiltersFromUI());
         // 无附加筛选：直接按全部 ID 入队（最省请求，等价于旧版「获取全部作品」）。
-        if (!hasExtraSearchFilter(uiFilters)) {
+        if (!userState.pagedAcquisition && !hasExtraSearchFilter(uiFilters)) {
             const ids = userState.allIds.map(id => userQueueId({id}));
             const metas = userState.allIds.map(id => acq.buildQueueMetaFromId(id, metaCtx));
             const added = addItemsToQueue(
@@ -497,40 +606,71 @@
             syncUserResultsQueueState();
             return;
         }
-        // 有附加筛选：必须逐页拉取卡片元数据做筛选，确认后继续。
+        // 分页取得或附加筛选都需要逐页读取卡片元数据；附加筛选先确认再继续。
         const lease = window.PixivBatch.queueTypes.acquisitionLease(userState.kind, 'user');
         const requestSeq = userState.requestSeq;
-        const confirmed = await uiConfirmKey(
-            'dialog.user-add-all-warning',
-            '「全部加入队列」会按附加筛选逐页请求该画师的全部 {total} 个作品卡片，作品较多时会增加 Pixiv 请求量并耗时，确认继续？',
-            {total: userState.allIds.length}
-        );
-        if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
-        lease.assertCurrent();
-        if (!confirmed) return;
+        if (hasExtraSearchFilter(uiFilters)) {
+            const confirmed = await uiConfirmKey(
+                'dialog.user-add-all-warning',
+                '「全部加入队列」会按附加筛选逐页请求该画师的全部 {total} 个作品卡片，作品较多时会增加 Pixiv 请求量并耗时，确认继续？',
+                {total: userResultTotal()}
+            );
+            if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
+            lease.assertCurrent();
+            if (!confirmed) return;
+        }
         updateUserQueueButtons(true);
         try {
             const filters = uiFilters;
             const kind = userState.kind;
             const matched = [];
-            const total = userState.allIds.length;
             const pageSize = userPageSize();
-            for (let i = 0; i < userState.allIds.length; i += pageSize) {
-                const slice = userState.allIds.slice(i, i + pageSize);
-                setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...', {
-                    done: Math.min(i + pageSize, total),
-                    total
-                }), 'info');
-                const cards = await ensureUserCards(slice);
-                lease.assertCurrent();
-                if (requestSeq !== userState.requestSeq) return;
-                const result = await computeFilteredItems(cards, filters, kind, () => false);
-                lease.assertCurrent();
-                if (requestSeq !== userState.requestSeq) return;
-                if (result) matched.push(...result.filtered);
+            if (userState.pagedAcquisition) {
+                let page = 1;
+                let hasMore = true;
+                while (hasMore) {
+                    if (page > 1000) {
+                        throw new Error(bt('pagination.error.safety-limit', '分页数量超过安全限制'));
+                    }
+                    const pageData = await fetchUserPage(page, lease);
+                    lease.assertCurrent();
+                    if (requestSeq !== userState.requestSeq) return;
+                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...', {
+                        done: Math.min(page * pageSize, pageData.total),
+                        total: pageData.total
+                    }), 'info');
+                    if (hasExtraSearchFilter(filters)) {
+                        const result = await computeFilteredItems(pageData.items, filters, kind, () => false);
+                        lease.assertCurrent();
+                        if (requestSeq !== userState.requestSeq) return;
+                        if (result) matched.push(...result.filtered);
+                    } else {
+                        matched.push(...pageData.items);
+                    }
+                    hasMore = pageData.hasMore;
+                    page++;
+                }
+            } else {
+                const total = userState.allIds.length;
+                for (let i = 0; i < userState.allIds.length; i += pageSize) {
+                    const slice = userState.allIds.slice(i, i + pageSize);
+                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...', {
+                        done: Math.min(i + pageSize, total),
+                        total
+                    }), 'info');
+                    const cards = await ensureUserCards(slice);
+                    lease.assertCurrent();
+                    if (requestSeq !== userState.requestSeq) return;
+                    const result = await computeFilteredItems(cards, filters, kind, () => false);
+                    lease.assertCurrent();
+                    if (requestSeq !== userState.requestSeq) return;
+                    if (result) matched.push(...result.filtered);
+                }
             }
-            const ids = matched.map(userQueueId);
-            const metas = matched.map(buildUserQueueMeta);
+            const unique = new Map();
+            matched.forEach(item => unique.set(userQueueId(item), item));
+            const ids = Array.from(unique.keys());
+            const metas = Array.from(unique.values()).map(buildUserQueueMeta);
             const added = addItemsToQueue(
                 ids, metas, 'user',
                 userState.username || userState.userId, userState.userId, userState.username || userState.userId

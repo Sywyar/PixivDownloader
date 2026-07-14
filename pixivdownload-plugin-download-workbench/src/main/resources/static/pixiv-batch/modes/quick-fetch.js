@@ -19,6 +19,7 @@
         ownerType: null,
         uid: null,
         accountOwner: null,
+        accountIdsByOwner: new Map(),
         accountSeq: 0,
         loadSeq: 0,
         viewType: null,   // 'works-list' | 'following-list' | 'collection-list'
@@ -54,12 +55,15 @@
         workCategory: null,
         kind: null,
         idsByType: new Map(),
+        userPageStates: new Map(),
+        collectionPageState: null,
         allIds: [],        // 当前 kind 对应的全部 ID（following-user 用）
         rawItems: [],      // 当前页未经附加筛选的原始作品（live 预览过滤的事实源）
         items: [],         // 附加筛选后用于渲染 / 入队的作品
         total: 0,
         page: 1,
         pageSize: QUICK_PAGE_SIZE_ILLUST,
+        loadSeq: 0,
         renderToken: 0,
         // 附加筛选竞态序号 + 最近一次过滤统计
         filterSeq: 0,
@@ -141,6 +145,76 @@
 
     function currentQuickAction() {
         return quickActionMap()[quickState.action] || null;
+    }
+
+    function assertQuickActionContext(context) {
+        if (context && typeof context.assertCurrent === 'function') context.assertCurrent();
+    }
+
+    function quickActionUserWorkTypes(descriptor = currentQuickAction()) {
+        if (!descriptor) return new Set();
+        const declared = Array.isArray(descriptor.userWorkTypes)
+            ? descriptor.userWorkTypes.map(String).filter(Boolean)
+            : [];
+        return new Set(declared.length ? declared : [descriptor.ownerType]);
+    }
+
+    function quickUserAcquisitionsForAction(descriptor = currentQuickAction()) {
+        const allowedTypes = quickActionUserWorkTypes(descriptor);
+        return window.PixivBatch.queueTypes.acquisitionList('quick')
+            .filter(acq => allowedTypes.has(acq.type)
+                && (typeof acq.buildUserPageRequest === 'function'
+                    || (typeof acq.buildUserIdsRequest === 'function'
+                        && typeof acq.buildCardsRequest === 'function')));
+    }
+
+    function quickAccountAcquisition(ownerType) {
+        const requested = ownerType == null ? '' : String(ownerType);
+        const candidates = window.PixivBatch.queueTypes.acquisitionList('quick')
+            .filter(candidate => candidate.account
+                && typeof candidate.account.credentialMissing === 'function'
+                && typeof candidate.account.buildRequest === 'function'
+                && typeof candidate.account.readId === 'function');
+        return (requested && candidates.find(candidate => candidate.type === requested))
+            || (!requested ? candidates[0] : null) || null;
+    }
+
+    function quickActionCredentialState(actionOrDescriptor) {
+        const descriptor = typeof actionOrDescriptor === 'string'
+            ? quickActionMap()[actionOrDescriptor]
+            : actionOrDescriptor;
+        if (!descriptor) return {missing: false, ownerType: null, hint: ''};
+        const acq = quickAccountAcquisition(descriptor.ownerType);
+        if (!acq) return {missing: false, ownerType: descriptor.ownerType, hint: ''};
+        try {
+            const missing = acq.account.credentialMissing() === true;
+            return {
+                missing,
+                ownerType: acq.type,
+                hint: missing
+                    ? (typeof acq.account.missingHint === 'function'
+                        ? acq.account.missingHint()
+                        : bt('quick.account.hint-no-credential', '未检测到可用的登录凭据'))
+                    : ''
+            };
+        } catch (e) {
+            console.warn('[quick] 账号凭据状态钩子失败：', acq.type, e);
+            return {
+                missing: true,
+                ownerType: acq.type,
+                hint: bt('quick.account.hint-no-credential', '未检测到可用的登录凭据')
+            };
+        }
+    }
+
+    function applyQuickActionCredentialUi() {
+        document.querySelectorAll('.quick-action').forEach(button => {
+            const credential = quickActionCredentialState(button.dataset && button.dataset.quick);
+            const loading = !!(button.classList && typeof button.classList.contains === 'function'
+                && button.classList.contains('is-loading'));
+            button.disabled = credential.missing || loading;
+            button.title = credential.missing ? credential.hint : '';
+        });
     }
 
     function quickScheduleSource() {
@@ -270,16 +344,25 @@
         }
     }
 
-    async function updateQuickAccountBar() {
+    function invalidateQuickAccount(ownerType) {
+        const owner = ownerType == null ? '' : String(ownerType);
+        if (!owner) return;
+        quickState.accountSeq++;
+        quickState.accountIdsByOwner.delete(owner);
+        if (quickState.accountOwner !== owner) return;
+        quickState.uid = null;
+        const uidEl = document.getElementById('quick-account-uid');
+        if (uidEl) uidEl.textContent = '-';
+    }
+
+    async function updateQuickAccountBar(ownerType) {
         const uidEl = document.getElementById('quick-account-uid');
         const hintEl = document.getElementById('quick-account-hint');
         if (!uidEl || !hintEl) return;
         const seq = ++quickState.accountSeq;
-        const acq = window.PixivBatch.queueTypes.acquisitionList('quick')
-            .find(candidate => candidate.account
-                && typeof candidate.account.credentialMissing === 'function'
-                && typeof candidate.account.buildRequest === 'function'
-                && typeof candidate.account.readId === 'function');
+        const requestedOwner = ownerType || quickState.ownerType
+            || (currentQuickAction() && currentQuickAction().ownerType) || null;
+        const acq = quickAccountAcquisition(requestedOwner);
         if (!acq) {
             uidEl.textContent = '-';
             quickState.uid = null;
@@ -298,6 +381,7 @@
             uidEl.textContent = '-';
             quickState.uid = null;
             quickState.accountOwner = acq.type;
+            quickState.accountIdsByOwner.delete(acq.type);
             hintEl.style.display = '';
             hintEl.textContent = typeof acq.account.missingHint === 'function'
                 ? acq.account.missingHint()
@@ -305,10 +389,16 @@
             return;
         }
         hintEl.style.display = 'none';
-        if (quickState.uid && quickState.accountOwner === acq.type) {
-            uidEl.textContent = quickState.uid;
+        const cachedAccountId = quickState.accountIdsByOwner.get(acq.type);
+        if (cachedAccountId) {
+            quickState.uid = cachedAccountId;
+            quickState.accountOwner = acq.type;
+            uidEl.textContent = cachedAccountId;
             return;
         }
+        quickState.uid = null;
+        quickState.accountOwner = acq.type;
+        uidEl.textContent = '-';
         let request = null;
         try {
             const spec = acq.account.buildRequest();
@@ -322,6 +412,7 @@
             if (!accountId) return;
             quickState.uid = String(accountId);
             quickState.accountOwner = acq.type;
+            quickState.accountIdsByOwner.set(acq.type, quickState.uid);
             uidEl.textContent = quickState.uid;
         } catch (e) {
             // 账号栏是 best-effort；发布已更换或请求失败时保持占位。
@@ -407,12 +498,30 @@
             quickRenderEmpty(bt('quick.error.unknown-action', '该入口当前不可用'));
             return;
         }
+        const credential = quickActionCredentialState(desc);
+        if (credential.missing) {
+            quickResetView();
+            quickState.action = action;
+            quickState.ownerType = desc.ownerType;
+            quickRenderEmpty(credential.hint);
+            applyQuickActionCredentialUi();
+            await updateQuickAccountBar(desc.ownerType);
+            return;
+        }
         const lease = window.PixivBatch.queueTypes.acquisitionLease(desc.ownerType, 'quick');
         quickResetView();
         const loadSeq = quickState.loadSeq;
         const isCurrent = () => lease.isCurrent() && loadSeq === quickState.loadSeq;
         quickState.action = action;
         quickState.ownerType = desc.ownerType;
+        const assertCurrent = () => {
+            lease.assertCurrent();
+            if (loadSeq !== quickState.loadSeq) {
+                const error = new Error(bt('quick.error.stale-request', '快捷获取请求已过期'));
+                error.code = 'STALE_ACQUISITION';
+                throw error;
+            }
+        };
         // 高亮当前按钮
         document.querySelectorAll('.quick-action').forEach(b => {
             b.classList.toggle('quick-active', b.dataset.quick === action);
@@ -429,12 +538,14 @@
             if (desc.viewType) quickState.viewType = desc.viewType;
             if (desc.kind) quickState.kind = desc.kind;
             if (desc.pageSize) quickState.pageSize = desc.pageSize;
+            await updateQuickAccountBar(desc.ownerType);
+            assertCurrent();
             await desc.load(action, {
                 signal: lease.signal,
-                isCurrent: lease.isCurrent,
-                assertCurrent: lease.assertCurrent
+                isCurrent,
+                assertCurrent
             });
-            lease.assertCurrent();
+            assertCurrent();
             if (!isCurrent()) return;
         } catch (e) {
             if (!isCurrent()) return;
@@ -455,7 +566,7 @@
         const data = await res.json().catch(() => ({}));
         request.assertCurrent();
         if (loadSeq !== quickState.loadSeq) {
-            const error = new Error('quick acquisition request is stale');
+            const error = new Error(bt('quick.error.stale-request', '快捷获取请求已过期'));
             error.code = 'STALE_ACQUISITION';
             throw error;
         }
@@ -493,12 +604,17 @@
         applyNovelSettingsVisibility();
     }
 
-    async function loadQuickMyWorks(kind, page) {
+    async function loadQuickMyWorks(kind, page, context) {
+        assertQuickActionContext(context);
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
-        if (!quickState.uid) {
+        const accountOwner = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'quick');
+        if (!quickState.uid || quickState.accountOwner !== accountOwner) {
             const spec = acq.account && acq.account.buildRequest();
             const data = await quickFetchJson(quickRequestUrl(spec), kind, 'account');
+            assertQuickActionContext(context);
             quickState.uid = String(acq.account.readId(data));
+            quickState.accountOwner = accountOwner;
+            quickState.accountIdsByOwner.set(accountOwner, quickState.uid);
             const uidEl = document.getElementById('quick-account-uid');
             if (uidEl) uidEl.textContent = quickState.uid;
         }
@@ -508,6 +624,7 @@
         if (!quickState.allIds.length || quickState.action.endsWith('-refresh')) {
             const data = await quickFetchJson(
                 quickRequestUrl(acq.buildMyWorksIdsRequest(uid)), kind);
+            assertQuickActionContext(context);
             quickState.allIds = data.ids || [];
         }
         const pageSize = acq.pageSize;
@@ -519,6 +636,7 @@
         if (slice.length > 0) {
             const data = await quickFetchJson(
                 quickRequestUrl(acq.buildCardsRequest(uid, slice)), kind);
+            assertQuickActionContext(context);
             items = data.items || [];
         }
         quickState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'quick');
@@ -531,7 +649,8 @@
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();
-        renderQuickPagination(safePage, totalPages, p => loadQuickMyWorks(kind, p));
+        assertQuickActionContext(context);
+        renderQuickPagination(safePage, totalPages, p => loadQuickMyWorks(kind, p, context));
         updateExtraFiltersCardVisibility();
         updateSaveScheduleCardVisibility();
         applyNovelSettingsVisibility();
@@ -540,15 +659,18 @@
     // 我的约稿作品（账号自身已完成并公开的约稿成品）：先拉全 ID（约稿发现端点）再本地分页取 illust 卡片，渲染同插画。
     async function loadQuickMyRequest(kind, page) {
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
+        const accountOwner = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'quick');
         const action = currentQuickAction();
         if (!action || typeof action.buildIdsRequest !== 'function'
             || typeof action.buildCardsRequest !== 'function') {
             throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
         }
-        if (!quickState.uid) {
+        if (!quickState.uid || quickState.accountOwner !== accountOwner) {
             const data = await quickFetchJson(
                 quickRequestUrl(acq.account.buildRequest()), kind, 'account');
             quickState.uid = String(acq.account.readId(data));
+            quickState.accountOwner = accountOwner;
+            quickState.accountIdsByOwner.set(accountOwner, quickState.uid);
             const uidEl = document.getElementById('quick-account-uid');
             if (uidEl) uidEl.textContent = quickState.uid;
         }
@@ -871,12 +993,27 @@
         syncQuickQueueState();
     }
 
+    function currentQuickQueueContext() {
+        const inner = quickInner.open ? Object.freeze({
+            type: quickInner.type || '',
+            id: quickInner.id == null ? null : String(quickInner.id),
+            name: quickInner.name || '',
+            userId: quickInner.userId == null ? null : String(quickInner.userId)
+        }) : null;
+        return Object.freeze({
+            action: quickState.action || '',
+            accountOwner: quickState.accountOwner || null,
+            accountId: quickState.uid == null ? null : String(quickState.uid),
+            inner
+        });
+    }
+
     function buildQuickQueueMeta(item, kind = quickState.kind) {
         // 队列模型禁止 bake 翻译文案（会被持久化、跨语言切换继续显示旧译）；
         // title 直接存原始值（可为空），渲染时由 queueItemDisplayTitle(q) 派生 fallback。
         // 类型专属队列 meta（如小说 novelId/kind）由该类型 quick 钩子贡献；插画为内置默认。
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
-        return acq.buildQueueMeta(item);
+        return acq.buildQueueMeta(item, currentQuickQueueContext());
     }
 
     function syncQuickQueueState() {
@@ -977,7 +1114,8 @@
             const ids = quickState.allIds.map(id => quickQueueId({id}, quickState.kind));
             // 队列模型禁止 bake 翻译文案；title 留空，渲染时由 queueItemDisplayTitle(q) 派生 fallback。
             // 类型专属裸 id meta（如小说 novelId/kind）由该类型 quick 钩子贡献；插画为空 meta。
-            const metas = quickState.allIds.map(id => acq.buildQueueMetaFromId(id));
+            const queueContext = currentQuickQueueContext();
+            const metas = quickState.allIds.map(id => acq.buildQueueMetaFromId(id, queueContext));
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
             setStatus(
                 bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
@@ -985,6 +1123,79 @@
                 added > 0 ? 'success' : 'info'
             );
             syncQuickQueueState();
+            return;
+        }
+        // Cursor 型账号列表不能按推算页码跳读。始终从 owner 声明的初始游标顺序推进，
+        // 完整抓取成功后才一次性入队，避免游标停滞时留下半截队列。
+        if (allDesc && allDesc.cursorPaging && typeof allDesc.buildPageRequest === 'function') {
+            const expectedPages = Math.max(1, Math.ceil(quickState.total / quickState.pageSize));
+            if (!await uiConfirmKey('quick.confirm.add-all-paged',
+                '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
+                {pages: expectedPages, total: quickState.total})) return;
+            const action = quickState.action;
+            const loadSeq = quickState.loadSeq;
+            const ids = [];
+            const metas = [];
+            const collectedIds = new Set();
+            const seenCursors = new Set();
+            let cursor = allDesc.initialCursor == null ? null : String(allDesc.initialCursor);
+            setQuickBtnLoading('quick-add-all', true);
+            try {
+                let page = 1;
+                let hasMore = true;
+                while (hasMore) {
+                    if (page > 1000) {
+                        throw new Error(bt('pagination.error.safety-limit', '分页数量超过安全限制'));
+                    }
+                    const cursorKey = cursor == null ? '' : String(cursor);
+                    if (seenCursors.has(cursorKey)) {
+                        throw new Error(bt('pagination.error.cursor-stalled', '分页游标未推进，已停止继续加载'));
+                    }
+                    seenCursors.add(cursorKey);
+                    const offset = (page - 1) * quickState.pageSize;
+                    const rest = allDesc.scheduleRest
+                        || (action.endsWith('hide') ? 'hide' : 'show');
+                    const data = await quickFetchJson(quickRequestUrl(allDesc.buildPageRequest({
+                        rest,
+                        page,
+                        offset,
+                        limit: quickState.pageSize,
+                        cursor
+                    })), allDesc.ownerType);
+                    if (loadSeq !== quickState.loadSeq || quickState.action !== action) return;
+                    (data.items || []).forEach(item => {
+                        const id = quickQueueId(item, quickState.kind);
+                        if (collectedIds.has(id)) return;
+                        collectedIds.add(id);
+                        ids.push(id);
+                        metas.push(buildQuickQueueMeta(item));
+                    });
+                    hasMore = !!data.hasMore;
+                    if (hasMore) {
+                        const nextCursor = data.nextCursor == null ? '' : String(data.nextCursor);
+                        if (!nextCursor || seenCursors.has(nextCursor)) {
+                            throw new Error(bt('pagination.error.cursor-stalled', '分页游标未推进，已停止继续加载'));
+                        }
+                        cursor = nextCursor;
+                    }
+                    setStatus(bt('status.user-fetch-all-progress',
+                        '正在抓取画师作品卡片 {done} / {total}...',
+                        {done: ids.length, total: Math.max(ids.length, quickState.total)}), 'info');
+                    page++;
+                }
+                if (loadSeq !== quickState.loadSeq || quickState.action !== action) return;
+                const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
+                setStatus(
+                    bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
+                        {added, total: ids.length, existing: ids.length - added}),
+                    added > 0 ? 'success' : 'info'
+                );
+                syncQuickQueueState();
+            } catch (e) {
+                setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            } finally {
+                setQuickBtnLoading('quick-add-all', false);
+            }
             return;
         }
         // 其它（书签 / 珍藏集内 / 关注用户作品）：逐页抓取
@@ -1065,6 +1276,7 @@
 
     function quickCloseInner() {
         quickInner.open = false;
+        quickInner.loadSeq++;
         quickInner.renderToken++;
         quickInner.filterSeq++;
         quickInner.type = null;
@@ -1074,6 +1286,8 @@
         quickInner.workCategory = null;
         quickInner.kind = null;
         quickInner.idsByType = new Map();
+        quickInner.userPageStates = new Map();
+        quickInner.collectionPageState = null;
         quickInner.allIds = [];
         quickInner.items = [];
         quickInner.rawItems = [];
@@ -1120,10 +1334,18 @@
         const sw = document.getElementById('quick-inner-kind-switcher');
         sw.style.display = opts.showKindSwitcher ? '' : 'none';
         if (opts.showKindSwitcher && opts.kind) {
+            const allowedTypes = quickActionUserWorkTypes();
             document.querySelectorAll('#quick-inner-kind-switcher label').forEach(l => {
+                const type = l.dataset.quickKind;
+                const available = allowedTypes.has(type)
+                    && window.PixivBatch.queueTypes.supports(type, 'quick');
+                l.style.display = available ? '' : 'none';
                 l.classList.toggle('quick-kind-active', l.dataset.quickKind === opts.kind);
                 const input = l.querySelector('input');
-                if (input) input.checked = l.dataset.quickKind === opts.kind;
+                if (input) {
+                    input.disabled = !available;
+                    input.checked = l.dataset.quickKind === opts.kind;
+                }
             });
         }
     }
@@ -1226,41 +1448,161 @@
         if (typeof quickInner._jumpFn === 'function') quickInner._jumpFn(p);
     }
 
-    // 珍藏集 → 集内作品（插画+小说混合，一次性返回、无分页）
+    // 珍藏集 → 集内作品（插画+小说混合）；支持中性 cursor 页钩子并保留旧一次性响应。
     async function quickEnterCollection(idx) {
         const c = quickState.items[idx];
         if (!c) return;
         const cid = String(c.id);
+        const outerLoadSeq = quickState.loadSeq;
+        const enterSeq = ++quickInner.loadSeq;
         quickCleanupInnerBlobUrls();
         quickInner.open = true;
         quickInner.type = 'collection';
         quickInner.id = cid;
         quickInner.name = c.title || cid;
+        quickInner.collectionPageState = {pages: new Map(), cursors: new Map(), total: 0};
         quickHighlightOuterCard(`#quick-preview-area .quick-collection-card:nth-of-type(${idx + 1})`);
         quickShowInnerSection();
         document.getElementById('quick-inner-area').innerHTML = quickLoadingHtml();
         quickShowInnerToolbar({showAdd: false, showKindSwitcher: false});
         try {
             const action = currentQuickAction();
-            if (!action || typeof action.buildCollectionWorksRequest !== 'function') {
+            if (!action || (typeof action.buildCollectionWorksPageRequest !== 'function'
+                && typeof action.buildCollectionWorksRequest !== 'function')) {
                 throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
             }
-            const data = await quickFetchJson(
-                quickRequestUrl(action.buildCollectionWorksRequest(cid)), action.ownerType);
-            quickInner.rawItems = data.works || [];
-            quickInner.total = data.total || quickInner.rawItems.length;
-            quickShowInnerToolbar({showAdd: quickInner.rawItems.length > 0, showKindSwitcher: false});
-            quickSetInnerTitle(`${bt('quick.title.collections', '我的珍藏集')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: quickInner.total.toLocaleString()})}`);
-            await quickApplyInnerFilters();
-            renderQuickInnerPagination(1, 1, () => {});
+            if (typeof action.buildCollectionWorksPageRequest === 'function') {
+                await loadQuickInnerCollectionWorks(action, cid, 1);
+            } else {
+                const data = await quickFetchJson(
+                    quickRequestUrl(action.buildCollectionWorksRequest(cid)), action.ownerType);
+                if (enterSeq !== quickInner.loadSeq || outerLoadSeq !== quickState.loadSeq
+                    || !quickInner.open || quickInner.id !== cid) return;
+                quickInner.rawItems = data.works || [];
+                quickInner.total = data.total || quickInner.rawItems.length;
+                quickInner.page = 1;
+                quickShowInnerToolbar({showAdd: quickInner.rawItems.length > 0, showKindSwitcher: false});
+                quickSetInnerTitle(`${bt('quick.title.collections', '我的珍藏集')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: quickInner.total.toLocaleString()})}`);
+                await quickApplyInnerFilters();
+                renderQuickInnerPagination(1, 1, () => {});
+            }
             // 珍藏集内为混合作品（无单画师来源）：显示附加筛选与小说设置，但不提供「存为计划任务」。
             updateExtraFiltersCardVisibility();
             updateSaveScheduleCardVisibility();
             applyNovelSettingsVisibility();
         } catch (e) {
+            if (outerLoadSeq !== quickState.loadSeq || !quickInner.open || quickInner.id !== cid) return;
             document.getElementById('quick-inner-area').innerHTML =
                 `<div class="quick-empty">${esc(bt('quick.error.load-failed', '加载失败：{message}', {message: e.message || String(e)}))}</div>`;
         }
+    }
+
+    function quickInnerCollectionPageState() {
+        if (!quickInner.collectionPageState) {
+            quickInner.collectionPageState = {pages: new Map(), cursors: new Map(), total: 0};
+        }
+        return quickInner.collectionPageState;
+    }
+
+    async function fetchQuickInnerCollectionPage(action, collectionId, page) {
+        const pageState = quickInnerCollectionPageState();
+        const cached = pageState.pages.get(page);
+        if (cached) return cached;
+        const acq = window.PixivBatch.queueTypes.acquisition(action.ownerType, 'quick');
+        const limit = Math.max(1, Number(action.pageSize || (acq && acq.pageSize)) || QUICK_PAGE_SIZE_ILLUST);
+        const offset = (page - 1) * limit;
+        const cursor = page === 1
+            ? (action.initialCursor == null ? null : String(action.initialCursor))
+            : pageState.cursors.get(page);
+        if (page > 1 && cursor == null) {
+            throw new Error(bt('pagination.error.cursor-unavailable', '分页游标不可用，请重新从第一页加载'));
+        }
+        const data = await quickFetchJson(quickRequestUrl(action.buildCollectionWorksPageRequest(collectionId, {
+            page,
+            offset,
+            limit,
+            cursor
+        })), action.ownerType);
+        const items = Array.isArray(data.works) ? data.works
+            : (Array.isArray(data.items) ? data.items : []);
+        const hasMore = !!data.hasMore;
+        const nextCursor = data.nextCursor == null ? '' : String(data.nextCursor);
+        if (hasMore && (!nextCursor || (cursor != null && nextCursor === String(cursor)))) {
+            throw new Error(bt('pagination.error.cursor-stalled', '分页游标未推进，已停止继续加载'));
+        }
+        const reportedTotal = Number(data.total);
+        const minimumTotal = offset + items.length + (hasMore ? 1 : 0);
+        const total = Number.isFinite(reportedTotal) && reportedTotal >= 0
+            ? Math.max(Math.floor(reportedTotal), minimumTotal) : minimumTotal;
+        pageState.total = Math.max(pageState.total, total);
+        const result = {items, total: pageState.total, hasMore, nextCursor, limit};
+        pageState.pages.set(page, result);
+        if (hasMore) pageState.cursors.set(page + 1, nextCursor);
+        return result;
+    }
+
+    async function loadQuickInnerCollectionWorks(action, collectionId, page) {
+        const loadSeq = ++quickInner.loadSeq;
+        const safePage = Math.max(1, Number(page) || 1);
+        const pageData = await fetchQuickInnerCollectionPage(action, collectionId, safePage);
+        if (loadSeq !== quickInner.loadSeq || !quickInner.open
+            || quickInner.type !== 'collection' || quickInner.id !== collectionId) return;
+        quickInner.rawItems = pageData.items;
+        quickInner.total = pageData.total;
+        quickInner.page = safePage;
+        quickInner.pageSize = pageData.limit;
+        quickShowInnerToolbar({showAdd: pageData.items.length > 0 || pageData.total > 0, showKindSwitcher: false});
+        quickSetInnerTitle(`${bt('quick.title.collections', '我的珍藏集')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: quickInner.total.toLocaleString()})}`);
+        await quickApplyInnerFilters();
+        if (loadSeq !== quickInner.loadSeq || !quickInner.open
+            || quickInner.type !== 'collection' || quickInner.id !== collectionId) return;
+        const totalPages = Math.max(safePage, pageData.hasMore ? safePage + 1 : safePage);
+        renderQuickInnerPagination(safePage, totalPages,
+            nextPage => loadQuickInnerCollectionWorks(action, collectionId, nextPage));
+    }
+
+    function quickInnerUserPageState(type) {
+        let pageState = quickInner.userPageStates.get(type);
+        if (!pageState) {
+            pageState = {pages: new Map(), cursors: new Map(), total: 0};
+            quickInner.userPageStates.set(type, pageState);
+        }
+        return pageState;
+    }
+
+    async function fetchQuickInnerUserPage(acq, userId, page) {
+        const pageState = quickInnerUserPageState(acq.type);
+        const cached = pageState.pages.get(page);
+        if (cached) return cached;
+        const limit = acq.pageSize;
+        const offset = (page - 1) * limit;
+        const cursor = page === 1
+            ? (acq.initialCursor == null ? null : String(acq.initialCursor))
+            : pageState.cursors.get(page);
+        if (page > 1 && cursor == null) {
+            throw new Error(bt('pagination.error.cursor-unavailable', '分页游标不可用，请重新从第一页加载'));
+        }
+        const data = await quickFetchJson(quickRequestUrl(acq.buildUserPageRequest(userId, {
+            page,
+            offset,
+            limit,
+            cursor
+        })), acq.type);
+        const items = Array.isArray(data.items) ? data.items : [];
+        const hasMore = !!data.hasMore;
+        const reportedTotal = Number(data.total);
+        const minimumTotal = offset + items.length + (hasMore ? 1 : 0);
+        const total = Number.isFinite(reportedTotal) && reportedTotal >= 0
+            ? Math.max(Math.floor(reportedTotal), minimumTotal) : minimumTotal;
+        const nextCursor = data.nextCursor == null ? '' : String(data.nextCursor);
+        if (hasMore && (!nextCursor || (cursor != null && nextCursor === String(cursor)))) {
+            throw new Error(bt('pagination.error.cursor-stalled', '分页游标未推进，已停止继续加载'));
+        }
+        pageState.total = Math.max(pageState.total, total);
+        const result = {items, total: pageState.total, hasMore, nextCursor};
+        pageState.pages.set(page, result);
+        if (hasMore && nextCursor) pageState.cursors.set(page + 1, nextCursor);
+        return result;
     }
 
     // 关注用户 → 该用户作品（插画/小说切换）
@@ -1269,6 +1611,8 @@
         if (!u) return;
         const userId = String(u.userId);
         const userName = u.userName || userId;
+        const outerLoadSeq = quickState.loadSeq;
+        const enterSeq = ++quickInner.loadSeq;
         quickCleanupInnerBlobUrls();
         quickInner.open = true;
         quickInner.type = 'following-user';
@@ -1279,51 +1623,79 @@
         document.getElementById('quick-inner-area').innerHTML = quickLoadingHtml();
         quickShowInnerToolbar({showAdd: false, showKindSwitcher: false});
         try {
-            const acquisitions = window.PixivBatch.queueTypes.acquisitionList('quick')
-                .filter(acq => typeof acq.buildUserIdsRequest === 'function'
-                    && typeof acq.buildCardsRequest === 'function');
+            const acquisitions = quickUserAcquisitionsForAction();
             quickInner.idsByType = new Map();
+            quickInner.userPageStates = new Map();
             await Promise.all(acquisitions.map(async acq => {
-                if (typeof acq.buildUserIdsRequest !== 'function') return;
-                const data = await quickFetchJson(
-                    quickRequestUrl(acq.buildUserIdsRequest(userId)), acq.type);
-                quickInner.idsByType.set(acq.type, data.ids || []);
+                if (typeof acq.buildUserPageRequest === 'function') {
+                    await fetchQuickInnerUserPage(acq, userId, 1);
+                } else {
+                    const data = await quickFetchJson(
+                        quickRequestUrl(acq.buildUserIdsRequest(userId)), acq.type);
+                    quickInner.idsByType.set(acq.type, data.ids || []);
+                }
             }));
-            quickInner.kind = acquisitions.find(acq => (quickInner.idsByType.get(acq.type) || []).length > 0)?.type
+            if (enterSeq !== quickInner.loadSeq || outerLoadSeq !== quickState.loadSeq
+                || !quickInner.open || quickInner.userId !== userId) return;
+            quickInner.kind = acquisitions.find(acq => {
+                if (typeof acq.buildUserPageRequest === 'function') {
+                    const first = quickInnerUserPageState(acq.type).pages.get(1);
+                    return first && (first.items.length > 0 || first.total > 0);
+                }
+                return (quickInner.idsByType.get(acq.type) || []).length > 0;
+            })?.type
                 || (acquisitions[0] && acquisitions[0].type) || null;
             if (!quickInner.kind) {
                 throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
             }
             await loadQuickInnerFollowingUserWorks(quickInner.kind, 1);
         } catch (e) {
+            if (outerLoadSeq !== quickState.loadSeq || !quickInner.open || quickInner.userId !== userId) return;
             document.getElementById('quick-inner-area').innerHTML =
                 `<div class="quick-empty">${esc(bt('quick.error.load-failed', '加载失败：{message}', {message: e.message || String(e)}))}</div>`;
         }
     }
 
     async function loadQuickInnerFollowingUserWorks(kind, page) {
-        const allIds = quickInner.idsByType.get(kind) || [];
+        const loadSeq = ++quickInner.loadSeq;
         quickInner.kind = kind;
-        quickInner.allIds = allIds;
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         const limit = acq.pageSize;
-        const totalPages = Math.max(1, Math.ceil(allIds.length / limit));
-        const safePage = Math.min(Math.max(1, page), totalPages);
-        const slice = allIds.slice((safePage - 1) * limit, safePage * limit);
-        let items = [];
-        if (slice.length > 0) {
-            const data = await quickFetchJson(
-                quickRequestUrl(acq.buildCardsRequest(quickInner.userId, slice)), kind);
-            items = data.items || [];
+        let safePage = Math.max(1, Number(page) || 1);
+        let totalPages;
+        let total;
+        let items;
+        if (typeof acq.buildUserPageRequest === 'function') {
+            const pageData = await fetchQuickInnerUserPage(acq, quickInner.userId, safePage);
+            if (loadSeq !== quickInner.loadSeq || !quickInner.open || quickInner.kind !== kind) return;
+            items = pageData.items;
+            total = pageData.total;
+            totalPages = Math.max(safePage, pageData.hasMore ? safePage + 1 : safePage);
+            quickInner.allIds = [];
+        } else {
+            const allIds = quickInner.idsByType.get(kind) || [];
+            quickInner.allIds = allIds;
+            totalPages = Math.max(1, Math.ceil(allIds.length / limit));
+            safePage = Math.min(safePage, totalPages);
+            const slice = allIds.slice((safePage - 1) * limit, safePage * limit);
+            items = [];
+            if (slice.length > 0) {
+                const data = await quickFetchJson(
+                    quickRequestUrl(acq.buildCardsRequest(quickInner.userId, slice)), kind);
+                if (loadSeq !== quickInner.loadSeq || !quickInner.open || quickInner.kind !== kind) return;
+                items = data.items || [];
+            }
+            total = allIds.length;
         }
         items.forEach(it => { it.kind = kind; });
         quickInner.rawItems = items;
-        quickInner.total = allIds.length;
+        quickInner.total = total;
         quickInner.page = safePage;
         quickInner.pageSize = limit;
         quickShowInnerToolbar({showAdd: items.length > 0, showKindSwitcher: true, kind});
-        quickSetInnerTitle(`${bt('quick.preview.parent.following', '我的关注')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: allIds.length.toLocaleString()})}`);
+        quickSetInnerTitle(`${bt('quick.preview.parent.following', '我的关注')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
         await quickApplyInnerFilters();
+        if (loadSeq !== quickInner.loadSeq || !quickInner.open || quickInner.kind !== kind) return;
         renderQuickInnerPagination(safePage, totalPages, p => loadQuickInnerFollowingUserWorks(kind, p));
         // 已预览到某关注画师的作品：显示附加筛选与「存为计划任务」（USER_NEW，来源锁定为该画师）。
         updateExtraFiltersCardVisibility();
@@ -1383,25 +1755,60 @@
 
     async function quickInnerAddAllToQueue() {
         // 用 rawItems 判空：附加筛选可能把当前页全部过滤掉（items 为空），但仍有全量作品可入队。
-        if (!quickInner.rawItems.length) return;
-        // 珍藏集集内作品一次性全部返回，直接整集入队；关注用户作品按页抓取
+        if (!quickInner.rawItems.length && quickInner.total <= 0) return;
+        // 珍藏集支持 cursor 分页；旧 action 的一次性 works 响应仍直接整集入队。
         if (quickInner.type === 'collection') {
-            // 整集入队全量（未过滤）作品，附加筛选不符者在下载时逐作品跳过。
-            const ids = quickInner.rawItems.map(quickInnerQueueId);
-            const metas = quickInner.rawItems.map(item => {
+            const action = currentQuickAction();
+            const ids = [];
+            const metas = [];
+            const collected = new Set();
+            const acc = (items) => (items || []).forEach(item => {
+                const id = quickInnerQueueId(item);
+                if (collected.has(id)) return;
+                collected.add(id);
                 const kind = window.PixivBatch.queueTypes.resolveTypeForMode(item.kind, 'quick', quickInner.kind);
-                return buildQuickQueueMeta(item, kind);
+                ids.push(id);
+                metas.push(buildQuickQueueMeta(item, kind));
             });
+            acc(quickInner.rawItems);
+            if (action && typeof action.buildCollectionWorksPageRequest === 'function') {
+                const expectedPages = Math.max(1, Math.ceil(quickInner.total / quickInner.pageSize));
+                if (!await uiConfirmKey('quick.confirm.add-all-paged',
+                    '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
+                    {pages: expectedPages, total: quickInner.total})) return;
+                const innerLoadSeq = quickInner.loadSeq;
+                const collectionId = quickInner.id;
+                setQuickBtnLoading('quick-inner-add-all', true);
+                try {
+                    let page = 1;
+                    let hasMore = true;
+                    while (hasMore) {
+                        if (page > 1000) {
+                            throw new Error(bt('pagination.error.safety-limit', '分页数量超过安全限制'));
+                        }
+                        const pageData = await fetchQuickInnerCollectionPage(action, collectionId, page);
+                        if (innerLoadSeq !== quickInner.loadSeq || quickInner.id !== collectionId) return;
+                        acc(pageData.items);
+                        hasMore = pageData.hasMore;
+                        setStatus(bt('status.series-fetch-all-progress', '正在补齐系列分页 {page} / {total}...',
+                            {page, total: Math.max(page, expectedPages)}), 'info');
+                        page++;
+                    }
+                } catch (e) {
+                    setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+                    return;
+                } finally {
+                    setQuickBtnLoading('quick-inner-add-all', false);
+                }
+            }
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
-            setStatus(
-                bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
-                    {added, total: ids.length, existing: ids.length - added}),
-                added > 0 ? 'success' : 'info'
-            );
+            setStatus(bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
+                {added, total: ids.length, existing: ids.length - added}), added > 0 ? 'success' : 'info');
             syncQuickQueueState();
             return;
         }
         const kind = quickInner.kind;
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         const totalPages = Math.max(1, Math.ceil(quickInner.total / quickInner.pageSize));
         if (!await uiConfirmKey('quick.confirm.add-all-paged',
             '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
@@ -1422,12 +1829,32 @@
         // 当前页可能不是第 1 页，需要遍历 1..totalPages 全部页码，当前页直接复用 rawItems；collected 兜底去重。
         acc(quickInner.rawItems);
         setQuickBtnLoading('quick-inner-add-all', true);
+        const innerLoadSeq = quickInner.loadSeq;
+        const userId = quickInner.userId;
         try {
-            for (let p = 1; p <= totalPages; p++) {
-                if (p === quickInner.page) continue;
-                setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...',
-                    {done: ids.length, total: quickInner.total}), 'info');
-                acc(await quickFetchInnerPage(p, kind));
+            if (typeof acq.buildUserPageRequest === 'function') {
+                let page = 1;
+                let hasMore = true;
+                while (hasMore) {
+                    if (page > 1000) {
+                        throw new Error(bt('pagination.error.safety-limit', '分页数量超过安全限制'));
+                    }
+                    const pageData = await fetchQuickInnerUserPage(acq, userId, page);
+                    if (innerLoadSeq !== quickInner.loadSeq || quickInner.userId !== userId) return;
+                    acc(pageData.items);
+                    hasMore = pageData.hasMore;
+                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...',
+                        {done: ids.length, total: pageData.total}), 'info');
+                    page++;
+                }
+            } else {
+                for (let p = 1; p <= totalPages; p++) {
+                    if (p === quickInner.page) continue;
+                    setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...',
+                        {done: ids.length, total: quickInner.total}), 'info');
+                    acc(await quickFetchInnerPage(p, kind));
+                    if (innerLoadSeq !== quickInner.loadSeq || quickInner.userId !== userId) return;
+                }
             }
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
             setStatus(
@@ -1443,14 +1870,24 @@
         }
     }
 
-    // 仅关注用户作品分页抓取（珍藏集无分页，集内全部已加载）
+    // 二层作品分页抓取；cursor action 返回页内 items，旧关注用户路径继续以 ids/cards 兼容。
     async function quickFetchInnerPage(page, kind) {
+        if (quickInner.type === 'collection') {
+            const action = currentQuickAction();
+            if (action && typeof action.buildCollectionWorksPageRequest === 'function') {
+                return (await fetchQuickInnerCollectionPage(action, quickInner.id, page)).items;
+            }
+            return page === 1 ? quickInner.rawItems : [];
+        }
         if (quickInner.type !== 'following-user') return [];
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
+        if (typeof acq.buildUserPageRequest === 'function') {
+            return (await fetchQuickInnerUserPage(acq, quickInner.userId, page)).items;
+        }
         const limit = quickInner.pageSize;
         const offset = (page - 1) * limit;
         const slice = quickInner.allIds.slice(offset, offset + limit);
         if (!slice.length) return [];
-        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         const data = await quickFetchJson(
             quickRequestUrl(acq.buildCardsRequest(quickInner.userId, slice)), kind);
         return data.items || [];
@@ -1461,6 +1898,8 @@
         const target = e.target;
         if (!target || target.name !== 'quick-inner-kind') return;
         if (!quickInner.open || quickInner.type !== 'following-user') return;
+        if (!quickActionUserWorkTypes().has(target.value)
+            || !window.PixivBatch.queueTypes.supports(target.value, 'quick')) return;
         document.querySelectorAll('#quick-inner-kind-switcher label').forEach(l => {
             l.classList.toggle('quick-kind-active', l.dataset.quickKind === target.value);
         });
@@ -1495,4 +1934,4 @@
 // ---- PixivBatch facade ----
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 window.PixivBatch.modes.quick = window.PixivBatch.modes.quick || {};
-window.PixivBatch.modes.quick = Object.assign(window.PixivBatch.modes.quick, { quickLoad, quickAddCurrentPageToQueue, quickAddAllToQueue, quickCloseInner, quickInnerAddCurrentPageToQueue, quickInnerAddAllToQueue, quickScheduleSource, quickHasWorksGrid, quickCurrentKind, quickReapplyFilters, syncQuickQueueState, reconcileQuickTypeAvailability });
+window.PixivBatch.modes.quick = Object.assign(window.PixivBatch.modes.quick, { quickLoad, quickAddCurrentPageToQueue, quickAddAllToQueue, quickCloseInner, quickInnerAddCurrentPageToQueue, quickInnerAddAllToQueue, quickScheduleSource, quickHasWorksGrid, quickCurrentKind, quickReapplyFilters, syncQuickQueueState, reconcileQuickTypeAvailability, invalidateQuickAccount });

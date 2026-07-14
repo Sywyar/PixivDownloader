@@ -433,7 +433,7 @@
                             }
                         },
                         'my-following-show': {
-                            viewType: 'following-list', kind: type,
+                            viewType: 'following-list', kind: type, userWorkTypes: ['illust', 'novel'],
                             buildPageRequest(ctx) {
                                 return pixivMePageRequest('following', {
                                     rest: ctx.rest, offset: ctx.offset, limit: ctx.limit
@@ -442,7 +442,7 @@
                             load: requirePixivQuickSession(() => loadQuickFollowing('show', 0))
                         },
                         'my-following-hide': {
-                            viewType: 'following-list', kind: type,
+                            viewType: 'following-list', kind: type, userWorkTypes: ['illust', 'novel'],
                             buildPageRequest(ctx) {
                                 return pixivMePageRequest('following', {
                                     rest: ctx.rest, offset: ctx.offset, limit: ctx.limit

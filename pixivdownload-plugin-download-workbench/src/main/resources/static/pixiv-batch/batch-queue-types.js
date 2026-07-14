@@ -410,11 +410,15 @@ window.PixivBatch.queueTypes = (function () {
     }
 
     function validAcquisitionHooks(mode, value) {
+        if (mode === 'user') {
+            const common = [
+                'parseInput', 'fetchMeta', 'queueId', 'cardId', 'render', 'buildQueueMeta'
+            ].every(name => typeof value[name] === 'function');
+            const legacy = ['fetchIds', 'cardsEndpoint', 'buildQueueMetaFromId']
+                .every(name => typeof value[name] === 'function');
+            return common && (legacy || typeof value.fetchPage === 'function');
+        }
         const required = {
-            user: [
-                'parseInput', 'fetchMeta', 'fetchIds', 'cardsEndpoint', 'queueId', 'cardId',
-                'render', 'buildQueueMeta', 'buildQueueMetaFromId'
-            ],
             search: ['buildRequest', 'buildRangeRequest', 'queueId', 'render', 'buildQueueMeta'],
             series: [
                 'apiPath', 'parseUrl', 'typeLabel', 'queueId', 'cardId',

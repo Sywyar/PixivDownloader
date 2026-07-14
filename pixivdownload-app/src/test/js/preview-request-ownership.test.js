@@ -234,18 +234,34 @@ vm.runInContext(SERIES_SOURCE + [
         set(value) { this.value = value; accountWrites++; }
     });
     const hintElement = {style: {}, textContent: ''};
+    let pixivCredentialMissing = false;
     const quickAcquisition = {
-        type: 'demo',
+        type: 'illust',
+        actions: {'pixiv-action': {viewType: 'works-list'}},
         account: {
-            credentialMissing() { return false; },
-            buildRequest() { return {endpoint: '/api/demo/account'}; },
+            credentialMissing() { return pixivCredentialMissing; },
+            buildRequest() { return {endpoint: '/api/pixiv/account'}; },
             readId(data) { return data.id; }
         }
     };
+    const douyinQuickAcquisition = {
+        type: 'douyin',
+        actions: {'douyin-action': {viewType: 'works-list'}},
+        account: {
+            credentialMissing() { return false; },
+            buildRequest() { return {endpoint: '/api/douyin/account'}; },
+            readId(data) { return data.id; }
+        }
+    };
+    const quickButtons = ['pixiv-action', 'douyin-action'].map(action => ({
+        dataset: {quick: action}, disabled: false, title: '',
+        classList: {contains() { return false; }, toggle() {}}
+    }));
+    const accountRequestUrls = [];
     const quickWindow = {
         PixivBatch: {
             queueTypes: {
-                acquisitionList() { return [quickAcquisition]; },
+                acquisitionList() { return [quickAcquisition, douyinQuickAcquisition]; },
                 prepareAcquisitionRequest(_type, _mode, url) {
                     const publication = currentPublication;
                     return {
@@ -270,7 +286,7 @@ vm.runInContext(SERIES_SOURCE + [
                 if (id === 'quick-account-hint') return hintElement;
                 return null;
             },
-            querySelectorAll() { return []; }
+            querySelectorAll(selector) { return selector === '.quick-action' ? quickButtons : []; }
         },
         console: {warn() {}, log() {}, error() {}},
         URL,
@@ -281,13 +297,22 @@ vm.runInContext(SERIES_SOURCE + [
         state: {mode: 'quick-fetch'},
         QUICK_FETCH_MODE: 'quick-fetch',
         bt: (_key, fallback) => fallback,
-        fetch() {
+        fetch(url) {
+            accountRequestUrls.push(String(url));
             return new Promise(resolve => { releaseAccountRequest = resolve; });
         }
     };
     vm.createContext(quickSandbox);
-    vm.runInContext(QUICK_SOURCE, quickSandbox);
-    const pendingAccountUpdate = quickSandbox.updateQuickAccountBar();
+    vm.runInContext(QUICK_SOURCE
+        + '\nwindow.__quickOwnershipTest = {quickState, applyQuickActionCredentialUi, '
+        + 'updateQuickAccountBar, invalidateQuickAccount};', quickSandbox);
+    const quickOwnership = quickWindow.__quickOwnershipTest;
+    pixivCredentialMissing = true;
+    quickOwnership.applyQuickActionCredentialUi();
+    ok('quick credential gate 只禁用缺少凭据的 Pixiv action，不会误挡 Douyin action',
+        quickButtons[0].disabled === true && quickButtons[1].disabled === false);
+    pixivCredentialMissing = false;
+    const pendingAccountUpdate = quickOwnership.updateQuickAccountBar();
     assert.strictEqual(typeof releaseAccountRequest, 'function', '账号请求应进入延迟状态');
     quickSandbox.state.mode = 'user';
     currentPublication = 'B';
@@ -297,6 +322,22 @@ vm.runInContext(SERIES_SOURCE + [
     await pendingAccountUpdate;
     ok('切走 quick 且 publication A→B 后，旧账号请求 catch 不回写新页面',
         uidElement.textContent === 'B-account' && accountWrites === 0);
+
+    quickSandbox.state.mode = 'quick-fetch';
+    const douyinAccountUpdate = quickOwnership.updateQuickAccountBar('douyin');
+    assert.strictEqual(accountRequestUrls.at(-1), '/api/douyin/account',
+        'Douyin owner 应使用自己的账号 provider');
+    releaseAccountRequest({ok: true, json: () => Promise.resolve({id: 'douyin-account'})});
+    await douyinAccountUpdate;
+    ok('owner 定向账号 provider 只发布对应 UID',
+        quickOwnership.quickState.accountOwner === 'douyin'
+        && quickOwnership.quickState.uid === 'douyin-account'
+        && uidElement.textContent === 'douyin-account');
+    quickOwnership.invalidateQuickAccount('douyin');
+    ok('账号凭据变更会清除对应 owner UID 缓存与当前显示',
+        quickOwnership.quickState.uid === null
+        && !quickOwnership.quickState.accountIdsByOwner.has('douyin')
+        && uidElement.textContent === '-');
 
     console.log(`\npreview-request-ownership.test.js: ${passed} assertions passed ✓`);
 })().catch(err => {

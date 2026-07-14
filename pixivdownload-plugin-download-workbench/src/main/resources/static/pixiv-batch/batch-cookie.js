@@ -160,12 +160,17 @@
                 handleSearchFilterChange();
             }
         }
-        // 3) 快捷获取 Tab 的所有动作按钮（基于「我的」数据，必须有 PHPSESSID）
-        document.querySelectorAll('.quick-action').forEach(btn => {
-            btn.disabled = !ok;
-            btn.title = title;
-        });
-        // 4) 帐号栏的提示文本（无 Cookie 时显示「未检测到登录 Cookie...」）
+        // 3) 快捷获取动作由各 owner 的 account hook 独立门控；Pixiv PHPSESSID 不影响其它来源。
+        if (typeof applyQuickActionCredentialUi === 'function') {
+            applyQuickActionCredentialUi();
+        } else {
+            // quick 模式脚本尚未装载时保留 Pixiv 静态入口的旧门控，脚本装载后会按 owner 重算。
+            document.querySelectorAll('.quick-action').forEach(btn => {
+                btn.disabled = !ok;
+                btn.title = title;
+            });
+        }
+        // 4) 帐号栏按当前 quick owner 显示，未选择动作时保持首个账号来源的成熟默认体验。
         updateQuickAccountBar();
         // 5) 「工具」抽屉标题处的 Cookie 状态标记：有效（含 PHPSESSID）→ 绿色对号；否则 → 红色叉号。
         //    data-i18n-title 同步为当前态的 key，切换界面语言时由 pageI18n.apply 重译提示文案。
