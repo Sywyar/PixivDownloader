@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredenti
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
@@ -43,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("抖音计划来源发现执行")
 class DouyinScheduledSourceSupportTest {
 
+    private static final int FAVORITE_FOLDER_ITEM_COUNT = 3;
     private static final String VALID_COOKIE =
             "ttwid=tt; passport_csrf_token=csrf; sessionid=sid; sid_tt=sid";
 
@@ -101,7 +103,10 @@ class DouyinScheduledSourceSupportTest {
     @Test
     @DisplayName("小于 known streak 的每轮上限可多轮抽干且空闲轮不重复提交")
     void smallFetchLimitDrainsAcrossRunsWithoutReplayingCompletedBacklog() throws Exception {
-        for (String sourceType : List.of(DouyinSourceTypes.USER, DouyinSourceTypes.SEARCH)) {
+        for (String sourceType : List.of(
+                DouyinSourceTypes.USER,
+                DouyinSourceTypes.SEARCH,
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)) {
             List<DouyinWork> works = List.of(
                     work("73510001"), work("73510002"), work("73510003"),
                     work("73510004"), work("73510005"), work("73510006"));
@@ -175,8 +180,281 @@ class DouyinScheduledSourceSupportTest {
     }
 
     @Test
-    @DisplayName("多轮续传按当前源顺序合并并将前沿稳定截断为二百五十六项")
-    void continuationMergesOrderedFrontierWithinBound() throws Exception {
+    @DisplayName("收藏作品不会因首个大收藏夹命中旧锚点而漏掉后续收藏夹新作品")
+    void favoriteWorksScansPastKnownItemsIntoLaterFolder() throws Exception {
+        List<DouyinWork> knownWorks = java.util.stream.IntStream.range(0, 300)
+                .mapToObj(index -> favoriteWork("known-" + index, "folder-a"))
+                .toList();
+        RecordingClient client = new RecordingClient(knownWorks);
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                definitions(0).get(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)));
+
+        CapturingContext initialContext = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initialContext).candidateCheckpoint();
+
+        client.pageCall = 0;
+        client.seenCursors.clear();
+        client.pageSequence = List.of(
+                new DouyinListing(
+                        knownWorks, knownWorks.size() + 1, 1, 20, false,
+                        "首个收藏夹", "owner", "作者", "fw1.next", true),
+                new DouyinListing(
+                        List.of(favoriteWork("new-in-later-folder", "folder-b")),
+                        knownWorks.size() + 1, 2, 20, true,
+                        "后续收藏夹", "owner", "作者", "", false));
+        CapturingContext nextContext = new CapturingContext(task, checkpoint, Set.of());
+
+        executor.discover(nextContext);
+
+        assertThat(client.seenCursors).containsExactly("0", "fw1.next");
+        assertThat(nextContext.works).extracting(work -> work.key().id())
+                .containsExactly("new-in-later-folder");
+    }
+
+    @Test
+    @DisplayName("同一收藏夹首个旧锚点之后插入的新作品仍会发现且不会提前写入检查点")
+    void favoriteWorksDoesNotCompleteFolderAtFirstKnownAnchor() throws Exception {
+        RecordingClient client = new RecordingClient(List.of(
+                favoriteWork("old-a", "folder-a"),
+                favoriteWork("old-b", "folder-a"),
+                favoriteWork("old-c", "folder-a")));
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                definitions(0).get(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)));
+
+        CapturingContext initial = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initial).candidateCheckpoint();
+        client.works = List.of(
+                favoriteWork("old-a", "folder-a"),
+                favoriteWork("new-x", "folder-a"),
+                favoriteWork("old-b", "folder-a"),
+                favoriteWork("old-c", "folder-a"));
+        CapturingContext changed = new CapturingContext(task, checkpoint, Set.of());
+
+        ScheduledCheckpoint changedCheckpoint = executor.discover(changed).candidateCheckpoint();
+
+        assertThat(changed.works).extracting(work -> work.key().id())
+                .containsExactly("new-x");
+        assertThat(codec.decodeCheckpoint(changedCheckpoint).frontier())
+                .contains(codec.identityHash("new-x"));
+    }
+
+    @Test
+    @DisplayName("单个收藏夹包含三百件作品时重启后的空闲轮不会重复发现尾部旧作品")
+    void favoriteWorksLargeFolderIsNotRediscoveredAfterRestart() throws Exception {
+        List<DouyinWork> works = java.util.stream.IntStream.range(0, 300)
+                .mapToObj(index -> favoriteWork("favorite-bulk-" + index, "folder-a"))
+                .toList();
+        RecordingClient client = new RecordingClient(works);
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                definitions(0).get(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)));
+
+        CapturingContext initial = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initial).candidateCheckpoint();
+        CapturingContext restarted = new CapturingContext(task, checkpoint, Set.of());
+
+        executor.discover(restarted);
+
+        assertThat(initial.works).hasSize(works.size());
+        assertThat(restarted.works).isEmpty();
+    }
+
+    @Test
+    @DisplayName("续传锚点被移除时保留已观察前沿且后续轮不重复发现旧作品")
+    void missingResumeAnchorPreservesObservedFrontier() throws Exception {
+        RecordingClient client = new RecordingClient(List.of(
+                work("resume-a"), work("resume-b"), work("resume-c"), work("resume-d")));
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.USER, new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.USER, definitions(2).get(DouyinSourceTypes.USER)));
+
+        CapturingContext initial = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initial).candidateCheckpoint();
+        client.works = List.of(work("resume-a"), work("resume-c"), work("resume-d"));
+        CapturingContext anchorMissing = new CapturingContext(task, checkpoint, Set.of());
+        checkpoint = executor.discover(anchorMissing).candidateCheckpoint();
+        CapturingContext resumed = new CapturingContext(task, checkpoint, Set.of());
+
+        executor.discover(resumed);
+
+        assertThat(initial.works).extracting(work -> work.key().id())
+                .containsExactly("resume-a", "resume-b");
+        assertThat(anchorMissing.works).isEmpty();
+        assertThat(resumed.works).extracting(work -> work.key().id())
+                .containsExactly("resume-c", "resume-d");
+    }
+
+    @Test
+    @DisplayName("普通来源续传锚点被移除后会越过二十个旧项恢复未处理尾部")
+    void missingResumeAnchorRecoversPastKnownStreak() throws Exception {
+        List<DouyinWork> initialWorks = java.util.stream.IntStream.range(0, 23)
+                .mapToObj(index -> work("known-prefix-" + index))
+                .toList();
+        RecordingClient client = new RecordingClient(initialWorks);
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.USER, new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.USER, definitions(21).get(DouyinSourceTypes.USER)));
+
+        CapturingContext initial = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initial).candidateCheckpoint();
+        client.works = java.util.stream.IntStream.range(0, 23)
+                .filter(index -> index != 20)
+                .mapToObj(index -> work("known-prefix-" + index))
+                .toList();
+        CapturingContext anchorMissing = new CapturingContext(task, checkpoint, Set.of());
+        checkpoint = executor.discover(anchorMissing).candidateCheckpoint();
+        CapturingContext recovered = new CapturingContext(task, checkpoint, Set.of());
+
+        executor.discover(recovered);
+
+        assertThat(initial.works).hasSize(21);
+        assertThat(anchorMissing.works).isEmpty();
+        assertThat(recovered.works).extracting(work -> work.key().id())
+                .containsExactly("known-prefix-21", "known-prefix-22");
+    }
+
+    @Test
+    @DisplayName("收藏作品续传锚点被移除后不会把同收藏夹未处理尾部标成已完成")
+    void favoriteWorksMissingResumeAnchorRecoversFolderTail() throws Exception {
+        RecordingClient client = new RecordingClient(List.of(
+                favoriteWork("favorite-resume-a", "folder-a"),
+                favoriteWork("favorite-resume-b", "folder-a"),
+                favoriteWork("favorite-resume-c", "folder-a"),
+                favoriteWork("favorite-resume-d", "folder-a")));
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                definitions(2).get(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)));
+
+        CapturingContext initial = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initial).candidateCheckpoint();
+        client.works = List.of(
+                favoriteWork("favorite-resume-a", "folder-a"),
+                favoriteWork("favorite-resume-c", "folder-a"),
+                favoriteWork("favorite-resume-d", "folder-a"));
+        CapturingContext anchorMissing = new CapturingContext(task, checkpoint, Set.of());
+        checkpoint = executor.discover(anchorMissing).candidateCheckpoint();
+        CapturingContext recovered = new CapturingContext(task, checkpoint, Set.of());
+
+        executor.discover(recovered);
+
+        assertThat(initial.works).extracting(work -> work.key().id())
+                .containsExactly("favorite-resume-a", "favorite-resume-b");
+        assertThat(anchorMissing.works).isEmpty();
+        assertThat(recovered.works).extracting(work -> work.key().id())
+                .containsExactly("favorite-resume-c", "favorite-resume-d");
+    }
+
+    @Test
+    @DisplayName("超过八十五个收藏夹时每个收藏夹仍至少保留一个重启锚点")
+    void favoriteWorksFrontierAllocatesAnchorsAcrossFolders() throws Exception {
+        List<DouyinWork> works = new ArrayList<>();
+        for (int folder = 0; folder < 87; folder++) {
+            for (int item = 0; item < FAVORITE_FOLDER_ITEM_COUNT; item++) {
+                works.add(favoriteWork(
+                        "many-folders-" + folder + "-" + item,
+                        "folder-" + folder));
+            }
+        }
+        RecordingClient client = new RecordingClient(works);
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                definitions(0).get(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)));
+
+        CapturingContext initial = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initial).candidateCheckpoint();
+        CapturingContext restarted = new CapturingContext(task, checkpoint, Set.of());
+
+        executor.discover(restarted);
+
+        assertThat(initial.works).hasSize(works.size());
+        assertThat(codec.decodeCheckpoint(checkpoint).frontier()).hasSize(works.size());
+        assertThat(restarted.works).isEmpty();
+    }
+
+    @Test
+    @DisplayName("收藏作品超过精确检查点容量时安全失败而不静默截断")
+    void favoriteWorksFailsSafelyBeyondExactCheckpointCapacity() throws Exception {
+        List<DouyinWork> works = java.util.stream.IntStream.rangeClosed(
+                        0, DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES)
+                .mapToObj(index -> favoriteWork("capacity-" + index, "folder-a"))
+                .toList();
+        RecordingClient client = new RecordingClient(works);
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                definitions(0).get(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)));
+        CapturingContext context = new CapturingContext(task, null, Set.of());
+
+        assertThatThrownBy(() -> executor.discover(context))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
+                    assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.PAYLOAD_UNSUPPORTED);
+                    assertThat(failure.code())
+                            .isEqualTo("douyin.schedule.checkpoint-capacity-exceeded");
+                });
+    }
+
+    @Test
+    @DisplayName("二百五十七个收藏夹均能进入检查点且后续空闲轮不重复发现")
+    void favoriteWorksRetainsMoreThanLegacyFrontierFolderCount() throws Exception {
+        List<DouyinWork> works = java.util.stream.IntStream.range(0, 257)
+                .mapToObj(index -> favoriteWork(
+                        "folder-work-" + index, "folder-" + index))
+                .toList();
+        RecordingClient client = new RecordingClient(works);
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        DouyinScheduledSourceExecutor executor = new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                new DouyinScheduledSourceSupport(client, codec));
+        ScheduledTaskDefinition task = executor.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                definitions(0).get(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS)));
+
+        CapturingContext initial = new CapturingContext(task, null, Set.of());
+        ScheduledCheckpoint checkpoint = executor.discover(initial).candidateCheckpoint();
+        CapturingContext second = new CapturingContext(task, checkpoint, Set.of());
+        checkpoint = executor.discover(second).candidateCheckpoint();
+        CapturingContext third = new CapturingContext(task, checkpoint, Set.of());
+
+        executor.discover(third);
+
+        assertThat(initial.works).hasSize(257);
+        assertThat(codec.decodeCheckpoint(checkpoint).frontier()).hasSize(257);
+        assertThat(second.works).isEmpty();
+        assertThat(third.works).isEmpty();
+    }
+
+    @Test
+    @DisplayName("多轮续传按当前源顺序合并并保留全部已处理作品身份")
+    void continuationMergesAllOrderedFrontierIdentities() throws Exception {
         List<DouyinWork> works = java.util.stream.IntStream.range(0, 260)
                 .mapToObj(index -> work("bulk-" + index))
                 .toList();
@@ -204,9 +482,9 @@ class DouyinScheduledSourceSupportTest {
                 works.stream().map(DouyinWork::id).toList());
         DouyinScheduleCodec.CheckpointState state = codec.decodeCheckpoint(checkpoint);
         assertThat(state.resumeAfter()).isNull();
-        assertThat(state.frontier()).hasSize(DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES);
+        assertThat(state.frontier()).hasSize(works.size());
         assertThat(state.frontier()).containsExactlyElementsOf(
-                works.stream().limit(DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES)
+                works.stream()
                         .map(DouyinWork::id)
                         .map(id -> {
                             try {
@@ -354,6 +632,15 @@ class DouyinScheduledSourceSupportTest {
                 id, "作品 " + id, "author", "作者",
                 "https://www.douyin.com/video/" + id,
                 null, URI.create("https://media.example/" + id + ".mp4"));
+    }
+
+    private static DouyinWork favoriteWork(String id, String folderId) {
+        DouyinWork base = work(id);
+        return new DouyinWork(
+                base.id(), base.title(), base.description(), base.itemTitle(), base.caption(),
+                base.authorId(), base.authorName(), base.pageUrl(), base.thumbnailUrl(),
+                base.mediaUrl(), base.media(), base.kind(), base.publishTimeEpochSeconds(),
+                folderId, "收藏夹 " + folderId);
     }
 
     private static final class CapturingContext implements ScheduledSourceContext {

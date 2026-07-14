@@ -6,10 +6,13 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,6 +137,39 @@ class DouyinScheduleCodecTest {
                 .doesNotContain("7351234567890123456", "7351234567890123457");
         assertThat(decoded.frontier()).containsExactly(first, second);
         assertThat(decoded.resumeAfter()).isEqualTo(second);
+    }
+
+    @Test
+    @DisplayName("续传恢复标记可往返且旧检查点默认不进入恢复扫描")
+    void checkpointRecoveryFlagIsBackwardCompatible() throws Exception {
+        String identity = codec.identityHash("7351234567890123456");
+        var recovering = codec.encodeCheckpoint(
+                new DouyinScheduleCodec.CheckpointState(List.of(identity), null, true));
+        var legacy = new ScheduledCheckpoint(
+                DouyinScheduleCodec.CHECKPOINT_SCHEMA,
+                DouyinScheduleCodec.CHECKPOINT_VERSION,
+                "{\"frontier\":[\"" + identity + "\"]}");
+
+        assertThat(codec.decodeCheckpoint(recovering).recovery()).isTrue();
+        assertThat(codec.decodeCheckpoint(legacy).recovery()).isFalse();
+    }
+
+    @Test
+    @DisplayName("五千个完整 SHA-256 身份可往返且检查点保持在宿主字节上限内")
+    void maximumFrontierFitsCheckpointPayloadLimit() throws Exception {
+        List<String> frontier = new ArrayList<>(DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES);
+        for (int index = 0; index < DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES; index++) {
+            frontier.add(codec.identityHash("work-" + index));
+        }
+
+        ScheduledCheckpoint checkpoint = codec.encodeCheckpoint(
+                new DouyinScheduleCodec.CheckpointState(
+                        frontier, frontier.get(frontier.size() - 1), true));
+
+        assertThat(checkpoint.payloadJson().getBytes(StandardCharsets.UTF_8).length)
+                .isLessThanOrEqualTo(ScheduledCheckpoint.MAX_PAYLOAD_BYTES);
+        assertThat(codec.decodeCheckpoint(checkpoint).frontier())
+                .containsExactlyElementsOf(frontier);
     }
 
     private static ScheduledTaskDraft draft(String sourceType, String json) {

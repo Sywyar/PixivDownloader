@@ -133,17 +133,20 @@ public final class DouyinScheduledSourceSupport {
         LinkedHashSet<String> candidateFrontier = new LinkedHashSet<>();
         Set<String> seenWorkIds = new HashSet<>();
         Set<String> seenCursors = new HashSet<>();
+        boolean favoriteWorksSource = DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS
+                .equals(definition.sourceType());
 
         String cursor = "0";
         String resumeAfter = checkpoint.resumeAfter();
         boolean resumeReached = resumeAfter == null;
-        boolean anchorMissing = resumeAfter != null;
         String lastAcceptedHash = null;
         int accepted = 0;
         int sourceOrder = 0;
         int knownStreak = 0;
         int knownStreakLimit = DouyinSourceTypes.SEARCH.equals(definition.sourceType())
                 ? SEARCH_KNOWN_STREAK : DEFAULT_KNOWN_STREAK;
+        boolean recoveryScan = checkpoint.recovery();
+        boolean stopAtKnownStreak = !favoriteWorksSource && !recoveryScan;
 
         for (int page = 0; page < MAX_PAGES; page++) {
             context.cancellation().throwIfCancellationRequested();
@@ -171,29 +174,24 @@ public final class DouyinScheduledSourceSupport {
                 } catch (ScheduledExecutionException malformedWork) {
                     continue;
                 }
-
                 if (!resumeReached) {
-                    if ((priorFrontier.contains(identityHash)
-                            || identityHash.equals(resumeAfter))
-                            && candidateFrontier.size()
-                            < DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES) {
-                        candidateFrontier.add(identityHash);
+                    boolean checkpointIdentity = priorFrontier.contains(identityHash)
+                            || identityHash.equals(resumeAfter);
+                    if (checkpointIdentity) {
+                        retainIdentity(candidateFrontier, identityHash, favoriteWorksSource);
                     }
                     if (identityHash.equals(resumeAfter)) {
                         resumeReached = true;
-                        anchorMissing = false;
                     }
                     sourceOrder++;
                     continue;
                 }
 
-                if (candidateFrontier.size() < DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES) {
-                    candidateFrontier.add(identityHash);
-                }
+                retainIdentity(candidateFrontier, identityHash, favoriteWorksSource);
                 if (priorFrontier.contains(identityHash)) {
                     knownStreak++;
                     sourceOrder++;
-                    if (knownStreak >= knownStreakLimit) {
+                    if (stopAtKnownStreak && knownStreak >= knownStreakLimit) {
                         return completedCheckpoint(checkpoint, candidateFrontier);
                     }
                     continue;
@@ -215,9 +213,8 @@ public final class DouyinScheduledSourceSupport {
             }
 
             if (!listing.hasMore()) {
-                if (anchorMissing) {
-                    return ScheduledDiscoveryResult.withCheckpoint(
-                            codec.encodeCheckpoint(CheckpointState.empty()));
+                if (!resumeReached) {
+                    return recoveryCheckpoint(checkpoint, candidateFrontier);
                 }
                 return completedCheckpoint(checkpoint, candidateFrontier);
             }
@@ -235,14 +232,26 @@ public final class DouyinScheduledSourceSupport {
             LinkedHashSet<String> observed,
             String resumeAfter) {
         return ScheduledDiscoveryResult.withCheckpoint(codec.encodeCheckpoint(
-                new CheckpointState(mergeFrontier(observed, previous.frontier()), resumeAfter)));
+                new CheckpointState(
+                        mergeFrontier(observed, previous.frontier()),
+                        resumeAfter,
+                        previous.recovery())));
     }
 
     private ScheduledDiscoveryResult completedCheckpoint(
             CheckpointState previous,
             LinkedHashSet<String> observed) {
         return ScheduledDiscoveryResult.withCheckpoint(codec.encodeCheckpoint(
-                new CheckpointState(mergeFrontier(observed, previous.frontier()), null)));
+                new CheckpointState(
+                        mergeFrontier(observed, previous.frontier()), null, false)));
+    }
+
+    private ScheduledDiscoveryResult recoveryCheckpoint(
+            CheckpointState previous,
+            LinkedHashSet<String> observed) {
+        return ScheduledDiscoveryResult.withCheckpoint(codec.encodeCheckpoint(
+                new CheckpointState(
+                        mergeFrontier(observed, previous.frontier()), null, true)));
     }
 
     private static List<String> mergeFrontier(
@@ -253,6 +262,24 @@ public final class DouyinScheduledSourceSupport {
         return merged.stream()
                 .limit(DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES)
                 .toList();
+    }
+
+    private static void retainIdentity(
+            LinkedHashSet<String> frontier,
+            String identityHash,
+            boolean requireExactRetention) throws ScheduledExecutionException {
+        if (frontier.contains(identityHash)) {
+            return;
+        }
+        if (frontier.size() >= DouyinScheduleCodec.MAX_FRONTIER_IDENTITIES) {
+            if (requireExactRetention) {
+                throw new ScheduledExecutionException(
+                        ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
+                        "douyin.schedule.checkpoint-capacity-exceeded");
+            }
+            return;
+        }
+        frontier.add(identityHash);
     }
 
     private PageLoader pageLoader(Definition definition, DouyinAccount account, String cookie) {

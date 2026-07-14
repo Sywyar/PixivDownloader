@@ -45,7 +45,11 @@ public final class DouyinScheduleCodec {
 
     public static final int DEFAULT_FETCH_LIMIT = 100;
     public static final int MAX_FETCH_LIMIT = 5_000;
-    public static final int MAX_FRONTIER_IDENTITIES = 256;
+    /**
+     * Full SHA-256 identities retained by a checkpoint. Five thousand encoded hashes stay below
+     * {@link ScheduledCheckpoint#MAX_PAYLOAD_BYTES}, including the JSON envelope and resume state.
+     */
+    public static final int MAX_FRONTIER_IDENTITIES = 5_000;
 
     private static final Set<String> SOURCE_TYPES = Set.of(
             DouyinSourceTypes.USER,
@@ -57,7 +61,8 @@ public final class DouyinScheduleCodec {
             DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
             DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION);
     private static final Set<String> ROOT_FIELDS = Set.of("source", "fetchLimit");
-    private static final Set<String> CHECKPOINT_FIELDS = Set.of("frontier", "resumeAfter");
+    private static final Set<String> CHECKPOINT_FIELDS = Set.of(
+            "frontier", "resumeAfter", "recovery");
     private static final Set<String> WORK_FIELDS = Set.of("workId");
     private static final Set<String> RELATION_FIELDS = Set.of("sourceTitle", "sourceOrder");
     private static final Pattern HASH = Pattern.compile("[A-Za-z0-9_-]{43}");
@@ -263,7 +268,12 @@ public final class DouyinScheduleCodec {
         if (resumeAfter != null && !HASH.matcher(resumeAfter).matches()) {
             throw invalidDefinition("douyin.schedule.checkpoint-resume-invalid");
         }
-        return new CheckpointState(List.copyOf(frontier), resumeAfter);
+        JsonNode rawRecovery = root.get("recovery");
+        if (rawRecovery != null && !rawRecovery.isBoolean()) {
+            throw invalidDefinition("douyin.schedule.checkpoint-recovery-invalid");
+        }
+        boolean recovery = rawRecovery != null && rawRecovery.booleanValue();
+        return new CheckpointState(List.copyOf(frontier), resumeAfter, recovery);
     }
 
     public ScheduledCheckpoint encodeCheckpoint(CheckpointState state) {
@@ -273,6 +283,9 @@ public final class DouyinScheduleCodec {
         normalized.frontier().stream().limit(MAX_FRONTIER_IDENTITIES).forEach(frontier::add);
         if (normalized.resumeAfter() != null) {
             root.put("resumeAfter", normalized.resumeAfter());
+        }
+        if (normalized.recovery()) {
+            root.put("recovery", true);
         }
         return new ScheduledCheckpoint(CHECKPOINT_SCHEMA, CHECKPOINT_VERSION, write(root));
     }
@@ -491,7 +504,11 @@ public final class DouyinScheduleCodec {
     public record Definition(String sourceType, String sourceId, int fetchLimit) {
     }
 
-    public record CheckpointState(List<String> frontier, String resumeAfter) {
+    public record CheckpointState(List<String> frontier, String resumeAfter, boolean recovery) {
+
+        public CheckpointState(List<String> frontier, String resumeAfter) {
+            this(frontier, resumeAfter, false);
+        }
 
         public CheckpointState {
             frontier = frontier == null ? List.of() : List.copyOf(frontier);
@@ -503,7 +520,7 @@ public final class DouyinScheduleCodec {
         }
 
         public static CheckpointState empty() {
-            return new CheckpointState(List.of(), null);
+            return new CheckpointState(List.of(), null, false);
         }
     }
 
