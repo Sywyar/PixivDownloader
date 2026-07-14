@@ -279,28 +279,59 @@ public class PluginRuntimeManager {
     private LoadedPluginPackage loadPreparedPlugin(Path artifactPath, Path pf4jLoadPath, Path pluginManagerRoot,
                                                    PluginDescriptor packageDescriptor) {
         ensureManager(pluginManagerRoot);
+        Set<String> wrappersBeforeLoad;
+        try {
+            wrappersBeforeLoad = loadedWrapperIds();
+        } catch (Throwable failure) {
+            throw operationFailure("failed to inspect plugin runtime before loading " + artifactPath, failure);
+        }
         String packageId;
         try {
             packageId = pluginManager.loadPlugin(pf4jLoadPath);
-        } catch (RuntimeException e) {
-            throw new PluginRuntimeOperationException("failed to load plugin artifact " + artifactPath, e);
+        } catch (Throwable failure) {
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor);
+            throw operationFailure("failed to load plugin artifact " + artifactPath, failure);
         }
         if (packageId == null || packageId.isBlank()) {
-            throw new PluginRuntimeOperationException("PF4J returned no package id for " + artifactPath);
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J returned no package id for " + artifactPath);
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor);
+            throw failure;
         }
         if (entries.containsKey(packageId)) {
             // 不得在重复加载分支调用 unloadPlugin：PF4J 返回的 id 可能指向原有 wrapper，
             // 此时卸载会错误释放仍在服务的旧 generation。
             throw new PluginRuntimeOperationException("plugin package already loaded: " + packageId);
         }
-        PluginWrapper wrapper = pluginManager.getPlugin(packageId);
+        PluginWrapper wrapper;
+        try {
+            wrapper = pluginManager.getPlugin(packageId);
+        } catch (Throwable failure) {
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor);
+            throw operationFailure("failed to inspect loaded plugin package " + packageId, failure);
+        }
         if (wrapper == null) {
-            throw new PluginRuntimeOperationException("PF4J did not retain loaded package: " + packageId);
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J did not retain loaded package: " + packageId);
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor);
+            throw failure;
+        }
+        String version;
+        try {
+            version = wrapper.getDescriptor().getVersion();
+        } catch (Throwable failure) {
+            cleanupNewWrappers(wrappersBeforeLoad, failure,
+                    artifactPath, pf4jLoadPath, packageDescriptor);
+            throw operationFailure("failed to inspect loaded plugin descriptor " + packageId, failure);
         }
         long generation = generations.merge(packageId, 1L, Long::sum);
         RuntimeEntry entry = new RuntimeEntry(packageId,
                 artifactPath.toAbsolutePath().normalize(), pf4jLoadPath.toAbsolutePath().normalize(),
-                wrapper.getDescriptor().getVersion(), generation, PluginRuntimePackagePhase.LOADED,
+                version, generation, PluginRuntimePackagePhase.LOADED,
                 packageDescriptor);
         entries.put(packageId, entry);
         try {
@@ -308,15 +339,21 @@ public class PluginRuntimeManager {
             entry.descriptor = validateReleaseShape(loaded);
             refreshStatus();
             return loaded;
-        } catch (RuntimeException failure) {
-            entries.remove(packageId);
+        } catch (Throwable failure) {
             try {
                 pluginManager.unloadPlugin(packageId);
-            } catch (RuntimeException cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
+            } catch (Throwable cleanupFailure) {
+                addSuppressedSafely(failure, cleanupFailure);
             }
-            refreshStatus();
-            throw failure;
+            try {
+                if (pluginManager.getPlugin(packageId) == null) {
+                    entries.remove(packageId);
+                }
+            } catch (Throwable inspectionFailure) {
+                addSuppressedSafely(failure, inspectionFailure);
+            }
+            refreshStatusSafely(failure);
+            throw operationFailure("failed to validate loaded plugin package " + packageId, failure);
         }
     }
 
@@ -324,37 +361,61 @@ public class PluginRuntimeManager {
     public synchronized LoadedPluginPackage startPlugin(String packageId) {
         RuntimeEntry entry = requireEntry(packageId);
         if (entry.phase == PluginRuntimePackagePhase.STARTED) {
-            return snapshot(entry, true);
+            try {
+                return snapshot(entry, true);
+            } catch (Throwable failure) {
+                throw operationFailure("failed to inspect started plugin package " + packageId, failure);
+            }
         }
+        PluginRuntimePackagePhase previousPhase = entry.phase;
         PluginState result;
         try {
             result = pluginManager.startPlugin(packageId);
-        } catch (RuntimeException e) {
-            throw new PluginRuntimeOperationException("failed to start plugin package " + packageId, e);
+        } catch (Throwable failure) {
+            reconcileEntryWithWrapper(entry, previousPhase, failure);
+            refreshStatusSafely(failure);
+            throw operationFailure("failed to start plugin package " + packageId, failure);
         }
         if (result != PluginState.STARTED) {
-            throw new PluginRuntimeOperationException("PF4J did not start plugin package " + packageId
-                    + " (state=" + result + ")");
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J did not start plugin package " + packageId + " (state=" + result + ")");
+            reconcileEntryWithWrapper(entry, previousPhase, failure);
+            refreshStatusSafely(failure);
+            throw failure;
         }
         entry.phase = PluginRuntimePackagePhase.STARTED;
         refreshStatus();
-        return snapshot(entry, true);
+        try {
+            return snapshot(entry, true);
+        } catch (Throwable failure) {
+            throw operationFailure("failed to inspect started plugin package " + packageId, failure);
+        }
     }
 
     /** 停止 PF4J 插件入口但保留 wrapper/classloader。 */
     public synchronized LoadedPluginPackage stopPlugin(String packageId) {
         RuntimeEntry entry = requireEntry(packageId);
         if (entry.phase != PluginRuntimePackagePhase.STARTED) {
-            return snapshot(entry, false);
+            try {
+                return snapshot(entry, false);
+            } catch (Throwable failure) {
+                throw operationFailure("failed to inspect stopped plugin package " + packageId, failure);
+            }
         }
         PluginState result;
         try {
             result = pluginManager.stopPlugin(packageId);
-        } catch (RuntimeException e) {
-            throw new PluginRuntimeOperationException("failed to stop plugin package " + packageId, e);
+        } catch (Throwable failure) {
+            reconcileEntryWithWrapper(entry, PluginRuntimePackagePhase.STOPPED, failure);
+            refreshStatusSafely(failure);
+            throw operationFailure("failed to stop plugin package " + packageId, failure);
         }
         if (result == PluginState.STARTED) {
-            throw new PluginRuntimeOperationException("PF4J left plugin package started: " + packageId);
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J left plugin package started: " + packageId);
+            reconcileEntryWithWrapper(entry, PluginRuntimePackagePhase.STOPPED, failure);
+            refreshStatusSafely(failure);
+            throw failure;
         }
         entry.phase = PluginRuntimePackagePhase.STOPPED;
         refreshStatus();
@@ -377,17 +438,27 @@ public class PluginRuntimeManager {
         boolean unloaded;
         try {
             unloaded = pluginManager.unloadPlugin(packageId);
-        } catch (RuntimeException e) {
+        } catch (Throwable failure) {
             // 某些 PF4J 实现会先移除 wrapper、再在关闭 classloader 时抛异常。此时旧句柄已经
             // 不可恢复，必须同步删除本地 entry；调用方仍会收到失败并据此报告 JAR 未确认可替换。
-            if (pluginManager.getPlugin(packageId) == null) {
-                entries.remove(packageId);
-                refreshStatus();
-            }
-            throw new PluginRuntimeOperationException("failed to unload plugin package " + packageId, e);
+            reconcileEntryWithWrapper(entry, PluginRuntimePackagePhase.STOPPED, failure);
+            refreshStatusSafely(failure);
+            throw operationFailure("failed to unload plugin package " + packageId, failure);
         }
-        if (!unloaded || pluginManager.getPlugin(packageId) != null) {
-            throw new PluginRuntimeOperationException("PF4J did not unload plugin package " + packageId);
+        boolean wrapperPresent;
+        try {
+            wrapperPresent = pluginManager.getPlugin(packageId) != null;
+        } catch (Throwable failure) {
+            reconcileEntryWithWrapper(entry, PluginRuntimePackagePhase.STOPPED, failure);
+            refreshStatusSafely(failure);
+            throw operationFailure("failed to verify unloaded plugin package " + packageId, failure);
+        }
+        if (!unloaded || wrapperPresent) {
+            PluginRuntimeOperationException failure = new PluginRuntimeOperationException(
+                    "PF4J did not unload plugin package " + packageId);
+            reconcileEntryWithWrapper(entry, PluginRuntimePackagePhase.STOPPED, failure);
+            refreshStatusSafely(failure);
+            throw failure;
         }
         entries.remove(packageId);
         refreshStatus();
@@ -511,16 +582,7 @@ public class PluginRuntimeManager {
         if (previous == null) {
             return;
         }
-        try {
-            previous.stopPlugins();
-        } catch (RuntimeException e) {
-            log.warn("Error stopping plugins during runtime shutdown: {}", describe(e));
-        }
-        try {
-            previous.unloadPlugins();
-        } catch (RuntimeException e) {
-            log.warn("Error unloading plugins during runtime shutdown: {}", describe(e));
-        }
+        bestEffortStopAndUnload(previous, "shutdown");
     }
 
     public Path pluginsRoot() {
@@ -626,21 +688,169 @@ public class PluginRuntimeManager {
         if (previous == null) {
             return;
         }
-        try {
-            previous.stopPlugins();
-        } catch (RuntimeException e) {
-            log.warn("Error stopping plugins during runtime reset: {}", describe(e));
-        }
-        try {
-            previous.unloadPlugins();
-        } catch (RuntimeException e) {
-            log.warn("Error unloading plugins during runtime reset: {}", describe(e));
-        }
+        bestEffortStopAndUnload(previous, "reset");
     }
 
     private PluginRuntimeStatus cache(PluginRuntimeStatus value) {
         this.status = value;
         return value;
+    }
+
+    private static void bestEffortStopAndUnload(PluginManager manager, String action) {
+        Throwable fatal = null;
+        try {
+            manager.stopPlugins();
+        } catch (Throwable failure) {
+            if (isFatal(failure)) {
+                fatal = failure;
+            } else {
+                log.warn("Error stopping plugins during runtime {}: {}", action, describe(failure));
+            }
+        }
+        try {
+            manager.unloadPlugins();
+        } catch (Throwable failure) {
+            if (isFatal(failure)) {
+                if (fatal == null) {
+                    fatal = failure;
+                } else {
+                    addSuppressedSafely(fatal, failure);
+                }
+            } else {
+                log.warn("Error unloading plugins during runtime {}: {}", action, describe(failure));
+            }
+        }
+        if (fatal != null) {
+            rethrowFatal(fatal);
+        }
+    }
+
+    private Set<String> loadedWrapperIds() {
+        Set<String> ids = new LinkedHashSet<>();
+        for (PluginWrapper wrapper : pluginManager.getPlugins()) {
+            ids.add(wrapper.getPluginId());
+        }
+        return ids;
+    }
+
+    /** load 原语抛错时只清理由本次调用新增的 wrapper，绝不触碰先前在场的同 id 代际。 */
+    private void cleanupNewWrappers(
+            Set<String> wrappersBeforeLoad,
+            Throwable primaryFailure,
+            Path artifactPath,
+            Path pf4jLoadPath,
+            PluginDescriptor packageDescriptor) {
+        Set<String> current;
+        try {
+            current = loadedWrapperIds();
+        } catch (Throwable inspectionFailure) {
+            addSuppressedSafely(primaryFailure, inspectionFailure);
+            return;
+        }
+        current.removeAll(wrappersBeforeLoad);
+        for (String pluginId : current) {
+            boolean unloaded = false;
+            try {
+                unloaded = pluginManager.unloadPlugin(pluginId);
+            } catch (Throwable cleanupFailure) {
+                addSuppressedSafely(primaryFailure, cleanupFailure);
+            }
+            PluginWrapper remaining = null;
+            try {
+                remaining = pluginManager.getPlugin(pluginId);
+            } catch (Throwable inspectionFailure) {
+                addSuppressedSafely(primaryFailure, inspectionFailure);
+            }
+            if (!unloaded || remaining != null) {
+                addSuppressedSafely(primaryFailure, new PluginRuntimeOperationException(
+                        "PF4J retained wrapper after failed load cleanup: " + pluginId));
+            }
+            if (remaining != null) {
+                retainResidualWrapper(pluginId, remaining, artifactPath, pf4jLoadPath, packageDescriptor,
+                        primaryFailure);
+            }
+        }
+        refreshStatusSafely(primaryFailure);
+    }
+
+    private void retainResidualWrapper(
+            String pluginId,
+            PluginWrapper wrapper,
+            Path artifactPath,
+            Path pf4jLoadPath,
+            PluginDescriptor packageDescriptor,
+            Throwable primaryFailure) {
+        if (entries.containsKey(pluginId)) {
+            return;
+        }
+        try {
+            long generation = generations.merge(pluginId, 1L, Long::sum);
+            PluginRuntimePackagePhase phase = wrapper.getPluginState() == PluginState.STARTED
+                    ? PluginRuntimePackagePhase.STARTED : PluginRuntimePackagePhase.LOADED;
+            entries.put(pluginId, new RuntimeEntry(
+                    pluginId,
+                    artifactPath.toAbsolutePath().normalize(),
+                    pf4jLoadPath.toAbsolutePath().normalize(),
+                    wrapper.getDescriptor().getVersion(),
+                    generation,
+                    phase,
+                    packageDescriptor));
+        } catch (Throwable retentionFailure) {
+            addSuppressedSafely(primaryFailure, retentionFailure);
+        }
+    }
+
+    /** PF4J 可能先改变 wrapper 状态再抛错；错误边界前把本地 entry 对齐到可观测事实。 */
+    private void reconcileEntryWithWrapper(
+            RuntimeEntry entry, PluginRuntimePackagePhase nonStartedPhase, Throwable primaryFailure) {
+        try {
+            PluginWrapper wrapper = pluginManager.getPlugin(entry.packageId);
+            if (wrapper == null) {
+                entries.remove(entry.packageId);
+                return;
+            }
+            entry.phase = wrapper.getPluginState() == PluginState.STARTED
+                    ? PluginRuntimePackagePhase.STARTED : nonStartedPhase;
+        } catch (Throwable inspectionFailure) {
+            addSuppressedSafely(primaryFailure, inspectionFailure);
+        }
+    }
+
+    private void refreshStatusSafely(Throwable primaryFailure) {
+        try {
+            refreshStatus();
+        } catch (Throwable refreshFailure) {
+            addSuppressedSafely(primaryFailure, refreshFailure);
+        }
+    }
+
+    private static PluginRuntimeOperationException operationFailure(String message, Throwable failure) {
+        rethrowFatal(failure);
+        return new PluginRuntimeOperationException(message, failure);
+    }
+
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (failure instanceof ThreadDeath fatal) {
+            throw fatal;
+        }
+    }
+
+    private static boolean isFatal(Throwable failure) {
+        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
+    }
+
+    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
+        if (target == null || suppressed == null || target == suppressed) {
+            return;
+        }
+        try {
+            target.addSuppressed(suppressed);
+        } catch (Throwable ignored) {
+            // 诊断附加失败不得覆盖主失败。
+        }
     }
 
     private static List<Path> findCandidatePackages(Path directory) throws IOException {

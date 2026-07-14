@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.plugin.runtime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pf4j.PluginManager;
+import org.pf4j.PluginState;
+import org.pf4j.PluginWrapper;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbeFeaturePlugin;
@@ -24,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +38,13 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 
@@ -49,6 +60,108 @@ class PluginRuntimeManagerTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    @DisplayName("PF4J start 已变更 wrapper 后抛 Error 时本地阶段复核为 STARTED")
+    void startErrorAfterPf4jMutationReconcilesEntry() throws Exception {
+        Path plugins = tempDir.resolve("plugins");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        manager.loadPlugin(jar);
+        PluginManager delegate = manager.pluginManager().orElseThrow();
+        PluginManager faulting = spy(delegate);
+        doAnswer(invocation -> {
+            delegate.startPlugin(PROBE_ID);
+            throw new AssertionError("start failed after state mutation");
+        }).when(faulting).startPlugin(PROBE_ID);
+        replacePluginManager(manager, faulting);
+
+        assertThatThrownBy(() -> manager.startPlugin(PROBE_ID))
+                .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
+                .hasCauseInstanceOf(AssertionError.class);
+
+        assertThat(manager.packagePhases().get(PROBE_ID))
+                .isEqualTo(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase.STARTED);
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("PF4J unload 已移除 wrapper 后抛 Error 时同步删除本地 entry")
+    void unloadErrorAfterPf4jMutationRemovesEntry() throws Exception {
+        Path plugins = tempDir.resolve("plugins");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        manager.loadPlugin(jar);
+        PluginManager delegate = manager.pluginManager().orElseThrow();
+        PluginManager faulting = spy(delegate);
+        doAnswer(invocation -> {
+            delegate.unloadPlugin(PROBE_ID);
+            throw new AssertionError("unload failed after wrapper removal");
+        }).when(faulting).unloadPlugin(PROBE_ID);
+        replacePluginManager(manager, faulting);
+
+        assertThatThrownBy(() -> manager.unloadPlugin(PROBE_ID))
+                .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
+                .hasCauseInstanceOf(AssertionError.class);
+
+        assertThat(manager.packagePhases()).doesNotContainKey(PROBE_ID);
+        assertThat(manager.generation(PROBE_ID)).isEmpty();
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("load 抛错且 cleanup 返回 false 时保留残余 wrapper 的可观测 entry")
+    void loadFailureWithIncompleteCleanupRetainsResidualEntry() throws Exception {
+        Path plugins = tempDir.resolve("plugins");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        PluginManager faulting = mock(PluginManager.class);
+        PluginWrapper wrapper = mock(PluginWrapper.class);
+        org.pf4j.PluginDescriptor pf4jDescriptor = mock(org.pf4j.PluginDescriptor.class);
+        when(faulting.getPlugins()).thenReturn(List.of(), List.of(wrapper));
+        when(wrapper.getPluginId()).thenReturn(PROBE_ID);
+        when(wrapper.getPluginState()).thenReturn(PluginState.CREATED);
+        when(wrapper.getDescriptor()).thenReturn(pf4jDescriptor);
+        when(pf4jDescriptor.getVersion()).thenReturn(PROBE_VERSION);
+        doAnswer(invocation -> {
+            throw new AssertionError("load failed after wrapper creation");
+        }).when(faulting).loadPlugin(any(Path.class));
+        when(faulting.unloadPlugin(PROBE_ID)).thenReturn(false);
+        when(faulting.getPlugin(PROBE_ID)).thenReturn(wrapper);
+        replacePluginManager(manager, faulting);
+
+        assertThatThrownBy(() -> manager.loadPlugin(jar))
+                .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
+                .hasCauseInstanceOf(AssertionError.class)
+                .satisfies(failure -> assertThat(failure.getCause().getSuppressed())
+                        .anyMatch(suppressed -> suppressed.getMessage().contains("retained wrapper")));
+
+        assertThat(manager.packagePhases().get(PROBE_ID))
+                .isEqualTo(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase.LOADED);
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("shutdown 的 stop 抛非 fatal Error 后仍继续 unload")
+    void shutdownContinuesUnloadAfterNonFatalStopError() throws Exception {
+        PluginRuntimeManager manager = new PluginRuntimeManager(tempDir.resolve("plugins"));
+        PluginManager faulting = mock(PluginManager.class);
+        doAnswer(invocation -> {
+            throw new AssertionError("stop all failed");
+        }).when(faulting).stopPlugins();
+        replacePluginManager(manager, faulting);
+
+        manager.shutdown();
+
+        verify(faulting).unloadPlugins();
+        assertThat(manager.pluginManager()).isEmpty();
+    }
 
     @Test
     @DisplayName("插件目录不存在：报告 ABSENT、不加载任何插件、不创建目录、不构造 PF4J 实例")
@@ -549,6 +662,13 @@ class PluginRuntimeManagerTest {
             assertThat(in).as("class resource must be compiled: " + type.getName()).isNotNull();
             Files.copy(in, target);
         }
+    }
+
+    private static void replacePluginManager(
+            PluginRuntimeManager runtimeManager, PluginManager pluginManager) throws ReflectiveOperationException {
+        Field field = PluginRuntimeManager.class.getDeclaredField("pluginManager");
+        field.setAccessible(true);
+        field.set(runtimeManager, pluginManager);
     }
 
     private PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materializedDevelopmentPlugin(
