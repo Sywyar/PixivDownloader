@@ -7,6 +7,7 @@ package top.sywyar.pixivdownload.core.web;
 public final class AcquisitionCredentialResolver {
 
     public static final String HEADER_NAME = "X-Acquisition-Credential";
+    public static final int MAX_LENGTH = 16_384;
 
     private AcquisitionCredentialResolver() {
     }
@@ -25,6 +26,9 @@ public final class AcquisitionCredentialResolver {
             return null;
         }
         String normalized = value.trim();
+        if (normalized.length() > MAX_LENGTH) {
+            throw new IllegalArgumentException("Acquisition credential is too long");
+        }
         return normalized.isEmpty() ? null : normalized;
     }
 }

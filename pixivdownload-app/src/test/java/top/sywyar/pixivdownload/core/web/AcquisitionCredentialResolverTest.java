@@ -51,4 +51,14 @@ class AcquisitionCredentialResolverTest {
                 .isThrownBy(() -> AcquisitionCredentialResolver.resolve("generic", "legacy"))
                 .withMessage("Conflicting acquisition credential headers");
     }
+
+    @Test
+    @DisplayName("接受声明上限长度并拒绝更长的取得凭证")
+    void enforcesCredentialLengthLimit() {
+        String maximum = "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH);
+
+        assertThat(AcquisitionCredentialResolver.resolve(maximum, null)).isEqualTo(maximum);
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                AcquisitionCredentialResolver.resolve(maximum + "a", null));
+    }
 }
