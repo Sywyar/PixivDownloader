@@ -101,36 +101,68 @@
         if (!arr.length) delete state.sseListeners[key];
     }
 
-    function waitForFinalStatusBySSE(artworkId, timeoutMs) {
-        return new Promise(resolve => {
-            let resolved = false;
+    function waitForFinalStatusBySSE(artworkId, timeoutMs, invocation) {
+        return new Promise((resolve, reject) => {
+            let settled = false;
             let timer = null;
             let pollTimer = null;
+            let listener = null;
 
-            const finish = (data) => {
-                if (resolved) return;
-                resolved = true;
+            const cleanup = () => {
                 clearTimeout(timer);
                 clearInterval(pollTimer);
+                if (listener) removeSSEListener(artworkId, listener);
+                if (invocation && invocation.signal) {
+                    invocation.signal.removeEventListener('abort', abort);
+                }
+            };
+
+            const finish = (data) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
                 resolve(data);
+            };
+
+            const fail = (error) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                reject(error);
+            };
+
+            const abort = () => {
+                try {
+                    invocation.assertActive();
+                } catch (error) {
+                    fail(error);
+                }
             };
 
             timer = setTimeout(() => finish(null), timeoutMs);
 
             // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
             pollTimer = setInterval(async () => {
-                if (resolved) {
+                if (settled) {
                     clearInterval(pollTimer);
                     return;
                 }
                 try {
-                    const status = await getDownloadStatus(String(artworkId));
+                    const status = await getDownloadStatus(String(artworkId), invocation);
+                    if (invocation) invocation.assertActive();
                     if (status && (status.completed || status.failed)) finish(status);
-                } catch {
+                } catch (error) {
+                    if (invocation && !invocation.isActive()) fail(error);
                 }
             }, 5000);
 
-            addSSEListener(artworkId, data => {
+            listener = data => {
+                try {
+                    if (invocation) invocation.assertActive();
+                } catch (error) {
+                    fail(error);
+                    return;
+                }
                 if (data && (data.completed || data.failed || data.cancelled)) {
                     finish(data);
                 } else if (data && data.downloadedCount !== undefined) {
@@ -145,7 +177,12 @@
                     clearTimeout(timer);
                     timer = setTimeout(() => finish(null), timeoutMs);
                 }
-            });
+            };
+            addSSEListener(artworkId, listener);
+            if (invocation && invocation.signal) {
+                if (invocation.signal.aborted) abort();
+                else invocation.signal.addEventListener('abort', abort, {once: true});
+            }
         });
     }
 

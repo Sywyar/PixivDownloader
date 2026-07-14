@@ -50,6 +50,16 @@ class QueueTypeRegistryTest {
     }
 
     @Test
+    @DisplayName("旧构造器安全降级为空取得模式且注册中心允许零取得入口")
+    void legacyDescriptorHasNoAcquisitionModes() {
+        QueueTypeRegistry registry = emptyRegistry();
+        registry.register("demo", List.of(type("legacy")));
+
+        assertThat(registry.queueTypes()).singleElement()
+                .satisfies(item -> assertThat(item.queueType().descriptor().acquisitionModes()).isEmpty());
+    }
+
+    @Test
     @DisplayName("register → unregister → 再 register 后快照与首次注册一致（可逆性）")
     void registerUnregisterRoundTrip() {
         QueueTypeRegistry registry = emptyRegistry();

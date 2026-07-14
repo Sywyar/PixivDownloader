@@ -1,22 +1,4 @@
 'use strict';
-    async function getUserArtworks(userId) {
-        const data = await apiGet(`/api/pixiv/user/${userId}/artworks`);
-        if (data.error) throw new Error(data.error);
-        return data.ids || [];
-    }
-
-    // 约稿作品（リクエスト 成品）：本质是普通插画，发现到 ID 后与插画同走 illust-cards 预览 / 下载链路。
-    async function getUserRequestArtworks(userId) {
-        const data = await apiGet(`/api/pixiv/user/${userId}/request-artworks`);
-        if (data.error) throw new Error(data.error);
-        return data.ids || [];
-    }
-
-    async function getUserMeta(userId) {
-        const data = await apiGet(`/api/pixiv/user/${userId}/meta`);
-        if (data.error) throw new Error(data.error);
-        return data.name || '';
-    }
 
     /* ============================================================
        User 模式预览（对齐 Search / 系列：先渲染预览网格 + 分页，
@@ -25,7 +7,8 @@
     const USER_PAGE_SIZE = 30;
 
     let userState = {
-        kind: 'illust',
+        kind: null,
+        variant: null,
         userId: '',
         username: '',
         allIds: [],
@@ -37,33 +20,65 @@
         filterSummary: {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false},
         renderToken: 0,
         activeBlobUrls: [],
-        filterSeq: 0
+        filterSeq: 0,
+        requestSeq: 0
     };
 
     function userCardCacheKey(id) {
-        return String(userState.kind || 'illust') + ':' + String(id);
+        return String(userState.kind || '') + ':' + String(id);
     }
 
-    // 当前 user 模式作品类型的 user 取得钩子（类型不可用 → null → 走宿主内置插画路径）。
+    // 当前 user 模式作品类型的取得钩子；类型不可用时返回 null，由调用方停止该模式请求。
     function userAcq() {
         return window.PixivBatch.queueTypes.acquisition(userState.kind, 'user');
     }
     function userQueueId(item) {
         const acq = userAcq();
-        return acq && acq.queueId ? acq.queueId(item) : String(item.id);
+        return acq.queueId(item);
     }
     // 队列预览卡片元素 id（小说卡 / 插画缩略图 id 前缀不同，由该类型 user 钩子贡献）。
     function userCardElementId(idx) {
         const acq = userAcq();
-        return acq && acq.cardId ? acq.cardId(idx) : `user-thumb-${idx}`;
+        return acq.cardId(idx);
     }
-    // 发现该画师在当前 kind 下的作品 ID 列表：约稿走宿主内置约稿端点；其余按当前队列类型的 user 钩子
-    // （如小说 novels 端点），无钩子 / 内置插画走 artworks 端点。userState.kind 已在 resetUserState 设定。
-    async function fetchUserIds(userId, userKind) {
-        if (userKind === 'request') return getUserRequestArtworks(userId);
-        const acq = userAcq();
-        if (acq && acq.fetchIds) return acq.fetchIds(userId);
-        return getUserArtworks(userId);
+
+    function resolveUserSelection(selection, rawInput) {
+        const entries = window.PixivBatch.queueTypes.acquisitionList('user');
+        let variant = selection;
+        let entry = null;
+        for (const candidate of entries) {
+            try {
+                if (typeof candidate.accepts === 'function'
+                    ? candidate.accepts(selection) : candidate.type === selection) {
+                    entry = candidate;
+                    break;
+                }
+            } catch (e) {
+                console.warn('[user] 用户类型选择钩子失败：', candidate.type, e);
+            }
+        }
+        for (const candidate of entries) {
+            if (typeof candidate.detectVariant !== 'function') continue;
+            try {
+                const detected = candidate.detectVariant(rawInput, selection);
+                if (detected && (typeof candidate.accepts !== 'function' || candidate.accepts(detected))) {
+                    entry = candidate;
+                    variant = detected;
+                    break;
+                }
+            } catch (e) {
+                console.warn('[user] 用户类型变体钩子失败：', candidate.type, e);
+            }
+        }
+        if (!entry) {
+            const type = window.PixivBatch.queueTypes.resolveTypeForMode(selection, 'user');
+            entry = entries.find(candidate => candidate.type === type) || null;
+        }
+        return entry ? {type: entry.type, variant, acquisition: entry} : null;
+    }
+
+    async function fetchUserIds(userId, lease) {
+        return userAcq().fetchIds(userId, {variant: userState.variant, signal: lease.signal});
     }
 
     function cleanupUserBlobUrls() {
@@ -73,9 +88,10 @@
         userState.activeBlobUrls = [];
     }
 
-    function resetUserState(kind = 'illust') {
+    function resetUserState(kind, variant) {
         cleanupUserBlobUrls();
-        userState.kind = window.PixivBatch.queueTypes.resolveType(kind);
+        userState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'user');
+        userState.variant = variant;
         userState.allIds = [];
         userState.currentPage = 1;
         userState.totalPages = 1;
@@ -85,8 +101,14 @@
         userState.filterSummary = {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false};
         userState.renderToken += 1;
         userState.filterSeq += 1;
+        userState.requestSeq += 1;
         updateUserQueueButtons();
         renderUserPagination();
+    }
+
+    function userPageSize() {
+        const size = Number(userAcq().pageSize);
+        return Number.isFinite(size) && size > 0 ? size : USER_PAGE_SIZE;
     }
 
     function setUserLoading(message) {
@@ -100,13 +122,18 @@
     function clearUserPreview() {
         resetPreviewCollapse('user-results-area', 'user-pagination');
         cleanupUserBlobUrls();
+        userState.userId = '';
+        userState.username = '';
         userState.allIds = [];
         userState.rawItems = [];
         userState.items = [];
+        userState.cardCache = new Map();
+        userState.filterSummary = {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false};
         userState.currentPage = 1;
         userState.totalPages = 1;
         userState.renderToken += 1;
         userState.filterSeq += 1;
+        userState.requestSeq += 1;
         const area = document.getElementById('user-results-area');
         if (area) {
             area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-empty', '输入画师 ID 后点击「解析并预览」'))}</div>`;
@@ -115,52 +142,57 @@
         updateUserQueueButtons();
     }
 
-    // 接受纯数字 ID 或形如 https://www.pixiv.net/users/{id}[/...] 的画师主页 URL（含语言前缀变体）。
-    function parseUserIdInput(raw) {
-        const s = (raw || '').trim();
-        if (!s) return '';
-        if (/^\d+$/.test(s)) return s;
-        const m = s.match(/\/users\/(\d+)/);
-        return m ? m[1] : '';
-    }
-
     async function loadUserPreview() {
         const input = document.getElementById('user-id-input');
         const rawInput = input.value;
-        const userId = parseUserIdInput(rawInput);
+        const selected = resolveUserSelection(state.settings.userKind, rawInput);
+        if (!selected) {
+            setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
+            return;
+        }
+        const userId = selected.acquisition.parseInput(rawInput);
         if (!userId) {
             await uiAlertKey('alert.invalid-user-id', '请输入有效的用户 ID 或画师主页链接');
             return;
         }
-        // 粘贴 .../users/{id}/request/artworks 这类约稿页链接时，自动切到「约稿」类别。
-        if (/\/request\b/.test(rawInput) && state.settings.userKind !== 'request') {
-            state.settings.userKind = 'request';
-            applyKindSwitcherUI('user-kind-switcher', 'request');
+        // 类型 owner 可据输入识别其子类别；宿主只同步贡献方返回的选择值。
+        if (selected.variant && state.settings.userKind !== selected.variant) {
+            state.settings.userKind = selected.variant;
+            applyKindSwitcherUI('user-kind-switcher', selected.variant);
             applyNovelSettingsVisibility();
             applySearchKindUI();
             saveSettings();
         }
         if (input.value.trim() !== userId) input.value = userId;
-        const userKind = state.settings.userKind;
-        // 约稿成品按插画渲染 / 入队；把选中 kind 解析为可用队列类型（不可用 / 约稿 → 插画）。
-        const kind = window.PixivBatch.queueTypes.resolveType(userKind);
-        resetUserState(kind);
+        resetUserState(selected.type, selected.variant);
+        const requestSeq = userState.requestSeq;
         userState.userId = userId;
         state.userId = userId;
         document.getElementById('user-info-display').textContent = bt('status.fetching-user-info', '正在获取用户信息...');
         setUserLoading(bt('status.fetching-artwork-list', '正在获取作品列表...'));
+        const lease = window.PixivBatch.queueTypes.acquisitionLease(selected.type, 'user');
         try {
             let name = null;
-            try { name = await getUserMeta(userId); } catch { name = null; }
+            try {
+                name = await userAcq().fetchMeta(userId, {signal: lease.signal});
+                lease.assertCurrent();
+                if (requestSeq !== userState.requestSeq) return;
+            } catch (e) {
+                lease.assertCurrent();
+                if (requestSeq !== userState.requestSeq) return;
+                name = null;
+            }
             userState.username = name || userId;
             state.username = userState.username;
             document.getElementById('user-info-display').textContent = name
                 ? bt('status.user-display', '用户：{name}（ID: {id}）', {name: userState.username, id: userId})
                 : bt('status.user-display-fetch-failed', 'ID: {id}（获取用户名失败）', {id: userId});
 
-            const ids = await fetchUserIds(userId, userKind);
+            const ids = await fetchUserIds(userId, lease);
+            lease.assertCurrent();
+            if (requestSeq !== userState.requestSeq) return;
             userState.allIds = Array.isArray(ids) ? ids.map(String) : [];
-            userState.totalPages = Math.max(1, Math.ceil(userState.allIds.length / USER_PAGE_SIZE));
+            userState.totalPages = Math.max(1, Math.ceil(userState.allIds.length / userPageSize()));
             if (!userState.allIds.length) {
                 setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
                 const area = document.getElementById('user-results-area');
@@ -171,6 +203,7 @@
             }
             await loadUserPreviewPage(1);
         } catch (e) {
+            if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
             const area = document.getElementById('user-results-area');
             if (area) area.innerHTML = `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}))}</div>`;
             setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
@@ -183,17 +216,20 @@
         const missing = ids.filter(id => !userState.cardCache.has(userCardCacheKey(id)));
         if (missing.length) {
             const acq = userAcq();
-            const endpoint = (acq && acq.cardsEndpoint)
-                ? acq.cardsEndpoint(userState.userId)
-                : `/api/pixiv/user/${encodeURIComponent(userState.userId)}/illust-cards`;
+            const endpoint = acq.cardsEndpoint(userState.userId);
             const params = new URLSearchParams();
             missing.forEach(id => params.append('ids', id));
-            const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
+            const request = window.PixivBatch.queueTypes.prepareAcquisitionRequest(
+                userState.kind, 'user', `${endpoint}?${params}`, 'cards',
+                {userId: userState.userId, ids: missing.slice()});
+            const res = await fetch(request.url, request.init);
             if (!res.ok) {
                 const d = await res.json().catch(() => ({}));
+                request.assertCurrent();
                 throw new Error(d.error || `HTTP ${res.status}`);
             }
             const data = await res.json();
+            request.assertCurrent();
             (data.items || []).forEach(it => userState.cardCache.set(userCardCacheKey(String(it.id)), it));
         }
         return ids.map(id => userState.cardCache.get(userCardCacheKey(id))).filter(Boolean);
@@ -205,14 +241,21 @@
         if (!Number.isFinite(p) || p < 1) p = 1;
         if (p > userState.totalPages) p = userState.totalPages;
         userState.currentPage = p;
+        const requestSeq = ++userState.requestSeq;
         cleanupUserBlobUrls();
-        const base = (p - 1) * USER_PAGE_SIZE;
-        const slice = userState.allIds.slice(base, base + USER_PAGE_SIZE);
+        const pageSize = userPageSize();
+        const base = (p - 1) * pageSize;
+        const slice = userState.allIds.slice(base, base + pageSize);
         setUserLoading(bt('status.series-page-loading', '正在加载第 {page} 页...', {page: p}));
+        const lease = window.PixivBatch.queueTypes.acquisitionLease(userState.kind, 'user');
         try {
             const cards = await ensureUserCards(slice);
+            lease.assertCurrent();
+            if (requestSeq !== userState.requestSeq) return;
             userState.rawItems = cards;
             await applyUserFilters({});
+            lease.assertCurrent();
+            if (requestSeq !== userState.requestSeq) return;
             renderUserPagination();
             updateUserQueueButtons();
             setStatus(bt('status.user-preview-loaded', '画师预览已加载：{name}（第 {page} / {total} 页）', {
@@ -221,6 +264,7 @@
                 total: userState.totalPages
             }), 'success');
         } catch (e) {
+            if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
             const area = document.getElementById('user-results-area');
             if (area) area.innerHTML = `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}))}</div>`;
             setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
@@ -296,36 +340,13 @@
         }
         const inQueue = new Set(state.queue.map(q => q.id));
         const acq = userAcq();
-        if (acq && acq.render) {
-            acq.render(area, {summaryHtml, inQueue, items: userState.items, username: userState.username});
-            return;
-        }
-        area.innerHTML = summaryHtml + `<div class="search-grid">
-      ${userState.items.map((item, idx) => {
-            const xr = Number(item.xRestrict ?? 0);
-            const illustType = Number(item.illustType ?? 0);
-            const isAi = Number(item.aiType ?? 0) >= 2;
-            const r18Badge = xr === 2
-                ? '<span class="thumb-badge" style="background:#b91c1c;">R-18G</span>'
-                : xr === 1 ? '<span class="thumb-badge">R-18</span>' : '';
-            const aiBadge = isAi ? '<span class="thumb-badge thumb-badge-ai">AI</span>' : '';
-            const typeBadge = illustType === 2
-                ? `<span class="thumb-badge" style="background:#0ea5e9;">${esc(bt('search.type.ugoira', '动图'))}</span>`
-                : illustType === 1 ? `<span class="thumb-badge" style="background:#f59e0b;">${esc(bt('search.type.manga', '漫画'))}</span>` : '';
-            const pagesLabel = item.pageCount > 1 ? `<span class="thumb-pages">${item.pageCount}P</span>` : '';
-            const inQueueClass = inQueue.has(String(item.id)) ? ' in-queue' : '';
-            const queueTip = buildQueueToggleTip(inQueue.has(String(item.id)));
-            return `<div class="search-thumb${inQueueClass}" id="user-thumb-${idx}"
-                     onclick="addUserItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${queueTip}">
-          <img id="user-thumb-img-${idx}" src="" alt="${esc(item.title)}">
-          <div class="thumb-badge-stack">${r18Badge}${aiBadge}${typeBadge}</div>
-          ${pagesLabel}
-          <span class="thumb-in-queue-mark">✓</span>
-          <div class="thumb-title">${esc(item.title)}</div>
-        </div>`;
-        }).join('')}
-    </div>`;
-        loadUserThumbnailsBatched(userState.items, renderToken);
+        acq.render(area, {
+            summaryHtml,
+            inQueue,
+            items: userState.items,
+            username: userState.username,
+            renderToken
+        });
     }
 
     function renderUserPagination() {
@@ -372,23 +393,15 @@
         if (!item.thumbnailUrl) return;
         const imgEl = document.getElementById(`user-thumb-img-${idx}`);
         if (!imgEl) return;
-        const blobUrl = await fetchThumbnailBlobUrl(item.thumbnailUrl, userState.activeBlobUrls);
+        const blobUrl = await fetchThumbnailBlobUrl(
+            item.thumbnailUrl, userState.activeBlobUrls, userState.kind, 'user');
         if (renderToken !== userState.renderToken) return;
         if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
     }
 
     function buildUserQueueMeta(item) {
         const acq = userAcq();
-        if (acq && acq.buildQueueMeta) {
-            return acq.buildQueueMeta(item, {userId: userState.userId, username: userState.username});
-        }
-        return {
-            title: item.title,
-            authorId: item.userId ? Number(item.userId) : Number(userState.userId),
-            authorName: item.userName || userState.username || userState.userId,
-            isAi: Number(item.aiType ?? 0) >= 2,
-            xRestrict: Number(item.xRestrict ?? 0)
-        };
+        return acq.buildQueueMeta(item, {userId: userState.userId, username: userState.username});
     }
 
     function syncUserResultsQueueState() {
@@ -460,12 +473,7 @@
         // 无附加筛选：直接按全部 ID 入队（最省请求，等价于旧版「获取全部作品」）。
         if (!hasExtraSearchFilter(uiFilters)) {
             const ids = userState.allIds.map(id => userQueueId({id}));
-            const metas = userState.allIds.map(id => (acq && acq.buildQueueMetaFromId)
-                ? acq.buildQueueMetaFromId(id, metaCtx)
-                : {
-                    authorId: Number(userState.userId),
-                    authorName: userState.username || userState.userId
-                });
+            const metas = userState.allIds.map(id => acq.buildQueueMetaFromId(id, metaCtx));
             const added = addItemsToQueue(
                 ids, metas, 'user',
                 userState.username || userState.userId, userState.userId, userState.username || userState.userId
@@ -479,27 +487,35 @@
             return;
         }
         // 有附加筛选：必须逐页拉取卡片元数据做筛选，确认后继续。
-        if (!await uiConfirmKey(
+        const lease = window.PixivBatch.queueTypes.acquisitionLease(userState.kind, 'user');
+        const requestSeq = userState.requestSeq;
+        const confirmed = await uiConfirmKey(
             'dialog.user-add-all-warning',
             '「全部加入队列」会按附加筛选逐页请求该画师的全部 {total} 个作品卡片，作品较多时会增加 Pixiv 请求量并耗时，确认继续？',
             {total: userState.allIds.length}
-        )) {
-            return;
-        }
+        );
+        if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
+        lease.assertCurrent();
+        if (!confirmed) return;
         updateUserQueueButtons(true);
         try {
             const filters = uiFilters;
             const kind = userState.kind;
             const matched = [];
             const total = userState.allIds.length;
-            for (let i = 0; i < userState.allIds.length; i += USER_PAGE_SIZE) {
-                const slice = userState.allIds.slice(i, i + USER_PAGE_SIZE);
+            const pageSize = userPageSize();
+            for (let i = 0; i < userState.allIds.length; i += pageSize) {
+                const slice = userState.allIds.slice(i, i + pageSize);
                 setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...', {
-                    done: Math.min(i + USER_PAGE_SIZE, total),
+                    done: Math.min(i + pageSize, total),
                     total
                 }), 'info');
                 const cards = await ensureUserCards(slice);
+                lease.assertCurrent();
+                if (requestSeq !== userState.requestSeq) return;
                 const result = await computeFilteredItems(cards, filters, kind, () => false);
+                lease.assertCurrent();
+                if (requestSeq !== userState.requestSeq) return;
                 if (result) matched.push(...result.filtered);
             }
             const ids = matched.map(userQueueId);
@@ -515,14 +531,26 @@
             );
             syncUserResultsQueueState();
         } catch (e) {
+            if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
             setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
         } finally {
+            if (requestSeq !== userState.requestSeq || !lease.isCurrent()) return;
             updateUserQueueButtons();
         }
+    }
+
+    function reconcileUserTypeAvailability() {
+        if (!userState.kind || window.PixivBatch.queueTypes.supports(userState.kind, 'user')) return false;
+        userState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.userKind, 'user');
+        userState.variant = state.settings.userKind;
+        clearUserPreview();
+        return true;
     }
 
 
 // ---- PixivBatch facade ----
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 window.PixivBatch.modes.user = window.PixivBatch.modes.user || {};
-window.PixivBatch.modes.user = Object.assign(window.PixivBatch.modes.user, { loadUserPreview, addCurrentUserPageToQueue, addAllUserResultsToQueue });
+window.PixivBatch.modes.user = Object.assign(window.PixivBatch.modes.user, {
+    loadUserPreview, addCurrentUserPageToQueue, addAllUserResultsToQueue, reconcileUserTypeAvailability
+});

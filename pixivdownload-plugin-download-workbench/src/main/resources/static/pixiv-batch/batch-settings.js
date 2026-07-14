@@ -1,5 +1,25 @@
 'use strict';
     let batchCollectionsRefreshPromise = null;
+    const scopedBatchCollectionsRefreshPromises = new WeakMap();
+    const AUTO_SAVE_SETTING_IDS = new Set([
+        's-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files',
+        's-redownload-deleted', 's-bookmark', 's-collection', 's-file-name-template',
+        's-novel-format', 's-novel-merge', 's-novel-merge-format',
+        's-novel-auto-translate', 's-novel-translate-lang', 's-novel-translate-seg'
+    ]);
+
+    function bindDelegatedSettingAutosave(root, onSave) {
+        if (!root || typeof root.addEventListener !== 'function') return;
+        const save = typeof onSave === 'function' ? onSave : syncSettings;
+        const delegatedSave = event => {
+            const el = event.target;
+            if (!el || !AUTO_SAVE_SETTING_IDS.has(el.id)) return;
+            if (event.type === 'input' && el.type !== 'number' && el.type !== 'text') return;
+            save();
+        };
+        root.addEventListener('change', delegatedSave);
+        root.addEventListener('input', delegatedSave);
+    }
 
     function getIntervalMs() {
         const {interval, intervalUnit} = state.settings;
@@ -125,13 +145,18 @@
         // 此时已据扩展点注入完毕（bootstrap 早于 loadSettings），不可用类型的选项根本不在 DOM 里——故据注入
         // 后的实际单选选项把残留值收敛为可用默认（缺失即回退 illust），再同步 UI，避免初始化即停在不可用 kind
         // 上、后续抓取打到不可用类型的 API（取得侧无新请求的初始化侧保障，运行期另由 resolveType 兜底）。
+        reconcileQueueTypeSettings();
+        toggleSkipHistoryOptions();
+    }
+
+    function reconcileQueueTypeSettings() {
         state.settings.userKind = normalizeKindSetting('user-kind-switcher', state.settings.userKind);
         state.settings.searchKind = normalizeKindSetting('search-kind-switcher', state.settings.searchKind);
         applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
         applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
         applySearchKindUI();
         applyNovelSettingsVisibility();
-        toggleSkipHistoryOptions();
+        updateExtraFiltersCardVisibility();
     }
 
     // kind 单选当前实际可选的 kind 值集合：直接读注入后的单选选项（label[data-kind]）。
@@ -164,28 +189,39 @@
 
     function bindKindSwitcher(switcherId, settingKey, onChange) {
         const root = document.getElementById(switcherId);
-        if (!root) return;
-        root.querySelectorAll('label').forEach(lbl => {
-            lbl.addEventListener('click', () => {
-                // 标签声明什么 kind 就用什么（User 模式新增 'request' = 约稿，发现走约稿接口、渲染按插画）；
-                // 切换器的可选 kind 由当前启用的作品类型动态注入（插画为内置项），此处按标签取值即可、不写死具体类型。
-                const next = lbl.dataset.kind || 'illust';
-                if (state.settings[settingKey] === next) return;
-                state.settings[settingKey] = next;
-                applyKindSwitcherUI(switcherId, next);
-                saveSettings();
-                if (typeof onChange === 'function') onChange(next);
-            });
+        if (!root || root.dataset.kindSwitcherBound === 'true') return;
+        root.dataset.kindSwitcherBound = 'true';
+        root.addEventListener('click', event => {
+            let label = event.target;
+            while (label && label !== root
+                    && !(label.tagName && label.tagName.toLowerCase() === 'label')) {
+                label = label.parentNode;
+            }
+            if (!label || label === root || !label.dataset) return;
+            // 标签声明什么 kind 就用什么（User 模式新增 'request' = 约稿，发现走约稿接口、渲染按插画）；
+            // 切换器的可选 kind 由当前启用的作品类型动态注入（插画为内置项），此处按标签取值即可、不写死具体类型。
+            const next = label.dataset.kind || 'illust';
+            if (state.settings[settingKey] === next) return;
+            state.settings[settingKey] = next;
+            applyKindSwitcherUI(switcherId, next);
+            saveSettings();
+            if (typeof onChange === 'function') onChange(next);
         });
     }
 
-    // 当前模式对应的作品类型——共享「附加筛选」里页数/字数等专属字段的显隐据此切换。经 resolveType 把
-    // 选中 kind 解析为可用类型（不可用 / 非作品类型如约稿 → 回退 illust），宿主不再写死具体类型字面量。
+    // 当前模式对应的作品类型——共享「附加筛选」里页数/字数等专属字段的显隐据此切换。选择值可由
+    // acquisition owner 的 accepts hook 映射到真实作品类型，宿主不认识来源专属变体。
     function currentModeKind() {
         const qt = window.PixivBatch.queueTypes;
-        if (state.mode === 'user') return qt.resolveType(state.settings.userKind);
-        if (state.mode === 'search') return qt.resolveType(state.settings.searchKind);
-        if (state.mode === 'series') return qt.resolveType(seriesState.kind);
+        if (state.mode === 'user') {
+            return qt.resolveSelectionForMode(state.settings.userKind, 'user');
+        }
+        if (state.mode === 'search') {
+            return qt.resolveSelectionForMode(state.settings.searchKind, 'search');
+        }
+        if (state.mode === 'series') {
+            return qt.resolveSelectionForMode(seriesState.kind, 'series');
+        }
         return 'illust';
     }
 
@@ -322,19 +358,30 @@
         sel.value = selectedId === null ? '' : String(selectedId);
     }
 
-    async function refreshBatchCollections() {
-        if (batchCollectionsRefreshPromise) {
+    async function refreshBatchCollections(invocation) {
+        const scoped = invocation && typeof invocation.assertActive === 'function'
+            ? invocation : null;
+        if (!scoped && batchCollectionsRefreshPromise) {
             return batchCollectionsRefreshPromise;
         }
-        batchCollectionsRefreshPromise = (async () => {
+        if (scoped && scoped.signal && scopedBatchCollectionsRefreshPromises.has(scoped.signal)) {
+            return scopedBatchCollectionsRefreshPromises.get(scoped.signal);
+        }
+        const refresh = Promise.resolve().then(async () => {
+            if (scoped) scoped.assertActive();
             const canUseCollections = appMode === 'solo' || isAdmin;
             if (!canUseCollections) {
+                if (scoped) scoped.assertActive();
                 setBatchCollectionSetting(null);
                 resetBatchCollectionSelect();
                 return {collectionId: null, collections: []};
             }
             try {
-                const res = await fetch(BASE + '/api/collections', {credentials: 'same-origin'});
+                const res = await fetch(BASE + '/api/collections', {
+                    credentials: 'same-origin',
+                    signal: scoped ? scoped.signal : undefined
+                });
+                if (scoped) scoped.assertActive();
                 if (!res.ok) {
                     if (res.status === 401 || res.status === 403) {
                         isAdmin = false;
@@ -345,6 +392,7 @@
                     return {collectionId: null, collections: []};
                 }
                 const data = await res.json();
+                if (scoped) scoped.assertActive();
                 const collections = Array.isArray(data.collections) ? data.collections : [];
                 const current = normalizeBatchCollectionId(state.settings.collectionId);
                 const validIds = new Set(collections
@@ -354,23 +402,34 @@
                 setBatchCollectionSetting(selectedId);
                 renderBatchCollections(collections, selectedId);
                 return {collectionId: selectedId, collections};
-            } catch {
+            } catch (error) {
+                if (scoped) scoped.assertActive();
                 setBatchCollectionSetting(null);
                 resetBatchCollectionSelect();
                 return {collectionId: null, collections: []};
             } finally {
-                batchCollectionsRefreshPromise = null;
+                if (scoped) {
+                    if (scoped.signal) scopedBatchCollectionsRefreshPromises.delete(scoped.signal);
+                } else {
+                    batchCollectionsRefreshPromise = null;
+                }
             }
-        })();
+        });
+        if (scoped) {
+            if (scoped.signal) scopedBatchCollectionsRefreshPromises.set(scoped.signal, refresh);
+            return refresh;
+        }
+        batchCollectionsRefreshPromise = refresh;
         return batchCollectionsRefreshPromise;
     }
 
-    async function resolveBatchCollectionIdForDownload() {
-        const result = await refreshBatchCollections();
+    async function resolveBatchCollectionIdForDownload(invocation) {
+        const result = await refreshBatchCollections(invocation);
+        if (invocation) invocation.assertActive();
         return result.collectionId;
     }
 
 
 // ---- PixivBatch facade ----
 window.PixivBatch.settings = window.PixivBatch.settings || {};
-window.PixivBatch.settings = Object.assign(window.PixivBatch.settings, { syncSettings, getIntervalMs, getImageDelayMs, toggleIntervalUnit, toggleImageDelayUnit, applyNovelSettingsVisibility, updateNovelTranslateVisibility, refreshNovelTranslateLangDefault, refreshBatchCollections, updateBatchLimitNote, loadSettings, saveSettings });
+window.PixivBatch.settings = Object.assign(window.PixivBatch.settings, { syncSettings, bindDelegatedSettingAutosave, getIntervalMs, getImageDelayMs, toggleIntervalUnit, toggleImageDelayUnit, applyNovelSettingsVisibility, reconcileQueueTypeSettings, updateNovelTranslateVisibility, refreshNovelTranslateLangDefault, refreshBatchCollections, updateBatchLimitNote, loadSettings, saveSettings });

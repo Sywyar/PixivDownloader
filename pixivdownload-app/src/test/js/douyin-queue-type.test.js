@@ -4,7 +4,7 @@
  *
  * 在 Node vm 沙箱里加载真实 batch-queue-types.js 与真实 douyin-queue-type.js，验证：
  *   1) Douyin URL / 分享文本解析只识别 douyin.com / iesdouyin.com。
- *   2) 行为模块通过 queueTypes.register 按稳定 descriptor 接入。
+ *   2) 行为模块通过 scoped registerModule 按后端 owner token 接入。
  *   3) import / series / filters / cookie-tools contract 均可发现，下载设置不再贡献到前端。
  *
  * 运行： node src/test/js/douyin-queue-type.test.js
@@ -22,6 +22,12 @@ const DOUYIN_PATH = path.join(__dirname, '..', '..', '..', '..',
     'douyin-queue-type.js');
 const QT_SOURCE = fs.readFileSync(QT_PATH, 'utf8');
 const DOUYIN_SOURCE = fs.readFileSync(DOUYIN_PATH, 'utf8');
+const DOUYIN_TEST_SOURCE = DOUYIN_SOURCE.replace(/\}\)\(\);\s*$/, [
+    'window.__testDouyinFetchJson = douyinFetchJson;',
+    '})();'
+].join('\n'));
+assert.notStrictEqual(DOUYIN_TEST_SOURCE, DOUYIN_SOURCE,
+    '测试应能临时暴露真实 douyinFetchJson 助手');
 
 class El {
     constructor(tag) {
@@ -29,6 +35,7 @@ class El {
         this.children = [];
         this.parent = null;
         this.attrs = {};
+        this.dataset = {};
         this.onload = null;
         this.onerror = null;
         this.src = '';
@@ -38,13 +45,20 @@ class El {
     appendChild(child) {
         child.parent = this;
         this.children.push(child);
-        if (child.tag === 'script' && typeof child.onload === 'function') {
+        if (typeof this.onAppend === 'function') {
+            this.onAppend(child);
+        } else if (child.tag === 'script' && typeof child.onload === 'function') {
             setTimeout(() => child.onload(), 0);
         }
         return child;
     }
     insertAdjacentHTML() {}
-    remove() {}
+    remove() {
+        if (!this.parent) return;
+        const index = this.parent.children.indexOf(this);
+        if (index >= 0) this.parent.children.splice(index, 1);
+        this.parent = null;
+    }
     querySelectorAll() { return []; }
 }
 
@@ -55,12 +69,14 @@ function makeSandbox() {
         head: new El('head'),
         body: new El('body'),
         documentElement: new El('html'),
+        currentScript: null,
         createElement: tag => new El(tag),
         getElementById: () => null,
         querySelectorAll: () => []
     };
     const window = {
-        addEventListener() {},
+        location: {origin: 'https://local.test'},
+        addEventListener() {}, removeEventListener() {},
         dispatchEvent() {}
     };
     const sandbox = {
@@ -72,6 +88,7 @@ function makeSandbox() {
         setTimeout,
         clearTimeout,
         Promise,
+        AbortController,
         URL,
         STATUS_TIMEOUT_MS: 100,
         CustomEvent: function CustomEvent(type, init) { return {type, detail: init && init.detail}; },
@@ -94,17 +111,21 @@ function makeSandbox() {
                 })});
             }
             return Promise.resolve({ok: true, json: () => Promise.resolve({
-                queueTypes: [
-                    {pluginId: 'download-workbench', type: 'illust', order: 1},
-                    {pluginId: 'douyin', type: 'douyin', order: 30,
-                        moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js'}
-                ],
+                epoch: 'douyin-test-epoch',
+                revision: 1,
                 downloadTypes: [
-                    {contractVersion: 1, pluginId: 'douyin', type: 'douyin', order: 30,
-                        acquisitionModes: ['single-import', 'series']}
+                    {contractVersion: 1, type: 'douyin', ownerPluginId: 'douyin', packageId: 'douyin',
+                        pluginGeneration: 3, publicationId: 9, order: 30,
+                        moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
+                        acquisitionModes: ['single-import', 'series'], uiSlots: ['cookie-tools'],
+                        filters: ['douyin-public']}
                 ],
                 tabs: [],
-                uiSlots: []
+                uiSlots: [{
+                    slotId: 'douyin.cookie-tools', target: 'cookie-tools',
+                    moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js', order: 30,
+                    owner: {pluginId: 'douyin', packageId: 'douyin', generation: 3, publicationId: 9}
+                }]
             })});
         },
         bt(key, fallback, args) {
@@ -121,7 +142,7 @@ function makeSandbox() {
         updateStats() {},
         saveQueue() {},
         setStatus() {},
-        pixivHeader: () => ({}),
+        pixivHeader: () => ({'X-Pixiv-Cookie': 'pixiv-secret-that-must-not-leak'}),
         addUserItemToQueue() {},
         addSearchItemToQueue() {},
         addSeriesItemToQueue() {},
@@ -136,6 +157,19 @@ function makeSandbox() {
     sandbox.requests = requests;
     vm.createContext(sandbox);
     vm.runInContext(QT_SOURCE, sandbox);
+    document.head.onAppend = child => {
+        const pathname = new URL(child.src, window.location.origin).pathname;
+        setTimeout(() => {
+            if (pathname !== '/pixiv-douyin-download/douyin-queue-type.js') {
+                if (typeof child.onload === 'function') child.onload();
+                return;
+            }
+            document.currentScript = child;
+            vm.runInContext(DOUYIN_TEST_SOURCE, sandbox);
+            document.currentScript = null;
+            if (typeof child.onload === 'function') child.onload();
+        }, 0);
+    };
     sandbox.window.PixivBatch.cookie = {
         getStoredCookie(type) {
             return storage.get(type === 'pixiv' ? 'pixiv_cookie' : `pixiv_${type}_cookie`) || '';
@@ -160,12 +194,6 @@ function makeSandbox() {
             return this.parseCookieToHeaderString(storage.get(key) || '', this.getCookieFmt());
         }
     };
-    vm.runInContext(DOUYIN_SOURCE, sandbox);
-    sandbox.window.PixivBatch.queueTypes.register('illust', {
-        pluginId: 'download-workbench',
-        type: 'illust',
-        process() {}
-    });
     return sandbox;
 }
 
@@ -180,7 +208,8 @@ function ok(label, cond) {
     const qt = sandbox.window.PixivBatch.queueTypes;
     await qt.bootstrap();
 
-    const parser = sandbox.window.PixivDouyin.parseInput;
+    const descriptor = qt.descriptor('douyin');
+    const parser = descriptor.cookie.parseInput;
     const video = parser('https://www.douyin.com/video/7351234567890123456?from=share');
     ok('解析 www.douyin.com/video 单作品', video && video.kind === 'single' && video.workId === '7351234567890123456');
 
@@ -205,9 +234,9 @@ function ok(label, cond) {
     ok('Douyin 类型启用后可用', qt.isTypeAvailable('douyin') === true);
     ok('后端 downloadTypes descriptor 可读取', qt.downloadTypes().some(d => d.type === 'douyin' && d.contractVersion === 1));
 
-    const descriptor = qt.descriptor('douyin');
     ok('descriptor contractVersion=1', descriptor.contractVersion === 1);
     ok('process(item) 存在', typeof descriptor.process === 'function');
+    ok('Douyin 不提前贡献计划任务队列映射', descriptor.scheduledQueueItem == null);
     ok('slots 包含 cookie-tools', !!descriptor.slots['cookie-tools']);
     ok('slots 不包含 settings-card', !descriptor.slots['settings-card']);
     ok('slots 不暴露主页/搜索/快捷默认入口',
@@ -215,14 +244,24 @@ function ok(label, cond) {
     ok('filters 可发现', qt.filtersFor('douyin') && qt.filtersFor('douyin').extraSelector === '.search-douyin-only');
     ok('settings 不再暴露抖音下载设置卡', qt.settingsFor('douyin') === null);
     ok('Cookie 登录态字段校验通过',
-        sandbox.window.PixivDouyin.validateCookie('ttwid=tt; passport_csrf_token=csrf; sessionid=sid').ok === true);
+        descriptor.cookie.validate('ttwid=tt; passport_csrf_token=csrf; sessionid=sid').ok === true);
     ok('Cookie 缺少会话字段校验失败',
-        sandbox.window.PixivDouyin.validateCookie('ttwid=tt; passport_csrf_token=csrf').missing
+        descriptor.cookie.validate('ttwid=tt; passport_csrf_token=csrf').missing
             .includes('sessionid / sessionid_ss / sid_tt / sid_guard'));
     ok('Cookie 不再把 msToken/odin_tt 作为硬性字段',
-        sandbox.window.PixivDouyin.validateCookie('ttwid=tt; passport_csrf_token=csrf; sid_tt=sid').suggestedMissing
+        descriptor.cookie.validate('ttwid=tt; passport_csrf_token=csrf; sid_tt=sid').suggestedMissing
             .includes('msToken'));
     ok('acquisition.series 可发现', typeof qt.acquisition('douyin', 'series').parseUrl === 'function');
+    sandbox.localStorage.setItem('pixiv_douyin_cookie',
+        'ttwid=tt; passport_csrf_token=csrf; sessionid=sid');
+    const seriesRequestInit = qt.acquisition('douyin', 'series').requestInit();
+    ok('Douyin series 预览请求保持同源凭据策略', seriesRequestInit.credentials === 'same-origin');
+    ok('Douyin series 预览请求只携带中性取得凭证',
+        seriesRequestInit.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf')
+        && !seriesRequestInit.headers['X-Pixiv-Cookie']
+        && !seriesRequestInit.headers['X-Douyin-Cookie']);
+    ok('Douyin 仅声明 single-import / series', qt.supports('douyin', 'single-import')
+        && qt.supports('douyin', 'series') && !qt.supports('douyin', 'user'));
     ok('acquisition.search 不作为默认能力暴露', qt.acquisition('douyin', 'search') === null);
     ok('acquisition.quick 不作为默认能力暴露', Object.keys(qt.quickActionsFor('douyin')).length === 0);
 
@@ -239,8 +278,27 @@ function ok(label, cond) {
     ok('import 支持合集 URL 入队', collectionItem.typeData.seriesId === '12345'
         && collectionItem.typeData.input === 'https://www.douyin.com/collection/12345');
 
-    sandbox.localStorage.setItem('pixiv_douyin_cookie',
-        'ttwid=tt; passport_csrf_token=csrf; sessionid=sid');
+    sandbox.requests.length = 0;
+    await sandbox.window.__testDouyinFetchJson('/api/douyin/quick/public?page=1&pageSize=24', {
+        headers: {
+            'Content-Type': 'application/json',
+            'x-pixiv-cookie': 'caller-pixiv-secret',
+            'X-Douyin-Cookie': 'caller-douyin-secret',
+            'X-Acquisition-Credential': 'caller-generic-secret'
+        }
+    });
+    const helperRequest = sandbox.requests.find(req => req.url.includes('/api/douyin/quick/public'));
+    ok('douyinFetchJson 请求使用插件当前的中性取得凭证',
+        helperRequest.options.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf')
+        && !helperRequest.options.headers['X-Acquisition-Credential'].includes('caller-generic-secret'));
+    ok('douyinFetchJson 不继承来源专用凭证头',
+        !Object.keys(helperRequest.options.headers).some(name => {
+            const normalized = name.toLowerCase();
+            return normalized === 'x-pixiv-cookie' || normalized === 'x-douyin-cookie';
+        }));
+    ok('douyinFetchJson 保留请求自身所需的非 Pixiv 请求头',
+        helperRequest.options.headers['Content-Type'] === 'application/json');
+    ok('douyinFetchJson 保持同源凭据策略', helperRequest.options.credentials === 'same-origin');
 
     await descriptor.process({
         id: 'dshort-XUyPmdu7naU',

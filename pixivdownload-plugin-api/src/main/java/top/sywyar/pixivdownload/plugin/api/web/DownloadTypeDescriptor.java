@@ -58,7 +58,9 @@ public record DownloadTypeDescriptor(
     }
 
     /**
-     * 兼容旧队列类型贡献的最小 descriptor。旧构造器调用方会得到可校验的 descriptor，但新类型应显式声明完整能力。
+     * 兼容旧队列类型贡献的最小 descriptor。旧构造器没有声明取得能力，后端清单保持为空；
+     * 前端仅可在受控加载窗口内从旧模块实际提供且通过校验的 hook 推导本次激活能力，宿主
+     * 不得在模块加载前猜测该类型支持任何取得模式。
      */
     public static DownloadTypeDescriptor legacy(String pluginId,
                                                 String type,
@@ -76,12 +78,7 @@ public record DownloadTypeDescriptor(
                 null,
                 null,
                 moduleUrl,
-                List.of(
-                        DownloadAcquisitionMode.SINGLE_IMPORT,
-                        DownloadAcquisitionMode.USER_PROFILE,
-                        DownloadAcquisitionMode.SERIES_COLLECTION,
-                        DownloadAcquisitionMode.SEARCH,
-                        DownloadAcquisitionMode.QUICK),
+                List.of(),
                 DownloadQueueCapabilities.clearOnly(),
                 DownloadScheduleCapabilities.notSaveable(),
                 List.of(),

@@ -546,6 +546,19 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("Douyin 下载类型 descriptor 包声明最低核心 API 1.1")
+    void douyinDescriptorDeclaresItsMinimumCoreApi() throws Exception {
+        String descriptor = pluginDescriptor("pixivdownload-plugin-douyin");
+
+        assertThat(descriptor)
+                .contains("plugin.requires=1.1")
+                .doesNotContain("plugin.requires=1.0", "plugin.requires=1.2");
+        assertThat(script("generate-market-manifest.ps1")).contains(
+                "$requires = $d[\"plugin.requires\"]",
+                "requiredCoreApi   = (Get-RequiredCoreApi $requires)");
+    }
+
+    @Test
     @DisplayName("release/nightly 工作流只上传已验证的可执行 boot jar，避免普通 jar 混入安装器")
     void releaseWorkflowsUploadOnlyStagedExecutableBootJar() throws Exception {
         for (String name : List.of("release.yml", "nightly.yml")) {

@@ -23,12 +23,7 @@
         } else {
             kind = currentModeKind();
         }
-        // 插画专属字段（作品类型 / 页数等）：批量导入显示全部；否则非插画类型时隐藏（纯选择页 kind=null 视为插画、照常显示）。
-        const nonIllust = !!kind && kind !== 'illust';
-        document.querySelectorAll('.search-illust-only').forEach(el => {
-            el.style.display = showAll ? '' : (nonIllust ? 'none' : '');
-        });
-        // 各作品类型贡献的专属筛选字段（如小说字数）：仅遍历**可用**类型（不可用类型其字段根本未注入）；
+        // 各作品类型贡献的专属筛选字段：仅遍历**可用**类型（不可用类型其字段根本未注入）；
         // 批量导入显示全部可用类型字段，否则仅当前 kind 命中的类型显示。
         window.PixivBatch.queueTypes.contributionsOf('filters').forEach(f => {
             if (!f.extraSelector) return;
@@ -40,34 +35,38 @@
     }
 
     // ---- 取得侧（search 模式）行为分派：宿主只面向 queueTypes 的 search 钩子调用，插画为内置默认路径 ----
-    // 当前结果类型的 search 取得钩子（类型不可用 → null → 走宿主内置插画路径）。
+    // 当前结果类型的 search 取得钩子；类型不可用时返回 null，由调用方停止该模式请求。
     function searchAcq() {
         return window.PixivBatch.queueTypes.acquisition(searchState.kind, 'search');
     }
-    function searchQueueId(item) {
-        const acq = searchAcq();
-        return acq && acq.queueId ? acq.queueId(item) : String(item.id);
-    }
-    function searchQueueMeta(item) {
-        const acq = searchAcq();
-        if (acq && acq.buildQueueMeta) return acq.buildQueueMeta(item);
+    function prepareSearchRequest(acq, operation, context) {
+        const builder = operation === 'range' ? acq.buildRangeRequest : acq.buildRequest;
+        const spec = builder(Object.assign({}, context || {}));
+        if (!spec || typeof spec !== 'object') throw new Error('search request builder returned no request');
+        const params = new URLSearchParams(spec.params || {});
+        const endpoint = String(spec.endpoint || '');
+        const url = endpoint + (params.toString() ? (endpoint.includes('?') ? '&' : '?') + params : '');
         return {
-            title: item.title,
-            authorId: item.userId,
-            authorName: item.userName,
-            isAi: Number(item.aiType ?? 0) >= 2
+            spec,
+            lease: window.PixivBatch.queueTypes.prepareAcquisitionRequest(
+                searchState.kind, 'search', url, operation, context)
         };
     }
-    function searchQueueSource() {
+    function searchQueueId(item) {
         const acq = searchAcq();
-        return (acq && acq.queueSource) || 'search';
+        return acq.queueId(item);
+    }
+    function searchQueueMeta(item) {
+        return searchAcq().buildQueueMeta(item);
+    }
+    function searchQueueSource() {
+        return searchAcq().queueSource;
     }
 
     /* ============================================================
        搜索模式
     ============================================================ */
-    // 本地批量获取分页：每页固定 60 个（与 Pixiv 插画搜索一致）
-    const BATCH_PER_PAGE = 60;
+    const DEFAULT_BATCH_PAGE_SIZE = 60;
 
     let searchState = {
         rawResults: [],
@@ -81,12 +80,13 @@
         currentMode: 'all',
         currentOrder: 'date_d',
         currentSMode: 's_tag',
-        kind: 'illust',     // 'illust' | 'novel' — 当前结果类型，由最近一次 performSearch 设置
+        kind: null,
         blurR18: false,
         noCookie: false,
         activeBlobUrls: [],
         metaCache: {},
         filterSeq: 0,
+        requestSeq: 0,
         pixivPageCount: 0,
         currentFilters: defaultSearchFilters(),
         filterSummary: {
@@ -113,13 +113,11 @@
         const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
         const sMode = document.querySelector('input[name="search-smode"]:checked').value;
         const order = document.querySelector('input[name="search-order"]:checked').value;
-        const r18Family = uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus';
-        const mode = r18Family ? 'r18' : uiMode;
-        const clientFilter = uiMode === 'r18' ? 1 : uiMode === 'r18g' ? 2 : 0;
-        // 把选中 kind 解析为可用类型（不可用 → 回退插画），确保不可用类型不会触发其专属搜索请求。
-        const kind = window.PixivBatch.queueTypes.resolveType(state.settings.searchKind);
-
-        document.getElementById('search-premium-tip').style.display = order === 'popular_d' ? 'block' : 'none';
+        const kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.searchKind, 'search');
+        if (!kind) {
+            setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
+            return;
+        }
 
         cleanupBlobUrls();
 
@@ -131,6 +129,7 @@
         searchState.submode = 'search';
         searchState.batchInfo = null;
         searchState.kind = kind;
+        const requestSeq = ++searchState.requestSeq;
         searchState.filterSeq++;
 
         // 新一轮搜索：先展开预览，使加载态与新结果可见。
@@ -140,12 +139,18 @@
         document.getElementById('search-pagination').style.display = 'none';
         document.getElementById('btn-add-all').disabled = true;
 
+        let request = null;
         try {
             const acq = window.PixivBatch.queueTypes.acquisition(kind, 'search');
-            const endpoint = (acq && acq.searchEndpoint) || '/api/pixiv/search';
-            const params = new URLSearchParams({word, order, mode, sMode, page});
-            const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
+            request = prepareSearchRequest(acq, 'search', {
+                word, order, uiMode, searchMode: sMode, page
+            });
+            const clientFilter = Number(request.spec.clientFilter || 0);
+            document.getElementById('search-premium-tip').style.display = request.spec.premiumOrder ? 'block' : 'none';
+            const res = await fetch(request.lease.url, request.lease.init);
             const data = await res.json();
+            request.lease.assertCurrent();
+            if (requestSeq !== searchState.requestSeq) return;
             if (!res.ok) {
                 document.getElementById('search-results-area').innerHTML =
                     `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.search-failed', '搜索失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
@@ -158,8 +163,10 @@
             searchState.rawResults = items;
             searchState.results = items;
             searchState.total = data.total || 0;
-            searchState.noCookie = !hasPixivCookie();
+            searchState.noCookie = request.spec.credentialMissing === true;
             const filterStats = await applyCurrentSearchFilters();
+            request.lease.assertCurrent();
+            if (requestSeq !== searchState.requestSeq) return;
             if (!filterStats) return;
             if (clientFilter > 0) {
                 const label = clientFilter === 2
@@ -200,33 +207,48 @@
                 setStatus(bt('status.search-complete', '搜索完成：{summary}', {summary: summaryJoin(parts)}), 'success');
             }
         } catch (e) {
+            if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             document.getElementById('search-results-area').innerHTML =
                 `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
         }
     }
 
-    // 批量获取模式下结果可能跨多页：本地按 BATCH_PER_PAGE 分页。
+    // 批量获取模式下结果可能跨多页：本地分页大小由当前 owner 声明。
     // base 为当前视图首项在 searchState.results 中的绝对下标，
     // 渲染与队列同步统一使用绝对下标，避免索引错位。
+    function searchBatchPageSize() {
+        try {
+            const size = Number((searchAcq() || {}).pageSize);
+            return Number.isFinite(size) && size > 0 ? size : DEFAULT_BATCH_PAGE_SIZE;
+        } catch (e) {
+            return DEFAULT_BATCH_PAGE_SIZE;
+        }
+    }
+
     function batchLocalPageCount() {
-        return Math.max(1, Math.ceil(searchState.results.length / BATCH_PER_PAGE));
+        return Math.max(1, Math.ceil(searchState.results.length / searchBatchPageSize()));
     }
 
     function getSearchView() {
         if (searchState.submode !== 'batch') {
-            return {items: searchState.results, base: 0, localPage: 1, localPages: 1};
+            return {
+                items: searchState.results, base: 0, localPage: 1, localPages: 1,
+                requestSeq: searchState.requestSeq
+            };
         }
         const localPages = batchLocalPageCount();
         let localPage = searchState.localPage;
         if (!Number.isFinite(localPage) || localPage < 1) localPage = 1;
         if (localPage > localPages) localPage = localPages;
         searchState.localPage = localPage;
-        const base = (localPage - 1) * BATCH_PER_PAGE;
+        const pageSize = searchBatchPageSize();
+        const base = (localPage - 1) * pageSize;
         return {
-            items: searchState.results.slice(base, base + BATCH_PER_PAGE),
+            items: searchState.results.slice(base, base + pageSize),
             base,
             localPage,
-            localPages
+            localPages,
+            requestSeq: searchState.requestSeq
         };
     }
 
@@ -255,10 +277,10 @@
         }
         const view = getSearchView();
         const renderAcq = searchAcq();
-        if (renderAcq && renderAcq.render) {
-            renderAcq.render(area, view);
-            return;
-        }
+        renderAcq.render(area, view);
+    }
+
+    function renderPixivSearchResults(area, view) {
         const inQueue = new Set(state.queue.map(q => q.id));
         const clientModeLabel = getSearchClientModeLabel();
         const summary = searchState.submode === 'batch'
@@ -319,7 +341,7 @@
         </div>`;
         }).join('')}
     </div>`;
-        loadThumbnailsBatched(view.items, view.base);
+        loadThumbnailsBatched(view.items, view.base, view.requestSeq);
     }
 
     function batchSummaryText(view) {
@@ -342,22 +364,31 @@
         return summaryJoin(parts);
     }
 
-    async function loadThumbnailsBatched(items, base = 0) {
+    async function loadThumbnailsBatched(items, base = 0, requestSeq = searchState.requestSeq) {
         const BATCH = 10;
         for (let i = 0; i < items.length; i += BATCH) {
+            if (requestSeq !== searchState.requestSeq) return;
             const batch = items.slice(i, i + BATCH);
-            await Promise.allSettled(batch.map((item, offset) => loadSingleThumbnail(item, base + i + offset)));
+            await Promise.allSettled(batch.map((item, offset) =>
+                loadSingleThumbnail(item, base + i + offset, requestSeq)));
         }
     }
 
-    // 通用缩略图代理拉取：返回 blob URL（同时登记到 blobStore 供之后统一 revoke），失败返回 null。
-    async function fetchThumbnailBlobUrl(url, blobStore) {
+    // 缩略图请求由当前类型 owner 构建 endpoint，宿主只执行同源受控 GET。
+    async function fetchThumbnailBlobUrl(url, blobStore, kind, mode) {
         if (!url) return null;
         try {
-            const params = new URLSearchParams({url});
-            const res = await fetch(`${BASE}/api/pixiv/thumbnail-proxy?${params}`, {headers: pixivHeader()});
+            const registry = window.PixivBatch.queueTypes;
+            const type = registry.resolveTypeForMode(kind, mode);
+            const acq = type && registry.acquisition(type, mode);
+            if (!acq || typeof acq.thumbnailEndpoint !== 'function') return null;
+            const endpoint = acq.thumbnailEndpoint(url);
+            const request = registry.prepareAcquisitionRequest(
+                type, mode, endpoint, 'thumbnail', {thumbnailUrl: url});
+            const res = await fetch(request.url, request.init);
             if (!res.ok) return null;
             const blob = await res.blob();
+            request.assertCurrent();
             const blobUrl = URL.createObjectURL(blob);
             if (Array.isArray(blobStore)) blobStore.push(blobUrl);
             return blobUrl;
@@ -366,20 +397,14 @@
         }
     }
 
-    async function loadSingleThumbnail(item, idx) {
+    async function loadSingleThumbnail(item, idx, requestSeq) {
         if (!item.thumbnailUrl) return;
         const imgEl = document.getElementById(`thumb-img-${idx}`);
         if (!imgEl) return;
-        try {
-            const params = new URLSearchParams({url: item.thumbnailUrl});
-            const res = await fetch(`${BASE}/api/pixiv/thumbnail-proxy?${params}`, {headers: pixivHeader()});
-            if (!res.ok) return;
-            const blob = await res.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            searchState.activeBlobUrls.push(blobUrl);
-            if (imgEl.isConnected) imgEl.src = blobUrl;
-        } catch {
-        }
+        const blobUrl = await fetchThumbnailBlobUrl(
+            item.thumbnailUrl, searchState.activeBlobUrls, searchState.kind, 'search');
+        if (requestSeq !== searchState.requestSeq) return;
+        if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
     }
 
     function cleanupBlobUrls() {
@@ -459,6 +484,7 @@
         const cur = searchState.currentPage;
         if (totalPages <= 1) {
             pag.style.display = 'none';
+            pag.innerHTML = '';
             return;
         }
         pag.style.display = 'flex';
@@ -486,6 +512,7 @@
         const totalPages = batchLocalPageCount();
         if (!searchState.results.length || totalPages <= 1) {
             pag.style.display = 'none';
+            pag.innerHTML = '';
             return;
         }
         let cur = searchState.localPage;
@@ -577,14 +604,19 @@
 
     function bindSubmodeSwitcher() {
         const root = document.getElementById('search-submode-switcher');
-        if (!root) return;
-        root.querySelectorAll('label').forEach(lbl => {
-            lbl.addEventListener('click', () => {
-                const next = lbl.dataset.submode === 'batch' ? 'batch' : 'search';
-                if (searchState.submode === next) return;
-                storeSet('pixiv_search_submode', next);
-                applySubmodeUI(next, {clear: true});
-            });
+        if (!root || root.dataset.submodeSwitcherBound === 'true') return;
+        root.dataset.submodeSwitcherBound = 'true';
+        root.addEventListener('click', event => {
+            let label = event.target;
+            while (label && label !== root
+                    && !(label.tagName && label.tagName.toLowerCase() === 'label')) {
+                label = label.parentNode;
+            }
+            if (!label || label === root || !label.dataset) return;
+            const next = label.dataset.submode === 'batch' ? 'batch' : 'search';
+            if (searchState.submode === next) return;
+            storeSet('pixiv_search_submode', next);
+            applySubmodeUI(next, {clear: true});
         });
     }
 
@@ -665,13 +697,11 @@
         const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
         const sMode = document.querySelector('input[name="search-smode"]:checked').value;
         const order = document.querySelector('input[name="search-order"]:checked').value;
-        const r18Family = uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus';
-        const mode = r18Family ? 'r18' : uiMode;
-        const clientFilter = uiMode === 'r18' ? 1 : uiMode === 'r18g' ? 2 : 0;
-        // 把选中 kind 解析为可用类型（不可用 → 回退插画），确保不可用类型不会触发其专属批量请求。
-        const kind = window.PixivBatch.queueTypes.resolveType(state.settings.searchKind);
-
-        document.getElementById('search-premium-tip').style.display = order === 'popular_d' ? 'block' : 'none';
+        const kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.searchKind, 'search');
+        if (!kind) {
+            setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
+            return;
+        }
 
         cleanupBlobUrls();
         searchState.submode = 'batch';
@@ -680,6 +710,7 @@
         searchState.currentOrder = order;
         searchState.currentSMode = sMode;
         searchState.kind = kind;
+        const requestSeq = ++searchState.requestSeq;
         searchState.localPage = 1;
         searchState.batchInfo = null;
         searchState.filterSeq++;
@@ -694,12 +725,18 @@
         document.getElementById('btn-batch-add-page').disabled = true;
         document.getElementById('btn-batch-add-all').disabled = true;
 
+        let request = null;
         try {
             const acq = window.PixivBatch.queueTypes.acquisition(kind, 'search');
-            const endpoint = (acq && acq.rangeEndpoint) || '/api/pixiv/search/range';
-            const params = new URLSearchParams({word, order, mode, sMode, startPage: start, endPage: effEnd});
-            const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
+            request = prepareSearchRequest(acq, 'range', {
+                word, order, uiMode, searchMode: sMode, startPage: start, endPage: effEnd
+            });
+            const clientFilter = Number(request.spec.clientFilter || 0);
+            document.getElementById('search-premium-tip').style.display = request.spec.premiumOrder ? 'block' : 'none';
+            const res = await fetch(request.lease.url, request.lease.init);
             const data = await res.json();
+            request.lease.assertCurrent();
+            if (requestSeq !== searchState.requestSeq) return;
             if (!res.ok) {
                 document.getElementById('search-results-area').innerHTML =
                     `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.batch-fetch-failed', '批量获取失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
@@ -711,7 +748,7 @@
             searchState.rawResults = items;
             searchState.results = items;
             searchState.total = data.total || 0;
-            searchState.noCookie = !hasPixivCookie();
+            searchState.noCookie = request.spec.credentialMissing === true;
             searchState.batchInfo = {
                 startPage: data.startPage,
                 endPage: data.endPage,
@@ -722,6 +759,8 @@
             };
 
             const filterStats = await applyCurrentSearchFilters();
+            request.lease.assertCurrent();
+            if (requestSeq !== searchState.requestSeq) return;
             if (!filterStats) return;
 
             const parts = [
@@ -742,9 +781,11 @@
             parts.push(bt('search.summary.pixiv-total', 'Pixiv 总数 {count}', {count: searchState.total.toLocaleString()}));
             setStatus(bt('status.batch-fetch-complete', '批量获取完成：{summary}', {summary: summaryJoin(parts)}), 'success');
         } catch (e) {
+            if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             document.getElementById('search-results-area').innerHTML =
                 `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
         } finally {
+            if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             btn.disabled = false;
             updateBatchQueueButtons();
         }
@@ -767,8 +808,41 @@
         );
     }
 
+    function reconcileSearchTypeAvailability() {
+        if (!searchState.kind || window.PixivBatch.queueTypes.supports(searchState.kind, 'search')) return false;
+        cleanupBlobUrls();
+        searchState.filterSeq += 1;
+        searchState.requestSeq += 1;
+        searchState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.searchKind, 'search');
+        searchState.rawResults = [];
+        searchState.results = [];
+        searchState.total = 0;
+        searchState.currentPage = 1;
+        searchState.submode = 'search';
+        searchState.currentWord = '';
+        searchState.batchInfo = null;
+        searchState.localPage = 1;
+        searchState.noCookie = false;
+        searchState.metaCache = {};
+        searchState.pixivPageCount = 0;
+        searchState.currentFilters = defaultSearchFilters();
+        searchState.filterSummary = {
+            rawCount: 0,
+            filteredCount: 0,
+            bookmarkMetaMissing: 0,
+            bookmarkFilterActive: false
+        };
+        renderSearchResults();
+        renderSearchPagination();
+        updateBatchQueueButtons();
+        return true;
+    }
+
 
 // ---- PixivBatch facade ----
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 window.PixivBatch.modes.search = window.PixivBatch.modes.search || {};
-window.PixivBatch.modes.search = Object.assign(window.PixivBatch.modes.search, { performSearch, runBatchFetch, addCurrentBatchPageToQueue, addAllSearchResultsToQueue });
+window.PixivBatch.modes.search = Object.assign(window.PixivBatch.modes.search, {
+    performSearch, runBatchFetch, addCurrentBatchPageToQueue, addAllSearchResultsToQueue,
+    reconcileSearchTypeAvailability
+});

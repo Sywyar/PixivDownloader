@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;
 
@@ -76,7 +77,7 @@ class PixivProxyControllerTest {
         @BeforeEach
         void setUpSoloMode() {
             // search endpoint calls checkMultiModeAccess which calls setupService.getMode()
-            when(setupService.getMode()).thenReturn("solo");
+            lenient().when(setupService.getMode()).thenReturn("solo");
         }
 
         private static final String PIXIV_SEARCH_RESPONSE = """
@@ -129,6 +130,51 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.items[0].tags", hasSize(2)))
                     .andExpect(jsonPath("$.items[0].tags[0]").value("初音ミク"))
                     .andExpect(jsonPath("$.items[0].tags[1]").value("VOCALOID"));
+        }
+
+        @Test
+        @DisplayName("通用取得凭证应作为 Pixiv Cookie 转发")
+        void shouldForwardGenericAcquisitionCredential() throws Exception {
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+            mockMvc.perform(get("/api/pixiv/search")
+                            .param("word", "miku")
+                            .header(AcquisitionCredentialResolver.HEADER_NAME, " generic-cookie "))
+                    .andExpect(status().isOk());
+
+            verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET),
+                    argThat((org.springframework.http.HttpEntity<?> entity) -> "generic-cookie".equals(
+                            entity.getHeaders().getFirst(HttpHeaders.COOKIE))), eq(byte[].class));
+        }
+
+        @Test
+        @DisplayName("旧 Pixiv 凭证头仍应作为 Cookie 转发")
+        void shouldForwardLegacyPixivCredential() throws Exception {
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+            mockMvc.perform(get("/api/pixiv/search")
+                            .param("word", "miku")
+                            .header("X-Pixiv-Cookie", " legacy-cookie "))
+                    .andExpect(status().isOk());
+
+            verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET),
+                    argThat((org.springframework.http.HttpEntity<?> entity) -> "legacy-cookie".equals(
+                            entity.getHeaders().getFirst(HttpHeaders.COOKIE))), eq(byte[].class));
+        }
+
+        @Test
+        @DisplayName("通用与旧 Pixiv 凭证冲突时应返回 400")
+        void shouldRejectConflictingPixivCredentials() throws Exception {
+            mockMvc.perform(get("/api/pixiv/search")
+                            .param("word", "miku")
+                            .header(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie")
+                            .header("X-Pixiv-Cookie", "legacy-cookie"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("Conflicting acquisition credential headers"));
+
+            verifyNoInteractions(restTemplate);
         }
 
         @Test

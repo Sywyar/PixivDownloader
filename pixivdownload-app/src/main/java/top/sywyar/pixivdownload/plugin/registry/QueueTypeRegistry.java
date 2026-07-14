@@ -189,10 +189,6 @@ public class QueueTypeRegistry {
             throw new IllegalStateException("download type descriptor without i18n namespace: "
                     + queueType.type() + " (plugin: " + pluginId + ")");
         }
-        if (descriptor.acquisitionModes().isEmpty()) {
-            throw new IllegalStateException("download type descriptor without acquisition modes: "
-                    + queueType.type() + " (plugin: " + pluginId + ")");
-        }
         rejectDuplicatesAndNulls(descriptor.acquisitionModes(), "acquisition mode", queueType.type(), pluginId);
         rejectBlankOrDuplicateStrings(descriptor.filters(), "filter", queueType.type(), pluginId);
         rejectBlankOrDuplicateStrings(descriptor.settings(), "setting", queueType.type(), pluginId);

@@ -29,14 +29,18 @@ const DOUYIN_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..
 function makeDocument(textareaValue) {
     const textarea = {value: textareaValue};
     const noopEl = () => ({
-        setAttribute() {}, getAttribute() {}, appendChild() {}, remove() {}, addEventListener() {},
+        dataset: {}, setAttribute() {}, getAttribute() {}, appendChild(child) {
+            if (typeof this.onAppend === 'function') this.onAppend(child);
+        }, remove() {}, addEventListener() {}, removeEventListener() {},
         insertAdjacentHTML() {}, querySelectorAll: () => [], style: {}, children: []
     });
+    const head = noopEl();
     return {
         getElementById: id => (id === 'single-import-textarea' ? textarea : null),
         querySelectorAll: () => [],            // 本测试不放 slot 锚点 → renderSlots 无注入目标
-        createElement: () => noopEl(),
-        head: noopEl(),
+        createElement: tag => Object.assign(noopEl(), {tag, src: '', onload: null, onerror: null}),
+        currentScript: null,
+        head,
         body: noopEl(),
         documentElement: noopEl()
     };
@@ -88,28 +92,69 @@ function structuredImportDescriptor() {
 
 // 在沙箱里加载真实 registry + 真实 single-import，按启用类型装配后跑 parseSingleImport。
 // 返回捕获的 setStatus / addItemsToQueue 调用，供断言。
-async function runParse(textareaValue, {novelEnabled, douyinEnabled = false}) {
+async function runParse(textareaValue, {
+    novelEnabled = false,
+    douyinEnabled = false,
+    pixivEnabled = true,
+    lowOrderEnabled = false,
+    ambiguousUrlEnabled = false,
+    secondBareDefaultEnabled = false
+}) {
     const enqueued = [];   // [{ids, items, source}]
     let status = null;     // {message, level}
     const document = makeDocument(textareaValue);
-    const queueTypesData = [{type: 'illust', order: 1}];
+    const downloadTypes = [];
+    if (pixivEnabled) downloadTypes.push({
+        contractVersion: 1, type: 'illust', ownerPluginId: 'download-workbench',
+        packageId: 'download-workbench', pluginGeneration: 1, publicationId: 1,
+        order: 1, moduleUrl: '/test/illust.js', acquisitionModes: ['single-import']
+    });
     if (novelEnabled) {
-        queueTypesData.push({type: 'novel', order: 2}, {type: 'structured', order: 3});
+        downloadTypes.push(
+            {contractVersion: 1, type: 'novel', ownerPluginId: 'novel', packageId: 'novel',
+                pluginGeneration: 1, publicationId: 2, order: 2, moduleUrl: '/test/novel.js',
+                acquisitionModes: ['single-import']},
+            {contractVersion: 1, type: 'structured', ownerPluginId: 'structured', packageId: 'structured',
+                pluginGeneration: 1, publicationId: 3, order: 3, moduleUrl: '/test/structured.js',
+                acquisitionModes: ['single-import']});
     }
-    if (douyinEnabled) queueTypesData.push({type: 'douyin', order: 4});
+    if (douyinEnabled) downloadTypes.push({
+        contractVersion: 1, type: 'douyin', ownerPluginId: 'douyin', packageId: 'douyin',
+        pluginGeneration: 1, publicationId: 4, order: 4,
+        moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
+        acquisitionModes: ['single-import', 'series']
+    });
+    if (lowOrderEnabled) downloadTypes.push({
+        contractVersion: 1, type: 'low-order', ownerPluginId: 'low-order', packageId: 'low-order',
+        pluginGeneration: 1, publicationId: 5, order: -30,
+        moduleUrl: '/test/low-order.js', acquisitionModes: ['single-import']
+    });
+    if (ambiguousUrlEnabled) downloadTypes.push({
+        contractVersion: 1, type: 'rival-url', ownerPluginId: 'rival-url', packageId: 'rival-url',
+        pluginGeneration: 1, publicationId: 6, order: -20,
+        moduleUrl: '/test/rival-url.js', acquisitionModes: ['single-import']
+    });
+    if (secondBareDefaultEnabled) downloadTypes.push({
+        contractVersion: 1, type: 'rival-default', ownerPluginId: 'rival-default',
+        packageId: 'rival-default', pluginGeneration: 1, publicationId: 7, order: -10,
+        moduleUrl: '/test/rival-default.js', acquisitionModes: ['single-import']
+    });
     const localStorageMap = new Map();
     const sandbox = {
-        window: {addEventListener() {}, dispatchEvent() {}},
+        window: {location: {origin: 'https://local.test'}, addEventListener() {}, removeEventListener() {}, dispatchEvent() {}},
         document,
         BASE: '',
         pageI18n: {apply() {}},
         console: {warn() {}, log() {}, error() {}},
-        setTimeout, clearTimeout, Promise, URL,
+        setTimeout, clearTimeout, Promise, URL, AbortController,
+        CustomEvent: function CustomEvent(type, init) { return {type, detail: init && init.detail}; },
         localStorage: {
             getItem: key => localStorageMap.get(key) || null,
             setItem: (key, value) => localStorageMap.set(key, String(value || ''))
         },
-        fetch: () => Promise.resolve({ok: true, json: () => Promise.resolve({queueTypes: queueTypesData, tabs: []})}),
+        fetch: () => Promise.resolve({ok: true, json: () => Promise.resolve({
+            epoch: 'single-import-test-epoch', revision: 1, downloadTypes, tabs: [], uiSlots: []
+        })}),
         // —— 宿主工具函数桩 ——
         SINGLE_IMPORT_MODE: 'single-import',
         bt: key => key,   // 让状态 message === i18n key，便于断言所用 key
@@ -123,11 +168,62 @@ async function runParse(textareaValue, {novelEnabled, douyinEnabled = false}) {
     vm.createContext(sandbox);
     vm.runInContext(QT_SOURCE, sandbox);
     const qt = sandbox.window.PixivBatch.queueTypes;
-    qt.register('illust', {pluginId: 'download-workbench', type: 'illust', process() {}});  // 内置插画：无 import 钩子
-    if (novelEnabled) qt.register('novel', novelImportDescriptor());
-    if (novelEnabled) qt.register('structured', structuredImportDescriptor());
-    if (douyinEnabled) vm.runInContext(DOUYIN_SOURCE, sandbox);
-    await qt.bootstrap();   // 据 queueTypesData 设 enabledTypes/orderedTypes/bootstrapped
+    const initializers = {
+        '/test/illust.js': `(function (context) { return {descriptor: {
+            process: function () {},
+            import: {bareDefault: true, sectionType: 'artwork', sectionAliases: ['illust'],
+                matchUrl: function (line) { var m=String(line).match(/artworks\\/(\\d+)/); return m ? m[1] : null; },
+                buildItem: function (id,title) { return {id:String(id),kind:context.type,title:title||('作品 '+id)}; },
+                source: 'single-import'}
+        }}; })`,
+        '/test/low-order.js': `(function (context) { return {descriptor: {
+            process: function () {},
+            import: {sectionType: 'loworder', bareDefault: false,
+                matchUrl: function (line) { var m=String(line).match(/low\\/(\\d+)/); return m ? m[1] : null; },
+                buildItem: function (id) { return {id:'l'+id,kind:context.type}; },
+                source: 'single-import-low-order'}
+        }}; })`,
+        '/test/rival-url.js': `(function (context) { return {descriptor: {
+            process: function () {},
+            import: {sectionType: 'rivalurl', bareDefault: false,
+                matchUrl: function (line) { var m=String(line).match(/artworks\\/(\\d+)/); return m ? m[1] : null; },
+                buildItem: function (id) { return {id:'r'+id,kind:context.type}; },
+                source: 'single-import-rival-url'}
+        }}; })`,
+        '/test/rival-default.js': `(function (context) { return {descriptor: {
+            process: function () {},
+            import: {sectionType: 'rivaldefault', bareDefault: true,
+                matchUrl: function () { return null; },
+                buildItem: function (id) { return {id:'d'+id,kind:context.type}; },
+                source: 'single-import-rival-default'}
+        }}; })`,
+        '/test/novel.js': `(function (context) { return {descriptor: {
+            process: function () {},
+            import: {sectionType: 'novel',
+                matchUrl: function (line) { var m=String(line).match(/novel\\/show\\.php\\?[^\\s|]*?id=(\\d+)/); return m ? m[1] : null; },
+                buildItem: function (id,title) { return {id:'n'+id,novelId:String(id),kind:context.type,title:title||('小说 '+id)}; },
+                source: 'single-import-novel'}
+        }}; })`,
+        '/test/structured.js': `(function (context) { return {descriptor: {
+            process: function () {},
+            import: {sectionType: 'structured',
+                matchUrl: function (line) { var m=String(line).match(/example\\.test\\/works\\/([A-Za-z0-9_-]+)/); return m ? {id:m[1],url:'https://example.test/works/'+m[1]} : null; },
+                buildItem: function (match,title,line) { return {id:'s'+match.id,workId:match.id,url:match.url,line:line,kind:context.type,title:title||('结构化 '+match.id)}; },
+                source: 'single-import-structured'}
+        }}; })`
+    };
+    document.head.onAppend = child => setTimeout(() => {
+        const pathname = new URL(child.src, sandbox.window.location.origin).pathname;
+        document.currentScript = child;
+        if (pathname === '/pixiv-douyin-download/douyin-queue-type.js') {
+            vm.runInContext(DOUYIN_SOURCE, sandbox);
+        } else {
+            vm.runInContext(`window.PixivBatch.queueTypes.registerModule(${initializers[pathname]})`, sandbox);
+        }
+        document.currentScript = null;
+        if (typeof child.onload === 'function') child.onload();
+    }, 0);
+    await qt.bootstrap();
     vm.runInContext(SI_SOURCE, sandbox);
     sandbox.window.PixivBatch.modes.singleImport.parseSingleImport();
     return {enqueued, status};
@@ -164,13 +260,13 @@ const douyinItems = enqueued => bySource(enqueued, 'single-import-douyin');
         ok('b: 状态级别 warning', !!status && status.level === 'warning');
     }
 
-    // ===== c) novel 不可用：显式 novel URL → 跳过、计 unavailable、不入队、不误判为插画 =====
+    // ===== c) novel 不可用：其 URL 无 owner hook 认领，不入队、不误判为其它类型 =====
     {
         const {enqueued, status} = await runParse(
             'https://www.pixiv.net/novel/show.php?id=456', {novelEnabled: false});
         ok('c: 无任何入队（不误判为插画、不发起小说 API）', enqueued.length === 0);
-        ok('c: 状态 key = skipped-unavailable', !!status && status.message === 'status.single-import-skipped-unavailable');
-        ok('c: 状态级别 warning', !!status && status.level === 'warning');
+        ok('c: 状态 key = none', !!status && status.message === 'status.single-import-none');
+        ok('c: 状态级别 error', !!status && status.level === 'error');
     }
 
     // ===== d) novel 不可用：插画 URL / 裸 ID 仍按旧行为入队 =====
@@ -222,7 +318,38 @@ const douyinItems = enqueued => bySource(enqueued, 'single-import-douyin');
         ok('h: Douyin 短链解析走成功汇总', !!status && status.message === 'status.parsed-summary' && status.level === 'success');
     }
 
-    console.log(`\nsingle-import.test.js: ${passed} assertions passed (8 scenarios) ✓`);
+    {
+        const {enqueued} = await runParse('123', {lowOrderEnabled: true});
+        const ii = illustItems(enqueued);
+        ok('i: 更低 order 的第三方类型未声明 bareDefault 时不能抢占裸 ID',
+            ii.length === 1 && ii[0].id === '123');
+    }
+
+    {
+        const {enqueued, status} = await runParse(
+            'https://www.pixiv.net/artworks/321', {ambiguousUrlEnabled: true});
+        ok('j: 两个 URL matcher 同时认领时不按 order 偷选', enqueued.length === 0);
+        ok('j: URL 归属歧义使用明确 warning 状态', !!status
+            && status.message === 'status.single-import-ambiguous' && status.level === 'warning');
+    }
+
+    {
+        const {enqueued, status} = await runParse('654', {secondBareDefaultEnabled: true});
+        ok('k: 多个 bareDefault 时拒绝裸 ID', enqueued.length === 0);
+        ok('k: 裸 ID 默认归属歧义使用明确 warning 状态', !!status
+            && status.message === 'status.single-import-ambiguous' && status.level === 'warning');
+    }
+
+    {
+        const unavailable = await runParse('777', {pixivEnabled: false, novelEnabled: true});
+        ok('l: Pixiv 类型缺席时裸 ID 不会回退给其它类型', unavailable.enqueued.length === 0
+            && unavailable.status.message === 'status.single-import-skipped-unavailable');
+        const explicit = await runParse('novel:\n789', {pixivEnabled: false, novelEnabled: true});
+        ok('l: Pixiv 类型缺席不影响显式 novel 区段',
+            novelItems(explicit.enqueued).length === 1 && novelItems(explicit.enqueued)[0].id === 'n789');
+    }
+
+    console.log(`\nsingle-import.test.js: ${passed} assertions passed (12 scenarios) ✓`);
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);
     process.exit(1);

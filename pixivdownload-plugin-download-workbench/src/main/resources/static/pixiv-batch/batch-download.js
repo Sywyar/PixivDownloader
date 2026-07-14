@@ -311,52 +311,84 @@
         }
     }
 
-    async function getArtworkMeta(artworkId) {
-        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/meta`);
+    function assertProcessInvocation(invocation) {
+        if (invocation) invocation.assertActive();
+    }
+
+    function processSignal(invocation) {
+        return invocation ? invocation.signal : undefined;
+    }
+
+    async function getArtworkMeta(artworkId, invocation) {
+        assertProcessInvocation(invocation);
+        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/meta`, {
+            signal: processSignal(invocation)
+        });
+        assertProcessInvocation(invocation);
         if (data.error) throw new Error(data.error);
         return data;
     }
 
-    async function getArtworkPages(artworkId) {
-        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/pages`);
+    async function getArtworkPages(artworkId, invocation) {
+        assertProcessInvocation(invocation);
+        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/pages`, {
+            signal: processSignal(invocation)
+        });
+        assertProcessInvocation(invocation);
         if (data.error) throw new Error(data.error);
         return data.urls || [];
     }
 
-    async function getUgoiraMeta(artworkId) {
-        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/ugoira`);
+    async function getUgoiraMeta(artworkId, invocation) {
+        assertProcessInvocation(invocation);
+        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/ugoira`, {
+            signal: processSignal(invocation)
+        });
+        assertProcessInvocation(invocation);
         if (data.error) throw new Error(data.error);
         return data;
     }
 
-    async function checkDownloaded(artworkId) {
+    async function checkDownloaded(artworkId, invocation) {
+        assertProcessInvocation(invocation);
         try {
             const query = state.settings.verifyHistoryFiles ? '?verifyFiles=true' : '';
-            const res = await fetch(`${BASE}/api/downloaded/${artworkId}${query}`);
+            const res = await fetch(`${BASE}/api/downloaded/${artworkId}${query}`, {
+                signal: processSignal(invocation)
+            });
+            assertProcessInvocation(invocation);
             if (res.status === 200) {
                 const data = await res.json();
+                assertProcessInvocation(invocation);
                 if (!data.artworkId) return null;
                 return data;
             }
             return null;
         } catch {
+            assertProcessInvocation(invocation);
             return null;
         }
     }
 
     // 两阶段恢复：当 verifyFiles=true 的 fallback 路径把磁盘上已有的作品恢复成一条空 title 的裸记录时，
     // 用前端拉到的 Pixiv 元数据补齐缺失字段。后端是幂等的：DB 已有完整记录直接返回原记录。
-    async function recoverArtworkMetadata(artworkId, meta) {
+    async function recoverArtworkMetadata(artworkId, meta, invocation) {
+        assertProcessInvocation(invocation);
         try {
             const res = await fetch(`${BASE}/api/downloaded/${artworkId}/recover-metadata`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
+                signal: processSignal(invocation),
                 body: JSON.stringify(meta)
             });
+            assertProcessInvocation(invocation);
             if (res.status === 200) {
-                return await res.json();
+                const recovered = await res.json();
+                assertProcessInvocation(invocation);
+                return recovered;
             }
         } catch (e) {
+            assertProcessInvocation(invocation);
             // best-effort：失败不影响跳过逻辑，至少裸记录仍在
             console.warn(bt('download.log.recover-metadata-failed', '恢复作品元数据失败: artworkId={id}', {id: artworkId}), e);
         }
@@ -454,18 +486,36 @@
      * 返回 { caption, coverUrl, tags } —— 调用方只取需要的字段。
      */
     const seriesMetaPromiseCache = new Map();
-    function fetchSeriesEnrichmentCached(seriesId, kind) {
+    const scopedSeriesMetaPromiseCaches = new WeakMap();
+    function seriesMetaCache(invocation) {
+        if (!invocation || !invocation.signal) return seriesMetaPromiseCache;
+        let cache = scopedSeriesMetaPromiseCaches.get(invocation.signal);
+        if (!cache) {
+            cache = new Map();
+            scopedSeriesMetaPromiseCaches.set(invocation.signal, cache);
+        }
+        return cache;
+    }
+
+    function fetchSeriesEnrichmentCached(seriesId, kind, invocation) {
+        assertProcessInvocation(invocation);
         const sid = Number(seriesId);
         if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
         const key = (kind === 'novel' ? 'novel:' : 'illust:') + sid;
-        if (seriesMetaPromiseCache.has(key)) return seriesMetaPromiseCache.get(key);
+        const cache = seriesMetaCache(invocation);
+        if (cache.has(key)) return cache.get(key);
         const path = kind === 'novel'
             ? `/api/pixiv/novel/series/${sid}?page=1`
             : `/api/pixiv/series/${sid}?page=1`;
         const promise = fetch(BASE + path, {
             credentials: 'same-origin',
-            headers: pixivHeader()
-        }).then(r => r.ok ? r.json() : null).then(data => {
+            headers: pixivHeader(),
+            signal: processSignal(invocation)
+        }).then(r => {
+            assertProcessInvocation(invocation);
+            return r.ok ? r.json() : null;
+        }).then(data => {
+            assertProcessInvocation(invocation);
             const meta = data && data.series ? data.series : null;
             if (!meta) return null;
             return {
@@ -473,14 +523,19 @@
                 coverUrl: meta.coverUrl || '',
                 tags: Array.isArray(meta.tags) ? meta.tags : []
             };
-        }).catch(() => null);
-        seriesMetaPromiseCache.set(key, promise);
+        }).catch(() => {
+            assertProcessInvocation(invocation);
+            return null;
+        });
+        cache.set(key, promise);
         return promise;
     }
 
-    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType) {
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, invocation) {
+        assertProcessInvocation(invocation);
         const delayMs = getImageDelayMs();
-        const collectionId = await resolveBatchCollectionIdForDownload();
+        const collectionId = await resolveBatchCollectionIdForDownload(invocation);
+        assertProcessInvocation(invocation);
         const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
         const fileNameTimestamp = Date.now();
         const fileNames = buildDownloadFileNames(fileNameTemplate, {
@@ -516,7 +571,8 @@
             // 缓存一批查一次，失败/空值不阻塞下载。
             const enrich = seriesInfo.seriesDescription || seriesInfo.seriesCoverUrl
                 ? {caption: seriesInfo.seriesDescription, coverUrl: seriesInfo.seriesCoverUrl}
-                : await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'illust');
+                : await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'illust', invocation);
+            assertProcessInvocation(invocation);
             if (enrich) {
                 if (enrich.caption) other.seriesDescription = enrich.caption;
                 if (enrich.coverUrl) other.seriesCoverUrl = enrich.coverUrl;
@@ -542,9 +598,12 @@
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             credentials: 'same-origin',
+            signal: processSignal(invocation),
             body: JSON.stringify(payload)
         });
+        assertProcessInvocation(invocation);
         const data = await res.json();
+        assertProcessInvocation(invocation);
         if (res.status === 429 && data.quotaExceeded) {
             if (!quotaExceededHandled) {
                 quotaExceededHandled = true;
@@ -558,9 +617,15 @@
         return data;
     }
 
-    async function getDownloadStatus(artworkId) {
-        const res = await fetch(`${BASE}/api/download/status/${artworkId}`);
-        return res.json();
+    async function getDownloadStatus(artworkId, invocation) {
+        assertProcessInvocation(invocation);
+        const res = await fetch(`${BASE}/api/download/status/${artworkId}`, {
+            signal: processSignal(invocation)
+        });
+        assertProcessInvocation(invocation);
+        const data = await res.json();
+        assertProcessInvocation(invocation);
+        return data;
     }
 
     /* ============================================================
@@ -680,6 +745,16 @@
 
     // 统一队列引擎：按作品类型（item.kind）多态派发到该类型注册的下载行为。
     // 插画为内置类型（processIllustItem）；小说等由各自插件的行为模块注册（见 batch-queue-types.js）。
+    function pauseUnavailableQueueType(item) {
+        item.status = 'paused';
+        item.endTime = null;
+        item.lastMessageParts = null;
+        item.lastMessage = bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停');
+        updateStats();
+        saveQueue();
+        renderQueue();
+    }
+
     async function processSingle(item) {
         item.lastMessageParts = null;
         const typeId = item.kind || 'illust';
@@ -687,23 +762,29 @@
         if (!descriptor) {
             // 该类型当前不可用（如小说插件被禁用、其行为模块未注册）：标记暂停，不报错 / 不删除
             // （与计划任务「来源不可用 → 暂停」同规则），待该类型重新可用后可重试。
-            item.status = 'paused';
-            item.lastMessage = bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停');
-            updateStats();
-            saveQueue();
-            renderQueue();
+            pauseUnavailableQueueType(item);
             return;
         }
-        await descriptor.process(item);
+        try {
+            await descriptor.process(item);
+        } catch (error) {
+            if (error && error.code === 'STALE_QUEUE_TYPE') {
+                pauseUnavailableQueueType(item);
+                return;
+            }
+            throw error;
+        }
     }
 
     // 插画 / 漫画 / 动图下载流程（注册为内置 illust 作品类型的下载行为）。
-    async function processIllustItem(item) {
+    async function processIllustItem(item, invocation) {
+        assertProcessInvocation(invocation);
         item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
         renderQueue();
 
         if (state.settings.skipHistory) {
-            const downloaded = await checkDownloaded(item.id);
+            const downloaded = await checkDownloaded(item.id, invocation);
+            assertProcessInvocation(invocation);
             if (downloaded && downloaded.deleted && state.settings.redownloadDeleted) {
                 // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
             } else if (downloaded && downloaded.deleted) {
@@ -722,7 +803,8 @@
                     item.lastMessage = bt('queue.message.recovering-metadata', '正在补齐已下载作品的元数据...');
                     renderQueue();
                     try {
-                        const meta = await getArtworkMeta(item.id);
+                        const meta = await getArtworkMeta(item.id, invocation);
+                        assertProcessInvocation(invocation);
                         const recovered = await recoverArtworkMetadata(item.id, {
                             title: meta.illustTitle || '',
                             authorId: normalizeAuthorId(meta.authorId ?? meta.userId),
@@ -730,12 +812,14 @@
                             xRestrict: Number(meta.xRestrict ?? meta.xrestrict ?? 0),
                             isAi: meta?.isAi === true || Number(meta?.aiType ?? 0) >= 2,
                             description: meta.description || ''
-                        });
+                        }, invocation);
+                        assertProcessInvocation(invocation);
                         if (recovered && recovered.title) {
                             recoveredMeta = true;
                             item.title = recovered.title;
                         }
                     } catch (e) {
+                        assertProcessInvocation(invocation);
                         // best-effort：拉 meta 失败不影响跳过
                         console.warn(bt('download.log.skip-recover-meta-failed', '跳过恢复元数据失败: itemId={id}', {id: item.id}), e);
                     }
@@ -752,13 +836,15 @@
             }
         }
 
+        assertProcessInvocation(invocation);
         item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
         setCurrent(item);
         setStatus(bt('status.fetching-metadata', '获取信息：{id}', {id: item.id}), 'info');
         renderQueue();
 
         try {
-            const meta = await getArtworkMeta(item.id);
+            const meta = await getArtworkMeta(item.id, invocation);
+            assertProcessInvocation(invocation);
             item.title = meta.illustTitle || item.title || bt('queue.artwork-fallback', '作品 {id}', {id: item.id});
             const metaAuthorId = normalizeAuthorId(meta.authorId ?? meta.userId);
             if (metaAuthorId) item.authorId = metaAuthorId;
@@ -786,12 +872,14 @@
             renderQueue();
 
             if (meta.illustType === 2) {
-                const ugoira = await getUgoiraMeta(item.id);
+                const ugoira = await getUgoiraMeta(item.id, invocation);
+                assertProcessInvocation(invocation);
                 ugoiraData = {zipUrl: ugoira.zipUrl, delays: ugoira.delays};
                 urls = [ugoira.zipUrl];
                 item.totalImages = 1;
             } else {
-                urls = await getArtworkPages(item.id);
+                urls = await getArtworkPages(item.id, invocation);
+                assertProcessInvocation(invocation);
                 if (!urls.length) throw new Error(bt('queue.message.no-image-url', '未获取到图片 URL'));
                 item.totalImages = urls.length;
             }
@@ -821,8 +909,10 @@
                 meta.description || '',
                 Array.isArray(meta.tags) ? meta.tags : [],
                 seriesInfo,
-                meta.illustType ?? null
+                meta.illustType ?? null,
+                invocation
             );
+            assertProcessInvocation(invocation);
             if (dlData && dlData.alreadyDownloaded) {
                 item.status = 'skipped';
                 item.lastMessage = bt('queue.message.skipped-server-downloaded', '跳过 — 已下载（服务器确认）');
@@ -834,11 +924,12 @@
                 return;
             }
             openSSE(item.id);
-            const ssePromise = waitForFinalStatusBySSE(item.id, STATUS_TIMEOUT_MS);
+            const ssePromise = waitForFinalStatusBySSE(item.id, STATUS_TIMEOUT_MS, invocation);
             item.lastMessage = bt('queue.message.waiting-completion', '下载中，等待完成...');
             renderQueue();
 
             const final = await ssePromise;
+            assertProcessInvocation(invocation);
 
             if (final && final.completed) {
                 const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
@@ -887,7 +978,8 @@
                 setStatus(bt('status.failed-title', '失败：{title}', {title: item.title}), 'error');
             } else {
                 try {
-                    const check = await getDownloadStatus(item.id);
+                    const check = await getDownloadStatus(item.id, invocation);
+                    assertProcessInvocation(invocation);
                     if (check && check.completed) {
                         const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
                         item.downloadedCount = dCount;
@@ -924,12 +1016,14 @@
                         item.status = 'failed';
                         item.lastMessage = bt('queue.message.failed-timeout', '失败 — 超时未收到完成状态');
                     }
-                } catch {
+                } catch (error) {
+                    assertProcessInvocation(invocation);
                     item.status = 'failed';
                     item.lastMessage = bt('queue.message.failed-status-error', '失败 — 状态查询异常');
                 }
             }
         } catch (e) {
+            assertProcessInvocation(invocation);
             if (e.message === 'quota_exceeded') {
                 // 已在 handleQuotaExceeded 中处理，item 已标记为失败，不需要重复处理
                 item.status = 'failed';
@@ -941,11 +1035,13 @@
             }
         } finally {
             closeSSE(item.id);
-            item.endTime = item.endTime || new Date().toISOString();
-            updateStats();
-            saveQueue();
-            renderQueue();
-            setCurrent(null);
+            if (!invocation || invocation.isActive()) {
+                item.endTime = item.endTime || new Date().toISOString();
+                updateStats();
+                saveQueue();
+                renderQueue();
+                setCurrent(null);
+            }
         }
     }
 
@@ -1064,15 +1160,6 @@
         btn.style.display = 'inline-flex';
         btn.disabled = !state.queue.some(q => q.status === 'completed');
     }
-
-
-// 注册内置 illust 作品类型行为（小说等其它类型由各自插件的行为模块经 queueTypes.register 注册）。
-// 插画为宿主内置类型：其 kind 单选 / 下载设置等控件留在下载页 HTML 默认，故 descriptor 无 slots（仅声明行为）。
-window.PixivBatch.queueTypes.register('illust', {
-    pluginId: 'download-workbench',
-    type: 'illust',
-    process: processIllustItem
-});
 
 // ---- PixivBatch facade ----
 window.PixivBatch.download = window.PixivBatch.download || {};

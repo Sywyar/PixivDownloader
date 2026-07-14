@@ -93,6 +93,20 @@ class DownloadExtensionControllerTest {
     }
 
     @Test
+    @DisplayName("旧六参数作品类型构造器在前端清单中显式标记兼容契约")
+    void legacyQueueTypeConstructorIsProjected() {
+        DownloadExtensionController.DownloadExtensionsView view = responseFor(
+                new PluginRegistry(List.of(new LegacyExtensionPlugin()))).getBody();
+
+        assertThat(view).isNotNull();
+        assertThat(view.downloadTypes()).singleElement().satisfies(type -> {
+            assertThat(type.type()).isEqualTo("legacy-demo");
+            assertThat(type.acquisitionModes()).isEmpty();
+            assertThat(type.legacyContract()).isTrue();
+        });
+    }
+
+    @Test
     @DisplayName("novel 插件缺席时端点不暴露小说 UI 槽位")
     void builtInNovelUiSlotsExposed() {
         DownloadExtensionController.DownloadExtensionsView view = responseFor(
@@ -155,4 +169,31 @@ class DownloadExtensionControllerTest {
         }
     }
 
+    private static final class LegacyExtensionPlugin implements PixivFeaturePlugin {
+        @Override
+        public String id() {
+            return "legacy-demo";
+        }
+
+        @Override
+        public String displayName() {
+            return "legacy-demo.label";
+        }
+
+        @Override
+        public String description() {
+            return "legacy-demo.summary";
+        }
+
+        @Override
+        public PluginKind kind() {
+            return PluginKind.FEATURE;
+        }
+
+        @Override
+        public List<QueueTypeContribution> queueTypes() {
+            return List.of(new QueueTypeContribution(
+                    "legacy-demo", "legacy-demo", "legacy-demo", "legacy-demo.kind", 15, null));
+        }
+    }
 }

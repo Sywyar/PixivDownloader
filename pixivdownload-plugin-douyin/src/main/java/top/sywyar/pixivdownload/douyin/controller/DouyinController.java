@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.common.NetworkUtils;
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
@@ -86,6 +87,7 @@ public class DouyinController {
                                      @RequestParam(defaultValue = "24") int limit,
                                      @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
                                      HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.listUserWorks(userId, offset, limit, cookie);
@@ -100,6 +102,7 @@ public class DouyinController {
                                        @RequestParam(name = "ids", required = false) List<String> ids,
                                        @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
                                        HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.listUserWorks(userId, 0, 100, cookie);
@@ -119,6 +122,7 @@ public class DouyinController {
                                     @RequestParam(defaultValue = "24") int pageSize,
                                     @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
                                     HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.listSeriesWorks(seriesId, page, pageSize, cookie);
@@ -142,6 +146,7 @@ public class DouyinController {
                                     @RequestParam(defaultValue = "24") int pageSize,
                                     @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
                                     HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.searchPublic(word, page, pageSize, cookie);
@@ -160,6 +165,7 @@ public class DouyinController {
                                          @RequestParam(defaultValue = "24") int pageSize,
                                          @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
                                          HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
             int safeStart = Math.max(1, startPage);
@@ -185,6 +191,7 @@ public class DouyinController {
                                          @RequestParam(defaultValue = "24") int pageSize,
                                          @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
                                          HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
             DouyinListing listing = downloadService.quickPublic(page, pageSize, cookie);
@@ -208,6 +215,12 @@ public class DouyinController {
             case CANCELLED -> HttpStatus.CONFLICT;
         };
         return ResponseEntity.status(status).body(new ErrorView(false, e.code().name(), errorKey(e), e.getMessage()));
+    }
+
+    private static String acquisitionCredential(HttpServletRequest request, String legacyCredential) {
+        return AcquisitionCredentialResolver.resolve(
+                request == null ? null : request.getHeader(AcquisitionCredentialResolver.HEADER_NAME),
+                legacyCredential);
     }
 
     private static void requireSecureCredentialTransport(HttpServletRequest request, String cookie)

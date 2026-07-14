@@ -683,7 +683,7 @@
         }
 
         .btn-sm:hover {
-            background: #eee;
+            background: var(--hover-bg);
         }
 
         .btn-cookie-save {
@@ -1271,7 +1271,7 @@
         }
 
         .search-thumb:hover {
-            border-color: #28a745;
+            border-color: var(--brand);
             transform: scale(1.03);
         }
 
@@ -1284,7 +1284,7 @@
             aspect-ratio: 1 / 1;
             object-fit: cover;
             display: block;
-            background: #ddd;
+            background: var(--line);
         }
 
         .search-thumb img.blur-r18 {
@@ -1303,7 +1303,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
             background: rgba(0, 0, 0, .05);
-            color: #333;
+            color: var(--text);
         }
 
         .search-thumb .thumb-badge-stack {
@@ -1317,7 +1317,7 @@
         }
 
         .search-thumb .thumb-badge {
-            background: #dc3545;
+            background: var(--danger-bg);
             color: white;
             font-size: 9px;
             font-weight: bold;
@@ -1327,6 +1327,22 @@
 
         .search-thumb .thumb-badge-ai {
             background: #d946ef;
+        }
+
+        .search-thumb .thumb-badge-r18g {
+            background: #b91c1c;
+        }
+
+        .search-thumb .thumb-badge-ugoira {
+            background: #0ea5e9;
+        }
+
+        .search-thumb .thumb-badge-manga {
+            background: #f59e0b;
+        }
+
+        .search-thumb .thumb-badge-series-order {
+            background: #6366f1;
         }
 
         .search-thumb .thumb-pages {

@@ -1,39 +1,187 @@
 'use strict';
+(function () {
+let _activationContext = null;
+function novelAcquisitionCredentialHeaders(credential = getCookie()) {
+    return credential ? {'X-Acquisition-Credential': credential} : {};
+}
+
+function novelPreviewRequestInit() {
+    return {credentials: 'same-origin', headers: novelAcquisitionCredentialHeaders()};
+}
+
+function novelBuildSearchRequest(ctx) {
+    const uiMode = String(ctx.uiMode || 'all');
+    const r18Family = ['r18', 'r18g', 'r18plus'].includes(uiMode);
+    return {
+        endpoint: '/api/pixiv/novel-search',
+        params: {
+            word: ctx.word,
+            order: ctx.order,
+            mode: r18Family ? 'r18' : uiMode,
+            sMode: ctx.searchMode,
+            page: ctx.page
+        },
+        clientFilter: uiMode === 'r18' ? 1 : (uiMode === 'r18g' ? 2 : 0),
+        premiumOrder: ctx.order === 'popular_d',
+        credentialMissing: !hasPixivCookie()
+    };
+}
+
+function novelBuildRangeRequest(ctx) {
+    const request = novelBuildSearchRequest(ctx);
+    request.endpoint = '/api/pixiv/novel-search/range';
+    request.params = Object.assign({}, request.params, {
+        startPage: ctx.startPage,
+        endPage: ctx.endPage
+    });
+    delete request.params.page;
+    return request;
+}
+
+function requireNovelQuickSession(loader) {
+    return function () {
+        if (!cookieHasPhpsessid()) {
+            throw new Error(bt('quick.error.no-cookie', '请先保存含 PHPSESSID 的 Cookie'));
+        }
+        return loader.apply(this, arguments);
+    };
+}
+
+function assertNovelActivation() {
+    if (_activationContext && typeof _activationContext.assertActive === 'function') {
+        _activationContext.assertActive();
+    }
+}
+
+function novelHookSignal(hookContext) {
+    return hookContext && hookContext.signal
+        ? hookContext.signal
+        : (_activationContext && _activationContext.signal);
+}
+
+async function novelPreviewJson(path, hookContext) {
+    assertNovelActivation();
+    const response = await fetch(`${BASE}${path}`, {
+        credentials: 'same-origin',
+        headers: novelAcquisitionCredentialHeaders(),
+        signal: novelHookSignal(hookContext)
+    });
+    const data = await response.json().catch(() => ({}));
+    assertNovelActivation();
+    if (!response.ok || data.error) {
+        throw new Error(data.error || data.message || `HTTP ${response.status}`);
+    }
+    return data;
+}
+
+function parseNovelUserInput(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return '';
+    if (/^\d+$/.test(value)) return value;
+    const match = value.match(/\/users\/(\d+)/);
+    return match ? match[1] : '';
+}
+
+function novelQuickUserIdsRequest(userId) {
+    return {endpoint: `/api/pixiv/user/${encodeURIComponent(userId)}/novels`};
+}
+
+function novelQuickCardsRequest(userId, ids) {
+    return {
+        endpoint: `/api/pixiv/user/${encodeURIComponent(userId)}/novel-cards`,
+        params: {ids: (ids || []).map(String)}
+    };
+}
+
+function novelBookmarkPageRequest(ctx) {
+    return {
+        endpoint: '/api/pixiv/me/novel-bookmarks',
+        params: {rest: ctx.rest, offset: ctx.offset, limit: ctx.limit}
+    };
+}
+
+async function getNovelUserMeta(userId, hookContext) {
+    const data = await novelPreviewJson(
+        `/api/pixiv/user/${encodeURIComponent(userId)}/meta`, hookContext);
+    return data.name || '';
+}
 /* ============================================================
    小说作品类型行为模块（download-workbench 队列引擎的 novel 下载行为）。
    由小说插件经 /pixiv-novel-download/ serving；下载页据 /api/download/extensions
    列出的 moduleUrl 在运行期动态加载本模块，模块向宿主队列引擎注册 novel 类型的下载行为。
    小说下载端点已迁至小说自有前缀 /api/novel/**（旧址 /api/download/** 由 novel 插件
    的兼容垫片 forward，供油猴脚本懒迁移）。运行在下载页全局作用域，复用宿主既有工具函数
-   （bt/sleep/state/renderQueue/updateStats/saveQueue/setCurrent/getCookie/fetchJsonWithProgress/
+   （bt/state/renderQueue/updateStats/saveQueue/setCurrent/getCookie/fetchJsonWithProgress/
    fetchSeriesEnrichmentCached/evaluateDownloadFilterSkip/applyNovelStage/handleQuotaExceeded 等）。
 ============================================================ */
 
+    function assertNovelProcess(invocation) {
+        if (!invocation || typeof invocation.assertActive !== 'function') {
+            throw new Error('novel queue process invocation is missing');
+        }
+        invocation.assertActive();
+    }
+
+    function waitForNovelProcess(delayMs, invocation) {
+        assertNovelProcess(invocation);
+        return new Promise((resolve, reject) => {
+            let timer = null;
+            const cleanup = () => {
+                clearTimeout(timer);
+                invocation.signal.removeEventListener('abort', abort);
+            };
+            const abort = () => {
+                cleanup();
+                try {
+                    invocation.assertActive();
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            timer = setTimeout(() => {
+                cleanup();
+                try {
+                    invocation.assertActive();
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            }, delayMs);
+            if (invocation.signal.aborted) abort();
+            else invocation.signal.addEventListener('abort', abort, {once: true});
+        });
+    }
+
     // 三态判重：null = 未下载；{downloaded:true, deleted:false} = 已下载；{downloaded:true, deleted:true} = 已下载但被画廊删除
-    async function checkNovelDownloaded(novelId) {
+    async function checkNovelDownloaded(novelId, invocation) {
+        assertNovelProcess(invocation);
         try {
             const res = await fetch(`${BASE}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
-                {credentials: 'same-origin'});
+                {credentials: 'same-origin', signal: invocation.signal});
+            assertNovelProcess(invocation);
             if (!res.ok) return null;
             const data = await res.json();
+            assertNovelProcess(invocation);
             return data && data.downloaded ? data : null;
         } catch {
+            assertNovelProcess(invocation);
             return null;
         }
     }
 
-    async function processNovelItem(item) {
+    async function processNovelItem(item, invocation) {
+        assertNovelProcess(invocation);
         item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
         setCurrent(item);
         renderQueue();
         const cookie = getCookie();
-        const headers = {};
-        if (cookie) headers['X-Pixiv-Cookie'] = cookie;
+        const headers = novelAcquisitionCredentialHeaders(cookie);
         try {
             const novelId = item.novelId || String(item.id).replace(/^n/, '');
 
             if (state.settings.skipHistory) {
-                const downloaded = await checkNovelDownloaded(novelId);
+                const downloaded = await checkNovelDownloaded(novelId, invocation);
+                assertNovelProcess(invocation);
                 // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
                 if (downloaded && !(downloaded.deleted && state.settings.redownloadDeleted)) {
                     item.status = 'skipped';
@@ -51,8 +199,9 @@
             let _lastTextRender = 0;
             const metaRes = await fetchJsonWithProgress(
                 `${BASE}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
-                {headers},
+                {credentials: 'same-origin', headers, signal: invocation.signal},
                 (done, total) => {
+                    assertNovelProcess(invocation);
                     item.novelText = {done, total};
                     const now = Date.now();
                     if (now - _lastTextRender > 120) {
@@ -60,11 +209,14 @@
                         renderQueue();
                     }
                 });
+            assertNovelProcess(invocation);
             if (!metaRes.ok) {
                 const errData = await metaRes.json().catch(() => ({}));
+                assertNovelProcess(invocation);
                 throw new Error(errData.error || ('meta HTTP ' + metaRes.status));
             }
             const meta = await metaRes.json();
+            assertNovelProcess(invocation);
             item.novelText = null;
             renderQueue();
 
@@ -102,9 +254,11 @@
             } : null);
             // 系列简介/封面/tags：一批共享一次查询，best-effort；失败则不附加。
             const seriesEnrichment = seriesInfo
-                ? await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'novel')
+                ? await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'novel', invocation)
                 : null;
-            const collectionId = await resolveBatchCollectionIdForDownload();
+            assertNovelProcess(invocation);
+            const collectionId = await resolveBatchCollectionIdForDownload(invocation);
+            assertNovelProcess(invocation);
             const body = {
                 novelId: Number(novelId),
                 title: meta.title,
@@ -151,9 +305,12 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 credentials: 'same-origin',
+                signal: invocation.signal,
                 body: JSON.stringify(body)
             });
+            assertNovelProcess(invocation);
             const dlData = await dlRes.json().catch(() => ({}));
+            assertNovelProcess(invocation);
             if (dlRes.status === 429 && dlData.quotaExceeded) {
                 if (!quotaExceededHandled) {
                     quotaExceededHandled = true;
@@ -175,10 +332,16 @@
             // 轮询小说下载状态
             const start = Date.now();
             while (Date.now() - start < STATUS_TIMEOUT_MS) {
-                await sleep(800);
-                const sRes = await fetch(`${BASE}/api/novel/status/${encodeURIComponent(novelId)}`);
+                await waitForNovelProcess(800, invocation);
+                assertNovelProcess(invocation);
+                const sRes = await fetch(`${BASE}/api/novel/status/${encodeURIComponent(novelId)}`, {
+                    credentials: 'same-origin',
+                    signal: invocation.signal
+                });
+                assertNovelProcess(invocation);
                 if (!sRes.ok) continue;
                 const status = await sRes.json();
+                assertNovelProcess(invocation);
                 if (status.completed) {
                     if (status.failed) {
                         item.status = 'failed';
@@ -197,12 +360,13 @@
                     renderQueue();
                     // 「生成合订本」实时生效：系列下载完成时按当前设置决定是否合订（而非入队时的设置）
                     if (item.status === 'completed' && item.mergeAfterSeriesId && state.settings.mergeNovelSeries) {
-                        await maybeTriggerSeriesMerge(item.mergeAfterSeriesId);
+                        await maybeTriggerSeriesMerge(item.mergeAfterSeriesId, invocation);
+                        assertNovelProcess(invocation);
                     }
                     // 下载即自动翻译：翻译在服务端独立队列异步进行，这里脱离下载 worker 单独轮询其状态，
                     // 不占下载并发名额；下载本身已成功，翻译失败只在该项附提示、不改成功状态。
                     if (item.status === 'completed' && autoTranslate) {
-                        pollNovelTranslateStatus(item, novelId);
+                        void pollNovelTranslateStatus(item, novelId, invocation).catch(() => {});
                     }
                     return;
                 }
@@ -218,6 +382,7 @@
             saveQueue();
             renderQueue();
         } catch (e) {
+            assertNovelProcess(invocation);
             item.status = 'failed';
             item.lastMessage = bt('queue.message.failed', '失败 — {message}', {message: e.message || String(e)});
             item.endTime = new Date().toISOString();
@@ -230,15 +395,19 @@
 
     // 当系列内最后一个待合并章节完成后，触发合订
     const _novelMergeFiredSeries = new Set();
-    async function readMergeResponse(res) {
+    async function readMergeResponse(res, invocation) {
         try {
-            return await res.json();
+            const data = await res.json();
+            assertNovelProcess(invocation);
+            return data;
         } catch {
+            assertNovelProcess(invocation);
             return null;
         }
     }
 
-    async function maybeTriggerSeriesMerge(seriesId) {
+    async function maybeTriggerSeriesMerge(seriesId, invocation) {
+        assertNovelProcess(invocation);
         if (!seriesId) return;
         const remaining = state.queue.filter(q => q.kind === 'novel'
             && q.mergeAfterSeriesId === seriesId
@@ -250,9 +419,11 @@
             // 合订本格式独立于单章下载格式（novelFormat），默认推荐 EPUB
             const mfmt = (state.settings.mergeNovelFormat || 'epub').toLowerCase();
             const res = await fetch(`${BASE}/api/novel/series/${encodeURIComponent(seriesId)}/merge?format=${encodeURIComponent(mfmt)}`, {
-                method: 'POST', credentials: 'same-origin'
+                method: 'POST', credentials: 'same-origin', signal: invocation.signal
             });
-            const data = await readMergeResponse(res);
+            assertNovelProcess(invocation);
+            const data = await readMergeResponse(res, invocation);
+            assertNovelProcess(invocation);
             if (res.status === 401) {
                 _novelMergeFiredSeries.delete(seriesId);
                 isAdmin = false;
@@ -267,6 +438,7 @@
             }
             setStatus(bt('status.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: seriesId}), 'success');
         } catch (e) {
+            assertNovelProcess(invocation);
             console.warn(bt('download.log.novel-merge-failed', '小说合订本生成失败: seriesId={id}', {id: seriesId}), e);
             _novelMergeFiredSeries.delete(seriesId);
             setStatus(bt('status.novel-series-merge-failed',
@@ -279,7 +451,8 @@
        下载即自动翻译：脱离下载 worker 的状态轮询
        —— 翻译生命周期在服务端，前端只可视化；写入队列项的 raw 字段，渲染时再本地化文案。
     ============================================================ */
-    async function pollNovelTranslateStatus(item, novelId) {
+    async function pollNovelTranslateStatus(item, novelId, invocation) {
+        assertNovelProcess(invocation);
         item.translatePhase = 'QUEUED';
         item.translateElapsed = 0;
         item.translateSeriesPending = 0;
@@ -290,27 +463,31 @@
         const MAX_POLL_MS = 30 * 60 * 1000;   // 安全上限：30 分钟后停止轮询
         let consecutiveEmpty = 0;
         while (Date.now() - startedAt < MAX_POLL_MS) {
-            await sleep(1500);
+            await waitForNovelProcess(1500, invocation);
+            assertNovelProcess(invocation);
             let res;
             try {
                 res = await fetch(`${BASE}/api/novel/translate-status/${encodeURIComponent(novelId)}`,
-                    {credentials: 'same-origin'});
-            } catch {
+                    {credentials: 'same-origin', signal: invocation.signal});
+                assertNovelProcess(invocation);
+            } catch (error) {
+                assertNovelProcess(invocation);
                 continue;
             }
             if (res.status === 403) {
                 // 非管理员：清除翻译态，停止轮询
-                clearTranslateState(item);
+                clearTranslateState(item, invocation);
                 return;
             }
             if (res.status === 204) {
                 // 尚未登记（下载完成与翻译提交之间的瞬时窗口）：容忍若干次后放弃
-                if (++consecutiveEmpty >= 10) { clearTranslateState(item); return; }
+                if (++consecutiveEmpty >= 10) { clearTranslateState(item, invocation); return; }
                 continue;
             }
             if (!res.ok) continue;
             consecutiveEmpty = 0;
             const st = await res.json().catch(() => null);
+            assertNovelProcess(invocation);
             if (!st || !st.phase) continue;
             item.translatePhase = st.phase;
             item.translateElapsed = st.elapsedSeconds || 0;
@@ -327,7 +504,8 @@
         }
     }
 
-    function clearTranslateState(item) {
+    function clearTranslateState(item, invocation) {
+        assertNovelProcess(invocation);
         item.translatePhase = null;
         item.translateElapsed = 0;
         item.translateSeriesPending = 0;
@@ -432,20 +610,15 @@ async function getNovelBookmarkCountForSearch(novelId) {
     return data;
 }
 
-async function getUserNovels(userId) {
-    const data = await apiGet(`/api/pixiv/user/${userId}/novels`);
-    if (data.error) throw new Error(data.error);
+async function getUserNovels(userId, hookContext) {
+    const data = await novelPreviewJson(
+        `/api/pixiv/user/${encodeURIComponent(userId)}/novels`, hookContext);
     return data.ids || [];
 }
 
-async function resolveSeriesIdFromNovel(novelId) {
-    const res = await fetch(`${BASE}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
-        {credentials: 'same-origin', headers: pixivHeader()});
-    if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${res.status}`);
-    }
-    const meta = await res.json();
+async function resolveSeriesIdFromNovel(novelId, hookContext) {
+    const meta = await novelPreviewJson(
+        `/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`, hookContext);
     if (!meta.seriesId) {
         throw new Error(bt('status.series-novel-no-series', '该小说不属于任何小说系列'));
     }
@@ -497,6 +670,7 @@ function ensureNovelSearchMounted(area) {
     if (_novelSearchMounting) return;
     _novelSearchMounting = true;
     window.PixivVue.ensure().then(function (Vue) {
+        if (!_activationContext || !_activationContext.isActive()) return;
         // 卸载可能存在的旧 app（area 曾被宿主清空 → 旧挂载已失效，避免悬挂的 vnode 树）。
         if (_novelSearchVue) {
             try { _novelSearchVue.app.unmount(); } catch (e) { /* 卸载失败忽略 */ }
@@ -510,6 +684,10 @@ function ensureNovelSearchMounted(area) {
         root.className = 'novel-search-vue-root';
         const app = Vue.createApp(buildNovelSearchComponent(state));
         const vm = app.mount(root);
+        if (!_activationContext || !_activationContext.isActive()) {
+            try { app.unmount(); } catch (e) { /* best effort */ }
+            return;
+        }
         // 挂载成功，才用 Vue 根替换命令式首屏结果，并登记句柄。
         area.innerHTML = '';
         area.appendChild(root);
@@ -914,9 +1092,6 @@ function novelQuickInnerCard(item, idx, inQueue) {
 // 小说作品类型 descriptor：下载行为（process）+ 取得侧 UI 槽位（slots）+ 取得侧行为钩子
 // （acquisition：user/search/series/quick）+ 批量导入解析（import）+ 附加筛选（filters）+ 设置卡（settings）。
 const NOVEL_DESCRIPTOR = {
-    pluginId: 'novel',
-    type: 'novel',
-    display: 'novel:batch.user.kind-novel',
     slots: NOVEL_SLOTS,
     process: processNovelItem,
     // 批量导入单作品：小说链接 / `novel:` 区段头 / 裸 id 的解析与入队项构造。
@@ -938,27 +1113,34 @@ const NOVEL_DESCRIPTOR = {
     },
     // 附加筛选里的小说专属字段（字数）：显隐选择器 + 逐作品匹配 + 下载跳过 + 收藏数抓取器。
     filters: {
-        extraSelector: '.search-novel-only',
-        matchExtra(item, filters) {
-            const wc = Number(item.wordCount ?? 0);
-            if (filters.wordsMin !== null && wc < filters.wordsMin) return false;
-            if (filters.wordsMax !== null && wc > filters.wordsMax) return false;
-            return true;
-        },
-        evaluateSkip(meta, filters) {
-            const wc = Number(meta.wordCount ?? 0);
-            if (wc > 0) {
-                if (filters.wordsMin !== null && wc < filters.wordsMin) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
-                if (filters.wordsMax !== null && wc > filters.wordsMax) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
-            }
-            return null;
-        },
-        bookmarkCountFetch: getNovelBookmarkCountForSearch
+        'novel-words': {
+            extraSelector: '.search-novel-only',
+            matchExtra(item, filters) {
+                const wc = Number(item.wordCount ?? 0);
+                if (filters.wordsMin !== null && wc < filters.wordsMin) return false;
+                if (filters.wordsMax !== null && wc > filters.wordsMax) return false;
+                return true;
+            },
+            evaluateSkip(meta, filters) {
+                const wc = Number(meta.wordCount ?? 0);
+                if (wc > 0) {
+                    if (filters.wordsMin !== null && wc < filters.wordsMin) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
+                    if (filters.wordsMax !== null && wc > filters.wordsMax) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
+                }
+                return null;
+            },
+            bookmarkCountFetch: getNovelBookmarkCountForSearch
+        }
     },
     // 小说设置卡（格式 / 合订）；宿主按模式 + kind 显隐。
-    settings: {cardId: 'novel-settings-card'},
+    settings: {'novel-settings-card': {cardId: 'novel-settings-card'}},
     acquisition: {
         user: {
+            pageSize: 30,
+            requestInit: novelPreviewRequestInit,
+            accepts(selection) { return selection === 'novel'; },
+            parseInput: parseNovelUserInput,
+            fetchMeta: getNovelUserMeta,
             fetchIds: getUserNovels,
             cardsEndpoint(userId) { return `/api/pixiv/user/${encodeURIComponent(userId)}/novel-cards`; },
             queueId: novelQueueId,
@@ -987,9 +1169,10 @@ const NOVEL_DESCRIPTOR = {
             }
         },
         search: {
-            searchEndpoint: '/api/pixiv/novel-search',
-            rangeEndpoint: '/api/pixiv/novel-search/range',
             pageSize: 24,
+            requestInit: novelPreviewRequestInit,
+            buildRequest: novelBuildSearchRequest,
+            buildRangeRequest: novelBuildRangeRequest,
             queueId: novelQueueId,
             queueSource: 'search-novel',
             emptyResultsLabel() { return bt('novel:batch.search.no-novel-results', '无小说搜索结果'); },
@@ -1009,6 +1192,7 @@ const NOVEL_DESCRIPTOR = {
         },
         series: {
             pageSize: 30,
+            requestInit: novelPreviewRequestInit,
             apiPath(seriesId, page) { return `/api/pixiv/novel/series/${encodeURIComponent(seriesId)}?page=${page}`; },
             parseUrl(text) {
                 const t = String(text || '').trim();
@@ -1047,9 +1231,19 @@ const NOVEL_DESCRIPTOR = {
         },
         quick: {
             pageSize: QUICK_PAGE_SIZE_NOVEL,
-            myWorksIdsEndpoint: 'novels',
-            cardsEndpoint: 'novel-cards',
-            userIdsEndpoint: 'novels',
+            requestInit: novelPreviewRequestInit,
+            account: {
+                credentialMissing() { return !cookieHasPhpsessid(); },
+                missingHint() {
+                    return bt('quick.account.hint-no-cookie',
+                        '未检测到登录 Cookie，请先在上方保存含 PHPSESSID 的 Cookie');
+                },
+                buildRequest() { return {endpoint: '/api/pixiv/me/uid'}; },
+                readId(data) { return data && data.uid; }
+            },
+            buildMyWorksIdsRequest: novelQuickUserIdsRequest,
+            buildUserIdsRequest: novelQuickUserIdsRequest,
+            buildCardsRequest: novelQuickCardsRequest,
             myWorksTitleKey: 'quick.title.my-novels',
             queueId: novelQueueId,
             gridCardId(idPrefix, idx) { return `${idPrefix}-novel-card-${idx}`; },
@@ -1073,9 +1267,49 @@ const NOVEL_DESCRIPTOR = {
             },
             // 快捷获取入口动作（我的小说收藏 / 我的小说）：宿主 quickLoad / quickScheduleSource 据此派发。
             actions: {
-                'my-novel-bookmarks-show': {viewType: 'novel-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL, scheduleType: 'MY_BOOKMARKS', scheduleRest: 'show', bookmarkEndpoint: 'novel-bookmarks', load: () => loadQuickNovelBookmarks('show', 1)},
-                'my-novel-bookmarks-hide': {viewType: 'novel-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL, scheduleType: 'MY_BOOKMARKS', scheduleRest: 'hide', bookmarkEndpoint: 'novel-bookmarks', load: () => loadQuickNovelBookmarks('hide', 1)},
-                'my-novels': {viewType: 'novel-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL, scheduleType: 'USER_NEW', allIdsFastPath: true, load: () => loadQuickMyWorks('novel', 1)}
+                'my-novel-bookmarks-show': {
+                    viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
+                    sourceType: 'my-bookmarks', scheduleRest: 'show', bookmarkEndpoint: 'novel-bookmarks',
+                    buildPageRequest: novelBookmarkPageRequest,
+                    load: requireNovelQuickSession(() => loadQuickNovelBookmarks('show', 1)),
+                    scheduleSource() {
+                        return {
+                            sourceType: 'my-bookmarks', type: 'MY_BOOKMARKS', source: {rest: 'show'}, kind: 'novel',
+                            label: bt('quick.schedule.source.bookmarks', '我的收藏（{kind}，{rest}）', {
+                                kind: bt('schedule.kind.novel', 'novel'),
+                                rest: bt('quick.schedule.rest.show', '公开')
+                            })
+                        };
+                    }
+                },
+                'my-novel-bookmarks-hide': {
+                    viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
+                    sourceType: 'my-bookmarks', scheduleRest: 'hide', bookmarkEndpoint: 'novel-bookmarks',
+                    buildPageRequest: novelBookmarkPageRequest,
+                    load: requireNovelQuickSession(() => loadQuickNovelBookmarks('hide', 1)),
+                    scheduleSource() {
+                        return {
+                            sourceType: 'my-bookmarks', type: 'MY_BOOKMARKS', source: {rest: 'hide'}, kind: 'novel',
+                            label: bt('quick.schedule.source.bookmarks', '我的收藏（{kind}，{rest}）', {
+                                kind: bt('schedule.kind.novel', 'novel'),
+                                rest: bt('quick.schedule.rest.hide', '不公开')
+                            })
+                        };
+                    }
+                },
+                'my-novels': {
+                    viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
+                    sourceType: 'user-new', allIdsFastPath: true,
+                    load: requireNovelQuickSession(() => loadQuickMyWorks(_activationContext.type, 1)),
+                    scheduleSource(ctx) {
+                        if (!ctx.uid) return null;
+                        return {
+                            sourceType: 'user-new', type: 'USER_NEW',
+                            source: {userId: String(ctx.uid)}, kind: 'novel',
+                            label: bt('quick.schedule.source.self', '我自己（账号 {uid}）', {uid: ctx.uid})
+                        };
+                    }
+                }
             }
         }
     }
@@ -1084,5 +1318,21 @@ const NOVEL_DESCRIPTOR = {
 // 向宿主队列引擎注册 novel 作品类型：processSingle 据 item.kind 多态派发 process；renderSlots 据启用情况
 // 注入 slots；各取得模式据 acquisition / import / filters / settings 钩子驱动（宿主不再写死小说分支）。
 if (window.PixivBatch && window.PixivBatch.queueTypes) {
-    window.PixivBatch.queueTypes.register('novel', NOVEL_DESCRIPTOR);
+    window.PixivBatch.queueTypes.registerModule(function (context) {
+        _activationContext = context;
+        const descriptor = Object.assign({}, NOVEL_DESCRIPTOR);
+        return {
+            descriptor,
+            dispose() {
+                if (_activationContext === context) _activationContext = null;
+                _novelSearchLatestModel = null;
+                _novelSearchMounting = false;
+                if (_novelSearchVue) {
+                    try { _novelSearchVue.app.unmount(); } catch (e) { /* best effort */ }
+                    _novelSearchVue = null;
+                }
+            }
+        };
+    });
 }
+})();

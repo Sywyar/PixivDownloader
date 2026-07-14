@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
 import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
@@ -64,6 +65,12 @@ public class NovelPixivProxyController {
         return pixivAjaxProxyClient.proxyGetUri(uri, cookie);
     }
 
+    private static String acquisitionCredential(HttpServletRequest request, String legacyCredential) {
+        return AcquisitionCredentialResolver.resolve(
+                request == null ? null : request.getHeader(AcquisitionCredentialResolver.HEADER_NAME),
+                legacyCredential);
+    }
+
     private ResponseEntity<?> checkMultiModeAccess(HttpServletRequest request) {
         return pixivProxyAccessGuard.checkMultiModeAccess(request);
     }
@@ -89,6 +96,7 @@ public class NovelPixivProxyController {
             @PathVariable String novelId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        cookie = acquisitionCredential(request, cookie);
         guardNovelForGuest(request, novelId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
@@ -159,6 +167,7 @@ public class NovelPixivProxyController {
             @PathVariable String novelId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        cookie = acquisitionCredential(request, cookie);
         guardNovelForGuest(request, novelId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
@@ -189,6 +198,7 @@ public class NovelPixivProxyController {
             @RequestParam(defaultValue = "1") int page,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        cookie = acquisitionCredential(request, cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         long parsedId;
@@ -281,6 +291,7 @@ public class NovelPixivProxyController {
             @RequestParam(defaultValue = "1") int page,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        cookie = acquisitionCredential(request, cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String validationError = validateSearchParams(order, mode, sMode);
@@ -304,6 +315,7 @@ public class NovelPixivProxyController {
             @RequestParam(defaultValue = "1") int endPage,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        String resolvedCredential = acquisitionCredential(request, cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String validationError = validateSearchParams(order, mode, sMode);
@@ -317,7 +329,7 @@ public class NovelPixivProxyController {
         try {
             int limitPage = resolveSearchFillLimitPage(request);
             return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, limitPage, p -> {
-                NovelSearchResponse r = fetchNovelSearchPage(word, order, mode, sMode, p, cookie);
+                NovelSearchResponse r = fetchNovelSearchPage(word, order, mode, sMode, p, resolvedCredential);
                 return new RangePage(r.getItems(), r.getTotal(),
                         o -> ((NovelSearchResponse.NovelSearchItem) o).getId());
             }));
@@ -331,6 +343,7 @@ public class NovelPixivProxyController {
             @PathVariable String userId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        cookie = acquisitionCredential(request, cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
@@ -357,6 +370,7 @@ public class NovelPixivProxyController {
             @RequestParam List<String> ids,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        cookie = acquisitionCredential(request, cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         if (ids == null || ids.isEmpty()) {
@@ -389,6 +403,7 @@ public class NovelPixivProxyController {
             @RequestParam(defaultValue = "24") int limit,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
+        cookie = acquisitionCredential(request, cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         if (!VALID_REST.contains(rest)) {

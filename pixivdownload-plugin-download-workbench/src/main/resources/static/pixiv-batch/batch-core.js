@@ -5,6 +5,11 @@ window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 ['quick','singleImport','user','search','series','schedule'].forEach(function(k){ window.PixivBatch.modes[k] = window.PixivBatch.modes[k] || {}; });
     let pageI18n = null;
+    let pageLangSwitcher = null;
+    let pageI18nNamespaces = [];
+    let pageI18nNamespaceRefresh = null;
+    let pageI18nNamespaceRefreshDirty = false;
+    let pageI18nGeneration = 0;
     const BATCH_I18N_NAMESPACES = ['batch', 'common', 'ai', 'tour'];
     function interpolate(template, vars) {
         if (!vars) {
@@ -120,52 +125,108 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         return out;
     }
 
+    function sameI18nNamespaces(left, right) {
+        return left.length === right.length && left.every((value, index) => value === right[index]);
+    }
+
+    function installPageI18nClient(nextClient, namespaces) {
+        pageI18n = nextClient;
+        const installedNamespaces = Array.isArray(namespaces)
+            ? namespaces
+            : (Array.isArray(nextClient && nextClient.namespaces) ? nextClient.namespaces : null);
+        if (installedNamespaces) {
+            pageI18nNamespaces = installedNamespaces.slice();
+        }
+        pageI18nGeneration++;
+    }
+
+    async function applyPageLanguageViews() {
+        applyStaticPageTranslations();
+        if (window.PixivBatch && window.PixivBatch.layout) {
+            window.PixivBatch.layout.refreshLayoutToggle();
+        }
+        if (window.PixivNav) PixivNav.refresh();
+        // 目标语言未自定义时跟随新语言刷新默认显示值
+        refreshNovelTranslateLangDefault();
+        renderQuotaBar();
+        updateStats();
+        renderQueue();
+        setCurrent(state.currentItemId ? state.queue.find(q => q.id === state.currentItemId) || null : null);
+        updateButtonsState();
+        renderSearchResults();
+        renderSearchPagination();
+        if (seriesState.seriesId) {
+            renderSeriesResults();
+            renderSeriesPagination();
+        }
+        if (userState.allIds.length) {
+            renderUserResults();
+            renderUserPagination();
+        }
+        updateBatchLimitNote();
+        const snapshotModal = document.getElementById('schedule-snapshot-modal');
+        const snapshotTaskId = snapshotModal && !snapshotModal.hidden ? snapshotModal.dataset.taskId : null;
+        if (state.mode === 'schedule') {
+            // 语言切换后的卡片 / 队列正文 / 待重试面板重渲染统一由 loadScheduleTasks 内的
+            // scheduleLastRenderedLang 比对触发，覆盖「切走→切回」也能取到新语言。
+            await loadScheduleTasks();
+        }
+        if (snapshotTaskId) showScheduleSnapshot(snapshotTaskId);
+        await refreshBatchCollections();
+        if (_userscriptsLoaded) loadUserscripts();
+        refreshGuideFab();
+    }
+
+    async function refreshPageI18nNamespaces() {
+        if (!pageI18n) return false;
+        if (pageI18nNamespaceRefresh) {
+            pageI18nNamespaceRefreshDirty = true;
+            return pageI18nNamespaceRefresh;
+        }
+        pageI18nNamespaceRefresh = (async () => {
+            let changed = false;
+            do {
+                pageI18nNamespaceRefreshDirty = false;
+                const namespaces = await batchI18nNamespaces();
+                if (sameI18nNamespaces(namespaces, pageI18nNamespaces)) continue;
+                let nextClient;
+                while (true) {
+                    const baseClient = pageI18n;
+                    const baseGeneration = pageI18nGeneration;
+                    const targetLang = baseClient.lang;
+                    nextClient = await PixivI18n.create({lang: targetLang, namespaces});
+                    if (pageI18n === baseClient
+                        && pageI18nGeneration === baseGeneration
+                        && pageI18n.lang === targetLang) {
+                        break;
+                    }
+                }
+                installPageI18nClient(nextClient, namespaces);
+                if (pageLangSwitcher && typeof pageLangSwitcher.refresh === 'function') {
+                    pageLangSwitcher.refresh(nextClient);
+                }
+                await applyPageLanguageViews();
+                changed = true;
+            } while (pageI18nNamespaceRefreshDirty);
+            return changed;
+        })();
+        try {
+            return await pageI18nNamespaceRefresh;
+        } finally {
+            pageI18nNamespaceRefresh = null;
+        }
+    }
+
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: await batchI18nNamespaces()});
-        await PixivLangSwitcher.mount({
+        pageI18nNamespaces = await batchI18nNamespaces();
+        installPageI18nClient(await PixivI18n.create({namespaces: pageI18nNamespaces}), pageI18nNamespaces);
+        pageLangSwitcher = await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
             variant: 'green',
             onChange: async function (nextClient) {
-                pageI18n = nextClient;
-                applyStaticPageTranslations();
-                if (window.PixivBatch && window.PixivBatch.layout) {
-                    window.PixivBatch.layout.refreshLayoutToggle();
-                }
-                if (window.PixivNav) PixivNav.refresh();
-                // 目标语言未自定义时跟随新语言刷新默认显示值
-                refreshNovelTranslateLangDefault();
-                renderQuotaBar();
-                updateStats();
-                renderQueue();
-                setCurrent(state.currentItemId ? state.queue.find(q => q.id === state.currentItemId) || null : null);
-                updateButtonsState();
-                renderSearchResults();
-                renderSearchPagination();
-                if (seriesState.seriesId) {
-                    renderSeriesResults();
-                    renderSeriesPagination();
-                }
-                if (userState.allIds.length) {
-                    renderUserResults();
-                    renderUserPagination();
-                }
-                updateBatchLimitNote();
-                const snapshotModal = document.getElementById('schedule-snapshot-modal');
-                const snapshotTaskId = snapshotModal && !snapshotModal.hidden ? snapshotModal.dataset.taskId : null;
-                if (state.mode === 'schedule') {
-                    // 语言切换后的卡片 / 队列正文 / 待重试面板重渲染统一由 loadScheduleTasks 内的
-                    // scheduleLastRenderedLang 比对触发，覆盖「切走→切回」也能取到新语言。
-                    await loadScheduleTasks();
-                }
-                if (snapshotTaskId) {
-                    showScheduleSnapshot(snapshotTaskId);
-                }
-                await refreshBatchCollections();
-                if (_userscriptsLoaded) {
-                    loadUserscripts();
-                }
-                refreshGuideFab();
+                installPageI18nClient(nextClient);
+                await applyPageLanguageViews();
             }
         });
         PixivTheme.mount({
@@ -270,8 +331,10 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${seconds}s`;
     }
 
-    async function apiGet(path) {
-        const res = await fetch(BASE + path, {headers: pixivHeader()});
+    async function apiGet(path, requestInit) {
+        const init = Object.assign({}, requestInit || {});
+        init.headers = Object.assign({}, pixivHeader(), init.headers || {});
+        const res = await fetch(BASE + path, init);
         return res.json();
     }
 

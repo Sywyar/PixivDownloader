@@ -127,12 +127,7 @@
         }
 
         // Settings change → auto-save
-        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-redownload-deleted', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge', 's-novel-merge-format', 's-novel-auto-translate', 's-novel-translate-lang', 's-novel-translate-seg'].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener('change', syncSettings);
-            if (el.type === 'number' || el.type === 'text') el.addEventListener('input', syncSettings);
-        });
+        window.PixivBatch.settings.bindDelegatedSettingAutosave(document);
         document.getElementById('s-collection').addEventListener('click', () => {
             refreshBatchCollections();
         });
@@ -224,6 +219,53 @@
         loadAppInfo();
         await init();
         setupOnboardingOrTour();
+    });
+
+    let queueTypeRefreshInFlight = null;
+    function refreshQueueTypeManifest() {
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (!queueTypes || typeof queueTypes.refresh !== 'function') return Promise.resolve();
+        if (!queueTypeRefreshInFlight) {
+            queueTypeRefreshInFlight = queueTypes.refresh(false)
+                .catch(() => null)
+                .finally(() => { queueTypeRefreshInFlight = null; });
+        }
+        return queueTypeRefreshInFlight;
+    }
+
+    function reconcileQueueTypeUi(event) {
+        const ready = !(event && event.detail && event.detail.ready === false);
+        const settings = window.PixivBatch && window.PixivBatch.settings;
+        if (ready && settings && typeof settings.reconcileQueueTypeSettings === 'function') {
+            settings.reconcileQueueTypeSettings();
+        }
+        const modes = window.PixivBatch && window.PixivBatch.modes;
+        [
+            modes && modes.user && modes.user.reconcileUserTypeAvailability,
+            modes && modes.search && modes.search.reconcileSearchTypeAvailability,
+            modes && modes.series && modes.series.reconcileSeriesTypeAvailability,
+            modes && modes.quick && modes.quick.reconcileQuickTypeAvailability
+        ].forEach(reconcile => {
+            if (typeof reconcile !== 'function') return;
+            try { reconcile(); } catch (e) { console.warn('[batch] 作品类型 UI 收敛失败：', e); }
+        });
+        applyCookieHint();
+        updateBatchLimitNote();
+        updateButtonsState();
+        if (state.mode === QUICK_FETCH_MODE) updateQuickAccountBar();
+        refreshPageI18nNamespaces().catch(e => {
+            console.warn('[batch] 刷新扩展 i18n namespace 失败：', e);
+        });
+    }
+
+    window.addEventListener('focus', () => {
+        refreshQueueTypeManifest();
+    });
+    window.addEventListener('pixivbatch:queuetypeschanged', reconcileQueueTypeUi);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            refreshQueueTypeManifest();
+        }
     });
 
     // 有「全局可见」权限（solo / 已登录管理员）的用户走新用户跨页向导：首次自动跑，右下角 💡「操作指引」

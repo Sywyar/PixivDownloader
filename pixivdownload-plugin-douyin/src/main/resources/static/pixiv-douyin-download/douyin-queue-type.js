@@ -1,7 +1,26 @@
 'use strict';
-/* global BASE, bt, esc, state, sleep, setCurrent, renderQueue, updateStats, saveQueue, setStatus, pixivHeader,
+(function () {
+/* global BASE, bt, esc, state, sleep, setCurrent, renderQueue, updateStats, saveQueue, setStatus,
           addUserItemToQueue, addSearchItemToQueue, addSeriesItemToQueue, quickLoad, quickToggleItemQueue,
           quickState, quickSetTitle, quickShowToolbar, quickRenderOuterWorks, renderQuickPagination */
+
+let _activationContext = null;
+let _douyinTimer = null;
+const _douyinCleanups = [];
+
+function douyinAssertActive() {
+    if (!_activationContext || !_activationContext.isActive()) {
+        throw new Error('douyin queue type activation is stale');
+    }
+}
+
+function bindDouyinEvent(target, eventName, handler) {
+    if (!target || typeof target.addEventListener !== 'function') return;
+    target.addEventListener(eventName, handler);
+    _douyinCleanups.push(() => {
+        if (typeof target.removeEventListener === 'function') target.removeEventListener(eventName, handler);
+    });
+}
 
 const DOUYIN_PAGE_SIZE = 24;
 const DOUYIN_COOKIE_REQUIRED_KEYS = ['ttwid', 'passport_csrf_token'];
@@ -153,6 +172,10 @@ function douyinEnsureCookieReady() {
     return cookie;
 }
 
+function douyinAcquisitionCredentialHeaders(credential = douyinCookie()) {
+    return credential ? {'X-Acquisition-Credential': credential} : {};
+}
+
 function douyinI18nKey(key) {
     if (!key) return 'douyin:error.unknown';
     return String(key).startsWith('douyin.') ? 'douyin:' + String(key).substring('douyin.'.length) : key;
@@ -258,10 +281,25 @@ function douyinInputFromQueueItem(item) {
 }
 
 async function douyinFetchJson(path, options) {
-    const headers = Object.assign({}, (typeof pixivHeader === 'function' ? pixivHeader() : {}), (options && options.headers) || {});
-    headers['X-Douyin-Cookie'] = douyinEnsureCookieReady();
-    const res = await fetch(`${BASE}${path}`, Object.assign({credentials: 'same-origin', headers}, options || {}));
+    douyinAssertActive();
+    const request = Object.assign({}, options || {});
+    const headers = Object.assign({}, request.headers || {});
+    Object.keys(headers).forEach(name => {
+        const normalized = name.toLowerCase();
+        if (normalized === 'x-pixiv-cookie'
+            || normalized === 'x-douyin-cookie'
+            || normalized === 'x-acquisition-credential') {
+            delete headers[name];
+        }
+    });
+    Object.assign(headers, douyinAcquisitionCredentialHeaders(douyinEnsureCookieReady()));
+    request.credentials = request.credentials || 'same-origin';
+    request.headers = headers;
+    request.signal = _activationContext.signal;
+    const res = await fetch(`${BASE}${path}`, request);
+    douyinAssertActive();
     const data = await res.json().catch(() => ({}));
+    douyinAssertActive();
     if (!res.ok) {
         const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
         throw new Error(bt(key, data.message || `HTTP ${res.status}`));
@@ -270,6 +308,7 @@ async function douyinFetchJson(path, options) {
 }
 
 async function processDouyinItem(item) {
+    douyinAssertActive();
     item.lastMessage = douyinText('status.queued', 'Queued');
     item.totalImages = 1;
     item.downloadedCount = 0;
@@ -281,6 +320,7 @@ async function processDouyinItem(item) {
             method: 'POST',
             credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
+            signal: _activationContext.signal,
             body: JSON.stringify({
                 input: douyinInputFromQueueItem(item),
                 title: item.title || '',
@@ -289,7 +329,9 @@ async function processDouyinItem(item) {
                 collectionTitle: (douyinQueueTypeData(item).seriesTitle || item.seriesTitle || null)
             })
         });
+        douyinAssertActive();
         const data = await res.json().catch(() => ({}));
+        douyinAssertActive();
         if (!res.ok) {
             const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
             throw new Error(bt(key, data.message || `HTTP ${res.status}`));
@@ -299,11 +341,15 @@ async function processDouyinItem(item) {
         const start = Date.now();
         while (Date.now() - start < STATUS_TIMEOUT_MS) {
             await sleep(800);
+            douyinAssertActive();
             const statusRes = await fetch(`${BASE}/api/douyin/status/${encodeURIComponent(statusId)}`, {
-                credentials: 'same-origin'
+                credentials: 'same-origin',
+                signal: _activationContext.signal
             });
+            douyinAssertActive();
             if (!statusRes.ok) continue;
             const status = await statusRes.json();
+            douyinAssertActive();
             if (status.messageKey) {
                 item.lastMessage = bt(douyinI18nKey(status.messageKey), status.messageKey);
             }
@@ -332,6 +378,7 @@ async function processDouyinItem(item) {
         saveQueue();
         renderQueue();
     } catch (e) {
+        if (!_activationContext || !_activationContext.isActive()) throw e;
         item.status = 'failed';
         item.lastMessage = bt('queue.message.failed', 'Failed - {message}', {message: e.message || String(e)});
         item.endTime = new Date().toISOString();
@@ -366,7 +413,7 @@ function renderDouyinGrid(area, items, ctx) {
         items.map((item, idx) => douyinCardHtml(item, idx, ctx)).join('')
     }</div>`;
     area.querySelectorAll('[data-douyin-idx]').forEach(card => {
-        card.addEventListener('click', () => ctx.onClick(Number(card.dataset.douyinIdx)));
+        bindDouyinEvent(card, 'click', () => ctx.onClick(Number(card.dataset.douyinIdx)));
     });
 }
 
@@ -445,10 +492,10 @@ function hydrateDouyinCookieSettings() {
     input.value = douyinStoredCookieRaw();
     if (input.dataset.douyinBound !== '1') {
         input.dataset.douyinBound = '1';
-        input.addEventListener('input', () => douyinUpdateCookieStatus(false, douyinCookieInputHeaderString()));
+        bindDouyinEvent(input, 'input', () => douyinUpdateCookieStatus(false, douyinCookieInputHeaderString()));
         const toggle = document.getElementById('douyin-cookie-toggle');
         if (toggle) {
-            toggle.addEventListener('click', () => {
+            bindDouyinEvent(toggle, 'click', () => {
                 const visible = input.type === 'text';
                 input.type = visible ? 'password' : 'text';
                 toggle.setAttribute('data-i18n', visible
@@ -461,7 +508,7 @@ function hydrateDouyinCookieSettings() {
         }
         const save = document.getElementById('douyin-cookie-save');
         if (save) {
-            save.addEventListener('click', () => {
+            bindDouyinEvent(save, 'click', () => {
                 const raw = input.value.trim();
                 const header = douyinCookieRawToHeaderString(raw);
                 const validation = douyinValidateCookie(header);
@@ -475,11 +522,11 @@ function hydrateDouyinCookieSettings() {
         }
         const validate = document.getElementById('douyin-cookie-validate');
         if (validate) {
-            validate.addEventListener('click', () => douyinUpdateCookieStatus(true, douyinCookieInputHeaderString()));
+            bindDouyinEvent(validate, 'click', () => douyinUpdateCookieStatus(true, douyinCookieInputHeaderString()));
         }
         const clear = document.getElementById('douyin-cookie-clear');
         if (clear) {
-            clear.addEventListener('click', () => {
+            bindDouyinEvent(clear, 'click', () => {
                 input.value = '';
                 douyinRemoveStoredCookieRaw();
                 douyinUpdateCookieStatus(false, '');
@@ -493,20 +540,13 @@ function hydrateDouyinUi() {
     hydrateDouyinCookieSettings();
 }
 
-window.addEventListener('pixivbatch:slotsrendered', hydrateDouyinUi);
-window.addEventListener('pixivbatch:storageloaded', hydrateDouyinCookieSettings);
-window.addEventListener('pixivbatch:cookieformatchanged', () => {
-    douyinUpdateCookieStatus(false, douyinCookieInputHeaderString());
-});
-setTimeout(hydrateDouyinUi, 0);
-
 const DOUYIN_DESCRIPTOR = {
-    contractVersion: 1,
-    pluginId: 'douyin',
-    type: 'douyin',
-    display: 'douyin:batch.kind',
     slots: DOUYIN_SLOTS,
     process: processDouyinItem,
+    cookie: {
+        parseInput: douyinParseInput,
+        validate: douyinValidateCookie
+    },
     import: {
         sectionType: 'douyin',
         matchUrl(line) {
@@ -538,13 +578,18 @@ const DOUYIN_DESCRIPTOR = {
         source: 'single-import-douyin'
     },
     filters: {
-        extraSelector: '.search-douyin-only',
-        matchExtra() { return true; },
-        evaluateSkip() { return null; }
+        'douyin-public': {
+            extraSelector: '.search-douyin-only',
+            matchExtra() { return true; },
+            evaluateSkip() { return null; }
+        }
     },
     acquisition: {
         series: {
             pageSize: DOUYIN_PAGE_SIZE,
+            requestInit() {
+                return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
+            },
             apiPath(seriesId, page) {
                 return `/api/douyin/series/${encodeURIComponent(seriesId)}?page=${page}&pageSize=${DOUYIN_PAGE_SIZE}`;
             },
@@ -573,13 +618,29 @@ const DOUYIN_DESCRIPTOR = {
     }
 };
 
-window.PixivDouyin = Object.assign(window.PixivDouyin || {}, {
-    parseInput: douyinParseInput,
-    extractUrl: douyinExtractUrl,
-    validateCookie: douyinValidateCookie,
-    descriptor: DOUYIN_DESCRIPTOR
-});
-
 if (window.PixivBatch && window.PixivBatch.queueTypes) {
-    window.PixivBatch.queueTypes.register('douyin', DOUYIN_DESCRIPTOR);
+    window.PixivBatch.queueTypes.registerModule(function (context) {
+        _activationContext = context;
+        const descriptor = Object.assign({}, DOUYIN_DESCRIPTOR);
+        bindDouyinEvent(window, 'pixivbatch:slotsrendered', hydrateDouyinUi);
+        bindDouyinEvent(window, 'pixivbatch:storageloaded', hydrateDouyinCookieSettings);
+        bindDouyinEvent(window, 'pixivbatch:cookieformatchanged', () => {
+            douyinUpdateCookieStatus(false, douyinCookieInputHeaderString());
+        });
+        _douyinTimer = setTimeout(hydrateDouyinUi, 0);
+        return {
+            descriptor,
+            dispose() {
+                _activationContext = null;
+                if (_douyinTimer != null) clearTimeout(_douyinTimer);
+                _douyinTimer = null;
+                _douyinCleanups.splice(0).reverse().forEach(cleanup => {
+                    try { cleanup(); } catch (e) { /* best effort */ }
+                });
+                const input = document.getElementById('douyin-cookie-input');
+                if (input && input.dataset) delete input.dataset.douyinBound;
+            }
+        };
+    });
 }
+})();

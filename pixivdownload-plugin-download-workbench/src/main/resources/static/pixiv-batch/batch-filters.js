@@ -239,10 +239,11 @@
         }
         if (!missingIds.length) return;
 
-        // 收藏数 meta 抓取器：该类型贡献的 filters.bookmarkCountFetch（如小说走小说收藏数端点），否则内置插画 meta。
+        // 收藏数 meta 抓取器由当前类型 owner 贡献；未贡献的类型按「元数据不可用」处理。
         const typeFilters = window.PixivBatch.queueTypes.filtersFor(kind);
         const fetchMeta = (typeFilters && typeof typeFilters.bookmarkCountFetch === 'function')
-            ? typeFilters.bookmarkCountFetch : getArtworkMeta;
+            ? typeFilters.bookmarkCountFetch
+            : async function () { throw new Error('bookmark metadata is unavailable'); };
         let cursor = 0;
         const workers = [];
         const workerCount = Math.min(6, missingIds.length);
