@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.douyin.model;
 
 import java.net.URI;
+import java.util.LinkedHashSet;
+import java.util.List;
 
 public record DouyinMedia(
         String id,
@@ -9,7 +11,8 @@ public record DouyinMedia(
         String fileNameStem,
         String extension,
         Long sizeBytes,
-        String contentType
+        String contentType,
+        List<URI> fallbackUrls
 ) {
 
     public DouyinMedia {
@@ -17,6 +20,23 @@ public record DouyinMedia(
             type = DouyinMediaType.VIDEO;
         }
         extension = normalizeExtension(extension, type);
+        LinkedHashSet<URI> alternatives = new LinkedHashSet<>();
+        if (fallbackUrls != null) {
+            fallbackUrls.stream()
+                    .filter(candidate -> candidate != null && !candidate.equals(url))
+                    .forEach(alternatives::add);
+        }
+        fallbackUrls = List.copyOf(alternatives);
+    }
+
+    public DouyinMedia(String id,
+                       DouyinMediaType type,
+                       URI url,
+                       String fileNameStem,
+                       String extension,
+                       Long sizeBytes,
+                       String contentType) {
+        this(id, type, url, fileNameStem, extension, sizeBytes, contentType, List.of());
     }
 
     private static String normalizeExtension(String extension, DouyinMediaType type) {

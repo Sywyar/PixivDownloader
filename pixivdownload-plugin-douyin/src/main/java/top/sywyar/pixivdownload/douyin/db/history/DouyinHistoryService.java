@@ -173,7 +173,8 @@ public class DouyinHistoryService {
                     fileName,
                     extension(fileName, item),
                     file == null ? null : file.bytes(),
-                    item == null ? null : blankToNull(item.contentType()),
+                    firstNonBlank(file == null ? null : file.contentType(),
+                            item == null ? null : item.contentType()),
                     createdTime
             ));
         }

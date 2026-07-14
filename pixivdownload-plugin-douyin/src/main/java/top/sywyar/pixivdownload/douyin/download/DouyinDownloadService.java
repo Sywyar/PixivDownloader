@@ -18,6 +18,8 @@ import top.sywyar.pixivdownload.douyin.model.DouyinDownloadPhase;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadSnapshot;
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
+import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
+import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
@@ -27,6 +29,7 @@ import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 import top.sywyar.pixivdownload.douyin.settings.DouyinRuntimeSettings;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -170,6 +173,7 @@ public class DouyinDownloadService {
                 status.preResolvedWork = canonical.preResolvedWork();
                 status.runtime = runtime;
                 status.downloadDirectory = runtimeSettings.downloadDirectory();
+                status.includeCover = runtimeSettings.includeCover();
                 task.onCancellation(() -> cancelTrackedStatus(status));
                 if (!task.publishIfActive(() -> {
                     statuses.put(statusId, status);
@@ -382,6 +386,7 @@ public class DouyinDownloadService {
                 ? status.runtime.client().resolvePublicWork(status.canonicalUrl, status.cookie)
                 : status.preResolvedWork;
         status.title = safeTitle(work.title(), status.workId);
+        work = withOptionalCover(work, status.includeCover);
         failIfCancelled(status);
         status.phase = DouyinDownloadPhase.DOWNLOADING;
         status.messageKey = "douyin.status.downloading";
@@ -420,6 +425,7 @@ public class DouyinDownloadService {
                     continue;
                 }
                 failIfCancelled(status);
+                work = withOptionalCover(work, status.includeCover);
                 Path outputDirectory = outputDirectory(status, work);
                 List<DouyinDownloadedFile> files = status.runtime.mediaDownloader().download(
                         work.media(), outputDirectory, status::isCancelled, status.cookie);
@@ -464,6 +470,40 @@ public class DouyinDownloadService {
         }
         String title = sanitize(firstNonBlank(work.title(), status.title, work.id()));
         return ownerDirectory.resolve(sanitize(work.id()) + "-" + title).normalize();
+    }
+
+    private static DouyinWork withOptionalCover(DouyinWork work, boolean includeCover) {
+        if (!includeCover || work.thumbnailUrl() == null || work.thumbnailUrl().isBlank()
+                || work.media().stream().anyMatch(media -> media.type() == DouyinMediaType.COVER)) {
+            return work;
+        }
+        URI coverUri;
+        try {
+            coverUri = URI.create(work.thumbnailUrl());
+        } catch (IllegalArgumentException ignored) {
+            return work;
+        }
+        List<DouyinMedia> media = new ArrayList<>(work.media());
+        media.add(new DouyinMedia(work.id() + "-cover", DouyinMediaType.COVER, coverUri,
+                work.id() + "-cover", mediaExtension(coverUri, "jpg"), null, null));
+        return new DouyinWork(work.id(), work.title(), work.description(), work.itemTitle(), work.caption(),
+                work.authorId(), work.authorName(), work.pageUrl(), work.thumbnailUrl(), work.mediaUrl(),
+                media, work.kind(), work.publishTimeEpochSeconds(), work.collectionId(), work.collectionTitle());
+    }
+
+    private static String mediaExtension(URI uri, String fallback) {
+        String path = uri == null ? null : uri.getPath();
+        if (path != null) {
+            int slash = path.lastIndexOf('/');
+            int dot = path.lastIndexOf('.');
+            if (dot > slash && dot + 1 < path.length()) {
+                String extension = path.substring(dot + 1).toLowerCase(Locale.ROOT);
+                if (extension.matches("[a-z0-9]{1,8}")) {
+                    return extension;
+                }
+            }
+        }
+        return fallback;
     }
 
     private static void failIfCancelled(MutableStatus status) {
@@ -614,6 +654,7 @@ public class DouyinDownloadService {
         private volatile String collectionTitle;
         private volatile RuntimePair runtime;
         private volatile Path downloadDirectory;
+        private volatile boolean includeCover;
         private volatile DouyinWork preResolvedWork;
         private volatile boolean cancelled;
 

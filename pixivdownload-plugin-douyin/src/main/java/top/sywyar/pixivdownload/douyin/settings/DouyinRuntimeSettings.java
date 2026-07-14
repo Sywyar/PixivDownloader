@@ -6,7 +6,8 @@ public record DouyinRuntimeSettings(
         Path downloadDirectory,
         DouyinProxyMode proxyMode,
         String proxyHost,
-        int proxyPort) {
+        int proxyPort,
+        boolean includeCover) {
 
     public DouyinRuntimeSettings {
         if (downloadDirectory == null) {
@@ -18,7 +19,14 @@ public record DouyinRuntimeSettings(
     }
 
     public DouyinRuntimeSettings(Path downloadDirectory, DouyinProxyMode proxyMode) {
-        this(downloadDirectory, proxyMode, "", 0);
+        this(downloadDirectory, proxyMode, "", 0, false);
+    }
+
+    public DouyinRuntimeSettings(Path downloadDirectory,
+                                 DouyinProxyMode proxyMode,
+                                 String proxyHost,
+                                 int proxyPort) {
+        this(downloadDirectory, proxyMode, proxyHost, proxyPort, false);
     }
 
     public boolean hasCustomProxyEndpoint() {

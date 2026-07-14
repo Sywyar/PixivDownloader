@@ -52,6 +52,9 @@ class DouyinDownloadServiceTest {
 
     private static final String VALID_COOKIE =
             "ttwid=tt; passport_csrf_token=csrf; sessionid=sid; sid_tt=sid; sid_guard=guard";
+    private static final byte[] DOWNLOADED_VIDEO_BYTES = {
+            0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o'
+    };
 
     @TempDir
     Path tempDir;
@@ -139,7 +142,7 @@ class DouyinDownloadServiceTest {
         assertThat(status.phase()).isEqualTo(DouyinDownloadPhase.COMPLETED);
         assertThat(status.completed()).isTrue();
         assertThat(status.fileName()).isEqualTo("7351234567890123456.mp4");
-        assertThat(Files.readString(client.downloader.lastTarget, StandardCharsets.UTF_8)).isEqualTo("video-bytes");
+        assertThat(Files.readAllBytes(client.downloader.lastTarget)).containsExactly(DOWNLOADED_VIDEO_BYTES);
         assertThat(client.downloader.lastDirectory.normalize().startsWith(tempDir.resolve("owner-a").normalize())).isTrue();
         assertThat(client.downloader.lastCredential).isEqualTo(VALID_COOKIE);
     }
@@ -577,6 +580,28 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("封面设置开启时只把封面作为主媒体之外的可选附件")
+    void optionalCoverIsDownloadedAsAttachment() throws Exception {
+        FakeClient client = new FakeClient();
+        client.thumbnailUrl = "https://p3.douyinpic.com/cover.webp";
+        RecordingHistoryService history = recordingHistoryService();
+        DouyinDownloadService service = new DouyinDownloadService(new DouyinUrlParser(),
+                client, client, client,
+                client.downloader, client.downloader, client.downloader,
+                Runnable::run,
+                DouyinPluginSettingsService.fixed(tempDir, DouyinProxyMode.INHERIT, "", 0, true),
+                history);
+
+        service.start(new DouyinDownloadRequest(
+                "https://www.douyin.com/video/7351234567890123456", "", VALID_COOKIE), "owner-a");
+
+        assertThat(client.downloader.downloadedFiles).isEqualTo(2);
+        assertThat(history.work.media()).extracting(DouyinMedia::type)
+                .containsExactly(DouyinMediaType.VIDEO, DouyinMediaType.COVER);
+        assertThat(history.work.media().get(1).extension()).isEqualTo("webp");
+    }
+
+    @Test
     @DisplayName("单作品失败或取消时不写入下载历史")
     void doesNotRecordHistoryWhenSingleWorkFails() throws Exception {
         FakeClient client = new FakeClient();
@@ -669,6 +694,7 @@ class DouyinDownloadServiceTest {
         private String lastSeriesId;
         private CountDownLatch resolveEntered;
         private CountDownLatch releaseResolve;
+        private String thumbnailUrl = "";
 
         void blockResolve(CountDownLatch entered, CountDownLatch release) {
             this.resolveEntered = entered;
@@ -704,7 +730,7 @@ class DouyinDownloadServiceTest {
                 return new DouyinCanonicalDownload(DouyinCanonicalKind.COLLECTION, stableId,
                         "https://www.douyin.com/mix/" + stableId, null, input);
             }
-            DouyinWork work = work(stableWorkId(input, parsed));
+            DouyinWork work = resolvedWork(stableWorkId(input, parsed));
             return new DouyinCanonicalDownload(DouyinCanonicalKind.SINGLE_WORK, work.id(),
                     "https://www.douyin.com/video/" + work.id(), work, input);
         }
@@ -720,7 +746,7 @@ class DouyinDownloadServiceTest {
             if (resolveFailure != null) {
                 throw new DouyinClientException(resolveFailure, resolveFailure.name());
             }
-            return work(stableWorkId(input, resolveInput(input, cookie)));
+            return resolvedWork(stableWorkId(input, resolveInput(input, cookie)));
         }
 
         @Override
@@ -757,6 +783,17 @@ class DouyinDownloadServiceTest {
                 return mapped;
             }
             return parsed.kind().singleWork() ? parsed.id() : "7351234567890123456";
+        }
+
+        private DouyinWork resolvedWork(String id) {
+            DouyinWork base = work(id);
+            if (thumbnailUrl == null || thumbnailUrl.isBlank()) {
+                return base;
+            }
+            return new DouyinWork(base.id(), base.title(), base.description(), base.itemTitle(), base.caption(),
+                    base.authorId(), base.authorName(), base.pageUrl(), thumbnailUrl, base.mediaUrl(),
+                    base.media(), base.kind(), base.publishTimeEpochSeconds(), base.collectionId(),
+                    base.collectionTitle());
         }
 
         private static String mapped(Map<String, String> mappings, String input) {
@@ -821,8 +858,12 @@ class DouyinDownloadServiceTest {
             List<DouyinDownloadedFile> downloaded = new ArrayList<>();
             for (DouyinMedia candidate : candidates) {
                 lastTarget = directory.resolve(candidate.fileNameStem() + "." + candidate.extension());
-                Files.writeString(lastTarget, "video-bytes", StandardCharsets.UTF_8);
-                downloaded.add(new DouyinDownloadedFile(lastTarget, 11));
+                Files.write(lastTarget, DOWNLOADED_VIDEO_BYTES);
+                String contentType = switch (candidate.type()) {
+                    case IMAGE, COVER -> "image/" + candidate.extension();
+                    default -> "video/mp4";
+                };
+                downloaded.add(new DouyinDownloadedFile(lastTarget, 11, contentType));
             }
             downloadedFiles += downloaded.size();
             return List.copyOf(downloaded);

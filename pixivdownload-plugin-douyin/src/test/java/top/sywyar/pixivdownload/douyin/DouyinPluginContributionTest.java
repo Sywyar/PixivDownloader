@@ -72,7 +72,8 @@ class DouyinPluginContributionTest {
                         DouyinPluginSettingsService.KEY_DOWNLOAD_DIRECTORY,
                         DouyinPluginSettingsService.KEY_PROXY_MODE,
                         DouyinPluginSettingsService.KEY_PROXY_HOST,
-                        DouyinPluginSettingsService.KEY_PROXY_PORT);
+                        DouyinPluginSettingsService.KEY_PROXY_PORT,
+                        DouyinPluginSettingsService.KEY_INCLUDE_COVER);
         assertThat(contribution.fields())
                 .filteredOn(field -> field.key().equals(DouyinPluginSettingsService.KEY_DOWNLOAD_DIRECTORY))
                 .singleElement()
@@ -107,6 +108,14 @@ class DouyinPluginContributionTest {
                     assertThat(field.type()).isEqualTo(GuiConfigFieldType.PORT);
                     assertThat(field.visibleWhen()).containsExactly(
                             GuiConfigCondition.equalsTo(DouyinPluginSettingsService.KEY_PROXY_MODE, "custom"));
+                    assertThat(field.requiresRestart()).isFalse();
+                });
+        assertThat(contribution.fields())
+                .filteredOn(field -> field.key().equals(DouyinPluginSettingsService.KEY_INCLUDE_COVER))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.type()).isEqualTo(GuiConfigFieldType.BOOL);
+                    assertThat(field.defaultValue()).isEqualTo("false");
                     assertThat(field.requiresRestart()).isFalse();
                 });
     }

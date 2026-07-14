@@ -464,52 +464,47 @@ public class DefaultDouyinClient implements DouyinClient {
     }
 
     private List<DouyinMedia> collectMedia(String workId, JsonNode aweme) {
-        List<DouyinMedia> images = collectImages(workId, aweme);
-        List<DouyinMedia> livePhotos = collectLivePhotoVideos(workId, aweme);
-        if (!images.isEmpty()) {
-            List<DouyinMedia> all = new ArrayList<>(images);
-            all.addAll(livePhotos);
-            return all;
+        List<DouyinMedia> imagePostMedia = collectImagePostMedia(workId, imageNodes(aweme));
+        if (!imagePostMedia.isEmpty()) {
+            return imagePostMedia;
         }
         return collectVideos(workId, aweme.path("video"));
     }
 
-    private List<DouyinMedia> collectImages(String workId, JsonNode aweme) {
-        List<JsonNode> imageNodes = new ArrayList<>();
-        addArrayItems(imageNodes, aweme.path("image_post_info").path("images"));
-        addArrayItems(imageNodes, aweme.path("image_post_info").path("image_list"));
-        addArrayItems(imageNodes, aweme.path("images"));
-        addArrayItems(imageNodes, aweme.path("image_list"));
+    private List<DouyinMedia> collectImagePostMedia(String workId, List<JsonNode> imageNodes) {
         List<DouyinMedia> media = new ArrayList<>();
-        int index = 1;
-        for (JsonNode image : imageNodes) {
-            Optional<String> url = bestImageUrl(image);
+        for (int nodeIndex = 0; nodeIndex < imageNodes.size(); nodeIndex++) {
+            JsonNode image = imageNodes.get(nodeIndex);
+            int pageIndex = nodeIndex + 1;
+            Optional<UrlCandidate> url = bestImageUrl(image);
             if (url.isPresent()) {
-                media.add(media(workId + "-p" + index, DouyinMediaType.IMAGE, url.get(),
-                        workId + "-p" + String.format(Locale.ROOT, "%02d", index), image));
-                index++;
+                media.add(media(workId + "-p" + pageIndex, DouyinMediaType.IMAGE, url.get().url(),
+                        workId + "-p" + String.format(Locale.ROOT, "%02d", pageIndex), url.get().node()));
+            }
+
+            List<DouyinMedia> videos = collectVideos(workId + "-live-p" + pageIndex, image.path("video"));
+            for (DouyinMedia video : videos) {
+                media.add(new DouyinMedia(video.id(), DouyinMediaType.LIVE_PHOTO_VIDEO, video.url(),
+                        workId + "-live-p" + String.format(Locale.ROOT, "%02d", pageIndex),
+                        video.extension(), video.sizeBytes(), video.contentType(), video.fallbackUrls()));
             }
         }
         return media;
     }
 
-    private List<DouyinMedia> collectLivePhotoVideos(String workId, JsonNode aweme) {
-        List<JsonNode> imageNodes = new ArrayList<>();
-        addArrayItems(imageNodes, aweme.path("image_post_info").path("images"));
-        addArrayItems(imageNodes, aweme.path("image_post_info").path("image_list"));
-        addArrayItems(imageNodes, aweme.path("images"));
-        List<DouyinMedia> media = new ArrayList<>();
-        int index = 1;
-        for (JsonNode image : imageNodes) {
-            List<DouyinMedia> videos = collectVideos(workId + "-live-p" + index, image.path("video"));
-            for (DouyinMedia video : videos) {
-                media.add(new DouyinMedia(video.id(), DouyinMediaType.LIVE_PHOTO_VIDEO, video.url(),
-                        workId + "-live-p" + String.format(Locale.ROOT, "%02d", index),
-                        video.extension(), video.sizeBytes(), video.contentType()));
+    private static List<JsonNode> imageNodes(JsonNode aweme) {
+        for (JsonNode candidate : List.of(
+                aweme.path("image_post_info").path("images"),
+                aweme.path("image_post_info").path("image_list"),
+                aweme.path("images"),
+                aweme.path("image_list"))) {
+            if (candidate.isArray() && !candidate.isEmpty()) {
+                List<JsonNode> nodes = new ArrayList<>(candidate.size());
+                candidate.forEach(nodes::add);
+                return nodes;
             }
-            index++;
         }
-        return media;
+        return List.of();
     }
 
     private List<DouyinMedia> collectVideos(String workId, JsonNode video) {
@@ -540,7 +535,12 @@ public class DefaultDouyinClient implements DouyinClient {
         URI uri = URI.create(rawUrl);
         String extension = extensionFromUrl(uri).orElse(type == DouyinMediaType.IMAGE ? "jpg" : "mp4");
         Long size = firstLong(node, "data_size", "file_size", "size", "content_length").orElse(null);
-        return new DouyinMedia(id, type, uri, stem, extension, size, null);
+        List<URI> fallbackUrls = allUrls(node).stream()
+                .filter(candidate -> !candidate.equals(rawUrl))
+                .map(DefaultDouyinClient::safeUri)
+                .flatMap(Optional::stream)
+                .toList();
+        return new DouyinMedia(id, type, uri, stem, extension, size, null, fallbackUrls);
     }
 
     private static DouyinWorkKind classifyWorkKind(List<DouyinMedia> media) {
@@ -555,7 +555,7 @@ public class DefaultDouyinClient implements DouyinClient {
         return media.isEmpty() ? DouyinWorkKind.UNSUPPORTED : DouyinWorkKind.VIDEO;
     }
 
-    private Optional<String> bestImageUrl(JsonNode image) {
+    private Optional<UrlCandidate> bestImageUrl(JsonNode image) {
         for (String field : List.of(
                 "watermark_free_download_url_list",
                 "url_list",
@@ -565,11 +565,12 @@ public class DefaultDouyinClient implements DouyinClient {
                 "download_addr",
                 "download_url_list",
                 "owner_watermark_image")) {
+            JsonNode candidate = image.path(field);
             Optional<String> found = field.endsWith("_list")
-                    ? firstUrlFromArray(image.path(field))
-                    : firstUrl(image.path(field));
+                    ? firstUrlFromArray(candidate)
+                    : firstUrl(candidate);
             if (found.isPresent()) {
-                return found;
+                return Optional.of(new UrlCandidate(found.get(), candidate));
             }
         }
         return Optional.empty();
@@ -605,6 +606,39 @@ public class DefaultDouyinClient implements DouyinClient {
             }
         }
         return Optional.empty();
+    }
+
+    private static List<String> allUrls(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return List.of();
+        }
+        LinkedHashSet<String> urls = new LinkedHashSet<>();
+        if (node.isTextual() && node.asText().startsWith("http")) {
+            urls.add(node.asText());
+        }
+        JsonNode list = node.isArray() ? node : node.path("url_list");
+        if (list.isArray()) {
+            for (JsonNode item : list) {
+                if (item.isTextual() && item.asText().startsWith("http")) {
+                    urls.add(item.asText());
+                }
+            }
+        }
+        for (String field : List.of("uri", "url", "download_url")) {
+            JsonNode value = node.path(field);
+            if (value.isTextual() && value.asText().startsWith("http")) {
+                urls.add(value.asText());
+            }
+        }
+        return List.copyOf(urls);
+    }
+
+    private static Optional<URI> safeUri(String rawUrl) {
+        try {
+            return Optional.of(URI.create(rawUrl));
+        } catch (IllegalArgumentException ignored) {
+            return Optional.empty();
+        }
     }
 
     private static List<JsonNode> extractPageJson(String html) {
@@ -686,12 +720,6 @@ public class DefaultDouyinClient implements DouyinClient {
             }
         }
         return Optional.empty();
-    }
-
-    private static void addArrayItems(List<JsonNode> out, JsonNode node) {
-        if (node != null && node.isArray()) {
-            node.forEach(out::add);
-        }
     }
 
     private static String firstText(JsonNode node, String... fields) {
@@ -808,6 +836,9 @@ public class DefaultDouyinClient implements DouyinClient {
     }
 
     private record VideoCandidate(String url, long quality, JsonNode node) {
+    }
+
+    private record UrlCandidate(String url, JsonNode node) {
     }
 
     private record MixInfo(String id, String title, String ownerName) {

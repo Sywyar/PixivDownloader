@@ -19,6 +19,7 @@ public class DouyinPluginSettingsService {
     public static final String KEY_PROXY_MODE = "douyin.proxy.mode";
     public static final String KEY_PROXY_HOST = "douyin.proxy.host";
     public static final String KEY_PROXY_PORT = "douyin.proxy.port";
+    public static final String KEY_INCLUDE_COVER = "douyin.download.include-cover";
 
     private final Path configFile;
     private final Path inheritedDownloadDirectory;
@@ -48,11 +49,20 @@ public class DouyinPluginSettingsService {
                                                     DouyinProxyMode proxyMode,
                                                     String proxyHost,
                                                     int proxyPort) {
+        return fixed(downloadDirectory, proxyMode, proxyHost, proxyPort, false);
+    }
+
+    public static DouyinPluginSettingsService fixed(Path downloadDirectory,
+                                                     DouyinProxyMode proxyMode,
+                                                     String proxyHost,
+                                                     int proxyPort,
+                                                     boolean includeCover) {
         DouyinRuntimeSettings runtimeSettings = new DouyinRuntimeSettings(
                 normalizePath(downloadDirectory),
                 proxyMode == null ? DouyinProxyMode.INHERIT : proxyMode,
                 proxyHost,
-                proxyPort);
+                proxyPort,
+                includeCover);
         return new DouyinPluginSettingsService(null, runtimeSettings.downloadDirectory(), runtimeSettings);
     }
 
@@ -62,7 +72,8 @@ public class DouyinPluginSettingsService {
                     fixedSettings.downloadDirectory().toString(),
                     fixedSettings.proxyMode(),
                     fixedSettings.proxyHost(),
-                    fixedSettings.proxyPort() > 0 ? Integer.toString(fixedSettings.proxyPort()) : "");
+                    fixedSettings.proxyPort() > 0 ? Integer.toString(fixedSettings.proxyPort()) : "",
+                    fixedSettings.includeCover());
         }
         if (configFile == null || !Files.isRegularFile(configFile)) {
             return DouyinPluginSettings.defaults();
@@ -73,7 +84,8 @@ public class DouyinPluginSettingsService {
                     property(properties, KEY_DOWNLOAD_DIRECTORY),
                     DouyinProxyMode.from(property(properties, KEY_PROXY_MODE)),
                     property(properties, KEY_PROXY_HOST),
-                    property(properties, KEY_PROXY_PORT));
+                    property(properties, KEY_PROXY_PORT),
+                    Boolean.parseBoolean(property(properties, KEY_INCLUDE_COVER)));
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read Douyin plugin settings: " + configFile, e);
         }
@@ -88,7 +100,8 @@ public class DouyinPluginSettingsService {
                 effectiveDownloadDirectory(settings),
                 settings.proxyMode(),
                 settings.proxyHost(),
-                parsePort(settings.proxyPort()));
+                parsePort(settings.proxyPort()),
+                settings.includeCover());
     }
 
     public Path inheritedDownloadDirectory() {

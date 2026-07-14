@@ -106,8 +106,8 @@ class DefaultDouyinClientParserTest {
         DefaultDouyinClient client = client("""
                 {"aweme_detail":{"aweme_id":"7352","desc":"Images","author":{"sec_uid":"sec","nickname":"Author"},
                 "image_post_info":{"images":[
-                {"watermark_free_download_url_list":["https://p3.douyinpic.com/a.jpg"]},
-                {"display_image":{"url_list":["https://p3.douyinpic.com/b.webp"]}}
+                {"watermark_free_download_url_list":["https://p3.douyinpic.com/a.jpg","https://p4.douyinpic.com/a.jpg"]},
+                {"display_image":{"url_list":["https://p3.douyinpic.com/b.webp","https://p4.douyinpic.com/b.webp"]}}
                 ]}}}
                 """);
 
@@ -117,22 +117,83 @@ class DefaultDouyinClientParserTest {
         assertThat(work.media()).hasSize(2);
         assertThat(work.media()).allMatch(media -> media.type() == DouyinMediaType.IMAGE);
         assertThat(work.media().get(1).extension()).isEqualTo("webp");
+        assertThat(work.media().get(0).fallbackUrls())
+                .containsExactly(URI.create("https://p4.douyinpic.com/a.jpg"));
+        assertThat(work.media().get(1).fallbackUrls())
+                .containsExactly(URI.create("https://p4.douyinpic.com/b.webp"));
     }
 
     @Test
-    @DisplayName("解析 live-photo 图片与视频候选")
-    void parsesLivePhoto() throws Exception {
+    @DisplayName("实况照片按原始页索引配对并保留稀疏静态图位置")
+    void pairsLivePhotoByOriginalNodeIndex() throws Exception {
         DefaultDouyinClient client = client("""
                 {"aweme_detail":{"aweme_id":"7353","desc":"Live",
                 "image_post_info":{"images":[{"display_image":{"url_list":["https://p3.douyinpic.com/a.jpg"]},
-                "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/live.mp4"]}}}]}}}
+                "video":{}},
+                {"display_image":{"url_list":["https://p3.douyinpic.com/b.jpg"]},
+                "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/live-b.mp4","https://v6.douyinvod.com/live-b.mp4"]}}},
+                {"video":{"play_addr":{"url_list":["https://v3.douyinvod.com/live-c.mp4"]}}},
+                {"display_image":{"url_list":["https://p3.douyinpic.com/d.jpg"]}}]}}}
                 """);
 
         var work = client.resolvePublicWork("https://www.douyin.com/gallery/7353", null);
 
         assertThat(work.kind()).isEqualTo(DouyinWorkKind.LIVE_PHOTO);
+        assertThat(work.media()).extracting("id")
+                .containsExactly("7353-p1", "7353-p2", "7353-live-p2", "7353-live-p3", "7353-p4");
+        assertThat(work.media()).extracting("fileNameStem")
+                .containsExactly("7353-p01", "7353-p02", "7353-live-p02", "7353-live-p03", "7353-p04");
         assertThat(work.media()).extracting("type")
-                .contains(DouyinMediaType.IMAGE, DouyinMediaType.LIVE_PHOTO_VIDEO);
+                .containsExactly(
+                        DouyinMediaType.IMAGE, DouyinMediaType.IMAGE,
+                        DouyinMediaType.LIVE_PHOTO_VIDEO, DouyinMediaType.LIVE_PHOTO_VIDEO,
+                        DouyinMediaType.IMAGE);
+        assertThat(work.media().get(2).url())
+                .isEqualTo(URI.create("https://v3.douyinvod.com/live-b.mp4"));
+        assertThat(work.media().get(2).fallbackUrls())
+                .containsExactly(URI.create("https://v6.douyinvod.com/live-b.mp4"));
+        assertThat(work.media().get(3).url())
+                .isEqualTo(URI.create("https://v3.douyinvod.com/live-c.mp4"));
+    }
+
+    @Test
+    @DisplayName("多个图片数组别名共存时只解析首个非空数组")
+    void usesFirstNonEmptyImageArrayWithoutDuplicates() throws Exception {
+        DefaultDouyinClient client = client("""
+                {"aweme_detail":{"aweme_id":"7354","desc":"Aliases",
+                "image_post_info":{
+                  "images":[{"display_image":{"url_list":["https://p3.douyinpic.com/canonical.jpg"]}}],
+                  "image_list":[{"display_image":{"url_list":["https://p3.douyinpic.com/nested-alias.jpg"]}}]
+                },
+                "images":[{"display_image":{"url_list":["https://p3.douyinpic.com/top-images.jpg"]}}],
+                "image_list":[{"display_image":{"url_list":["https://p3.douyinpic.com/top-list.jpg"]}}]}}
+                """);
+
+        var work = client.resolvePublicWork("https://www.douyin.com/note/7354", null);
+
+        assertThat(work.media()).singleElement().satisfies(media -> {
+            assertThat(media.id()).isEqualTo("7354-p1");
+            assertThat(media.url()).isEqualTo(URI.create("https://p3.douyinpic.com/canonical.jpg"));
+        });
+    }
+
+    @Test
+    @DisplayName("规范图片数组为空时解析顶层 image_list 并保留页索引")
+    void parsesTopLevelImageListAfterEmptyAliases() throws Exception {
+        DefaultDouyinClient client = client("""
+                {"aweme_detail":{"aweme_id":"7355","desc":"Top level list",
+                "image_post_info":{"images":[],"image_list":[]},
+                "images":[],
+                "image_list":[{"display_image":{"url_list":["https://p3.douyinpic.com/top.jpg"]},
+                "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/top-live.mp4"]}}}]}}
+                """);
+
+        var work = client.resolvePublicWork("https://www.douyin.com/note/7355", null);
+
+        assertThat(work.media()).extracting("id")
+                .containsExactly("7355-p1", "7355-live-p1");
+        assertThat(work.media()).extracting("type")
+                .containsExactly(DouyinMediaType.IMAGE, DouyinMediaType.LIVE_PHOTO_VIDEO);
     }
 
     @Test

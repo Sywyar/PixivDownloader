@@ -145,7 +145,8 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                         "gui.config.field.douyin.download.directory", 10),
                 proxyMode(),
                 proxyHost(),
-                proxyPort());
+                proxyPort(),
+                includeCover());
         return List.of(new GuiConfigContribution(
                 List.of(new GuiConfigGroupContribution(
                         GUI_GROUP_ID, "settings.download.title", ID, 1600, true)),
@@ -224,6 +225,25 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                 "gui.config.field.douyin.proxy.port",
                 GuiConfigFieldType.PORT,
                 40);
+    }
+
+    private static GuiConfigFieldContribution includeCover() {
+        return new GuiConfigFieldContribution(
+                DouyinPluginSettingsService.KEY_INCLUDE_COVER,
+                GUI_GROUP_ID,
+                "gui.config.field.douyin.include-cover.label",
+                "gui.config.field.douyin.include-cover.help",
+                ID,
+                GuiConfigFieldType.BOOL,
+                "false",
+                50,
+                false,
+                false,
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                null);
     }
 
     private static GuiConfigFieldContribution customProxyField(String key,

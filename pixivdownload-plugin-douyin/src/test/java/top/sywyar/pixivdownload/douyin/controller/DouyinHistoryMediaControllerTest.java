@@ -38,6 +38,23 @@ class DouyinHistoryMediaControllerTest {
         assertThat(controller.media("7351", 1).getStatusCode().value()).isEqualTo(404);
     }
 
+    @Test
+    @DisplayName("回放时使用历史文件记录的真实媒体类型")
+    void replaysRecordedContentType() throws Exception {
+        Path media = tempDir.resolve("image.webp");
+        Files.write(media, new byte[]{(byte) 0xff, (byte) 0xd8, 0, 0});
+        DouyinHistoryService service = mock(DouyinHistoryService.class);
+        when(service.findById("7352")).thenReturn(Optional.of(work("7352", tempDir)));
+        when(service.findFilesByWorkId("7352")).thenReturn(List.of(
+                new DouyinWorkFileRecord("7352", 0, "image", "IMAGE", "image.webp",
+                        "webp", 4L, "image/webp", 1000L)));
+
+        var response = new DouyinHistoryMediaController(service).media("7352", 0);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getHeaders().getContentType()).hasToString("image/webp");
+    }
+
     private static DouyinWorkFileRecord file(String workId, int index, String fileName) {
         return new DouyinWorkFileRecord(workId, index, null, "VIDEO", fileName,
                 "mp4", 3L, "video/mp4", 1000L);

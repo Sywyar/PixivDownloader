@@ -4,6 +4,11 @@ import java.nio.file.Path;
 
 public record DouyinDownloadedFile(
         Path path,
-        long bytes
+        long bytes,
+        String contentType
 ) {
+
+    public DouyinDownloadedFile(Path path, long bytes) {
+        this(path, bytes, null);
+    }
 }

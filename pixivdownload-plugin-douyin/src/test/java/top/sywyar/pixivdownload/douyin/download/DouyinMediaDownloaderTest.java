@@ -30,6 +30,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("DouyinMediaDownloader 抖音媒体下载")
 class DouyinMediaDownloaderTest {
 
+    private static final byte[] VIDEO_BYTES = {
+            0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o'
+    };
+    private static final byte[] SHORT_BYTES = {0, 0, 0, 1, 2};
+    private static final byte[] JPEG_BYTES = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, (byte) 0xd9};
+    private static final byte[] OK_BYTES = {0, 0};
+
     @TempDir
     Path tempDir;
 
@@ -53,7 +60,7 @@ class DouyinMediaDownloaderTest {
         AtomicReference<String> cookie = new AtomicReference<>();
         server.createContext("/ok.mp4", exchange -> {
             cookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
-            send(exchange, 200, "video-bytes".getBytes(StandardCharsets.UTF_8), -1);
+            send(exchange, 200, VIDEO_BYTES, -1);
         });
         DouyinMediaDownloader downloader = downloader();
 
@@ -64,7 +71,7 @@ class DouyinMediaDownloaderTest {
             assertThat(file.path().getFileName().toString()).isEqualTo("video.mp4");
             assertThat(file.bytes()).isEqualTo(11L);
         });
-        assertThat(Files.readString(tempDir.resolve("video.mp4"), StandardCharsets.UTF_8)).isEqualTo("video-bytes");
+        assertThat(Files.readAllBytes(tempDir.resolve("video.mp4"))).containsExactly(VIDEO_BYTES);
         assertThat(Files.exists(tempDir.resolve("video.mp4.tmp"))).isFalse();
         assertThat(cookie.get()).isNull();
     }
@@ -73,7 +80,7 @@ class DouyinMediaDownloaderTest {
     @DisplayName("Content-Length 不匹配时删除临时文件并返回可分类错误")
     void deletesTempFileWhenContentLengthMismatches() throws Exception {
         startServer();
-        serve("/bad.mp4", 200, "short".getBytes(StandardCharsets.UTF_8), 10);
+        serve("/bad.mp4", 200, SHORT_BYTES, 10);
         DouyinMediaDownloader downloader = downloader();
 
         assertThatThrownBy(() -> downloader.download(List.of(media("/bad.mp4", "bad", "mp4")),
@@ -89,16 +96,84 @@ class DouyinMediaDownloaderTest {
     @DisplayName("响应 Content-Type 可修正媒体扩展名")
     void correctsExtensionFromContentType() throws Exception {
         startServer();
-        serve("/image.bin", 200, "jpeg".getBytes(StandardCharsets.UTF_8), -1, "image/jpeg");
+        serve("/image.bin", 200, JPEG_BYTES, -1, "image/jpeg");
         DouyinMediaDownloader downloader = downloader();
 
         List<DouyinDownloadedFile> files = downloader.download(List.of(media("/image.bin", "image", "bin")),
                 tempDir, () -> false);
 
-        assertThat(files).singleElement()
-                .satisfies(file -> assertThat(file.path().getFileName().toString()).isEqualTo("image.jpg"));
+        assertThat(files).singleElement().satisfies(file -> {
+            assertThat(file.path().getFileName().toString()).isEqualTo("image.jpg");
+            assertThat(file.contentType()).isEqualTo("image/jpeg");
+        });
         assertThat(Files.exists(tempDir.resolve("image.bin"))).isFalse();
         assertThat(Files.exists(tempDir.resolve("image.jpg.tmp"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("无媒体类型的验证页不会被写成成功媒体")
+    void rejectsVerificationPayloadWithGenericContentType() throws Exception {
+        startServer();
+        serve("/verify.mp4", 200,
+                "<div id=\"verify\">captcha</div>".getBytes(StandardCharsets.UTF_8),
+                -1, "application/octet-stream");
+
+        assertThatThrownBy(() -> downloader().download(
+                List.of(media("/verify.mp4", "verify", "mp4")), tempDir, () -> false))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE);
+        assertThat(Files.exists(tempDir.resolve("verify.mp4"))).isFalse();
+        assertThat(Files.exists(tempDir.resolve("verify.mp4.tmp"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("无 Content-Length 时使用解析到的媒体大小拒绝截断响应")
+    void validatesChunkedResponseAgainstResolvedMediaSize() throws Exception {
+        startServer();
+        server.createContext("/chunked.mp4", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "video/mp4");
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(SHORT_BYTES);
+            exchange.close();
+        });
+        DouyinMedia expectedTenBytes = new DouyinMedia(
+                "m", DouyinMediaType.VIDEO, URI.create(baseUrl() + "/chunked.mp4"),
+                "chunked", "mp4", 10L, "video/mp4");
+
+        assertThatThrownBy(() -> downloader().download(
+                List.of(expectedTenBytes), tempDir, () -> false))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH);
+        assertThat(Files.exists(tempDir.resolve("chunked.mp4"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("首个 CDN 候选失败时轮换到同一媒体的备用地址")
+    void rotatesToFallbackMediaUrl() throws Exception {
+        startServer();
+        AtomicInteger primaryHits = new AtomicInteger();
+        AtomicInteger fallbackHits = new AtomicInteger();
+        server.createContext("/primary.mp4", exchange -> {
+            primaryHits.incrementAndGet();
+            send(exchange, 500, new byte[0], -1);
+        });
+        server.createContext("/fallback.mp4", exchange -> {
+            fallbackHits.incrementAndGet();
+            send(exchange, 200, OK_BYTES, -1, "video/mp4");
+        });
+        DouyinMedia media = new DouyinMedia(
+                "m", DouyinMediaType.VIDEO, URI.create(baseUrl() + "/primary.mp4"),
+                "fallback", "mp4", 2L, "video/mp4",
+                List.of(URI.create(baseUrl() + "/fallback.mp4")));
+
+        List<DouyinDownloadedFile> files = downloader().download(
+                List.of(media), tempDir, () -> false);
+
+        assertThat(files).singleElement().satisfies(file -> assertThat(file.bytes()).isEqualTo(2L));
+        assertThat(primaryHits).hasValue(1);
+        assertThat(fallbackHits).hasValue(1);
     }
 
     @Test
@@ -111,7 +186,7 @@ class DouyinMediaDownloaderTest {
                 send(exchange, 500, new byte[0], -1);
                 return;
             }
-            send(exchange, 200, "ok".getBytes(StandardCharsets.UTF_8), -1);
+            send(exchange, 200, OK_BYTES, -1);
         });
         DouyinMediaDownloader downloader = downloader();
 
@@ -177,7 +252,7 @@ class DouyinMediaDownloaderTest {
         });
         server.createContext("/credential-final", exchange -> {
             finalCookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
-            send(exchange, 200, "ok".getBytes(StandardCharsets.UTF_8), -1);
+            send(exchange, 200, OK_BYTES, -1);
         });
         int credentialPort = server.getAddress().getPort();
         DouyinMediaDownloader downloader = downloader(
@@ -205,7 +280,7 @@ class DouyinMediaDownloaderTest {
         });
         redirectServer.createContext("/cross-final", exchange -> {
             redirectedCookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
-            send(exchange, 200, "ok".getBytes(StandardCharsets.UTF_8), -1);
+            send(exchange, 200, OK_BYTES, -1);
         });
         int credentialPort = server.getAddress().getPort();
         DouyinMediaDownloader downloader = downloader(uri -> uri.getPort() == credentialPort);

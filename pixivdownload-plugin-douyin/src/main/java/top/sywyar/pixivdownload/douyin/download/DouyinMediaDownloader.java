@@ -11,6 +11,7 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.client.DouyinRequestHeaders;
+import top.sywyar.pixivdownload.douyin.download.validation.DouyinMediaPayloadValidator;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 
@@ -23,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -115,17 +117,24 @@ public class DouyinMediaDownloader {
         if (!tmp.normalize().startsWith(directory.normalize())) {
             throw new DouyinClientException(DouyinClientErrorCode.INVALID_URL, "Unsafe Douyin media filename");
         }
+        List<URI> candidateUrls = candidateUrls(media);
+        int maxAttempts = Math.max(MAX_ATTEMPTS, Math.min(5, candidateUrls.size()));
         try {
-            for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 ensureNotCancelled(cancellationRequested);
                 try {
-                    DownloadResult result = executeDownload(media, tmp, cancellationRequested, credential);
+                    URI candidateUrl = candidateUrls.get((attempt - 1) % candidateUrls.size());
+                    DownloadResult result = executeDownload(
+                            media, candidateUrl, tmp, cancellationRequested, credential);
                     Path finalPath = safeOutputPath(directory, fileName(media, index, result.extension()));
                     Files.move(tmp, finalPath, StandardCopyOption.REPLACE_EXISTING);
-                    return new DouyinDownloadedFile(finalPath, result.bytes());
+                    return new DouyinDownloadedFile(finalPath, result.bytes(), result.contentType());
                 } catch (DouyinClientException e) {
                     Files.deleteIfExists(tmp);
-                    if (attempt >= MAX_ATTEMPTS || !retryable(e.code())) {
+                    boolean alternateCandidateAvailable = candidateUrls.size() > 1 && attempt < maxAttempts;
+                    if (attempt >= maxAttempts || (!retryable(e.code())
+                            && !(alternateCandidateAvailable
+                            && e.code() == DouyinClientErrorCode.HTTP_FORBIDDEN))) {
                         throw e;
                     }
                     sleepBeforeRetry(attempt, cancellationRequested);
@@ -134,7 +143,7 @@ public class DouyinMediaDownloader {
                     DouyinClientException mapped = new DouyinClientException(
                             isTimeout(e) ? DouyinClientErrorCode.NETWORK_TIMEOUT : DouyinClientErrorCode.NETWORK_ERROR,
                             "Douyin media download failed", e);
-                    if (attempt >= MAX_ATTEMPTS) {
+                    if (attempt >= maxAttempts) {
                         throw mapped;
                     }
                     sleepBeforeRetry(attempt, cancellationRequested);
@@ -147,11 +156,12 @@ public class DouyinMediaDownloader {
     }
 
     private DownloadResult executeDownload(DouyinMedia media,
+                                           URI initialUrl,
                                            Path tmp,
                                            BooleanSupplier cancellationRequested,
                                            String credential)
             throws DouyinClientException {
-        URI current = media.url();
+        URI current = initialUrl;
         for (int redirectHop = 0; redirectHop <= MAX_REDIRECT_HOPS; redirectHop++) {
             validateMediaUrl(current);
             ensureNotCancelled(cancellationRequested);
@@ -169,7 +179,8 @@ public class DouyinMediaDownloader {
                         return HopResult.redirect(response.getHeaders().getLocation());
                     }
                     try {
-                        return HopResult.completed(writeResponse(media, response, tmp, cancellationRequested));
+                        return HopResult.completed(
+                                writeResponse(media, requestUri, response, tmp, cancellationRequested));
                     } catch (DouyinClientException e) {
                         throw new DownloadFailure(e);
                     }
@@ -211,6 +222,7 @@ public class DouyinMediaDownloader {
     }
 
     private DownloadResult writeResponse(DouyinMedia media,
+                                         URI requestUri,
                                          ClientHttpResponse response,
                                          Path tmp,
                                          BooleanSupplier cancellationRequested)
@@ -228,11 +240,26 @@ public class DouyinMediaDownloader {
             throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
                     "Douyin media returned HTTP " + status);
         }
-        long expected = response.getHeaders().getContentLength();
+        String responseContentType = response.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE);
+        long responseLength = response.getHeaders().getContentLength();
+        long metadataLength = media.sizeBytes() == null || media.sizeBytes() <= 0
+                ? -1L : media.sizeBytes();
+        if (responseLength >= 0 && metadataLength >= 0 && responseLength != metadataLength) {
+            log.info("Douyin media response size differs from resolved metadata: host={}, expected={}, response={}",
+                    safeHost(requestUri), metadataLength, responseLength);
+            throw new DouyinClientException(DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH,
+                    "Douyin media response size did not match resolved metadata");
+        }
+        long expected = metadataLength >= 0 ? metadataLength : responseLength;
         long written = 0L;
         try {
             try (InputStream in = response.getBody();
                  OutputStream out = Files.newOutputStream(tmp)) {
+                byte[] prefix = in.readNBytes(DouyinMediaPayloadValidator.PREFIX_BYTES);
+                DouyinMediaPayloadValidator.requireMediaPayload(responseContentType, prefix);
+                ensureNotCancelled(cancellationRequested);
+                out.write(prefix);
+                written = prefix.length;
                 byte[] buffer = new byte[8192];
                 int read;
                 while ((read = in.read(buffer)) != -1) {
@@ -244,7 +271,7 @@ public class DouyinMediaDownloader {
         } catch (IOException e) {
             if (expected >= 0) {
                 log.info("Douyin media response ended before Content-Length: host={}, expected={}",
-                        safeHost(media.url()), expected);
+                        safeHost(requestUri), expected);
                 throw new DouyinClientException(DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH,
                         "Douyin media response ended before Content-Length", e);
             }
@@ -252,13 +279,20 @@ public class DouyinMediaDownloader {
         }
         if (expected >= 0 && written != expected) {
             log.info("Douyin media Content-Length mismatch: host={}, expected={}, actual={}",
-                    safeHost(media.url()), expected, written);
+                    safeHost(requestUri), expected, written);
             throw new DouyinClientException(DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH,
                     "Douyin media size did not match Content-Length");
         }
-        String extension = extensionFromContentType(response.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE))
+        String extension = extensionFromContentType(responseContentType)
                 .orElse(media.extension());
-        return new DownloadResult(written, extension);
+        return new DownloadResult(written, extension, responseContentType);
+    }
+
+    private static List<URI> candidateUrls(DouyinMedia media) {
+        LinkedHashSet<URI> candidates = new LinkedHashSet<>();
+        candidates.add(media.url());
+        candidates.addAll(media.fallbackUrls());
+        return List.copyOf(candidates);
     }
 
     private void validateMediaUrl(URI uri) throws DouyinClientException {
@@ -330,6 +364,7 @@ public class DouyinMediaDownloader {
     private static boolean retryable(DouyinClientErrorCode code) {
         return code == DouyinClientErrorCode.NETWORK_ERROR
                 || code == DouyinClientErrorCode.NETWORK_TIMEOUT
+                || code == DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH
                 || code == DouyinClientErrorCode.RATE_LIMITED
                 || code == DouyinClientErrorCode.HTTP_RATE_LIMITED;
     }
@@ -408,7 +443,7 @@ public class DouyinMediaDownloader {
         }
     }
 
-    private record DownloadResult(long bytes, String extension) {
+    private record DownloadResult(long bytes, String extension, String contentType) {
     }
 
     private record HopResult(URI location, DownloadResult result) {

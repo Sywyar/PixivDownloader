@@ -78,6 +78,22 @@ class DouyinHistoryServiceTest {
     }
 
     @Test
+    @DisplayName("下载响应的真实媒体类型优先写入文件历史")
+    void recordsActualResponseContentType() throws Exception {
+        try (TestDb db = new TestDb(tempDir)) {
+            Path folder = tempDir.resolve("owner").resolve("content-type");
+            Path file = folder.resolve("content-type.mp4");
+
+            assertThat(db.service.recordCompleted(work("content-type"), folder,
+                    List.of(new DouyinDownloadedFile(file, 12L, "video/x-m4v")))).isTrue();
+
+            assertThat(db.service.findFilesByWorkId("content-type")).singleElement()
+                    .extracting(DouyinWorkFileRecord::contentType)
+                    .isEqualTo("video/x-m4v");
+        }
+    }
+
+    @Test
     @DisplayName("aweme 文本字段解析后完整写入历史记录")
     void recordsParsedAwemeTextFields() throws Exception {
         DefaultDouyinClient client = client("""

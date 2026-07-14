@@ -4,7 +4,8 @@ public record DouyinPluginSettings(
         String downloadDirectory,
         DouyinProxyMode proxyMode,
         String proxyHost,
-        String proxyPort) {
+        String proxyPort,
+        boolean includeCover) {
 
     public DouyinPluginSettings {
         downloadDirectory = downloadDirectory == null ? "" : downloadDirectory.trim();
@@ -14,10 +15,17 @@ public record DouyinPluginSettings(
     }
 
     public DouyinPluginSettings(String downloadDirectory, DouyinProxyMode proxyMode) {
-        this(downloadDirectory, proxyMode, "", "");
+        this(downloadDirectory, proxyMode, "", "", false);
+    }
+
+    public DouyinPluginSettings(String downloadDirectory,
+                                DouyinProxyMode proxyMode,
+                                String proxyHost,
+                                String proxyPort) {
+        this(downloadDirectory, proxyMode, proxyHost, proxyPort, false);
     }
 
     public static DouyinPluginSettings defaults() {
-        return new DouyinPluginSettings("", DouyinProxyMode.INHERIT, "", "");
+        return new DouyinPluginSettings("", DouyinProxyMode.INHERIT, "", "", false);
     }
 }
