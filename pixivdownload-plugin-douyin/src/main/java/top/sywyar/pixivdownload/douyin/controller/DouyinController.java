@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.douyin.controller;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
@@ -32,6 +34,11 @@ import java.util.List;
 @RequestMapping("/api/douyin")
 @PluginManagedBean
 public class DouyinController {
+
+    static final int MAX_USER_PREVIEW_OFFSET = 10_000;
+    static final int MAX_PREVIEW_PAGE_SIZE = 100;
+    static final int MAX_CURSOR_LENGTH = 512;
+    static final int MAX_CARD_IDS = 100;
 
     private final DouyinDownloadService downloadService;
     private final SetupService setupService;
@@ -87,13 +94,24 @@ public class DouyinController {
     public ResponseEntity<?> userIds(@PathVariable String userId,
                                      @RequestParam(defaultValue = "0") int offset,
                                      @RequestParam(defaultValue = "24") int limit,
+                                     @RequestParam(required = false) String cursor,
                                      @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
                                      HttpServletRequest request) {
         cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
-            DouyinListing listing = downloadService.listUserWorks(userId, offset, limit, cookie);
-            return ResponseEntity.ok(new IdsView(listing.items().stream().map(DouyinWork::id).toList()));
+            requirePreviewWindow(offset, limit);
+            String safeCursor = optionalCursor(cursor);
+            DouyinListing listing = safeCursor == null
+                    ? downloadService.listUserWorks(userId, offset, limit, cookie)
+                    : downloadService.listUserWorksPage(userId, safeCursor, limit, cookie);
+            List<DouyinWorkView> items = listing.items().stream().map(DouyinWorkView::from).toList();
+            int minimumTotal = (int) Math.min(Integer.MAX_VALUE,
+                    (long) offset + items.size() + (listing.hasMore() ? 1L : 0L));
+            int total = Math.max(listing.total(), minimumTotal);
+            return ResponseEntity.ok(new UserWorksPageView(
+                    items.stream().map(DouyinWorkView::id).toList(),
+                    items, total, offset, limit, listing.nextCursor(), listing.hasMore()));
         } catch (DouyinClientException e) {
             return clientError(e);
         }
@@ -107,9 +125,8 @@ public class DouyinController {
         cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
-            DouyinListing listing = downloadService.listUserWorks(userId, 0, 100, cookie);
-            List<DouyinWorkView> items = listing.items().stream()
-                    .filter(work -> ids == null || ids.isEmpty() || ids.contains(work.id()))
+            requireCardIds(ids);
+            List<DouyinWorkView> items = downloadService.workCards(ids, cookie).stream()
                     .map(DouyinWorkView::from)
                     .toList();
             return ResponseEntity.ok(new ItemsView(items, items.size()));
@@ -205,6 +222,49 @@ public class DouyinController {
         }
     }
 
+    private static void requirePreviewWindow(int offset, int limit) throws DouyinClientException {
+        if (offset < 0 || offset > MAX_USER_PREVIEW_OFFSET) {
+            throw invalidRequest("Douyin preview offset is outside the supported range");
+        }
+        requirePreviewPageSize(limit);
+    }
+
+    private static void requirePreviewPageSize(int pageSize) throws DouyinClientException {
+        if (pageSize < 1 || pageSize > MAX_PREVIEW_PAGE_SIZE) {
+            throw invalidRequest("Douyin preview page size is outside the supported range");
+        }
+    }
+
+    private static String optionalCursor(String cursor) throws DouyinClientException {
+        if (cursor == null || cursor.isBlank()) {
+            return null;
+        }
+        return boundedCursor(cursor);
+    }
+
+    private static String boundedCursor(String cursor) throws DouyinClientException {
+        String normalized = cursor.trim();
+        if (normalized.length() > MAX_CURSOR_LENGTH) {
+            throw invalidRequest("Douyin pagination cursor is too long");
+        }
+        return normalized;
+    }
+
+    private static void requireCardIds(List<String> ids) throws DouyinClientException {
+        if (ids != null && ids.size() > MAX_CARD_IDS) {
+            throw invalidRequest("Too many Douyin card ids were requested");
+        }
+    }
+
+    private static DouyinClientException invalidRequest(String message) {
+        return new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT, message);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorView> invalidParameterType() {
+        return clientError(invalidRequest("Douyin request parameter has an invalid type"));
+    }
+
     private static ResponseEntity<ErrorView> clientError(DouyinClientException e) {
         HttpStatus status = switch (e.code()) {
             case INVALID_URL, INVALID_SHORT_URL, UNSUPPORTED_CONTENT, SHORT_LINK_UNRESOLVED,
@@ -212,7 +272,7 @@ public class DouyinController {
             case COOKIE_REQUIRED, COOKIE_MISSING_FIELDS, COOKIE_EXPIRED, LOGIN_OR_VERIFY_PAGE -> HttpStatus.UNAUTHORIZED;
             case RATE_LIMITED, HTTP_RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
             case HTTP_FORBIDDEN, REGION_RESTRICTED, PERMISSION_DENIED -> HttpStatus.FORBIDDEN;
-            case REDIRECT_LOOP, NON_DOUYIN_TARGET, DOWNLOAD_SIZE_MISMATCH -> HttpStatus.BAD_GATEWAY;
+            case REDIRECT_LOOP, NON_DOUYIN_TARGET, DOWNLOAD_SIZE_MISMATCH, PAGINATION_STALLED -> HttpStatus.BAD_GATEWAY;
             case NETWORK_TIMEOUT, NETWORK_ERROR -> HttpStatus.BAD_GATEWAY;
             case CANCELLED -> HttpStatus.CONFLICT;
         };
@@ -241,6 +301,15 @@ public class DouyinController {
     public record IdsView(List<String> ids) {
     }
 
+    public record UserWorksPageView(List<String> ids,
+                                    List<DouyinWorkView> items,
+                                    int total,
+                                    int offset,
+                                    int limit,
+                                    String nextCursor,
+                                    boolean hasMore) {
+    }
+
     public record ItemsView(List<DouyinWorkView> items, int total) {
     }
 
@@ -250,7 +319,11 @@ public class DouyinController {
                                  String userName,
                                  String thumbnailUrl,
                                  String url,
-                                 String kind) {
+                                 String kind,
+                                 String mediaKind,
+                                 int mediaCount,
+                                 String collectionId,
+                                 String collectionTitle) {
         static DouyinWorkView from(DouyinWork work) {
             return new DouyinWorkView(
                     work.id(),
@@ -259,7 +332,11 @@ public class DouyinController {
                     work.authorName(),
                     work.thumbnailUrl(),
                     work.pageUrl(),
-                    "douyin");
+                    "douyin",
+                    work.kind() == null ? "UNSUPPORTED" : work.kind().name(),
+                    work.media().size(),
+                    work.collectionId(),
+                    work.collectionTitle());
         }
     }
 
@@ -284,4 +361,5 @@ public class DouyinController {
 
     public record ErrorView(boolean success, String code, String messageKey, String message) {
     }
+
 }

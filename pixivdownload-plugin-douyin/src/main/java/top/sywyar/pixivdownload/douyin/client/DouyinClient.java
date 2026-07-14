@@ -18,4 +18,21 @@ public interface DouyinClient {
     DouyinListing listSeriesWorks(String seriesId, int page, int pageSize, String cookie) throws DouyinClientException;
 
     DouyinListing searchPublic(String word, int page, int pageSize, String cookie) throws DouyinClientException;
+
+    default DouyinListing listUserWorksPage(String userId,
+                                            String cursor,
+                                            int limit,
+                                            String cookie) throws DouyinClientException {
+        int page = cursor == null || cursor.isBlank() || "0".equals(cursor.trim()) ? 1 : Integer.parseInt(cursor);
+        return cursorFallback(listUserWorks(userId, Math.max(0, page - 1) * limit, limit, cookie), page);
+    }
+
+    private static DouyinListing cursorFallback(DouyinListing listing, int page) {
+        if (listing == null || !listing.hasMore() || !listing.nextCursor().isBlank()) {
+            return listing;
+        }
+        return new DouyinListing(listing.items(), listing.total(), listing.page(), listing.pageSize(),
+                listing.lastPage(), listing.title(), listing.ownerId(), listing.ownerName(),
+                Integer.toString(page + 1), true);
+    }
 }

@@ -26,6 +26,7 @@ public class DouyinUrlParser {
     private static final Pattern MUSIC_PATH = Pattern.compile("^/music/([^/?#]+)");
     private static final Pattern QUEUE_SHORT_ID = Pattern.compile("^d?short-([A-Za-z0-9_-]+)$");
     private static final Pattern QUEUE_VIDEO_ID = Pattern.compile("^d(\\d{5,})$");
+    private static final Pattern PLAIN_WORK_ID = Pattern.compile("^(\\d{5,})$");
 
     public Optional<DouyinParsedInput> parse(String input) {
         String original = input == null ? "" : input.trim();
@@ -107,6 +108,13 @@ public class DouyinUrlParser {
         Matcher videoId = QUEUE_VIDEO_ID.matcher(original);
         if (videoId.matches()) {
             String id = videoId.group(1);
+            String url = "https://www.douyin.com/video/" + id;
+            return Optional.of(new DouyinParsedInput(
+                    DouyinParsedKind.VIDEO, original, url, id, url));
+        }
+        Matcher plainWorkId = PLAIN_WORK_ID.matcher(original);
+        if (plainWorkId.matches()) {
+            String id = plainWorkId.group(1);
             String url = "https://www.douyin.com/video/" + id;
             return Optional.of(new DouyinParsedInput(
                     DouyinParsedKind.VIDEO, original, url, id, url));

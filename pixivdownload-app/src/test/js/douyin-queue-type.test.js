@@ -62,9 +62,12 @@ class El {
     querySelectorAll() { return []; }
 }
 
-function makeSandbox() {
+function makeSandbox(options = {}) {
     const storage = new Map();
     const requests = [];
+    const apiResponses = [];
+    const acquisitionModes = options.acquisitionModes || ['single-import', 'series'];
+    const uiSlotTargets = options.uiSlots || ['cookie-tools'];
     const document = {
         head: new El('head'),
         body: new El('body'),
@@ -90,6 +93,7 @@ function makeSandbox() {
         Promise,
         AbortController,
         URL,
+        URLSearchParams,
         STATUS_TIMEOUT_MS: 100,
         CustomEvent: function CustomEvent(type, init) { return {type, detail: init && init.detail}; },
         localStorage: {
@@ -110,6 +114,9 @@ function makeSandbox() {
                     messageKey: 'douyin.status.completed'
                 })});
             }
+            if (!String(url).includes('/api/download/extensions')) {
+                return Promise.resolve({ok: true, json: () => Promise.resolve(apiResponses.shift() || {})});
+            }
             return Promise.resolve({ok: true, json: () => Promise.resolve({
                 epoch: 'douyin-test-epoch',
                 revision: 1,
@@ -117,15 +124,15 @@ function makeSandbox() {
                     {contractVersion: 1, type: 'douyin', ownerPluginId: 'douyin', packageId: 'douyin',
                         pluginGeneration: 3, publicationId: 9, order: 30,
                         moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
-                        acquisitionModes: ['single-import', 'series'], uiSlots: ['cookie-tools'],
+                        acquisitionModes, uiSlots: uiSlotTargets,
                         filters: ['douyin-public']}
                 ],
                 tabs: [],
-                uiSlots: [{
-                    slotId: 'douyin.cookie-tools', target: 'cookie-tools',
+                uiSlots: uiSlotTargets.map(target => ({
+                    slotId: `douyin.${target}`, target,
                     moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js', order: 30,
                     owner: {pluginId: 'douyin', packageId: 'douyin', generation: 3, publicationId: 9}
-                }]
+                }))
             })});
         },
         bt(key, fallback, args) {
@@ -155,6 +162,7 @@ function makeSandbox() {
         renderQuickPagination() {}
     };
     sandbox.requests = requests;
+    sandbox.apiResponses = apiResponses;
     vm.createContext(sandbox);
     vm.runInContext(QT_SOURCE, sandbox);
     document.head.onAppend = child => {
@@ -264,6 +272,54 @@ function ok(label, cond) {
         && qt.supports('douyin', 'series') && !qt.supports('douyin', 'user'));
     ok('acquisition.search 不作为默认能力暴露', qt.acquisition('douyin', 'search') === null);
     ok('acquisition.quick 不作为默认能力暴露', Object.keys(qt.quickActionsFor('douyin')).length === 0);
+
+    const userSandbox = makeSandbox({
+        acquisitionModes: ['single-import', 'user', 'series'],
+        uiSlots: ['cookie-tools', 'kind-option-user']
+    });
+    const userQt = userSandbox.window.PixivBatch.queueTypes;
+    await userQt.bootstrap();
+    const userDescriptor = userQt.descriptor('douyin');
+    const userAcquisition = userQt.acquisition('douyin', 'user');
+    ok('合成 publication 可激活 dormant 用户取得能力与槽位',
+        typeof userAcquisition.fetchPage === 'function'
+        && !!userDescriptor.slots['kind-option-user']);
+    ok('用户取得输入支持主页 URL 与稳定 sec_uid',
+        userAcquisition.parseInput('https://www.douyin.com/user/sec-demo') === 'sec-demo'
+        && userAcquisition.parseInput('sec_demo-123') === 'sec_demo-123');
+    userSandbox.localStorage.setItem('pixiv_douyin_cookie',
+        'ttwid=tt; passport_csrf_token=csrf; sessionid=sid');
+    userSandbox.apiResponses.push({
+        items: [{id: 'user-page-2'}], total: 49, nextCursor: 'opaque-3', hasMore: true
+    });
+    userSandbox.requests.length = 0;
+    const userPage = await userAcquisition.fetchPage('sec-demo', {
+        offset: 24, limit: 24, cursor: 'opaque-2', signal: new AbortController().signal
+    });
+    const userPageRequest = userSandbox.requests.find(request =>
+        request.url.includes('/api/douyin/user/sec-demo/works/ids'));
+    ok('用户预览页以单请求传递 offset、limit 与不透明游标',
+        userPage.items[0].id === 'user-page-2'
+        && userPage.nextCursor === 'opaque-3'
+        && userPageRequest.url.includes('offset=24')
+        && userPageRequest.url.includes('limit=24')
+        && userPageRequest.url.includes('cursor=opaque-2')
+        && userSandbox.requests.length === 1
+        && !userSandbox.requests.some(request => request.url.includes('/works/cards')));
+    const userMeta = userAcquisition.buildQueueMeta({id: 'user-work-1'}, {
+        userId: 'sec-demo', username: 'Creator'
+    });
+    ok('用户取得队列项保留明确的用户来源关系',
+        userMeta.typeData.sourceType === 'douyin.user'
+        && userMeta.typeData.sourceId === 'sec-demo'
+        && userMeta.typeData.sourceRelations[0].sourceType === 'douyin.user');
+    const userImport = userQt.contributionsOf('import').find(item => item.type === 'douyin');
+    const importedUser = userImport.buildItem(
+        userImport.matchUrl('https://www.douyin.com/user/sec-demo'), 'Creator');
+    ok('用户主页导入使用稳定队列身份与用户来源关系',
+        importedUser.id === 'dsec-demo'
+        && importedUser.typeData.sourceType === 'douyin.user'
+        && importedUser.typeData.sourceRelations[0].sourceId === 'sec-demo');
 
     const importHook = qt.contributionsOf('import').find(item => item.type === 'douyin');
     const match = importHook.matchUrl('https://www.douyin.com/video/7351234567890123456 | title');

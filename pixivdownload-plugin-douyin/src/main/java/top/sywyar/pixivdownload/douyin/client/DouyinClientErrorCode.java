@@ -21,6 +21,7 @@ public enum DouyinClientErrorCode {
     COOKIE_EXPIRED,
     REGION_RESTRICTED,
     PERMISSION_DENIED,
+    PAGINATION_STALLED,
     NETWORK_ERROR,
     CANCELLED
 }

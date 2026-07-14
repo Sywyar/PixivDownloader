@@ -27,6 +27,7 @@ public record DouyinCanonicalDownload(
         return switch (kind) {
             case SINGLE_WORK -> "work:" + stableId;
             case COLLECTION -> "collection:" + stableId;
+            case USER_SOURCE -> "user:" + stableId;
         };
     }
 }

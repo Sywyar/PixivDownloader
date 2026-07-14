@@ -15,13 +15,19 @@ import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
+import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.setup.SetupService;
+
+import java.net.URI;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -32,12 +38,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 class DouyinControllerSecurityTest {
 
     private DouyinDownloadService service;
+    private SetupService setupService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         service = mock(DouyinDownloadService.class);
-        DouyinController controller = new DouyinController(service, mock(SetupService.class));
+        setupService = mock(SetupService.class);
+        DouyinController controller = new DouyinController(service, setupService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new IllegalArgumentAdvice())
                 .build();
@@ -127,6 +135,119 @@ class DouyinControllerSecurityTest {
 
         assertThat(status).isEqualTo(400);
         verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("用户作品预览按有界 offset 与 limit 返回页内卡片")
+    void pagesUserPreviewWithoutFullIdScanOrCardLookup() throws Exception {
+        when(service.listUserWorks("sec-user", 24, 2, null))
+                .thenReturn(new DouyinListing(List.of(work("work-24"), work("work-25")),
+                        27, 2, 2, false, "user", "sec-user", "作者", "cursor-2", true));
+
+        var response = mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")
+                        .param("offset", "24").param("limit", "2"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"ids\":[\"work-24\",\"work-25\"]",
+                "\"items\":[", "\"total\":27", "\"offset\":24", "\"limit\":2",
+                "\"nextCursor\":\"cursor-2\"", "\"hasMore\":true");
+        verify(service).listUserWorks("sec-user", 24, 2, null);
+        verify(service, never()).listAllUserWorkIds(anyString(), any());
+        verify(service, never()).workCards(any(), any());
+    }
+
+    @Test
+    @DisplayName("用户作品预览携带游标时直接取得真实游标页")
+    void pagesUserPreviewWithOpaqueCursor() throws Exception {
+        when(service.listUserWorksPage("sec-user", "opaque-2", 24, null))
+                .thenReturn(new DouyinListing(List.of(work("work-2")),
+                        49, 1, 24, false, "user", "sec-user", "作者", "opaque-3", true));
+
+        var response = mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")
+                        .param("offset", "24").param("limit", "24").param("cursor", "opaque-2"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString())
+                .contains("\"ids\":[\"work-2\"]", "\"nextCursor\":\"opaque-3\"");
+        verify(service).listUserWorksPage("sec-user", "opaque-2", 24, null);
+        verify(service, never()).listUserWorks(anyString(), anyInt(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("用户作品预览拒绝越界 offset 与 limit")
+    void rejectsUnboundedUserPreviewWindow() throws Exception {
+        var invalidOffset = mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")
+                        .param("offset", "-1").param("limit", "24"))
+                .andReturn().getResponse();
+        assertThat(invalidOffset.getStatus()).isEqualTo(400);
+        assertThat(invalidOffset.getContentAsString()).contains(
+                "\"code\":\"UNSUPPORTED_CONTENT\"",
+                "\"messageKey\":\"douyin.error.unsupported-content\"");
+        assertThat(mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")
+                        .param("offset", Integer.toString(DouyinController.MAX_USER_PREVIEW_OFFSET + 1))
+                        .param("limit", "24"))
+                .andReturn().getResponse().getStatus()).isEqualTo(400);
+        assertThat(mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")
+                        .param("offset", "0").param("limit", "0"))
+                .andReturn().getResponse().getStatus()).isEqualTo(400);
+        assertThat(mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")
+                        .param("offset", "0")
+                        .param("limit", Integer.toString(DouyinController.MAX_PREVIEW_PAGE_SIZE + 1)))
+                .andReturn().getResponse().getStatus()).isEqualTo(400);
+        for (String name : List.of("offset", "limit")) {
+            var malformed = mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")
+                            .param("offset", "offset".equals(name) ? "not-a-number" : "0")
+                            .param("limit", "limit".equals(name) ? "not-a-number" : "24"))
+                    .andReturn().getResponse();
+            assertThat(malformed.getStatus()).isEqualTo(400);
+            assertThat(malformed.getContentAsString()).contains(
+                    "\"code\":\"UNSUPPORTED_CONTENT\"",
+                    "\"messageKey\":\"douyin.error.unsupported-content\"");
+        }
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("非法预览参数直接调用控制器也返回稳定的 400 错误结构")
+    void returnsStructuredBadRequestFromDirectControllerCall() {
+        DouyinController controller = new DouyinController(service, setupService);
+
+        ResponseEntity<?> response = controller.userIds("sec-user", -1, 24, null, null, null);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).isInstanceOfSatisfying(DouyinController.ErrorView.class, error -> {
+            assertThat(error.code()).isEqualTo("UNSUPPORTED_CONTENT");
+            assertThat(error.messageKey()).isEqualTo("douyin.error.unsupported-content");
+        });
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("卡片兼容端点拒绝过多 ID 防止逐项查询放大")
+    void rejectsTooManyCardIds() {
+        DouyinController controller = new DouyinController(service, setupService);
+        List<String> ids = java.util.stream.IntStream.range(0, DouyinController.MAX_CARD_IDS + 1)
+                .mapToObj(Integer::toString)
+                .toList();
+
+        ResponseEntity<?> response = controller.userCards("sec-user", ids, null, null);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).isInstanceOfSatisfying(DouyinController.ErrorView.class, error -> {
+            assertThat(error.code()).isEqualTo("UNSUPPORTED_CONTENT");
+            assertThat(error.messageKey()).isEqualTo("douyin.error.unsupported-content");
+        });
+        verifyNoInteractions(service);
+    }
+
+    private static DouyinWork work(String id) {
+        return new DouyinWork(id, "title", null, null,
+                "https://www.douyin.com/video/" + id, null,
+                URI.create("https://v3.douyinvod.com/" + id + ".mp4"));
     }
 
     @RestControllerAdvice

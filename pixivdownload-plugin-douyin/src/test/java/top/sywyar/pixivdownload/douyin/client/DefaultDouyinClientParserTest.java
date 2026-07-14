@@ -97,7 +97,7 @@ class DefaultDouyinClientParserTest {
         assertThat(resolveTitle("""
                 {"aweme_id":"8105",
                 "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/8105.mp4"]}}}
-                """)).isEqualTo("Douyin 8105");
+                """)).isEqualTo("8105");
     }
 
     @Test
@@ -403,6 +403,79 @@ class DefaultDouyinClientParserTest {
         assertThat(rest.requests()).isEmpty();
     }
 
+    @Test
+    @DisplayName("用户作品使用 sec_uid 与不透明游标分页并保留下一游标")
+    void listsUserWorksWithOpaqueCursor() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"max_cursor":"opaque-2","aweme_list":[
+                  {"aweme_id":"9101","desc":"User work","author":{"sec_uid":"sec-demo","nickname":"作者"},
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9101.mp4"]}}}
+                ]}
+                """);
+
+        var listing = client(rest).listUserWorksPage("sec-demo", "opaque-1", 24, "sessionid=test");
+
+        assertThat(listing.items()).extracting("id").containsExactly("9101");
+        assertThat(listing.hasMore()).isTrue();
+        assertThat(listing.nextCursor()).isEqualTo("opaque-2");
+        assertThat(rest.requests()).singleElement().satisfies(uri -> {
+            assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/aweme/post/");
+            assertThat(uri.getRawQuery()).contains("sec_user_id=sec-demo", "max_cursor=opaque-1");
+        });
+    }
+
+    @Test
+    @DisplayName("用户作品仍有下一页但游标未推进时明确失败")
+    void rejectsStalledUserWorksCursor() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"max_cursor":"opaque-1","aweme_list":[
+                  {"aweme_id":"9101","desc":"User work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9101.mp4"]}}}
+                ]}
+                """);
+
+        assertThatThrownBy(() -> client(rest).listUserWorksPage("sec-demo", "opaque-1", 24, null))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
+    }
+
+    @Test
+    @DisplayName("用户逻辑分页越过游标前进但没有可下载作品的中间页")
+    void userLogicalPaginationContinuesPastAdvancingEmptyPage() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"max_cursor":"next-page","aweme_list":[]}
+                """);
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"max_cursor":"done","aweme_list":[
+                  {"aweme_id":"9102","desc":"User work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9102.mp4"]}}}
+                ]}
+                """);
+
+        var listing = client(rest).listUserWorks("sec-demo", 0, 1, null);
+
+        assertThat(listing.items()).extracting("id").containsExactly("9102");
+        assertThat(rest.requests()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("用户深页逻辑预览固定使用上游批量避免逐件重放游标")
+    void userLogicalPaginationUsesUpstreamBatchSize() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, userPage(1, 20, true, "20"));
+        rest.enqueue(200, userPage(21, 1, false, "done"));
+
+        var listing = client(rest).listUserWorks("sec-demo", 20, 1, null);
+
+        assertThat(listing.items()).extracting("id").containsExactly("9021");
+        assertThat(rest.requests()).hasSize(2)
+                .allSatisfy(uri -> assertThat(uri.getRawQuery()).contains("count=20"));
+    }
+
     private static DefaultDouyinClient client(String... bodies) {
         FakeRestTemplate rest = new FakeRestTemplate();
         for (String body : bodies) {
@@ -439,6 +512,22 @@ class DefaultDouyinClientParserTest {
         }
         return "{\"status_code\":0,\"has_more\":" + (hasMore ? 1 : 0)
                 + ",\"max_cursor\":" + nextCursor + ",\"aweme_list\":[" + items + "]}";
+    }
+
+    private static String userPage(int first, int count, boolean hasMore, String nextCursor) {
+        StringBuilder items = new StringBuilder();
+        for (int index = 0; index < count; index++) {
+            if (!items.isEmpty()) {
+                items.append(',');
+            }
+            int id = 9000 + first + index;
+            items.append("{\"aweme_id\":\"").append(id)
+                    .append("\",\"desc\":\"Work ").append(id)
+                    .append("\",\"video\":{\"play_addr\":{\"url_list\":[\"https://v3.douyinvod.com/")
+                    .append(id).append(".mp4\"]}}}");
+        }
+        return "{\"status_code\":0,\"has_more\":" + (hasMore ? 1 : 0)
+                + ",\"max_cursor\":\"" + nextCursor + "\",\"aweme_list\":[" + items + "]}";
     }
 
     private static String resolveTitle(String awemeJson) throws Exception {

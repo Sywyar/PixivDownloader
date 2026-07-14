@@ -234,8 +234,18 @@ function douyinParseInput(text) {
     return null;
 }
 
+function douyinParseUserInput(text) {
+    const raw = String(text || '').trim();
+    const parsed = douyinParseInput(raw);
+    if (parsed && parsed.kind === 'user') return parsed.userId;
+    return /^[A-Za-z0-9._-]{6,256}$/.test(raw) ? raw : null;
+}
+
 function douyinQueueId(item) {
-    return 'd' + douyinSafeId(item.id || item.workId || item.douyinId);
+    const sourceKind = item && (item.sourceKind || (item.typeData && item.typeData.sourceKind));
+    const prefix = sourceKind && !['single', 'short'].includes(sourceKind)
+        ? `d${douyinSafeId(sourceKind)}-` : 'd';
+    return prefix + douyinSafeId(item.id || item.workId || item.douyinId);
 }
 
 function douyinCardId(prefix, idx) {
@@ -582,6 +592,15 @@ function renderDouyinSeriesResults(area, ctx) {
     });
 }
 
+function douyinUserWorksPageEndpoint(userId, context) {
+    const params = new URLSearchParams();
+    params.set('offset', String(context.offset));
+    params.set('limit', String(context.limit));
+    const cursor = context.cursor || (Number(context.offset) === 0 ? '0' : null);
+    if (cursor != null) params.set('cursor', String(cursor));
+    return `/api/douyin/user/${encodeURIComponent(userId)}/works/ids?${params}`;
+}
+
 async function loadQuickDouyinPublic(page) {
     const data = await douyinFetchJson(`/api/douyin/quick/public?page=${encodeURIComponent(page)}&pageSize=${DOUYIN_PAGE_SIZE}`);
     quickState.rawItems = data.items || [];
@@ -607,6 +626,9 @@ function renderQuickDouyinGrid(items, idPrefix, summaryHtml) {
 }
 
 const DOUYIN_SLOTS = {
+    'kind-option-user':
+        '<label data-kind="douyin"><input type="radio" name="user-kind" value="douyin">' +
+        '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
     'import-hint':
         '<div><span data-i18n="douyin:import.example">Douyin URL: https://www.douyin.com/video/...</span></div>',
     'cookie-tools':
@@ -693,7 +715,7 @@ const DOUYIN_DESCRIPTOR = {
         sectionType: 'douyin',
         matchUrl(line) {
             const parsed = douyinParseInput(line);
-            return parsed && (parsed.kind === 'single' || parsed.kind === 'short' || parsed.kind === 'series')
+            return parsed && ['single', 'short', 'series', 'user'].includes(parsed.kind)
                 ? parsed
                 : null;
         },
@@ -711,10 +733,11 @@ const DOUYIN_DESCRIPTOR = {
                     input: parsed.url,
                     url: parsed.url,
                     douyinId: displayId,
-                    kind: parsed.kind,
+                    sourceKind: parsed.kind,
                     seriesId: parsed.seriesId || null,
                     seriesTitle: '',
-                    sourceType: parsed.kind === 'series' ? 'douyin.collection' : 'douyin.single',
+                    sourceType: parsed.kind === 'series' ? 'douyin.collection'
+                        : parsed.kind === 'user' ? 'douyin.user' : 'douyin.single',
                     sourceId: displayId,
                     sourceTitle: title || '',
                     sourceUrl: parsed.url,
@@ -732,6 +755,39 @@ const DOUYIN_DESCRIPTOR = {
         }
     },
     acquisition: {
+        user: {
+            pageSize: DOUYIN_PAGE_SIZE,
+            initialCursor: '0',
+            requestInit() {
+                return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
+            },
+            accepts(selection) { return selection === 'douyin'; },
+            parseInput: douyinParseUserInput,
+            fetchMeta() { return Promise.resolve(null); },
+            async fetchPage(userId, context) {
+                const data = await douyinFetchJson(
+                    douyinUserWorksPageEndpoint(userId, context),
+                    {signal: context.signal}
+                );
+                return {
+                    items: data.items || [],
+                    total: data.total,
+                    nextCursor: data.nextCursor,
+                    hasMore: !!data.hasMore
+                };
+            },
+            queueId: douyinQueueId,
+            cardId(idx) { return douyinCardId('user', idx); },
+            render: renderDouyinUserResults,
+            buildQueueMeta(item, ctx) {
+                return douyinQueueMeta(Object.assign({}, item, {
+                    sourceType: 'douyin.user',
+                    sourceId: String(ctx.userId),
+                    sourceTitle: ctx.username || String(ctx.userId),
+                    sourceUrl: `https://www.douyin.com/user/${encodeURIComponent(String(ctx.userId))}`
+                }));
+            }
+        },
         series: {
             pageSize: DOUYIN_PAGE_SIZE,
             requestInit() {

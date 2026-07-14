@@ -58,6 +58,7 @@ public class DefaultDouyinClient implements DouyinClient {
     private static final int DEFAULT_MIX_PAGE_SIZE = 20;
     private static final int MAX_MIX_ITEMS = 100;
     private static final int MAX_MIX_CURSOR_PAGES = 100;
+    private static final int MAX_CURSOR_PAGES = 1_000;
     private static final List<String> DETAIL_AID_CANDIDATES = List.of("6383", "1128");
 
     private final DouyinUrlParser parser;
@@ -92,6 +93,10 @@ public class DefaultDouyinClient implements DouyinClient {
         }
         if (parsed.kind().downloadableCollection()) {
             return new DouyinCanonicalDownload(DouyinCanonicalKind.COLLECTION,
+                    parsed.id(), parsed.canonicalUrl(), null, input);
+        }
+        if (parsed.kind() == DouyinParsedKind.USER_PROFILE) {
+            return new DouyinCanonicalDownload(DouyinCanonicalKind.USER_SOURCE,
                     parsed.id(), parsed.canonicalUrl(), null, input);
         }
         throw unsupportedParsedKind(parsed.kind());
@@ -137,8 +142,28 @@ public class DefaultDouyinClient implements DouyinClient {
 
     @Override
     public DouyinListing listUserWorks(String userId, int offset, int limit, String cookie) throws DouyinClientException {
-        throw new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT,
-                "Douyin user listing is not enabled by the current public URL adapter");
+        int safeOffset = Math.max(0, offset);
+        int safeLimit = positivePageSize(limit);
+        return collectLogicalSlice(userId, safeOffset, safeLimit, cookie,
+                (cursor, count) -> listUserWorksPage(userId, cursor, count, cookie));
+    }
+
+    @Override
+    public DouyinListing listUserWorksPage(String userId,
+                                           String cursor,
+                                           int limit,
+                                           String cookie) throws DouyinClientException {
+        String stableUserId = requireStableId(userId, "Douyin user id is required");
+        String currentCursor = normalizeCursor(cursor);
+        JsonNode root = fetchSignedJson("/aweme/v1/web/aweme/post/", params(
+                "sec_user_id", stableUserId,
+                "max_cursor", currentCursor,
+                "count", positivePageSize(limit),
+                "publish_video_strategy_type", 2), cookie);
+        DouyinListing listing = workListing(root, 1, positivePageSize(limit),
+                new ListingContext(stableUserId, null, null, null),
+                "max_cursor", "aweme_list", "items", "data");
+        return requireAdvancingCursor(stableUserId, currentCursor, listing);
     }
 
     @Override
@@ -210,6 +235,188 @@ public class DefaultDouyinClient implements DouyinClient {
     public DouyinListing searchPublic(String word, int page, int pageSize, String cookie) throws DouyinClientException {
         throw new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT,
                 "Douyin search and public feed are not enabled by the current adapter");
+    }
+
+    private DouyinListing collectLogicalSlice(String ownerId,
+                                              int offset,
+                                              int limit,
+                                              String cookie,
+                                              CursorPageFetcher fetcher) throws DouyinClientException {
+        LinkedHashMap<String, DouyinWork> works = new LinkedHashMap<>();
+        LinkedHashSet<String> seenCursors = new LinkedHashSet<>();
+        String cursor = "";
+        DouyinListing lastListing = DouyinListing.empty(1, limit);
+        boolean hasMore = true;
+        int pages = 0;
+        int requestedEnd = Math.addExact(offset, limit);
+        while (hasMore && works.size() < requestedEnd) {
+            String cursorKey = normalizeCursor(cursor);
+            if (!seenCursors.add(cursorKey)) {
+                throw paginationStalled(ownerId, cursorKey);
+            }
+            if (pages++ >= MAX_CURSOR_PAGES) {
+                throw paginationStalled(ownerId, cursorKey);
+            }
+            lastListing = fetcher.fetch(cursorKey, DEFAULT_MIX_PAGE_SIZE);
+            for (DouyinWork work : lastListing.items()) {
+                if (work != null && work.id() != null && !work.id().isBlank()) {
+                    works.putIfAbsent(work.id(), work);
+                }
+            }
+            hasMore = lastListing.hasMore();
+            if (!hasMore) {
+                break;
+            }
+            String next = normalizeCursor(lastListing.nextCursor());
+            if (next.equals(cursorKey)) {
+                throw paginationStalled(ownerId, cursorKey);
+            }
+            cursor = next;
+        }
+        List<DouyinWork> all = List.copyOf(works.values());
+        int from = Math.min(offset, all.size());
+        int to = Math.min(requestedEnd, all.size());
+        List<DouyinWork> items = all.subList(from, to);
+        int total = hasMore ? Math.max(to + 1, lastListing.total()) : all.size();
+        return new DouyinListing(items, total, offset / Math.max(1, limit) + 1, limit,
+                !hasMore, lastListing.title(), lastListing.ownerId(), lastListing.ownerName(),
+                lastListing.nextCursor(), hasMore);
+    }
+
+    private DouyinListing workListing(JsonNode root,
+                                      int page,
+                                      int pageSize,
+                                      ListingContext context,
+                                      String cursorField,
+                                      String... arrayFields) throws DouyinClientException {
+        ensureSuccessful(root, "Douyin work listing");
+        JsonNode list = firstArray(root, arrayFields).orElse(MAPPER.createArrayNode());
+        LinkedHashMap<String, DouyinWork> works = new LinkedHashMap<>();
+        for (JsonNode raw : list) {
+            JsonNode aweme = unwrapAweme(raw);
+            if (!aweme.isObject()) {
+                continue;
+            }
+            try {
+                DouyinWork work = workFromAweme(aweme,
+                        "https://www.douyin.com/video/" + firstText(aweme, "aweme_id", "group_id", "id"),
+                        context.collectionId(), context.collectionTitle());
+                works.putIfAbsent(work.id(), work);
+            } catch (DouyinClientException e) {
+                if (e.code() != DouyinClientErrorCode.MEDIA_URL_MISSING
+                        && e.code() != DouyinClientErrorCode.UNSUPPORTED_CONTENT) {
+                    throw e;
+                }
+            }
+        }
+        boolean hasMore = hasMore(root);
+        String next = cursorValue(root, cursorField, "cursor", "max_cursor", "offset");
+        int base = Math.max(0, (page - 1) * pageSize);
+        int total = exactOrEstimatedTotal(root, works.size(), base, hasMore);
+        String ownerName = firstNonBlank(context.ownerName(), works.values().stream()
+                .map(DouyinWork::authorName)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst()
+                .orElse(null));
+        return new DouyinListing(List.copyOf(works.values()), total, page, pageSize,
+                !hasMore, firstNonBlank(context.collectionTitle(), ownerName, context.ownerId()),
+                context.ownerId(), ownerName, next, hasMore);
+    }
+
+    private static JsonNode unwrapAweme(JsonNode raw) {
+        if (raw == null || raw.isNull() || raw.isMissingNode()) {
+            return MAPPER.missingNode();
+        }
+        for (String field : List.of("aweme_info", "aweme_detail", "aweme")) {
+            JsonNode candidate = raw.path(field);
+            if (candidate.isObject()) {
+                return candidate;
+            }
+        }
+        JsonNode mixItems = raw.path("aweme_mix_info").path("mix_items");
+        if (mixItems.isArray() && !mixItems.isEmpty()) {
+            return unwrapAweme(mixItems.get(0));
+        }
+        return raw;
+    }
+
+    private static boolean hasMore(JsonNode root) {
+        JsonNode value = root == null ? null : root.path("has_more");
+        return value != null && (value.asInt(0) == 1 || value.asBoolean(false));
+    }
+
+    private static String cursorValue(JsonNode root, String... fields) {
+        if (root == null || fields == null) {
+            return "";
+        }
+        for (String field : fields) {
+            if (field == null || field.isBlank()) {
+                continue;
+            }
+            JsonNode value = root.path(field);
+            if (value.isTextual() && !value.asText().isBlank()) {
+                return value.asText().trim();
+            }
+            if (value.isIntegralNumber()) {
+                return value.asText();
+            }
+        }
+        return "";
+    }
+
+    private static int exactOrEstimatedTotal(JsonNode root, int itemCount, long base, boolean hasMore) {
+        Optional<Long> exact = firstLong(root, "total", "total_count", "aweme_count")
+                .filter(value -> value >= 0);
+        long total = exact.orElseGet(() -> base + itemCount + (hasMore ? 1L : 0L));
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, total));
+    }
+
+    private static String normalizeCursor(String cursor) {
+        return cursor == null || cursor.isBlank() ? "0" : cursor.trim();
+    }
+
+    private static int positivePageSize(int value) {
+        return value <= 0 ? DEFAULT_MIX_PAGE_SIZE : Math.min(value, 100);
+    }
+
+    private static String requireStableId(String value, String message) throws DouyinClientException {
+        if (value == null || value.isBlank()) {
+            throw new DouyinClientException(DouyinClientErrorCode.INVALID_URL, message);
+        }
+        return value.trim();
+    }
+
+    private static void ensureSuccessful(JsonNode root, String operation) throws DouyinClientException {
+        DouyinClientErrorCode classified = DouyinErrorClassifier.classifyJsonStatus(root);
+        if (classified != null) {
+            throw new DouyinClientException(classified, operation + " reported " + classified);
+        }
+    }
+
+    private static DouyinClientException paginationStalled(String sourceId, String cursor) {
+        return new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                "Douyin pagination did not advance: source=" + safeId(sourceId) + ", cursor=" + safeId(cursor));
+    }
+
+    private static DouyinListing requireAdvancingCursor(String sourceId,
+                                                        String currentCursor,
+                                                        DouyinListing listing) throws DouyinClientException {
+        if (listing.hasMore()
+                && (listing.nextCursor().isBlank() || currentCursor.equals(listing.nextCursor()))) {
+            throw paginationStalled(sourceId, currentCursor);
+        }
+        return listing;
+    }
+
+    @FunctionalInterface
+    private interface CursorPageFetcher {
+        DouyinListing fetch(String cursor, int count) throws DouyinClientException;
+    }
+
+    private record ListingContext(String ownerId,
+                                  String ownerName,
+                                  String collectionId,
+                                  String collectionTitle) {
     }
 
     private DouyinParsedInput parseAndResolve(String input, String cookie) throws DouyinClientException {
@@ -458,7 +665,7 @@ public class DefaultDouyinClient implements DouyinClient {
         Long publishTime = firstLong(aweme, "create_time", "createTime")
                 .filter(value -> value > 0 && value <= Instant.now().plusSeconds(86_400).getEpochSecond())
                 .orElse(null);
-        return new DouyinWork(id, blankToDefault(title, "Douyin " + id), description, itemTitle, caption, authorId,
+        return new DouyinWork(id, blankToDefault(title, id), description, itemTitle, caption, authorId,
                 authorName == null ? "" : authorName, canonicalUrl, thumbnail, primary.url(),
                 media, kind, publishTime, collectionId, collectionTitle);
     }

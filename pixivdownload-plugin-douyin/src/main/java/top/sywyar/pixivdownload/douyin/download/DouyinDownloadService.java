@@ -230,6 +230,36 @@ public class DouyinDownloadService {
         return currentRuntime().client().listUserWorks(userId, Math.max(0, offset), positiveLimit(limit), cookie);
     }
 
+    public DouyinListing listUserWorksPage(String userId,
+                                           String cursor,
+                                           int limit,
+                                           String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client().listUserWorksPage(userId, cursor, positiveLimit(limit), cookie);
+    }
+
+    public List<String> listAllUserWorkIds(String userId, String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return collectAllIds((cursor, count) -> currentRuntime().client()
+                .listUserWorksPage(userId, cursor, count, cookie));
+    }
+
+    public List<DouyinWork> workCards(List<String> ids, String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashMap<String, DouyinWork> works = new LinkedHashMap<>();
+        for (String id : ids) {
+            if (id == null || id.isBlank() || works.containsKey(id)) {
+                continue;
+            }
+            DouyinWork work = currentRuntime().client().resolvePublicWork(id.trim(), cookie);
+            works.putIfAbsent(work.id(), work);
+        }
+        return List.copyOf(works.values());
+    }
+
     public DouyinListing listSeriesWorks(String seriesId, int page, int pageSize, String cookie) throws DouyinClientException {
         DouyinCookieValidator.ensureUsable(cookie);
         return currentRuntime().client().listSeriesWorks(seriesId, Math.max(1, page), positiveLimit(pageSize), cookie);
@@ -244,6 +274,41 @@ public class DouyinDownloadService {
     public DouyinListing quickPublic(int page, int pageSize, String cookie) throws DouyinClientException {
         DouyinCookieValidator.ensureUsable(cookie);
         return currentRuntime().client().searchPublic("", Math.max(1, page), positiveLimit(pageSize), cookie);
+    }
+
+    private static List<String> collectAllIds(CursorListingFetcher fetcher) throws DouyinClientException {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        LinkedHashSet<String> cursors = new LinkedHashSet<>();
+        String cursor = "";
+        for (int page = 0; page < 1_000; page++) {
+            String cursorKey = cursor == null || cursor.isBlank() ? "0" : cursor.trim();
+            if (!cursors.add(cursorKey)) {
+                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                        "Douyin user pagination did not advance");
+            }
+            DouyinListing listing = fetcher.fetch(cursorKey, 50);
+            listing.items().stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(DouyinWork::id)
+                    .filter(id -> id != null && !id.isBlank())
+                    .forEach(ids::add);
+            if (!listing.hasMore()) {
+                return List.copyOf(ids);
+            }
+            String next = listing.nextCursor();
+            if (next == null || next.isBlank() || cursorKey.equals(next.trim())) {
+                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                        "Douyin user pagination did not advance");
+            }
+            cursor = next;
+        }
+        throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                "Douyin user pagination exceeded the safety page limit");
+    }
+
+    @FunctionalInterface
+    private interface CursorListingFetcher {
+        DouyinListing fetch(String cursor, int count) throws DouyinClientException;
     }
 
     public int clearAll() {
@@ -344,9 +409,11 @@ public class DouyinDownloadService {
     private void run(MutableStatus status) {
         try {
             failIfCancelled(status);
-            List<DouyinDownloadedFile> files = status.kind == DouyinCanonicalKind.COLLECTION
-                    ? downloadCollection(status)
-                    : downloadSingleWork(status);
+            List<DouyinDownloadedFile> files = switch (status.kind) {
+                case SINGLE_WORK -> downloadSingleWork(status);
+                case COLLECTION -> downloadCollection(status);
+                case USER_SOURCE -> downloadUserSource(status);
+            };
             if (files.isEmpty()) {
                 throw new DouyinClientException(DouyinClientErrorCode.MEDIA_URL_MISSING,
                         "Douyin download produced no files");
@@ -440,6 +507,51 @@ public class DouyinDownloadService {
         return all;
     }
 
+    private List<DouyinDownloadedFile> downloadUserSource(MutableStatus status)
+            throws IOException, DouyinClientException {
+        status.phase = DouyinDownloadPhase.RESOLVING;
+        status.messageKey = "douyin.status.resolving";
+        failIfCancelled(status);
+        status.phase = DouyinDownloadPhase.DOWNLOADING;
+        status.messageKey = "douyin.status.downloading";
+        List<DouyinDownloadedFile> all = new ArrayList<>();
+        Set<String> downloadedWorkIds = new LinkedHashSet<>();
+        Set<String> seenCursors = new LinkedHashSet<>();
+        String cursor = "0";
+        int sourceOrder = 0;
+        for (int page = 0; page < 1_000; page++) {
+            failIfCancelled(status);
+            if (!seenCursors.add(cursor)) {
+                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                        "Douyin user pagination did not advance");
+            }
+            DouyinListing listing = status.runtime.client()
+                    .listUserWorksPage(status.workId, cursor, 20, status.cookie);
+            if (listing.title() != null && !listing.title().isBlank()) {
+                status.title = listing.title();
+            }
+            for (DouyinWork work : listing.items()) {
+                if (work == null || work.id() == null || work.id().isBlank()
+                        || !downloadedWorkIds.add(work.id())) {
+                    continue;
+                }
+                failIfCancelled(status);
+                all.addAll(executeWork(status, work, sourceOrder++).files());
+            }
+            if (!listing.hasMore()) {
+                return all;
+            }
+            String next = listing.nextCursor();
+            if (next == null || next.isBlank() || cursor.equals(next.trim())) {
+                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                        "Douyin user pagination did not advance");
+            }
+            cursor = next.trim();
+        }
+        throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
+                "Douyin user pagination exceeded the safety page limit");
+    }
+
     private DouyinWorkDownloadExecutor.Result executeWork(MutableStatus status,
                                                           DouyinWork work,
                                                           Integer sourceOrder)
@@ -530,6 +642,7 @@ public class DouyinDownloadService {
         return switch (kind) {
             case SINGLE_WORK -> DouyinSourceTypes.SINGLE;
             case COLLECTION -> DouyinSourceTypes.COLLECTION;
+            case USER_SOURCE -> DouyinSourceTypes.USER;
         };
     }
 
