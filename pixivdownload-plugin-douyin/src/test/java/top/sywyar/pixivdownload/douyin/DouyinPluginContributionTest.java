@@ -38,15 +38,23 @@ class DouyinPluginContributionTest {
         assertThat(queueType.moduleUrl()).isEqualTo("/pixiv-douyin-download/douyin-queue-type.js");
         assertThat(queueType.descriptor().acquisitionModes()).containsExactly(
                 DownloadAcquisitionMode.SINGLE_IMPORT,
-                DownloadAcquisitionMode.SERIES_COLLECTION);
+                DownloadAcquisitionMode.USER_PROFILE,
+                DownloadAcquisitionMode.SEARCH,
+                DownloadAcquisitionMode.SERIES_COLLECTION,
+                DownloadAcquisitionMode.QUICK);
         assertThat(queueType.descriptor().queue().clearAll()).isTrue();
         assertThat(queueType.descriptor().queue().clearForOwner()).isTrue();
         assertThat(queueType.descriptor().queue().cancel()).isTrue();
         assertThat(queueType.descriptor().schedule().saveable()).isFalse();
         assertThat(queueType.descriptor().schedule().suspendWhenExecutorMissing()).isTrue();
-        assertThat(queueType.descriptor().filters()).containsExactly("douyin-public");
+        assertThat(queueType.descriptor().filters()).isEmpty();
         assertThat(queueType.descriptor().settings()).isEmpty();
         assertThat(queueType.descriptor().uiSlots()).containsExactly(
+                "kind-option-user",
+                "kind-option-search",
+                "kind-option-quick",
+                "quick-actions-bookmarks",
+                "quick-actions-mine",
                 "import-hint",
                 "cookie-tools");
         assertThat(queueType.descriptor().gallery().unifiedGallery()).isTrue();
@@ -175,7 +183,7 @@ class DouyinPluginContributionTest {
                             .isEqualTo("/pixiv-douyin-gallery.html?view=all");
                 });
         assertThat(i18n.resolve("douyin")).isNotNull();
-        assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(2);
+        assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(7);
         assertThat(queueTypes.queueTypes()).singleElement()
                 .satisfies(registered -> assertThat(registered.queueType().type()).isEqualTo("douyin"));
 

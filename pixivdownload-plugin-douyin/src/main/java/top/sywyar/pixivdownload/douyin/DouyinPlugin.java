@@ -34,6 +34,11 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     private static final String GUI_GROUP_ID = "douyin";
     private static final String MODULE_URL = "/pixiv-douyin-download/douyin-queue-type.js";
     private static final List<String> UI_SLOT_TARGETS = List.of(
+            "kind-option-user",
+            "kind-option-search",
+            "kind-option-quick",
+            "quick-actions-bookmarks",
+            "quick-actions-mine",
             "import-hint",
             "cookie-tools");
 
@@ -121,10 +126,13 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                         MODULE_URL,
                         List.of(
                                 DownloadAcquisitionMode.SINGLE_IMPORT,
-                                DownloadAcquisitionMode.SERIES_COLLECTION),
+                                DownloadAcquisitionMode.USER_PROFILE,
+                                DownloadAcquisitionMode.SEARCH,
+                                DownloadAcquisitionMode.SERIES_COLLECTION,
+                                DownloadAcquisitionMode.QUICK),
                         DownloadQueueCapabilities.full(),
                         DownloadScheduleCapabilities.notSaveable(),
-                        List.of("douyin-public"),
+                        List.of(),
                         List.of(),
                         UI_SLOT_TARGETS,
                         "douyin",

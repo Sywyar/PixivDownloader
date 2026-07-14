@@ -892,13 +892,6 @@ const DOUYIN_DESCRIPTOR = {
         },
         source: 'single-import-douyin'
     },
-    filters: {
-        'douyin-public': {
-            extraSelector: '.search-douyin-only',
-            matchExtra() { return true; },
-            evaluateSkip() { return null; }
-        }
-    },
     acquisition: {
         user: {
             pageSize: DOUYIN_PAGE_SIZE,

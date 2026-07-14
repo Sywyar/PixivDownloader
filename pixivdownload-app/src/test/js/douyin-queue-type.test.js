@@ -130,7 +130,7 @@ function makeSandbox() {
                         acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick'],
                         uiSlots: ['kind-option-user', 'kind-option-search', 'kind-option-quick',
                             'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools'],
-                        filters: ['douyin-public']}
+                        filters: []}
                 ],
                 tabs: [],
                 uiSlots: ['kind-option-user', 'kind-option-search', 'kind-option-quick',
@@ -263,8 +263,7 @@ function ok(label, cond) {
     ok('slots 不包含 settings-card', !descriptor.slots['settings-card']);
     ok('slots 暴露主页/搜索/快捷入口',
         !!descriptor.slots['kind-option-user'] && !!descriptor.slots['kind-option-search'] && !!descriptor.slots['kind-option-quick']);
-    ok('filters 可发现', qt.filtersFor('douyin')
-        && qt.filtersFor('douyin').extraSelector === '.search-douyin-only');
+    ok('不暴露未经上游验证的附加筛选', qt.filtersFor('douyin') === null);
     ok('settings 不再暴露抖音下载设置卡', qt.settingsFor('douyin') === null);
     ok('Cookie 登录态字段校验通过',
         descriptor.cookie.validate('ttwid=tt; passport_csrf_token=csrf; sessionid=sid').ok === true);
@@ -283,6 +282,8 @@ function ok(label, cond) {
         seriesRequestInit.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf')
         && !seriesRequestInit.headers['X-Pixiv-Cookie']
         && !seriesRequestInit.headers['X-Douyin-Cookie']);
+    ok('Douyin 声明全部五种取得模式', ['single-import', 'user', 'search', 'series', 'quick']
+        .every(mode => qt.supports('douyin', mode)));
     ok('acquisition.search 提供真实关键词请求',
         qt.acquisition('douyin', 'search').buildRequest({word: '猫', page: 2}).params.word === '猫');
     ok('acquisition.quick 贡献账号作品、喜欢、收藏与合集入口',
