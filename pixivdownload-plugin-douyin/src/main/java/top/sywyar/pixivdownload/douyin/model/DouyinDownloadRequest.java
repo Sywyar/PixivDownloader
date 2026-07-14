@@ -11,4 +11,8 @@ public record DouyinDownloadRequest(
     public DouyinDownloadRequest(String input, String title, String cookie) {
         this(input, title, cookie, null, null);
     }
+
+    public DouyinDownloadRequest withCookie(String resolvedCookie) {
+        return new DouyinDownloadRequest(input, title, resolvedCookie, collectionId, collectionTitle);
+    }
 }

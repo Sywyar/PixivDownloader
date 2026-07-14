@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -13,14 +14,19 @@ import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
+import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 @DisplayName("Douyin 控制器凭证传输边界")
 class DouyinControllerSecurityTest {
@@ -88,6 +94,35 @@ class DouyinControllerSecurityTest {
         int status = mockMvc.perform(get("/api/douyin/series/series-1")
                         .header(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie")
                         .header("X-Douyin-Cookie", "legacy-cookie"))
+                .andReturn().getResponse().getStatus();
+
+        assertThat(status).isEqualTo(400);
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("下载入口从通用取得凭证头解析 Cookie 且请求体保持无凭证")
+    void forwardsGenericCredentialForDownload() throws Exception {
+        when(service.start(any(), anyString()))
+                .thenReturn(new DouyinStartResponse(true, "status-1", "work-1", "douyin.status.queued"));
+
+        int status = mockMvc.perform(post("/api/douyin/download")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(AcquisitionCredentialResolver.HEADER_NAME, " generic-cookie ")
+                        .content("{\"input\":\"7351234567890123456\",\"title\":\"title\",\"cookie\":null}"))
+                .andReturn().getResponse().getStatus();
+
+        assertThat(status).isEqualTo(202);
+        verify(service).start(argThat(request -> "generic-cookie".equals(request.cookie())), anyString());
+    }
+
+    @Test
+    @DisplayName("下载入口通用凭证头与旧请求体凭证冲突时返回 400")
+    void rejectsConflictingDownloadCredentials() throws Exception {
+        int status = mockMvc.perform(post("/api/douyin/download")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie")
+                        .content("{\"input\":\"7351234567890123456\",\"cookie\":\"legacy-cookie\"}"))
                 .andReturn().getResponse().getStatus();
 
         assertThat(status).isEqualTo(400);

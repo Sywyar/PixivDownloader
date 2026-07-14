@@ -34,6 +34,7 @@ public class DouyinMediaDownloader {
 
     private static final Logger log = LoggerFactory.getLogger(DouyinMediaDownloader.class);
     private static final int MAX_ATTEMPTS = 3;
+    private static final int MAX_REDIRECT_HOPS = 5;
     private static final Set<String> ALLOWED_MEDIA_HOST_SUFFIXES = Set.of(
             "douyin.com",
             "iesdouyin.com",
@@ -49,26 +50,45 @@ public class DouyinMediaDownloader {
 
     private final RestTemplate restTemplate;
     private final Predicate<String> mediaHostAllowed;
+    private final Predicate<URI> credentialOriginAllowed;
     private final boolean allowHttpForTests;
 
     public DouyinMediaDownloader(RestTemplate restTemplate) {
-        this(restTemplate, DouyinMediaDownloader::defaultMediaHostAllowed, false);
+        this(restTemplate, DouyinMediaDownloader::defaultMediaHostAllowed,
+                DouyinRequestHeaders::isCredentialOrigin, false);
     }
 
     DouyinMediaDownloader(RestTemplate restTemplate, Predicate<String> mediaHostAllowed) {
-        this(restTemplate, mediaHostAllowed, true);
+        this(restTemplate, mediaHostAllowed, uri -> false, true);
     }
 
-    private DouyinMediaDownloader(RestTemplate restTemplate, Predicate<String> mediaHostAllowed,
+    DouyinMediaDownloader(RestTemplate restTemplate,
+                          Predicate<String> mediaHostAllowed,
+                          Predicate<URI> credentialOriginAllowed) {
+        this(restTemplate, mediaHostAllowed, credentialOriginAllowed, true);
+    }
+
+    private DouyinMediaDownloader(RestTemplate restTemplate,
+                                  Predicate<String> mediaHostAllowed,
+                                  Predicate<URI> credentialOriginAllowed,
                                   boolean allowHttpForTests) {
         this.restTemplate = restTemplate;
         this.mediaHostAllowed = mediaHostAllowed;
+        this.credentialOriginAllowed = credentialOriginAllowed;
         this.allowHttpForTests = allowHttpForTests;
     }
 
     public List<DouyinDownloadedFile> download(List<DouyinMedia> media,
                                                Path directory,
                                                BooleanSupplier cancellationRequested)
+            throws IOException, DouyinClientException {
+        return download(media, directory, cancellationRequested, null);
+    }
+
+    public List<DouyinDownloadedFile> download(List<DouyinMedia> media,
+                                               Path directory,
+                                               BooleanSupplier cancellationRequested,
+                                               String credential)
             throws IOException, DouyinClientException {
         if (media == null || media.isEmpty()) {
             throw new DouyinClientException(DouyinClientErrorCode.MEDIA_URL_MISSING,
@@ -78,7 +98,7 @@ public class DouyinMediaDownloader {
         List<DouyinDownloadedFile> files = new ArrayList<>();
         for (int i = 0; i < media.size(); i++) {
             ensureNotCancelled(cancellationRequested);
-            files.add(downloadOne(media.get(i), i + 1, directory, cancellationRequested));
+            files.add(downloadOne(media.get(i), i + 1, directory, cancellationRequested, credential));
         }
         return files;
     }
@@ -86,7 +106,8 @@ public class DouyinMediaDownloader {
     private DouyinDownloadedFile downloadOne(DouyinMedia media,
                                              int index,
                                              Path directory,
-                                             BooleanSupplier cancellationRequested)
+                                             BooleanSupplier cancellationRequested,
+                                             String credential)
             throws IOException, DouyinClientException {
         validateMediaUrl(media.url());
         Path tmpBasePath = safeOutputPath(directory, fileName(media, index, media.extension()));
@@ -98,7 +119,7 @@ public class DouyinMediaDownloader {
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 ensureNotCancelled(cancellationRequested);
                 try {
-                    DownloadResult result = executeDownload(media, tmp, cancellationRequested);
+                    DownloadResult result = executeDownload(media, tmp, cancellationRequested, credential);
                     Path finalPath = safeOutputPath(directory, fileName(media, index, result.extension()));
                     Files.move(tmp, finalPath, StandardCopyOption.REPLACE_EXISTING);
                     return new DouyinDownloadedFile(finalPath, result.bytes());
@@ -127,36 +148,66 @@ public class DouyinMediaDownloader {
 
     private DownloadResult executeDownload(DouyinMedia media,
                                            Path tmp,
-                                           BooleanSupplier cancellationRequested)
+                                           BooleanSupplier cancellationRequested,
+                                           String credential)
             throws DouyinClientException {
-        try {
+        URI current = media.url();
+        for (int redirectHop = 0; redirectHop <= MAX_REDIRECT_HOPS; redirectHop++) {
+            validateMediaUrl(current);
+            ensureNotCancelled(cancellationRequested);
             HttpHeaders headers = new HttpHeaders();
             DouyinRequestHeaders.applyStandard(headers);
-            headers.set(HttpHeaders.REFERER, DouyinRequestHeaders.REFERER);
-            return restTemplate.execute(media.url(), HttpMethod.GET, request -> {
-                request.getHeaders().putAll(headers);
-            }, response -> {
-                try {
-                    return writeResponse(media, response, tmp, cancellationRequested);
-                } catch (DouyinClientException e) {
-                    throw new DownloadFailure(e);
+            if (credential != null && !credential.isBlank() && credentialOriginAllowed.test(current)) {
+                headers.set(HttpHeaders.COOKIE, credential);
+            }
+            URI requestUri = current;
+            try {
+                HopResult hop = restTemplate.execute(requestUri, HttpMethod.GET, request -> {
+                    request.getHeaders().putAll(headers);
+                }, response -> {
+                    if (isRedirect(response)) {
+                        return HopResult.redirect(response.getHeaders().getLocation());
+                    }
+                    try {
+                        return HopResult.completed(writeResponse(media, response, tmp, cancellationRequested));
+                    } catch (DouyinClientException e) {
+                        throw new DownloadFailure(e);
+                    }
+                });
+                if (hop == null) {
+                    throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+                            "Douyin media returned an empty response");
                 }
-            });
-        } catch (DownloadFailure e) {
-            throw e.exception;
-        } catch (HttpStatusCodeException e) {
-            int status = e.getStatusCode().value();
-            if (status == 403) {
-                throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN,
-                        "Douyin media returned 403", e);
+                if (hop.result() != null) {
+                    return hop.result();
+                }
+                if (hop.location() == null) {
+                    throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+                            "Douyin media redirect has no Location");
+                }
+                if (redirectHop >= MAX_REDIRECT_HOPS) {
+                    throw new DouyinClientException(DouyinClientErrorCode.REDIRECT_LOOP,
+                            "Douyin media redirect limit exceeded");
+                }
+                current = requestUri.resolve(hop.location());
+            } catch (DownloadFailure e) {
+                throw e.exception;
+            } catch (HttpStatusCodeException e) {
+                int status = e.getStatusCode().value();
+                if (status == 403) {
+                    throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN,
+                            "Douyin media returned 403", e);
+                }
+                if (status == 429) {
+                    throw new DouyinClientException(DouyinClientErrorCode.RATE_LIMITED,
+                            "Douyin media was rate limited", e);
+                }
+                throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
+                        "Douyin media returned HTTP " + status, e);
             }
-            if (status == 429) {
-                throw new DouyinClientException(DouyinClientErrorCode.RATE_LIMITED,
-                        "Douyin media was rate limited", e);
-            }
-            throw new DouyinClientException(DouyinClientErrorCode.NETWORK_ERROR,
-                    "Douyin media returned HTTP " + status, e);
         }
+        throw new DouyinClientException(DouyinClientErrorCode.REDIRECT_LOOP,
+                "Douyin media redirect limit exceeded");
     }
 
     private DownloadResult writeResponse(DouyinMedia media,
@@ -179,15 +230,25 @@ public class DouyinMediaDownloader {
         }
         long expected = response.getHeaders().getContentLength();
         long written = 0L;
-        try (InputStream in = response.getBody();
-             OutputStream out = Files.newOutputStream(tmp)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                ensureNotCancelled(cancellationRequested);
-                out.write(buffer, 0, read);
-                written += read;
+        try {
+            try (InputStream in = response.getBody();
+                 OutputStream out = Files.newOutputStream(tmp)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    ensureNotCancelled(cancellationRequested);
+                    out.write(buffer, 0, read);
+                    written += read;
+                }
             }
+        } catch (IOException e) {
+            if (expected >= 0) {
+                log.info("Douyin media response ended before Content-Length: host={}, expected={}",
+                        safeHost(media.url()), expected);
+                throw new DouyinClientException(DouyinClientErrorCode.DOWNLOAD_SIZE_MISMATCH,
+                        "Douyin media response ended before Content-Length", e);
+            }
+            throw e;
         }
         if (expected >= 0 && written != expected) {
             log.info("Douyin media Content-Length mismatch: host={}, expected={}, actual={}",
@@ -210,6 +271,13 @@ public class DouyinMediaDownloader {
                 && !(allowHttpForTests && "http".equalsIgnoreCase(scheme))) {
             throw new DouyinClientException(DouyinClientErrorCode.INVALID_URL,
                     "Douyin media URL must use HTTPS");
+        }
+        int port = uri.getPort();
+        boolean standardPort = port == -1 || ("https".equalsIgnoreCase(scheme) && port == 443)
+                || (allowHttpForTests && "http".equalsIgnoreCase(scheme));
+        if (uri.getUserInfo() != null || !standardPort) {
+            throw new DouyinClientException(DouyinClientErrorCode.INVALID_URL,
+                    "Douyin media URL has an unsafe origin");
         }
         if (!mediaHostAllowed.test(uri.getHost())) {
             log.info("Douyin media URL rejected non-Douyin target: host={}", safeHost(uri));
@@ -264,6 +332,11 @@ public class DouyinMediaDownloader {
                 || code == DouyinClientErrorCode.NETWORK_TIMEOUT
                 || code == DouyinClientErrorCode.RATE_LIMITED
                 || code == DouyinClientErrorCode.HTTP_RATE_LIMITED;
+    }
+
+    private static boolean isRedirect(ClientHttpResponse response) throws IOException {
+        int status = response.getStatusCode().value();
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
     }
 
     private static Optional<String> extensionFromContentType(String contentType) {
@@ -336,5 +409,16 @@ public class DouyinMediaDownloader {
     }
 
     private record DownloadResult(long bytes, String extension) {
+    }
+
+    private record HopResult(URI location, DownloadResult result) {
+
+        private static HopResult redirect(URI location) {
+            return new HopResult(location, null);
+        }
+
+        private static HopResult completed(DownloadResult result) {
+            return new HopResult(null, result);
+        }
     }
 }

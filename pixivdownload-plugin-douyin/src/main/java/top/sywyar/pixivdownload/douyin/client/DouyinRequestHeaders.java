@@ -17,7 +17,8 @@ public final class DouyinRequestHeaders {
     }
 
     private static final Set<String> CREDENTIAL_HOSTS = Set.of(
-            "douyin.com", "www.douyin.com", "iesdouyin.com", "www.iesdouyin.com");
+            "douyin.com", "www.douyin.com", "v.douyin.com",
+            "iesdouyin.com", "www.iesdouyin.com", "v.iesdouyin.com");
 
     public static void applyStandard(HttpHeaders headers) {
         headers.set(HttpHeaders.USER_AGENT, USER_AGENT);
@@ -40,7 +41,7 @@ public final class DouyinRequestHeaders {
         headers.set(HttpHeaders.COOKIE, cookie);
     }
 
-    static boolean isCredentialOrigin(URI target) {
+    public static boolean isCredentialOrigin(URI target) {
         if (target == null || !"https".equalsIgnoreCase(target.getScheme()) || target.getUserInfo() != null) {
             return false;
         }

@@ -319,12 +319,13 @@ async function processDouyinItem(item) {
         const res = await fetch(`${BASE}/api/douyin/download`, {
             method: 'POST',
             credentials: 'same-origin',
-            headers: {'Content-Type': 'application/json'},
+            headers: Object.assign({'Content-Type': 'application/json'},
+                douyinAcquisitionCredentialHeaders(cookie)),
             signal: _activationContext.signal,
             body: JSON.stringify({
                 input: douyinInputFromQueueItem(item),
                 title: item.title || '',
-                cookie,
+                cookie: null,
                 collectionId: (douyinQueueTypeData(item).seriesId || item.seriesId || null),
                 collectionTitle: (douyinQueueTypeData(item).seriesTitle || item.seriesTitle || null)
             })

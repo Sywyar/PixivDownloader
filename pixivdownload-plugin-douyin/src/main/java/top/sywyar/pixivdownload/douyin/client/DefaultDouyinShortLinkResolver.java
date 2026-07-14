@@ -42,7 +42,8 @@ public class DefaultDouyinShortLinkResolver implements DouyinShortLinkResolver {
                 throw new DouyinClientException(DouyinClientErrorCode.REDIRECT_LOOP, "Douyin short URL redirect loop");
             }
             ensureAllowedHop(current);
-            DouyinRedirectResponse response = get(current);
+            String hopCookie = DouyinRequestHeaders.isCredentialOrigin(current) ? cookie : null;
+            DouyinRedirectResponse response = get(current, hopCookie);
             int status = response.statusCode();
             if (status == 403) {
                 throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN, "Douyin short URL returned 403");
@@ -86,9 +87,9 @@ public class DefaultDouyinShortLinkResolver implements DouyinShortLinkResolver {
         throw new DouyinClientException(DouyinClientErrorCode.REDIRECT_LOOP, "Too many Douyin short URL redirects");
     }
 
-    private DouyinRedirectResponse get(URI uri) throws DouyinClientException {
+    private DouyinRedirectResponse get(URI uri, String cookie) throws DouyinClientException {
         try {
-            return redirectClient.get(uri);
+            return redirectClient.get(uri, cookie);
         } catch (ResourceAccessException e) {
             if (isTimeout(e)) {
                 throw new DouyinClientException(DouyinClientErrorCode.NETWORK_TIMEOUT,

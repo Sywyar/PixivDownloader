@@ -10,6 +10,8 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Queue;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +40,41 @@ class DefaultDouyinShortLinkResolverTest {
 
         assertThat(resolver.resolve("v.iesdouyin.com/AbCd123/", null).id())
                 .isEqualTo("7351234567890123456");
+    }
+
+    @Test
+    @DisplayName("精确凭据 origin 的每个短链请求都携带当前 Douyin 凭证")
+    void forwardsCredentialAcrossEveryCredentialOriginHop() throws Exception {
+        FakeRedirectClient client = new FakeRedirectClient()
+                .redirect("https://www.douyin.com/video/7351234567890123456")
+                .ok();
+        var resolver = new DefaultDouyinShortLinkResolver(new DouyinUrlParser(), client);
+
+        resolver.resolve("https://v.douyin.com/AbCd123/", "fixture-credential-7f4c2a91");
+
+        assertThat(client.credentials)
+                .containsExactly("fixture-credential-7f4c2a91", "fixture-credential-7f4c2a91");
+    }
+
+    @Test
+    @DisplayName("多跳短链按每跳精确 origin 剥离并恢复 Douyin 凭证")
+    void appliesCredentialPolicyIndependentlyForEveryRedirectHop() throws Exception {
+        FakeRedirectClient client = new FakeRedirectClient()
+                .redirect("https://m.douyin.com/share/video/7351234567890123456")
+                .redirect("https://www.douyin.com/video/7351234567890123456")
+                .ok();
+        var resolver = new DefaultDouyinShortLinkResolver(new DouyinUrlParser(), client);
+
+        resolver.resolve("https://v.douyin.com/AbCd123/", "fixture-credential-7f4c2a91");
+
+        assertThat(client.requestUris).containsExactly(
+                URI.create("https://v.douyin.com/AbCd123/"),
+                URI.create("https://m.douyin.com/share/video/7351234567890123456"),
+                URI.create("https://www.douyin.com/video/7351234567890123456"));
+        assertThat(client.credentials).containsExactly(
+                "fixture-credential-7f4c2a91",
+                null,
+                "fixture-credential-7f4c2a91");
     }
 
     @Test
@@ -132,6 +169,8 @@ class DefaultDouyinShortLinkResolverTest {
 
     private static final class FakeRedirectClient implements DouyinRedirectClient {
         private final Queue<DouyinRedirectResponse> responses = new ArrayDeque<>();
+        private final List<URI> requestUris = new ArrayList<>();
+        private final List<String> credentials = new ArrayList<>();
         private boolean timeout;
 
         FakeRedirectClient redirect(String location) {
@@ -167,6 +206,13 @@ class DefaultDouyinShortLinkResolverTest {
             return responses.isEmpty()
                     ? new DouyinRedirectResponse(200, null, "text/html", new byte[0])
                     : responses.remove();
+        }
+
+        @Override
+        public DouyinRedirectResponse get(URI uri, String cookie) throws IOException {
+            requestUris.add(uri);
+            credentials.add(cookie);
+            return get(uri);
         }
     }
 }

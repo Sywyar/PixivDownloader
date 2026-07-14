@@ -307,10 +307,13 @@ function ok(label, cond) {
         typeData: {input: 'https://v.douyin.com/XUyPmdu7naU/'}
     });
     const typedRequest = sandbox.requests.find(req => req.url.includes('/api/douyin/download'));
+    const typedBody = JSON.parse(typedRequest.options.body);
     ok('process(item) 使用 typeData.input 作为下载输入',
-        JSON.parse(typedRequest.options.body).input === 'https://v.douyin.com/XUyPmdu7naU/');
-    ok('process(item) 提交完整 Douyin Cookie',
-        JSON.parse(typedRequest.options.body).cookie.includes('passport_csrf_token=csrf'));
+        typedBody.input === 'https://v.douyin.com/XUyPmdu7naU/');
+    ok('process(item) 通过中性取得凭证头提交完整 Douyin Cookie',
+        typedRequest.options.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf'));
+    ok('process(item) 不把 Douyin Cookie 写入 JSON 请求体',
+        typedBody.cookie === null);
 
     sandbox.requests.length = 0;
     sandbox.localStorage.setItem('pixiv_cookie_fmt', 'json');
@@ -318,8 +321,10 @@ function ok(label, cond) {
         '{"ttwid":"tt","passport_csrf_token":"csrf","sessionid":"sid"}');
     await descriptor.process({id: 'd7351234567890123456', kind: 'douyin', title: 'JSON cookie'});
     const jsonCookieRequest = sandbox.requests.find(req => req.url.includes('/api/douyin/download'));
-    ok('process(item) 按父级 JSON Cookie 格式归一化后提交',
-        JSON.parse(jsonCookieRequest.options.body).cookie.includes('sessionid=sid'));
+    ok('process(item) 按父级 JSON Cookie 格式归一化后提交凭证头',
+        jsonCookieRequest.options.headers['X-Acquisition-Credential'].includes('sessionid=sid'));
+    ok('process(item) 对 JSON Cookie 同样保持请求体无凭证',
+        JSON.parse(jsonCookieRequest.options.body).cookie === null);
 
     sandbox.localStorage.setItem('pixiv_cookie_fmt', 'header');
     sandbox.localStorage.setItem('pixiv_douyin_cookie',

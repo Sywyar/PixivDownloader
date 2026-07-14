@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
+import top.sywyar.pixivdownload.douyin.client.DouyinRestTemplateFactory;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 
@@ -33,11 +34,15 @@ class DouyinMediaDownloaderTest {
     Path tempDir;
 
     private HttpServer server;
+    private HttpServer redirectServer;
 
     @AfterEach
     void stopServer() {
         if (server != null) {
             server.stop(0);
+        }
+        if (redirectServer != null) {
+            redirectServer.stop(0);
         }
     }
 
@@ -159,8 +164,66 @@ class DouyinMediaDownloaderTest {
                 .isEqualTo(DouyinClientErrorCode.INVALID_URL);
     }
 
+    @Test
+    @DisplayName("凭证只在每一跳均通过精确原点策略时携带")
+    void forwardsCredentialAcrossAllowedSameOriginRedirects() throws Exception {
+        startServer();
+        AtomicReference<String> firstCookie = new AtomicReference<>();
+        AtomicReference<String> finalCookie = new AtomicReference<>();
+        server.createContext("/credential-start", exchange -> {
+            firstCookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
+            exchange.getResponseHeaders().set("Location", "/credential-final");
+            send(exchange, 302, new byte[0], -1);
+        });
+        server.createContext("/credential-final", exchange -> {
+            finalCookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
+            send(exchange, 200, "ok".getBytes(StandardCharsets.UTF_8), -1);
+        });
+        int credentialPort = server.getAddress().getPort();
+        DouyinMediaDownloader downloader = downloader(
+                uri -> uri.getPort() == credentialPort && "127.0.0.1".equals(uri.getHost()));
+
+        downloader.download(List.of(media("/credential-start", "credential", "mp4")),
+                tempDir, () -> false, "sessionid=test");
+
+        assertThat(firstCookie.get()).isEqualTo("sessionid=test");
+        assertThat(finalCookie.get()).isEqualTo("sessionid=test");
+    }
+
+    @Test
+    @DisplayName("媒体跨原点重定向时重新校验并剥离凭证")
+    void stripsCredentialOnCrossOriginRedirect() throws Exception {
+        startServer();
+        redirectServer = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        redirectServer.start();
+        AtomicReference<String> firstCookie = new AtomicReference<>();
+        AtomicReference<String> redirectedCookie = new AtomicReference<>();
+        server.createContext("/cross-start", exchange -> {
+            firstCookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
+            exchange.getResponseHeaders().set("Location", baseUrl(redirectServer) + "/cross-final");
+            send(exchange, 302, new byte[0], -1);
+        });
+        redirectServer.createContext("/cross-final", exchange -> {
+            redirectedCookie.set(exchange.getRequestHeaders().getFirst("Cookie"));
+            send(exchange, 200, "ok".getBytes(StandardCharsets.UTF_8), -1);
+        });
+        int credentialPort = server.getAddress().getPort();
+        DouyinMediaDownloader downloader = downloader(uri -> uri.getPort() == credentialPort);
+
+        downloader.download(List.of(media("/cross-start", "cross", "mp4")),
+                tempDir, () -> false, "sessionid=test");
+
+        assertThat(firstCookie.get()).isEqualTo("sessionid=test");
+        assertThat(redirectedCookie.get()).isNull();
+    }
+
     private DouyinMediaDownloader downloader() {
-        return new DouyinMediaDownloader(new RestTemplate(), host -> "127.0.0.1".equals(host));
+        return downloader(uri -> false);
+    }
+
+    private DouyinMediaDownloader downloader(java.util.function.Predicate<URI> credentialOriginAllowed) {
+        return new DouyinMediaDownloader(DouyinRestTemplateFactory.directDownloadTemplate(),
+                host -> "127.0.0.1".equals(host), credentialOriginAllowed);
     }
 
     private DouyinMedia media(String path, String stem, String extension) {
@@ -173,7 +236,11 @@ class DouyinMediaDownloaderTest {
     }
 
     private String baseUrl() {
-        return "http://127.0.0.1:" + server.getAddress().getPort();
+        return baseUrl(server);
+    }
+
+    private static String baseUrl(HttpServer target) {
+        return "http://127.0.0.1:" + target.getAddress().getPort();
     }
 
     private void serve(String path, int status, byte[] body, long declaredLength) {

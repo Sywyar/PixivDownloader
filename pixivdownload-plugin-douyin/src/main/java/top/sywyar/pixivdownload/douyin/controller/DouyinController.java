@@ -54,10 +54,12 @@ public class DouyinController {
     public ResponseEntity<?> download(@RequestBody DouyinDownloadRequest request,
                                       HttpServletRequest httpRequest) {
         try {
-            requireSecureCredentialTransport(httpRequest, request == null ? null : request.cookie());
+            String cookie = acquisitionCredential(httpRequest, request == null ? null : request.cookie());
+            requireSecureCredentialTransport(httpRequest, cookie);
             String ownerUuid = setupService.hasAdminScope(httpRequest)
                     ? null : UuidUtils.extractOrGenerateUuid(httpRequest);
-            DouyinStartResponse response = downloadService.start(request, ownerUuid);
+            DouyinStartResponse response = downloadService.start(
+                    request == null ? null : request.withCookie(cookie), ownerUuid);
             return ResponseEntity.accepted().body(response);
         } catch (DouyinClientException e) {
             return clientError(e);

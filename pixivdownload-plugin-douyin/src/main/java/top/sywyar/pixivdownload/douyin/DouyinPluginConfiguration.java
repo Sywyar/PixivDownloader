@@ -148,6 +148,12 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
+    public RestTemplate douyinRestTemplate(ProxyConfig proxyConfig) {
+        return DouyinRestTemplateFactory.inheritedDownloadTemplate(proxyConfig);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
     public RestTemplate douyinDirectRestTemplate() {
         return DouyinRestTemplateFactory.directDownloadTemplate();
     }
@@ -167,7 +173,7 @@ public class DouyinPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("douyin")
     public DouyinClient douyinClient(DouyinUrlParser parser,
-                                     @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+                                     @Qualifier("douyinRestTemplate") RestTemplate downloadRestTemplate,
                                      @Qualifier("douyinShortLinkResolver")
                                      DouyinShortLinkResolver shortLinkResolver) {
         return new DefaultDouyinClient(parser, downloadRestTemplate, shortLinkResolver);
@@ -202,7 +208,8 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinMediaDownloader douyinMediaDownloader(@Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate) {
+    public DouyinMediaDownloader douyinMediaDownloader(
+            @Qualifier("douyinRestTemplate") RestTemplate downloadRestTemplate) {
         return new DouyinMediaDownloader(downloadRestTemplate);
     }
 
