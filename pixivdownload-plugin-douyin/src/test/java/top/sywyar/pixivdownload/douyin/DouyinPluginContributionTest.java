@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.douyin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
+import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
+import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceDescriptors;
+import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -21,11 +24,46 @@ import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("DouyinPlugin 外置贡献契约")
 class DouyinPluginContributionTest {
+
+    @Test
+    @DisplayName("计划任务贡献恰好声明八类稳定来源与统一能力")
+    void scheduleDescriptorsDeclareExactStableSourceSet() {
+        DouyinPlugin plugin = new DouyinPlugin();
+
+        assertThat(plugin.scheduledSourceDescriptors())
+                .extracting(descriptor -> descriptor.sourceType())
+                .containsExactly(
+                        DouyinSourceTypes.USER,
+                        DouyinSourceTypes.SEARCH,
+                        DouyinSourceTypes.COLLECTION,
+                        DouyinSourceTypes.MUSIC,
+                        DouyinSourceTypes.ACCOUNT_OWN_WORKS,
+                        DouyinSourceTypes.ACCOUNT_LIKED_WORKS,
+                        DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                        DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION);
+        assertThat(plugin.scheduledSourceDescriptors()).allSatisfy(descriptor -> {
+            assertThat(descriptor.definitionSchema())
+                    .isEqualTo(DouyinScheduleCodec.DEFINITION_SCHEMA);
+            assertThat(descriptor.definitionVersion())
+                    .isEqualTo(DouyinScheduleCodec.DEFINITION_VERSION);
+            assertThat(descriptor.possibleWorkTypes())
+                    .isEqualTo(Set.of(DouyinScheduleCodec.WORK_TYPE));
+            assertThat(descriptor.credentialPolicyIds())
+                    .isEqualTo(Set.of(DouyinScheduledSourceDescriptors.CREDENTIAL_POLICY_ID));
+            assertThat(descriptor.guardIds())
+                    .isEqualTo(Set.of(DouyinScheduledSourceDescriptors.GUARD_ID));
+            assertThat(descriptor.frontend().moduleUrl())
+                    .isEqualTo(DouyinScheduledSourceDescriptors.FRONTEND_MODULE_URL);
+            assertThat(descriptor.presentation().displayNamespace()).isEqualTo("douyin");
+            assertThat(descriptor.legacyAliases()).isEmpty();
+        });
+    }
 
     @Test
     @DisplayName("下载类型 descriptor 声明完整能力与画廊边界")
@@ -45,7 +83,8 @@ class DouyinPluginContributionTest {
         assertThat(queueType.descriptor().queue().clearAll()).isTrue();
         assertThat(queueType.descriptor().queue().clearForOwner()).isTrue();
         assertThat(queueType.descriptor().queue().cancel()).isTrue();
-        assertThat(queueType.descriptor().schedule().saveable()).isFalse();
+        assertThat(queueType.descriptor().schedule().saveable()).isTrue();
+        assertThat(queueType.descriptor().schedule().sourceSerializable()).isTrue();
         assertThat(queueType.descriptor().schedule().suspendWhenExecutorMissing()).isTrue();
         assertThat(queueType.descriptor().filters()).isEmpty();
         assertThat(queueType.descriptor().settings()).isEmpty();

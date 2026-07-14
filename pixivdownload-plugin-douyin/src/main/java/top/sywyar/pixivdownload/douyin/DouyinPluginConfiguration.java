@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.douyin;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,10 +29,18 @@ import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
 import top.sywyar.pixivdownload.douyin.download.DouyinMediaDownloader;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
 import top.sywyar.pixivdownload.douyin.download.DouyinQueueOperations;
+import top.sywyar.pixivdownload.douyin.download.work.DouyinWorkDownloadExecutor;
 import top.sywyar.pixivdownload.douyin.gallery.DouyinGalleryDataProvider;
 import top.sywyar.pixivdownload.douyin.gallery.frontend.DouyinGalleryFrontendProvider;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
+import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
+import top.sywyar.pixivdownload.douyin.schedule.credential.DouyinScheduledCredentialPolicy;
+import top.sywyar.pixivdownload.douyin.schedule.guard.DouyinRiskExecutionGuard;
+import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceExecutor;
+import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceSupport;
+import top.sywyar.pixivdownload.douyin.schedule.work.DouyinScheduledWorkExecutor;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
+import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.setup.SetupService;
 
@@ -266,6 +275,111 @@ public class DouyinPluginConfiguration {
                 client, proxyClient, customProxyClient, directClient,
                 mediaDownloader, proxyMediaDownloader, customProxyMediaDownloader, directMediaDownloader,
                 executor, settingsService, historyService);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduleCodec douyinScheduleCodec(ObjectMapper objectMapper) {
+        return new DouyinScheduleCodec(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceSupport douyinScheduledSourceSupport(
+            @Qualifier("douyinClient") DouyinClient client,
+            DouyinScheduleCodec codec) {
+        return new DouyinScheduledSourceSupport(client, codec);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinUserScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(DouyinSourceTypes.USER, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinSearchScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(DouyinSourceTypes.SEARCH, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinCollectionScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(DouyinSourceTypes.COLLECTION, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinMusicScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(DouyinSourceTypes.MUSIC, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinAccountOwnScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(DouyinSourceTypes.ACCOUNT_OWN_WORKS, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinAccountLikedScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(DouyinSourceTypes.ACCOUNT_LIKED_WORKS, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinAccountFavoriteScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinAccountFavoriteCollectionScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledCredentialPolicy douyinScheduledCredentialPolicy(
+            @Qualifier("douyinClient") DouyinClient client) {
+        return new DouyinScheduledCredentialPolicy(client);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinRiskExecutionGuard douyinRiskExecutionGuard() {
+        return new DouyinRiskExecutionGuard();
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinWorkDownloadExecutor douyinWorkDownloadExecutor(
+            DouyinHistoryService historyService) {
+        return new DouyinWorkDownloadExecutor(historyService);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledWorkExecutor douyinScheduledWorkExecutor(
+            @Qualifier("douyinClient") DouyinClient client,
+            @Qualifier("douyinMediaDownloader") DouyinMediaDownloader mediaDownloader,
+            DouyinWorkDownloadExecutor workDownloadExecutor,
+            DouyinPluginSettingsService settingsService,
+            DouyinScheduleCodec codec,
+            DownloadConfig downloadConfig) {
+        return new DouyinScheduledWorkExecutor(
+                client, mediaDownloader, workDownloadExecutor, settingsService,
+                codec, downloadConfig);
     }
 
     @Bean

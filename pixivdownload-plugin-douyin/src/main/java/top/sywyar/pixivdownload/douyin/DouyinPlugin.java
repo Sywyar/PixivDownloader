@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.douyin;
 
 import top.sywyar.pixivdownload.douyin.db.history.DouyinSchemaContribution;
+import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
@@ -10,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
@@ -131,7 +133,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                                 DownloadAcquisitionMode.SERIES_COLLECTION,
                                 DownloadAcquisitionMode.QUICK),
                         DownloadQueueCapabilities.full(),
-                        DownloadScheduleCapabilities.notSaveable(),
+                        DownloadScheduleCapabilities.saveableSource(),
                         List.of(),
                         List.of(),
                         UI_SLOT_TARGETS,
@@ -144,6 +146,11 @@ public class DouyinPlugin implements PixivFeaturePlugin {
         return UI_SLOT_TARGETS.stream()
                 .map(target -> new WebUiSlotContribution(ID, ID + "." + target, target, MODULE_URL, 30))
                 .toList();
+    }
+
+    @Override
+    public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
+        return DouyinScheduledSourceDescriptors.createAll();
     }
 
     @Override
