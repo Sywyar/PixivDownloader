@@ -629,6 +629,9 @@ const DOUYIN_SLOTS = {
     'kind-option-user':
         '<label data-kind="douyin"><input type="radio" name="user-kind" value="douyin">' +
         '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
+    'kind-option-search':
+        '<label data-kind="douyin"><input type="radio" name="search-kind" value="douyin">' +
+        '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
     'import-hint':
         '<div><span data-i18n="douyin:import.example">Douyin URL: https://www.douyin.com/video/...</span></div>',
     'cookie-tools':
@@ -787,6 +790,43 @@ const DOUYIN_DESCRIPTOR = {
                     sourceUrl: `https://www.douyin.com/user/${encodeURIComponent(String(ctx.userId))}`
                 }));
             }
+        },
+        search: {
+            pageSize: DOUYIN_PAGE_SIZE,
+            requestInit() {
+                return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
+            },
+            buildRequest(ctx) {
+                return {
+                    endpoint: '/api/douyin/search',
+                    params: {word: ctx.word, page: ctx.page, pageSize: DOUYIN_PAGE_SIZE},
+                    premiumOrder: false,
+                    clientFilter: 0
+                };
+            },
+            buildRangeRequest(ctx) {
+                return {
+                    endpoint: '/api/douyin/search/range',
+                    params: {
+                        word: ctx.word,
+                        startPage: ctx.startPage,
+                        endPage: ctx.endPage,
+                        pageSize: DOUYIN_PAGE_SIZE
+                    }
+                };
+            },
+            queueId: douyinQueueId,
+            queueSource: 'search-douyin',
+            emptyResultsLabel() { return douyinText('search.empty', 'No Douyin search results'); },
+            render: renderDouyinSearchResults,
+            buildQueueMeta(item) {
+                const word = (document.getElementById('search-word') || {}).value || '';
+                return douyinQueueMeta(Object.assign({}, item, {
+                    sourceType: 'douyin.search', sourceId: word,
+                    sourceTitle: word, sourceUrl: `https://www.douyin.com/search/${encodeURIComponent(word)}`
+                }));
+            },
+            controls: {searchMode: false, order: false, contentFilter: false, batchRange: true, r18Blur: false}
         },
         series: {
             pageSize: DOUYIN_PAGE_SIZE,

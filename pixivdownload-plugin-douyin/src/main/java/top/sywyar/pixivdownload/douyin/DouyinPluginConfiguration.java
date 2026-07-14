@@ -9,6 +9,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.mapper.MapperFactoryBean;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.douyin.client.DefaultDouyinShortLinkResolver;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
@@ -276,8 +277,9 @@ public class DouyinPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("douyin")
     public DouyinController douyinController(DouyinDownloadService downloadService,
-                                             SetupService setupService) {
-        return new DouyinController(downloadService, setupService);
+                                             SetupService setupService,
+                                             MultiModeConfig multiModeConfig) {
+        return new DouyinController(downloadService, setupService, multiModeConfig);
     }
 
     @Bean

@@ -32,6 +32,24 @@
                 el.style.display = visible ? '' : 'none';
             });
         });
+        applySearchControlPolicy(kind);
+    }
+
+    function applySearchControlPolicy(kind) {
+        const resolved = window.PixivBatch.queueTypes.resolveTypeForMode(
+            kind || state.settings.searchKind, 'search');
+        const acq = resolved ? window.PixivBatch.queueTypes.acquisition(resolved, 'search') : null;
+        const controls = acq && acq.controls ? acq.controls : {};
+        const upstream = document.getElementById('search-upstream-controls');
+        if (upstream) upstream.style.display = controls.searchMode === false && controls.order === false ? 'none' : '';
+        const r18 = document.getElementById('search-r18-controls');
+        if (r18) r18.style.display = controls.r18Blur === false ? 'none' : 'flex';
+        const submode = document.getElementById('search-submode-switcher');
+        const batchOption = submode && submode.querySelector('[data-submode="batch"]');
+        if (batchOption) batchOption.style.display = controls.batchRange === false ? 'none' : '';
+        if (controls.batchRange === false && searchState.submode === 'batch') {
+            applySubmodeUI('search', {clear: true});
+        }
     }
 
     // ---- 取得侧（search 模式）行为分派：宿主只面向 queueTypes 的 search 钩子调用，插画为内置默认路径 ----

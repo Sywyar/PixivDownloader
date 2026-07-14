@@ -476,6 +476,39 @@ class DefaultDouyinClientParserTest {
                 .allSatisfy(uri -> assertThat(uri.getRawQuery()).contains("count=20"));
     }
 
+    @Test
+    @DisplayName("关键词搜索只发送真实关键词并解析 aweme_info 游标页")
+    void searchesKeywordWithCursorPage() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":48,"data":[
+                  {"aweme_info":{"aweme_id":"9201","desc":"Search work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9201.mp4"]}}}}
+                ]}
+                """);
+
+        var listing = client(rest).searchWorksPage("猫", "24", 24, "sessionid=test");
+
+        assertThat(listing.items()).extracting("id").containsExactly("9201");
+        assertThat(listing.nextCursor()).isEqualTo("48");
+        assertThat(rest.requests()).singleElement().satisfies(uri -> {
+            assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/general/search/single/");
+            assertThat(uri.getRawQuery()).contains("keyword=%E7%8C%AB", "offset=24");
+        });
+    }
+
+    @Test
+    @DisplayName("关键词页码偏移使用长整型计算避免极值溢出")
+    void calculatesSearchOffsetWithoutIntegerOverflow() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"status_code\":0,\"has_more\":0,\"data\":[]}");
+
+        client(rest).searchPublic("cat", Integer.MAX_VALUE, 100, "sessionid=test");
+
+        assertThat(rest.requests()).singleElement().satisfies(uri ->
+                assertThat(uri.getRawQuery()).contains("offset=214748364600"));
+    }
+
     private static DefaultDouyinClient client(String... bodies) {
         FakeRestTemplate rest = new FakeRestTemplate();
         for (String body : bodies) {

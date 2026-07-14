@@ -321,6 +321,33 @@ function ok(label, cond) {
         && importedUser.typeData.sourceType === 'douyin.user'
         && importedUser.typeData.sourceRelations[0].sourceId === 'sec-demo');
 
+    const searchSandbox = makeSandbox({
+        acquisitionModes: ['single-import', 'search', 'series'],
+        uiSlots: ['cookie-tools', 'kind-option-search']
+    });
+    const searchQt = searchSandbox.window.PixivBatch.queueTypes;
+    await searchQt.bootstrap();
+    const searchDescriptor = searchQt.descriptor('douyin');
+    const searchAcquisition = searchQt.acquisition('douyin', 'search');
+    ok('合成 publication 可激活 dormant 搜索取得能力与槽位',
+        typeof searchAcquisition.buildRequest === 'function'
+        && !!searchDescriptor.slots['kind-option-search']);
+    const searchRequest = searchAcquisition.buildRequest({word: '猫', page: 2});
+    ok('关键词搜索请求保留真实关键词与页码',
+        searchRequest.endpoint === '/api/douyin/search'
+        && searchRequest.params.word === '猫'
+        && searchRequest.params.page === 2);
+    const rangeRequest = searchAcquisition.buildRangeRequest({word: '猫', startPage: 2, endPage: 4});
+    ok('关键词范围搜索请求保留受控页范围',
+        rangeRequest.endpoint === '/api/douyin/search/range'
+        && rangeRequest.params.startPage === 2
+        && rangeRequest.params.endPage === 4);
+    searchSandbox.document.getElementById = id => id === 'search-word' ? {value: '猫'} : null;
+    const searchMeta = searchAcquisition.buildQueueMeta({id: 'search-work-1'});
+    ok('搜索取得队列项保留明确的搜索来源关系',
+        searchMeta.typeData.sourceType === 'douyin.search'
+        && searchMeta.typeData.sourceRelations[0].sourceType === 'douyin.search');
+
     const importHook = qt.contributionsOf('import').find(item => item.type === 'douyin');
     const match = importHook.matchUrl('https://www.douyin.com/video/7351234567890123456 | title');
     const item = importHook.buildItem(match, 'Custom title');

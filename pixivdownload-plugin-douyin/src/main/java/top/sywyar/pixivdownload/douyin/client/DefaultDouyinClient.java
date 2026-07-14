@@ -233,8 +233,33 @@ public class DefaultDouyinClient implements DouyinClient {
 
     @Override
     public DouyinListing searchPublic(String word, int page, int pageSize, String cookie) throws DouyinClientException {
-        throw new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT,
-                "Douyin search and public feed are not enabled by the current adapter");
+        String keyword = requireStableId(word, "Douyin search keyword is required");
+        int safePage = Math.max(1, page);
+        int safePageSize = positivePageSize(pageSize);
+        DouyinListing listing = searchWorksPage(keyword,
+                Long.toString(((long) safePage - 1L) * safePageSize), safePageSize, cookie);
+        return new DouyinListing(listing.items(), listing.total(), safePage, safePageSize,
+                listing.lastPage(), listing.title(), listing.ownerId(), listing.ownerName(),
+                listing.nextCursor(), listing.hasMore());
+    }
+
+    @Override
+    public DouyinListing searchWorksPage(String word,
+                                         String cursor,
+                                         int limit,
+                                         String cookie) throws DouyinClientException {
+        String keyword = requireStableId(word, "Douyin search keyword is required");
+        int safeLimit = positivePageSize(limit);
+        String offset = normalizeCursor(cursor);
+        JsonNode root = fetchSignedJson("/aweme/v1/web/general/search/single/", params(
+                "search_channel", "aweme_general",
+                "keyword", keyword,
+                "search_source", "normal_search",
+                "query_correct_type", 1,
+                "is_filter_search", 0,
+                "offset", offset,
+                "count", safeLimit), cookie);
+        return searchListing(root, keyword, offset, safeLimit);
     }
 
     private DouyinListing collectLogicalSlice(String ownerId,
@@ -323,6 +348,43 @@ public class DefaultDouyinClient implements DouyinClient {
                 context.ownerId(), ownerName, next, hasMore);
     }
 
+    private DouyinListing searchListing(JsonNode root,
+                                        String keyword,
+                                        String offset,
+                                        int pageSize) throws DouyinClientException {
+        ensureSuccessful(root, "Douyin search");
+        JsonNode list = firstArray(root, "data", "aweme_list", "items")
+                .orElse(MAPPER.createArrayNode());
+        LinkedHashMap<String, DouyinWork> works = new LinkedHashMap<>();
+        for (JsonNode raw : list) {
+            JsonNode aweme = unwrapAweme(raw);
+            if (!aweme.isObject()) {
+                continue;
+            }
+            try {
+                DouyinWork work = workFromAweme(aweme,
+                        "https://www.douyin.com/video/" + firstText(aweme, "aweme_id", "group_id", "id"),
+                        null, null);
+                works.putIfAbsent(work.id(), work);
+            } catch (DouyinClientException e) {
+                if (e.code() != DouyinClientErrorCode.MEDIA_URL_MISSING
+                        && e.code() != DouyinClientErrorCode.UNSUPPORTED_CONTENT) {
+                    throw e;
+                }
+            }
+        }
+        long base = parseCursorNumber(offset);
+        boolean hasMore = hasMore(root);
+        String next = cursorValue(root, "cursor", "offset");
+        if (hasMore && (next.isBlank() || next.equals(normalizeCursor(offset)))) {
+            next = Long.toString(base + Math.max(pageSize, works.size()));
+        }
+        int total = exactOrEstimatedTotal(root, works.size(), base, hasMore);
+        int page = (int) Math.min(Integer.MAX_VALUE, base / Math.max(1, pageSize) + 1);
+        return new DouyinListing(List.copyOf(works.values()), total, page, pageSize,
+                !hasMore, keyword, null, null, next, hasMore);
+    }
+
     private static JsonNode unwrapAweme(JsonNode raw) {
         if (raw == null || raw.isNull() || raw.isMissingNode()) {
             return MAPPER.missingNode();
@@ -373,6 +435,14 @@ public class DefaultDouyinClient implements DouyinClient {
 
     private static String normalizeCursor(String cursor) {
         return cursor == null || cursor.isBlank() ? "0" : cursor.trim();
+    }
+
+    private static long parseCursorNumber(String cursor) {
+        try {
+            return Math.max(0L, Long.parseLong(normalizeCursor(cursor)));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     private static int positivePageSize(int value) {

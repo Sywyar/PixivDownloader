@@ -271,6 +271,14 @@ public class DouyinDownloadService {
                 Math.max(1, page), positiveLimit(pageSize), cookie);
     }
 
+    public DouyinListing searchWorksPage(String word,
+                                         String cursor,
+                                         int pageSize,
+                                         String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client().searchWorksPage(word, cursor, positiveLimit(pageSize), cookie);
+    }
+
     public DouyinListing quickPublic(int page, int pageSize, String cookie) throws DouyinClientException {
         DouyinCookieValidator.ensureUsable(cookie);
         return currentRuntime().client().searchPublic("", Math.max(1, page), positiveLimit(pageSize), cookie);

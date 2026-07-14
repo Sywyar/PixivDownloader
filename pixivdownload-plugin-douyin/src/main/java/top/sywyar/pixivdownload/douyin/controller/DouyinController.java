@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.common.NetworkUtils;
+import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
@@ -28,6 +29,7 @@ import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.setup.SetupService;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 
 @RestController
@@ -35,18 +37,23 @@ import java.util.List;
 @PluginManagedBean
 public class DouyinController {
 
+    static final int ABSOLUTE_MAX_SEARCH_RANGE_PAGES = 50;
     static final int MAX_USER_PREVIEW_OFFSET = 10_000;
+    static final int MAX_PREVIEW_PAGE = 100;
     static final int MAX_PREVIEW_PAGE_SIZE = 100;
     static final int MAX_CURSOR_LENGTH = 512;
     static final int MAX_CARD_IDS = 100;
 
     private final DouyinDownloadService downloadService;
     private final SetupService setupService;
+    private final MultiModeConfig multiModeConfig;
 
     public DouyinController(DouyinDownloadService downloadService,
-                            SetupService setupService) {
+                            SetupService setupService,
+                            MultiModeConfig multiModeConfig) {
         this.downloadService = downloadService;
         this.setupService = setupService;
+        this.multiModeConfig = multiModeConfig;
     }
 
     @GetMapping("/resolve")
@@ -168,10 +175,12 @@ public class DouyinController {
         cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
+            requirePreviewPage(page);
+            requirePreviewPageSize(pageSize);
             DouyinListing listing = downloadService.searchPublic(word, page, pageSize, cookie);
             return ResponseEntity.ok(new ItemsView(
                     listing.items().stream().map(DouyinWorkView::from).toList(),
-                    listing.total()));
+                    listing.total(), listing.nextCursor(), listing.hasMore()));
         } catch (DouyinClientException e) {
             return clientError(e);
         }
@@ -187,19 +196,34 @@ public class DouyinController {
         cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
+            requirePreviewPageSize(pageSize);
             int safeStart = Math.max(1, startPage);
             int safeEnd = Math.max(safeStart, endPage);
-            List<DouyinWorkView> items = new java.util.ArrayList<>();
+            long requestedPagesLong = (long) safeEnd - safeStart + 1L;
+            int requestedPages = (int) Math.min(Integer.MAX_VALUE, requestedPagesLong);
+            int limitPage = searchRangeLimit(request);
+            int acceptedPages = Math.min(requestedPages, limitPage);
+            LinkedHashMap<String, DouyinWorkView> items = new LinkedHashMap<>();
             int total = 0;
-            for (int page = safeStart; page <= safeEnd; page++) {
+            int fetchedPages = 0;
+            int lastPage = safeStart;
+            for (int offset = 0; offset < acceptedPages; offset++) {
+                int page = Math.toIntExact((long) safeStart + offset);
                 DouyinListing listing = downloadService.searchPublic(word, page, pageSize, cookie);
                 if (total <= 0) {
                     total = listing.total();
                 }
-                items.addAll(listing.items().stream().map(DouyinWorkView::from).toList());
+                listing.items().stream()
+                        .map(DouyinWorkView::from)
+                        .forEach(item -> items.putIfAbsent(item.id(), item));
+                fetchedPages++;
+                lastPage = page;
+                if (!listing.hasMore()) {
+                    break;
+                }
             }
-            return ResponseEntity.ok(new RangeView(items, total, safeStart, safeEnd,
-                    safeEnd - safeStart + 1, safeEnd - safeStart + 1, safeEnd - safeStart + 1, 0));
+            return ResponseEntity.ok(new RangeView(List.copyOf(items.values()), total, safeStart, lastPage,
+                    requestedPages, acceptedPages, fetchedPages, limitPage));
         } catch (DouyinClientException e) {
             return clientError(e);
         }
@@ -232,6 +256,12 @@ public class DouyinController {
     private static void requirePreviewPageSize(int pageSize) throws DouyinClientException {
         if (pageSize < 1 || pageSize > MAX_PREVIEW_PAGE_SIZE) {
             throw invalidRequest("Douyin preview page size is outside the supported range");
+        }
+    }
+
+    private static void requirePreviewPage(int page) throws DouyinClientException {
+        if (page < 1 || page > MAX_PREVIEW_PAGE) {
+            throw invalidRequest("Douyin preview page is outside the supported range");
         }
     }
 
@@ -285,6 +315,16 @@ public class DouyinController {
                 legacyCredential);
     }
 
+    private int searchRangeLimit(HttpServletRequest request) {
+        if ("multi".equals(setupService.getMode()) && !setupService.isAdminLoggedIn(request)) {
+            int configured = Math.max(0, multiModeConfig.getLimitPage());
+            if (configured > 0) {
+                return Math.min(configured, ABSOLUTE_MAX_SEARCH_RANGE_PAGES);
+            }
+        }
+        return ABSOLUTE_MAX_SEARCH_RANGE_PAGES;
+    }
+
     private static void requireSecureCredentialTransport(HttpServletRequest request, String cookie)
             throws DouyinClientException {
         if (cookie != null && !cookie.isBlank() && request != null && !request.isSecure()
@@ -310,7 +350,11 @@ public class DouyinController {
                                     boolean hasMore) {
     }
 
-    public record ItemsView(List<DouyinWorkView> items, int total) {
+    public record ItemsView(List<DouyinWorkView> items, int total, String nextCursor, boolean hasMore) {
+
+        public ItemsView(List<DouyinWorkView> items, int total) {
+            this(items, total, "", false);
+        }
     }
 
     public record DouyinWorkView(String id,

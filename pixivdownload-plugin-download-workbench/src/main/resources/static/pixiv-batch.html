@@ -273,7 +273,7 @@
                     <span class="search-fill-note" id="batch-end-page-hint" style="display:none;" data-i18n="search.batch.end-page-sentinel">结束页填 -1 = 一直翻页直到遇到已下载作品为止（仅管理员，用于计划任务）</span>
                 </span>
             </div>
-            <div class="search-filter-row">
+            <div class="search-filter-row" id="search-upstream-controls">
                 <span data-i18n="label.search-mode">搜索方式:</span>
                 <label><input type="radio" name="search-smode" value="s_tag" checked> <span data-i18n="search.mode.tag">标签</span></label>
                 <label><input type="radio" name="search-smode" value="s_tc"> <span data-i18n="search.mode.title-desc">标题/描述</span></label>
@@ -284,7 +284,7 @@
                                                                               value="popular_d"> <span data-i18n="search.order.popular">热门 ⚠</span></label>
             </div>
             <div id="search-premium-tip" style="display:none;font-size:11px;color:#e6a700;margin-bottom:8px;" data-i18n="dialog.search-premium">⚠ 热门排序需要 Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果</div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
+            <div id="search-r18-controls" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
                 <input type="checkbox" id="search-blur-r18" onchange="toggleBlurR18()">
                 <label for="search-blur-r18" class="r18-blur-label" style="cursor:pointer;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
             </div>
