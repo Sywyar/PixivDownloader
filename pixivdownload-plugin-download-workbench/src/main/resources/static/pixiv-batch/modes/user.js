@@ -425,8 +425,19 @@
         const item = userState.items[idx];
         if (!item) return;
         const queueId = userQueueId(item);
+        const meta = buildUserQueueMeta(item);
         const alreadyInQueue = state.queue.find(q => q.id === queueId);
         if (alreadyInQueue) {
+            const merged = reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle');
+            if (merged.keepExisting) {
+                if (merged.changed) {
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                }
+                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}), 'info');
+                return;
+            }
             const removed = removeFromQueue(queueId);
             setStatus(removed
                     ? bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title})
@@ -436,7 +447,7 @@
         }
         const added = addItemsToQueue(
             [queueId],
-            [buildUserQueueMeta(item)],
+            [meta],
             'user',
             userState.username || userState.userId,
             userState.userId,

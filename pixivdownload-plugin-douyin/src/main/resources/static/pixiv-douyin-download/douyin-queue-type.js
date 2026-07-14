@@ -252,13 +252,18 @@ function douyinQueueMeta(item) {
         url,
         authorId: item.userId || item.authorId || null,
         authorName: item.userName || item.authorName || '',
-        typeData: {
+        typeData: douyinNormalizeQueueTypeData({
             input: url || douyinId,
             url,
             douyinId,
             seriesId: item.seriesId || null,
-            seriesTitle: item.seriesTitle || ''
-        }
+            seriesTitle: item.seriesTitle || '',
+            sourceType: item.sourceType || null,
+            sourceId: item.sourceId || null,
+            sourceTitle: item.sourceTitle || '',
+            sourceUrl: item.sourceUrl || null,
+            sourceOrder: Number.isInteger(item.sourceOrder) ? item.sourceOrder : null
+        })
     };
 }
 
@@ -266,6 +271,106 @@ function douyinQueueTypeData(item) {
     if (item && item.typeData && typeof item.typeData === 'object') return item.typeData;
     if (item && item.pluginData && typeof item.pluginData === 'object') return item.pluginData;
     return {};
+}
+
+const DOUYIN_MAX_SOURCE_RELATIONS = 64;
+
+function douyinLimitedSourceText(value, maxLength) {
+    const normalized = value == null ? '' : String(value).trim();
+    if (!normalized) return null;
+    return normalized.length <= maxLength ? normalized : normalized.substring(0, maxLength);
+}
+
+function douyinNormalizeSourceRelation(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const sourceType = douyinLimitedSourceText(value.sourceType, 80);
+    const sourceId = douyinLimitedSourceText(value.sourceId, 512);
+    if (!sourceType || !sourceId) return null;
+    return {
+        sourceType,
+        sourceId,
+        sourceTitle: douyinLimitedSourceText(value.sourceTitle, 500),
+        sourceUrl: douyinLimitedSourceText(value.sourceUrl, 2048),
+        sourceOrder: Number.isSafeInteger(value.sourceOrder) ? value.sourceOrder : null
+    };
+}
+
+function douyinSourceRelationKey(relation) {
+    return relation.sourceType + '\u0000' + relation.sourceId;
+}
+
+function douyinMergeSourceRelation(existing, incoming) {
+    return {
+        sourceType: existing.sourceType,
+        sourceId: existing.sourceId,
+        sourceTitle: existing.sourceTitle || incoming.sourceTitle || null,
+        sourceUrl: existing.sourceUrl || incoming.sourceUrl || null,
+        sourceOrder: existing.sourceOrder == null ? incoming.sourceOrder : existing.sourceOrder
+    };
+}
+
+function douyinAppendSourceRelation(relations, indexes, value) {
+    const relation = douyinNormalizeSourceRelation(value);
+    if (!relation) return;
+    const key = douyinSourceRelationKey(relation);
+    const existingIndex = indexes.get(key);
+    if (existingIndex != null) {
+        relations[existingIndex] = douyinMergeSourceRelation(relations[existingIndex], relation);
+        return;
+    }
+    if (relations.length >= DOUYIN_MAX_SOURCE_RELATIONS) return;
+    indexes.set(key, relations.length);
+    relations.push(relation);
+}
+
+function douyinNormalizeQueueTypeData(value) {
+    const data = value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.assign({}, value) : {};
+    const relations = [];
+    const indexes = new Map();
+    if (Array.isArray(data.sourceRelations)) {
+        data.sourceRelations.forEach(relation => douyinAppendSourceRelation(relations, indexes, relation));
+    }
+    douyinAppendSourceRelation(relations, indexes, data);
+    data.sourceRelations = relations;
+    if (relations.length) {
+        const primary = relations[0];
+        data.sourceType = primary.sourceType;
+        data.sourceId = primary.sourceId;
+        data.sourceTitle = primary.sourceTitle || '';
+        data.sourceUrl = primary.sourceUrl || null;
+        data.sourceOrder = primary.sourceOrder;
+    }
+    return data;
+}
+
+function douyinMergeQueueTypeData(currentValue, incomingValue) {
+    const currentData = douyinNormalizeQueueTypeData(currentValue);
+    const incomingData = douyinNormalizeQueueTypeData(incomingValue);
+    const currentKeys = new Set(currentData.sourceRelations.map(douyinSourceRelationKey));
+    const keepExisting = incomingData.sourceRelations.some(
+        relation => !currentKeys.has(douyinSourceRelationKey(relation))
+    );
+    const merged = Object.assign({}, incomingData, currentData);
+    Object.keys(incomingData).forEach(key => {
+        if (merged[key] == null || merged[key] === '') merged[key] = incomingData[key];
+    });
+    const relations = [];
+    const indexes = new Map();
+    currentData.sourceRelations.forEach(relation => douyinAppendSourceRelation(relations, indexes, relation));
+    incomingData.sourceRelations.forEach(relation => douyinAppendSourceRelation(relations, indexes, relation));
+    merged.sourceRelations = relations;
+    const typeData = douyinNormalizeQueueTypeData(merged);
+    const reprocessExisting = typeData.sourceRelations.some(
+        relation => !currentKeys.has(douyinSourceRelationKey(relation))
+    );
+    return {typeData, keepExisting, reprocessExisting};
+}
+
+function douyinSourceRelationsFingerprint(value) {
+    return douyinNormalizeQueueTypeData(value).sourceRelations
+        .map(douyinSourceRelationKey)
+        .join('\u0001');
 }
 
 function douyinInputFromQueueItem(item) {
@@ -278,6 +383,16 @@ function douyinInputFromQueueItem(item) {
     if (id.startsWith('dshort-')) return `https://v.douyin.com/${encodeURIComponent(id.substring('dshort-'.length))}/`;
     if (/^d\d+$/.test(id)) return `https://www.douyin.com/video/${encodeURIComponent(id.substring(1))}`;
     return id;
+}
+
+function douyinCanonicalQueueItemUrl(item) {
+    const data = douyinQueueTypeData(item);
+    const direct = data.input || data.url;
+    if (direct && /^https?:\/\//i.test(String(direct).trim())) return String(direct).trim();
+    const douyinId = data.douyinId || data.workId || item.douyinId || item.workId;
+    if (douyinId) return `https://www.douyin.com/video/${encodeURIComponent(String(douyinId))}`;
+    const fallback = douyinInputFromQueueItem(item);
+    return /^https?:\/\//i.test(String(fallback || '').trim()) ? String(fallback).trim() : '';
 }
 
 async function douyinFetchJson(path, options) {
@@ -316,68 +431,91 @@ async function processDouyinItem(item) {
     renderQueue();
     try {
         const cookie = douyinEnsureCookieReady();
-        const res = await fetch(`${BASE}/api/douyin/download`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: Object.assign({'Content-Type': 'application/json'},
-                douyinAcquisitionCredentialHeaders(cookie)),
-            signal: _activationContext.signal,
-            body: JSON.stringify({
-                input: douyinInputFromQueueItem(item),
-                title: item.title || '',
-                cookie: null,
-                collectionId: (douyinQueueTypeData(item).seriesId || item.seriesId || null),
-                collectionTitle: (douyinQueueTypeData(item).seriesTitle || item.seriesTitle || null)
-            })
-        });
-        douyinAssertActive();
-        const data = await res.json().catch(() => ({}));
-        douyinAssertActive();
-        if (!res.ok) {
-            const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
-            throw new Error(bt(key, data.message || `HTTP ${res.status}`));
-        }
-        const statusId = data.id;
-        item.douyinStatusId = statusId;
-        const start = Date.now();
-        while (Date.now() - start < STATUS_TIMEOUT_MS) {
-            await sleep(800);
-            douyinAssertActive();
-            const statusRes = await fetch(`${BASE}/api/douyin/status/${encodeURIComponent(statusId)}`, {
+        downloadAttempt:
+        for (;;) {
+            const queueTypeData = douyinNormalizeQueueTypeData(douyinQueueTypeData(item));
+            const sentRelationsFingerprint = douyinSourceRelationsFingerprint(queueTypeData);
+            item.typeData = queueTypeData;
+            const res = await fetch(`${BASE}/api/douyin/download`, {
+                method: 'POST',
                 credentials: 'same-origin',
-                signal: _activationContext.signal
+                headers: Object.assign({'Content-Type': 'application/json'},
+                    douyinAcquisitionCredentialHeaders(cookie)),
+                signal: _activationContext.signal,
+                body: JSON.stringify({
+                    input: douyinInputFromQueueItem(item),
+                    title: item.title || '',
+                    cookie: null,
+                    collectionId: (queueTypeData.seriesId || item.seriesId || null),
+                    collectionTitle: (queueTypeData.seriesTitle || item.seriesTitle || null),
+                    sourceType: queueTypeData.sourceType || null,
+                    sourceId: queueTypeData.sourceId || null,
+                    sourceTitle: queueTypeData.sourceTitle || null,
+                    sourceUrl: queueTypeData.sourceUrl || null,
+                    sourceOrder: queueTypeData.sourceOrder ?? null,
+                    sourceRelations: queueTypeData.sourceRelations
+                })
             });
             douyinAssertActive();
-            if (!statusRes.ok) continue;
-            const status = await statusRes.json();
+            const data = await res.json().catch(() => ({}));
             douyinAssertActive();
-            if (status.messageKey) {
-                item.lastMessage = bt(douyinI18nKey(status.messageKey), status.messageKey);
+            if (!res.ok) {
+                const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
+                throw new Error(bt(key, data.message || `HTTP ${res.status}`));
             }
-            if (status.title) item.title = status.title;
-            if (status.completed) {
-                item.endTime = new Date().toISOString();
-                if (status.failed || status.cancelled) {
-                    item.status = status.cancelled ? 'skipped' : 'failed';
+            const statusId = data.id;
+            item.douyinStatusId = statusId;
+            const start = Date.now();
+            while (Date.now() - start < STATUS_TIMEOUT_MS) {
+                await sleep(800);
+                douyinAssertActive();
+                const statusRes = await fetch(`${BASE}/api/douyin/status/${encodeURIComponent(statusId)}`, {
+                    credentials: 'same-origin',
+                    signal: _activationContext.signal
+                });
+                douyinAssertActive();
+                if (!statusRes.ok) continue;
+                const status = await statusRes.json();
+                douyinAssertActive();
+                if (status.messageKey) {
                     item.lastMessage = bt(douyinI18nKey(status.messageKey), status.messageKey);
-                } else {
-                    item.status = 'completed';
-                    item.downloadedCount = 1;
-                    item.lastMessage = douyinText('status.completed', 'Completed');
                 }
-                updateStats();
-                saveQueue();
+                if (status.title) item.title = status.title;
+                if (status.completed) {
+                    if (!status.failed && !status.cancelled) {
+                        const latestQueueTypeData = douyinNormalizeQueueTypeData(douyinQueueTypeData(item));
+                        item.typeData = latestQueueTypeData;
+                        if (douyinSourceRelationsFingerprint(latestQueueTypeData) !== sentRelationsFingerprint) {
+                            item.lastMessage = douyinText('status.queued', 'Queued');
+                            saveQueue();
+                            renderQueue();
+                            continue downloadAttempt;
+                        }
+                    }
+                    item.endTime = new Date().toISOString();
+                    if (status.failed || status.cancelled) {
+                        item.status = status.cancelled ? 'skipped' : 'failed';
+                        item.lastMessage = bt(douyinI18nKey(status.messageKey), status.messageKey);
+                    } else {
+                        item.status = 'completed';
+                        item.downloadedCount = 1;
+                        item.lastMessage = douyinText('status.completed', 'Completed');
+                    }
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                    return;
+                }
                 renderQueue();
-                return;
             }
+            item.status = 'failed';
+            item.lastMessage = bt('queue.message.timeout', 'Timed out');
+            item.endTime = new Date().toISOString();
+            updateStats();
+            saveQueue();
             renderQueue();
+            return;
         }
-        item.status = 'failed';
-        item.lastMessage = bt('queue.message.timeout', 'Timed out');
-        item.endTime = new Date().toISOString();
-        updateStats();
-        saveQueue();
-        renderQueue();
     } catch (e) {
         if (!_activationContext || !_activationContext.isActive()) throw e;
         item.status = 'failed';
@@ -544,6 +682,8 @@ function hydrateDouyinUi() {
 const DOUYIN_DESCRIPTOR = {
     slots: DOUYIN_SLOTS,
     process: processDouyinItem,
+    mergeQueueTypeData: douyinMergeQueueTypeData,
+    canonicalUrl: douyinCanonicalQueueItemUrl,
     scheduledSse: false,
     cookie: {
         parseInput: douyinParseInput,
@@ -567,14 +707,19 @@ const DOUYIN_DESCRIPTOR = {
                 kind: 'douyin',
                 url: parsed.url,
                 title: title || douyinText('queue.fallback', 'Douyin {id}', {id: displayId}),
-                typeData: {
+                typeData: douyinNormalizeQueueTypeData({
                     input: parsed.url,
                     url: parsed.url,
                     douyinId: displayId,
                     kind: parsed.kind,
                     seriesId: parsed.seriesId || null,
-                    seriesTitle: ''
-                }
+                    seriesTitle: '',
+                    sourceType: parsed.kind === 'series' ? 'douyin.collection' : 'douyin.single',
+                    sourceId: displayId,
+                    sourceTitle: title || '',
+                    sourceUrl: parsed.url,
+                    sourceOrder: null
+                })
             };
         },
         source: 'single-import-douyin'
@@ -612,7 +757,12 @@ const DOUYIN_DESCRIPTOR = {
                 });
                 meta.typeData = Object.assign({}, meta.typeData, {
                     seriesId: ctx.seriesId,
-                    seriesTitle: ctx.seriesTitle
+                    seriesTitle: ctx.seriesTitle,
+                    sourceType: 'douyin.collection',
+                    sourceId: ctx.seriesId,
+                    sourceTitle: ctx.seriesTitle || '',
+                    sourceUrl: `https://www.douyin.com/mix/${encodeURIComponent(String(ctx.seriesId))}`,
+                    sourceOrder: seriesOrder
                 });
                 return meta;
             }

@@ -842,8 +842,19 @@
         const item = quickState.items[idx];
         if (!item) return;
         const id = quickQueueId(item, quickState.kind);
+        const meta = buildQuickQueueMeta(item);
         const existing = state.queue.find(q => q.id === id);
         if (existing) {
+            const merged = reconcileQueueItemTypeData(existing, meta, 'toggle');
+            if (merged.keepExisting) {
+                if (merged.changed) {
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                }
+                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title || id}), 'info');
+                return;
+            }
             const removed = removeFromQueue(id);
             setStatus(removed
                     ? bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title || id})
@@ -852,7 +863,6 @@
             syncQuickQueueState();
             return;
         }
-        const meta = buildQuickQueueMeta(item);
         const added = addItemsToQueue([id], [meta], QUICK_FETCH_MODE, '', meta.authorId, meta.authorName);
         setStatus(added > 0
                 ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title || id})
@@ -1329,8 +1339,19 @@
         const item = quickInner.items[idx];
         if (!item) return;
         const id = quickInnerQueueId(item);
+        const meta = buildQuickQueueMeta(item, item.kind || quickInner.kind);
         const existing = state.queue.find(q => q.id === id);
         if (existing) {
+            const merged = reconcileQueueItemTypeData(existing, meta, 'toggle');
+            if (merged.keepExisting) {
+                if (merged.changed) {
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                }
+                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title || id}), 'info');
+                return;
+            }
             const removed = removeFromQueue(id);
             setStatus(removed
                     ? bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title || id})
@@ -1339,7 +1360,6 @@
             syncQuickQueueState();
             return;
         }
-        const meta = buildQuickQueueMeta(item, item.kind || quickInner.kind);
         const added = addItemsToQueue([id], [meta], QUICK_FETCH_MODE, '', meta.authorId, meta.authorName);
         setStatus(added > 0
                 ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title || id})

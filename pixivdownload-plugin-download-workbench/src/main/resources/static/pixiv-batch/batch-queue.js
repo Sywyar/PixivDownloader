@@ -362,23 +362,55 @@
        队列管理
     ============================================================ */
     function dedupeQueueItems(items) {
-        const seen = new Set();
+        const seen = new Map();
         const uniqueItems = [];
         for (const item of items || []) {
             if (!item || item.id === undefined || item.id === null) continue;
             const id = String(item.id);
-            if (seen.has(id)) continue;
-            seen.add(id);
-            uniqueItems.push({...item, id});
+            const existing = seen.get(id);
+            if (existing) {
+                reconcileQueueItemTypeData(existing, item, 'restore');
+                continue;
+            }
+            const normalized = {...item, id};
+            normalized.typeData = reconcileQueueTypeData(
+                normalized.kind || 'illust',
+                normalized.typeData || normalized.pluginData,
+                null,
+                'restore'
+            ).typeData;
+            normalized.canonicalUrl = queueItemCanonicalUrl(normalized);
+            seen.set(id, normalized);
+            uniqueItems.push(normalized);
         }
         return uniqueItems;
+    }
+
+    const MAX_QUEUE_TYPE_DATA_LENGTH = 65536;
+    const MAX_QUEUE_CANONICAL_URL_LENGTH = 4096;
+
+    function normalizeQueueCanonicalUrl(value) {
+        const normalized = value == null ? '' : String(value).trim();
+        if (!normalized || normalized.length > MAX_QUEUE_CANONICAL_URL_LENGTH
+            || !/^https?:\/\/[^\s]+$/i.test(normalized)) return '';
+        return normalized;
+    }
+
+    function queueItemStoredCanonicalUrl(item) {
+        const stored = normalizeQueueCanonicalUrl(item && item.canonicalUrl);
+        if (stored) return stored;
+        const typeData = item && (item.typeData || item.pluginData);
+        if (!typeData || typeof typeData !== 'object' || Array.isArray(typeData)) return '';
+        return normalizeQueueCanonicalUrl(typeData.canonicalUrl)
+            || normalizeQueueCanonicalUrl(typeData.input)
+            || normalizeQueueCanonicalUrl(typeData.url);
     }
 
     function cloneQueueTypeData(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
         try {
             const json = JSON.stringify(value);
-            if (!json || json.length > 4096) return null;
+            if (!json || json.length > MAX_QUEUE_TYPE_DATA_LENGTH) return null;
             const parsed = JSON.parse(json);
             return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
         } catch {
@@ -386,18 +418,97 @@
         }
     }
 
+    function reconcileQueueTypeData(kind, currentValue, incomingValue, reason) {
+        const currentData = cloneQueueTypeData(currentValue);
+        const incomingData = cloneQueueTypeData(incomingValue);
+        const fallback = currentData || incomingData;
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const behavior = queueTypes && typeof queueTypes.get === 'function'
+            ? queueTypes.get(String(kind || '')) : null;
+        if (!behavior || typeof behavior.mergeQueueTypeData !== 'function') {
+            return {typeData: fallback, keepExisting: false, changed: false, reprocessExisting: false};
+        }
+        try {
+            const result = behavior.mergeQueueTypeData(
+                currentData,
+                incomingData,
+                Object.freeze({reason: String(reason || 'add')})
+            );
+            if (!result || typeof result !== 'object' || typeof result.then === 'function'
+                || !Object.prototype.hasOwnProperty.call(result, 'typeData')) {
+                throw new Error('mergeQueueTypeData must return a synchronous result with typeData');
+            }
+            const nextData = result.typeData == null ? null : cloneQueueTypeData(result.typeData);
+            if (result.typeData != null && !nextData) {
+                throw new Error('mergeQueueTypeData returned invalid or oversized typeData');
+            }
+            const changed = JSON.stringify(currentData) !== JSON.stringify(nextData);
+            return {
+                typeData: nextData,
+                keepExisting: result.keepExisting === true,
+                changed,
+                reprocessExisting: result.reprocessExisting === true && changed
+            };
+        } catch (e) {
+            console.warn('[queue] 队列类型数据合并失败：', kind, e);
+            return {typeData: fallback, keepExisting: false, changed: false, reprocessExisting: false};
+        }
+    }
+
+    function reconcileQueueItemTypeData(existingItem, incomingMeta, reason) {
+        if (!existingItem || typeof existingItem !== 'object') {
+            return {
+                typeData: null,
+                keepExisting: false,
+                changed: false,
+                reprocessExisting: false,
+                requeued: false
+            };
+        }
+        const incoming = incomingMeta && typeof incomingMeta === 'object' ? incomingMeta : {};
+        const result = reconcileQueueTypeData(
+            existingItem.kind || incoming.kind || 'illust',
+            existingItem.typeData || existingItem.pluginData,
+            incoming.typeData || incoming.pluginData,
+            reason
+        );
+        if (result.changed) existingItem.typeData = result.typeData;
+        if (!normalizeQueueCanonicalUrl(existingItem.canonicalUrl)) {
+            const incomingCanonical = queueItemStoredCanonicalUrl(incoming);
+            existingItem.canonicalUrl = incomingCanonical || queueItemCanonicalUrl(existingItem);
+        }
+        let requeued = false;
+        if (result.reprocessExisting
+            && ['completed', 'failed', 'skipped'].includes(String(existingItem.status || ''))) {
+            existingItem.status = state.isRunning ? 'pending' : 'idle';
+            existingItem.lastMessage = '';
+            existingItem.lastMessageParts = null;
+            existingItem.startTime = null;
+            existingItem.endTime = null;
+            requeued = true;
+            if (state.isRunning && typeof ensureWorkers === 'function') ensureWorkers();
+        }
+        return Object.assign({}, result, {requeued});
+    }
+
     function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, defaultAuthorName) {
-        const existing = new Set(state.queue.map(q => q.id));
+        const existing = new Map(state.queue.map(q => [String(q.id), q]));
         let added = 0;
         const meta = metaList || [];
         for (let i = 0; i < idList.length; i++) {
             const id = String(idList[i]);
-            if (existing.has(id)) continue;
             const m = meta[i] || {};
+            const queued = existing.get(id);
+            if (queued) {
+                reconcileQueueItemTypeData(queued, m, 'add');
+                continue;
+            }
             const authorId = normalizeAuthorId(m.authorId ?? defaultAuthorId);
             const authorName = m.authorName || defaultAuthorName || '';
-            const typeData = cloneQueueTypeData(m.typeData || m.pluginData);
-            state.queue.push({
+            const typeData = reconcileQueueTypeData(
+                m.kind || 'illust', null, m.typeData || m.pluginData, 'add'
+            ).typeData;
+            const queueItem = {
                 id,
                 kind: m.kind || 'illust',
                 typeData,
@@ -429,8 +540,11 @@
                 collectionResult: null,
                 ugoiraProgress: null,
                 imageProgress: null
-            });
-            existing.add(id);
+            };
+            queueItem.canonicalUrl = normalizeQueueCanonicalUrl(m.canonicalUrl)
+                || queueItemCanonicalUrl(queueItem);
+            state.queue.push(queueItem);
+            existing.set(id, queueItem);
             added++;
         }
         updateStats();
@@ -444,13 +558,43 @@
         return added;
     }
 
+    function queueItemCanonicalUrl(item) {
+        const kind = String(item && item.kind || 'illust');
+        const fallback = kind === 'illust'
+            ? `https://www.pixiv.net/artworks/${item && item.id != null ? item.id : ''}`
+            : '';
+        const stored = queueItemStoredCanonicalUrl(item);
+        if (stored) return stored;
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const behavior = queueTypes && typeof queueTypes.get === 'function'
+            ? queueTypes.get(kind) : null;
+        if (!behavior || typeof behavior.canonicalUrl !== 'function') return fallback;
+        try {
+            const typeData = cloneQueueTypeData(item && (item.typeData || item.pluginData));
+            const snapshot = Object.freeze(Object.assign({}, item || {}, {typeData}));
+            const value = behavior.canonicalUrl(snapshot);
+            if (value && typeof value.then === 'function') {
+                throw new Error('canonicalUrl must return a synchronous value');
+            }
+            const normalized = normalizeQueueCanonicalUrl(value);
+            return normalized || fallback;
+        } catch (e) {
+            console.warn('[queue] 队列类型规范 URL 解析失败：', item && item.kind, e);
+            return fallback;
+        }
+    }
+
+    function buildQueueExportLines(items) {
+        return (items || []).map(q =>
+            `${queueItemCanonicalUrl(q)} | ${queueItemDisplayTitle(q)}`);
+    }
+
     async function handleExport() {
         if (!state.queue.length) {
             await uiAlertKey('alert.queue-empty', '队列为空');
             return;
         }
-        const lines = state.queue.map(q =>
-            `https://www.pixiv.net/artworks/${q.id} | ${queueItemDisplayTitle(q)}`);
+        const lines = buildQueueExportLines(state.queue);
         downloadTxt(lines.join('\n'), `pixiv_all_list_${Date.now()}.txt`);
         setStatus(bt('status.exported-all', '已导出 {count} 个作品', {count: lines.length}), 'success');
     }
@@ -461,8 +605,7 @@
             await uiAlertKey('alert.no-undownloaded', '没有未下载的作品');
             return;
         }
-        const lines = items.map(q =>
-            `https://www.pixiv.net/artworks/${q.id} | ${queueItemDisplayTitle(q)}`);
+        const lines = buildQueueExportLines(items);
         downloadTxt(lines.join('\n'), `pixiv_undownloaded_list_${Date.now()}.txt`);
         setStatus(
             bt('status.exported-undownloaded', '已导出 {count} 个未下载作品', {count: lines.length}),
@@ -818,4 +961,4 @@
 
 // ---- PixivBatch facade ----
 window.PixivBatch.queue = window.PixivBatch.queue || {};
-window.PixivBatch.queue = Object.assign(window.PixivBatch.queue, { addItemsToQueue, removeFromQueue, syncAllResultsQueueState, renderQueue, buildQueueItemHtml, updateStats, setCurrent, handleExport, handleExportFailed, dedupeQueueItems, queueItemDisplayTitle, renderQueueMessageHtml });
+window.PixivBatch.queue = Object.assign(window.PixivBatch.queue, { addItemsToQueue, removeFromQueue, reconcileQueueItemTypeData, syncAllResultsQueueState, renderQueue, buildQueueItemHtml, updateStats, setCurrent, handleExport, handleExportFailed, dedupeQueueItems, queueItemDisplayTitle, queueItemCanonicalUrl, buildQueueExportLines, renderQueueMessageHtml });

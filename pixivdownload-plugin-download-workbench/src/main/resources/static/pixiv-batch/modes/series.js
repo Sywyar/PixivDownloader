@@ -439,8 +439,19 @@
         const item = seriesState.items[idx];
         if (!item) return;
         const queueId = getSeriesQueueId(item);
+        const meta = buildSeriesQueueMeta(item, idx);
         const alreadyInQueue = state.queue.find(q => q.id === queueId);
         if (alreadyInQueue) {
+            const merged = reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle');
+            if (merged.keepExisting) {
+                if (merged.changed) {
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                }
+                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}), 'info');
+                return;
+            }
             const removed = removeFromQueue(queueId);
             if (removed) {
                 setStatus(bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title}), 'info');
@@ -451,7 +462,7 @@
         }
         const added = addItemsToQueue(
             [queueId],
-            [buildSeriesQueueMeta(item, idx)],
+            [meta],
             seriesQueueSource(),
             ''
         );

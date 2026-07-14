@@ -440,8 +440,19 @@
         const item = searchState.results[idx];
         if (!item) return;
         const queueId = searchQueueId(item);
+        const meta = searchQueueMeta(item);
         const alreadyInQueue = state.queue.find(q => q.id === queueId);
         if (alreadyInQueue) {
+            const merged = reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle');
+            if (merged.keepExisting) {
+                if (merged.changed) {
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                }
+                setStatus(bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}), 'info');
+                return;
+            }
             const removed = removeFromQueue(queueId);
             if (removed) {
                 setStatus(bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title}), 'info');
@@ -450,7 +461,7 @@
             }
             return;
         }
-        const added = addItemsToQueue([queueId], [searchQueueMeta(item)], searchQueueSource(), '');
+        const added = addItemsToQueue([queueId], [meta], searchQueueSource(), '');
         setStatus(added > 0
                 ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title})
                 : bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}),

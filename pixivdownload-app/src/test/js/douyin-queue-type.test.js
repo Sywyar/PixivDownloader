@@ -272,11 +272,45 @@ function ok(label, cond) {
     ok('import.buildItem 生成 Douyin 队列项', item.id === 'd7351234567890123456' && item.kind === 'douyin');
     ok('import.buildItem 保留标题与 URL', item.title === 'Custom title' && /douyin\.com\/video/.test(item.url));
     ok('import.buildItem 写入 typeData.input', item.typeData && /douyin\.com\/video/.test(item.typeData.input));
+    ok('import.buildItem 同步建立单项来源关系列表', item.typeData.sourceRelations.length === 1
+        && item.typeData.sourceRelations[0].sourceType === 'douyin.single');
 
     const collectionMatch = importHook.matchUrl('https://www.douyin.com/collection/12345');
     const collectionItem = importHook.buildItem(collectionMatch, 'Collection title');
     ok('import 支持合集 URL 入队', collectionItem.typeData.seriesId === '12345'
         && collectionItem.typeData.input === 'https://www.douyin.com/collection/12345');
+    ok('import 合集 URL 建立合集来源关系', collectionItem.typeData.sourceRelations.length === 1
+        && collectionItem.typeData.sourceRelations[0].sourceType === 'douyin.collection'
+        && collectionItem.typeData.sourceRelations[0].sourceId === '12345');
+
+    ok('Douyin descriptor 暴露中性的 typeData 合并 hook', typeof descriptor.mergeQueueTypeData === 'function');
+    ok('Douyin descriptor 暴露中性的 canonical URL hook', typeof descriptor.canonicalUrl === 'function');
+    const mergedRelations = descriptor.mergeQueueTypeData(
+        {sourceType: 'douyin.single', sourceId: 'work-1', sourceTitle: 'Work'},
+        {sourceType: 'douyin.collection', sourceId: 'mix-1', sourceUrl: 'https://www.douyin.com/mix/mix-1'}
+    );
+    ok('新来源按首次发现顺序合并并要求重处理现有队列项', mergedRelations.keepExisting === true
+        && mergedRelations.reprocessExisting === true
+        && mergedRelations.typeData.sourceRelations.map(r => r.sourceId).join(',') === 'work-1,mix-1');
+    const sameRelation = descriptor.mergeQueueTypeData(mergedRelations.typeData, {
+        sourceType: 'douyin.collection', sourceId: 'mix-1', sourceTitle: 'Collection'
+    });
+    ok('同 sourceType+sourceId 稳定去重且不改变点击移除语义', sameRelation.keepExisting === false
+        && sameRelation.reprocessExisting === false
+        && sameRelation.typeData.sourceRelations.length === 2
+        && sameRelation.typeData.sourceRelations[1].sourceTitle === 'Collection');
+    const bounded = descriptor.mergeQueueTypeData({
+        sourceRelations: Array.from({length: 70}, (_, index) => ({
+            sourceType: 'douyin.collection', sourceId: 'source-' + index
+        }))
+    }, null).typeData.sourceRelations;
+    ok('sourceRelations 有界且保持稳定顺序', bounded.length === 64
+        && bounded[0].sourceId === 'source-0' && bounded[63].sourceId === 'source-63');
+    ok('canonical URL 优先使用 typeData.input/url',
+        descriptor.canonicalUrl({id: 'd1', typeData: {input: 'https://v.douyin.com/input/'}})
+            === 'https://v.douyin.com/input/'
+        && descriptor.canonicalUrl({id: 'd2', typeData: {url: 'https://www.douyin.com/video/2'}})
+            === 'https://www.douyin.com/video/2');
 
     sandbox.requests.length = 0;
     await sandbox.window.__testDouyinFetchJson('/api/douyin/quick/public?page=1&pageSize=24', {
@@ -304,7 +338,17 @@ function ok(label, cond) {
         id: 'dshort-XUyPmdu7naU',
         kind: 'douyin',
         title: 'Queued short',
-        typeData: {input: 'https://v.douyin.com/XUyPmdu7naU/'}
+        typeData: {
+            input: 'https://v.douyin.com/XUyPmdu7naU/',
+            sourceType: 'douyin.single',
+            sourceId: 'short-XUyPmdu7naU',
+            sourceRelations: [
+                {sourceType: 'douyin.single', sourceId: 'short-XUyPmdu7naU', sourceTitle: 'Short'},
+                {sourceType: 'douyin.collection', sourceId: 'mix-1', sourceOrder: 3},
+                {sourceType: 'douyin.single', sourceId: 'short-XUyPmdu7naU',
+                    sourceUrl: 'https://v.douyin.com/XUyPmdu7naU/'}
+            ]
+        }
     });
     const typedRequest = sandbox.requests.find(req => req.url.includes('/api/douyin/download'));
     const typedBody = JSON.parse(typedRequest.options.body);
@@ -314,6 +358,41 @@ function ok(label, cond) {
         typedRequest.options.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf'));
     ok('process(item) 不把 Douyin Cookie 写入 JSON 请求体',
         typedBody.cookie === null);
+    ok('process(item) 向后端发送保序去重后的全部来源关系', typedBody.sourceRelations.length === 2
+        && typedBody.sourceRelations[0].sourceId === 'short-XUyPmdu7naU'
+        && typedBody.sourceRelations[0].sourceUrl === 'https://v.douyin.com/XUyPmdu7naU/'
+        && typedBody.sourceRelations[1].sourceId === 'mix-1');
+
+    sandbox.requests.length = 0;
+    const inflightItem = {
+        id: 'd7351234567890123456', kind: 'douyin', title: 'In-flight relation merge',
+        typeData: {
+            input: 'https://www.douyin.com/video/7351234567890123456',
+            sourceType: 'douyin.single', sourceId: 'source-a'
+        }
+    };
+    let relationInjected = false;
+    sandbox.sleep = () => {
+        if (!relationInjected) {
+            const merged = descriptor.mergeQueueTypeData(inflightItem.typeData, {
+                sourceType: 'douyin.collection', sourceId: 'source-b'
+            });
+            inflightItem.typeData = merged.typeData;
+            relationInjected = true;
+        }
+        return Promise.resolve();
+    };
+    await descriptor.process(inflightItem);
+    sandbox.sleep = () => Promise.resolve();
+    const inflightRequests = sandbox.requests.filter(req => req.url.includes('/api/douyin/download'));
+    const firstInflightBody = JSON.parse(inflightRequests[0].options.body);
+    const secondInflightBody = JSON.parse(inflightRequests[1].options.body);
+    ok('下载进行中新增来源会在首次完成后再次 POST', inflightRequests.length === 2
+        && firstInflightBody.sourceRelations.length === 1
+        && secondInflightBody.sourceRelations.length === 2);
+    ok('重处理直到来源 fingerprint 稳定后才进入 completed', inflightItem.status === 'completed'
+        && secondInflightBody.sourceRelations.map(relation => relation.sourceId).join(',')
+            === 'source-a,source-b');
 
     sandbox.requests.length = 0;
     sandbox.localStorage.setItem('pixiv_cookie_fmt', 'json');
