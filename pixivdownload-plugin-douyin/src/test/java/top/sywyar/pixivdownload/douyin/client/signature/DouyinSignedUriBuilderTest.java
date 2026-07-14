@@ -65,6 +65,34 @@ class DouyinSignedUriBuilderTest {
     }
 
     @Test
+    @DisplayName("无签名请求保留完整参数与同一 msToken 凭证")
+    void buildsUnsignedRequestWithoutCallingSigners() {
+        AtomicInteger aBogusCalls = new AtomicInteger();
+        AtomicInteger xBogusCalls = new AtomicInteger();
+        var builder = new DouyinSignedUriBuilder(
+                query -> {
+                    aBogusCalls.incrementAndGet();
+                    return query + "&a_bogus=unexpected";
+                },
+                url -> {
+                    xBogusCalls.incrementAndGet();
+                    return URI.create(url + "&X-Bogus=unexpected");
+                });
+
+        var request = builder.unsignedRequest(
+                "/aweme/v1/web/general/search/single/",
+                Map.of("keyword", "猫 图", "offset", 0),
+                "ttwid=tt; msToken=fromCookie");
+
+        assertThat(request.uri().getRawQuery())
+                .contains("keyword=%E7%8C%AB+%E5%9B%BE", "offset=0", "msToken=fromCookie")
+                .doesNotContain("a_bogus=", "X-Bogus=");
+        assertThat(request.cookie()).isEqualTo("ttwid=tt; msToken=fromCookie");
+        assertThat(aBogusCalls).hasValue(0);
+        assertThat(xBogusCalls).hasValue(0);
+    }
+
+    @Test
     @DisplayName("签名覆盖最终编码后的完整查询参数")
     void signsFinalEncodedQuery() {
         var uri = new DouyinSignedUriBuilder().api(

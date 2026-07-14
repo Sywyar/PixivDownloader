@@ -656,7 +656,8 @@ class DefaultDouyinClientParserTest {
                     "keyword=%E7%8C%AB",
                     "sort_type=0",
                     "publish_time=0",
-                    "offset=24");
+                    "offset=24")
+                    .doesNotContain("a_bogus=", "X-Bogus=");
         });
     }
 
@@ -686,6 +687,20 @@ class DefaultDouyinClientParserTest {
 
         assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"),
                 "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("关键词搜索 verify_check 空结果明确报告验证拦截")
+    void rejectsSearchNilVerifyCheckAsRiskResponse() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":0,"data":[],
+                 "search_nil_info":{"search_nil_type":"verify_check",
+                 "search_nil_item":"verify_check","text_type":9}}
+                """);
+
+        assertCodeName(() -> client(rest).searchWorksPage("猫", "0", 24, "sessionid=test"),
+                "LOGIN_OR_VERIFY_PAGE");
     }
 
     @Test
@@ -842,18 +857,18 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
-    @DisplayName("空响应会按 1 秒和 2 秒间隔重新签名并在第三次成功")
-    void retriesEmptyApiResponsesWithFreshSignatures() throws Exception {
+    @DisplayName("空响应会按 1 秒和 2 秒间隔重建无签名请求并在第三次成功")
+    void retriesEmptyApiResponsesWithFreshUnsignedRequests() throws Exception {
         FakeRestTemplate rest = new FakeRestTemplate();
         rest.enqueue(200, "");
         rest.enqueue(200, "");
         rest.enqueue(200, "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"data\":[]}");
         DouyinUrlParser parser = new DouyinUrlParser();
-        java.util.concurrent.atomic.AtomicInteger signatures = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
         DouyinSignedUriBuilder signer = new DouyinSignedUriBuilder() {
             @Override
-            public SignedRequest request(String path, java.util.Map<String, ?> params, String cookie) {
-                int attempt = signatures.incrementAndGet();
+            public SignedRequest unsignedRequest(String path, java.util.Map<String, ?> params, String cookie) {
+                int attempt = requests.incrementAndGet();
                 return new SignedRequest(URI.create("https://www.douyin.com" + path + "?attempt=" + attempt),
                         cookie);
             }
@@ -865,7 +880,7 @@ class DefaultDouyinClientParserTest {
         var listing = client.searchWorksPage("猫", "0", 24, "sessionid=test");
 
         assertThat(listing.items()).isEmpty();
-        assertThat(signatures).hasValue(3);
+        assertThat(requests).hasValue(3);
         assertThat(rest.requests()).extracting(URI::getRawQuery)
                 .containsExactly("attempt=1", "attempt=2", "attempt=3");
         assertThat(delays).containsExactly(1_000L, 2_000L);

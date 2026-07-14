@@ -76,6 +76,33 @@ class DouyinErrorClassifierTest {
     }
 
     @Test
+    @DisplayName("搜索空结果中的 verify_check 明确映射为验证拦截")
+    void classifiesSearchNilVerifyCheck() {
+        ObjectNode root = status(0, null);
+        root.putArray("data");
+        root.putObject("search_nil_info")
+                .put("search_nil_type", "verify_check")
+                .put("search_nil_item", "verify_check")
+                .put("text_type", 9);
+
+        assertThat(DouyinErrorClassifier.classifyJsonStatus(root))
+                .isEqualTo(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE);
+    }
+
+    @Test
+    @DisplayName("搜索内容限制信息不冒充验证拦截")
+    void keepsNonVerifySearchNilInfoUnclassified() {
+        ObjectNode root = status(0, null);
+        root.putArray("data");
+        root.putObject("search_nil_info")
+                .put("search_nil_type", "content_limit")
+                .put("search_nil_item", "hit_self_harm")
+                .put("text_type", 11);
+
+        assertThat(DouyinErrorClassifier.classifyJsonStatus(root)).isNull();
+    }
+
+    @Test
     @DisplayName("验证码、地区和权限错误优先于限流特征")
     void preservesSpecificErrorPriority() {
         assertThat(DouyinErrorClassifier.classifyJsonStatus(

@@ -89,7 +89,8 @@ public final class DouyinErrorClassifier {
             return null;
         }
         int status = root.path("status_code").asInt(0);
-        String message = statusText(root, "status_msg", "message", "prompts", "log_pb");
+        String message = statusText(root,
+                "status_msg", "message", "prompts", "log_pb", "search_nil_info");
         if (status == 0 && (message == null || !looksLikeLoginOrRiskText(message))) {
             return null;
         }

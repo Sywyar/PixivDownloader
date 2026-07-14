@@ -1007,8 +1007,10 @@ public class DefaultDouyinClient implements DouyinClient {
             throws DouyinClientException {
         RetryableApiRequestException lastFailure = null;
         for (int attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
-            DouyinSignedUriBuilder.SignedRequest request =
-                    signedUriBuilder.request(path, endpointParams, cookie);
+            DouyinEndpointRequestPolicy policy = DouyinEndpointRequestPolicy.forPath(path);
+            DouyinSignedUriBuilder.SignedRequest request = policy.requiresSignature()
+                    ? signedUriBuilder.request(path, endpointParams, cookie)
+                    : signedUriBuilder.unsignedRequest(path, endpointParams, cookie);
             try {
                 return fetchJson(request.uri(), request.cookie());
             } catch (RetryableApiRequestException error) {

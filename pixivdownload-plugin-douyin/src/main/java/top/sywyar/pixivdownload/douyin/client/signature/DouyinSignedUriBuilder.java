@@ -62,6 +62,11 @@ public class DouyinSignedUriBuilder {
         return new SignedRequest(signed, requestCookie);
     }
 
+    public SignedRequest unsignedRequest(String path, Map<String, ?> endpointParams, String cookie) {
+        String requestCookie = requestCookie(cookie);
+        return new SignedRequest(apiUriBuilder.api(path, endpointParams, requestCookie), requestCookie);
+    }
+
     private String requestCookie(String cookie) {
         String normalized = cookie == null ? "" : cookie.trim();
         var existing = DouyinMsToken.fromCookie(normalized);
