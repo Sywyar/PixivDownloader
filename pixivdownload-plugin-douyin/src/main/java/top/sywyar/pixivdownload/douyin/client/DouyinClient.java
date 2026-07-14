@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.douyin.client;
 
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalDownload;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 
@@ -48,6 +51,31 @@ public interface DouyinClient {
                                              int limit,
                                              String cookie) throws DouyinClientException {
         throw unsupported("Douyin music listing is not available");
+    }
+
+    default DouyinAccount resolveAccount(String cookie) throws DouyinClientException {
+        throw unsupported("Douyin account identity is not available");
+    }
+
+    default DouyinListing listAccountWorksPage(DouyinAccountSource source,
+                                               String cursor,
+                                               int limit,
+                                               String cookie) throws DouyinClientException {
+        throw unsupported("Douyin account source is not available");
+    }
+
+    default DouyinListing listAccountWorksPage(DouyinAccount account,
+                                               DouyinAccountSource source,
+                                               String cursor,
+                                               int limit,
+                                               String cookie) throws DouyinClientException {
+        return listAccountWorksPage(source, cursor, limit, cookie);
+    }
+
+    default DouyinCollectionListing listFavoriteCollections(String cursor,
+                                                             int limit,
+                                                             String cookie) throws DouyinClientException {
+        throw unsupported("Douyin favorite collections are not available");
     }
 
     private static DouyinClientException unsupported(String message) {

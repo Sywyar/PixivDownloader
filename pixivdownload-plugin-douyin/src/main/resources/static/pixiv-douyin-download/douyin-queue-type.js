@@ -2,7 +2,9 @@
 (function () {
 /* global BASE, bt, esc, state, sleep, setCurrent, renderQueue, updateStats, saveQueue, setStatus,
           addUserItemToQueue, addSearchItemToQueue, addSeriesItemToQueue, quickLoad, quickToggleItemQueue,
-          quickState, quickSetTitle, quickShowToolbar, quickRenderOuterWorks, renderQuickPagination */
+          quickState, quickSetTitle, quickShowToolbar, quickRenderOuterWorks, renderQuickPagination,
+          renderQuickCollectionGrid, updateExtraFiltersCardVisibility, updateSaveScheduleCardVisibility,
+          applyNovelSettingsVisibility, loadQuickMyWorks, invalidateQuickAccount */
 
 let _activationContext = null;
 let _douyinTimer = null;
@@ -201,6 +203,9 @@ function douyinSafeId(value) {
 
 function douyinParseInput(text) {
     const raw = String(text || '').trim();
+    if (/^\d{5,}$/.test(raw)) {
+        return {kind: 'single', id: raw, workId: raw, url: `https://www.douyin.com/video/${raw}`};
+    }
     const url = douyinExtractUrl(raw) || raw;
     let parsed;
     try {
@@ -548,7 +553,7 @@ function douyinCardHtml(item, idx, ctx) {
     return `<div class="search-thumb${inQueue ? ' in-queue' : ''}" id="${cardId}" data-douyin-idx="${idx}"
                  title="${esc(title)} (${esc(author)})">
       <div class="thumb-title">${esc(title)}</div>
-      <div class="thumb-title" style="font-size:12px;color:var(--muted,#888);">${esc(author || item.id || '')}</div>
+      <div class="thumb-title" style="font-size:12px;color:var(--muted);">${esc(author || item.id || '')}</div>
       <span class="thumb-in-queue-mark">✓</span>
     </div>`;
 }
@@ -592,6 +597,73 @@ function renderDouyinSeriesResults(area, ctx) {
     });
 }
 
+const douyinQuickCursors = new Map();
+
+function douyinAssertQuickActionContext(context) {
+    if (!context) return;
+    if (typeof context.assertCurrent === 'function') context.assertCurrent();
+    if (typeof context.isCurrent === 'function' && !context.isCurrent()) {
+        throw new Error(douyinText('error.stale-request', 'This quick action is no longer active'));
+    }
+}
+
+function douyinQuickFetchJson(path, operation) {
+    if (typeof quickFetchJson === 'function') {
+        return quickFetchJson(path, 'douyin', operation || 'quick');
+    }
+    // 独立 contract smoke 环境没有宿主 quick 脚本；浏览器运行态始终走上面的受控取得门。
+    return douyinFetchJson(path);
+}
+
+async function loadQuickDouyinAccount(source, sourceType, titleKey, titleFallback, page, context) {
+    douyinAssertQuickActionContext(context);
+    const safePage = Math.max(1, Number(page) || 1);
+    if (safePage === 1) {
+        Array.from(douyinQuickCursors.keys())
+            .filter(key => key.startsWith(`${source}:`))
+            .forEach(key => douyinQuickCursors.delete(key));
+    }
+    const cursorKey = `${source}:${safePage}`;
+    const cursor = safePage === 1 ? '0' : douyinQuickCursors.get(cursorKey);
+    if (cursor == null) {
+        throw new Error(douyinText('error.pagination-stalled', 'The Douyin cursor for this page is no longer available'));
+    }
+    const data = await douyinQuickFetchJson(
+        `/api/douyin/me/${encodeURIComponent(source)}?cursor=${encodeURIComponent(cursor)}&pageSize=${DOUYIN_PAGE_SIZE}`);
+    douyinAssertQuickActionContext(context);
+    const items = Array.isArray(data.items) ? data.items : [];
+    const nextCursor = data.nextCursor == null ? '' : String(data.nextCursor);
+    if (data.hasMore && (!nextCursor || nextCursor === String(cursor))) {
+        throw new Error(douyinText('error.pagination-stalled', 'The Douyin cursor did not advance'));
+    }
+    const accountId = quickState.accountOwner === 'douyin' ? quickState.uid : null;
+    items.forEach((item, index) => {
+        item.sourceType = sourceType;
+        item.sourceId = accountId || source;
+        item.sourceTitle = '';
+        item.sourceUrl = `/api/douyin/me/${source}`;
+        item.sourceOrder = (safePage - 1) * DOUYIN_PAGE_SIZE + index;
+    });
+    const offset = (safePage - 1) * DOUYIN_PAGE_SIZE;
+    const reportedTotal = Number(data.total);
+    const minimumTotal = offset + items.length + (data.hasMore ? 1 : 0);
+    quickState.rawItems = items;
+    const previousTotal = Number(quickState.total);
+    quickState.total = Math.max(Number.isFinite(previousTotal) ? previousTotal : 0,
+        Number.isFinite(reportedTotal) && reportedTotal >= 0
+            ? Math.max(Math.floor(reportedTotal), minimumTotal) : minimumTotal);
+    quickState.offset = offset;
+    quickState.page = safePage;
+    quickSetTitle(`${douyinText(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} items', {count: quickState.total.toLocaleString()})}`);
+    quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
+    await quickRenderOuterWorks();
+    douyinAssertQuickActionContext(context);
+    if (data.hasMore) douyinQuickCursors.set(`${source}:${safePage + 1}`, nextCursor);
+    const totalPages = Math.max(safePage, data.hasMore ? safePage + 1 : safePage);
+    renderQuickPagination(safePage, totalPages,
+        p => loadQuickDouyinAccount(source, sourceType, titleKey, titleFallback, p, context));
+}
+
 function douyinUserWorksPageEndpoint(userId, context) {
     const params = new URLSearchParams();
     params.set('offset', String(context.offset));
@@ -601,17 +673,56 @@ function douyinUserWorksPageEndpoint(userId, context) {
     return `/api/douyin/user/${encodeURIComponent(userId)}/works/ids?${params}`;
 }
 
-async function loadQuickDouyinPublic(page) {
-    const data = await douyinFetchJson(`/api/douyin/quick/public?page=${encodeURIComponent(page)}&pageSize=${DOUYIN_PAGE_SIZE}`);
-    quickState.rawItems = data.items || [];
-    quickState.total = data.total || quickState.rawItems.length;
-    quickState.offset = (page - 1) * DOUYIN_PAGE_SIZE;
-    quickState.page = page;
-    quickSetTitle(`${douyinText('quick.public', 'Douyin public')} · ${bt('quick.title.count', '{count} items', {count: quickState.total.toLocaleString()})}`);
-    quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
-    await quickRenderOuterWorks();
-    renderQuickPagination(page, Math.max(1, Math.ceil(quickState.total / DOUYIN_PAGE_SIZE)),
-        p => loadQuickDouyinPublic(p));
+function douyinFavoriteCollectionsEndpoint(cursor, pageSize) {
+    return `/api/douyin/me/favorite-collections?cursor=${encodeURIComponent(cursor)}&pageSize=${pageSize}`;
+}
+
+function douyinFavoriteCollectionWorksEndpoint(collectionId, context) {
+    const params = new URLSearchParams();
+    params.set('cursor', String(context.cursor == null ? '0' : context.cursor));
+    params.set('pageSize', String(context.limit));
+    return `/api/douyin/me/favorite-collections/${encodeURIComponent(collectionId)}/works?${params}`;
+}
+
+async function loadQuickDouyinFavoriteCollections(page, context) {
+    douyinAssertQuickActionContext(context);
+    const source = 'favorite-collections';
+    const safePage = Math.max(1, Number(page) || 1);
+    if (safePage === 1) {
+        Array.from(douyinQuickCursors.keys())
+            .filter(key => key.startsWith(`${source}:`))
+            .forEach(key => douyinQuickCursors.delete(key));
+    }
+    const cursor = safePage === 1 ? '0' : douyinQuickCursors.get(`${source}:${safePage}`);
+    if (cursor == null) {
+        throw new Error(douyinText('error.pagination-stalled', 'The Douyin cursor for this page is no longer available'));
+    }
+    const data = await douyinQuickFetchJson(douyinFavoriteCollectionsEndpoint(cursor, DOUYIN_PAGE_SIZE));
+    douyinAssertQuickActionContext(context);
+    const collections = Array.isArray(data.collections) ? data.collections : [];
+    const nextCursor = data.nextCursor == null ? '' : String(data.nextCursor);
+    if (data.hasMore && (!nextCursor || nextCursor === String(cursor))) {
+        throw new Error(douyinText('error.pagination-stalled', 'The Douyin collection cursor did not advance'));
+    }
+    if (data.hasMore) douyinQuickCursors.set(`${source}:${safePage + 1}`, nextCursor);
+    const offset = (safePage - 1) * DOUYIN_PAGE_SIZE;
+    const reportedTotal = Number(data.total);
+    const minimumTotal = offset + collections.length + (data.hasMore ? 1 : 0);
+    quickState.items = collections;
+    const previousTotal = Number(quickState.total);
+    quickState.total = Math.max(Number.isFinite(previousTotal) ? previousTotal : 0,
+        Number.isFinite(reportedTotal) && reportedTotal >= 0
+            ? Math.max(Math.floor(reportedTotal), minimumTotal) : minimumTotal);
+    quickState.offset = offset;
+    quickState.page = safePage;
+    quickSetTitle(`${douyinText('quick.favorite-collections', 'Favorite collections')} · ${bt('quick.title.count', '{count} items', {count: quickState.total.toLocaleString()})}`);
+    quickShowToolbar({showAdd: false, showSearch: false});
+    renderQuickCollectionGrid(quickState.items);
+    const totalPages = Math.max(safePage, data.hasMore ? safePage + 1 : safePage);
+    renderQuickPagination(safePage, totalPages, p => loadQuickDouyinFavoriteCollections(p, context));
+    updateExtraFiltersCardVisibility();
+    updateSaveScheduleCardVisibility();
+    applyNovelSettingsVisibility();
 }
 
 function renderQuickDouyinGrid(items, idPrefix, summaryHtml) {
@@ -625,6 +736,18 @@ function renderQuickDouyinGrid(items, idPrefix, summaryHtml) {
     });
 }
 
+function douyinQuickInnerCard(item, idx, inQueue) {
+    const queueId = douyinQueueId(item);
+    const title = item.title || douyinText('queue.fallback', 'Douyin {id}', {id: item.id});
+    const author = item.userName || item.authorName || '';
+    return `<div class="search-thumb${inQueue.has(queueId) ? ' in-queue' : ''}" id="quick-inner-card-${idx}"
+                 onclick="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(author)})">
+      <div class="thumb-title">${esc(title)}</div>
+      <div class="thumb-title" style="font-size:12px;color:var(--muted);">${esc(author || item.id || '')}</div>
+      <span class="thumb-in-queue-mark">✓</span>
+    </div>`;
+}
+
 const DOUYIN_SLOTS = {
     'kind-option-user':
         '<label data-kind="douyin"><input type="radio" name="user-kind" value="douyin">' +
@@ -632,6 +755,19 @@ const DOUYIN_SLOTS = {
     'kind-option-search':
         '<label data-kind="douyin"><input type="radio" name="search-kind" value="douyin">' +
         '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
+    'kind-option-quick':
+        '<label data-quick-kind="douyin"><input type="radio" name="quick-inner-kind" value="douyin">' +
+        '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
+    'quick-actions-bookmarks':
+        '<button type="button" class="btn btn-blue quick-action" data-quick="douyin-liked" onclick="quickLoad(\'douyin-liked\')" ' +
+        'data-i18n="douyin:quick.liked">Liked works</button>' +
+        '<button type="button" class="btn btn-purple quick-action" data-quick="douyin-favorites" onclick="quickLoad(\'douyin-favorites\')" ' +
+        'data-i18n="douyin:quick.favorites">Favorite works</button>' +
+        '<button type="button" class="btn btn-yellow quick-action" data-quick="douyin-favorite-collections" onclick="quickLoad(\'douyin-favorite-collections\')" ' +
+        'data-i18n="douyin:quick.favorite-collections">Favorite collections</button>',
+    'quick-actions-mine':
+        '<button type="button" class="btn btn-green quick-action" data-quick="douyin-own-works" onclick="quickLoad(\'douyin-own-works\')" ' +
+        'data-i18n="douyin:quick.own-works">My works</button>',
     'import-hint':
         '<div><span data-i18n="douyin:import.example">Douyin URL: https://www.douyin.com/video/...</span></div>',
     'cookie-tools':
@@ -682,6 +818,9 @@ function hydrateDouyinCookieSettings() {
                 }
                 douyinSetStoredCookieRaw(raw);
                 douyinUpdateCookieStatus(true, header);
+                if (typeof invalidateQuickAccount === 'function') invalidateQuickAccount('douyin');
+                if (typeof applyQuickActionCredentialUi === 'function') applyQuickActionCredentialUi();
+                if (typeof updateQuickAccountBar === 'function') updateQuickAccountBar('douyin');
             });
         }
         const validate = document.getElementById('douyin-cookie-validate');
@@ -694,6 +833,9 @@ function hydrateDouyinCookieSettings() {
                 input.value = '';
                 douyinRemoveStoredCookieRaw();
                 douyinUpdateCookieStatus(false, '');
+                if (typeof invalidateQuickAccount === 'function') invalidateQuickAccount('douyin');
+                if (typeof applyQuickActionCredentialUi === 'function') applyQuickActionCredentialUi();
+                if (typeof updateQuickAccountBar === 'function') updateQuickAccountBar('douyin');
             });
         }
     }
@@ -702,6 +844,7 @@ function hydrateDouyinCookieSettings() {
 
 function hydrateDouyinUi() {
     hydrateDouyinCookieSettings();
+    if (typeof applyQuickActionCredentialUi === 'function') applyQuickActionCredentialUi();
 }
 
 const DOUYIN_DESCRIPTOR = {
@@ -869,6 +1012,122 @@ const DOUYIN_DESCRIPTOR = {
                 });
                 return meta;
             }
+        },
+        quick: {
+            pageSize: DOUYIN_PAGE_SIZE,
+            initialCursor: '0',
+            skipThumbnail: true,
+            requestInit() {
+                return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
+            },
+            account: {
+                credentialMissing() { return !douyinValidateCookie(douyinCookie()).ok; },
+                missingHint() { return douyinText('quick.cookie-required', 'Save a valid Douyin Cookie first'); },
+                buildRequest() { return {endpoint: '/api/douyin/me'}; },
+                readId(data) { return data && data.accountKey; }
+            },
+            buildMyWorksIdsRequest() { return {endpoint: '/api/douyin/me/works/ids'}; },
+            buildUserPageRequest(userId, context) {
+                return {endpoint: douyinUserWorksPageEndpoint(userId, context)};
+            },
+            buildCardsRequest(userId, ids) {
+                const params = new URLSearchParams();
+                (ids || []).forEach(id => params.append('ids', id));
+                return {endpoint: `/api/douyin/user/${encodeURIComponent(userId)}/works/cards?${params}`};
+            },
+            myWorksTitleKey: 'douyin:quick.own-works',
+            queueId: douyinQueueId,
+            gridCardId(idPrefix, idx) { return douyinCardId(idPrefix, idx); },
+            render: renderQuickDouyinGrid,
+            innerCardHtml: douyinQuickInnerCard,
+            buildQueueMeta(item, context) {
+                const ctx = context && typeof context === 'object' ? context : {};
+                const inner = ctx.inner && typeof ctx.inner === 'object' ? ctx.inner : null;
+                const action = ctx.action || quickState.action || '';
+                const ownWorksAccountId = ctx.accountOwner === 'douyin' && ctx.accountId
+                    ? String(ctx.accountId) : 'own-works';
+                const source = inner && inner.type === 'following-user' && inner.userId
+                    ? ['douyin.user', inner.userId, inner.name || inner.userId,
+                        'https://www.douyin.com/user/' + encodeURIComponent(inner.userId)]
+                    : inner && inner.type === 'collection' && inner.id
+                        ? ['douyin.account.favorite-collection', inner.id, inner.name || inner.id,
+                            '/api/douyin/me/favorite-collections/' + encodeURIComponent(inner.id) + '/works']
+                        : action === 'douyin-liked'
+                    ? ['douyin.account.liked-works', 'liked']
+                    : action === 'douyin-favorites'
+                        ? ['douyin.account.favorite-works', 'favorites']
+                        : action === 'douyin-favorite-collections'
+                            ? ['douyin.account.favorite-collection', item.collectionId || 'collection']
+                            : ['douyin.account.own-works', ownWorksAccountId];
+                return douyinQueueMeta(Object.assign({}, item, {
+                    sourceType: item.sourceType || source[0],
+                    sourceId: item.sourceId || source[1],
+                    sourceTitle: item.sourceTitle || source[2] || '',
+                    sourceUrl: item.sourceUrl || source[3] || null,
+                    sourceOrder: item.sourceOrder
+                }));
+            },
+            buildQueueMetaFromId(id, context) {
+                const ctx = context && typeof context === 'object' ? context : {};
+                const sourceId = ctx.accountOwner === 'douyin' && ctx.accountId
+                    ? String(ctx.accountId) : 'own-works';
+                return {
+                    kind: 'douyin',
+                    typeData: douyinNormalizeQueueTypeData({
+                        input: String(id), douyinId: String(id),
+                        sourceType: 'douyin.account.own-works', sourceId
+                    })
+                };
+            },
+            actions: {
+                'douyin-own-works': {
+                    viewType: 'works-list', kind: 'douyin', sourceType: 'douyin.account.own-works',
+                    allIdsFastPath: true,
+                    load(_action, context) {
+                        douyinAssertQuickActionContext(context);
+                        return loadQuickMyWorks('douyin', 1, context);
+                    }
+                },
+                'douyin-liked': {
+                    viewType: 'works-list', kind: 'douyin', sourceType: 'douyin.account.liked-works',
+                    cursorPaging: true, initialCursor: '0',
+                    buildPageRequest(context = {}) {
+                        const cursor = context.cursor == null ? '0' : String(context.cursor);
+                        const pageSize = Number(context.limit) || DOUYIN_PAGE_SIZE;
+                        return {endpoint: `/api/douyin/me/liked?cursor=${encodeURIComponent(cursor)}&pageSize=${pageSize}`};
+                    },
+                    load(_action, context) {
+                        return loadQuickDouyinAccount('liked', 'douyin.account.liked-works',
+                            'quick.liked', 'Liked works', 1, context);
+                    }
+                },
+                'douyin-favorites': {
+                    viewType: 'works-list', kind: 'douyin', sourceType: 'douyin.account.favorite-works',
+                    cursorPaging: true, initialCursor: '0',
+                    buildPageRequest(context = {}) {
+                        const cursor = context.cursor == null ? '0' : String(context.cursor);
+                        const pageSize = Number(context.limit) || DOUYIN_PAGE_SIZE;
+                        return {endpoint: `/api/douyin/me/favorites?cursor=${encodeURIComponent(cursor)}&pageSize=${pageSize}`};
+                    },
+                    load(_action, context) {
+                        return loadQuickDouyinAccount('favorites', 'douyin.account.favorite-works',
+                            'quick.favorites', 'Favorite works', 1, context);
+                    }
+                },
+                'douyin-favorite-collections': {
+                    viewType: 'collection-list', kind: 'douyin', sourceType: 'douyin.account.favorite-collection',
+                    initialCursor: '0',
+                    buildPageRequest(context = {}) {
+                        const cursor = context.cursor == null ? '0' : String(context.cursor);
+                        const pageSize = Number(context.limit) || DOUYIN_PAGE_SIZE;
+                        return {endpoint: douyinFavoriteCollectionsEndpoint(cursor, pageSize)};
+                    },
+                    buildCollectionWorksPageRequest(collectionId, context) {
+                        return {endpoint: douyinFavoriteCollectionWorksEndpoint(collectionId, context)};
+                    },
+                    load(_action, context) { return loadQuickDouyinFavoriteCollections(1, context); }
+                }
+            }
         }
     }
 };
@@ -880,7 +1139,9 @@ if (window.PixivBatch && window.PixivBatch.queueTypes) {
         bindDouyinEvent(window, 'pixivbatch:slotsrendered', hydrateDouyinUi);
         bindDouyinEvent(window, 'pixivbatch:storageloaded', hydrateDouyinCookieSettings);
         bindDouyinEvent(window, 'pixivbatch:cookieformatchanged', () => {
+            if (typeof invalidateQuickAccount === 'function') invalidateQuickAccount('douyin');
             douyinUpdateCookieStatus(false, douyinCookieInputHeaderString());
+            if (typeof updateQuickAccountBar === 'function') updateQuickAccountBar('douyin');
         });
         _douyinTimer = setTimeout(hydrateDouyinUi, 0);
         return {

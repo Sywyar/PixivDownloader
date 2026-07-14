@@ -16,6 +16,10 @@ import top.sywyar.pixivdownload.douyin.db.history.DouyinSourceRelation;
 import top.sywyar.pixivdownload.douyin.download.work.DouyinWorkDownloadExecutor;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalDownload;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionSummary;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadPhase;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadSnapshot;
@@ -315,9 +319,24 @@ public class DouyinDownloadService {
                 listing.nextCursor(), listing.hasMore());
     }
 
-    public DouyinListing quickPublic(int page, int pageSize, String cookie) throws DouyinClientException {
+    public DouyinAccount resolveAccount(String cookie) throws DouyinClientException {
         DouyinCookieValidator.ensureUsable(cookie);
-        return currentRuntime().client().searchPublic("", Math.max(1, page), positiveLimit(pageSize), cookie);
+        return currentRuntime().client().resolveAccount(cookie);
+    }
+
+    public DouyinListing listAccountWorksPage(DouyinAccountSource source,
+                                              String cursor,
+                                              int pageSize,
+                                              String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client().listAccountWorksPage(source, cursor, positiveLimit(pageSize), cookie);
+    }
+
+    public DouyinCollectionListing listFavoriteCollections(String cursor,
+                                                            int pageSize,
+                                                            String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client().listFavoriteCollections(cursor, positiveLimit(pageSize), cookie);
     }
 
     public DouyinListing listSeriesWorksPage(String seriesId,
@@ -326,6 +345,45 @@ public class DouyinDownloadService {
                                              String cookie) throws DouyinClientException {
         DouyinCookieValidator.ensureUsable(cookie);
         return currentRuntime().client().listSeriesWorksPage(seriesId, cursor, positiveLimit(pageSize), cookie);
+    }
+
+    public List<String> listAllAccountWorkIds(DouyinAccountSource source,
+                                              String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        DouyinClient client = currentRuntime().client();
+        DouyinAccount account = client.resolveAccount(cookie);
+        return collectAllIds((cursor, count) -> client
+                .listAccountWorksPage(account, source, cursor, count, cookie));
+    }
+
+    public List<DouyinWork> listAllSeriesWorks(String seriesId, String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return collectAllWorks((cursor, count) -> currentRuntime().client()
+                .listSeriesWorksPage(seriesId, cursor, count, cookie));
+    }
+
+    public List<DouyinCollectionSummary> listAllFavoriteCollections(String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        LinkedHashMap<String, DouyinCollectionSummary> items = new LinkedHashMap<>();
+        LinkedHashSet<String> cursors = new LinkedHashSet<>();
+        String cursor = "0";
+        for (int page = 0; page < 1_000; page++) {
+            if (!cursors.add(cursor)) {
+                throw paginationStalled("Douyin favorite collection pagination did not advance");
+            }
+            DouyinCollectionListing listing = currentRuntime().client()
+                    .listFavoriteCollections(cursor, 50, cookie);
+            listing.items().forEach(item -> items.putIfAbsent(item.id(), item));
+            if (!listing.hasMore()) {
+                return List.copyOf(items.values());
+            }
+            String next = listing.nextCursor();
+            if (next == null || next.isBlank() || cursor.equals(next.trim())) {
+                throw paginationStalled("Douyin favorite collection pagination did not advance");
+            }
+            cursor = next.trim();
+        }
+        throw paginationStalled("Douyin favorite collection pagination exceeded the safety page limit");
     }
 
     private static List<String> collectAllIds(CursorListingFetcher fetcher) throws DouyinClientException {
@@ -356,6 +414,31 @@ public class DouyinDownloadService {
         }
         throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
                 "Douyin user pagination exceeded the safety page limit");
+    }
+
+    private static List<DouyinWork> collectAllWorks(CursorListingFetcher fetcher) throws DouyinClientException {
+        LinkedHashMap<String, DouyinWork> works = new LinkedHashMap<>();
+        LinkedHashSet<String> cursors = new LinkedHashSet<>();
+        String cursor = "0";
+        for (int page = 0; page < 1_000; page++) {
+            if (!cursors.add(cursor)) {
+                throw paginationStalled("Douyin work pagination did not advance");
+            }
+            DouyinListing listing = fetcher.fetch(cursor, 50);
+            listing.items().stream()
+                    .filter(java.util.Objects::nonNull)
+                    .filter(work -> work.id() != null && !work.id().isBlank())
+                    .forEach(work -> works.putIfAbsent(work.id(), work));
+            if (!listing.hasMore()) {
+                return List.copyOf(works.values());
+            }
+            String next = listing.nextCursor();
+            if (next == null || next.isBlank() || cursor.equals(next.trim())) {
+                throw paginationStalled("Douyin work pagination did not advance");
+            }
+            cursor = next.trim();
+        }
+        throw paginationStalled("Douyin work pagination exceeded the safety page limit");
     }
 
     private static DouyinClientException paginationStalled(String message) {

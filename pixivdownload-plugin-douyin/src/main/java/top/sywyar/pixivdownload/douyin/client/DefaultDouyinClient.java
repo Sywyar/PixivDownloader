@@ -13,8 +13,12 @@ import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.signature.DouyinSignedUriBuilder;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalDownload;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionSummary;
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
@@ -282,6 +286,106 @@ public class DefaultDouyinClient implements DouyinClient {
                 new ListingContext(stableMusicId, stableMusicId, null, null),
                 "cursor", "aweme_list", "items", "data");
         return requireAdvancingCursor(stableMusicId, currentCursor, listing);
+    }
+
+    @Override
+    public DouyinAccount resolveAccount(String cookie) throws DouyinClientException {
+        JsonNode root = fetchSignedJson("/aweme/v1/web/user/profile/self/", Map.of(), cookie);
+        ensureSuccessful(root, "Douyin account profile");
+        JsonNode user = firstObject(root, "user", "user_info", "data")
+                .orElse(root.path("user"));
+        String secUserId = firstText(user, "sec_uid", "sec_user_id");
+        String uid = firstText(user, "uid", "short_id");
+        String uniqueId = firstText(user, "unique_id", "short_id");
+        String displayName = firstText(user, "nickname", "unique_id", "short_id");
+        String accountKey = firstNonBlank(uid, secUserId);
+        if (accountKey == null || secUserId == null) {
+            throw new DouyinClientException(DouyinClientErrorCode.COOKIE_EXPIRED,
+                    "Douyin account profile did not expose an authenticated identity");
+        }
+        return new DouyinAccount(accountKey, secUserId,
+                blankToDefault(displayName, accountKey), uniqueId);
+    }
+
+    @Override
+    public DouyinListing listAccountWorksPage(DouyinAccountSource source,
+                                              String cursor,
+                                              int limit,
+                                              String cookie) throws DouyinClientException {
+        return listAccountWorksPage(resolveAccount(cookie), source, cursor, limit, cookie);
+    }
+
+    @Override
+    public DouyinListing listAccountWorksPage(DouyinAccount account,
+                                              DouyinAccountSource source,
+                                              String cursor,
+                                              int limit,
+                                              String cookie) throws DouyinClientException {
+        if (account == null) {
+            throw new DouyinClientException(DouyinClientErrorCode.COOKIE_EXPIRED,
+                    "Douyin account identity is required");
+        }
+        if (source == null || source == DouyinAccountSource.OWN_WORKS) {
+            return listUserWorksPage(account.secUserId(), cursor, limit, cookie);
+        }
+        String path = source == DouyinAccountSource.LIKED_WORKS
+                ? "/aweme/v1/web/aweme/favorite/"
+                : "/aweme/v1/web/aweme/listcollection/";
+        String cursorName = source == DouyinAccountSource.LIKED_WORKS ? "max_cursor" : "cursor";
+        String currentCursor = normalizeCursor(cursor);
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>();
+        request.put(cursorName, currentCursor);
+        request.put("count", positivePageSize(limit));
+        if (source == DouyinAccountSource.LIKED_WORKS) {
+            request.put("sec_user_id", account.secUserId());
+        }
+        JsonNode root = fetchSignedJson(path, request, cookie);
+        DouyinListing listing = workListing(root, 1, positivePageSize(limit),
+                new ListingContext(account.accountKey(), account.displayName(), null, null), cursorName,
+                "aweme_list", "items", "data");
+        DouyinListing accountListing = new DouyinListing(
+                listing.items(), listing.total(), listing.page(), listing.pageSize(),
+                listing.lastPage(), listing.title(), account.accountKey(), account.displayName(),
+                listing.nextCursor(), listing.hasMore());
+        return requireAdvancingCursor(account.accountKey(), currentCursor, accountListing);
+    }
+
+    @Override
+    public DouyinCollectionListing listFavoriteCollections(String cursor,
+                                                            int limit,
+                                                            String cookie) throws DouyinClientException {
+        int safeLimit = positivePageSize(limit);
+        String currentCursor = normalizeCursor(cursor);
+        JsonNode root = fetchSignedJson("/aweme/v1/web/mix/listcollection/", params(
+                "cursor", currentCursor,
+                "count", safeLimit), cookie);
+        ensureSuccessful(root, "Douyin favorite collection listing");
+        JsonNode array = firstArray(root, "mix_list", "mix_infos", "items", "data")
+                .orElse(MAPPER.createArrayNode());
+        List<DouyinCollectionSummary> items = new ArrayList<>();
+        for (JsonNode raw : array) {
+            JsonNode mix = raw.has("mix_info") ? raw.path("mix_info") : raw;
+            String id = firstText(mix, "mix_id", "id");
+            if (id == null) {
+                continue;
+            }
+            JsonNode author = mix.path("author");
+            long rawWorkCount = firstLong(mix, "aweme_count", "count", "item_count").orElse(0L);
+            int workCount = (int) Math.min(Integer.MAX_VALUE, Math.max(0L, rawWorkCount));
+            items.add(new DouyinCollectionSummary(
+                    id,
+                    blankToDefault(firstText(mix, "mix_name", "name", "title"), id),
+                    workCount,
+                    firstText(author, "uid", "sec_uid"),
+                    firstText(author, "nickname", "unique_id")));
+        }
+        boolean hasMore = hasMore(root);
+        String next = cursorValue(root, "cursor", "max_cursor");
+        if (hasMore && (next.isBlank() || currentCursor.equals(next))) {
+            throw paginationStalled("favorite-collections", currentCursor);
+        }
+        int total = exactOrEstimatedTotal(root, items.size(), parseCursorNumber(currentCursor), hasMore);
+        return new DouyinCollectionListing(items, total, next, hasMore);
     }
 
     private DouyinListing collectLogicalSlice(String ownerId,

@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
@@ -579,6 +580,121 @@ class DefaultDouyinClientParserTest {
                 """);
 
         assertThatThrownBy(() -> client(rest).listMusicWorksPage("music-1", "music-current", 20, null))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
+    }
+
+    @Test
+    @DisplayName("账号探活产生非敏感身份并驱动喜欢作品与已收藏合集端点")
+    void resolvesAccountAndListsAuthenticatedSources() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        String account = """
+                {"status_code":0,"user":{"uid":"uid-1","sec_uid":"sec-1", "nickname":"我", "unique_id":"mine"}}
+                """;
+        rest.enqueue(200, account);
+        rest.enqueue(200, account);
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"max_cursor":0,"aweme_list":[
+                  {"aweme_id":"9401","desc":"Liked",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9401.mp4"]}}}
+                ]}
+                """);
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":0,"mix_list":[
+                  {"mix_id":"mix-1","mix_name":"收藏合集","aweme_count":3,
+                   "author":{"uid":"uid-2","nickname":"作者"}}
+                ]}
+                """);
+        DefaultDouyinClient client = client(rest);
+
+        assertThat(client.resolveAccount("sessionid=test").accountKey()).isEqualTo("uid-1");
+        assertThat(client.listAccountWorksPage(DouyinAccountSource.LIKED_WORKS, "0", 20,
+                "sessionid=test").items()).extracting("id").containsExactly("9401");
+        assertThat(client.listFavoriteCollections("0", 20, "sessionid=test").items())
+                .singleElement().satisfies(item -> {
+                    assertThat(item.id()).isEqualTo("mix-1");
+                    assertThat(item.workCount()).isEqualTo(3);
+                });
+        assertThat(rest.requests()).extracting(URI::getPath).contains(
+                "/aweme/v1/web/user/profile/self/",
+                "/aweme/v1/web/aweme/favorite/",
+                "/aweme/v1/web/mix/listcollection/");
+    }
+
+    @Test
+    @DisplayName("账号作品仍有下一页但游标未推进时明确失败")
+    void rejectsStalledAccountWorksCursor() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"user":{"uid":"uid-1","sec_uid":"sec-1","nickname":"我"}}
+                """);
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"max_cursor":"account-current","aweme_list":[
+                  {"aweme_id":"9402","desc":"Liked",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9402.mp4"]}}}
+                ]}
+                """);
+
+        assertThatThrownBy(() -> client(rest).listAccountWorksPage(
+                DouyinAccountSource.LIKED_WORKS, "account-current", 20, "sessionid=test"))
+                .isInstanceOf(DouyinClientException.class)
+                .extracting(error -> ((DouyinClientException) error).code())
+                .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
+    }
+
+    @Test
+    @DisplayName("收藏合集按真实游标与页大小请求并保留下一游标")
+    void pagesFavoriteCollectionsWithOpaqueCursor() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"collection-next","total":8,"mix_list":[
+                  {"mix_id":"mix-2","mix_name":"收藏合集二","aweme_count":5}
+                ]}
+                """);
+
+        var listing = client(rest).listFavoriteCollections("collection-current", 12, "sessionid=test");
+
+        assertThat(listing.items()).extracting("id").containsExactly("mix-2");
+        assertThat(listing.total()).isEqualTo(8);
+        assertThat(listing.nextCursor()).isEqualTo("collection-next");
+        assertThat(listing.hasMore()).isTrue();
+        assertThat(rest.requests()).singleElement().satisfies(uri -> {
+            assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/mix/listcollection/");
+            assertThat(uri.getRawQuery()).contains("cursor=collection-current", "count=12");
+        });
+    }
+
+    @Test
+    @DisplayName("收藏合集作品数在整型边界内稳定截断")
+    void clampsFavoriteCollectionWorkCounts() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":"done","mix_list":[
+                  {"mix_id":"negative","aweme_count":-1},
+                  {"mix_id":"huge","aweme_count":9223372036854775807}
+                ]}
+                """);
+
+        var items = client(rest).listFavoriteCollections("0", 12, "sessionid=test").items();
+
+        assertThat(items).extracting("id", "workCount")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("negative", 0),
+                        org.assertj.core.groups.Tuple.tuple("huge", Integer.MAX_VALUE));
+    }
+
+    @Test
+    @DisplayName("收藏合集仍有下一页但游标缺失时明确失败")
+    void rejectsMissingFavoriteCollectionCursor() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"mix_list":[
+                  {"mix_id":"mix-2","mix_name":"收藏合集二","aweme_count":5}
+                ]}
+                """);
+
+        assertThatThrownBy(() -> client(rest).listFavoriteCollections("collection-current", 12, null))
                 .isInstanceOf(DouyinClientException.class)
                 .extracting(error -> ((DouyinClientException) error).code())
                 .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);

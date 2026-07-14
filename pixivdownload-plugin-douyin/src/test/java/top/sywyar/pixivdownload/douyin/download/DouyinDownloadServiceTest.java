@@ -16,6 +16,8 @@ import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkFileRecord;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinWorkRecord;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalDownload;
 import top.sywyar.pixivdownload.douyin.model.DouyinCanonicalKind;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadPhase;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadSnapshot;
@@ -607,7 +609,7 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
-    @DisplayName("用户、合集与搜索入口通过可 mock client 表达")
+    @DisplayName("用户、合集与搜索入口通过可 mock client 表达且不伪造空搜索")
     void acquisitionAdaptersDelegateToClient() throws Exception {
         FakeClient client = new FakeClient();
         DouyinDownloadService service = service(client, Runnable::run);
@@ -615,7 +617,6 @@ class DouyinDownloadServiceTest {
         assertThat(service.listUserWorks("u1", -10, 0, VALID_COOKIE).items()).hasSize(1);
         assertThat(service.listSeriesWorks("s1", 0, 500, VALID_COOKIE).pageSize()).isEqualTo(100);
         assertThat(service.searchPublic("word", 0, 1, VALID_COOKIE).ownerName()).isEqualTo("search:word");
-        assertThat(service.quickPublic(0, 0, VALID_COOKIE).ownerName()).isEqualTo("search:");
     }
 
     @Test
@@ -632,6 +633,23 @@ class DouyinDownloadServiceTest {
         assertThat(client.lastSeriesPageCursor).isEqualTo("opaque-current");
         assertThat(client.lastSeriesPageSize).isEqualTo(100);
         assertThat(client.lastSeriesPageCookie).isEqualTo(VALID_COOKIE);
+    }
+
+    @Test
+    @DisplayName("账号全部作品越过游标前进的空页继续收集作品 ID")
+    void allAccountWorkIdsContinuePastAdvancingEmptyPage() throws Exception {
+        FakeClient client = new FakeClient();
+        client.accountPages = List.of(
+                new DouyinListing(List.of(), 2, 1, 50, false,
+                        null, "account", "账号", "account-next", true),
+                new DouyinListing(List.of(FakeClient.work("account-work")), 2, 2, 50, true,
+                        null, "account", "账号", "", false));
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        assertThat(service.listAllAccountWorkIds(DouyinAccountSource.OWN_WORKS, VALID_COOKIE))
+                .containsExactly("account-work");
+        assertThat(client.accountResolveCalls).isEqualTo(1);
+        assertThat(client.accountPageCalls).isEqualTo(2);
     }
 
     @Test
@@ -1011,6 +1029,9 @@ class DouyinDownloadServiceTest {
         private String lastSeriesPageCursor;
         private int lastSeriesPageSize;
         private String lastSeriesPageCookie;
+        private List<DouyinListing> accountPages;
+        private int accountResolveCalls;
+        private int accountPageCalls;
         private CountDownLatch resolveEntered;
         private CountDownLatch releaseResolve;
         private String thumbnailUrl = "";
@@ -1106,6 +1127,23 @@ class DouyinDownloadServiceTest {
         public DouyinListing searchPublic(String word, int page, int pageSize, String cookie) {
             return new DouyinListing(List.of(work("q-" + word)), 1, page, pageSize, true,
                     null, null, "search:" + word);
+        }
+
+        @Override
+        public DouyinAccount resolveAccount(String cookie) {
+            accountResolveCalls++;
+            return new DouyinAccount("account", "sec-account", "账号", "account");
+        }
+
+        @Override
+        public DouyinListing listAccountWorksPage(DouyinAccountSource source,
+                                                  String cursor,
+                                                  int limit,
+                                                  String cookie) throws DouyinClientException {
+            if (accountPages == null || accountPageCalls >= accountPages.size()) {
+                return DouyinClient.super.listAccountWorksPage(source, cursor, limit, cookie);
+            }
+            return accountPages.get(accountPageCalls++);
         }
 
         private String stableWorkId(String input, DouyinParsedInput parsed) {

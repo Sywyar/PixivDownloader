@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionSummary;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
@@ -325,6 +327,75 @@ class DouyinControllerSecurityTest {
             assertThat(error.code()).isEqualTo("UNSUPPORTED_CONTENT");
             assertThat(error.messageKey()).isEqualTo("douyin.error.unsupported-content");
         });
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("账号收藏合集将游标与页大小传给真实分页客户端")
+    void pagesFavoriteCollectionsWithoutFullReplay() throws Exception {
+        DouyinCollectionSummary collection = new DouyinCollectionSummary(
+                "mix-2", "合集二", 3, "owner-1", "作者");
+        when(service.listFavoriteCollections("cursor-1", 12, null))
+                .thenReturn(new DouyinCollectionListing(List.of(collection), 25, "cursor-2", true));
+
+        var response = mockMvc.perform(get("/api/douyin/me/favorite-collections")
+                        .param("cursor", "cursor-1").param("pageSize", "12"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"collections\":[{\"id\":\"mix-2\"", "\"total\":25",
+                "\"nextCursor\":\"cursor-2\"", "\"hasMore\":true");
+        verify(service).listFavoriteCollections("cursor-1", 12, null);
+        verify(service, never()).listAllFavoriteCollections(any());
+    }
+
+    @Test
+    @DisplayName("账号收藏合集拒绝过大页与过长游标")
+    void rejectsUnboundedFavoriteCollectionPage() throws Exception {
+        assertThat(mockMvc.perform(get("/api/douyin/me/favorite-collections")
+                        .param("pageSize", Integer.toString(DouyinController.MAX_PREVIEW_PAGE_SIZE + 1)))
+                .andReturn().getResponse().getStatus()).isEqualTo(400);
+        var invalidCursor = mockMvc.perform(get("/api/douyin/me/favorite-collections")
+                        .param("cursor", "x".repeat(DouyinController.MAX_CURSOR_LENGTH + 1)))
+                .andReturn().getResponse();
+        assertThat(invalidCursor.getStatus()).isEqualTo(400);
+        assertThat(invalidCursor.getContentAsString()).contains(
+                "\"code\":\"UNSUPPORTED_CONTENT\"",
+                "\"messageKey\":\"douyin.error.unsupported-content\"");
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("收藏合集作品只返回真实游标页且不重放全量作品")
+    void pagesFavoriteCollectionWorksWithoutFullReplay() throws Exception {
+        when(service.listSeriesWorksPage("mix-1", "work-cursor-1", 12, null))
+                .thenReturn(new DouyinListing(List.of(work("work-2")),
+                        31, 1, 12, false, "合集", "mix-1", "作者", "work-cursor-2", true));
+
+        var response = mockMvc.perform(get("/api/douyin/me/favorite-collections/mix-1/works")
+                        .param("cursor", "work-cursor-1").param("pageSize", "12"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"works\":[{\"id\":\"work-2\"", "\"total\":31",
+                "\"nextCursor\":\"work-cursor-2\"", "\"hasMore\":true");
+        verify(service).listSeriesWorksPage("mix-1", "work-cursor-1", 12, null);
+        verify(service, never()).listAllSeriesWorks(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("收藏合集作品拒绝过大页与过长游标")
+    void rejectsUnboundedFavoriteCollectionWorksPage() throws Exception {
+        assertThat(mockMvc.perform(get("/api/douyin/me/favorite-collections/mix-1/works")
+                        .param("pageSize", Integer.toString(DouyinController.MAX_PREVIEW_PAGE_SIZE + 1)))
+                .andReturn().getResponse().getStatus()).isEqualTo(400);
+        assertThat(mockMvc.perform(get("/api/douyin/me/favorite-collections/mix-1/works")
+                        .param("cursor", "x".repeat(DouyinController.MAX_CURSOR_LENGTH + 1)))
+                .andReturn().getResponse().getStatus()).isEqualTo(400);
+
         verifyNoInteractions(service);
     }
 

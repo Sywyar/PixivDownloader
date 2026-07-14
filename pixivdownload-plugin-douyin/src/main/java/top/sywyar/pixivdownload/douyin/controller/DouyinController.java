@@ -22,6 +22,10 @@ import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadService;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinDownloadSnapshot;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccount;
+import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
+import top.sywyar.pixivdownload.douyin.model.DouyinCollectionSummary;
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedView;
 import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
@@ -257,21 +261,102 @@ public class DouyinController {
         }
     }
 
-    @GetMapping("/quick/public")
-    public ResponseEntity<?> quickPublic(@RequestParam(defaultValue = "1") int page,
-                                         @RequestParam(defaultValue = "24") int pageSize,
-                                         @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
-                                         HttpServletRequest request) {
+    @GetMapping("/me")
+    public ResponseEntity<?> me(@RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                HttpServletRequest request) {
         cookie = acquisitionCredential(request, cookie);
         try {
             requireSecureCredentialTransport(request, cookie);
-            DouyinListing listing = downloadService.quickPublic(page, pageSize, cookie);
-            return ResponseEntity.ok(new ItemsView(
-                    listing.items().stream().map(DouyinWorkView::from).toList(),
-                    listing.total()));
+            return ResponseEntity.ok(AccountView.from(downloadService.resolveAccount(cookie)));
         } catch (DouyinClientException e) {
             return clientError(e);
         }
+    }
+
+    @GetMapping("/me/works/ids")
+    public ResponseEntity<?> ownWorkIds(@RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                        HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            List<String> ids = downloadService.listAllAccountWorkIds(DouyinAccountSource.OWN_WORKS, cookie);
+            return ResponseEntity.ok(new IdsView(ids, ids.size()));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
+    @GetMapping("/me/{source}")
+    public ResponseEntity<?> accountWorks(@PathVariable String source,
+                                          @RequestParam(required = false) String cursor,
+                                          @RequestParam(defaultValue = "24") int pageSize,
+                                          @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                          HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            requirePreviewPageSize(pageSize);
+            String safeCursor = requiredCursor(cursor);
+            DouyinAccountSource accountSource = parseAccountSource(source);
+            DouyinListing listing = downloadService.listAccountWorksPage(accountSource, safeCursor, pageSize, cookie);
+            return ResponseEntity.ok(new ItemsView(
+                    listing.items().stream().map(DouyinWorkView::from).toList(),
+                    listing.total(), listing.nextCursor(), listing.hasMore()));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
+    @GetMapping("/me/favorite-collections")
+    public ResponseEntity<?> favoriteCollections(@RequestParam(required = false) String cursor,
+                                                 @RequestParam(defaultValue = "24") int pageSize,
+                                                 @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+                                                 HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            requirePreviewPageSize(pageSize);
+            String safeCursor = requiredCursor(cursor);
+            DouyinCollectionListing listing = downloadService.listFavoriteCollections(safeCursor, pageSize, cookie);
+            return ResponseEntity.ok(new CollectionsView(
+                    listing.items().stream().map(CollectionView::from).toList(),
+                    listing.total(), listing.nextCursor(), listing.hasMore()));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
+    @GetMapping("/me/favorite-collections/{collectionId}/works")
+    public ResponseEntity<?> favoriteCollectionWorks(
+            @PathVariable String collectionId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "24") int pageSize,
+            @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            requirePreviewPageSize(pageSize);
+            String safeCursor = requiredCursor(cursor);
+            DouyinListing listing = downloadService.listSeriesWorksPage(collectionId, safeCursor, pageSize, cookie);
+            List<DouyinWorkView> works = listing.items().stream()
+                    .map(DouyinWorkView::from)
+                    .toList();
+            return ResponseEntity.ok(new CollectionWorksView(
+                    works, listing.total(), listing.nextCursor(), listing.hasMore()));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
+    private static DouyinAccountSource parseAccountSource(String source) throws DouyinClientException {
+        return switch (source == null ? "" : source.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "works", "own-works" -> DouyinAccountSource.OWN_WORKS;
+            case "liked", "liked-works" -> DouyinAccountSource.LIKED_WORKS;
+            case "favorites", "favorite-works" -> DouyinAccountSource.FAVORITE_WORKS;
+            default -> throw new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT,
+                    "Unsupported Douyin account source");
+        };
     }
 
     private static void requirePreviewWindow(int offset, int limit) throws DouyinClientException {
@@ -298,6 +383,10 @@ public class DouyinController {
             return null;
         }
         return boundedCursor(cursor);
+    }
+
+    private static String requiredCursor(String cursor) throws DouyinClientException {
+        return cursor == null || cursor.isBlank() ? "0" : boundedCursor(cursor);
     }
 
     private static String boundedCursor(String cursor) throws DouyinClientException {
@@ -366,7 +455,7 @@ public class DouyinController {
         return "douyin.error." + e.code().name().toLowerCase(java.util.Locale.ROOT).replace('_', '-');
     }
 
-    public record IdsView(List<String> ids) {
+    public record IdsView(List<String> ids, int total) {
     }
 
     public record UserWorksPageView(List<String> ids,
@@ -436,4 +525,27 @@ public class DouyinController {
     public record ErrorView(boolean success, String code, String messageKey, String message) {
     }
 
+    public record AccountView(String accountKey, String secUserId, String displayName, String uniqueId) {
+        static AccountView from(DouyinAccount account) {
+            return new AccountView(account.accountKey(), account.secUserId(), account.displayName(), account.uniqueId());
+        }
+    }
+
+    public record CollectionView(String id, String title, int total, String ownerId, String ownerName) {
+        static CollectionView from(DouyinCollectionSummary item) {
+            return new CollectionView(item.id(), item.title(), item.workCount(), item.ownerId(), item.ownerName());
+        }
+    }
+
+    public record CollectionsView(List<CollectionView> collections,
+                                  int total,
+                                  String nextCursor,
+                                  boolean hasMore) {
+    }
+
+    public record CollectionWorksView(List<DouyinWorkView> works,
+                                      int total,
+                                      String nextCursor,
+                                      boolean hasMore) {
+    }
 }
