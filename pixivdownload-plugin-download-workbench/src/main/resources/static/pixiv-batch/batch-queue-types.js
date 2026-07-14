@@ -1182,6 +1182,37 @@ window.PixivBatch.queueTypes = (function () {
         return quick && quick.actions ? quick.actions : {};
     }
 
+    // 把后端计划队列项投影为工作区队列项的类型自有部分。context 可提供 source；状态、进度等
+    // 跨类型字段由调用方在结果上合并。类型缺席时仍返回可渲染、可保留的中性项。
+    function scheduledQueueItem(type, item, context) {
+        const raw = item && typeof item === 'object' ? item : {};
+        const ctx = context && typeof context === 'object' ? context : {};
+        const normalizedType = text(type) || text(raw.kind) || text(raw.workType) || 'unknown';
+        const rawId = text(raw.workId != null ? raw.workId : raw.id);
+        const fallback = {
+            id: rawId,
+            kind: normalizedType,
+            rawTitle: text(raw.title) || null,
+            source: text(ctx.source) || text(raw.source) || 'schedule',
+            xRestrict: raw.xRestrict == null ? null : raw.xRestrict,
+            isAi: raw.ai === true || raw.isAi === true
+        };
+        const behavior = get(normalizedType);
+        if (!behavior || typeof behavior.scheduledQueueItem !== 'function') return fallback;
+        try {
+            const owned = behavior.scheduledQueueItem(raw, ctx);
+            return isPlainObject(owned) ? Object.assign(fallback, owned) : fallback;
+        } catch (e) {
+            console.warn('[queueTypes] 计划队列项类型映射失败：', normalizedType, e);
+            return fallback;
+        }
+    }
+
+    function supportsScheduledSse(type) {
+        const behavior = get(type);
+        return !!behavior && behavior.scheduledSse === true;
+    }
+
     function contributionsOf(key) {
         if (key === 'import') {
             return typesForMode('single-import')
@@ -1483,6 +1514,8 @@ window.PixivBatch.queueTypes = (function () {
         filtersFor,
         settingsFor,
         quickActionsFor,
+        scheduledQueueItem,
+        supportsScheduledSse,
         prepareAcquisitionRequest,
         acquisitionLease,
         contributionsOf,

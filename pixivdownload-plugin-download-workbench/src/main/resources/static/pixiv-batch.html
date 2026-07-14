@@ -349,25 +349,25 @@
              onclick="if(event.target===this) closeScheduleOverrideModal()">
             <div class="schedule-snapshot-dialog schedule-override-dialog">
                 <div class="schedule-snapshot-head">
-                    <div id="schedule-override-title" class="schedule-snapshot-title" data-i18n="schedule.override.title">指定单独的 代理/cookie</div>
+                    <div id="schedule-override-title" class="schedule-snapshot-title" data-i18n="schedule.override.title-generic">专用代理 / 来源凭证</div>
                     <button type="button" class="schedule-snapshot-close"
                             onclick="closeScheduleOverrideModal()"
                             data-i18n-title="common:button.close" title="关闭">×</button>
                 </div>
                 <div class="schedule-snapshot-body schedule-override-body">
-                    <div class="schedule-override-intro" data-i18n="schedule.override.intro">为该计划任务指定独立的下载代理与 Cookie。未勾选的项使用默认行为：全局代理设置 / 任务当前绑定的 Cookie；取消已生效的勾选并保存会清除对应设置。</div>
-                    <label class="schedule-override-check"><input type="checkbox" id="sch-ov-proxy-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
+                    <div id="schedule-override-intro" class="schedule-override-intro" data-i18n="schedule.override.intro-generic">为该计划任务指定独立的代理或来源凭证；取消已生效的选项并保存会清除对应设置。</div>
+                    <label class="schedule-override-check"><input type="checkbox" id="sch-ov-proxy-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span id="sch-ov-proxy-label" data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
                     <div id="sch-ov-proxy-row" class="schedule-override-row" style="display:none;">
                         <input type="text" id="sch-ov-proxy" data-i18n-placeholder="schedule.field.proxy.placeholder" placeholder="127.0.0.1:7890">
-                        <div class="schedule-field-hint" data-i18n="schedule.field.proxy.hint">该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
+                        <div id="sch-ov-proxy-hint" class="schedule-field-hint" data-i18n="schedule.field.proxy.hint-generic">该任务运行时会使用此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
                     </div>
-                    <label class="schedule-override-check"><input type="checkbox" id="sch-ov-cookie-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span data-i18n="schedule.field.cookie-enabled">设置单独的cookie</span></label>
+                    <label class="schedule-override-check"><input type="checkbox" id="sch-ov-cookie-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span id="sch-ov-cookie-label" data-i18n="schedule.field.credential-enabled">设置单独的凭证</span></label>
                     <div id="sch-ov-cookie-row" class="schedule-override-row" style="display:none;">
                         <div class="schedule-cookie-input-row">
-                            <input type="password" id="sch-ov-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.cookie.placeholder" placeholder="粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入">
-                            <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-ov-cookie')" data-i18n="schedule.action.use-saved-cookie">使用当前保存的cookie</button>
+                            <input type="password" id="sch-ov-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.credential.placeholder" placeholder="粘贴来源凭证，或点右侧按钮填入">
+                            <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-ov-cookie')"><span id="sch-ov-saved-cookie-label" data-i18n="schedule.action.use-saved-credential">使用当前保存的凭证</span></button>
                         </div>
-                        <div class="schedule-field-hint" data-i18n="schedule.field.cookie.hint">该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。</div>
+                        <div id="sch-ov-cookie-hint" class="schedule-field-hint" data-i18n="schedule.field.credential.hint">该任务会使用这份凭证访问来源站点；出于安全考虑，已绑定凭证不会回显。</div>
                     </div>
                     <div id="sch-ov-status" class="schedule-status" role="status" aria-live="polite"></div>
                 </div>
@@ -593,24 +593,24 @@
                     <div class="setting-item" id="sch-fetch-limit-row" style="display:none;">
                         <label data-i18n="schedule.field.fetch-limit">首次抓取上限：</label>
                         <input type="number" id="sch-fetch-limit" min="0" step="1" value="0">
-                        <div class="schedule-field-hint" id="sch-fetch-limit-hint-watermark" data-i18n="schedule.field.fetch-limit.hint.watermark">仅计划任务生效。首次运行最多把最新的这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度）；之后每轮只增量追新，更早的历史不再补下。0 = 全量抓取：首次运行会尝试下完该来源的全部历史，作品很多时可能触发 Pixiv 过度访问警告甚至封号，保存时会提示确认。</div>
-                        <div class="schedule-field-hint" id="sch-fetch-limit-hint-per-run" style="display:none;" data-i18n="schedule.field.fetch-limit.hint.per-run">仅计划任务生效。该来源没有可靠的「最新」次序，按「每轮上限」执行：每次运行最多把这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度），分多轮逐步抽干积压。若希望永远完整下载全部作品，设为 0 即可（不设上限）——但首轮 0 会一次性尝试下完全部，作品很多时可能触发 Pixiv 过度访问警告，保存时会提示确认。</div>
+                        <div class="schedule-field-hint" id="sch-fetch-limit-hint-watermark" data-i18n="schedule.field.fetch-limit.hint.watermark">仅计划任务生效。首次运行最多把最新的这么多个作品纳入本轮队列；之后只增量追新，更早的历史不再补取。0 表示不设上限，大型来源可能产生较多请求，保存时会提示确认。</div>
+                        <div class="schedule-field-hint" id="sch-fetch-limit-hint-per-run" style="display:none;" data-i18n="schedule.field.fetch-limit.hint.per-run">仅计划任务生效。该来源没有可靠的最新次序，因此每次运行最多纳入这么多个作品，并分多轮处理积压。0 表示不设上限，大型来源可能产生较多请求，保存时会提示确认。</div>
                     </div>
                     <div class="setting-item">
-                        <label class="schedule-override-check"><input type="checkbox" id="sch-proxy-enabled" onchange="onScheduleOverrideToggle('sch')"> <span data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
+                        <label class="schedule-override-check"><input type="checkbox" id="sch-proxy-enabled" onchange="onScheduleOverrideToggle('sch')"> <span id="sch-proxy-label" data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
                         <div id="sch-proxy-row" class="schedule-override-row" style="display:none;">
                             <input type="text" id="sch-proxy" data-i18n-placeholder="schedule.field.proxy.placeholder" placeholder="127.0.0.1:7890">
-                            <div class="schedule-field-hint" data-i18n="schedule.field.proxy.hint">该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
+                            <div id="sch-proxy-hint" class="schedule-field-hint" data-i18n="schedule.field.proxy.hint-generic">该任务运行时会使用此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
                         </div>
                     </div>
                     <div class="setting-item">
-                        <label class="schedule-override-check"><input type="checkbox" id="sch-cookie-enabled" onchange="onScheduleOverrideToggle('sch')"> <span data-i18n="schedule.field.cookie-enabled">设置单独的cookie</span></label>
+                        <label class="schedule-override-check"><input type="checkbox" id="sch-cookie-enabled" onchange="onScheduleOverrideToggle('sch')"> <span id="sch-cookie-label" data-i18n="schedule.field.credential-enabled">设置单独的凭证</span></label>
                         <div id="sch-cookie-row" class="schedule-override-row" style="display:none;">
                             <div class="schedule-cookie-input-row">
-                                <input type="password" id="sch-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.cookie.placeholder" placeholder="粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入">
-                                <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-cookie')" data-i18n="schedule.action.use-saved-cookie">使用当前保存的cookie</button>
+                                <input type="password" id="sch-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.credential.placeholder" placeholder="粘贴来源凭证，或点右侧按钮填入">
+                                <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-cookie')"><span id="sch-saved-cookie-label" data-i18n="schedule.action.use-saved-credential">使用当前保存的凭证</span></button>
                             </div>
-                            <div class="schedule-field-hint" data-i18n="schedule.field.cookie.hint">该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。</div>
+                            <div id="sch-cookie-hint" class="schedule-field-hint" data-i18n="schedule.field.credential.hint">该任务会使用这份凭证访问来源站点；出于安全考虑，已绑定凭证不会回显。</div>
                         </div>
                     </div>
                     <div id="sch-quick-source" class="schedule-save-source" style="display:none;"></div>
@@ -732,6 +732,7 @@
 <script src="/pixiv-batch/batch-core.js"></script>
 <script src="/pixiv-batch/batch-layout.js"></script>
 <script src="/pixiv-batch/batch-queue-types.js"></script>
+<script src="/pixiv-batch/batch-schedule-sources.js"></script>
 <script src="/pixiv-batch/batch-state.js"></script>
 <script src="/pixiv-batch/batch-storage.js"></script>
 <script src="/pixiv-batch/batch-userscripts.js"></script>

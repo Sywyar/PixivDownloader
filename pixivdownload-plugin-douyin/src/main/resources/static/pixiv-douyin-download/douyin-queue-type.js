@@ -543,6 +543,7 @@ function hydrateDouyinUi() {
 const DOUYIN_DESCRIPTOR = {
     slots: DOUYIN_SLOTS,
     process: processDouyinItem,
+    scheduledSse: false,
     cookie: {
         parseInput: douyinParseInput,
         validate: douyinValidateCookie

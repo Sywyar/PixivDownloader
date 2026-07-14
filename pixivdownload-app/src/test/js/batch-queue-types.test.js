@@ -296,6 +296,8 @@ const BASIC_INITIALIZER = `(function (context) {
         descriptor: {
             process: function () { return 'v' + context.manifest.pluginGeneration; },
             slots: {'cookie-tools': '<span data-slot-generation="' + context.manifest.pluginGeneration + '"></span>'},
+            scheduledSse: false,
+            scheduledQueueItem: function (item) { return {id: 'owned-' + item.id}; },
             import: {matchUrl: function () { return 'x'; }, buildItem: function () { return {}; }},
             acquisition: {
                 user: {
@@ -533,6 +535,9 @@ const LATE_UI_INITIALIZER = `(function (context) {
             h.qt.manifestDescriptor('demo').owner.pluginId === 'nested-owner'
             && Object.isFrozen(h.qt.manifestDescriptor('demo').acquisitionModes));
         ok('模块不能用 descriptor 覆盖 type', h.qt.descriptor('demo').type === 'demo');
+        ok('scheduledQueueItem 调用 owner hook', h.qt.scheduledQueueItem('demo', {id: '7'}, {}).id === 'owned-7');
+        ok('scheduled SSE 能力来自 descriptor', h.qt.supportsScheduledSse('demo') === false);
+        ok('缺席类型不会默认订阅 scheduled SSE', h.qt.supportsScheduledSse('missing') === false);
     }
 
     {

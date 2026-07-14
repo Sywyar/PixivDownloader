@@ -230,12 +230,30 @@
             return {sourceType, type: legacyType, source, kind, label};
         }
 
+        function scheduledSourceStyle(sourceType) {
+            if (sourceType === 'search') return 'search';
+            if (sourceType === 'series') return 'series';
+            if (['user-new', 'user-request', 'my-bookmarks', 'follow-latest', 'collection']
+                .includes(sourceType)) return 'user';
+            return 'schedule';
+        }
+
         function selfLabel(uid) {
             return bt('quick.schedule.source.self', '我自己（账号 {uid}）', {uid});
         }
 
         const descriptor = {
             process: processIllustItem,
+            scheduledSse: true,
+            scheduledQueueItem(item, ctx) {
+                const rawId = String(item.workId != null ? item.workId : (item.id == null ? '' : item.id));
+                return {
+                    id: rawId,
+                    kind: type,
+                    rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
+                    source: scheduledSourceStyle(ctx.sourceType)
+                };
+            },
             import: {
                 bareDefault: true,
                 sectionType: 'artwork',

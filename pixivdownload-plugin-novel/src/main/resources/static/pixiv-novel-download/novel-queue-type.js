@@ -1320,7 +1320,27 @@ const NOVEL_DESCRIPTOR = {
 if (window.PixivBatch && window.PixivBatch.queueTypes) {
     window.PixivBatch.queueTypes.registerModule(function (context) {
         _activationContext = context;
-        const descriptor = Object.assign({}, NOVEL_DESCRIPTOR);
+        const descriptor = Object.assign({}, NOVEL_DESCRIPTOR, {
+            scheduledSse: false,
+            scheduledQueueItem(item, ctx) {
+                const rawId = String(item.workId != null ? item.workId : (item.id == null ? '' : item.id));
+                const sourceType = String(ctx.sourceType || '');
+                const source = sourceType === 'search' ? 'search'
+                    : sourceType === 'series' ? 'series'
+                        : ['user-new', 'user-request', 'my-bookmarks', 'follow-latest', 'collection'].includes(sourceType)
+                            ? 'user' : 'schedule';
+                return {
+                    id: 'n' + rawId,
+                    novelId: rawId,
+                    kind: context.type,
+                    rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
+                    source,
+                    translatePhase: item.translatePhase || null,
+                    translateElapsed: item.translateElapsedSeconds == null ? 0 : item.translateElapsedSeconds,
+                    translateSeriesPending: item.translateSeriesPending == null ? 0 : item.translateSeriesPending
+                };
+            }
+        });
         return {
             descriptor,
             dispose() {

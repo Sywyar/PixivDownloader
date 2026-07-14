@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.download.schedule.source.descriptor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFrontendContribution;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 
@@ -93,7 +94,10 @@ class PixivScheduledSourceDescriptorsTest {
                     .isEqualTo(descriptor.presentation().displayNameKey());
             assertThat(descriptor.presentation().iconKey()).isEqualTo("schedule");
             assertThat(descriptor.presentation().colorToken()).isEqualTo("pixiv");
-            assertThat(descriptor.frontend()).isNull();
+            assertThat(descriptor.frontend()).isEqualTo(
+                    new ScheduledSourceFrontendContribution(
+                            ScheduledSourceFrontendContribution.CURRENT_CONTRACT_VERSION,
+                            PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL));
         });
     }
 

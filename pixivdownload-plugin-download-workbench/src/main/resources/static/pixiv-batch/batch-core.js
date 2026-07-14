@@ -109,7 +109,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         out.push(namespace);
     }
 
-    async function batchI18nNamespaces() {
+    async function batchI18nNamespaces(prefetchScheduleSources = false) {
         const out = [];
         const seen = new Set();
         BATCH_I18N_NAMESPACES.forEach(ns => addI18nNamespace(out, seen, ns));
@@ -120,6 +120,27 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
                 (dynamicNamespaces || []).forEach(ns => addI18nNamespace(out, seen, ns));
             } catch (e) {
                 console.warn('[batch] 读取下载类型 i18n namespace 失败：', e);
+            }
+        }
+        const scheduleSources = window.PixivBatch && window.PixivBatch.scheduleSources;
+        if (scheduleSources) {
+            if (prefetchScheduleSources && typeof scheduleSources.refresh === 'function') {
+                try {
+                    // 来源 manifest 为 admin-only；在鉴权状态检测前预取，非管理员的 401/403 是正常降级。
+                    await scheduleSources.refresh(false);
+                } catch (e) {
+                    if (!/HTTP 40[13]/.test(String(e && e.message || e))) {
+                        console.warn('[batch] 预取计划来源 i18n namespace 失败：', e);
+                    }
+                }
+            }
+            if (typeof scheduleSources.i18nNamespaces === 'function') {
+                try {
+                    const sourceNamespaces = scheduleSources.i18nNamespaces();
+                    (sourceNamespaces || []).forEach(ns => addI18nNamespace(out, seen, ns));
+                } catch (e) {
+                    console.warn('[batch] 读取计划来源 i18n namespace 失败：', e);
+                }
             }
         }
         return out;
@@ -164,6 +185,9 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
             renderUserPagination();
         }
         updateBatchLimitNote();
+        if (typeof updateSaveScheduleCardVisibility === 'function') {
+            updateSaveScheduleCardVisibility();
+        }
         const snapshotModal = document.getElementById('schedule-snapshot-modal');
         const snapshotTaskId = snapshotModal && !snapshotModal.hidden ? snapshotModal.dataset.taskId : null;
         if (state.mode === 'schedule') {
@@ -187,7 +211,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
             let changed = false;
             do {
                 pageI18nNamespaceRefreshDirty = false;
-                const namespaces = await batchI18nNamespaces();
+                const namespaces = await batchI18nNamespaces(false);
                 if (sameI18nNamespaces(namespaces, pageI18nNamespaces)) continue;
                 let nextClient;
                 while (true) {
@@ -218,7 +242,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     }
 
     async function initPageI18n() {
-        pageI18nNamespaces = await batchI18nNamespaces();
+        pageI18nNamespaces = await batchI18nNamespaces(true);
         installPageI18nClient(await PixivI18n.create({namespaces: pageI18nNamespaces}), pageI18nNamespaces);
         pageLangSwitcher = await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),

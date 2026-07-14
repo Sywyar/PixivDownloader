@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.source.descriptor;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFrontendContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
@@ -13,6 +14,13 @@ import java.util.Set;
 public final class PixivScheduledSourceDescriptors {
 
     public static final String OVERUSE_GUARD_ID = "pixiv-overuse";
+    public static final String FRONTEND_MODULE_URL =
+            "/pixiv-batch/pixiv-schedule-sources.js";
+
+    private static final ScheduledSourceFrontendContribution FRONTEND =
+            new ScheduledSourceFrontendContribution(
+                    ScheduledSourceFrontendContribution.CURRENT_CONTRACT_VERSION,
+                    FRONTEND_MODULE_URL);
 
     private static final Set<String> ILLUST_ONLY = Set.of(
             PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST);
@@ -81,7 +89,7 @@ public final class PixivScheduledSourceDescriptors {
                 possibleWorkTypes,
                 Set.of(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
                 Set.of(OVERUSE_GUARD_ID),
-                null);
+                FRONTEND);
     }
 
     private static Set<String> legacyAliases(String sourceType) {

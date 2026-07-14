@@ -55,6 +55,13 @@
         applyCookieHint();
         updateBatchLimitNote();
         await detectAuthState();
+        if (isAdmin && window.PixivBatch.scheduleSources) {
+            try {
+                await window.PixivBatch.scheduleSources.refresh(false);
+            } catch (e) {
+                // 来源 manifest 暂不可用时仍可进入页面；任务列表使用持久化 presentation 降级。
+            }
+        }
         // 多人模式：初始化配额状态
         if (appMode === 'multi') {
             await initQuota();
@@ -221,6 +228,17 @@
         setupOnboardingOrTour();
     });
 
+    async function refreshScheduleSourceManifest() {
+        if (!isAdmin || !window.PixivBatch.scheduleSources) return;
+        try {
+            await window.PixivBatch.scheduleSources.refresh(false);
+            updateSaveScheduleCardVisibility();
+            if (state.mode === 'schedule') await loadScheduleTasks();
+        } catch (e) {
+            // 网络或插件重启窗口内保持只读降级，不中断现有页面。
+        }
+    }
+
     let queueTypeRefreshInFlight = null;
     function refreshQueueTypeManifest() {
         const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
@@ -260,11 +278,20 @@
 
     window.addEventListener('focus', () => {
         refreshQueueTypeManifest();
+        refreshScheduleSourceManifest();
     });
     window.addEventListener('pixivbatch:queuetypeschanged', reconcileQueueTypeUi);
+    window.addEventListener('pixivbatch:schedulesourceschanged', () => {
+        updateSaveScheduleCardVisibility();
+        if (state.mode === 'schedule') loadScheduleTasks();
+        refreshPageI18nNamespaces().catch(e => {
+            console.warn('[batch] 刷新计划来源 i18n namespace 失败：', e);
+        });
+    });
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             refreshQueueTypeManifest();
+            refreshScheduleSourceManifest();
         }
     });
 

@@ -7,16 +7,20 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegis
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
+import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
+import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
 
 import java.io.InputStream;
 import java.util.List;
@@ -101,6 +105,37 @@ class DownloadWorkbenchRequiredContextTest {
         assertThat(plugin.userscripts())
                 .extracting(script -> script.pluginId() + "|" + script.classpathPattern())
                 .containsExactly("download-workbench|classpath:/static/userscripts/*.user.js");
+    }
+
+    @Test
+    @DisplayName("七类计划来源前端模块均由下载工作台自己的静态资源提供")
+    void scheduledSourceFrontendModulesBelongToPluginAssets() {
+        PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                plugin,
+                PluginSource.EXTERNAL,
+                plugin.getClass().getClassLoader(),
+                DownloadWorkbenchPlugin.ID,
+                1L);
+        PluginRegistry pluginRegistry = new PluginRegistry(List.of());
+        StaticResourceRegistry staticResources = new StaticResourceRegistry(pluginRegistry);
+        pluginRegistry.register(registered);
+        try {
+            staticResources.register(registered, List.copyOf(plugin.staticResources()));
+            PluginOwnedWebAssetValidator validator = new PluginOwnedWebAssetValidator(staticResources);
+
+            assertThat(plugin.scheduledSourceDescriptors()).hasSize(7).allSatisfy(descriptor -> {
+                assertThat(descriptor.frontend()).isNotNull();
+                assertThat(descriptor.frontend().moduleUrl())
+                        .isEqualTo(PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL);
+                validator.validateOwnedJavaScript(
+                        registered,
+                        descriptor.frontend().moduleUrl(),
+                        "Pixiv scheduled source frontend");
+            });
+        } finally {
+            staticResources.unregister(registered.id());
+            pluginRegistry.unregister(registered);
+        }
     }
 
     @Test
