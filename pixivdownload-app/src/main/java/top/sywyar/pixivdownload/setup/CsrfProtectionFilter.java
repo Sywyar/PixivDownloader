@@ -66,6 +66,13 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
         }
         String normalizedMethod = method.toUpperCase(Locale.ROOT);
 
+        if ((path.equals("/api/schedule") || path.startsWith("/api/schedule/"))
+                && ("POST".equals(normalizedMethod)
+                || "PUT".equals(normalizedMethod)
+                || "DELETE".equals(normalizedMethod))) {
+            return true;
+        }
+
         if ("POST".equals(normalizedMethod) && path.startsWith("/api/plugins/")) {
             return true;
         }

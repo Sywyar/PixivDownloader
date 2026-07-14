@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("上传写操作 CSRF 同源校验")
+@DisplayName("敏感写操作 CSRF 同源校验")
 class CsrfProtectionFilterTest {
 
     @Mock
@@ -62,9 +62,12 @@ class CsrfProtectionFilterTest {
             "DELETE,/api/collections/7/icon",
             "POST,/api/narration/cast/voice/reference",
             "DELETE,/api/narration/cast/voice/reference",
-            "POST,/api/narration/cast/voice/reference/generate"
+            "POST,/api/narration/cast/voice/reference/generate",
+            "POST,/api/schedule/tasks",
+            "PUT,/api/schedule/tasks/9",
+            "DELETE,/api/schedule/tasks/9"
     })
-    @DisplayName("受保护上传和安装写入口缺少来源信号时返回 403")
+    @DisplayName("受保护写入口缺少来源信号时返回 403")
     void protectedWriteRejectsMissingOriginAndReferer(String method, String path) throws Exception {
         MockHttpServletRequest request = request(method, path);
         MockHttpServletResponse response = new MockHttpServletResponse();
