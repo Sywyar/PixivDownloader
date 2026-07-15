@@ -244,6 +244,71 @@ class ScheduleExecutionEngineTest {
     }
 
     @Test
+    @DisplayName("来源默认路由同时用于凭证绑定与正式运行的全部插件回调")
+    void sourceDefaultRouteIsSharedByBindingAndExecution() throws Exception {
+        ScheduledTaskStore store = storeWithCredential();
+        ScheduledNetworkRoute sourceRoute = ScheduledNetworkRoute.proxy(
+                "source.proxy", 9080, "source-reference");
+        ScheduledExecutionPlan executionPlan = new ScheduledExecutionPlan(
+                Set.of(WORK),
+                POLICY,
+                ScheduledCredentialRequirement.REQUIRED,
+                false,
+                List.of(new ScheduledGuardBinding(
+                        GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0)),
+                null,
+                0,
+                1,
+                0L,
+                sourceRoute);
+        AtomicReference<ScheduledNetworkRoute> bindingRoute = new AtomicReference<>();
+        AtomicReference<ScheduledNetworkRoute> executionRoute = new AtomicReference<>();
+        ScheduledSourceExecutor source = sourceWithPlan(executionPlan, context -> {
+            assertThat(context.route()).isSameAs(sourceRoute);
+            context.workSink().submit(work("source-route"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor work = workExecutor(context -> {
+            assertThat(context.route()).isSameAs(sourceRoute);
+            return ScheduledWorkResult.completed();
+        });
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                executionRoute.set(context.route());
+                return ScheduledCredentialProbeResult.valid("account-1");
+            }
+
+            @Override
+            public ScheduledCredentialBindResult probeForBinding(
+                    ScheduledCredentialContext context) {
+                bindingRoute.set(context.route());
+                return ScheduledCredentialBindResult.fromProbe(
+                        ScheduledCredentialProbeResult.valid("account-1"));
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            assertThat(context.route()).isSameAs(sourceRoute);
+            return ScheduledGuardDecision.proceed();
+        });
+        CredentialEngineFixture fixture = credentialEngine(store, source, work, policy, guard);
+
+        try (ScheduleCredentialBindingLease binding = fixture.engine().prepareCredentialBinding(
+                task(), fixture.activationToken())) {
+            binding.probe("candidate-secret");
+        }
+        fixture.engine().execute(task());
+
+        assertThat(bindingRoute.get()).isSameAs(sourceRoute);
+        assertThat(executionRoute.get()).isSameAs(sourceRoute);
+    }
+
+    @Test
     @DisplayName("绑定探活拒绝策略初始状态中的凭证字段与凭证文本")
     void bindingProbeRejectsCredentialMaterialInInitialPolicyState() throws Exception {
         AtomicReference<String> policyState = new AtomicReference<>();

@@ -6,6 +6,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pf4j.Plugin;
 import org.slf4j.Logger;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
@@ -41,15 +43,16 @@ class PluginApi10BinaryCompatibilityTest {
 
     private static final String PLUGIN_ID = "api10-binary-fixture";
     private static final String API11_PLUGIN_ID = "api11-binary-fixture";
+    private static final String API12_PLUGIN_ID = "api12-binary-fixture";
     private static final String PLUGIN_VERSION = "1.0.0";
 
     @TempDir
     Path tempDir;
 
     @Test
-    @DisplayName("按冻结 1.0 ABI 编译的 thin JAR 可由 1.2 核心真实加载并调用新增默认方法")
+    @DisplayName("按冻结 1.0 ABI 编译的 thin JAR 可由 1.3 核心真实加载并调用新增默认方法")
     void frozenApi10JarLoadsAgainstCurrentApi() throws Exception {
-        assertThat(PluginApiVersion.VERSION).isEqualTo("1.2.0");
+        assertThat(PluginApiVersion.VERSION).isEqualTo("1.3.0");
         Path oldApiJar = compileFrozenApi10();
         Path plugins = tempDir.resolve("plugins");
         Files.createDirectories(plugins);
@@ -84,9 +87,9 @@ class PluginApi10BinaryCompatibilityTest {
     }
 
     @Test
-    @DisplayName("按冻结 1.1 ABI 编译的来源执行器由 1.2 核心加载并调用默认 prepare")
+    @DisplayName("按冻结 1.1 ABI 编译的来源执行器由 1.3 核心加载并调用默认 prepare")
     void frozenApi11SourceExecutorUsesCurrentDefaultPrepare() throws Exception {
-        assertThat(PluginApiVersion.VERSION).isEqualTo("1.2.0");
+        assertThat(PluginApiVersion.VERSION).isEqualTo("1.3.0");
         Path oldApiJar = compileFrozenApi11();
         Path plugins = tempDir.resolve("plugins-api11");
         Files.createDirectories(plugins);
@@ -129,6 +132,50 @@ class PluginApi10BinaryCompatibilityTest {
             ScheduledTaskDefinition prepared = executor.prepare(draft);
 
             assertThat(prepared).isEqualTo(draft.toDefinition());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("按冻结 1.2 ABI 编译的来源执行器由 1.3 核心调用旧九参数执行计划构造器")
+    void frozenApi12SourceExecutorUsesCompatibleNineArgumentPlanConstructor() throws Exception {
+        assertThat(PluginApiVersion.VERSION).isEqualTo("1.3.0");
+        Path oldApiJar = compileFrozenApi12();
+        Path plugins = tempDir.resolve("plugins-api12");
+        Files.createDirectories(plugins);
+        Path fixtureJar = compileApi12FixtureJar(
+                oldApiJar, plugins.resolve(API12_PLUGIN_ID + ".jar"));
+        writeLocalProvenance(plugins, fixtureJar, API12_PLUGIN_ID, PLUGIN_VERSION);
+
+        try (ZipFile zip = new ZipFile(fixtureJar.toFile())) {
+            assertThat(zip.stream().map(ZipEntry::getName))
+                    .noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
+        }
+
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        try {
+            PluginRuntimeStatus status = manager.start();
+            PluginDiscoveryResult discovery = manager.discoverFeaturePlugins();
+
+            assertThat(status.loadedPluginIds()).containsExactly(API12_PLUGIN_ID);
+            assertThat(status.startedPluginIds()).containsExactly(API12_PLUGIN_ID);
+            assertThat(status.failures()).isEmpty();
+            assertThat(discovery.failures()).isEmpty();
+            assertThat(discovery.discovered()).singleElement()
+                    .satisfies(item -> assertThat(item.plugin().id()).isEqualTo(API12_PLUGIN_ID));
+
+            ScheduledSourceExecutor executor = (ScheduledSourceExecutor) discovery.discovered().get(0).plugin();
+            ScheduledExecutionPlan plan = executor.plan(new ScheduledTaskDefinition(
+                    23L,
+                    executor.sourceType(),
+                    "fixture.definition",
+                    1,
+                    "{\"value\":1}",
+                    new ScheduledTaskPresentation("任务", null, Map.of("kind", "fixture"))));
+
+            assertThat(plan.requiredWorkTypes()).containsExactly("api12-work");
+            assertThat(plan.sourceDefaultRoute()).isEqualTo(ScheduledNetworkRoute.inherit());
         } finally {
             manager.shutdown();
         }
@@ -268,6 +315,149 @@ class PluginApi10BinaryCompatibilityTest {
         return jar;
     }
 
+    private Path compileFrozenApi12() throws IOException {
+        Path sources = tempDir.resolve("api12-src");
+        Path classes = tempDir.resolve("api12-classes");
+        writeSource(sources, "top/sywyar/pixivdownload/plugin/api/plugin/PluginKind.java", """
+                package top.sywyar.pixivdownload.plugin.api.plugin;
+                public enum PluginKind { CORE, FEATURE }
+                """);
+        writeSource(sources, "top/sywyar/pixivdownload/plugin/api/plugin/PixivFeaturePlugin.java", """
+                package top.sywyar.pixivdownload.plugin.api.plugin;
+                public interface PixivFeaturePlugin {
+                    String id();
+                    String displayName();
+                    String description();
+                    PluginKind kind();
+                }
+                """);
+        writeSource(sources, "top/sywyar/pixivdownload/plugin/api/plugin/PixivPluginProvider.java", """
+                package top.sywyar.pixivdownload.plugin.api.plugin;
+                import java.util.List;
+                public interface PixivPluginProvider {
+                    List<PixivFeaturePlugin> featurePlugins();
+                }
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/credential/ScheduledCredentialRequirement.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.credential;
+                public enum ScheduledCredentialRequirement { NONE, OPTIONAL, REQUIRED }
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/guard/ScheduledGuardPoint.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.guard;
+                public enum ScheduledGuardPoint { RUN_START, WORK_BATCH, RUN_END, RUN_FAILURE }
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/guard/ScheduledGuardBinding.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.guard;
+                import java.util.Set;
+                public record ScheduledGuardBinding(
+                        String guardId, Set<ScheduledGuardPoint> points, int workBatchSize) {}
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/execution/ScheduledExecutionException.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.execution;
+                public class ScheduledExecutionException extends Exception {
+                    public ScheduledExecutionException(String message) { super(message); }
+                }
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/execution/ScheduledExecutionPlan.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.execution;
+                import java.util.List;
+                import java.util.Set;
+                import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
+                import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
+                public record ScheduledExecutionPlan(
+                        Set<String> requiredWorkTypes,
+                        String credentialPolicyId,
+                        ScheduledCredentialRequirement credentialRequirement,
+                        boolean anonymousFallbackAllowed,
+                        List<ScheduledGuardBinding> guards,
+                        String checkpointSchema,
+                        int checkpointVersion,
+                        int maxInFlight,
+                        long politeDelayMillis) {}
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/source/ScheduledTaskPresentation.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.source;
+                import java.util.Map;
+                public record ScheduledTaskPresentation(
+                        String title, String summary, Map<String, String> attributes) {}
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/source/ScheduledTaskDefinition.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.source;
+                public record ScheduledTaskDefinition(
+                        long taskId,
+                        String sourceType,
+                        String definitionSchema,
+                        int definitionVersion,
+                        String definitionJson,
+                        ScheduledTaskPresentation presentation) {}
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/source/ScheduledTaskDraft.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.source;
+                public record ScheduledTaskDraft(
+                        long taskId,
+                        String sourceType,
+                        String definitionSchema,
+                        int definitionVersion,
+                        String definitionJson,
+                        ScheduledTaskPresentation presentation) {
+                    public ScheduledTaskDefinition toDefinition() {
+                        return new ScheduledTaskDefinition(
+                                taskId, sourceType, definitionSchema, definitionVersion,
+                                definitionJson, presentation);
+                    }
+                }
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/source/ScheduledPendingReplayPolicy.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.source;
+                public enum ScheduledPendingReplayPolicy { ALWAYS, REDISCOVERED_ONLY }
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/source/ScheduledDiscoveryResult.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.source;
+                public final class ScheduledDiscoveryResult {
+                    private ScheduledDiscoveryResult() {}
+                }
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/source/ScheduledSourceContext.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.source;
+                public interface ScheduledSourceContext {}
+                """);
+        writeSource(sources,
+                "top/sywyar/pixivdownload/plugin/api/schedule/source/ScheduledSourceExecutor.java", """
+                package top.sywyar.pixivdownload.plugin.api.schedule.source;
+                import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+                import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
+                public interface ScheduledSourceExecutor {
+                    String sourceType();
+                    default ScheduledPendingReplayPolicy pendingReplayPolicy() {
+                        return ScheduledPendingReplayPolicy.ALWAYS;
+                    }
+                    default ScheduledTaskDefinition prepare(ScheduledTaskDraft draft)
+                            throws ScheduledExecutionException {
+                        return draft.toDefinition();
+                    }
+                    ScheduledExecutionPlan plan(ScheduledTaskDefinition task)
+                            throws ScheduledExecutionException;
+                    ScheduledDiscoveryResult discover(ScheduledSourceContext context)
+                            throws ScheduledExecutionException;
+                }
+                """);
+        compile(classes, null, javaSources(sources));
+        Path jar = tempDir.resolve("pixivdownload-plugin-api-1.2-fixture.jar");
+        zipClasses(classes, jar, null);
+        return jar;
+    }
+
     private Path compileFixtureJar(Path oldApiJar, Path jar) throws IOException, URISyntaxException {
         Path sources = tempDir.resolve("fixture-src");
         Path classes = tempDir.resolve("fixture-classes");
@@ -362,6 +552,70 @@ class PluginApi10BinaryCompatibilityTest {
                 + "plugin.class=fixture.api11.Api11Plugin\n"
                 + "plugin.provider=test\n"
                 + "plugin.description=api 1.1 binary fixture\n";
+        zipClasses(classes, jar, descriptor);
+        return jar;
+    }
+
+    private Path compileApi12FixtureJar(Path oldApiJar, Path jar) throws IOException, URISyntaxException {
+        Path sources = tempDir.resolve("api12-fixture-src");
+        Path classes = tempDir.resolve("api12-fixture-classes");
+        writeSource(sources, "fixture/api12/Api12Feature.java", """
+                package fixture.api12;
+                import java.util.List;
+                import java.util.Set;
+                import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+                import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+                import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
+                import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+                import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+                public final class Api12Feature implements PixivFeaturePlugin, ScheduledSourceExecutor {
+                    public String id() { return "api12-binary-fixture"; }
+                    public String displayName() { return "plugin.name"; }
+                    public String description() { return "plugin.summary"; }
+                    public PluginKind kind() { return PluginKind.FEATURE; }
+                    public String sourceType() { return "api12-fixture-source"; }
+                    public ScheduledExecutionPlan plan(ScheduledTaskDefinition task)
+                            throws ScheduledExecutionException {
+                        return new ScheduledExecutionPlan(
+                                Set.of("api12-work"),
+                                null,
+                                ScheduledCredentialRequirement.NONE,
+                                false,
+                                List.of(),
+                                null,
+                                0,
+                                1,
+                                0L);
+                    }
+                    public ScheduledDiscoveryResult discover(ScheduledSourceContext context)
+                            throws ScheduledExecutionException { return null; }
+                }
+                """);
+        writeSource(sources, "fixture/api12/Api12Plugin.java", """
+                package fixture.api12;
+                import java.util.List;
+                import org.pf4j.Plugin;
+                import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+                import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
+                public final class Api12Plugin extends Plugin implements PixivPluginProvider {
+                    public List<PixivFeaturePlugin> featurePlugins() {
+                        return List.of(new Api12Feature());
+                    }
+                }
+                """);
+        String classpath = String.join(File.pathSeparator,
+                oldApiJar.toString(), codeSource(Plugin.class).toString(), codeSource(Logger.class).toString());
+        compile(classes, classpath, javaSources(sources));
+        String descriptor = "plugin.id=" + API12_PLUGIN_ID + "\n"
+                + "plugin.version=" + PLUGIN_VERSION + "\n"
+                + "plugin.requires=1.2\n"
+                + "plugin.class=fixture.api12.Api12Plugin\n"
+                + "plugin.provider=test\n"
+                + "plugin.description=api 1.2 binary fixture\n";
         zipClasses(classes, jar, descriptor);
         return jar;
     }

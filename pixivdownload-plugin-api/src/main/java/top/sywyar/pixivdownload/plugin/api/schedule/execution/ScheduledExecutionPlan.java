@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.api.schedule.execution;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 
 import java.util.List;
 import java.util.Set;
@@ -18,7 +19,8 @@ public record ScheduledExecutionPlan(
         String checkpointSchema,
         int checkpointVersion,
         int maxInFlight,
-        long politeDelayMillis
+        long politeDelayMillis,
+        ScheduledNetworkRoute sourceDefaultRoute
 ) {
 
     public ScheduledExecutionPlan {
@@ -58,6 +60,27 @@ public record ScheduledExecutionPlan(
         if (politeDelayMillis < 0) {
             throw new IllegalArgumentException("polite delay must not be negative");
         }
+        sourceDefaultRoute = sourceDefaultRoute == null
+                ? ScheduledNetworkRoute.inherit()
+                : sourceDefaultRoute;
+    }
+
+    /**
+     * 兼容 1.2 及更早插件的构造入口。未声明来源默认路由时继续继承宿主全局路由。
+     */
+    public ScheduledExecutionPlan(
+            Set<String> requiredWorkTypes,
+            String credentialPolicyId,
+            ScheduledCredentialRequirement credentialRequirement,
+            boolean anonymousFallbackAllowed,
+            List<ScheduledGuardBinding> guards,
+            String checkpointSchema,
+            int checkpointVersion,
+            int maxInFlight,
+            long politeDelayMillis) {
+        this(requiredWorkTypes, credentialPolicyId, credentialRequirement,
+                anonymousFallbackAllowed, guards, checkpointSchema, checkpointVersion,
+                maxInFlight, politeDelayMillis, ScheduledNetworkRoute.inherit());
     }
 
     public static ScheduledExecutionPlan credentialFree(Set<String> workTypes) {
@@ -70,7 +93,8 @@ public record ScheduledExecutionPlan(
                 null,
                 0,
                 1,
-                0L);
+                0L,
+                ScheduledNetworkRoute.inherit());
     }
 
     private static String normalize(String value) {

@@ -246,12 +246,7 @@ public final class ScheduleExecutionEngine {
             if (execution.credentialPolicy().isEmpty()) {
                 throw pluginFailure("schedule.credential.policy-unavailable");
             }
-            ScheduledNetworkRoute route;
-            try {
-                route = routeResolver.resolve(task.proxySnapshot());
-            } catch (IllegalArgumentException failure) {
-                throw new ScheduleDefinitionException("invalid schedule network route", failure);
-            }
+            ScheduledNetworkRoute route = resolveRoute(task, plan);
             return new ScheduleCredentialBindingLease(
                     this, task.id(), policyOwner.featurePluginId(), plan.credentialPolicyId(),
                     execution, definition, route);
@@ -382,12 +377,7 @@ public final class ScheduleExecutionEngine {
             Map<String, Integer> workConcurrencyLimits = resolveWorkConcurrencyLimits(
                     execution.workExecutors(), plan.maxInFlight());
             List<ScheduledPendingWork> pendingRows = validatePending(task, execution);
-            ScheduledNetworkRoute route;
-            try {
-                route = routeResolver.resolve(task.proxySnapshot());
-            } catch (IllegalArgumentException failure) {
-                throw new ScheduleDefinitionException("invalid schedule network route", failure);
-            }
+            ScheduledNetworkRoute route = resolveRoute(task, plan);
 
             boolean credentialRevoked = false;
             ScheduleExecutionResult result;
@@ -554,6 +544,16 @@ public final class ScheduleExecutionEngine {
                 secret,
                 bindingMatches ? task.credentialSecretReference() : null,
                 bindingMatches ? task.credentialAccountKey() : null);
+    }
+
+    private ScheduledNetworkRoute resolveRoute(
+            ScheduledTask task,
+            ScheduledExecutionPlan plan) throws ScheduleDefinitionException {
+        try {
+            return routeResolver.resolve(task.proxySnapshot(), plan.sourceDefaultRoute());
+        } catch (IllegalArgumentException failure) {
+            throw new ScheduleDefinitionException("invalid schedule network route", failure);
+        }
     }
 
     private List<ScheduledPendingWork> validatePending(

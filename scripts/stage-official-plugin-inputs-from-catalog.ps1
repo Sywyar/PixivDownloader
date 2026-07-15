@@ -15,7 +15,7 @@ param(
     [string]$OutputDir,
     [Parameter(Mandatory = $true)][string]$SignatureToolJar,
     [switch]$IncludeOptional,
-    [string]$CoreApiVersion = "1.2.0"
+    [string]$CoreApiVersion = "1.3.0"
 )
 
 $ErrorActionPreference = "Stop"

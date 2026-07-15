@@ -281,8 +281,8 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("执行计划声明作品、凭证、Guard、检查点与有界并发")
-    void executionPlanCarriesHostControlledPolicy() {
+    @DisplayName("旧执行计划构造器保持可用并默认继承宿主网络路由")
+    void legacyExecutionPlanConstructorDefaultsToInheritedRoute() throws Exception {
         ScheduledGuardBinding guard = new ScheduledGuardBinding(
                 "pixiv:overuse",
                 Set.of(ScheduledGuardPoint.RUN_START, ScheduledGuardPoint.WORK_BATCH, ScheduledGuardPoint.RUN_END),
@@ -300,9 +300,41 @@ class ScheduleContractTest {
 
         assertThat(plan.guards()).containsExactly(guard);
         assertThat(plan.maxInFlight()).isEqualTo(4);
+        assertThat(plan.sourceDefaultRoute()).isEqualTo(ScheduledNetworkRoute.inherit());
+        assertThat(ScheduledExecutionPlan.class.getConstructor(
+                Set.class,
+                String.class,
+                ScheduledCredentialRequirement.class,
+                boolean.class,
+                List.class,
+                String.class,
+                int.class,
+                int.class,
+                long.class)).isNotNull();
         assertThatThrownBy(() -> new ScheduledGuardBinding(
                 "guard", Set.of(ScheduledGuardPoint.WORK_BATCH), 0))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("执行计划可以声明来源默认网络路由")
+    void executionPlanCarriesSourceDefaultRoute() {
+        ScheduledNetworkRoute sourceRoute = ScheduledNetworkRoute.proxy(
+                "source.proxy", 9080, "source-proxy");
+
+        ScheduledExecutionPlan plan = new ScheduledExecutionPlan(
+                Set.of("fixture:work"),
+                null,
+                ScheduledCredentialRequirement.NONE,
+                false,
+                List.of(),
+                null,
+                0,
+                1,
+                0L,
+                sourceRoute);
+
+        assertThat(plan.sourceDefaultRoute()).isSameAs(sourceRoute);
     }
 
     @Test
