@@ -1009,86 +1009,44 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
-    @DisplayName("收藏作品按收藏夹逐层分页且复合游标可由新客户端继续")
-    void pagesFavoriteWorksAcrossFoldersWithRestartSafeCursor() throws Exception {
-        FakeRestTemplate firstRest = new FakeRestTemplate();
-        firstRest.enqueue(200, favoriteFolders(false, "0"));
-        firstRest.enqueue(200, """
-                {"status_code":0,"has_more":0,"cursor":"0","aweme_list":[
-                  {"aweme_id":"9501","desc":"Folder A",
-                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9501.mp4"]}}}
-                ]}
-                """);
-
-        var first = client(firstRest).listAccountWorksPage(
-                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, "sessionid=test");
-
-        assertThat(first.items()).extracting("id").containsExactly("9501");
-        assertThat(first.hasMore()).isTrue();
-        assertThat(first.nextCursor()).startsWith("fw1.").hasSizeLessThan(512)
-                .doesNotContain("sessionid", "test");
-        assertThat(firstRest.requests()).extracting(URI::getPath).containsExactly(
-                "/aweme/v1/web/collects/list/",
-                "/aweme/v1/web/collects/video/list/");
-        assertThat(firstRest.requests().get(1).getRawQuery()).contains("collects_id=folder-a");
-
-        FakeRestTemplate resumedRest = new FakeRestTemplate();
-        resumedRest.enqueue(200, favoriteFolders(false, "0"));
-        resumedRest.enqueue(200, """
-                {"status_code":0,"has_more":0,"cursor":"0","aweme_list":[
-                  {"aweme_id":"9502","desc":"Folder B",
+    @DisplayName("收藏作品通过签名 POST 端点按上游游标分页")
+    void pagesFavoriteWorksThroughSignedPostEndpoint() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"favorite-next","total":7,"aweme_list":[
+                  {"aweme_id":"9501","desc":"Favorite A",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9501.mp4"]}}},
+                  {"aweme_id":"9502","desc":"Favorite B",
                    "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9502.mp4"]}}}
                 ]}
                 """);
 
-        var resumed = client(resumedRest).listAccountWorksPage(
+        var listing = client(rest).listAccountWorksPage(
                 favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS,
-                first.nextCursor(), 20, "sessionid=test");
+                "favorite-current", 12, "sessionid=test");
 
-        assertThat(resumed.items()).extracting("id").containsExactly("9502");
-        assertThat(resumed.hasMore()).isFalse();
-        assertThat(resumedRest.requests().get(1).getRawQuery()).contains("collects_id=folder-b");
-        assertThat(resumedRest.requests()).allSatisfy(uri ->
-                assertThat(uri.getPath()).doesNotContain("/aweme/listcollection/"));
+        assertThat(listing.items()).extracting("id").containsExactly("9501", "9502");
+        assertThat(listing.total()).isEqualTo(7);
+        assertThat(listing.nextCursor()).isEqualTo("favorite-next");
+        assertThat(listing.hasMore()).isTrue();
+        assertThat(listing.ownerId()).isEqualTo("uid-1");
+        assertThat(listing.ownerName()).isEqualTo("Me");
+        assertThat(rest.requests()).singleElement().satisfies(uri -> {
+            assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/aweme/listcollection/");
+            assertThat(uri.getRawQuery())
+                    .contains("cursor=favorite-current", "count=12", "a_bogus=");
+        });
+        assertThat(rest.methods()).containsExactly(HttpMethod.POST);
+        assertThat(rest.cookies()).singleElement().satisfies(cookie ->
+                assertThat(cookie).contains("sessionid=test", "msToken="));
     }
 
     @Test
-    @DisplayName("收藏作品同一收藏夹的内层游标稳定推进")
-    void pagesWithinFavoriteWorksFolder() throws Exception {
-        FakeRestTemplate firstRest = new FakeRestTemplate();
-        firstRest.enqueue(200, singleFavoriteFolder());
-        firstRest.enqueue(200, """
-                {"status_code":0,"has_more":1,"cursor":"works-next","aweme_list":[
-                  {"aweme_id":"9511","desc":"First",
-                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9511.mp4"]}}}
-                ]}
-                """);
-        var first = client(firstRest).listAccountWorksPage(
-                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null);
-
-        FakeRestTemplate secondRest = new FakeRestTemplate();
-        secondRest.enqueue(200, singleFavoriteFolder());
-        secondRest.enqueue(200, """
-                {"status_code":0,"has_more":0,"cursor":"done","aweme_list":[
-                  {"aweme_id":"9512","desc":"Second",
-                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9512.mp4"]}}}
-                ]}
-                """);
-        var second = client(secondRest).listAccountWorksPage(
-                favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS,
-                first.nextCursor(), 20, null);
-
-        assertThat(first.items()).extracting("id").containsExactly("9511");
-        assertThat(second.items()).extracting("id").containsExactly("9512");
-        assertThat(secondRest.requests().get(1).getRawQuery()).contains("cursor=works-next");
-    }
-
-    @Test
-    @DisplayName("收藏作品已识别的空数组或 null 收藏夹列表保持合法空结果")
-    void keepsRecognizedEmptyFavoriteFolders() throws Exception {
+    @DisplayName("收藏作品已识别的空数组或 null 列表保持合法空结果")
+    void keepsRecognizedEmptyFavoriteWorks() throws Exception {
         for (String body : List.of(
-                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"collects_list\":[]}",
-                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"collects_list\":null}")) {
+                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"aweme_list\":[]}",
+                "{\"status_code\":0,\"has_more\":0,\"cursor\":0,\"aweme_list\":null}")) {
             FakeRestTemplate rest = new FakeRestTemplate();
             rest.enqueue(200, body);
 
@@ -1097,21 +1055,50 @@ class DefaultDouyinClientParserTest {
 
             assertThat(listing.items()).isEmpty();
             assertThat(listing.hasMore()).isFalse();
+            assertThat(rest.methods()).containsExactly(HttpMethod.POST);
         }
     }
 
     @Test
-    @DisplayName("收藏作品候选收藏夹缺少稳定 ID 时明确失败")
-    void rejectsFavoriteFolderCandidatesWithoutStableId() {
+    @DisplayName("收藏作品响应缺少已知作品数组时明确失败")
+    void rejectsFavoriteWorksResponseWithoutKnownArray() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, "{\"status_code\":0,\"has_more\":0,\"cursor\":0}");
+
+        assertCodeName(() -> client(rest).listAccountWorksPage(
+                        favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("收藏作品候选缺少可下载媒体时明确失败")
+    void rejectsFavoriteWorksCandidatesWithoutDownloadableMedia() {
         FakeRestTemplate rest = new FakeRestTemplate();
         rest.enqueue(200, """
                 {"status_code":0,"has_more":0,"cursor":0,
-                 "collects_list":[{"collects_name":"Missing id"}]}
+                 "aweme_list":[{"aweme_id":"9503","desc":"Missing media"}]}
                 """);
 
         assertCodeName(() -> client(rest).listAccountWorksPage(
                         favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null),
                 "RESPONSE_CANDIDATES_FILTERED");
+    }
+
+    @Test
+    @DisplayName("收藏作品仍有下一页但游标未推进时明确失败")
+    void rejectsStalledFavoriteWorksCursor() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"favorite-current","aweme_list":[
+                  {"aweme_id":"9504","desc":"Favorite",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9504.mp4"]}}}
+                ]}
+                """);
+
+        assertCodeName(() -> client(rest).listAccountWorksPage(
+                        favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS,
+                        "favorite-current", 20, null),
+                "PAGINATION_STALLED");
     }
 
     @Test
@@ -1164,6 +1151,7 @@ class DefaultDouyinClientParserTest {
             assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/mix/listcollection/");
             assertThat(uri.getRawQuery()).contains("cursor=collection-current", "count=12");
         });
+        assertThat(rest.methods()).containsExactly(HttpMethod.GET);
     }
 
     @Test
@@ -1281,23 +1269,6 @@ class DefaultDouyinClientParserTest {
         return new DouyinAccount("uid-1", "sec-1", "Me", "mine");
     }
 
-    private static String favoriteFolders(boolean hasMore, String cursor) {
-        return """
-                {"status_code":0,"has_more":%d,"cursor":"%s","collects_list":[
-                  {"collects_id_str":"folder-a","collects_name":"Folder A"},
-                  {"collects_info":{"collects_id":"folder-b","collects_name":"Folder B"}}
-                ]}
-                """.formatted(hasMore ? 1 : 0, cursor);
-    }
-
-    private static String singleFavoriteFolder() {
-        return """
-                {"status_code":0,"has_more":0,"cursor":"0","collects_list":[
-                  {"id":"folder-a","collects_name":"Folder A"}
-                ]}
-                """;
-    }
-
     private static void assertCodeName(ThrowingRunnable action, String code) {
         assertThatThrownBy(action::run)
                 .isInstanceOf(DouyinClientException.class)
@@ -1324,6 +1295,7 @@ class DefaultDouyinClientParserTest {
         assertCodeName(() -> client(rest).listAccountWorksPage(
                 favoriteAccount(), DouyinAccountSource.FAVORITE_WORKS, "0", 20, null), code);
         assertThat(rest.requests()).hasSize(attempts);
+        assertThat(rest.methods()).containsOnly(HttpMethod.POST).hasSize(attempts);
     }
 
     @FunctionalInterface
@@ -1335,6 +1307,7 @@ class DefaultDouyinClientParserTest {
         private final Queue<Object> responses = new ArrayDeque<>();
         private final List<URI> requests = new ArrayList<>();
         private final List<String> cookies = new ArrayList<>();
+        private final List<HttpMethod> methods = new ArrayList<>();
 
         void enqueue(int status, String body) {
             responses.add(new ResponseEntity<>(
@@ -1352,6 +1325,7 @@ class DefaultDouyinClientParserTest {
         public <T> ResponseEntity<T> exchange(URI url, HttpMethod method, HttpEntity<?> requestEntity,
                                               Class<T> responseType) {
             requests.add(url);
+            methods.add(method);
             cookies.add(requestEntity == null
                     ? null
                     : requestEntity.getHeaders().getFirst(HttpHeaders.COOKIE));
@@ -1379,6 +1353,10 @@ class DefaultDouyinClientParserTest {
 
         List<String> cookies() {
             return cookies;
+        }
+
+        List<HttpMethod> methods() {
+            return methods;
         }
     }
 

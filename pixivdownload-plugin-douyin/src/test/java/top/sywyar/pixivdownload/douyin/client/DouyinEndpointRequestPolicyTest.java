@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.douyin.client;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,10 +14,26 @@ class DouyinEndpointRequestPolicyTest {
     void usesUnsignedRequestForGeneralSearch() {
         assertThat(DouyinEndpointRequestPolicy.forPath(
                 "/aweme/v1/web/general/search/single/"))
-                .isEqualTo(DouyinEndpointRequestPolicy.UNSIGNED);
+                .isEqualTo(DouyinEndpointRequestPolicy.UNSIGNED_GET)
+                .satisfies(policy -> {
+                    assertThat(policy.method()).isEqualTo(HttpMethod.GET);
+                    assertThat(policy.requiresSignature()).isFalse();
+                });
         assertThat(DouyinEndpointRequestPolicy.forPath(
                 "aweme/v1/web/general/search/single/"))
-                .isEqualTo(DouyinEndpointRequestPolicy.UNSIGNED);
+                .isEqualTo(DouyinEndpointRequestPolicy.UNSIGNED_GET);
+    }
+
+    @Test
+    @DisplayName("全部收藏作品端点使用签名 POST 请求")
+    void usesSignedPostRequestForFavoriteWorks() {
+        assertThat(DouyinEndpointRequestPolicy.forPath(
+                "/aweme/v1/web/aweme/listcollection/"))
+                .isEqualTo(DouyinEndpointRequestPolicy.SIGNED_POST)
+                .satisfies(policy -> {
+                    assertThat(policy.method()).isEqualTo(HttpMethod.POST);
+                    assertThat(policy.requiresSignature()).isTrue();
+                });
     }
 
     @Test
@@ -24,9 +41,13 @@ class DouyinEndpointRequestPolicyTest {
     void keepsSignedRequestsForOtherEndpoints() {
         assertThat(DouyinEndpointRequestPolicy.forPath(
                 "/aweme/v1/web/aweme/detail/"))
-                .isEqualTo(DouyinEndpointRequestPolicy.SIGNED);
+                .isEqualTo(DouyinEndpointRequestPolicy.SIGNED_GET);
         assertThat(DouyinEndpointRequestPolicy.forPath(
                 "/aweme/v1/web/aweme/post/"))
-                .isEqualTo(DouyinEndpointRequestPolicy.SIGNED);
+                .isEqualTo(DouyinEndpointRequestPolicy.SIGNED_GET)
+                .satisfies(policy -> {
+                    assertThat(policy.method()).isEqualTo(HttpMethod.GET);
+                    assertThat(policy.requiresSignature()).isTrue();
+                });
     }
 }

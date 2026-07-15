@@ -34,7 +34,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -61,11 +60,8 @@ public class DefaultDouyinClient implements DouyinClient {
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final int DEFAULT_MIX_PAGE_SIZE = 20;
     private static final int MAX_CURSOR_PAGES = 1_000;
-    private static final int MAX_FAVORITE_CURSOR_LENGTH = 512;
-    private static final int MAX_FAVORITE_CURSOR_PART_LENGTH = 256;
     private static final int MAX_API_ATTEMPTS = 3;
     private static final long[] API_RETRY_DELAYS_MS = {1_000L, 2_000L};
-    private static final String FAVORITE_CURSOR_PREFIX = "fw1";
     private static final List<String> DETAIL_AID_CANDIDATES = List.of("6383", "1128");
 
     private final DouyinUrlParser parser;
@@ -362,21 +358,14 @@ public class DefaultDouyinClient implements DouyinClient {
         if (source == DouyinAccountSource.FAVORITE_WORKS) {
             return listFavoriteWorksPage(account, cursor, limit, cookie);
         }
-        String path = source == DouyinAccountSource.LIKED_WORKS
-                ? "/aweme/v1/web/aweme/favorite/"
-                : "/aweme/v1/web/aweme/listcollection/";
-        String cursorName = source == DouyinAccountSource.LIKED_WORKS ? "max_cursor" : "cursor";
+        String path = "/aweme/v1/web/aweme/favorite/";
+        String cursorName = "max_cursor";
         String currentCursor = normalizeCursor(cursor);
         LinkedHashMap<String, Object> request = new LinkedHashMap<>();
-        if (source == DouyinAccountSource.LIKED_WORKS) {
-            request.put("sec_user_id", account.secUserId());
-            request.put(cursorName, currentCursor);
-            request.put("count", positivePageSize(limit));
-            request.put("locate_query", false);
-        } else {
-            request.put(cursorName, currentCursor);
-            request.put("count", positivePageSize(limit));
-        }
+        request.put("sec_user_id", account.secUserId());
+        request.put(cursorName, currentCursor);
+        request.put("count", positivePageSize(limit));
+        request.put("locate_query", false);
         JsonNode root = fetchApiJson(path, request, cookie);
         DouyinListing listing = workListing(root, 1, positivePageSize(limit),
                 new ListingContext(account.accountKey(), account.displayName(), null, null), cursorName,
@@ -393,203 +382,18 @@ public class DefaultDouyinClient implements DouyinClient {
                                                  int limit,
                                                  String cookie) throws DouyinClientException {
         int safeLimit = positivePageSize(limit);
-        FavoriteWorksCursor state = decodeFavoriteWorksCursor(cursor);
-        for (int step = 0; step < MAX_CURSOR_PAGES; step++) {
-            FavoriteFolderPage folderPage = fetchFavoriteFolderPage(
-                    state.foldersCursor(), safeLimit, cookie);
-            if (folderPage.items().isEmpty()) {
-                if (folderPage.hasMore()) {
-                    state = new FavoriteWorksCursor(folderPage.nextCursor(), null, "0");
-                    continue;
-                }
-                return favoriteAccountListing(account, List.of(), safeLimit, null);
-            }
-
-            int folderIndex = state.folderId() == null
-                    ? 0
-                    : indexOfFavoriteFolder(folderPage.items(), state.folderId());
-            if (folderIndex < 0) {
-                throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
-                        "Douyin favorite works cursor no longer identifies a folder");
-            }
-            FavoriteFolderRef folder = folderPage.items().get(folderIndex);
-            String worksCursor = folder.id().equals(state.folderId())
-                    ? state.worksCursor()
-                    : "0";
-            DouyinListing works = fetchFavoriteFolderWorksPage(
-                    folder, worksCursor, safeLimit, cookie);
-            FavoriteWorksCursor next = nextFavoriteWorksCursor(
-                    state.foldersCursor(), folderPage, folderIndex, folder, works);
-            if (works.items().isEmpty() && next != null) {
-                state = next;
-                continue;
-            }
-            return favoriteAccountListing(account, works.items(), safeLimit, next);
-        }
-        throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
-                "Douyin favorite works pagination exceeded the safe traversal limit");
-    }
-
-    private FavoriteFolderPage fetchFavoriteFolderPage(String cursor,
-                                                        int limit,
-                                                        String cookie) throws DouyinClientException {
         String currentCursor = normalizeCursor(cursor);
-        JsonNode root = fetchApiJson("/aweme/v1/web/collects/list/", params(
+        JsonNode root = fetchApiJson("/aweme/v1/web/aweme/listcollection/", params(
                 "cursor", currentCursor,
-                "count", positivePageSize(limit)), cookie);
-        ensureSuccessful(root, "Douyin favorite folder listing");
-        JsonNode candidates = requireRecognizedArray(root,
-                "Douyin favorite folder response", "collects_list", "collect_list", "items", "data");
-        LinkedHashMap<String, FavoriteFolderRef> folders = new LinkedHashMap<>();
-        for (JsonNode raw : candidates) {
-            JsonNode folder = raw.path("collects_info").isObject()
-                    ? raw.path("collects_info") : raw;
-            String id = firstText(folder, "collects_id", "collects_id_str", "id");
-            if (id == null) {
-                continue;
-            }
-            folders.putIfAbsent(id, new FavoriteFolderRef(id,
-                    blankToDefault(firstText(folder, "collects_name", "name", "title"), id)));
-        }
-        if (!candidates.isEmpty() && folders.isEmpty()) {
-            throw new DouyinClientException(DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
-                    "Douyin favorite folder candidates did not contain a stable folder id");
-        }
-        boolean hasMore = hasMore(root);
-        String nextCursor = cursorValue(root, "cursor", "max_cursor");
-        if (hasMore && (nextCursor.isBlank() || nextCursor.equals(currentCursor))) {
-            throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
-                    "Douyin favorite folder cursor did not advance");
-        }
-        return new FavoriteFolderPage(List.copyOf(folders.values()), nextCursor, hasMore);
-    }
-
-    private DouyinListing fetchFavoriteFolderWorksPage(FavoriteFolderRef folder,
-                                                        String cursor,
-                                                        int limit,
-                                                        String cookie) throws DouyinClientException {
-        String currentCursor = normalizeCursor(cursor);
-        JsonNode root = fetchApiJson("/aweme/v1/web/collects/video/list/", params(
-                "collects_id", folder.id(),
-                "cursor", currentCursor,
-                "count", positivePageSize(limit)), cookie);
-        ensureSuccessful(root, "Douyin favorite folder works");
-        JsonNode candidates = requireRecognizedArray(root,
-                "Douyin favorite works response", "aweme_list", "items", "data");
-        DouyinListing listing = workListing(root, 1, positivePageSize(limit),
-                new ListingContext(folder.id(), folder.title(), folder.id(), folder.title()),
+                "count", safeLimit), cookie);
+        DouyinListing listing = workListing(root, 1, safeLimit,
+                new ListingContext(account.accountKey(), account.displayName(), null, null),
                 "cursor", "aweme_list", "items", "data");
-        if (!candidates.isEmpty() && listing.items().isEmpty()) {
-            throw new DouyinClientException(DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
-                    "Douyin favorite works candidates did not contain a downloadable work");
-        }
-        return requireAdvancingCursor(folder.id(), currentCursor, listing);
-    }
-
-    private static FavoriteWorksCursor nextFavoriteWorksCursor(String foldersCursor,
-                                                                FavoriteFolderPage folderPage,
-                                                                int folderIndex,
-                                                                FavoriteFolderRef folder,
-                                                                DouyinListing works) {
-        if (works.hasMore()) {
-            return new FavoriteWorksCursor(foldersCursor, folder.id(), works.nextCursor());
-        }
-        if (folderIndex + 1 < folderPage.items().size()) {
-            return new FavoriteWorksCursor(foldersCursor,
-                    folderPage.items().get(folderIndex + 1).id(), "0");
-        }
-        if (folderPage.hasMore()) {
-            return new FavoriteWorksCursor(folderPage.nextCursor(), null, "0");
-        }
-        return null;
-    }
-
-    private static DouyinListing favoriteAccountListing(DouyinAccount account,
-                                                         List<DouyinWork> items,
-                                                         int pageSize,
-                                                         FavoriteWorksCursor next)
-            throws DouyinClientException {
-        boolean hasMore = next != null;
-        String nextCursor = hasMore ? encodeFavoriteWorksCursor(next) : "";
-        int total = items.size() + (hasMore ? 1 : 0);
-        return new DouyinListing(List.copyOf(items), total, 1, pageSize,
-                !hasMore, account.displayName(), account.accountKey(), account.displayName(),
-                nextCursor, hasMore);
-    }
-
-    private static int indexOfFavoriteFolder(List<FavoriteFolderRef> folders, String folderId) {
-        for (int index = 0; index < folders.size(); index++) {
-            if (folders.get(index).id().equals(folderId)) {
-                return index;
-            }
-        }
-        return -1;
-    }
-
-    private static FavoriteWorksCursor decodeFavoriteWorksCursor(String cursor)
-            throws DouyinClientException {
-        String normalized = normalizeCursor(cursor);
-        if ("0".equals(normalized)) {
-            return new FavoriteWorksCursor("0", null, "0");
-        }
-        if (normalized.length() > MAX_FAVORITE_CURSOR_LENGTH) {
-            throw invalidFavoriteCursor();
-        }
-        String[] parts = normalized.split("\\.", -1);
-        if (parts.length != 4 || !FAVORITE_CURSOR_PREFIX.equals(parts[0])) {
-            throw invalidFavoriteCursor();
-        }
-        try {
-            String foldersCursor = decodeFavoriteCursorPart(parts[1]);
-            String folderId = decodeFavoriteCursorPart(parts[2]);
-            String worksCursor = decodeFavoriteCursorPart(parts[3]);
-            if (foldersCursor == null || worksCursor == null
-                    || (folderId == null && !"0".equals(worksCursor))) {
-                throw invalidFavoriteCursor();
-            }
-            return new FavoriteWorksCursor(foldersCursor, folderId, worksCursor);
-        } catch (IllegalArgumentException e) {
-            throw invalidFavoriteCursor();
-        }
-    }
-
-    private static String encodeFavoriteWorksCursor(FavoriteWorksCursor cursor)
-            throws DouyinClientException {
-        String encoded = FAVORITE_CURSOR_PREFIX + "."
-                + encodeFavoriteCursorPart(cursor.foldersCursor()) + "."
-                + encodeFavoriteCursorPart(cursor.folderId()) + "."
-                + encodeFavoriteCursorPart(cursor.worksCursor());
-        if (encoded.length() > MAX_FAVORITE_CURSOR_LENGTH) {
-            throw new DouyinClientException(DouyinClientErrorCode.PAGINATION_STALLED,
-                    "Douyin favorite works cursor exceeded the supported length");
-        }
-        return encoded;
-    }
-
-    private static String encodeFavoriteCursorPart(String value) {
-        if (value == null) {
-            return "-";
-        }
-        return Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(value.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static String decodeFavoriteCursorPart(String encoded) {
-        if ("-".equals(encoded)) {
-            return null;
-        }
-        byte[] decoded = Base64.getUrlDecoder().decode(encoded);
-        String value = new String(decoded, StandardCharsets.UTF_8);
-        if (value.isBlank() || value.length() > MAX_FAVORITE_CURSOR_PART_LENGTH
-                || value.chars().anyMatch(character -> Character.isISOControl(character))) {
-            throw new IllegalArgumentException("Invalid favorite cursor part");
-        }
-        return value;
-    }
-
-    private static DouyinClientException invalidFavoriteCursor() {
-        return new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT,
-                "Invalid Douyin favorite works cursor");
+        DouyinListing accountListing = new DouyinListing(
+                listing.items(), listing.total(), listing.page(), listing.pageSize(),
+                listing.lastPage(), listing.title(), account.accountKey(), account.displayName(),
+                listing.nextCursor(), listing.hasMore());
+        return requireAdvancingCursor(account.accountKey(), currentCursor, accountListing);
     }
 
     @Override
@@ -880,19 +684,6 @@ public class DefaultDouyinClient implements DouyinClient {
                                   String collectionTitle) {
     }
 
-    private record FavoriteFolderRef(String id, String title) {
-    }
-
-    private record FavoriteFolderPage(List<FavoriteFolderRef> items,
-                                      String nextCursor,
-                                      boolean hasMore) {
-    }
-
-    private record FavoriteWorksCursor(String foldersCursor,
-                                       String folderId,
-                                       String worksCursor) {
-    }
-
     private DouyinParsedInput parseAndResolve(String input, String cookie) throws DouyinClientException {
         DouyinParsedInput parsed = parser.parse(input)
                 .orElseThrow(() -> new DouyinClientException(DouyinClientErrorCode.INVALID_URL,
@@ -1006,13 +797,13 @@ public class DefaultDouyinClient implements DouyinClient {
     private JsonNode fetchApiJson(String path, Map<String, ?> endpointParams, String cookie)
             throws DouyinClientException {
         RetryableApiRequestException lastFailure = null;
+        DouyinEndpointRequestPolicy policy = DouyinEndpointRequestPolicy.forPath(path);
         for (int attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
-            DouyinEndpointRequestPolicy policy = DouyinEndpointRequestPolicy.forPath(path);
             DouyinSignedUriBuilder.SignedRequest request = policy.requiresSignature()
                     ? signedUriBuilder.request(path, endpointParams, cookie)
                     : signedUriBuilder.unsignedRequest(path, endpointParams, cookie);
             try {
-                return fetchJson(request.uri(), request.cookie());
+                return fetchJson(request.uri(), request.cookie(), policy.method());
             } catch (RetryableApiRequestException error) {
                 lastFailure = error;
                 if (attempt + 1 >= MAX_API_ATTEMPTS) {
@@ -1029,8 +820,8 @@ public class DefaultDouyinClient implements DouyinClient {
                 : lastFailure;
     }
 
-    private JsonNode fetchJson(URI uri, String cookie) throws DouyinClientException {
-        byte[] bytes = fetchBytes(uri, cookie);
+    private JsonNode fetchJson(URI uri, String cookie, HttpMethod method) throws DouyinClientException {
+        byte[] bytes = fetchBytes(uri, cookie, method);
         if (bytes.length == 0) {
             throw new RetryableApiRequestException(DouyinClientErrorCode.SIGNATURE_REQUIRED,
                     "Douyin endpoint returned an empty response");
@@ -1058,11 +849,15 @@ public class DefaultDouyinClient implements DouyinClient {
     }
 
     private byte[] fetchBytes(URI uri, String cookie) throws DouyinClientException {
+        return fetchBytes(uri, cookie, HttpMethod.GET);
+    }
+
+    private byte[] fetchBytes(URI uri, String cookie, HttpMethod method) throws DouyinClientException {
         try {
             HttpHeaders headers = new HttpHeaders();
             DouyinRequestHeaders.applyCredentials(headers, uri, cookie);
             ResponseEntity<byte[]> response = downloadRestTemplate.exchange(
-                    uri, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+                    uri, method, new HttpEntity<>(headers), byte[].class);
             byte[] body = response.getBody();
             return body == null ? new byte[0] : body;
         } catch (HttpStatusCodeException e) {

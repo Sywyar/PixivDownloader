@@ -354,10 +354,10 @@ class DouyinControllerSecurityTest {
     }
 
     @Test
-    @DisplayName("收藏作品复合游标由控制器透明传递并返回")
-    void transparentlyPassesFavoriteWorksCompositeCursor() throws Exception {
-        String current = "fw1.MA.Zm9sZGVyLWE.MA";
-        String next = "fw1.MA.Zm9sZGVyLWI.MA";
+    @DisplayName("收藏作品上游游标由控制器透明传递并返回")
+    void transparentlyPassesFavoriteWorksCursor() throws Exception {
+        String current = "favorite-current";
+        String next = "favorite-next";
         when(service.listAccountWorksPage(
                 DouyinAccountSource.FAVORITE_WORKS, current, 12, null))
                 .thenReturn(new DouyinListing(List.of(work("favorite-1")),
