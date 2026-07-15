@@ -31,6 +31,12 @@ window.PixivBatch.scheduleSources = (function () {
         return value == null ? '' : String(value).trim();
     }
 
+    function sourceEditorError(code, message) {
+        const error = new Error(message);
+        error.code = code;
+        return error;
+    }
+
     function normalizedModuleUrl(value) {
         const raw = text(value);
         if (!raw || raw.indexOf('\\') >= 0 || /[\u0000-\u001f\u007f]/.test(raw)) return null;
@@ -570,7 +576,11 @@ window.PixivBatch.scheduleSources = (function () {
     }
 
     function assertEntryCurrent(entry) {
-        if (!isEntryCurrent(entry)) throw new Error('schedule source handler became stale');
+        if (!isEntryCurrent(entry)) {
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                'schedule source handler became stale');
+        }
     }
 
     function guardReturnedValue(value, entry, seen) {
@@ -623,18 +633,24 @@ window.PixivBatch.scheduleSources = (function () {
         const result = fn.apply(null, args || []);
         if (!result || typeof result.then !== 'function') {
             if (activation !== activationSequence || current.controller.signal.aborted) {
-                throw new Error('schedule source handler became stale');
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                    'schedule source handler became stale');
             }
             return guardReturnedValue(result, entry, new Map());
         }
         return Promise.resolve(result).then(value => {
             if (activation !== activationSequence || current.controller.signal.aborted) {
-                throw new Error('schedule source handler became stale');
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                    'schedule source handler became stale');
             }
             return guardReturnedValue(value, entry, new Map());
         }, error => {
             if (activation !== activationSequence || current.controller.signal.aborted) {
-                throw new Error('schedule source handler became stale');
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                    'schedule source handler became stale');
             }
             throw error;
         });
@@ -645,7 +661,9 @@ window.PixivBatch.scheduleSources = (function () {
         if (result && typeof result.then === 'function') {
             // 宿主以同步值消费这些编辑器 hook；主动吸收晚 rejection，但立即拒绝该贡献。
             Promise.resolve(result).catch(() => {});
-            throw new Error('schedule source ' + method + ' hook must return synchronously');
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_DEFINITION_INVALID',
+                'schedule source ' + method + ' hook must return synchronously');
         }
         return result;
     }
@@ -712,7 +730,9 @@ window.PixivBatch.scheduleSources = (function () {
             }
         }
         if (matchesFound.length > 1) {
-            throw new Error('schedule source editor selection is ambiguous');
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_EDITOR_AMBIGUOUS',
+                'schedule source editor selection is ambiguous');
         }
         return matchesFound[0] || null;
     }
@@ -738,10 +758,16 @@ window.PixivBatch.scheduleSources = (function () {
 
     function captureForMode(mode, context) {
         const entry = matchingEntry(mode, context);
-        if (!entry) throw new Error('schedule source editor is unavailable');
+        if (!entry) {
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                'schedule source editor is unavailable');
+        }
         const captured = invokeSync(entry.descriptor.sourceType, 'capture', [context], null);
         if (!captured || typeof captured !== 'object') {
-            throw new Error('schedule source editor returned an invalid definition');
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_DEFINITION_INVALID',
+                'schedule source editor returned an invalid definition');
         }
         const params = Object.prototype.hasOwnProperty.call(captured, 'params')
             ? captured.params : captured.definition;
@@ -812,7 +838,11 @@ window.PixivBatch.scheduleSources = (function () {
 
     function activationLease(sourceType) {
         const entry = handler(sourceType);
-        if (!entry) throw new Error('schedule source handler is unavailable');
+        if (!entry) {
+            throw sourceEditorError(
+                'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                'schedule source handler is unavailable');
+        }
         return Object.freeze({
             sourceType: entry.descriptor.sourceType,
             activationToken: entry.descriptor.activationToken,

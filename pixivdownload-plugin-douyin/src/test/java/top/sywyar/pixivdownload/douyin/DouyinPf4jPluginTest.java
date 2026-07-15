@@ -46,6 +46,7 @@ class DouyinPf4jPluginTest {
 
         assertThat(loader.getResource("plugin.properties")).isNotNull();
         assertThat(loader.getResource("static/pixiv-douyin-download/douyin-queue-type.js")).isNotNull();
+        assertThat(loader.getResource("static/pixiv-douyin-download/douyin-schedule-sources.js")).isNotNull();
         assertThat(loader.getResource("i18n/web/douyin.properties")).isNotNull();
         assertThat(loader.getResource("i18n/web/douyin_en.properties")).isNotNull();
     }

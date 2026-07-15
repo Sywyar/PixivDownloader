@@ -27,7 +27,7 @@ class DouyinScheduleCodecTest {
     private final DouyinScheduleCodec codec = new DouyinScheduleCodec(objectMapper);
 
     @Test
-    @DisplayName("八类来源定义会规范化为稳定且最小的 JSON")
+    @DisplayName("九类来源定义会规范化为稳定且最小的 JSON")
     void normalizesAllSourceDefinitions() throws Exception {
         Map<String, String> definitions = new LinkedHashMap<>();
         definitions.put(DouyinSourceTypes.USER,
@@ -44,8 +44,10 @@ class DouyinScheduleCodecTest {
                 "{\"source\":{},\"fetchLimit\":6}");
         definitions.put(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
                 "{\"source\":{},\"fetchLimit\":7}");
+        definitions.put(DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
+                "{\"source\":{\"folderId\":\"73510003\"},\"fetchLimit\":8}");
         definitions.put(DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION,
-                "{\"source\":{\"collectionId\":\"73510003\"},\"fetchLimit\":8}");
+                "{\"source\":{\"collectionId\":\"73510004\"},\"fetchLimit\":9}");
 
         for (Map.Entry<String, String> entry : definitions.entrySet()) {
             var prepared = codec.prepare(draft(entry.getKey(), entry.getValue()));
@@ -85,6 +87,10 @@ class DouyinScheduleCodecTest {
         assertThatThrownBy(() -> codec.prepare(draft(
                 DouyinSourceTypes.USER,
                 "{\"source\":{\"userId\":\"https://www.douyin.com/user/x\"},\"fetchLimit\":1}")))
+                .isInstanceOf(ScheduledExecutionException.class);
+        assertThatThrownBy(() -> codec.prepare(draft(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
+                "{\"source\":{\"collectionId\":\"folder-1\"},\"fetchLimit\":1}")))
                 .isInstanceOf(ScheduledExecutionException.class);
     }
 

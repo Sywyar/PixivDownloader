@@ -77,6 +77,8 @@ class DistributionPackagingBoundaryTest {
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
     private static final String GUI_THEME_CLASSES_PROPERTY = "gui-theme.plugin.classes";
     private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
+    private static final String DOUYIN_SCHEDULE_MODULE_ENTRY =
+            "static/pixiv-douyin-download/douyin-schedule-sources.js";
 
     @Test
     @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置下载类型 / 画廊 / 通知等插件的类与资源")
@@ -154,6 +156,8 @@ class DistributionPackagingBoundaryTest {
                 .as("download-workbench userscript i18n 不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-douyin-download/douyin-queue-type.js"))
                 .as("douyin 下载行为模块不应在 boot jar 内").isNull();
+        assertThat(host.getResource(DOUYIN_SCHEDULE_MODULE_ENTRY))
+                .as("douyin 计划来源模块不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-douyin-gallery.html"))
                 .as("douyin 画廊页不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-douyin-gallery/pixiv-douyin-gallery.css"))
@@ -323,10 +327,11 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("douyin 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    @DisplayName("douyin 以 thin 外置插件形态打包并携带计划来源模块")
     void douyinPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(DOUYIN_CLASSES_PROPERTY, "pixivdownload-plugin-douyin",
-                "top/sywyar/pixivdownload/douyin/DouyinPf4jPlugin.class");
+                "top/sywyar/pixivdownload/douyin/DouyinPf4jPlugin.class",
+                DOUYIN_SCHEDULE_MODULE_ENTRY);
     }
 
     @Test
@@ -443,7 +448,11 @@ class DistributionPackagingBoundaryTest {
 
     // --- 验证 thin 外置插件形态：先据构建 classes 目录，jar 存在时再据真实 jar 追加更强断言 ---
 
-    private void assertThinExternalPlugin(String classesProperty, String artifactId, String mainClassEntry) {
+    private void assertThinExternalPlugin(
+            String classesProperty,
+            String artifactId,
+            String mainClassEntry,
+            String... requiredResourceEntries) {
         Path classesDir = locateConfiguredDir(classesProperty);
         requireAvailable(classesDir != null && Files.isDirectory(classesDir),
                 "插件构建产物未就绪（需 reactor 先构建 " + artifactId + "），无法验证 thin 形态");
@@ -453,6 +462,10 @@ class DistributionPackagingBoundaryTest {
                 .as("插件构建产物根部应含 plugin.properties").exists();
         assertThat(classesDir.resolve(mainClassEntry))
                 .as("插件构建产物应含外置主类").exists();
+        for (String resourceEntry : requiredResourceEntries) {
+            assertThat(classesDir.resolve(resourceEntry))
+                    .as("插件构建产物应含资源 " + resourceEntry).exists();
+        }
         assertThat(classesDir.resolve("top/sywyar/pixivdownload/plugin/api"))
                 .as("外置插件不得打入共享契约 plugin-api（同名异 loader 会令桥接 instanceof 失败）").doesNotExist();
         assertThat(classesDir.resolve("top/sywyar/pixivdownload/plugin/BuiltInPlugins.class"))
@@ -466,6 +479,9 @@ class DistributionPackagingBoundaryTest {
         List<String> entries = jarEntryNames(jar);
         assertThat(entries).as("thin 插件 jar 根部应含 plugin.properties").contains("plugin.properties");
         assertThat(entries).as("thin 插件 jar 应含外置主类").contains(mainClassEntry);
+        for (String resourceEntry : requiredResourceEntries) {
+            assertThat(entries).as("thin 插件 jar 应含资源 " + resourceEntry).contains(resourceEntry);
+        }
         assertThat(entries).as("thin 插件 jar 不得是 Spring Boot 可执行 jar（无 BOOT-INF/）")
                 .noneMatch(name -> name.startsWith("BOOT-INF/"));
         assertThat(entries).as("thin 插件 jar 不得打入 PF4J（provided，宿主提供）")

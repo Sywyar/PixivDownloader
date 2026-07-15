@@ -347,6 +347,14 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
+    public DouyinScheduledSourceExecutor douyinAccountFavoriteFolderScheduledSourceExecutor(
+            DouyinScheduledSourceSupport support) {
+        return new DouyinScheduledSourceExecutor(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER, support);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("douyin")
     public DouyinScheduledSourceExecutor douyinAccountFavoriteCollectionScheduledSourceExecutor(
             DouyinScheduledSourceSupport support) {
         return new DouyinScheduledSourceExecutor(

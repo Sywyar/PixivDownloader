@@ -23,6 +23,7 @@ const SOURCE_TYPES = [
     'douyin.account.own-works',
     'douyin.account.liked-works',
     'douyin.account.favorite-works',
+    'douyin.account.favorite-folder',
     'douyin.account.favorite-collection'
 ];
 
@@ -171,7 +172,8 @@ test('Douyin 自动授权只通过中性凭证头传 Cookie', async () => {
 function manifestSource(sourceType, generation) {
     const mode = sourceType === 'douyin.user' ? 'user'
         : sourceType === 'douyin.search' ? 'search'
-            : sourceType === 'douyin.collection' || sourceType === 'douyin.music' ? 'series' : 'quick';
+            : sourceType === 'douyin.collection' || sourceType === 'douyin.music'
+                || sourceType === 'douyin.account.favorite-folder' ? 'series' : 'quick';
     return {
         sourceType,
         legacyAliases: [],
@@ -244,7 +246,7 @@ function runtimeHarness(manifests) {
     return context.window.PixivBatch.scheduleSources;
 }
 
-test('模块只注册八类稳定 Douyin 周期来源并统一生成字符串作品定义', () => {
+test('模块只注册九类稳定 Douyin 周期来源并统一生成字符串作品定义', () => {
     const h = harness();
     assert.deepEqual(Array.from(h.contributions.keys()), SOURCE_TYPES);
     for (const sourceType of SOURCE_TYPES) {
@@ -279,6 +281,10 @@ test('模块只注册八类稳定 Douyin 周期来源并统一生成字符串作
     const music = h.contributions.get('douyin.music')
         .capture({mode: 'series', workTypes: ['douyin']});
     assert.deepEqual(JSON.parse(JSON.stringify(music.params.source)), {musicId: 'music-9'});
+    h.seriesState.seriesId = 'favorite-folder:folder-9';
+    const favoriteFolder = h.contributions.get('douyin.account.favorite-folder')
+        .capture({mode: 'series', workTypes: ['douyin']});
+    assert.deepEqual(JSON.parse(JSON.stringify(favoriteFolder.params.source)), {folderId: 'folder-9'});
 
     const quickDefinitions = new Map([
         ['douyin.account.own-works', {}],
@@ -326,20 +332,28 @@ test('真实来源 runtime 受控加载模块并在 publication 更替后使旧 
     assert.notEqual(runtime.activationToken('douyin.user'), oldLease.activationToken);
 });
 
-test('合集与音乐在同一 series 模式中精确匹配且拒绝其它作品类型', () => {
+test('合集、音乐与账号自建收藏夹在 series 模式中精确匹配且拒绝其它作品类型', () => {
     const h = harness();
     const collection = h.contributions.get('douyin.collection');
     const music = h.contributions.get('douyin.music');
+    const favoriteFolder = h.contributions.get('douyin.account.favorite-folder');
     h.seriesState.seriesId = 'collection-1';
     assert.equal(collection.matches({mode: 'series', workTypes: ['douyin']}), true);
     assert.equal(music.matches({mode: 'series', workTypes: ['douyin']}), false);
+    assert.equal(favoriteFolder.matches({mode: 'series', workTypes: ['douyin']}), false);
     h.seriesState.seriesId = 'music:music-1';
     assert.equal(collection.matches({mode: 'series', workTypes: ['douyin']}), false);
     assert.equal(music.matches({mode: 'series', workTypes: ['douyin']}), true);
+    assert.equal(favoriteFolder.matches({mode: 'series', workTypes: ['douyin']}), false);
+    h.seriesState.seriesId = 'favorite-folder:folder-1';
+    assert.equal(collection.matches({mode: 'series', workTypes: ['douyin']}), false);
+    assert.equal(music.matches({mode: 'series', workTypes: ['douyin']}), false);
+    assert.equal(favoriteFolder.matches({mode: 'series', workTypes: ['douyin']}), true);
     assert.equal(music.matches({mode: 'series', workTypes: ['illust']}), false);
+    assert.equal(favoriteFolder.matches({mode: 'series', workTypes: ['illust']}), false);
 });
 
-test('八类来源编辑回灌保持 canonical 字段并拒绝畸形定义', () => {
+test('九类来源编辑回灌保持 canonical 字段并拒绝畸形定义', () => {
     const h = harness();
     const cases = new Map([
         ['douyin.user', {userId: 'user-1'}],
@@ -349,6 +363,7 @@ test('八类来源编辑回灌保持 canonical 字段并拒绝畸形定义', () 
         ['douyin.account.own-works', {}],
         ['douyin.account.liked-works', {}],
         ['douyin.account.favorite-works', {}],
+        ['douyin.account.favorite-folder', {folderId: 'folder-1'}],
         ['douyin.account.favorite-collection', {collectionId: 'favorite-1'}]
     ]);
     for (const [sourceType, source] of cases) {
@@ -359,7 +374,12 @@ test('八类来源编辑回灌保持 canonical 字段并拒绝畸形定义', () 
         assert.equal(restored.params.fetchLimit, 37);
         assert.deepEqual(JSON.parse(JSON.stringify(restored.params.source)), source);
         assert.equal(restored.kind, 'douyin');
-        if (sourceType.startsWith('douyin.account.')) {
+        if (sourceType === 'douyin.account.favorite-folder') {
+            assert.equal(restored.mode, 'series');
+            assert.equal(restored.quickSource, null);
+            assert.equal(h.seriesState.seriesId, 'favorite-folder:folder-1');
+            assert.equal(h.elements.get('series-input-url').value, 'favorite-folder:folder-1');
+        } else if (sourceType.startsWith('douyin.account.')) {
             assert.equal(restored.mode, 'quick-fetch');
             assert.equal(restored.quickSource.sourceType, sourceType);
             assert.deepEqual(JSON.parse(JSON.stringify(restored.quickSource.source)), source);
@@ -370,8 +390,12 @@ test('八类来源编辑回灌保持 canonical 字段并拒绝畸形定义', () 
         });
         assert.equal(summary.kind, 'douyin');
         assert.equal(summary.sections.length, 1);
+        if (sourceType === 'douyin.account.favorite-folder') {
+            assert.deepEqual(JSON.parse(JSON.stringify(summary.sections[0].rows[0])),
+                ['Favorite folder ID', 'folder-1']);
+        }
     }
-    assert.deepEqual(h.selectedSeriesSources, ['douyin', 'douyin']);
+    assert.deepEqual(h.selectedSeriesSources, ['douyin', 'douyin', 'douyin']);
 
     assert.throws(() => h.contributions.get('douyin.user').restore({
         paramsJson: JSON.stringify({source: {userId: 'u', transientUrl: 'https://signed.invalid'}, fetchLimit: 1})

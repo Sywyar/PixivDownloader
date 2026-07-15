@@ -37,7 +37,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** 八类抖音来源共享的纯定义规划与有背压发现驱动。 */
+/** 九类抖音来源共享的纯定义规划与有背压发现驱动。 */
 @PluginManagedBean
 public final class DouyinScheduledSourceSupport {
 
@@ -314,6 +314,9 @@ public final class DouyinScheduledSourceSupport {
                     client.listSeriesWorksPage(definition.sourceId(), cursor, PAGE_SIZE, cookie);
             case DouyinSourceTypes.MUSIC -> cursor ->
                     client.listMusicWorksPage(definition.sourceId(), cursor, PAGE_SIZE, cookie);
+            case DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER -> cursor ->
+                    client.listFavoriteFolderWorksPage(
+                            definition.sourceId(), cursor, PAGE_SIZE, cookie);
             case DouyinSourceTypes.ACCOUNT_OWN_WORKS -> cursor ->
                     client.listAccountWorksPage(
                             account, DouyinAccountSource.OWN_WORKS, cursor, PAGE_SIZE, cookie);
@@ -348,7 +351,9 @@ public final class DouyinScheduledSourceSupport {
             Definition definition,
             DouyinAccount account,
             DouyinListing listing) {
-        if (account != null && !DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION.equals(
+        if (account != null
+                && !DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER.equals(definition.sourceType())
+                && !DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION.equals(
                 definition.sourceType())) {
             return firstNonBlank(account.displayName(), listing.ownerName(), listing.title());
         }

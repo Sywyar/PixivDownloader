@@ -379,12 +379,12 @@ function ok(label, cond) {
         + descriptor.slots['quick-actions-mine'];
     const quickButtonActions = Array.from(quickButtonsHtml.matchAll(/<button\b[^>]*data-quick="([^"]+)"[^>]*>/g),
         match => match[1]).sort();
-    ok('快捷获取仅保留作品入口，收藏合集按钮已迁出可见 slot',
+    ok('快捷获取公开四个可创建计划任务的账号来源入口',
         quickButtonActions.join(',') ===
-            'douyin-favorites,douyin-liked,douyin-own-works'
-        && (quickButtonsHtml.match(/type="button"/g) || []).length === 3
-        && (quickButtonsHtml.match(/class="[^"]*quick-action[^"]*"/g) || []).length === 3
-        && !quickButtonsHtml.includes('data-quick="douyin-favorite-collections"')
+            'douyin-favorite-collections,douyin-favorites,douyin-liked,douyin-own-works'
+        && (quickButtonsHtml.match(/type="button"/g) || []).length === 4
+        && (quickButtonsHtml.match(/class="[^"]*quick-action[^"]*"/g) || []).length === 4
+        && quickButtonsHtml.includes('data-quick="douyin-favorite-collections"')
         && !/\sdisabled(?:\s|=|>)/i.test(quickButtonsHtml));
     const userAcquisition = qt.acquisition('douyin', 'user');
     ok('acquisition.user 使用可选分页取得钩子且不再声明 ID + cards 预览路径',

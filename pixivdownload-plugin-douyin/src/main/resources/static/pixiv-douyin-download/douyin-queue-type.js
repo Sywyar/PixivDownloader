@@ -799,7 +799,9 @@ const DOUYIN_SLOTS = {
         '<button type="button" class="btn btn-blue quick-action" data-quick="douyin-liked" onclick="quickLoad(\'douyin-liked\')" ' +
         'data-i18n="douyin:quick.liked">Liked works</button>' +
         '<button type="button" class="btn btn-purple quick-action" data-quick="douyin-favorites" onclick="quickLoad(\'douyin-favorites\')" ' +
-        'data-i18n="douyin:quick.favorites">Favorite works</button>',
+        'data-i18n="douyin:quick.favorites">Favorite works</button>' +
+        '<button type="button" class="btn btn-yellow quick-action" data-quick="douyin-favorite-collections" onclick="quickLoad(\'douyin-favorite-collections\')" ' +
+        'data-i18n="douyin:quick.favorite-collections">Favorite collections</button>',
     'quick-actions-mine':
         '<button type="button" class="btn btn-green quick-action" data-quick="douyin-own-works" onclick="quickLoad(\'douyin-own-works\')" ' +
         'data-i18n="douyin:quick.own-works">My works</button>',

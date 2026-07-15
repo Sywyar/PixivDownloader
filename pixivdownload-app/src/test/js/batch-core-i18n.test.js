@@ -205,12 +205,25 @@ function ok(label, cond) {
     const douyinSeriesKeys = [
         'series.data-source.douyin', 'series.browser.favorite-folders',
         'series.browser.favorite-folders.loading', 'series.browser.favorite-folders.empty',
-        'series.browser.favorite-folders.item', 'series.type.favorite-folder'
+        'series.browser.favorite-folders.item', 'series.type.favorite-folder',
+        'schedule.source.account-favorite-folder.name',
+        'schedule.source.account-favorite-folder.description',
+        'schedule.field.folder-id'
     ];
     douyinSeriesKeys.forEach(key => {
         ok('Douyin 中文 bundle 提供收藏夹系列文案: ' + key, douyinZhKeys.has(key));
         ok('Douyin 英文 bundle 提供收藏夹系列文案: ' + key, douyinEnKeys.has(key));
     });
+    const batchScheduleErrorKeys = [
+        'schedule.error.source-editor-ambiguous',
+        'schedule.error.source-definition-invalid'
+    ];
+    batchScheduleErrorKeys.forEach(key => {
+        ok('中文 batch bundle 提供计划来源错误文案: ' + key, zhKeys.has(key));
+        ok('英文 batch bundle 提供计划来源错误文案: ' + key, enKeys.has(key));
+    });
+    ok('Douyin 中文 bundle 提供过期快捷请求文案', douyinZhKeys.has('error.stale-request'));
+    ok('Douyin 英文 bundle 提供过期快捷请求文案', douyinEnKeys.has('error.stale-request'));
 
     console.log(`\nbatch-core-i18n.test.js: ${passed} assertions passed`);
 })().catch(err => {

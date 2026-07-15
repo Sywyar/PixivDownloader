@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DouyinPluginContributionTest {
 
     @Test
-    @DisplayName("计划任务贡献恰好声明八类稳定来源与统一能力")
+    @DisplayName("计划任务贡献恰好声明九类稳定来源与统一能力")
     void scheduleDescriptorsDeclareExactStableSourceSet() {
         DouyinPlugin plugin = new DouyinPlugin();
 
@@ -46,6 +46,7 @@ class DouyinPluginContributionTest {
                         DouyinSourceTypes.ACCOUNT_OWN_WORKS,
                         DouyinSourceTypes.ACCOUNT_LIKED_WORKS,
                         DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+                        DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
                         DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION);
         assertThat(plugin.scheduledSourceDescriptors()).allSatisfy(descriptor -> {
             assertThat(descriptor.definitionSchema())
@@ -63,6 +64,12 @@ class DouyinPluginContributionTest {
             assertThat(descriptor.presentation().displayNamespace()).isEqualTo("douyin");
             assertThat(descriptor.legacyAliases()).isEmpty();
         });
+        assertThat(plugin.scheduledSourceDescriptors())
+                .filteredOn(descriptor -> descriptor.sourceType()
+                        .equals(DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER))
+                .singleElement()
+                .satisfies(descriptor -> assertThat(descriptor.acquisitionModes())
+                        .containsExactly(DownloadAcquisitionMode.SERIES_COLLECTION.code()));
     }
 
     @Test

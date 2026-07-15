@@ -49,8 +49,8 @@ class DouyinScheduledSourceSupportTest {
             "ttwid=tt; passport_csrf_token=csrf; sessionid=sid; sid_tt=sid";
 
     @Test
-    @DisplayName("八类来源均声明完整计划并提交同路由同凭证的字符串作品")
-    void discoversAllEightSourcesWithExactRelations() throws Exception {
+    @DisplayName("九类来源均声明完整计划并提交同路由同凭证的字符串作品")
+    void discoversAllNineSourcesWithExactRelations() throws Exception {
         Map<String, String> definitions = definitions(10);
         Map<String, String> expectedRelationIds = Map.of(
                 DouyinSourceTypes.USER, "MS4w.LjAB-user",
@@ -60,6 +60,7 @@ class DouyinScheduledSourceSupportTest {
                 DouyinSourceTypes.ACCOUNT_OWN_WORKS, "account-1",
                 DouyinSourceTypes.ACCOUNT_LIKED_WORKS, "liked",
                 DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS, "favorites",
+                DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER, "favorite-folder-1",
                 DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION, "favorite-collection-1");
 
         for (Map.Entry<String, String> entry : definitions.entrySet()) {
@@ -93,6 +94,9 @@ class DouyinScheduledSourceSupportTest {
                     assertThat(relation.relationType()).isEqualTo(entry.getKey());
                     assertThat(relation.relationId())
                             .isEqualTo(expectedRelationIds.get(entry.getKey()));
+                    if (DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER.equals(entry.getKey())) {
+                        assertThat(relation.payloadJson()).contains("\"sourceTitle\":\"来源\"");
+                    }
                 });
             });
             assertThat(result.candidateCheckpoint()).isNotNull();
@@ -537,7 +541,7 @@ class DouyinScheduledSourceSupportTest {
     }
 
     @Test
-    @DisplayName("八类来源均从零游标开始并严格使用对应客户端的服务端下一游标")
+    @DisplayName("九类来源均从零游标开始并严格使用对应客户端的服务端下一游标")
     void followsTwoPageCursorProgressionForAllSources() throws Exception {
         Map<String, String> expectedLoaders = Map.of(
                 DouyinSourceTypes.USER, "user:MS4w.LjAB-user",
@@ -547,6 +551,8 @@ class DouyinScheduledSourceSupportTest {
                 DouyinSourceTypes.ACCOUNT_OWN_WORKS, "account:OWN_WORKS",
                 DouyinSourceTypes.ACCOUNT_LIKED_WORKS, "account:LIKED_WORKS",
                 DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS, "account:FAVORITE_WORKS",
+                DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
+                "favorite-folder:favorite-folder-1",
                 DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION,
                 "series:favorite-collection-1");
 
@@ -608,6 +614,8 @@ class DouyinScheduledSourceSupportTest {
         definitions.put(DouyinSourceTypes.ACCOUNT_OWN_WORKS, emptySource(fetchLimit));
         definitions.put(DouyinSourceTypes.ACCOUNT_LIKED_WORKS, emptySource(fetchLimit));
         definitions.put(DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS, emptySource(fetchLimit));
+        definitions.put(DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
+                json("folderId", "favorite-folder-1", fetchLimit));
         definitions.put(DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION,
                 json("collectionId", "favorite-collection-1", fetchLimit));
         return definitions;
@@ -800,6 +808,16 @@ class DouyinScheduledSourceSupportTest {
         @Override
         public DouyinListing listMusicWorksPage(String musicId, String cursor, int limit, String cookie) {
             seenLoaders.add("music:" + musicId);
+            return listing(cookie, cursor);
+        }
+
+        @Override
+        public DouyinListing listFavoriteFolderWorksPage(
+                String folderId,
+                String cursor,
+                int limit,
+                String cookie) {
+            seenLoaders.add("favorite-folder:" + folderId);
             return listing(cookie, cursor);
         }
 

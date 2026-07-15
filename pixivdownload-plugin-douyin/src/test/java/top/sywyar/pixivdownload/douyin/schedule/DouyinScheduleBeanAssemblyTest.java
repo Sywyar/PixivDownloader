@@ -47,6 +47,7 @@ class DouyinScheduleBeanAssemblyTest {
             DouyinSourceTypes.ACCOUNT_OWN_WORKS,
             DouyinSourceTypes.ACCOUNT_LIKED_WORKS,
             DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+            DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
             DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION);
 
     @Test
@@ -68,6 +69,7 @@ class DouyinScheduleBeanAssemblyTest {
                 configuration.douyinAccountOwnScheduledSourceExecutor(support),
                 configuration.douyinAccountLikedScheduledSourceExecutor(support),
                 configuration.douyinAccountFavoriteScheduledSourceExecutor(support),
+                configuration.douyinAccountFavoriteFolderScheduledSourceExecutor(support),
                 configuration.douyinAccountFavoriteCollectionScheduledSourceExecutor(support));
 
         Set<String> descriptorTypes = DouyinScheduledSourceDescriptors.createAll().stream()
@@ -77,8 +79,8 @@ class DouyinScheduleBeanAssemblyTest {
                 .map(ScheduledSourceExecutor::sourceType)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
 
-        assertThat(DouyinScheduledSourceDescriptors.createAll()).hasSize(8);
-        assertThat(executors).hasSize(8);
+        assertThat(DouyinScheduledSourceDescriptors.createAll()).hasSize(9);
+        assertThat(executors).hasSize(9);
         assertThat(descriptorTypes).isEqualTo(CANONICAL_SOURCE_TYPES);
         assertThat(executorTypes).isEqualTo(CANONICAL_SOURCE_TYPES);
         assertThat(executorTypes).isEqualTo(descriptorTypes);
@@ -97,6 +99,7 @@ class DouyinScheduleBeanAssemblyTest {
                 "douyinAccountOwnScheduledSourceExecutor",
                 "douyinAccountLikedScheduledSourceExecutor",
                 "douyinAccountFavoriteScheduledSourceExecutor",
+                "douyinAccountFavoriteFolderScheduledSourceExecutor",
                 "douyinAccountFavoriteCollectionScheduledSourceExecutor",
                 "douyinScheduledCredentialPolicy",
                 "douyinRiskExecutionGuard",

@@ -7,6 +7,7 @@
     const WORK_TYPE = 'douyin';
     const DEFAULT_FETCH_LIMIT = 100;
     const MAX_FETCH_LIMIT = 5000;
+    const FAVORITE_FOLDER_PREFIX = 'favorite-folder:';
     const SOURCE = Object.freeze({
         USER: 'douyin.user',
         SEARCH: 'douyin.search',
@@ -15,6 +16,7 @@
         ACCOUNT_OWN: 'douyin.account.own-works',
         ACCOUNT_LIKED: 'douyin.account.liked-works',
         ACCOUNT_FAVORITE: 'douyin.account.favorite-works',
+        ACCOUNT_FAVORITE_FOLDER: 'douyin.account.favorite-folder',
         ACCOUNT_FAVORITE_COLLECTION: 'douyin.account.favorite-collection'
     });
     const ACCOUNT_SOURCES = new Set([
@@ -74,6 +76,10 @@
             const musicId = boundedText(source.musicId, 256);
             return musicId ? {musicId} : null;
         }
+        if (sourceType === SOURCE.ACCOUNT_FAVORITE_FOLDER && exactKeys(source, ['folderId'])) {
+            const folderId = boundedText(source.folderId, 256);
+            return folderId ? {folderId} : null;
+        }
         return ACCOUNT_SOURCES.has(sourceType) && exactKeys(source, []) ? {} : null;
     }
 
@@ -122,6 +128,12 @@
     function parseSeriesValue(raw) {
         const value = String(raw || '').trim();
         if (!value) return null;
+        if (value.startsWith(FAVORITE_FOLDER_PREFIX)) {
+            const folderId = boundedText(value.substring(FAVORITE_FOLDER_PREFIX.length), 256);
+            return folderId
+                ? {sourceType: SOURCE.ACCOUNT_FAVORITE_FOLDER, source: {folderId}}
+                : null;
+        }
         if (value.startsWith('music:')) {
             const musicId = boundedText(value.substring('music:'.length), 256);
             return musicId ? {sourceType: SOURCE.MUSIC, source: {musicId}} : null;
@@ -155,7 +167,8 @@
     function modeFor(sourceType) {
         if (sourceType === SOURCE.USER) return 'user';
         if (sourceType === SOURCE.SEARCH) return 'search';
-        if (sourceType === SOURCE.COLLECTION || sourceType === SOURCE.MUSIC) return 'series';
+        if (sourceType === SOURCE.COLLECTION || sourceType === SOURCE.MUSIC
+            || sourceType === SOURCE.ACCOUNT_FAVORITE_FOLDER) return 'series';
         return QUICK_FETCH_MODE;
     }
 
@@ -202,7 +215,7 @@
         const series = currentSeriesValue();
         if (!series || series.sourceType !== sourceType) {
             throw new Error(t('schedule.error.series-id',
-                'Preview a valid Douyin collection or music source first'));
+                'Preview a valid Douyin collection, music, or favorite folder source first'));
         }
         return {source: series.source, label: ''};
     }
@@ -289,11 +302,17 @@
             setKind('search', WORK_TYPE);
             const input = document.getElementById('search-word');
             if (input) input.value = normalized.source.keyword;
-        } else if (sourceType === SOURCE.COLLECTION || sourceType === SOURCE.MUSIC) {
+        } else if (sourceType === SOURCE.COLLECTION || sourceType === SOURCE.MUSIC
+            || sourceType === SOURCE.ACCOUNT_FAVORITE_FOLDER) {
             selectSeriesDataSource();
             const id = sourceType === SOURCE.MUSIC
-                ? normalized.source.musicId : normalized.source.collectionId;
-            const seriesId = sourceType === SOURCE.MUSIC ? 'music:' + id : id;
+                ? normalized.source.musicId
+                : sourceType === SOURCE.ACCOUNT_FAVORITE_FOLDER
+                    ? normalized.source.folderId : normalized.source.collectionId;
+            const seriesId = sourceType === SOURCE.MUSIC
+                ? 'music:' + id
+                : sourceType === SOURCE.ACCOUNT_FAVORITE_FOLDER
+                    ? FAVORITE_FOLDER_PREFIX + id : id;
             if (typeof seriesState !== 'undefined' && seriesState) {
                 seriesState.kind = WORK_TYPE;
                 seriesState.seriesId = seriesId;
@@ -303,7 +322,8 @@
             if (input) {
                 input.value = sourceType === SOURCE.MUSIC
                     ? `https://www.douyin.com/music/${id}`
-                    : `https://www.douyin.com/mix/${id}`;
+                    : sourceType === SOURCE.ACCOUNT_FAVORITE_FOLDER
+                        ? seriesId : `https://www.douyin.com/mix/${id}`;
             }
         } else {
             quickSource = {
@@ -335,6 +355,9 @@
         }
         if (sourceType === SOURCE.MUSIC) {
             return [[t('schedule.field.music-id', 'Music ID'), valueOrUnset(source.musicId)]];
+        }
+        if (sourceType === SOURCE.ACCOUNT_FAVORITE_FOLDER) {
+            return [[t('schedule.field.folder-id', 'Favorite folder ID'), valueOrUnset(source.folderId)]];
         }
         const accountLabel = sourceType === SOURCE.ACCOUNT_OWN
             ? t('schedule.value.account-own', 'Own works')

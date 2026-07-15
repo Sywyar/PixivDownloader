@@ -353,6 +353,21 @@
         return runtime.captureForMode(state.mode, scheduleSourceContext());
     }
 
+    function scheduleSourceErrorMessage(error) {
+        if (error && error.code === 'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE') {
+            return bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用');
+        }
+        if (error && error.code === 'SCHEDULE_SOURCE_EDITOR_AMBIGUOUS') {
+            return bt('schedule.error.source-editor-ambiguous', '当前取得模式匹配到多个计划任务来源，请重新选择');
+        }
+        if (error && error.code === 'SCHEDULE_SOURCE_DEFINITION_INVALID') {
+            return bt('schedule.error.source-definition-invalid', '计划任务来源返回了无效的任务定义');
+        }
+        return error && error.message
+            ? error.message
+            : bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用');
+    }
+
     async function submitScheduleTask() {
         const editingToken = scheduleEditingToken;
         const editing = editingToken != null;
@@ -373,7 +388,7 @@
             snap = buildScheduleSnapshot();
             sourceLease = scheduleSourceRuntime().activationLease(snap.sourceType);
         } catch (e) {
-            setScheduleFormStatus(e.message, 'error');
+            setScheduleFormStatus(scheduleSourceErrorMessage(e), 'error');
             return;
         }
         if (editing && (snap.sourceType !== editingToken.sourceType

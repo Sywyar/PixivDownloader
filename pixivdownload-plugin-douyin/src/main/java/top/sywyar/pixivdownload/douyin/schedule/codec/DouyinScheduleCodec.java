@@ -59,6 +59,7 @@ public final class DouyinScheduleCodec {
             DouyinSourceTypes.ACCOUNT_OWN_WORKS,
             DouyinSourceTypes.ACCOUNT_LIKED_WORKS,
             DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
+            DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
             DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION);
     private static final Set<String> ROOT_FIELDS = Set.of("source", "fetchLimit");
     private static final Set<String> CHECKPOINT_FIELDS = Set.of(
@@ -134,6 +135,12 @@ public final class DouyinScheduleCodec {
                 sourceId = requiredText(source.get("musicId"), maximumLength,
                         "douyin.schedule.definition-music-invalid");
                 requireStableId(sourceId, "douyin.schedule.definition-music-invalid");
+            }
+            case DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER -> {
+                expectedSourceFields = Set.of("folderId");
+                sourceId = requiredText(source.get("folderId"), maximumLength,
+                        "douyin.schedule.definition-folder-invalid");
+                requireStableId(sourceId, "douyin.schedule.definition-folder-invalid");
             }
             case DouyinSourceTypes.ACCOUNT_OWN_WORKS,
                     DouyinSourceTypes.ACCOUNT_LIKED_WORKS,
@@ -315,6 +322,8 @@ public final class DouyinScheduleCodec {
                     DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION ->
                     source.put("collectionId", definition.sourceId());
             case DouyinSourceTypes.MUSIC -> source.put("musicId", definition.sourceId());
+            case DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER ->
+                    source.put("folderId", definition.sourceId());
             default -> {
                 // 账号作品来源只由已探活凭证确定账号，不持久化账号或凭证材料。
             }

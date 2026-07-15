@@ -122,6 +122,56 @@ class DouyinScheduledWorkExecutorTest {
     }
 
     @Test
+    @DisplayName("账号自建收藏夹只写来源关系而不投影为普通合集")
+    void favoriteFolderPersistsRelationWithoutCollectionProjection() throws Exception {
+        DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());
+        ScheduledWorkRelation relation = codec.createRelation(
+                DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
+                "folder-3", "我创建的收藏夹", 4);
+        ScheduledWork scheduledWork = codec.createWork(
+                "work-folder", "计划作品", "作者", relation);
+
+        DouyinClient client = mock(DouyinClient.class);
+        when(client.resolvePublicWork("work-folder", COOKIE)).thenReturn(work("work-folder"));
+        DouyinMediaDownloader mediaDownloader = downloaderWriting("work-folder.mp4");
+        DouyinHistoryService history = mock(DouyinHistoryService.class);
+        when(history.findById("work-folder")).thenReturn(Optional.empty());
+        AtomicBoolean historyRecorded = new AtomicBoolean();
+        when(history.recordCompleted(any(DouyinWork.class), any(Path.class), anyList(),
+                eq("work-folder"), any(), any(), any(), anyList()))
+                .thenAnswer(invocation -> {
+                    String collectionId = invocation.getArgument(4);
+                    String collectionTitle = invocation.getArgument(5);
+                    Integer collectionOrder = invocation.getArgument(6);
+                    assertThat(collectionId).isNull();
+                    assertThat(collectionTitle).isNull();
+                    assertThat(collectionOrder).isNull();
+                    List<DouyinSourceRelation> relations = invocation.getArgument(7);
+                    assertThat(relations).singleElement().satisfies(value -> {
+                        assertThat(value.workId()).isEqualTo("work-folder");
+                        assertThat(value.sourceType())
+                                .isEqualTo(DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER);
+                        assertThat(value.sourceId()).isEqualTo("folder-3");
+                        assertThat(value.sourceTitle()).isEqualTo("我创建的收藏夹");
+                        assertThat(value.sourceUrl()).isNull();
+                        assertThat(value.sourceOrder()).isEqualTo(4);
+                    });
+                    historyRecorded.set(true);
+                    return true;
+                });
+        DouyinScheduledWorkExecutor executor = executor(
+                client, mediaDownloader, history, codec, false);
+
+        ScheduledWorkResult result = executor.execute(
+                scheduledWork,
+                context(ScheduledNetworkRoute.direct(), COOKIE.toCharArray(), () -> false));
+
+        assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
+        assertThat(historyRecorded).isTrue();
+        assertThat(OutboundProxyOverride.isActive()).isFalse();
+    }
+
+    @Test
     @DisplayName("历史写入失败必须返回内部失败而不能误报作品完成")
     void historyFailureDoesNotReturnSuccess() throws Exception {
         DouyinScheduleCodec codec = new DouyinScheduleCodec(new ObjectMapper());

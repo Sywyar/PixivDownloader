@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import java.util.List;
 import java.util.Set;
 
-/** 八类稳定抖音计划来源的纯数据描述符事实源。 */
+/** 九类稳定抖音计划来源的纯数据描述符事实源。 */
 public final class DouyinScheduledSourceDescriptors {
 
     public static final String CREDENTIAL_POLICY_ID = "douyin.cookie";
@@ -52,6 +52,10 @@ public final class DouyinScheduledSourceDescriptors {
                     DouyinSourceTypes.ACCOUNT_FAVORITE_WORKS,
                     "schedule.source.account-favorite",
                     Set.of(DownloadAcquisitionMode.QUICK.code())),
+            descriptor(
+                    DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
+                    "schedule.source.account-favorite-folder",
+                    Set.of(DownloadAcquisitionMode.SERIES_COLLECTION.code())),
             descriptor(
                     DouyinSourceTypes.ACCOUNT_FAVORITE_COLLECTION,
                     "schedule.source.account-favorite-collection",

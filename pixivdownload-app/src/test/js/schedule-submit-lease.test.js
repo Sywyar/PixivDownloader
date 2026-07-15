@@ -96,6 +96,7 @@ function harness(options) {
     };
     const runtime = {
         captureForMode() {
+            if (config.captureError) throw config.captureError;
             return {
                 sourceType: 'source-a', activationToken: 'token-a',
                 params: {fetchLimit: 0}, fetchLimitMode: config.fetchLimitMode || null,
@@ -201,6 +202,31 @@ function harness(options) {
         get confirmCalls() { return confirmCalls.slice(); }
     };
 }
+
+test('宿主来源错误使用当前语言文案且插件校验消息保持原样', async () => {
+    const cases = [
+        ['SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+            'schedule.error.source-editor-unavailable', 'SOURCE_EDITOR_LOCALIZED'],
+        ['SCHEDULE_SOURCE_EDITOR_AMBIGUOUS',
+            'schedule.error.source-editor-ambiguous', 'SOURCE_AMBIGUOUS_LOCALIZED'],
+        ['SCHEDULE_SOURCE_DEFINITION_INVALID',
+            'schedule.error.source-definition-invalid', 'SOURCE_DEFINITION_LOCALIZED']
+    ];
+    for (const [code, key, message] of cases) {
+        const error = new Error('raw host error');
+        error.code = code;
+        const localized = harness({captureError: error, translations: {[key]: message}});
+
+        await localized.submit();
+
+        assert.equal(localized.status.textContent, message);
+        assert.equal(localized.fetchCount, 0);
+    }
+
+    const pluginValidation = harness({captureError: new Error('PLUGIN_LOCALIZED_VALIDATION')});
+    await pluginValidation.submit();
+    assert.equal(pluginValidation.status.textContent, 'PLUGIN_LOCALIZED_VALIDATION');
+});
 
 test('单独来源凭证授权请求携带当前 publication 激活令牌', async () => {
     const h = harness({response: {ok: true}});

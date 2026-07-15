@@ -15,8 +15,11 @@ import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterField;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -38,6 +41,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -53,11 +57,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIf("externalDouyinJarStaged")
-@DisplayName("外置 douyin 插件经真实上下文接入中性画廊能力")
+@DisplayName("外置 douyin 插件经真实上下文接入中性能力")
 class DouyinExternalPluginBootContextTest {
 
     private static final String DOUYIN_CLASSES_PROPERTY = "douyin.plugin.classes";
     private static final Path PLUGINS_DIR = Path.of("target/test-runtime/plugins-external-douyin");
+    private static final Set<String> DOUYIN_SCHEDULE_SOURCE_TYPES = Set.of(
+            "douyin.user",
+            "douyin.search",
+            "douyin.collection",
+            "douyin.music",
+            "douyin.account.own-works",
+            "douyin.account.liked-works",
+            "douyin.account.favorite-works",
+            "douyin.account.favorite-folder",
+            "douyin.account.favorite-collection");
     private static final boolean STAGED = stageExternalDouyinJar();
 
     static {
@@ -96,6 +110,8 @@ class DouyinExternalPluginBootContextTest {
     private GalleryCapabilityRegistry galleryCapabilityRegistry;
     @Autowired
     private WebI18nBundleRegistry webI18nBundleRegistry;
+    @Autowired
+    private ScheduleCapabilityRegistry scheduleCapabilityRegistry;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -141,6 +157,53 @@ class DouyinExternalPluginBootContextTest {
                 .contains("douyin");
         assertThat(pluginRegistry.source("douyin")).contains(PluginSource.EXTERNAL);
         assertThat(externalDouyinClassLoader()).isNotSameAs(getClass().getClassLoader());
+    }
+
+    @Test
+    @DisplayName("douyin 子上下文经中性注册中心原子发布九类计划来源")
+    void douyinScheduleSourcesArePublishedFromExternalChildContext() {
+        ConfigurableApplicationContext child = externalPluginContextManager.contextFor("douyin").orElseThrow();
+        ClassLoader externalCl = externalDouyinClassLoader();
+        var sourceExecutors = child.getBeansOfType(ScheduledSourceExecutor.class).values();
+
+        assertThat(sourceExecutors).hasSize(9)
+                .allSatisfy(executor -> assertThat(executor.getClass().getClassLoader())
+                        .isSameAs(externalCl));
+        assertThat(sourceExecutors)
+                .extracting(ScheduledSourceExecutor::sourceType)
+                .containsExactlyInAnyOrderElementsOf(DOUYIN_SCHEDULE_SOURCE_TYPES);
+        assertThat(applicationContext.getBeansOfType(ScheduledSourceExecutor.class).values())
+                .noneMatch(executor -> DOUYIN_SCHEDULE_SOURCE_TYPES.contains(executor.sourceType()));
+
+        assertThat(scheduleCapabilityRegistry.snapshotView().owners())
+                .filteredOn(owner -> owner.owner().featurePluginId().equals("douyin"))
+                .singleElement()
+                .satisfies(owner -> {
+                    assertThat(owner.owner().packageId()).isEqualTo("douyin");
+                    assertThat(owner.sourceTypes())
+                            .containsExactlyInAnyOrderElementsOf(DOUYIN_SCHEDULE_SOURCE_TYPES);
+                    assertThat(owner.sourceDescriptors())
+                            .extracting(descriptor -> descriptor.sourceType())
+                            .containsExactlyInAnyOrderElementsOf(DOUYIN_SCHEDULE_SOURCE_TYPES);
+                    assertThat(owner.workTypes()).containsExactly("douyin");
+                    assertThat(owner.credentialPolicyIds()).containsExactly("douyin.cookie");
+                    assertThat(owner.guardIds()).containsExactly("douyin.risk");
+                    assertThat(owner.sourceDescriptors())
+                            .filteredOn(descriptor -> descriptor.sourceType()
+                                    .equals("douyin.account.favorite-folder"))
+                            .singleElement()
+                            .satisfies(descriptor -> assertThat(descriptor.frontend().moduleUrl())
+                                    .isEqualTo("/pixiv-douyin-download/douyin-schedule-sources.js"));
+                });
+
+        try (SchedulePlanningLease planning = scheduleCapabilityRegistry
+                .prepareSource("douyin.account.favorite-folder").orElseThrow()) {
+            assertThat(scheduleCapabilityRegistry.activate(planning)).isTrue();
+            assertThat(planning.owner().featurePluginId()).isEqualTo("douyin");
+            assertThat(planning.sourceExecutor()).isPresent();
+            assertThat(planning.sourceExecutor().orElseThrow().getClass().getClassLoader())
+                    .isSameAs(externalCl);
+        }
     }
 
     @Test
