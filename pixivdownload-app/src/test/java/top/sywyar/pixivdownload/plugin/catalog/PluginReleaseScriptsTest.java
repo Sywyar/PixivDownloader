@@ -548,13 +548,16 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Douyin 下载类型 descriptor 包声明最低核心 API 1.1")
+    @DisplayName("Douyin 下载类型 descriptor 包声明最低核心 API 1.3")
     void douyinDescriptorDeclaresItsMinimumCoreApi() throws Exception {
         String descriptor = pluginDescriptor("pixivdownload-plugin-douyin");
 
         assertThat(descriptor)
-                .contains("plugin.requires=1.1")
-                .doesNotContain("plugin.requires=1.0", "plugin.requires=1.2");
+                .contains("plugin.requires=1.3")
+                .doesNotContain(
+                        "plugin.requires=1.0",
+                        "plugin.requires=1.1",
+                        "plugin.requires=1.2");
         assertThat(script("generate-market-manifest.ps1")).contains(
                 "$requires = $d[\"plugin.requires\"]",
                 "requiredCoreApi   = (Get-RequiredCoreApi $requires)");

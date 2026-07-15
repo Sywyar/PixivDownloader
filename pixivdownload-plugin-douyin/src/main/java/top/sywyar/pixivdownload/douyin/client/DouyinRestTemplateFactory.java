@@ -29,7 +29,7 @@ public final class DouyinRestTemplateFactory {
     }
 
     public static RestTemplate directDownloadTemplate() {
-        return build(30_000, 60_000, null);
+        return build(30_000, 60_000, new DirectProxyRoutePlanner());
     }
 
     public static RestTemplate forcedProxyDownloadTemplate(ProxyConfig proxyConfig) {
@@ -69,6 +69,20 @@ public final class DouyinRestTemplateFactory {
             return execution.execute(request, body);
         });
         return restTemplate;
+    }
+
+    private static final class DirectProxyRoutePlanner extends DefaultRoutePlanner {
+
+        private DirectProxyRoutePlanner() {
+            super(null);
+        }
+
+        @Override
+        protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
+            return OutboundProxyOverride.isActive()
+                    ? OutboundProxyOverride.current()
+                    : null;
+        }
     }
 
     private static final class InheritedProxyRoutePlanner extends DefaultRoutePlanner {

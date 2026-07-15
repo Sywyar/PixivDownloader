@@ -36,6 +36,7 @@ import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
 import top.sywyar.pixivdownload.douyin.schedule.credential.DouyinScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.douyin.schedule.guard.DouyinRiskExecutionGuard;
+import top.sywyar.pixivdownload.douyin.schedule.network.DouyinScheduledSourceRouteResolver;
 import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceExecutor;
 import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceSupport;
 import top.sywyar.pixivdownload.douyin.schedule.work.DouyinScheduledWorkExecutor;
@@ -287,8 +288,12 @@ public class DouyinPluginConfiguration {
     @ConditionalOnPluginEnabled("douyin")
     public DouyinScheduledSourceSupport douyinScheduledSourceSupport(
             @Qualifier("douyinClient") DouyinClient client,
-            DouyinScheduleCodec codec) {
-        return new DouyinScheduledSourceSupport(client, codec);
+            DouyinScheduleCodec codec,
+            DouyinPluginSettingsService settingsService,
+            ProxyConfig proxyConfig) {
+        return new DouyinScheduledSourceSupport(
+                client, codec,
+                new DouyinScheduledSourceRouteResolver(settingsService, proxyConfig));
     }
 
     @Bean

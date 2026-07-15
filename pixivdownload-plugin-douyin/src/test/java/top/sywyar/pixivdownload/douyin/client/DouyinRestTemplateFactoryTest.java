@@ -8,6 +8,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.client.ResourceAccessException;
+import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -27,11 +29,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DouyinRestTemplateFactoryTest {
 
     private HttpServer server;
+    private HttpServer proxyServer;
 
     @AfterEach
     void stopServer() {
+        OutboundProxyOverride.clear();
         if (server != null) {
             server.stop(0);
+        }
+        if (proxyServer != null) {
+            proxyServer.stop(0);
         }
     }
 
@@ -81,6 +88,35 @@ class DouyinRestTemplateFactoryTest {
     }
 
     @Test
+    @DisplayName("直连下载客户端无覆盖时直连且任务代理或直连覆盖均优先")
+    void directDownloadClientHonorsTaskRouteOverrides() throws IOException {
+        AtomicInteger targetHits = new AtomicInteger();
+        AtomicInteger proxyHits = new AtomicInteger();
+        server = startServer("target", targetHits);
+        proxyServer = startServer("proxy", proxyHits);
+        URI target = URI.create(
+                "http://127.0.0.1:" + server.getAddress().getPort() + "/probe");
+        var template = DouyinRestTemplateFactory.directDownloadTemplate();
+
+        assertThat(responseBody(template.exchange(
+                target, HttpMethod.GET, null, byte[].class))).isEqualTo("target");
+
+        OutboundProxyOverride.set(
+                "127.0.0.1:" + proxyServer.getAddress().getPort());
+        assertThat(responseBody(template.exchange(
+                target, HttpMethod.GET, null, byte[].class))).isEqualTo("proxy");
+        assertThat(targetHits).hasValue(1);
+        assertThat(proxyHits).hasValue(1);
+
+        OutboundProxyOverride.setDirect();
+        assertThat(responseBody(template.exchange(
+                target, HttpMethod.GET, null, byte[].class))).isEqualTo("target");
+
+        assertThat(targetHits).hasValue(2);
+        assertThat(proxyHits).hasValue(1);
+    }
+
+    @Test
     @DisplayName("上游 Set-Cookie 不会进入共享客户端并泄露给后续匿名请求")
     void responseCookiesAreNotRetainedAcrossRequests() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -125,5 +161,26 @@ class DouyinRestTemplateFactoryTest {
         });
         server.start();
         return URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/");
+    }
+
+    private static HttpServer startServer(String responseBody, AtomicInteger hits)
+            throws IOException {
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 0);
+        server.createContext("/", exchange -> {
+            hits.incrementAndGet();
+            byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var responseBodyStream = exchange.getResponseBody()) {
+                responseBodyStream.write(body);
+            }
+        });
+        server.start();
+        return server;
+    }
+
+    private static String responseBody(
+            org.springframework.http.ResponseEntity<byte[]> response) {
+        return new String(response.getBody(), StandardCharsets.UTF_8);
     }
 }

@@ -46,6 +46,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentati
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
+import top.sywyar.pixivdownload.schedule.ScheduleDefinitionException;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
 import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedException;
@@ -306,6 +307,146 @@ class ScheduleExecutionEngineTest {
 
         assertThat(bindingRoute.get()).isSameAs(sourceRoute);
         assertThat(executionRoute.get()).isSameAs(sourceRoute);
+    }
+
+    @Test
+    @DisplayName("合法任务代理在无效来源代理标记之前胜出并用于绑定和执行")
+    void taskProxyWinsBeforeInvalidSourceRouteForBindingAndExecution() throws Exception {
+        ScheduledNetworkRoute invalidSourceRoute = ScheduledNetworkRoute.proxy(
+                "<invalid-source-proxy>", 1, null);
+        ScheduledExecutionPlan executionPlan = new ScheduledExecutionPlan(
+                Set.of(WORK),
+                POLICY,
+                ScheduledCredentialRequirement.REQUIRED,
+                false,
+                List.of(new ScheduledGuardBinding(
+                        GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0)),
+                null,
+                0,
+                1,
+                0L,
+                invalidSourceRoute);
+        AtomicReference<ScheduledNetworkRoute> bindingRoute = new AtomicReference<>();
+        AtomicReference<ScheduledNetworkRoute> executionRoute = new AtomicReference<>();
+        ScheduledSourceExecutor source = sourceWithPlan(executionPlan, context -> {
+            assertTaskProxy(context.route());
+            assertThat(context.route()).isSameAs(executionRoute.get());
+            context.workSink().submit(work("task-proxy"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor work = workExecutor(context -> {
+            assertTaskProxy(context.route());
+            assertThat(context.route()).isSameAs(executionRoute.get());
+            return ScheduledWorkResult.completed();
+        });
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                assertTaskProxy(context.route());
+                executionRoute.set(context.route());
+                return ScheduledCredentialProbeResult.valid("account-1");
+            }
+
+            @Override
+            public ScheduledCredentialBindResult probeForBinding(
+                    ScheduledCredentialContext context) {
+                assertTaskProxy(context.route());
+                bindingRoute.set(context.route());
+                return ScheduledCredentialBindResult.fromProbe(
+                        ScheduledCredentialProbeResult.valid("account-1"));
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            assertTaskProxy(context.route());
+            assertThat(context.route()).isSameAs(executionRoute.get());
+            return ScheduledGuardDecision.proceed();
+        });
+        CredentialEngineFixture fixture = credentialEngine(
+                storeWithCredential(), source, work, policy, guard);
+        ScheduledTask task = taskWithProxy("task.proxy:9080");
+
+        try (ScheduleCredentialBindingLease binding = fixture.engine()
+                .prepareCredentialBinding(task, fixture.activationToken())) {
+            binding.probe("candidate-secret");
+        }
+        fixture.engine().execute(task);
+
+        assertTaskProxy(bindingRoute.get());
+        assertTaskProxy(executionRoute.get());
+    }
+
+    @Test
+    @DisplayName("无任务代理时无效来源代理在凭证读取和插件网络回调前拒绝")
+    void invalidSourceRouteWithoutTaskProxyFailsBeforeCredentialOrNetwork() throws Exception {
+        ScheduledNetworkRoute invalidSourceRoute = ScheduledNetworkRoute.proxy(
+                "<invalid-source-proxy>", 1, null);
+        ScheduledExecutionPlan executionPlan = new ScheduledExecutionPlan(
+                Set.of(WORK),
+                POLICY,
+                ScheduledCredentialRequirement.REQUIRED,
+                false,
+                List.of(new ScheduledGuardBinding(
+                        GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0)),
+                null,
+                0,
+                1,
+                0L,
+                invalidSourceRoute);
+        AtomicInteger networkCallbacks = new AtomicInteger();
+        AtomicInteger credentialProbes = new AtomicInteger();
+        ScheduledSourceExecutor source = sourceWithPlan(executionPlan, context -> {
+            networkCallbacks.incrementAndGet();
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        });
+        ScheduledWorkExecutor work = workExecutor(context -> {
+            networkCallbacks.incrementAndGet();
+            return ScheduledWorkResult.completed();
+        });
+        ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
+            @Override
+            public String policyId() {
+                return POLICY;
+            }
+
+            @Override
+            public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                credentialProbes.incrementAndGet();
+                return ScheduledCredentialProbeResult.valid("account-1");
+            }
+
+            @Override
+            public ScheduledCredentialBindResult probeForBinding(
+                    ScheduledCredentialContext context) {
+                credentialProbes.incrementAndGet();
+                return ScheduledCredentialBindResult.fromProbe(
+                        ScheduledCredentialProbeResult.valid("account-1"));
+            }
+        };
+        ScheduledExecutionGuard guard = guard(context -> {
+            networkCallbacks.incrementAndGet();
+            return ScheduledGuardDecision.proceed();
+        });
+        ScheduledTaskStore store = storeWithCredential();
+        CredentialEngineFixture fixture = credentialEngine(
+                store, source, work, policy, guard);
+
+        assertThatThrownBy(() -> fixture.engine().prepareCredentialBinding(
+                task(), fixture.activationToken()))
+                .isInstanceOf(ScheduleDefinitionException.class)
+                .hasMessage("invalid schedule network route");
+        assertThatThrownBy(() -> fixture.engine().execute(task()))
+                .isInstanceOf(ScheduleDefinitionException.class)
+                .hasMessage("invalid schedule network route");
+
+        assertThat(credentialProbes).hasValue(0);
+        assertThat(networkCallbacks).hasValue(0);
+        verify(store, never()).findCredentialSecret(
+                anyLong(), anyString(), anyString());
     }
 
     @Test
@@ -2483,6 +2624,10 @@ class ScheduleExecutionEngineTest {
         return taskWithCheckpoint(null, null, null);
     }
 
+    private static ScheduledTask taskWithProxy(String proxySnapshot) {
+        return taskWithCheckpoint(null, null, null, proxySnapshot);
+    }
+
     private record CredentialEngineFixture(
             ScheduleExecutionEngine engine,
             String activationToken) {
@@ -2492,16 +2637,32 @@ class ScheduleExecutionEngineTest {
             String checkpointSchema,
             Integer checkpointVersion,
             String checkpointJson) {
+        return taskWithCheckpoint(
+                checkpointSchema, checkpointVersion, checkpointJson, null);
+    }
+
+    private static ScheduledTask taskWithCheckpoint(
+            String checkpointSchema,
+            Integer checkpointVersion,
+            String checkpointJson,
+            String proxySnapshot) {
         return new ScheduledTask(
                 1L, "fixture", true, SOURCE, "fixture",
                 "fixture.definition", 1, "{}", "{}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                null, 0L, null, checkpointSchema, checkpointVersion, checkpointJson,
+                proxySnapshot, 0L, null, checkpointSchema, checkpointVersion, checkpointJson,
                 ScheduledTask.CURRENT_STORAGE_VERSION,
                 null, null, ScheduleLastOutcome.NEVER, null, null,
                 null, null, null, 0L,
                 "fixture", POLICY, "account-1", "{}",
                 "fixture-reference", 1L, 1L);
+    }
+
+    private static void assertTaskProxy(ScheduledNetworkRoute route) {
+        assertThat(route).isNotNull();
+        assertThat(route.mode()).isEqualTo(ScheduledNetworkRoute.Mode.PROXY);
+        assertThat(route.proxyHost()).isEqualTo("task.proxy");
+        assertThat(route.proxyPort()).isEqualTo(9080);
     }
 
     private static void assertSameRoute(

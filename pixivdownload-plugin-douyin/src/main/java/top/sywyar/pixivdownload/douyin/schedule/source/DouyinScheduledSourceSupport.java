@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec.Checkp
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec.Definition;
 import top.sywyar.pixivdownload.douyin.schedule.failure.DouyinScheduledFailureMapper;
 import top.sywyar.pixivdownload.douyin.schedule.network.DouyinScheduledRouteScope;
+import top.sywyar.pixivdownload.douyin.schedule.network.DouyinScheduledSourceRouteResolver;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
@@ -20,6 +21,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
@@ -46,10 +48,28 @@ public final class DouyinScheduledSourceSupport {
 
     private final DouyinClient client;
     private final DouyinScheduleCodec codec;
+    private final SourceRouteProvider sourceRouteProvider;
 
     public DouyinScheduledSourceSupport(DouyinClient client, DouyinScheduleCodec codec) {
+        this(client, codec, ScheduledNetworkRoute::inherit);
+    }
+
+    public DouyinScheduledSourceSupport(
+            DouyinClient client,
+            DouyinScheduleCodec codec,
+            DouyinScheduledSourceRouteResolver routeResolver) {
+        this(client, codec,
+                Objects.requireNonNull(routeResolver, "routeResolver")::resolve);
+    }
+
+    private DouyinScheduledSourceSupport(
+            DouyinClient client,
+            DouyinScheduleCodec codec,
+            SourceRouteProvider sourceRouteProvider) {
         this.client = Objects.requireNonNull(client, "client");
         this.codec = Objects.requireNonNull(codec, "codec");
+        this.sourceRouteProvider = Objects.requireNonNull(
+                sourceRouteProvider, "sourceRouteProvider");
     }
 
     public ScheduledTaskDefinition prepare(ScheduledTaskDraft draft)
@@ -72,7 +92,8 @@ public final class DouyinScheduledSourceSupport {
                 DouyinScheduleCodec.CHECKPOINT_SCHEMA,
                 DouyinScheduleCodec.CHECKPOINT_VERSION,
                 2,
-                300L);
+                300L,
+                sourceRouteProvider.resolve());
     }
 
     public ScheduledDiscoveryResult discover(ScheduledSourceContext context, String sourceType)
@@ -362,5 +383,10 @@ public final class DouyinScheduledSourceSupport {
     @FunctionalInterface
     private interface PageLoader {
         DouyinListing load(String cursor) throws DouyinClientException;
+    }
+
+    @FunctionalInterface
+    private interface SourceRouteProvider {
+        ScheduledNetworkRoute resolve() throws ScheduledExecutionException;
     }
 }

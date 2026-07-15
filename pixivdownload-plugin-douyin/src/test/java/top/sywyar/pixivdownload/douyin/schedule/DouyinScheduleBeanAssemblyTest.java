@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.douyin.DouyinPluginConfiguration;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
@@ -54,7 +55,11 @@ class DouyinScheduleBeanAssemblyTest {
         DouyinPluginConfiguration configuration = new DouyinPluginConfiguration();
         DouyinScheduleCodec codec = configuration.douyinScheduleCodec(new ObjectMapper());
         DouyinScheduledSourceSupport support = configuration.douyinScheduledSourceSupport(
-                mock(DouyinClient.class), codec);
+                mock(DouyinClient.class), codec,
+                DouyinPluginSettingsService.fixed(
+                        Path.of("target", "schedule-source-bean-test"),
+                        DouyinProxyMode.INHERIT),
+                new ProxyConfig());
         List<DouyinScheduledSourceExecutor> executors = List.of(
                 configuration.douyinUserScheduledSourceExecutor(support),
                 configuration.douyinSearchScheduledSourceExecutor(support),

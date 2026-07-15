@@ -60,6 +60,19 @@ class RestTemplateDouyinRedirectClientTest {
     }
 
     @Test
+    @DisplayName("任务代理覆盖也适用于插件直连模式的短链客户端")
+    void taskProxyOverrideAppliesToDirectRedirectClient() throws Exception {
+        OutboundProxyOverride.set(
+                "127.0.0.1:" + proxyServer.getAddress().getPort());
+
+        assertResponse(new RestTemplateDouyinRedirectClient((ProxyConfig) null)
+                .get(targetUri()), "proxy");
+
+        assertThat(proxyHits).hasValue(1);
+        assertThat(targetHits).hasValue(0);
+    }
+
+    @Test
     @DisplayName("没有任务级覆盖时保持现有代理选择")
     void configuredProxiesRemainSelectedWithoutOverride() throws Exception {
         assertResponse(globalProxyClient().get(targetUri()), "proxy");

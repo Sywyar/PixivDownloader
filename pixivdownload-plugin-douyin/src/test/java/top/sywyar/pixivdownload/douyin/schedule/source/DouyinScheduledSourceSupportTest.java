@@ -81,6 +81,8 @@ class DouyinScheduledSourceSupportTest {
             assertThat(plan.anonymousFallbackAllowed()).isFalse();
             assertThat(plan.checkpointSchema())
                     .isEqualTo(DouyinScheduleCodec.CHECKPOINT_SCHEMA);
+            assertThat(plan.sourceDefaultRoute())
+                    .isEqualTo(ScheduledNetworkRoute.inherit());
             assertThat(plan.guards()).singleElement()
                     .satisfies(binding -> assertThat(binding.guardId()).isEqualTo("douyin.risk"));
             assertThat(context.works).singleElement().satisfies(scheduled -> {
