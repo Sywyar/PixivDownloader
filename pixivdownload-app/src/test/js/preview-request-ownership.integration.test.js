@@ -2,7 +2,7 @@
 /*
  * 批量预览请求凭据归属测试。
  *
- * 运行：node src/test/js/preview-request-ownership.test.js
+ * 运行：node src/test/js/preview-request-ownership.integration.test.js
  */
 const fs = require('fs');
 const path = require('path');
@@ -520,7 +520,7 @@ vm.runInContext(SERIES_SOURCE + [
         dataSource: {
             id: 'pixiv',
             displayNamespace: 'batch',
-            displayI18nKey: 'quick.data-source.pixiv',
+            displayI18nKey: 'data-source.pixiv',
             order: 10
         },
         actions: {'pixiv-action': {viewType: 'works-list'}},
@@ -583,22 +583,23 @@ vm.runInContext(SERIES_SOURCE + [
     }
     const quickSourceSwitcher = quickElement('div');
     const accountRequestUrls = [];
+    const quickRegistry = {
+        acquisitionList() { return quickAcquisitions; },
+        prepareAcquisitionRequest(_type, _mode, url) {
+            const publication = currentPublication;
+            return {
+                url,
+                init: {},
+                isCurrent() { return currentPublication === publication; },
+                assertCurrent() {
+                    if (currentPublication !== publication) throw new Error('stale publication');
+                }
+            };
+        }
+    };
     const quickWindow = {
         PixivBatch: {
-            queueTypes: {
-                acquisitionList() { return quickAcquisitions; },
-                prepareAcquisitionRequest(_type, _mode, url) {
-                    const publication = currentPublication;
-                    return {
-                        url,
-                        init: {},
-                        isCurrent() { return currentPublication === publication; },
-                        assertCurrent() {
-                            if (currentPublication !== publication) throw new Error('stale publication');
-                        }
-                    };
-                }
-            },
+            queueTypes: quickRegistry,
             modes: {}
         }
     };
@@ -644,7 +645,7 @@ vm.runInContext(SERIES_SOURCE + [
         quickSourceSwitcher.children.length === 2
         && quickSourceSwitcher.children[0].children[0].value === 'pixiv'
         && quickSourceSwitcher.children[0].children[1].getAttribute('data-i18n')
-            === 'batch:quick.data-source.pixiv'
+            === 'batch:data-source.pixiv'
         && quickSourceSwitcher.children[1].children[0].value === 'douyin'
         && quickSourceSwitcher.children[1].children[1].getAttribute('data-i18n')
             === 'douyin:source.douyin');
@@ -724,7 +725,7 @@ vm.runInContext(SERIES_SOURCE + [
         && realSources[0].id === 'pixiv'
         && realSources[0].ownerTypes.join(',') === 'illust,novel'
         && realSources[0].displayNamespace === 'batch'
-        && realSources[0].displayI18nKey === 'quick.data-source.pixiv'
+        && realSources[0].displayI18nKey === 'data-source.pixiv'
         && realSources[0].order === 10);
     ok('真实 Douyin quick contribution 保持独立且排在 Pixiv 来源之后',
         realSources[1].id === 'douyin'
@@ -733,7 +734,7 @@ vm.runInContext(SERIES_SOURCE + [
         && realSources[1].displayI18nKey === 'source.douyin'
         && realSources[1].order === 20);
 
-    console.log(`\npreview-request-ownership.test.js: ${passed} assertions passed ✓`);
+    console.log(`\npreview-request-ownership.integration.test.js: ${passed} assertions passed ✓`);
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);
     process.exit(1);

@@ -4,8 +4,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const STATIC = path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
+const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
 const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
 const SEARCH_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'search.js'), 'utf8');
@@ -56,7 +55,8 @@ const sandbox = {
             return kind === 'settings'
                 ? [{type: 'novel', contributionKey: 'novel-settings-card', cardId: 'novel-settings-card'}]
                 : [];
-        }
+        },
+        resolveSelectionForMode(selection) { return selection; }
     }}},
     document,
     state: {settings: {userKind: 'illust'}, mode: 'user'},
@@ -89,23 +89,68 @@ function modeElement({html = 'A preview', text = 'A meta', display = 'flex'} = {
     };
 }
 
+function kindSwitcherElement(kinds) {
+    const switcher = {
+        hidden: false,
+        style: {display: ''},
+        dataset: {},
+        labels: [],
+        querySelectorAll(selector) {
+            return selector === 'label' || selector === 'label[data-kind]' ? this.labels : [];
+        }
+    };
+    switcher.labels = kinds.map(kind => {
+        const label = makeLabel(kind);
+        label.hidden = false;
+        label.style = {display: ''};
+        label.parentNode = switcher;
+        label.classList.owner = label;
+        return label;
+    });
+    return switcher;
+}
+
+function sourceKindRegistry() {
+    const acquisitions = [
+        {type: 'owner-a', accepts(kind) { return kind === 'kind-a' || kind === 'kind-c'; }},
+        {type: 'owner-b', accepts(kind) { return kind === 'kind-b'; }},
+        {type: 'owner-c', accepts(kind) { return kind === 'kind-d'; }}
+    ];
+    return {
+        acquisitionList() { return acquisitions; },
+        typesForDataSource(_mode, sourceId) {
+            return sourceId === 'source-a'
+                ? [{type: 'owner-a'}, {type: 'owner-b'}]
+                : sourceId === 'source-b' ? [{type: 'owner-c'}] : [];
+        },
+        supports(type) { return acquisitions.some(candidate => candidate.type === type); }
+    };
+}
+
 function realModeHarness(source, stateExpression, elements, extra = {}) {
     const registry = Object.assign({
         supports() { return false; },
         resolveTypeForMode() { return null; },
+        resolveSelectionForMode(selection) { return selection || null; },
         acquisition() { return null; },
-        acquisitionList() { return []; }
+        acquisitionList() { return []; },
+        dataSourcesForMode() { return []; },
+        typesForDataSource() { return []; }
     }, extra.registry || {});
     const modeDocument = {
         getElementById(id) { return elements[id] || null; },
         querySelectorAll(selector) {
             return typeof elements.querySelectorAll === 'function' ? elements.querySelectorAll(selector) : [];
         },
-        querySelector() { return null; },
+        querySelector(selector) {
+            return typeof elements.querySelector === 'function' ? elements.querySelector(selector) : null;
+        },
         addEventListener() {}
     };
+    const pixivBatch = {queueTypes: registry, modes: {}};
+    if (extra.modeControls) pixivBatch.modeControls = extra.modeControls;
     const modeSandbox = Object.assign({
-        window: {PixivBatch: {queueTypes: registry, modes: {}}},
+        window: {PixivBatch: pixivBatch},
         document: modeDocument,
         state: {mode: 'user', settings: {userKind: 'owner-a', searchKind: 'owner-a'}, queue: []},
         console: {warn() {}, log() {}, error() {}},
@@ -170,13 +215,39 @@ ok('search submode switcher 使用稳定 root 事件委托',
     && !SEARCH_SOURCE.includes("lbl.addEventListener('click'"));
 
 {
+    const synced = [];
+    sandbox.window.PixivBatch.modeControls = {
+        syncType(mode, type) { synced.push([mode, type]); return true; }
+    };
+    sandbox.window.PixivBatch.modes = {};
+    sandbox.applySearchKindUI = () => undefined;
+    sandbox.updateExtraFiltersCardVisibility = () => undefined;
+    sandbox.state.settings.userKind = 'owner-c';
+    sandbox.state.settings.searchKind = 'owner-a';
+    sandbox.window.PixivBatch.settings.reconcileQueueTypeSettings();
+    ok('设置收敛保留无可见 label 的来源内部 owner',
+        sandbox.state.settings.userKind === 'owner-c'
+        && synced.some(([mode, type]) => mode === 'user' && type === 'owner-c'));
+}
+
+{
+    const controlRenders = [];
+    const selection = {sourceId: 'source-a', type: 'owner-a'};
     const elements = {
         'user-results-area': modeElement(),
         'user-pagination': modeElement({html: 'A pages'}),
         'btn-user-add-page': modeElement(),
         'btn-user-add-all': modeElement()
     };
-    const h = realModeHarness(USER_SOURCE, 'userState', elements);
+    const h = realModeHarness(USER_SOURCE, 'userState', elements, {
+        modeControls: {
+            render(mode, preserveSelection) {
+                controlRenders.push([mode, preserveSelection]);
+                return {sourceChanged: false, typeChanged: false};
+            },
+            selection() { return selection; }
+        }
+    });
     Object.assign(h.state, {
         kind: 'owner-a',
         variant: 'owner-a',
@@ -188,11 +259,17 @@ ok('search submode switcher 使用稳定 root 事件委托',
         cardCache: new Map([['owner-a:1', {id: '1'}]]),
         filterSummary: {rawCount: 1, filteredCount: 1, bookmarkMetaMissing: 0, bookmarkFilterActive: true}
     });
-    const reconciled = h.sandbox.window.PixivBatch.modes.user.reconcileUserTypeAvailability();
-    ok('真实 user reconcile 清空 publication A 的预览 state',
-        reconciled && h.state.kind === null && h.state.userId === '' && h.state.username === ''
+    const requestSeqBefore = h.state.requestSeq;
+    const reconciled = h.sandbox.window.PixivBatch.modes.user.reconcileUserTypeAvailability(false);
+    ok('user loading reconcile 保留来源选择并清空 publication A 的预览 state',
+        reconciled && h.state.kind === 'owner-a' && h.state.variant === 'owner-a'
+        && h.state.userId === '' && h.state.username === ''
         && h.state.allIds.length === 0 && h.state.rawItems.length === 0 && h.state.items.length === 0
-        && h.state.cardCache.size === 0 && h.sandbox.state.settings.userKind === 'owner-a');
+        && h.state.requestSeq === requestSeqBefore + 1
+        && h.state.cardCache.size === 0 && h.sandbox.state.settings.userKind === 'owner-a'
+        && selection.sourceId === 'source-a' && selection.type === 'owner-a'
+        && controlRenders.length === 1 && controlRenders[0][0] === 'user'
+        && controlRenders[0][1] === true);
     ok('真实 user reconcile 清掉旧结果 DOM 与分页',
         !elements['user-results-area'].innerHTML.includes('A preview')
         && elements['user-pagination'].style.display === 'none'
@@ -207,13 +284,24 @@ ok('search submode switcher 使用稳定 root 事件委托',
 }
 
 {
+    const controlRenders = [];
+    const selection = {sourceId: 'source-a', type: 'owner-a'};
     const elements = {
         'search-results-area': modeElement(),
         'search-pagination': modeElement({html: 'A pages'}),
+        'btn-add-all': modeElement(),
         'btn-batch-add-page': modeElement(),
         'btn-batch-add-all': modeElement()
     };
-    const h = realModeHarness(SEARCH_SOURCE, 'searchState', elements);
+    const h = realModeHarness(SEARCH_SOURCE, 'searchState', elements, {
+        modeControls: {
+            render(mode, preserveSelection) {
+                controlRenders.push([mode, preserveSelection]);
+                return {sourceChanged: false, typeChanged: false};
+            },
+            selection() { return selection; }
+        }
+    });
     Object.assign(h.state, {
         kind: 'owner-a',
         rawResults: [{id: '1'}],
@@ -228,24 +316,239 @@ ok('search submode switcher 使用稳定 root 事件委托',
         metaCache: {'1': {bookmarkCount: 10}},
         pixivPageCount: 1
     });
-    const reconciled = h.sandbox.window.PixivBatch.modes.search.reconcileSearchTypeAvailability();
-    ok('真实 search reconcile 清空 publication A 的预览 state',
-        reconciled && h.state.kind === null && h.state.rawResults.length === 0
+    const reconciled = h.sandbox.window.PixivBatch.modes.search.reconcileSearchTypeAvailability(false);
+    ok('search loading reconcile 保留来源选择并清空 publication A 的预览 state',
+        reconciled && h.state.kind === 'owner-a' && h.state.rawResults.length === 0
         && h.state.results.length === 0 && h.state.total === 0 && h.state.currentPage === 1
-        && h.state.submode === 'search' && h.state.currentWord === ''
+        && h.state.submode === 'batch' && h.state.currentWord === ''
         && Object.keys(h.state.metaCache).length === 0
-        && h.sandbox.state.settings.searchKind === 'owner-a');
+        && h.sandbox.state.settings.searchKind === 'owner-a'
+        && selection.sourceId === 'source-a' && selection.type === 'owner-a'
+        && controlRenders.length === 1 && controlRenders[0][0] === 'search'
+        && controlRenders[0][1] === true);
     ok('真实 search reconcile 清掉旧结果 DOM 与分页',
         !elements['search-results-area'].innerHTML.includes('A preview')
         && elements['search-pagination'].style.display === 'none'
         && elements['search-pagination'].innerHTML === '');
     ok('真实 search reconcile 禁用旧预览入队按钮',
-        elements['btn-batch-add-page'].disabled && elements['btn-batch-add-all'].disabled);
+        elements['btn-add-all'].disabled
+        && elements['btn-batch-add-page'].disabled && elements['btn-batch-add-all'].disabled);
     h.state.submode = 'batch';
     h.state.results = [{id: 'B-1'}];
     h.sandbox.updateBatchQueueButtons();
     ok('publication B 新结果可重新启用 search 入队按钮',
         !elements['btn-batch-add-page'].disabled && !elements['btn-batch-add-all'].disabled);
+}
+
+{
+    const selection = {sourceId: 'source-b', type: 'owner-c'};
+    const switcher = kindSwitcherElement(['kind-a', 'kind-b', 'kind-c']);
+    const h = realModeHarness(USER_SOURCE, 'userState', {'user-kind-switcher': switcher}, {
+        registry: sourceKindRegistry(),
+        modeControls: {selection() { return selection; }},
+        applyKindSwitcherUI(_id, value) {
+            switcher.labels.forEach(label => {
+                const active = label.dataset.kind === value;
+                label.classList.toggle('active', active);
+                label.input.checked = active;
+            });
+        }
+    });
+    h.sandbox.state.settings.userKind = 'kind-a';
+
+    const selectedSingleTypeSource = h.sandbox.window.PixivBatch.modes.user.applyUserSourceKindAvailability();
+    ok('User 选择单类型来源时不显示冗余二级类型并直接路由到内部 owner',
+        selectedSingleTypeSource && switcher.hidden && switcher.style.display === 'none'
+        && switcher.labels.every(label => label.hidden && label.input.disabled)
+        && h.sandbox.state.settings.userKind === 'owner-c');
+
+    Object.assign(selection, {sourceId: 'source-a', type: 'owner-a'});
+    const restoredMultiTypeSource = h.sandbox.window.PixivBatch.modes.user.applyUserSourceKindAvailability();
+    ok('User 切回多类型来源后恢复插件贡献的类型切换',
+        restoredMultiTypeSource && !switcher.hidden && switcher.style.display === ''
+        && switcher.labels.every(label => !label.hidden && !label.input.disabled)
+        && h.sandbox.state.settings.userKind === 'kind-a');
+}
+
+{
+    const selection = {sourceId: 'source-b', type: 'owner-c'};
+    const switcher = kindSwitcherElement(['kind-a', 'kind-b']);
+    const h = realModeHarness(SEARCH_SOURCE, 'searchState', {'search-kind-switcher': switcher}, {
+        registry: sourceKindRegistry(),
+        modeControls: {selection() { return selection; }},
+        applyKindSwitcherUI(_id, value) {
+            switcher.labels.forEach(label => {
+                const active = label.dataset.kind === value;
+                label.classList.toggle('active', active);
+                label.input.checked = active;
+            });
+        }
+    });
+    h.sandbox.state.settings.searchKind = 'kind-a';
+
+    const selectedSingleTypeSource = h.sandbox.window.PixivBatch.modes.search.applySearchSourceKindAvailability();
+    ok('Search 选择单类型来源时不显示冗余二级类型并直接路由到内部 owner',
+        selectedSingleTypeSource && switcher.hidden && switcher.style.display === 'none'
+        && switcher.labels.every(label => label.hidden && label.input.disabled)
+        && h.sandbox.state.settings.searchKind === 'owner-c');
+
+    Object.assign(selection, {sourceId: 'source-a', type: 'owner-a'});
+    const restoredMultiTypeSource = h.sandbox.window.PixivBatch.modes.search.applySearchSourceKindAvailability();
+    ok('Search 切回多类型来源后恢复插件贡献的类型切换',
+        restoredMultiTypeSource && !switcher.hidden && switcher.style.display === ''
+        && switcher.labels.every(label => !label.hidden && !label.input.disabled)
+        && h.sandbox.state.settings.searchKind === 'kind-a');
+}
+
+{
+    const selection = {sourceId: 'source-a', type: 'owner-a'};
+    const sourceControl = modeElement();
+    sourceControl.hidden = false;
+    const switcher = kindSwitcherElement(['kind-a']);
+    const h = realModeHarness(SEARCH_SOURCE, 'searchState', {
+        'search-data-source-control': sourceControl,
+        'search-kind-switcher': switcher
+    }, {
+        registry: {
+            acquisitionList() {
+                return [{type: 'owner-a', accepts(kind) { return kind === 'kind-a'; }}];
+            },
+            typesForDataSource() { return [{type: 'owner-a'}]; },
+            supports(type) { return type === 'owner-a'; }
+        },
+        modeControls: {selection() { return selection; }},
+        applyKindSwitcherUI() {}
+    });
+    h.sandbox.state.settings.searchKind = 'kind-a';
+
+    const changed = h.sandbox.window.PixivBatch.modes.search.applySearchSourceKindAvailability();
+    ok('当前来源恰好一个可见类型时只保留数据来源控件并隐藏二级切换',
+        !changed && !sourceControl.hidden && switcher.hidden && switcher.style.display === 'none'
+        && !switcher.labels[0].hidden && !switcher.labels[0].input.disabled
+        && h.sandbox.state.settings.searchKind === 'kind-a');
+}
+
+{
+    let secondSelectedOwnerAccepts = false;
+    let selectedAcceptCalls = 0;
+    let foreignAcceptCalls = 0;
+    let selectedBuildCalls = 0;
+    let foreignBuildCalls = 0;
+    const ownerA = {
+        type: 'owner-a',
+        accepts(kind) { selectedAcceptCalls++; return kind === 'shared-kind'; },
+        buildRequest() {
+            selectedBuildCalls++;
+            return {endpoint: '/api/source-a/search', params: {word: 'demo'}};
+        }
+    };
+    const ownerB = {
+        type: 'owner-b',
+        accepts(kind) { return secondSelectedOwnerAccepts && kind === 'shared-kind'; }
+    };
+    const foreignOwner = {
+        type: 'owner-c',
+        accepts() { foreignAcceptCalls++; return true; },
+        buildRequest() {
+            foreignBuildCalls++;
+            return {endpoint: '/api/source-b/search'};
+        }
+    };
+    const acquisitions = [foreignOwner, ownerA, ownerB];
+    const h = realModeHarness(SEARCH_SOURCE, 'searchState', {}, {
+        modeControls: {selection() { return {sourceId: 'source-a', type: 'owner-a'}; }},
+        registry: {
+            acquisitionList() { return acquisitions; },
+            typesForDataSource(_mode, sourceId) {
+                return sourceId === 'source-a'
+                    ? [{type: 'owner-a'}, {type: 'owner-b'}]
+                    : [{type: 'owner-c'}];
+            },
+            acquisition(type) { return acquisitions.find(candidate => candidate.type === type) || null; },
+            prepareAcquisitionRequest(type, mode, url) {
+                return {type, mode, url, init: {}, assertCurrent() {}};
+            }
+        }
+    });
+    vm.runInContext('window.__selectedSearchSourceTest = {searchKindOwner, prepareSearchRequest};', h.sandbox);
+    const api = h.sandbox.window.__selectedSearchSourceTest;
+    const resolved = api.searchKindOwner('shared-kind');
+    api.prepareSearchRequest(h.registry.acquisition(resolved), 'search', {word: 'demo'});
+    ok('Search 解析和请求只调用所选来源的 owner hooks',
+        resolved === 'owner-a'
+        && selectedAcceptCalls === 1 && selectedBuildCalls === 1
+        && foreignAcceptCalls === 0 && foreignBuildCalls === 0);
+
+    secondSelectedOwnerAccepts = true;
+    ok('Search 所选来源内部多个 owner 同时 accepts 时拒绝歧义且不探测其它来源',
+        api.searchKindOwner('shared-kind') === null
+        && foreignAcceptCalls === 0 && foreignBuildCalls === 0);
+}
+
+{
+    const statuses = [];
+    let acquisitionCalls = 0;
+    let fetchCalls = 0;
+    const searchWord = modeElement();
+    searchWord.value = 'retained preview';
+    const contentFilter = modeElement();
+    contentFilter.value = 'all';
+    const batchStart = modeElement();
+    batchStart.value = '1';
+    const batchEnd = modeElement();
+    batchEnd.value = '2';
+    const elements = {
+        'search-word': searchWord,
+        'search-content-filter': contentFilter,
+        'batch-start-page': batchStart,
+        'batch-end-page': batchEnd,
+        'search-results-area': modeElement({html: 'retained preview'}),
+        'search-pagination': modeElement({html: 'retained pages'}),
+        'btn-batch-add-page': modeElement(),
+        'btn-batch-add-all': modeElement(),
+        querySelector(selector) {
+            if (selector === 'input[name="search-smode"]:checked') return {value: 's_tag'};
+            if (selector === 'input[name="search-order"]:checked') return {value: 'date_d'};
+            return null;
+        }
+    };
+    const retainedSelection = {sourceId: 'pixiv', type: 'owner-a'};
+    const h = realModeHarness(SEARCH_SOURCE, 'searchState', elements, {
+        modeControls: {selection() { return retainedSelection; }},
+        registry: {
+            supports(type, mode) { return !(type === 'owner-a' && mode === 'search'); },
+            acquisition() { acquisitionCalls++; return null; }
+        },
+        setStatus(message, level) { statuses.push({message, level}); },
+        fetch() { fetchCalls++; throw new Error('unsupported search must not request'); },
+        appMode: 'solo',
+        isAdmin: false,
+        multiModeLimitPage: 0
+    });
+    Object.assign(h.state, {
+        kind: 'owner-a',
+        rawResults: [{id: 'old'}],
+        results: [{id: 'old'}],
+        total: 1,
+        currentPage: 4,
+        submode: 'search',
+        currentWord: 'old word',
+        activeBlobUrls: ['blob:retained']
+    });
+    h.sandbox.window.PixivBatch.modes.search.performSearch(1);
+    h.sandbox.window.PixivBatch.modes.search.runBatchFetch();
+    ok('search 保留旧 type 但能力已撤回时两种入口都只报告类型不可用',
+        statuses.length === 2
+        && statuses.every(status => status.level === 'warning'
+            && status.message.includes('该类型当前不可用')));
+    ok('unsupported search 两种入口不进入 acquisition 或网络请求',
+        acquisitionCalls === 0 && fetchCalls === 0);
+    ok('unsupported search 两种入口不清空既有预览 state 与 DOM',
+        h.state.kind === 'owner-a'
+        && h.state.rawResults.length === 1 && h.state.results.length === 1
+        && h.state.currentPage === 4 && h.state.activeBlobUrls[0] === 'blob:retained'
+        && elements['search-results-area'].innerHTML === 'retained preview'
+        && elements['search-pagination'].innerHTML === 'retained pages');
 }
 
 {
@@ -335,6 +638,7 @@ ok('search submode switcher 使用稳定 root 事件委托',
     h.sandbox.updateSeriesQueueButtons();
     ok('publication B 新结果可重新启用 series 入队按钮',
         !elements['btn-series-add-page'].disabled && !elements['btn-series-add-all'].disabled);
+
 }
 
 {
@@ -486,7 +790,6 @@ const initDocumentListeners = new Map();
 const previewClears = {user: 0, search: 0, series: 0, quick: 0};
 const quickReadyStates = [];
 let settingReconciles = 0;
-let selectedSeriesSource = null;
 const initSandbox = {
     window: {
         PixivBatch: {
@@ -496,8 +799,7 @@ const initSandbox = {
                 user: {reconcileUserTypeAvailability() { previewClears.user++; }},
                 search: {reconcileSearchTypeAvailability() { previewClears.search++; }},
                 series: {
-                    reconcileSeriesTypeAvailability() { previewClears.series++; },
-                    selectSeriesDataSource(sourceId) { selectedSeriesSource = sourceId; }
+                    reconcileSeriesTypeAvailability() { previewClears.series++; }
                 },
                 quick: {reconcileQuickTypeAvailability(ready) {
                     previewClears.quick++;
@@ -534,7 +836,8 @@ ok('ready 事件再收敛设置与预览且不丢失事件链',
     settingReconciles === 1 && Object.values(previewClears).every(count => count === 2));
 ok('queue type reconcile 把 loading/ready 状态传给 quick 来源选择收敛',
     quickReadyStates.length === 2 && quickReadyStates[0] === false && quickReadyStates[1] === true);
-initDocumentListeners.get('change')({target: {name: 'series-data-source', value: 'douyin'}});
-ok('热重载后系列来源 radio 仍由稳定 document change 委托切换', selectedSeriesSource === 'douyin');
+ok('batch init 将新增来源控件与只读导入来源交给稳定 modeControls 委托',
+    INIT_SOURCE.includes('window.PixivBatch.modeControls.bind()')
+    && INIT_SOURCE.includes('window.PixivBatch.modeControls.renderAll()'));
 
 console.log(`batch-hot-reload-controls.test.js: ${passed} assertions passed ✓`);

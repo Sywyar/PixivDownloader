@@ -257,6 +257,16 @@
     function setKind(mode, kind) {
         const settingKey = mode === 'user' ? 'userKind' : 'searchKind';
         if (state && state.settings) state.settings[settingKey] = kind;
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        if (controls) {
+            controls.selectSource(mode, 'douyin', false);
+            controls.selectType(mode, kind, false);
+            const modeApi = window.PixivBatch.modes && window.PixivBatch.modes[mode];
+            const applyAvailability = mode === 'user'
+                ? modeApi && modeApi.applyUserSourceKindAvailability
+                : modeApi && modeApi.applySearchSourceKindAvailability;
+            if (typeof applyAvailability === 'function') applyAvailability();
+        }
         const radio = document.querySelector(`input[name="${mode}-kind"][value="${kind}"]`);
         if (radio) radio.checked = true;
         if (typeof applyKindSwitcherUI === 'function') {

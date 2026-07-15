@@ -1114,6 +1114,12 @@ const NOVEL_DESCRIPTOR = {
     process: processNovelItem,
     // 批量导入单作品：小说链接 / `novel:` 区段头 / 裸 id 的解析与入队项构造。
     import: {
+        dataSource: {
+            id: 'pixiv',
+            displayNamespace: 'batch',
+            displayI18nKey: 'data-source.pixiv',
+            order: 10
+        },
         sectionType: 'novel',
         matchUrl(line) {
             const m = String(line).match(/https?:\/\/www\.pixiv\.net\/novel\/show\.php\?[^\s|]*?\bid=(\d+)/);
@@ -1154,6 +1160,12 @@ const NOVEL_DESCRIPTOR = {
     settings: {'novel-settings-card': {cardId: 'novel-settings-card'}},
     acquisition: {
         user: {
+            dataSource: {
+                id: 'pixiv',
+                displayNamespace: 'batch',
+                displayI18nKey: 'data-source.pixiv',
+                order: 10
+            },
             pageSize: 30,
             requestInit: novelPreviewRequestInit,
             accepts(selection) { return selection === 'novel'; },
@@ -1187,6 +1199,12 @@ const NOVEL_DESCRIPTOR = {
             }
         },
         search: {
+            dataSource: {
+                id: 'pixiv',
+                displayNamespace: 'batch',
+                displayI18nKey: 'data-source.pixiv',
+                order: 10
+            },
             pageSize: 24,
             requestInit: novelPreviewRequestInit,
             buildRequest: novelBuildSearchRequest,
@@ -1213,7 +1231,7 @@ const NOVEL_DESCRIPTOR = {
             dataSource: {
                 id: 'pixiv',
                 displayNamespace: 'batch',
-                displayI18nKey: 'series.data-source.pixiv',
+                displayI18nKey: 'data-source.pixiv',
                 order: 10
             },
             pageSize: 30,
@@ -1258,7 +1276,7 @@ const NOVEL_DESCRIPTOR = {
             dataSource: {
                 id: 'pixiv',
                 displayNamespace: 'batch',
-                displayI18nKey: 'quick.data-source.pixiv',
+                displayI18nKey: 'data-source.pixiv',
                 order: 10
             },
             pageSize: QUICK_PAGE_SIZE_NOVEL,

@@ -2572,6 +2572,18 @@ body.schedule-modal-open {
     color: var(--text);
 }
 
+.supported-data-sources {
+    margin-bottom: 10px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.supported-data-sources > span:first-child {
+    color: var(--text);
+    font-weight: 600;
+}
+
 .series-source-browser {
     margin-bottom: 12px;
     padding: 12px;

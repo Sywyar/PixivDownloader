@@ -244,6 +244,16 @@
         const value = kind === 'novel' ? 'novel' : (kind === 'request' ? 'request' : 'illust');
         if (modePrefix === 'user') state.settings.userKind = value;
         else state.settings.searchKind = value;
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        if (controls) {
+            controls.selectSource(modePrefix, 'pixiv', false);
+            controls.selectType(modePrefix, value === 'request' ? 'illust' : value, false);
+            const mode = window.PixivBatch.modes && window.PixivBatch.modes[modePrefix];
+            const applyAvailability = modePrefix === 'user'
+                ? mode && mode.applyUserSourceKindAvailability
+                : mode && mode.applySearchSourceKindAvailability;
+            if (typeof applyAvailability === 'function') applyAvailability();
+        }
         const radio = document.querySelector(`input[name="${modePrefix}-kind"][value="${value}"]`);
         if (radio) radio.checked = true;
         applyKindSwitcherUI(`${modePrefix}-kind-switcher`, value);

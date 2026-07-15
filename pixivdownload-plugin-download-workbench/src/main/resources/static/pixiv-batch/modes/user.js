@@ -46,8 +46,78 @@
         return acq.cardId(idx);
     }
 
+    function selectedUserSourceTypes() {
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const selected = controls ? controls.selection('user') : null;
+        if (!selected || !selected.sourceId) return [];
+        return window.PixivBatch.queueTypes.typesForDataSource('user', selected.sourceId)
+            .map(candidate => candidate.type);
+    }
+
+    function userKindOwner(kind) {
+        const allowed = new Set(selectedUserSourceTypes());
+        const acquisitions = window.PixivBatch.queueTypes.acquisitionList('user')
+            .filter(candidate => !allowed.size || allowed.has(candidate.type));
+        const direct = acquisitions.find(candidate => candidate.type === kind);
+        if (direct) return direct.type;
+        const matches = acquisitions.filter(candidate => {
+            if (typeof candidate.accepts !== 'function') return false;
+            try {
+                return candidate.accepts(kind);
+            } catch (e) {
+                console.warn('[batch] user kind ownership check failed:', candidate.type, e);
+                return false;
+            }
+        });
+        return matches.length === 1 ? matches[0].type : null;
+    }
+
+    // 数据来源只约束旧 kind switcher 中哪些插件项可用；来源本身不重复渲染成作品类型。
+    // 当前来源不足两个可见选项时隐藏切换器，但仍把内部 setting 收敛到该来源 owner。
+    function applyUserSourceKindAvailability() {
+        const root = document.getElementById('user-kind-switcher');
+        const allowed = new Set(selectedUserSourceTypes());
+        if (!root) return false;
+        if (!allowed.size) {
+            root.hidden = true;
+            if (root.style) root.style.display = 'none';
+            return false;
+        }
+        const labels = Array.from(root.querySelectorAll('label[data-kind]'));
+        const visibleLabels = [];
+        labels.forEach(label => {
+            const visible = allowed.has(userKindOwner(label.dataset.kind));
+            label.hidden = !visible;
+            if (label.style) label.style.display = visible ? '' : 'none';
+            const input = label.querySelector('input[type=radio]');
+            if (input) input.disabled = !visible;
+            if (visible) visibleLabels.push(label);
+        });
+        root.hidden = visibleLabels.length < 2;
+        if (root.style) root.style.display = root.hidden ? 'none' : '';
+
+        const currentOwner = userKindOwner(state.settings.userKind);
+        if (allowed.has(currentOwner)) {
+            applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
+            return false;
+        }
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const preferredType = controls ? controls.selection('user').type : null;
+        const fallback = visibleLabels.find(label =>
+            userKindOwner(label.dataset.kind) === preferredType)
+            || visibleLabels[0];
+        const nextKind = fallback ? fallback.dataset.kind
+            : (allowed.has(preferredType) ? preferredType : null);
+        if (!nextKind || state.settings.userKind === nextKind) return false;
+        state.settings.userKind = nextKind;
+        applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
+        return true;
+    }
+
     function resolveUserSelection(selection, rawInput) {
-        const entries = window.PixivBatch.queueTypes.acquisitionList('user');
+        const sourceTypes = selectedUserSourceTypes();
+        const entries = window.PixivBatch.queueTypes.acquisitionList('user')
+            .filter(candidate => !sourceTypes.length || sourceTypes.includes(candidate.type));
         let variant = selection;
         let entry = null;
         for (const candidate of entries) {
@@ -239,6 +309,8 @@
             return;
         }
         // 类型 owner 可据输入识别其子类别；宿主只同步贡献方返回的选择值。
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        if (controls) controls.selectType('user', selected.type, false);
         if (selected.variant && state.settings.userKind !== selected.variant) {
             state.settings.userKind = selected.variant;
             applyKindSwitcherUI('user-kind-switcher', selected.variant);
@@ -690,10 +762,25 @@
         }
     }
 
-    function reconcileUserTypeAvailability() {
-        if (!userState.kind || window.PixivBatch.queueTypes.supports(userState.kind, 'user')) return false;
-        userState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.userKind, 'user');
-        userState.variant = state.settings.userKind;
+    function handleUserModeControlChange() {
+        const kindChanged = applyUserSourceKindAvailability();
+        if (kindChanged) saveSettings();
+        clearUserPreview();
+        applyNovelSettingsVisibility();
+        applySearchKindUI();
+        updateExtraFiltersCardVisibility();
+    }
+
+    function reconcileUserTypeAvailability(ready = true) {
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const result = controls ? controls.render('user', ready === false) : null;
+        const kindChanged = ready === false ? false : applyUserSourceKindAvailability();
+        const allowed = new Set(selectedUserSourceTypes());
+        const kindStale = !!userState.kind && (!window.PixivBatch.queueTypes.supports(userState.kind, 'user')
+            || (allowed.size && !allowed.has(userState.kind)));
+        const selectionChanged = !!result && (result.sourceChanged || result.typeChanged);
+        if (!kindChanged && !kindStale && !selectionChanged) return false;
+        if (kindChanged) saveSettings();
         clearUserPreview();
         return true;
     }
@@ -703,5 +790,6 @@
 window.PixivBatch.modes = window.PixivBatch.modes || {};
 window.PixivBatch.modes.user = window.PixivBatch.modes.user || {};
 window.PixivBatch.modes.user = Object.assign(window.PixivBatch.modes.user, {
-    loadUserPreview, addCurrentUserPageToQueue, addAllUserResultsToQueue, reconcileUserTypeAvailability
+    loadUserPreview, addCurrentUserPageToQueue, addAllUserResultsToQueue,
+    applyUserSourceKindAvailability, handleUserModeControlChange, reconcileUserTypeAvailability
 });

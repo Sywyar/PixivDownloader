@@ -125,8 +125,8 @@
         <div class="card mode-panel active" id="panel-quick-fetch">
             <div class="card-title" data-i18n="quick.title">快捷获取账户相关作品</div>
             <div class="quick-intro" data-i18n="quick.intro">选择数据来源后，通过该来源保存的登录凭据自动识别账号，一键查看账户相关作品并直接加入下载队列。</div>
-            <div class="quick-data-source-control data-source-control">
-                <span class="quick-data-source-label data-source-label" id="quick-data-source-label" data-i18n="quick.data-source.label">数据来源</span>
+            <div class="quick-data-source-control data-source-control" id="quick-data-source-control">
+                <span class="quick-data-source-label data-source-label" id="quick-data-source-label" data-i18n="data-source.label">数据来源</span>
                 <div class="kind-switcher" id="quick-data-source-switcher" role="radiogroup"
                      aria-labelledby="quick-data-source-label"></div>
             </div>
@@ -185,6 +185,10 @@
         <!-- Single-work import panel -->
         <div class="card mode-panel" id="panel-single-import">
             <div class="card-title" data-i18n="card.import">批量导入单作品</div>
+            <div class="supported-data-sources">
+                <span data-i18n="data-source.supported">支持的数据来源：</span>
+                <span id="single-import-data-sources">-</span>
+            </div>
             <textarea id="single-import-textarea"
                       data-i18n-placeholder="input.single-import.placeholder"
                       placeholder="粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式..."></textarea>
@@ -207,6 +211,11 @@
         <!-- User panel -->
         <div class="card mode-panel" id="panel-user">
             <div class="card-title" data-i18n="card.user">画师批量下载</div>
+            <div class="data-source-control" id="user-data-source-control">
+                <span class="data-source-label" id="user-data-source-label" data-i18n="data-source.label">数据来源</span>
+                <div class="kind-switcher" id="user-data-source-switcher" role="radiogroup"
+                     aria-labelledby="user-data-source-label"></div>
+            </div>
             <div class="kind-switcher" id="user-kind-switcher" role="radiogroup">
                 <label class="active" data-kind="illust">
                     <input type="radio" name="user-kind" value="illust" checked>
@@ -236,6 +245,11 @@
         <!-- Search panel -->
         <div class="card mode-panel" id="panel-search">
             <div class="card-title" data-i18n="card.search">作品搜索</div>
+            <div class="data-source-control" id="search-data-source-control">
+                <span class="data-source-label" id="search-data-source-label" data-i18n="data-source.label">数据来源</span>
+                <div class="kind-switcher" id="search-data-source-switcher" role="radiogroup"
+                     aria-labelledby="search-data-source-label"></div>
+            </div>
             <div class="kind-switcher" id="search-kind-switcher" role="radiogroup">
                 <label class="active" data-kind="illust">
                     <input type="radio" name="search-kind" value="illust" checked>
@@ -302,8 +316,8 @@
         <!-- Series panel -->
         <div class="card mode-panel" id="panel-series">
             <div class="card-title" data-i18n="card.series">系列下载</div>
-            <div class="series-data-source-control data-source-control">
-                <span class="series-data-source-label data-source-label" id="series-data-source-label" data-i18n="series.data-source.label">数据来源</span>
+            <div class="series-data-source-control data-source-control" id="series-data-source-control">
+                <span class="series-data-source-label data-source-label" id="series-data-source-label" data-i18n="data-source.label">数据来源</span>
                 <div class="kind-switcher" id="series-data-source-switcher" role="radiogroup"
                      aria-labelledby="series-data-source-label"></div>
             </div>
@@ -743,6 +757,7 @@
 <script src="/pixiv-batch/batch-core.js"></script>
 <script src="/pixiv-batch/batch-layout.js"></script>
 <script src="/pixiv-batch/batch-queue-types.js"></script>
+<script src="/pixiv-batch/batch-mode-controls.js"></script>
 <script src="/pixiv-batch/batch-schedule-sources.js"></script>
 <script src="/pixiv-batch/batch-state.js"></script>
 <script src="/pixiv-batch/batch-storage.js"></script>

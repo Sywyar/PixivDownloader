@@ -786,12 +786,6 @@ function douyinQuickInnerCard(item, idx, inQueue) {
 }
 
 const DOUYIN_SLOTS = {
-    'kind-option-user':
-        '<label data-kind="douyin"><input type="radio" name="user-kind" value="douyin">' +
-        '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
-    'kind-option-search':
-        '<label data-kind="douyin"><input type="radio" name="search-kind" value="douyin">' +
-        '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
     'kind-option-quick':
         '<label data-quick-kind="douyin"><input type="radio" name="quick-inner-kind" value="douyin">' +
         '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
@@ -906,6 +900,12 @@ const DOUYIN_DESCRIPTOR = {
         validate: douyinValidateCookie
     },
     import: {
+        dataSource: {
+            id: 'douyin',
+            displayNamespace: 'douyin',
+            displayI18nKey: 'source.douyin',
+            order: 20
+        },
         sectionType: 'douyin',
         matchUrl(line) {
             const parsed = douyinParseInput(line);
@@ -942,6 +942,12 @@ const DOUYIN_DESCRIPTOR = {
     },
     acquisition: {
         user: {
+            dataSource: {
+                id: 'douyin',
+                displayNamespace: 'douyin',
+                displayI18nKey: 'source.douyin',
+                order: 20
+            },
             pageSize: DOUYIN_PAGE_SIZE,
             initialCursor: '0',
             requestInit() {
@@ -975,6 +981,12 @@ const DOUYIN_DESCRIPTOR = {
             }
         },
         search: {
+            dataSource: {
+                id: 'douyin',
+                displayNamespace: 'douyin',
+                displayI18nKey: 'source.douyin',
+                order: 20
+            },
             pageSize: DOUYIN_PAGE_SIZE,
             requestInit() {
                 return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
@@ -1016,7 +1028,7 @@ const DOUYIN_DESCRIPTOR = {
             dataSource: {
                 id: 'douyin',
                 displayNamespace: 'douyin',
-                displayI18nKey: 'series.data-source.douyin',
+                displayI18nKey: 'source.douyin',
                 order: 20
             },
             browser: {

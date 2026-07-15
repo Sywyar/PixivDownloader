@@ -6,11 +6,9 @@ const path = require('path');
 const test = require('node:test');
 const vm = require('vm');
 
-const ROOT = path.join(__dirname, '..', '..', '..', '..');
-const USER_SOURCE = fs.readFileSync(path.join(ROOT, 'pixivdownload-plugin-download-workbench',
-    'src', 'main', 'resources', 'static', 'pixiv-batch', 'modes', 'user.js'), 'utf8');
-const QUICK_SOURCE = fs.readFileSync(path.join(ROOT, 'pixivdownload-plugin-download-workbench',
-    'src', 'main', 'resources', 'static', 'pixiv-batch', 'modes', 'quick-fetch.js'), 'utf8');
+const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
+const USER_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'user.js'), 'utf8');
+const QUICK_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'quick-fetch.js'), 'utf8');
 
 function deferred() {
     let resolve;
@@ -213,6 +211,110 @@ test('旧 user acquisition 仍走 fetchIds/cards 兼容路径', async () => {
     assert.deepStrictEqual(Array.from(h.state.rawItems, item => item.id), ['legacy-1']);
 });
 
+test('Pixiv 来源内 /request URL 自动切回旧 userKind=request 且不跨来源探测', async () => {
+    const calls = [];
+    let douyinDetectCalls = 0;
+    const selection = {sourceId: 'pixiv', type: 'novel'};
+    const base = {
+        dataSource: {id: 'pixiv'},
+        pageSize: 30,
+        parseInput(value) {
+            const match = String(value).match(/users\/(\d+)/);
+            return match ? match[1] : null;
+        },
+        fetchMeta: async () => 'Pixiv user',
+        fetchIds: async () => [],
+        cardsEndpoint: () => '/api/cards',
+        queueId: item => String(item.id),
+        cardId: index => `card-${index}`,
+        render() {},
+        buildQueueMeta() { return {}; },
+        buildQueueMetaFromId() { return {}; }
+    };
+    const illust = Object.assign({
+        type: 'illust',
+        accepts(value) { return value === 'illust' || value === 'request'; },
+        detectVariant(raw, current) { return /\/request\b/.test(raw) ? 'request' : current; }
+    }, base);
+    const novel = Object.assign({
+        type: 'novel',
+        accepts(value) { return value === 'novel'; }
+    }, base);
+    const douyin = Object.assign({}, base, {
+        type: 'douyin',
+        dataSource: {id: 'douyin'},
+        accepts(value) { return value === 'douyin' || value === 'request'; },
+        detectVariant() { douyinDetectCalls++; return 'request'; }
+    });
+    const acquisitions = [douyin, illust, novel];
+    const elements = {
+        'user-id-input': Object.assign(element(), {value: 'https://www.pixiv.net/users/42/request'}),
+        'user-info-display': element(),
+        'user-results-area': element(),
+        'user-pagination': element(),
+        'btn-user-add-page': element(),
+        'btn-user-add-all': element()
+    };
+    const registry = {
+        acquisition(type) { return acquisitions.find(candidate => candidate.type === type) || null; },
+        acquisitionList() { return acquisitions; },
+        typesForDataSource(_mode, sourceId) {
+            return sourceId === 'pixiv' ? [{type: 'illust'}, {type: 'novel'}] : [{type: 'douyin'}];
+        },
+        resolveTypeForMode(value) { return acquisitions.some(candidate => candidate.type === value) ? value : null; },
+        acquisitionLease() {
+            return {signal: new AbortController().signal, assertCurrent() {}, isCurrent() { return true; }};
+        }
+    };
+    const modeControls = {
+        selection() { return {...selection}; },
+        selectType(mode, type, notify) {
+            calls.push(['selectType', mode, type, notify]);
+            selection.type = type;
+            return true;
+        }
+    };
+    const sandbox = {
+        window: {PixivBatch: {queueTypes: registry, modeControls, modes: {}}},
+        document: {getElementById(id) { return elements[id] || null; }},
+        state: {mode: 'user', settings: {userKind: 'novel'}, queue: []},
+        searchState: {},
+        console: {warn() {}, log() {}, error() {}},
+        Map, Set, Promise, URL, URLSearchParams, AbortController,
+        fetch() { throw new Error('empty user result must not request cards'); },
+        bt(_key, fallback) { return fallback; },
+        esc(value) { return String(value); },
+        resetPreviewCollapse() {}, setStatus() {}, saveSettings() {},
+        applyKindSwitcherUI(id, kind) { calls.push([id, kind]); },
+        applyNovelSettingsVisibility() {}, applySearchKindUI() {},
+        normalizeSearchFilters(value) { return value || {}; },
+        getSearchFiltersFromUI() { return {}; }, saveSearchFilterPrefs() {},
+        hasBookmarkFilter() { return false; }, hasExtraSearchFilter() { return false; },
+        computeFilteredItems: async items => ({filtered: items, stats: {rawCount: items.length,
+            filteredCount: items.length, bookmarkMetaMissing: 0, bookmarkFilterActive: false}}),
+        defaultSearchFilters() { return {}; }, uiLang() { return 'zh-CN'; },
+        summaryJoin(parts) { return parts.join(' / '); }, summarySeparator() { return ' / '; },
+        getInlineSearchBookmarkCount() { return null; }, getCachedSearchMeta() { return null; },
+        fetchThumbnailBlobUrl: async () => null, addItemsToQueue() { return 0; },
+        removeFromQueue() { return false; }, uiAlertKey: async () => {}
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(USER_SOURCE + '\nwindow.__requestDetectionTest = {loadUserPreview, userState, userKindOwner};', sandbox);
+
+    assert.strictEqual(sandbox.window.__requestDetectionTest.userKindOwner('request'), 'illust');
+    await sandbox.window.__requestDetectionTest.loadUserPreview();
+
+    assert.deepStrictEqual(calls, [
+        ['selectType', 'user', 'illust', false],
+        ['user-kind-switcher', 'request']
+    ]);
+    assert.deepStrictEqual(selection, {sourceId: 'pixiv', type: 'illust'});
+    assert.strictEqual(sandbox.state.settings.userKind, 'request');
+    assert.strictEqual(douyinDetectCalls, 0);
+    assert.strictEqual(sandbox.window.__requestDetectionTest.userState.kind, 'illust');
+    assert.strictEqual(sandbox.window.__requestDetectionTest.userState.variant, 'request');
+});
+
 function quickHarness(responses, contexts) {
     const registry = {
         resolveTypeForMode(value) { return value; },
@@ -337,7 +439,9 @@ function quickAddAllHarness(pageResponses, fetchImpl) {
         load() {}
     };
     const douyin = {
-        type: 'douyin', pageSize: 2, actions: {'douyin-liked': action},
+        type: 'douyin', pageSize: 2,
+        dataSource: {id: 'douyin', displayNamespace: 'douyin', displayI18nKey: 'source.douyin'},
+        actions: {'douyin-liked': action},
         queueId(item) { return String(item.id); },
         gridCardId(_prefix, index) { return `quick-${index}`; },
         buildQueueMeta(item) { return {kind: 'douyin', title: item.title || '', typeData: {douyinId: item.id}}; },
@@ -346,11 +450,15 @@ function quickAddAllHarness(pageResponses, fetchImpl) {
         }
     };
     const illust = {
-        type: 'illust', pageSize: 2, actions: {},
+        type: 'illust', pageSize: 2,
+        dataSource: {id: 'pixiv', displayNamespace: 'batch', displayI18nKey: 'data-source.pixiv'},
+        actions: {},
         buildUserIdsRequest() {}, buildCardsRequest() {}
     };
     const novel = {
-        type: 'novel', pageSize: 2, actions: {},
+        type: 'novel', pageSize: 2,
+        dataSource: {id: 'pixiv', displayNamespace: 'batch', displayI18nKey: 'data-source.pixiv'},
+        actions: {},
         buildUserPageRequest() {}
     };
     const acquisitions = [illust, novel, douyin];

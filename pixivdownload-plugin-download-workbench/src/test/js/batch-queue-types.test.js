@@ -4,27 +4,12 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static',
-    'pixiv-batch', 'batch-queue-types.js'), 'utf8');
-const INIT_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static',
-    'pixiv-batch', 'batch-init.js'), 'utf8');
-const SETTINGS_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static',
-    'pixiv-batch', 'batch-settings.js'), 'utf8');
-const DOWNLOAD_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static',
-    'pixiv-batch', 'batch-download.js'), 'utf8');
-const SSE_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static',
-    'pixiv-batch', 'batch-sse.js'), 'utf8');
-const AI_SLOT_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-ai', 'src', 'main', 'resources', 'static',
-    'pixiv-ai', 'download-novel-ai-settings-slot.js'), 'utf8');
-const NOVEL_QUEUE_SOURCE = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-novel', 'src', 'main', 'resources', 'static',
-    'pixiv-novel-download', 'novel-queue-type.js'), 'utf8');
+const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
+const SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue-types.js'), 'utf8');
+const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
+const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
+const DOWNLOAD_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-download.js'), 'utf8');
+const SSE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-sse.js'), 'utf8');
 
 class El {
     constructor(tag) {
@@ -361,17 +346,26 @@ const BASIC_INITIALIZER = `(function (context) {
     };
 })`;
 
-function acquisitionDataSourceInitializer(mode, sourceLiteral) {
-    return BASIC_INITIALIZER.replace(
-        `${mode}: {\n                    ${mode === 'quick' ? 'queueId:' : 'apiPath:'}`,
-        `${mode}: {
-                    dataSource: ${sourceLiteral},
-                    ${mode === 'quick' ? 'queueId:' : 'apiPath:'}`
+function acquisitionDataSourceInitializer(mode, sourceLiteral, initializer = BASIC_INITIALIZER) {
+    const token = mode === 'single-import' ? 'import' : mode;
+    return initializer.replace(
+        `${token}: {`,
+        `${token}: {
+                    dataSource: ${sourceLiteral},`
     );
 }
 
 function quickDataSourceInitializer(sourceLiteral) {
     return acquisitionDataSourceInitializer('quick', sourceLiteral);
+}
+
+function importDataSourceInitializer(sourceLiteral) {
+    return acquisitionDataSourceInitializer('single-import', sourceLiteral);
+}
+
+function quickAndImportDataSourceInitializer(sourceLiteral) {
+    return acquisitionDataSourceInitializer(
+        'single-import', sourceLiteral, quickDataSourceInitializer(sourceLiteral));
 }
 
 function seriesBrowserInitializer(browserLiteral) {
@@ -609,6 +603,27 @@ const LATE_UI_INITIALIZER = `(function (context) {
         ok('series dataSource 自有 i18n namespace 会加入运行时 namespace 集合',
             (await series.qt.i18nNamespaces()).includes('series-source-i18n'));
 
+        const singleImport = harness([manifest(1, [typeDescriptor({
+            acquisitionModes: ['single-import']
+        })])], {
+            '/modules/demo.js': {initializer: importDataSourceInitializer(`{
+                        id: '  import-source  ',
+                        displayNamespace: '  import-source-i18n  ',
+                        displayI18nKey: '  source.import  ',
+                        order: '11'
+                    }`)}
+        });
+        await singleImport.qt.bootstrap();
+        const importSource = singleImport.qt.acquisition('demo', 'single-import').dataSource;
+        ok('single-import dataSource 复用取得元数据规范化与冻结边界',
+            importSource.id === 'import-source'
+            && importSource.displayNamespace === 'import-source-i18n'
+            && importSource.displayI18nKey === 'source.import'
+            && importSource.order === 11
+            && Object.isFrozen(importSource));
+        ok('single-import dataSource 自有 i18n namespace 会加入运行时 namespace 集合',
+            (await singleImport.qt.i18nNamespaces()).includes('import-source-i18n'));
+
         const browserHarness = harness([manifest(1, [typeDescriptor({acquisitionModes: ['series']})])], {
             '/modules/demo.js': {initializer: seriesBrowserInitializer(`{
                         initialCursor: 'folder-start',
@@ -693,6 +708,87 @@ const LATE_UI_INITIALIZER = `(function (context) {
         await oversized.qt.bootstrap();
         ok('超过长度上限的 quick dataSource id 会被运行时丢弃',
             !Object.prototype.hasOwnProperty.call(oversized.qt.acquisition('demo', 'quick'), 'dataSource'));
+        ok('非法 dataSource 元数据在来源聚合时按作品类型回退为独立来源',
+            oversized.qt.dataSourcesForMode('quick').length === 1
+            && oversized.qt.dataSourcesForMode('quick')[0].id === 'demo');
+    }
+
+    {
+        const h = harness([manifest(1, [
+            typeDescriptor({
+                type: 'legacy', ownerPluginId: 'legacy-owner', packageId: 'legacy-package',
+                publicationId: 1, order: 30, moduleUrl: '/modules/legacy-source.js',
+                displayNamespace: 'legacy-i18n', displayI18nKey: 'type.legacy',
+                iconKey: 'legacy-icon', colorToken: 'legacy-color'
+            }),
+            typeDescriptor({
+                type: 'type-a', ownerPluginId: 'owner-a', packageId: 'package-a',
+                publicationId: 2, order: 10, moduleUrl: '/modules/type-a-source.js',
+                displayNamespace: 'type-a-i18n', displayI18nKey: 'type.a',
+                iconKey: 'type-a-icon', colorToken: 'type-a-color'
+            }),
+            typeDescriptor({
+                type: 'type-b', ownerPluginId: 'owner-b', packageId: 'package-b',
+                publicationId: 3, order: 20, moduleUrl: '/modules/type-b-source.js',
+                displayNamespace: 'type-b-i18n', displayI18nKey: 'type.b',
+                iconKey: 'type-b-icon', colorToken: 'type-b-color'
+            }),
+            typeDescriptor({
+                type: 'type-c', ownerPluginId: 'owner-c', packageId: 'package-c',
+                publicationId: 4, order: 15, moduleUrl: '/modules/type-c-source.js',
+                displayNamespace: 'type-c-i18n', displayI18nKey: 'type.c',
+                iconKey: 'type-c-icon', colorToken: 'type-c-color'
+            })
+        ])], {
+            '/modules/legacy-source.js': {initializer: BASIC_INITIALIZER},
+            '/modules/type-a-source.js': {initializer: quickAndImportDataSourceInitializer(`{
+                        id: 'source-a', displayNamespace: 'sources',
+                        displayI18nKey: 'source.a', order: 10
+                    }`)},
+            '/modules/type-b-source.js': {initializer: quickAndImportDataSourceInitializer(`{
+                        id: 'source-a', displayNamespace: 'sources',
+                        displayI18nKey: 'source.a', order: 10
+                    }`)},
+            '/modules/type-c-source.js': {initializer: quickAndImportDataSourceInitializer(`{
+                        id: 'source-b', displayNamespace: 'sources',
+                        displayI18nKey: 'source.b', order: 5
+                    }`)}
+        });
+        await h.qt.bootstrap();
+        const sources = h.qt.dataSourcesForMode('quick');
+        ok('dataSourcesForMode 按来源 order/id 聚合排序并为旧 descriptor 生成独立来源',
+            sources.map(source => source.id).join(',') === 'source-b,source-a,legacy'
+            && sources[2].displayNamespace === 'legacy-i18n'
+            && sources[2].displayI18nKey === 'type.legacy'
+            && sources[2].order === 30);
+        const sourceA = sources.find(source => source.id === 'source-a');
+        ok('同一来源的作品类型按 manifest order/type 排序且保留展示字段',
+            sourceA.types.map(type => type.type).join(',') === 'type-a,type-b'
+            && sourceA.types[0].displayNamespace === 'type-a-i18n'
+            && sourceA.types[0].displayI18nKey === 'type.a'
+            && sourceA.types[0].iconKey === 'type-a-icon'
+            && sourceA.types[0].colorToken === 'type-a-color');
+        ok('dataSourcesForMode 返回来源、类型及数组均深冻结的只读快照',
+            Object.isFrozen(sources)
+            && sources.every(source => Object.isFrozen(source) && Object.isFrozen(source.types))
+            && sources.every(source => source.types.every(Object.isFrozen)));
+        assert.throws(() => { sourceA.types[0].type = 'forged'; }, /read only|Cannot assign/i);
+        passed++;
+        const sourceATypes = h.qt.typesForDataSource('quick', 'source-a');
+        ok('typesForDataSource 仅返回指定模式和来源的冻结类型集合',
+            sourceATypes.map(type => type.type).join(',') === 'type-a,type-b'
+            && Object.isFrozen(sourceATypes)
+            && h.qt.typesForDataSource('quick', 'source-b').map(type => type.type).join(',') === 'type-c');
+        const missingSourceTypes = h.qt.typesForDataSource('quick', 'missing');
+        const unknownModeSources = h.qt.dataSourcesForMode('unknown');
+        ok('未知来源或模式返回冻结空数组',
+            missingSourceTypes.length === 0 && Object.isFrozen(missingSourceTypes)
+            && unknownModeSources.length === 0 && Object.isFrozen(unknownModeSources));
+
+        const singleImport = h.qt.dataSourcesForMode('single-import');
+        ok('single-import 也从活动 import contributions 聚合只读支持来源',
+            singleImport.map(source => source.id).join(',') === 'source-b,source-a,legacy'
+            && singleImport.find(source => source.id === 'source-a').types.length === 2);
     }
 
     {
@@ -1066,47 +1162,7 @@ const LATE_UI_INITIALIZER = `(function (context) {
         await waitUntil(() => !!requestSignal);
         await h.qt.refresh();
         await processing;
-        ok('Pixiv 在途历史请求绑定 publication signal，卸载后暂停且不误记失败',
-            requestSignal.aborted && item.status === 'paused'
-            && item.lastMessage === 'queue.message.type-unavailable');
-    }
-
-    {
-        const novelType = typeDescriptor({
-            type: 'novel', ownerPluginId: 'novel-owner', packageId: 'novel-package',
-            moduleUrl: '/modules/novel.js', acquisitionModes: []
-        });
-        const h = harness([manifest(1, [novelType]), manifest(2, [])], {
-            '/modules/novel.js': {source: NOVEL_QUEUE_SOURCE}
-        });
-        h.sandbox.SINGLE_IMPORT_NOVEL_SOURCE = 'single-import-novel';
-        h.sandbox.QUICK_PAGE_SIZE_NOVEL = 24;
-        h.sandbox.bt = key => key;
-        h.sandbox.apiGet = () => Promise.resolve({});
-        h.sandbox.state = {settings: {skipHistory: true, redownloadDeleted: false}, queue: []};
-        h.sandbox.getCookie = () => '';
-        h.sandbox.updateStats = function () {};
-        h.sandbox.saveQueue = function () {};
-        h.sandbox.renderQueue = function () {};
-        h.sandbox.setCurrent = function () {};
-        vm.runInContext(DOWNLOAD_SOURCE, h.sandbox);
-        await h.qt.bootstrap();
-        let requestSignal = null;
-        h.sandbox.fetch = function (url, init) {
-            if (String(url).includes('/api/download/extensions')) {
-                return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve(manifest(2, []))});
-            }
-            requestSignal = init && init.signal;
-            return new Promise((_resolve, reject) => {
-                requestSignal.addEventListener('abort', () => reject(new Error('aborted')), {once: true});
-            });
-        };
-        const item = {id: 'n42', novelId: '42', kind: 'novel', status: 'downloading'};
-        const processing = h.sandbox.window.PixivBatch.download.processSingle(item);
-        await waitUntil(() => !!requestSignal);
-        await h.qt.refresh();
-        await processing;
-        ok('Novel 在途历史请求绑定 publication signal，卸载后暂停且不误记失败',
+        ok('通用队列类型在途历史请求绑定 publication signal，卸载后暂停且不误记失败',
             requestSignal.aborted && item.status === 'paused'
             && item.lastMessage === 'queue.message.type-unavailable');
     }
@@ -1308,38 +1364,6 @@ const LATE_UI_INITIALIZER = `(function (context) {
     }
 
     {
-        const novelType = typeDescriptor({
-            type: 'novel',
-            ownerPluginId: 'novel-owner',
-            packageId: 'novel-package',
-            moduleUrl: '/modules/novel.js',
-            acquisitionModes: [],
-            filters: ['novel-words'],
-            settings: ['novel-settings-card']
-        });
-        const h = harness([manifest(1, [novelType])], {
-            '/modules/novel.js': {source: NOVEL_QUEUE_SOURCE}
-        });
-        h.sandbox.SINGLE_IMPORT_NOVEL_SOURCE = 'single-import-novel';
-        h.sandbox.QUICK_PAGE_SIZE_NOVEL = 24;
-        h.sandbox.bt = (_key, fallback) => fallback;
-        h.sandbox.apiGet = url => Promise.resolve({bookmarkCount: 77, url});
-        await h.qt.bootstrap();
-        const filter = h.qt.filtersFor('novel');
-        const setting = h.qt.settingsFor('novel');
-        const bookmark = await filter.bookmarkCountFetch('42');
-        ok('真实 Novel queue module 的字数 filter 经 runtime 聚合后保持行为',
-            filter.type === 'novel'
-            && filter.matchExtra({wordCount: 1200}, {wordsMin: 1000, wordsMax: 1500})
-            && !filter.matchExtra({wordCount: 400}, {wordsMin: 500, wordsMax: null}));
-        ok('真实 Novel queue module 的 bookmark hook 经 runtime 聚合后可调用',
-            bookmark.bookmarkCount === 77
-            && bookmark.url === '/api/pixiv/novel/42/bookmark-count');
-        ok('真实 Novel queue module 的 settings 卡经 runtime 聚合并保留类型身份',
-            setting.type === 'novel' && setting.cardId === 'novel-settings-card');
-    }
-
-    {
         const hanging = typeDescriptor({
             type: 'hanging', ownerPluginId: 'hanging-owner', packageId: 'hanging-package',
             publicationId: 3, moduleUrl: '/modules/hanging.js'
@@ -1415,11 +1439,6 @@ const LATE_UI_INITIALIZER = `(function (context) {
         /addEventListener\('pixivbatch:queuetypeschanged', reconcileQueueTypeUi\)/.test(INIT_SOURCE)
         && reconcileStart >= 0 && reconcileEnd > reconcileStart
         && !reconcileSource.includes('refreshQueueTypeManifest('));
-    ok('AI 下载设置槽位使用受控 uiSlot initializer',
-        AI_SLOT_SOURCE.includes('queueTypes.registerUiModule(function (context)'));
-    ok('AI 下载设置槽位在 activation cleanup 中移除 listener 与 DOM',
-        AI_SLOT_SOURCE.includes("removeEventListener('pixivbatch:slotsrendered'")
-        && AI_SLOT_SOURCE.includes('context.onCleanup(removeRendered)'));
     ok('槽位运行时串行 renderSlots 并无条件清理 stale record',
         SOURCE.includes('let slotRenderTail = Promise.resolve()')
         && SOURCE.includes('slotRenderTail.catch(() => undefined)')

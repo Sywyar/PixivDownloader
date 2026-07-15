@@ -96,8 +96,6 @@ class DouyinPluginContributionTest {
         assertThat(queueType.descriptor().filters()).isEmpty();
         assertThat(queueType.descriptor().settings()).isEmpty();
         assertThat(queueType.descriptor().uiSlots()).containsExactly(
-                "kind-option-user",
-                "kind-option-search",
                 "kind-option-quick",
                 "quick-actions-bookmarks",
                 "quick-actions-mine",
@@ -233,7 +231,7 @@ class DouyinPluginContributionTest {
                             .isEqualTo("/pixiv-douyin-gallery.html?view=all");
                 });
         assertThat(i18n.resolve("douyin")).isNotNull();
-        assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(7);
+        assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(5);
         assertThat(queueTypes.queueTypes()).singleElement()
                 .satisfies(registered -> assertThat(registered.queueType().type()).isEqualTo("douyin"));
 

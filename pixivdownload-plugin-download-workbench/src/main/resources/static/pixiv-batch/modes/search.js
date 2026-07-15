@@ -81,6 +81,70 @@
         return searchAcq().queueSource;
     }
 
+    function selectedSearchSourceTypes() {
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const selected = controls ? controls.selection('search') : null;
+        if (!selected || !selected.sourceId) return [];
+        return window.PixivBatch.queueTypes.typesForDataSource('search', selected.sourceId)
+            .map(candidate => candidate.type);
+    }
+
+    function searchKindOwner(kind) {
+        const allowed = new Set(selectedSearchSourceTypes());
+        const entries = window.PixivBatch.queueTypes.acquisitionList('search')
+            .filter(candidate => !allowed.size || allowed.has(candidate.type));
+        const direct = entries.find(candidate => candidate.type === kind);
+        if (direct) return direct.type;
+        const matches = entries.filter(candidate => {
+            try {
+                return typeof candidate.accepts === 'function' && candidate.accepts(kind);
+            } catch (e) {
+                console.warn('[search] 作品类型选择钩子失败：', candidate.type, e);
+                return false;
+            }
+        });
+        return matches.length === 1 ? matches[0].type : null;
+    }
+
+    function applySearchSourceKindAvailability() {
+        const root = document.getElementById('search-kind-switcher');
+        const allowed = new Set(selectedSearchSourceTypes());
+        if (!root) return false;
+        if (!allowed.size) {
+            root.hidden = true;
+            if (root.style) root.style.display = 'none';
+            return false;
+        }
+        const labels = Array.from(root.querySelectorAll('label[data-kind]'));
+        const visibleLabels = [];
+        labels.forEach(label => {
+            const visible = allowed.has(searchKindOwner(label.dataset.kind));
+            label.hidden = !visible;
+            if (label.style) label.style.display = visible ? '' : 'none';
+            const input = label.querySelector('input[type=radio]');
+            if (input) input.disabled = !visible;
+            if (visible) visibleLabels.push(label);
+        });
+        root.hidden = visibleLabels.length < 2;
+        if (root.style) root.style.display = root.hidden ? 'none' : '';
+
+        if (allowed.has(searchKindOwner(state.settings.searchKind))) {
+            applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
+            return false;
+        }
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const preferredType = controls ? controls.selection('search').type : null;
+        const fallback = visibleLabels.find(label =>
+            searchKindOwner(label.dataset.kind) === preferredType)
+            || visibleLabels[0];
+        const nextKind = fallback ? fallback.dataset.kind
+            : (allowed.has(preferredType) ? preferredType : null);
+        if (!nextKind || state.settings.searchKind === nextKind) return false;
+        state.settings.searchKind = nextKind;
+        applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
+        return true;
+    }
+
     // 来源只负责格式化自己的统计标签；宿主继续拥有统计口径、组合顺序与中性回退。
     function searchStatText(metric, count) {
         const numericCount = Number(count);
@@ -142,6 +206,35 @@
         }
     };
 
+    function clearSearchPreviewForSourceChange(preserveKind = false) {
+        cleanupBlobUrls();
+        searchState.filterSeq += 1;
+        searchState.requestSeq += 1;
+        if (!preserveKind) searchState.kind = searchKindOwner(state.settings.searchKind);
+        searchState.rawResults = [];
+        searchState.results = [];
+        searchState.total = 0;
+        searchState.currentPage = 1;
+        searchState.currentWord = '';
+        searchState.batchInfo = null;
+        searchState.localPage = 1;
+        searchState.noCookie = false;
+        searchState.metaCache = {};
+        searchState.pixivPageCount = 0;
+        searchState.currentFilters = defaultSearchFilters();
+        searchState.filterSummary = {
+            rawCount: 0,
+            filteredCount: 0,
+            bookmarkMetaMissing: 0,
+            bookmarkFilterActive: false
+        };
+        renderSearchResults();
+        renderSearchPagination();
+        const addAll = document.getElementById('btn-add-all');
+        if (addAll) addAll.disabled = true;
+        updateBatchQueueButtons();
+    }
+
     function getSearchClientModeLabel() {
         if (searchState.currentMode === 'r18') return 'R-18';
         if (searchState.currentMode === 'r18g') return 'R-18G';
@@ -158,7 +251,7 @@
         const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
         const sMode = document.querySelector('input[name="search-smode"]:checked').value;
         const order = document.querySelector('input[name="search-order"]:checked').value;
-        const kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.searchKind, 'search');
+        const kind = searchKindOwner(state.settings.searchKind);
         if (!kind) {
             setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
             return;
@@ -753,7 +846,7 @@
         const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
         const sMode = document.querySelector('input[name="search-smode"]:checked').value;
         const order = document.querySelector('input[name="search-order"]:checked').value;
-        const kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.searchKind, 'search');
+        const kind = searchKindOwner(state.settings.searchKind);
         if (!kind) {
             setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
             return;
@@ -864,33 +957,26 @@
         );
     }
 
-    function reconcileSearchTypeAvailability() {
-        if (!searchState.kind || window.PixivBatch.queueTypes.supports(searchState.kind, 'search')) return false;
-        cleanupBlobUrls();
-        searchState.filterSeq += 1;
-        searchState.requestSeq += 1;
-        searchState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(state.settings.searchKind, 'search');
-        searchState.rawResults = [];
-        searchState.results = [];
-        searchState.total = 0;
-        searchState.currentPage = 1;
-        searchState.submode = 'search';
-        searchState.currentWord = '';
-        searchState.batchInfo = null;
-        searchState.localPage = 1;
-        searchState.noCookie = false;
-        searchState.metaCache = {};
-        searchState.pixivPageCount = 0;
-        searchState.currentFilters = defaultSearchFilters();
-        searchState.filterSummary = {
-            rawCount: 0,
-            filteredCount: 0,
-            bookmarkMetaMissing: 0,
-            bookmarkFilterActive: false
-        };
-        renderSearchResults();
-        renderSearchPagination();
-        updateBatchQueueButtons();
+    function handleSearchModeControlChange() {
+        const kindChanged = applySearchSourceKindAvailability();
+        if (kindChanged) saveSettings();
+        clearSearchPreviewForSourceChange();
+        applySearchKindUI();
+        applyNovelSettingsVisibility();
+        updateExtraFiltersCardVisibility();
+    }
+
+    function reconcileSearchTypeAvailability(ready = true) {
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const result = controls ? controls.render('search', ready === false) : null;
+        const kindChanged = ready === false ? false : applySearchSourceKindAvailability();
+        const allowed = new Set(selectedSearchSourceTypes());
+        const kindStale = !!searchState.kind && (!window.PixivBatch.queueTypes.supports(searchState.kind, 'search')
+            || (allowed.size && !allowed.has(searchState.kind)));
+        const selectionChanged = !!result && (result.sourceChanged || result.typeChanged);
+        if (!kindChanged && !kindStale && !selectionChanged) return false;
+        if (kindChanged) saveSettings();
+        clearSearchPreviewForSourceChange(ready === false);
         return true;
     }
 
@@ -900,5 +986,5 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
 window.PixivBatch.modes.search = window.PixivBatch.modes.search || {};
 window.PixivBatch.modes.search = Object.assign(window.PixivBatch.modes.search, {
     performSearch, runBatchFetch, addCurrentBatchPageToQueue, addAllSearchResultsToQueue,
-    reconcileSearchTypeAvailability
+    applySearchSourceKindAvailability, handleSearchModeControlChange, reconcileSearchTypeAvailability
 });

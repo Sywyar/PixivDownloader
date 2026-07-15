@@ -14,11 +14,11 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const QT_PATH = path.join(__dirname, '..', '..', '..', '..',
+const ROOT = path.join(__dirname, '..', '..', '..', '..');
+const QT_PATH = path.join(ROOT,
     'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch',
     'batch-queue-types.js');
-const DOUYIN_PATH = path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-douyin', 'src', 'main', 'resources', 'static', 'pixiv-douyin-download',
+const DOUYIN_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-douyin-download',
     'douyin-queue-type.js');
 const QT_SOURCE = fs.readFileSync(QT_PATH, 'utf8');
 const DOUYIN_SOURCE = fs.readFileSync(DOUYIN_PATH, 'utf8');
@@ -128,12 +128,12 @@ function makeSandbox() {
                         pluginGeneration: 3, publicationId: 9, order: 30,
                         moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
                         acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick'],
-                        uiSlots: ['kind-option-user', 'kind-option-search', 'kind-option-quick',
+                        uiSlots: ['kind-option-quick',
                             'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools'],
                         filters: []}
                 ],
                 tabs: [],
-                uiSlots: ['kind-option-user', 'kind-option-search', 'kind-option-quick',
+                uiSlots: ['kind-option-quick',
                     'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools']
                     .map(target => ({
                         slotId: `douyin.${target}`, target,
@@ -261,8 +261,9 @@ function ok(label, cond) {
     ok('Douyin 不提前贡献计划任务队列映射', descriptor.scheduledQueueItem == null);
     ok('slots 包含 cookie-tools', !!descriptor.slots['cookie-tools']);
     ok('slots 不包含 settings-card', !descriptor.slots['settings-card']);
-    ok('slots 暴露主页/搜索/快捷入口',
-        !!descriptor.slots['kind-option-user'] && !!descriptor.slots['kind-option-search'] && !!descriptor.slots['kind-option-quick']);
+    ok('Douyin 只在快捷获取贡献内部类型，不在 User/Search 重复来源类型',
+        !descriptor.slots['kind-option-user'] && !descriptor.slots['kind-option-search']
+        && !!descriptor.slots['kind-option-quick']);
     ok('不暴露未经上游验证的附加筛选', qt.filtersFor('douyin') === null);
     ok('settings 不再暴露抖音下载设置卡', qt.settingsFor('douyin') === null);
     ok('Cookie 登录态字段校验通过',

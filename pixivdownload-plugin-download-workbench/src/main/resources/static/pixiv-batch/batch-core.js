@@ -163,6 +163,10 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
 
     async function applyPageLanguageViews() {
         applyStaticPageTranslations();
+        if (window.PixivBatch && window.PixivBatch.modeControls
+            && typeof window.PixivBatch.modeControls.renderSupportedImportSources === 'function') {
+            window.PixivBatch.modeControls.renderSupportedImportSources(true);
+        }
         if (window.PixivBatch && window.PixivBatch.layout) {
             window.PixivBatch.layout.refreshLayoutToggle();
         }

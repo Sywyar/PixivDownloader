@@ -22,6 +22,9 @@
         applyNovelSettingsVisibility();
         updateSaveScheduleCardVisibility();
         updateExtraFiltersCardVisibility();
+        if (window.PixivBatch.modeControls && ['user', 'search'].includes(normalizedMode)) {
+            window.PixivBatch.modeControls.render(normalizedMode);
+        }
         // 进入带预览的模式时，按当前附加筛选输入重新过滤已加载的预览页（筛选可能在别的模式被改过）
         if (normalizedMode === 'user' && userState.rawItems.length) {
             applyUserFilters({});
@@ -62,6 +65,8 @@
         // 「静态 HTML + 已注入槽位」的完整 DOM 上进行（与这些控件曾经写死在 HTML 时同序）。拉取失败 → 不注入
         // 任何插件槽位（插画内置照常）；某类型禁用 → 其槽位缺席（取得侧入口自然消失，残留队列项由 processSingle 暂停）。
         await window.PixivBatch.queueTypes.bootstrap();
+        window.PixivBatch.modeControls.bind();
+        window.PixivBatch.modeControls.renderAll();
         applyCookieHint();
         updateBatchLimitNote();
         await detectAuthState();
@@ -150,14 +155,18 @@
         });
 
         // Kind switchers (User / Search)
-        bindKindSwitcher('user-kind-switcher', 'userKind', () => {
+        bindKindSwitcher('user-kind-switcher', 'userKind', next => {
+            const type = window.PixivBatch.queueTypes.resolveSelectionForMode(next, 'user');
+            if (type) window.PixivBatch.modeControls.syncType('user', type);
             applyNovelSettingsVisibility();
             // User 模式作品类型变化时，同步共享「附加筛选」里页数/字数字段的显隐
             applySearchKindUI();
             // 切换插画/小说后旧预览结果不再适用，清空避免误导
             clearUserPreview();
         });
-        bindKindSwitcher('search-kind-switcher', 'searchKind', () => {
+        bindKindSwitcher('search-kind-switcher', 'searchKind', next => {
+            const type = window.PixivBatch.queueTypes.resolveSelectionForMode(next, 'search');
+            if (type) window.PixivBatch.modeControls.syncType('search', type);
             applySearchKindUI();
             applyNovelSettingsVisibility();
             // 切换 kind 后清掉旧结果，避免误导
@@ -174,6 +183,10 @@
             document.getElementById('btn-add-all').disabled = true;
             updateBatchQueueButtons();
         });
+        window.PixivBatch.modeControls.onChange(
+            'user', window.PixivBatch.modes.user.handleUserModeControlChange);
+        window.PixivBatch.modeControls.onChange(
+            'search', window.PixivBatch.modes.search.handleSearchModeControlChange);
         bindSubmodeSwitcher();
         // 排序变化会影响「翻页到底 -1」搜索是首轮封顶（date_d）还是每轮上限（非 date_d），刷新首次抓取上限提示。
         document.querySelectorAll('input[name="search-order"]').forEach(r =>
@@ -263,6 +276,8 @@
 
     function reconcileQueueTypeUi(event) {
         const ready = !(event && event.detail && event.detail.ready === false);
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        if (controls && typeof controls.reconcile === 'function') controls.reconcile(ready);
         const settings = window.PixivBatch && window.PixivBatch.settings;
         if (ready && settings && typeof settings.reconcileQueueTypeSettings === 'function') {
             settings.reconcileQueueTypeSettings();

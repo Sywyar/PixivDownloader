@@ -274,6 +274,12 @@
                 };
             },
             import: {
+                dataSource: {
+                    id: 'pixiv',
+                    displayNamespace: 'batch',
+                    displayI18nKey: 'data-source.pixiv',
+                    order: 10
+                },
                 bareDefault: true,
                 sectionType: 'artwork',
                 sectionAliases: ['illust'],
@@ -301,6 +307,12 @@
             },
             acquisition: {
                 user: {
+                    dataSource: {
+                        id: 'pixiv',
+                        displayNamespace: 'batch',
+                        displayI18nKey: 'data-source.pixiv',
+                        order: 10
+                    },
                     pageSize: 30,
                     requestInit: previewRequestInit,
                     thumbnailEndpoint,
@@ -333,6 +345,12 @@
                     }
                 },
                 search: {
+                    dataSource: {
+                        id: 'pixiv',
+                        displayNamespace: 'batch',
+                        displayI18nKey: 'data-source.pixiv',
+                        order: 10
+                    },
                     pageSize: 60,
                     requestInit: previewRequestInit,
                     thumbnailEndpoint,
@@ -349,7 +367,7 @@
                     dataSource: {
                         id: 'pixiv',
                         displayNamespace: 'batch',
-                        displayI18nKey: 'series.data-source.pixiv',
+                        displayI18nKey: 'data-source.pixiv',
                         order: 10
                     },
                     pageSize: 12,
@@ -371,7 +389,7 @@
                     dataSource: {
                         id: 'pixiv',
                         displayNamespace: 'batch',
-                        displayI18nKey: 'quick.data-source.pixiv',
+                        displayI18nKey: 'data-source.pixiv',
                         order: 10
                     },
                     pageSize: QUICK_PAGE_SIZE_ILLUST,

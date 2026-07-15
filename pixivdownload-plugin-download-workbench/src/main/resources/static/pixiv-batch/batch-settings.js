@@ -141,17 +141,39 @@
         if (trSegEl) trSegEl.value = state.settings.novelTranslateSeg ?? 0;
         updateMergeFormatVisibility();
         updateNovelTranslateVisibility();
-        // 持久化的 kind 可能引用一个当前不可用的作品类型（如禁用小说后存储里仍是 'novel'）。kind 单选选项
-        // 此时已据扩展点注入完毕（bootstrap 早于 loadSettings），不可用类型的选项根本不在 DOM 里——故据注入
-        // 后的实际单选选项把残留值收敛为可用默认（缺失即回退 illust），再同步 UI，避免初始化即停在不可用 kind
-        // 上、后续抓取打到不可用类型的 API（取得侧无新请求的初始化侧保障，运行期另由 resolveType 兜底）。
+        // 持久化的 kind 可能是可见的作品类型，也可能只是来源内部 owner（来源不重复贡献单项切换 UI）。
+        // 此时扩展点与 acquisition 均已加载，先按活动 owner 解析；仅 owner 已失效时才据实际 DOM 回退。
         reconcileQueueTypeSettings();
         toggleSkipHistoryOptions();
     }
 
     function reconcileQueueTypeSettings() {
-        state.settings.userKind = normalizeKindSetting('user-kind-switcher', state.settings.userKind);
-        state.settings.searchKind = normalizeKindSetting('search-kind-switcher', state.settings.searchKind);
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const registry = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (controls && registry) {
+            let userType = registry.resolveSelectionForMode(state.settings.userKind, 'user');
+            let searchType = registry.resolveSelectionForMode(state.settings.searchKind, 'search');
+            if (!userType) {
+                state.settings.userKind = normalizeKindSetting('user-kind-switcher', state.settings.userKind);
+                userType = registry.resolveSelectionForMode(state.settings.userKind, 'user');
+            }
+            if (!searchType) {
+                state.settings.searchKind = normalizeKindSetting('search-kind-switcher', state.settings.searchKind);
+                searchType = registry.resolveSelectionForMode(state.settings.searchKind, 'search');
+            }
+            if (userType) controls.syncType('user', userType);
+            if (searchType) controls.syncType('search', searchType);
+            const modes = window.PixivBatch.modes || {};
+            if (modes.user && typeof modes.user.applyUserSourceKindAvailability === 'function') {
+                modes.user.applyUserSourceKindAvailability();
+            }
+            if (modes.search && typeof modes.search.applySearchSourceKindAvailability === 'function') {
+                modes.search.applySearchSourceKindAvailability();
+            }
+        } else {
+            state.settings.userKind = normalizeKindSetting('user-kind-switcher', state.settings.userKind);
+            state.settings.searchKind = normalizeKindSetting('search-kind-switcher', state.settings.searchKind);
+        }
         applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
         applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
         applySearchKindUI();

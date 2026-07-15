@@ -346,7 +346,11 @@ window.PixivBatch.queueTypes = (function () {
         if (allowedModes.has('single-import') && isPlainObject(descriptor.import)) {
             if (typeof descriptor.import.matchUrl === 'function'
                 && typeof descriptor.import.buildItem === 'function') {
-                behavior.import = descriptor.import;
+                const contribution = Object.assign({}, descriptor.import);
+                const dataSource = normalizeAcquisitionDataSource(contribution.dataSource, backend);
+                if (dataSource) contribution.dataSource = dataSource;
+                else delete contribution.dataSource;
+                behavior.import = contribution;
             }
         }
         const acquisition = {};
@@ -1187,6 +1191,84 @@ window.PixivBatch.queueTypes = (function () {
         return typesForMode(mode).map(type => Object.assign({}, acquisition(type, mode), {type}));
     }
 
+    function dataSourceDescriptor(acquisitionContribution) {
+        const type = text(acquisitionContribution && acquisitionContribution.type);
+        if (!type) return null;
+        const manifest = manifestDescriptor(type) || {};
+        const metadata = acquisitionContribution && isPlainObject(acquisitionContribution.dataSource)
+            ? acquisitionContribution.dataSource : {};
+        const id = text(metadata.id || type);
+        if (!id) return null;
+        const rawOrder = metadata.order == null ? manifest.order : metadata.order;
+        const order = Number(rawOrder);
+        return {
+            id,
+            displayNamespace: text(metadata.displayNamespace || manifest.displayNamespace),
+            displayI18nKey: text(metadata.displayI18nKey || manifest.displayI18nKey),
+            order: Number.isFinite(order) ? order : 0,
+            type
+        };
+    }
+
+    function dataSourceTypeDescriptor(type) {
+        const manifest = manifestDescriptor(type) || {};
+        const rawOrder = Number(manifest.order);
+        return Object.freeze({
+            type: text(type),
+            displayNamespace: text(manifest.displayNamespace),
+            displayI18nKey: text(manifest.displayI18nKey),
+            order: Number.isFinite(rawOrder) ? rawOrder : 0,
+            iconKey: text(manifest.iconKey),
+            colorToken: text(manifest.colorToken)
+        });
+    }
+
+    // 每个取得模式都投影成中立的「来源 -> 活动作品类型」只读快照。来源元数据属于
+    // acquisition contribution；旧模块未声明时按自身 type / display token 退化为独立来源，
+    // 宿主无需认识任何具体平台 id。多个类型共享 source id 时，以确定性贡献顺序的首项为准。
+    function dataSourcesForMode(mode) {
+        const byId = new Map();
+        acquisitionList(mode).forEach(contribution => {
+            const candidate = dataSourceDescriptor(contribution);
+            if (!candidate) return;
+            const existing = byId.get(candidate.id);
+            if (!existing) {
+                byId.set(candidate.id, {
+                    id: candidate.id,
+                    displayNamespace: candidate.displayNamespace,
+                    displayI18nKey: candidate.displayI18nKey,
+                    order: candidate.order,
+                    types: [candidate.type]
+                });
+                return;
+            }
+            if (!existing.types.includes(candidate.type)) existing.types.push(candidate.type);
+            if (existing.displayNamespace !== candidate.displayNamespace
+                || existing.displayI18nKey !== candidate.displayI18nKey
+                || existing.order !== candidate.order) {
+                console.warn('[queueTypes] 同一数据来源的展示元数据不一致，保留先声明的元数据：', candidate.id);
+            }
+        });
+        const sources = Array.from(byId.values()).map(source => {
+            const types = source.types.map(dataSourceTypeDescriptor)
+                .sort((left, right) => (left.order - right.order) || left.type.localeCompare(right.type));
+            return Object.freeze({
+                id: source.id,
+                displayNamespace: source.displayNamespace,
+                displayI18nKey: source.displayI18nKey,
+                order: source.order,
+                types: Object.freeze(types)
+            });
+        }).sort((left, right) => (left.order - right.order) || left.id.localeCompare(right.id));
+        return Object.freeze(sources);
+    }
+
+    function typesForDataSource(mode, sourceId) {
+        const requested = text(sourceId);
+        const source = dataSourcesForMode(mode).find(candidate => candidate.id === requested);
+        return source ? source.types : Object.freeze([]);
+    }
+
     function filtersFor(type) {
         return mergedDeclaredContributions(type, 'filters');
     }
@@ -1328,7 +1410,7 @@ window.PixivBatch.queueTypes = (function () {
         });
         if (current.identity) {
             current.orderedTypes.forEach(type => {
-                ['user', 'search', 'series', 'quick'].forEach(mode => {
+                ['single-import', 'user', 'search', 'series', 'quick'].forEach(mode => {
                     const contribution = acquisition(type, mode);
                     addNamespace(out, seen,
                         contribution && contribution.dataSource && contribution.dataSource.displayNamespace);
@@ -1557,6 +1639,8 @@ window.PixivBatch.queueTypes = (function () {
         manifestDescriptor,
         acquisition,
         acquisitionList,
+        dataSourcesForMode,
+        typesForDataSource,
         supports,
         typesForMode,
         resolveTypeForMode,
