@@ -41,6 +41,7 @@ function harness() {
     let initializer = null;
     let active = true;
     let assertActiveCalls = 0;
+    const selectedSeriesSources = [];
     const requests = [];
     const runtime = {
         registerModule(moduleUrl, value) {
@@ -55,6 +56,13 @@ function harness() {
         window: {
             PixivBatch: {
                 scheduleSources: runtime,
+                modes: {
+                    series: {
+                        selectSeriesDataSource(sourceId) {
+                            selectedSeriesSources.push(sourceId);
+                        }
+                    }
+                },
                 queueTypes: {
                     descriptor(type) {
                         assert.equal(type, 'douyin');
@@ -135,6 +143,7 @@ function harness() {
         elements,
         contributions,
         requests,
+        selectedSeriesSources,
         deactivate() { active = false; },
         assertActiveCalls() { return assertActiveCalls; }
     };
@@ -362,6 +371,7 @@ test('八类来源编辑回灌保持 canonical 字段并拒绝畸形定义', () 
         assert.equal(summary.kind, 'douyin');
         assert.equal(summary.sections.length, 1);
     }
+    assert.deepEqual(h.selectedSeriesSources, ['douyin', 'douyin']);
 
     assert.throws(() => h.contributions.get('douyin.user').restore({
         paramsJson: JSON.stringify({source: {userId: 'u', transientUrl: 'https://signed.invalid'}, fetchLimit: 1})

@@ -1210,6 +1210,12 @@ const NOVEL_DESCRIPTOR = {
             }
         },
         series: {
+            dataSource: {
+                id: 'pixiv',
+                displayNamespace: 'batch',
+                displayI18nKey: 'series.data-source.pixiv',
+                order: 10
+            },
             pageSize: 30,
             requestInit: novelPreviewRequestInit,
             apiPath(seriesId, page) { return `/api/pixiv/novel/series/${encodeURIComponent(seriesId)}?page=${page}`; },

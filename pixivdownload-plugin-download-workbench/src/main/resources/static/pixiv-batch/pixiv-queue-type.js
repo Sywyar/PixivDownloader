@@ -346,6 +346,12 @@
                     buildQueueMeta: artworkQueueMeta
                 },
                 series: {
+                    dataSource: {
+                        id: 'pixiv',
+                        displayNamespace: 'batch',
+                        displayI18nKey: 'series.data-source.pixiv',
+                        order: 10
+                    },
                     pageSize: 12,
                     requestInit: previewRequestInit,
                     thumbnailEndpoint,

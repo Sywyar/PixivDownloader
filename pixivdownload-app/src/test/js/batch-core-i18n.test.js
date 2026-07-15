@@ -17,10 +17,16 @@ const CORE_PATH = path.join(PLUGIN_RESOURCES, 'static', 'pixiv-batch', 'batch-co
 const HTML_PATH = path.join(PLUGIN_RESOURCES, 'static', 'pixiv-batch.html');
 const BATCH_ZH_PATH = path.join(PLUGIN_RESOURCES, 'i18n', 'web', 'batch.properties');
 const BATCH_EN_PATH = path.join(PLUGIN_RESOURCES, 'i18n', 'web', 'batch_en.properties');
+const DOUYIN_RESOURCES = path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-douyin', 'src', 'main', 'resources', 'i18n', 'web');
+const DOUYIN_ZH_PATH = path.join(DOUYIN_RESOURCES, 'douyin.properties');
+const DOUYIN_EN_PATH = path.join(DOUYIN_RESOURCES, 'douyin_en.properties');
 const SOURCE = fs.readFileSync(CORE_PATH, 'utf8');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
 const BATCH_ZH = fs.readFileSync(BATCH_ZH_PATH, 'utf8');
 const BATCH_EN = fs.readFileSync(BATCH_EN_PATH, 'utf8');
+const DOUYIN_ZH = fs.readFileSync(DOUYIN_ZH_PATH, 'utf8');
+const DOUYIN_EN = fs.readFileSync(DOUYIN_EN_PATH, 'utf8');
 
 function propertyKeys(source) {
     return new Set(String(source).split(/\r?\n/)
@@ -127,6 +133,8 @@ function ok(label, cond) {
     const fixedNamespaces = (SOURCE.match(/const BATCH_I18N_NAMESPACES = \[([^\]]*)\]/) || [])[1] || '';
     const zhKeys = propertyKeys(BATCH_ZH);
     const enKeys = propertyKeys(BATCH_EN);
+    const douyinZhKeys = propertyKeys(DOUYIN_ZH);
+    const douyinEnKeys = propertyKeys(DOUYIN_EN);
     const baseKindKeys = [
         'batch.user.kind-illust',
         'batch.user.kind-request',
@@ -178,6 +186,21 @@ function ok(label, cond) {
         ok('中文 batch bundle 提供基础下载类型文案: ' + key, zhKeys.has(key));
         ok('英文 batch bundle 提供基础下载类型文案: ' + key, enKeys.has(key));
     });
+    const seriesSourceKeys = [
+        'series.data-source.label', 'series.data-source.pixiv',
+        'input.series.placeholder', 'status.series-empty', 'status.series-url-invalid'
+    ];
+    seriesSourceKeys.forEach(key => {
+        ok('中文 batch bundle 提供系列来源文案: ' + key, zhKeys.has(key));
+        ok('英文 batch bundle 提供系列来源文案: ' + key, enKeys.has(key));
+    });
+    ok('系列来源标签与中性输入提示由静态页面 i18n key 驱动',
+        HTML.includes('data-i18n="series.data-source.label"')
+        && HTML.includes('data-i18n-placeholder="input.series.placeholder"')
+        && HTML.includes('data-i18n="status.series-empty"'));
+    ok('Douyin 中英文 bundle 均提供系列来源名称',
+        douyinZhKeys.has('series.data-source.douyin')
+        && douyinEnKeys.has('series.data-source.douyin'));
 
     console.log(`\nbatch-core-i18n.test.js: ${passed} assertions passed`);
 })().catch(err => {

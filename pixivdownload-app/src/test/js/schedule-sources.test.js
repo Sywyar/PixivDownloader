@@ -746,6 +746,7 @@ test('Pixiv 来源模块只经受控 initializer 注册七个 canonical 来源�
     assert.match(pixivModuleSource, /schedule\.pixiv\.fetch-limit\.hint\.watermark/);
     assert.match(pixivModuleSource, /schedule\.pixiv\.fetch-limit\.hint\.per-run/);
     assert.match(pixivModuleSource, /schedule\.pixiv\.confirm\.full-fetch/);
+    assert.match(pixivModuleSource, /selectSeriesDataSource\('pixiv'\)/);
 
     const result = await contributions.get('user-new').credentialActions().autoAuthorize(
         42,

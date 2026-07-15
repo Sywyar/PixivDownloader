@@ -251,6 +251,14 @@
         }
     }
 
+    function selectSeriesDataSource() {
+        const seriesMode = window.PixivBatch && window.PixivBatch.modes
+            && window.PixivBatch.modes.series;
+        if (seriesMode && typeof seriesMode.selectSeriesDataSource === 'function') {
+            seriesMode.selectSeriesDataSource('douyin');
+        }
+    }
+
     function quickLabel(sourceType, source) {
         if (sourceType === SOURCE.ACCOUNT_OWN) return t('quick.own-works', 'My Douyin works');
         if (sourceType === SOURCE.ACCOUNT_LIKED) return t('quick.liked', 'Liked works');
@@ -282,6 +290,7 @@
             const input = document.getElementById('search-word');
             if (input) input.value = normalized.source.keyword;
         } else if (sourceType === SOURCE.COLLECTION || sourceType === SOURCE.MUSIC) {
+            selectSeriesDataSource();
             const id = sourceType === SOURCE.MUSIC
                 ? normalized.source.musicId : normalized.source.collectionId;
             const seriesId = sourceType === SOURCE.MUSIC ? 'music:' + id : id;

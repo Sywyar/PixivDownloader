@@ -125,8 +125,8 @@
         <div class="card mode-panel active" id="panel-quick-fetch">
             <div class="card-title" data-i18n="quick.title">快捷获取账户相关作品</div>
             <div class="quick-intro" data-i18n="quick.intro">选择数据来源后，通过该来源保存的登录凭据自动识别账号，一键查看账户相关作品并直接加入下载队列。</div>
-            <div class="quick-data-source-control">
-                <span class="quick-data-source-label" id="quick-data-source-label" data-i18n="quick.data-source.label">数据来源</span>
+            <div class="quick-data-source-control data-source-control">
+                <span class="quick-data-source-label data-source-label" id="quick-data-source-label" data-i18n="quick.data-source.label">数据来源</span>
                 <div class="kind-switcher" id="quick-data-source-switcher" role="radiogroup"
                      aria-labelledby="quick-data-source-label"></div>
             </div>
@@ -302,9 +302,14 @@
         <!-- Series panel -->
         <div class="card mode-panel" id="panel-series">
             <div class="card-title" data-i18n="card.series">系列下载</div>
+            <div class="series-data-source-control data-source-control">
+                <span class="series-data-source-label data-source-label" id="series-data-source-label" data-i18n="series.data-source.label">数据来源</span>
+                <div class="kind-switcher" id="series-data-source-switcher" role="radiogroup"
+                     aria-labelledby="series-data-source-label"></div>
+            </div>
             <div class="search-controls">
                 <input type="text" id="series-input-url" data-i18n-placeholder="input.series.placeholder"
-                       placeholder="粘贴漫画/小说系列 URL，或同系列作品 URL..."
+                       placeholder="粘贴当前数据来源支持的系列、合集或关联作品 URL..."
                        onkeydown="if(event.key==='Enter')loadSeriesPreview()">
                 <button class="btn btn-blue" onclick="loadSeriesPreview()" data-i18n="button.series-load">📚 解析并预览</button>
                 <button class="btn btn-gray preview-collapse-btn" onclick="togglePreviewCollapse(this,'series-results-area','series-pagination')" data-i18n-title="preview.collapse.title" title="收起 / 展开预览"><span class="preview-collapse-label" data-i18n="preview.collapse">收起</span> <span class="preview-collapse-caret" aria-hidden="true">▾</span></button>
@@ -313,7 +318,7 @@
             </div>
             <div id="series-meta-display" style="margin:8px 0;font-size:13px;color:#666;"></div>
             <div id="series-results-area">
-                <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.series-empty">粘贴漫画系列、小说系列或同系列作品链接</div>
+                <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.series-empty">粘贴当前数据来源支持的系列、合集或关联作品链接</div>
             </div>
             <div class="search-pagination" id="series-pagination" style="display:none;"></div>
         </div>

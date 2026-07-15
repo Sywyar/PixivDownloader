@@ -15,7 +15,14 @@ const assert = require('assert');
 const SOURCE_PATH = path.join(__dirname, '..', '..', '..', '..',
     'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch',
     'batch-layout.js');
+const HTML_PATH = path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch.html');
+const CSS_PATH = path.join(__dirname, '..', '..', '..', '..',
+    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch',
+    'pixiv-batch.css');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
+const HTML = fs.readFileSync(HTML_PATH, 'utf8');
+const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 const STORAGE_KEY = 'pixiv:batch-layout:v1';
 const ACTION_IDS = ['btn-start', 'btn-pause', 'btn-retry', 'btn-export', 'btn-export-failed', 'btn-clear'];
 const API_FUNCTIONS = [
@@ -512,6 +519,15 @@ function actionsAreAtOrigins(harness) {
 }
 
 (async function main() {
+    ok('系列下载声明与快捷获取同语义的数据来源 radiogroup',
+        HTML.includes('class="series-data-source-control data-source-control"')
+        && HTML.includes('id="series-data-source-switcher" role="radiogroup"')
+        && HTML.includes('aria-labelledby="series-data-source-label"'));
+    ok('数据来源布局样式由通用类复用而非快捷获取专属选择器',
+        CSS.includes('.data-source-control {')
+        && CSS.includes('.data-source-control .kind-switcher')
+        && CSS.includes('.data-source-label {'));
+
     // 1) 声明式清单、默认值和首屏应用；i18n ready 前按钮保持隐藏。
     {
         const h = createHarness({

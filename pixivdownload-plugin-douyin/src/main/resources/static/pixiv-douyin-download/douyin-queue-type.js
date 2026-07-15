@@ -994,6 +994,12 @@ const DOUYIN_DESCRIPTOR = {
             controls: {searchMode: false, order: false, contentFilter: false, batchRange: true, r18Blur: false}
         },
         series: {
+            dataSource: {
+                id: 'douyin',
+                displayNamespace: 'douyin',
+                displayI18nKey: 'series.data-source.douyin',
+                order: 20
+            },
             pageSize: DOUYIN_PAGE_SIZE,
             requestInit() {
                 return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};

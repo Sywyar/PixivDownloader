@@ -2553,7 +2553,7 @@ body.schedule-modal-open {
     margin-bottom: 10px;
 }
 
-.quick-data-source-control {
+.data-source-control {
     display: flex;
     align-items: flex-start;
     gap: 10px;
@@ -2561,11 +2561,11 @@ body.schedule-modal-open {
     margin-bottom: 10px;
 }
 
-.quick-data-source-control .kind-switcher {
+.data-source-control .kind-switcher {
     margin-bottom: 0;
 }
 
-.quick-data-source-label {
+.data-source-label {
     font-size: 13px;
     font-weight: 600;
     line-height: 30px;

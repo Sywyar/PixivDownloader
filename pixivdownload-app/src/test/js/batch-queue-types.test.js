@@ -361,13 +361,17 @@ const BASIC_INITIALIZER = `(function (context) {
     };
 })`;
 
-function quickDataSourceInitializer(sourceLiteral) {
+function acquisitionDataSourceInitializer(mode, sourceLiteral) {
     return BASIC_INITIALIZER.replace(
-        'quick: {\n                    queueId:',
-        `quick: {
+        `${mode}: {\n                    ${mode === 'quick' ? 'queueId:' : 'apiPath:'}`,
+        `${mode}: {
                     dataSource: ${sourceLiteral},
-                    queueId:`
+                    ${mode === 'quick' ? 'queueId:' : 'apiPath:'}`
     );
+}
+
+function quickDataSourceInitializer(sourceLiteral) {
+    return acquisitionDataSourceInitializer('quick', sourceLiteral);
 }
 
 const REQUEST_OWNER_INITIALIZER = BASIC_INITIALIZER.replace(
@@ -576,6 +580,25 @@ const LATE_UI_INITIALIZER = `(function (context) {
         passed++;
         ok('冻结的 quick dataSource 拒绝改写后仍保留规范化 id',
             explicit.qt.acquisition('demo', 'quick').dataSource.id === 'demo-source');
+
+        const series = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: acquisitionDataSourceInitializer('series', `{
+                        id: 'series-source',
+                        displayNamespace: 'series-source-i18n',
+                        displayI18nKey: 'source.series',
+                        order: 9
+                    }`)}
+        });
+        await series.qt.bootstrap();
+        const seriesSource = series.qt.acquisition('demo', 'series').dataSource;
+        ok('series dataSource 复用通用取得元数据规范化与冻结边界',
+            seriesSource.id === 'series-source'
+            && seriesSource.displayNamespace === 'series-source-i18n'
+            && seriesSource.displayI18nKey === 'source.series'
+            && seriesSource.order === 9
+            && Object.isFrozen(seriesSource));
+        ok('series dataSource 自有 i18n namespace 会加入运行时 namespace 集合',
+            (await series.qt.i18nNamespaces()).includes('series-source-i18n'));
 
         const fallback = harness([manifest(1, [typeDescriptor({
             order: 27,

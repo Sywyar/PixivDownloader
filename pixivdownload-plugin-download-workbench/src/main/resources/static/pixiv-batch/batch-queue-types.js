@@ -354,15 +354,11 @@ window.PixivBatch.queueTypes = (function () {
         ['user', 'search', 'series', 'quick'].forEach(mode => {
             if (allowedModes.has(mode) && isPlainObject(rawAcquisition[mode])
                 && validAcquisitionHooks(mode, rawAcquisition[mode])) {
-                if (mode === 'quick') {
-                    const quick = Object.assign({}, rawAcquisition[mode]);
-                    const dataSource = normalizeQuickDataSource(quick.dataSource, backend);
-                    if (dataSource) quick.dataSource = dataSource;
-                    else delete quick.dataSource;
-                    acquisition[mode] = quick;
-                } else {
-                    acquisition[mode] = rawAcquisition[mode];
-                }
+                const contribution = Object.assign({}, rawAcquisition[mode]);
+                const dataSource = normalizeAcquisitionDataSource(contribution.dataSource, backend);
+                if (dataSource) contribution.dataSource = dataSource;
+                else delete contribution.dataSource;
+                acquisition[mode] = contribution;
             }
         });
         behavior.acquisition = acquisition;
@@ -437,7 +433,7 @@ window.PixivBatch.queueTypes = (function () {
         return required.every(name => typeof value[name] === 'function');
     }
 
-    function normalizeQuickDataSource(value, backend) {
+    function normalizeAcquisitionDataSource(value, backend) {
         if (!isPlainObject(value)) return null;
         const id = text(value.id);
         if (!id || id.length > 64) return null;
@@ -1312,8 +1308,11 @@ window.PixivBatch.queueTypes = (function () {
         });
         if (current.identity) {
             current.orderedTypes.forEach(type => {
-                const quick = acquisition(type, 'quick');
-                addNamespace(out, seen, quick && quick.dataSource && quick.dataSource.displayNamespace);
+                ['user', 'search', 'series', 'quick'].forEach(mode => {
+                    const contribution = acquisition(type, mode);
+                    addNamespace(out, seen,
+                        contribution && contribution.dataSource && contribution.dataSource.displayNamespace);
+                });
             });
         }
         return out;

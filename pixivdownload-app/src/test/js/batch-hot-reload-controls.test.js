@@ -90,12 +90,12 @@ function modeElement({html = 'A preview', text = 'A meta', display = 'flex'} = {
 }
 
 function realModeHarness(source, stateExpression, elements, extra = {}) {
-    const registry = {
+    const registry = Object.assign({
         supports() { return false; },
         resolveTypeForMode() { return null; },
         acquisition() { return null; },
         acquisitionList() { return []; }
-    };
+    }, extra.registry || {});
     const modeDocument = {
         getElementById(id) { return elements[id] || null; },
         querySelectorAll(selector) {
@@ -125,7 +125,7 @@ function realModeHarness(source, stateExpression, elements, extra = {}) {
     }, extra);
     vm.createContext(modeSandbox);
     vm.runInContext(source + '\nwindow.__realModeState = ' + stateExpression + ';', modeSandbox);
-    return {sandbox: modeSandbox, state: modeSandbox.window.__realModeState};
+    return {sandbox: modeSandbox, state: modeSandbox.window.__realModeState, registry};
 }
 
 sandbox.state.settings.userKind = 'novel';
@@ -256,9 +256,29 @@ ok('search submode switcher 使用稳定 root 事件委托',
         'btn-series-add-page': modeElement(),
         'btn-series-add-all': modeElement()
     };
-    const h = realModeHarness(SERIES_SOURCE, 'seriesState', elements);
+    const h = realModeHarness(SERIES_SOURCE, 'seriesState', elements, {
+        registry: {
+            supports(type, mode) { return type === 'owner-a' && mode === 'series'; },
+            acquisitionList(mode) {
+                return mode === 'series' ? [{
+                    type: 'owner-a',
+                    dataSource: {
+                        id: 'pixiv', displayNamespace: 'batch',
+                        displayI18nKey: 'series.data-source.pixiv', order: 10
+                    }
+                }] : [];
+            },
+            manifestDescriptor() {
+                return {
+                    owner: {pluginId: 'owner', packageId: 'package', generation: 1, publicationId: 2}
+                };
+            }
+        }
+    });
     Object.assign(h.state, {
+        dataSourceId: 'pixiv',
         kind: 'owner-a',
+        ownerIdentity: 'owner:package:1:2:owner-a',
         seriesId: '88',
         seriesTitle: 'A series',
         seriesAuthorId: '9',
@@ -270,9 +290,36 @@ ok('search submode switcher 使用稳定 root 事件委托',
         itemsByPage: new Map([[1, [{id: '1'}]]]),
         totalPages: 2
     });
+    const sameSourceSelected = h.sandbox.window.PixivBatch.modes.series.selectSeriesDataSource('pixiv');
+    ok('计划任务回灌显式选择同一 series 来源时也清空旧预览',
+        sameSourceSelected && h.state.dataSourceId === 'pixiv' && h.state.kind === null
+        && h.state.seriesId === null && h.state.rawItems.length === 0
+        && h.state.items.length === 0 && h.state.allItems.length === 0
+        && h.state.itemsByPage.size === 0
+        && !elements['series-results-area'].innerHTML.includes('A preview'));
+
+    Object.assign(h.state, {
+        kind: 'owner-a',
+        ownerIdentity: 'owner:package:1:1:owner-a',
+        seriesId: '88',
+        seriesTitle: 'A series',
+        seriesAuthorId: '9',
+        seriesAuthorName: 'A author',
+        seriesTotal: 1,
+        rawItems: [{id: '1'}],
+        items: [{id: '1'}],
+        allItems: [{id: '1'}],
+        itemsByPage: new Map([[1, [{id: '1'}]]]),
+        totalPages: 2
+    });
+    elements['series-results-area'].innerHTML = 'A preview';
+    elements['series-meta-display'].textContent = 'A meta';
+    elements['series-pagination'].innerHTML = 'A pages';
+    elements['series-pagination'].style.display = 'flex';
     const reconciled = h.sandbox.window.PixivBatch.modes.series.reconcileSeriesTypeAvailability();
-    ok('真实 series reconcile 清空 publication A 的预览 state',
-        reconciled && h.state.kind === null && h.state.seriesId === null && h.state.seriesTitle === ''
+    ok('真实 series reconcile 在同来源 owner publication 变化后清空旧预览 state',
+        reconciled && h.state.dataSourceId === 'pixiv' && h.state.kind === null
+        && h.state.ownerIdentity === null && h.state.seriesId === null && h.state.seriesTitle === ''
         && h.state.rawItems.length === 0 && h.state.items.length === 0
         && h.state.allItems.length === 0 && h.state.itemsByPage.size === 0
         && h.sandbox.state.settings.userKind === 'owner-a');
@@ -435,9 +482,11 @@ ok('search submode switcher 使用稳定 root 事件委托',
 }
 
 const runtimeListeners = new Map();
+const initDocumentListeners = new Map();
 const previewClears = {user: 0, search: 0, series: 0, quick: 0};
 const quickReadyStates = [];
 let settingReconciles = 0;
+let selectedSeriesSource = null;
 const initSandbox = {
     window: {
         PixivBatch: {
@@ -446,7 +495,10 @@ const initSandbox = {
             modes: {
                 user: {reconcileUserTypeAvailability() { previewClears.user++; }},
                 search: {reconcileSearchTypeAvailability() { previewClears.search++; }},
-                series: {reconcileSeriesTypeAvailability() { previewClears.series++; }},
+                series: {
+                    reconcileSeriesTypeAvailability() { previewClears.series++; },
+                    selectSeriesDataSource(sourceId) { selectedSeriesSource = sourceId; }
+                },
                 quick: {reconcileQuickTypeAvailability(ready) {
                     previewClears.quick++;
                     quickReadyStates.push(ready);
@@ -455,7 +507,10 @@ const initSandbox = {
         },
         addEventListener(type, listener) { runtimeListeners.set(type, listener); }
     },
-    document: {addEventListener() {}, visibilityState: 'hidden'},
+    document: {
+        addEventListener(type, listener) { initDocumentListeners.set(type, listener); },
+        visibilityState: 'hidden'
+    },
     state: {mode: 'user'},
     QUICK_FETCH_MODE: 'quick-fetch',
     applyCookieHint() {},
@@ -479,5 +534,7 @@ ok('ready 事件再收敛设置与预览且不丢失事件链',
     settingReconciles === 1 && Object.values(previewClears).every(count => count === 2));
 ok('queue type reconcile 把 loading/ready 状态传给 quick 来源选择收敛',
     quickReadyStates.length === 2 && quickReadyStates[0] === false && quickReadyStates[1] === true);
+initDocumentListeners.get('change')({target: {name: 'series-data-source', value: 'douyin'}});
+ok('热重载后系列来源 radio 仍由稳定 document change 委托切换', selectedSeriesSource === 'douyin');
 
 console.log(`batch-hot-reload-controls.test.js: ${passed} assertions passed ✓`);

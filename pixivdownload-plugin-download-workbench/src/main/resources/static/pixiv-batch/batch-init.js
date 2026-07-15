@@ -37,6 +37,12 @@
             // 重新按当前附加筛选过滤已加载的快捷获取预览（筛选可能在别的模式被改过）
             if (quickHasWorksGrid()) quickReapplyFilters();
         }
+        if (normalizedMode === 'series') {
+            const seriesMode = window.PixivBatch && window.PixivBatch.modes && window.PixivBatch.modes.series;
+            if (seriesMode && typeof seriesMode.renderSeriesDataSourceSwitcher === 'function') {
+                seriesMode.renderSeriesDataSourceSwitcher();
+            }
+        }
         if (normalizedMode === 'schedule') {
             loadScheduleTasks();
             startSchedulePolling();
@@ -294,10 +300,19 @@
     });
     document.addEventListener('change', event => {
         const target = event && event.target;
-        if (!target || target.name !== 'quick-data-source') return;
-        const quickMode = window.PixivBatch && window.PixivBatch.modes && window.PixivBatch.modes.quick;
-        if (quickMode && typeof quickMode.selectQuickDataSource === 'function') {
-            quickMode.selectQuickDataSource(target.value);
+        if (!target) return;
+        if (target.name === 'quick-data-source') {
+            const quickMode = window.PixivBatch && window.PixivBatch.modes && window.PixivBatch.modes.quick;
+            if (quickMode && typeof quickMode.selectQuickDataSource === 'function') {
+                quickMode.selectQuickDataSource(target.value);
+            }
+            return;
+        }
+        if (target.name === 'series-data-source') {
+            const seriesMode = window.PixivBatch && window.PixivBatch.modes && window.PixivBatch.modes.series;
+            if (seriesMode && typeof seriesMode.selectSeriesDataSource === 'function') {
+                seriesMode.selectSeriesDataSource(target.value);
+            }
         }
     });
     document.addEventListener('visibilitychange', () => {

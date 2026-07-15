@@ -128,6 +128,10 @@ ok('真实 Novel 嵌套 filter 执行字数范围匹配与跳过判定',
 ok('真实 Novel descriptor 在声明 key 下保留收藏抓取与设置卡行为',
     typeof novelWordsFilter.bookmarkCountFetch === 'function'
     && novelDescriptor.settings['novel-settings-card'].cardId === 'novel-settings-card');
+ok('Pixiv 插画与小说系列共享同一数据来源，Douyin 系列保持独立来源',
+    pixivDescriptor.acquisition.series.dataSource.id === 'pixiv'
+    && novelDescriptor.acquisition.series.dataSource.id === 'pixiv'
+    && douyinDescriptor.acquisition.series.dataSource.id === 'douyin');
 
 for (const mode of ['user', 'search', 'series', 'quick']) {
     const pixivInit = pixivDescriptor.acquisition[mode].requestInit();
@@ -166,11 +170,25 @@ ok('Pixiv user/series 解析与请求已移回 owner 模块',
 
 const requests = [];
 const descriptors = {illust: pixivDescriptor, novel: novelDescriptor, douyin: douyinDescriptor};
+let deferNextSeriesRequest = false;
+let releaseSeriesRequest = null;
 const seriesWindow = {
     PixivBatch: {
         queueTypes: {
             acquisition(type, mode) {
                 return descriptors[type].acquisition[mode];
+            },
+            acquisitionList(mode) {
+                return Object.keys(descriptors).map(type => Object.assign(
+                    {type}, descriptors[type].acquisition[mode]));
+            },
+            manifestDescriptor(type) {
+                return {
+                    owner: {
+                        pluginId: type + '-plugin', packageId: type + '-package',
+                        generation: 1, publicationId: 1
+                    }
+                };
             },
             prepareAcquisitionRequest(type, mode, url) {
                 const init = descriptors[type].acquisition[mode].requestInit();
@@ -186,12 +204,17 @@ const seriesSandbox = {
     URL,
     URLSearchParams,
     Map,
+    Set,
+    AbortController,
     fetch(url, options) {
         requests.push({url: String(url), options: options || {}});
-        return Promise.resolve({
+        const response = {
             ok: true,
             json: () => Promise.resolve({items: [], isLastPage: true})
-        });
+        };
+        if (!deferNextSeriesRequest) return Promise.resolve(response);
+        deferNextSeriesRequest = false;
+        return new Promise(resolve => { releaseSeriesRequest = () => resolve(response); });
     },
     pixivHeader() {
         throw new Error('series 宿主不得自行读取 Pixiv Cookie');
@@ -202,12 +225,24 @@ vm.runInContext(SERIES_SOURCE + [
     '',
     'window.__testFetchSeriesPage = function (kind, seriesId, page) {',
     '    seriesState.kind = kind;',
+    '    seriesState.dataSourceId = seriesDataSourceIdForOwnerType(kind);',
     '    seriesState.seriesId = seriesId;',
-    '    return fetchSeriesPage(page);',
+    '    return fetchSeriesPage(page, beginSeriesOperation());',
+    '};',
+    'window.__testSwitchSeriesSource = function (sourceId) {',
+    '    seriesState.dataSourceId = sourceId;',
+    '    invalidateSeriesRequests();',
+    '};',
+    'window.__testSelectedSeriesOwners = function (sourceId) {',
+    '    seriesState.dataSourceId = sourceId;',
+    '    return selectedSeriesAcquisitions().map(function (item) { return item.type; });',
     '};'
 ].join('\n'), seriesSandbox);
 
 (async function () {
+    ok('系列解析候选严格按所选来源分组',
+        seriesWindow.__testSelectedSeriesOwners('pixiv').join(',') === 'illust,novel'
+        && seriesWindow.__testSelectedSeriesOwners('douyin').join(',') === 'douyin');
     await seriesWindow.__testFetchSeriesPage('illust', 11, 1);
     await seriesWindow.__testFetchSeriesPage('novel', 22, 2);
     await seriesWindow.__testFetchSeriesPage('douyin', 33, 3);
@@ -224,6 +259,17 @@ vm.runInContext(SERIES_SOURCE + [
     ok('真实宿主 Douyin series 请求携带中性取得凭证',
         douyinRequest.options.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf')
         && !douyinRequest.options.headers['X-Douyin-Cookie']);
+
+    deferNextSeriesRequest = true;
+    const staleSeriesRequest = seriesWindow.__testFetchSeriesPage('illust', 44, 1);
+    const staleSeriesAssertion = assert.rejects(staleSeriesRequest, /stale/);
+    seriesWindow.__testSwitchSeriesSource('douyin');
+    releaseSeriesRequest();
+    await staleSeriesAssertion;
+    passed++;
+    await seriesWindow.__testFetchSeriesPage('douyin', 55, 1);
+    ok('系列来源切换后新请求只使用所选来源 owner',
+        requests.at(-1).url.includes('/api/douyin/series/55'));
 
     let currentPublication = 'A';
     let releaseAccountRequest = null;

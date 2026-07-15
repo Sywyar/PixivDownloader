@@ -249,6 +249,14 @@
         applyKindSwitcherUI(`${modePrefix}-kind-switcher`, value);
     }
 
+    function selectSeriesDataSource() {
+        const seriesMode = window.PixivBatch && window.PixivBatch.modes
+            && window.PixivBatch.modes.series;
+        if (seriesMode && typeof seriesMode.selectSeriesDataSource === 'function') {
+            seriesMode.selectSeriesDataSource('pixiv');
+        }
+    }
+
     function applyDownload(value) {
         const download = value || {};
         if (typeof download.fileNameTemplate === 'string' && download.fileNameTemplate) {
@@ -348,6 +356,7 @@
             const end = document.getElementById('batch-end-page');
             if (end && batch) end.value = maxPages;
         } else if (sourceType === SOURCE.SERIES) {
+            selectSeriesDataSource();
             const seriesId = source.seriesId || '';
             const input = document.getElementById('series-input-url');
             if (input) {
