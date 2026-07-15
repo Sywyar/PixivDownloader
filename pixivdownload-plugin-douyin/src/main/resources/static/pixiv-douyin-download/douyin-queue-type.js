@@ -187,6 +187,24 @@ function douyinText(key, fallback, args) {
     return bt('douyin:' + key, fallback, args || {});
 }
 
+function formatDouyinSearchStats(metric, stats) {
+    const count = Number(stats && stats.count);
+    const displayCount = (Number.isFinite(count) ? Math.max(0, count) : 0).toLocaleString();
+    if (metric === 'total') {
+        return douyinText('search.summary.total', '抖音总数 {count} 个作品', {count: displayCount});
+    }
+    if (metric === 'returned') {
+        return douyinText('search.summary.returned', '抖音返回 {count} 个作品', {count: displayCount});
+    }
+    if (metric === 'batch-fetched') {
+        return douyinText('search.summary.fetched', '已抓取去重 {count} 个抖音作品', {count: displayCount});
+    }
+    if (metric === 'current-page') {
+        return douyinText('search.summary.current-page', '抖音当前页 {count} 个作品', {count: displayCount});
+    }
+    return '';
+}
+
 function douyinExtractUrl(text) {
     const value = String(text || '').trim();
     const m = value.match(/https?:\/\/[^\s<>"'，。；、,;]+/);
@@ -961,6 +979,7 @@ const DOUYIN_DESCRIPTOR = {
                     }
                 };
             },
+            formatStats: formatDouyinSearchStats,
             queueId: douyinQueueId,
             queueSource: 'search-douyin',
             emptyResultsLabel() { return douyinText('search.empty', 'No Douyin search results'); },

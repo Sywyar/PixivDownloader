@@ -328,6 +328,7 @@ const BASIC_INITIALIZER = `(function (context) {
                     },
                     buildRequest: function () { return {endpoint: '/api/demo/search'}; },
                     buildRangeRequest: function () { return {endpoint: '/api/demo/search/range'}; },
+                    formatStats: function (metric, stats) { return metric + ':' + stats.count; },
                     queueId: function (item) { return String(item.id); },
                     render: function () {},
                     buildQueueMeta: function () { return {}; },
@@ -1095,6 +1096,8 @@ const LATE_UI_INITIALIZER = `(function (context) {
             encodedQuery.url.includes('https%3A%2F%2Fimg.test%2Fa.jpg'));
         ok('acquisitionList 用 runtime canonical type 覆盖模块嵌套伪造值',
             h.qt.acquisitionList('search')[0].type === 'demo');
+        ok('受控 search acquisition 保留来源统计格式化钩子',
+            h.qt.acquisition('demo', 'search').formatStats('total', {count: 12}) === 'total:12');
     }
 
     {

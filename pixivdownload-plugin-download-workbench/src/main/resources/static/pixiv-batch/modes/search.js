@@ -81,6 +81,33 @@
         return searchAcq().queueSource;
     }
 
+    // 来源只负责格式化自己的统计标签；宿主继续拥有统计口径、组合顺序与中性回退。
+    function searchStatText(metric, count) {
+        const numericCount = Number(count);
+        const safeCount = Number.isFinite(numericCount) ? Math.max(0, numericCount) : 0;
+        const context = Object.freeze({count: safeCount, submode: searchState.submode});
+        const acq = searchAcq();
+        if (acq && typeof acq.formatStats === 'function') {
+            try {
+                const formatted = acq.formatStats(metric, context);
+                if (typeof formatted === 'string' && formatted.trim()) return formatted.trim();
+            } catch (e) {
+                console.warn('[search] 来源统计文案格式化失败，使用中性文案：', e);
+            }
+        }
+        const displayCount = safeCount.toLocaleString();
+        if (metric === 'total') {
+            return bt('search.summary.source-total', '来源总数 {count}', {count: displayCount});
+        }
+        if (metric === 'returned') {
+            return bt('search.summary.source-returned', '来源返回 {count} 个', {count: displayCount});
+        }
+        if (metric === 'batch-fetched') {
+            return bt('search.batch.summary.fetched', '已抓取去重 {count} 个', {count: displayCount});
+        }
+        return bt('search.summary.current-page', '当前页 {count} 个', {count: displayCount});
+    }
+
     /* ============================================================
        搜索模式
     ============================================================ */
@@ -207,10 +234,10 @@
                         ));
                     }
                 }
-                parts.push(bt('search.summary.pixiv-total', 'Pixiv 总数 {count}', {count: searchState.total.toLocaleString()}));
+                parts.push(searchStatText('total', searchState.total));
                 setStatus(bt('status.search-complete', '搜索完成：{summary}', {summary: summaryJoin(parts)}), 'success');
             } else {
-                const parts = [bt('search.summary.current-page', '当前页 {count} 个', {count: searchState.pixivPageCount})];
+                const parts = [searchStatText('current-page', searchState.pixivPageCount)];
                 if (hasExtraSearchFilter()) {
                     parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
                     if (searchState.filterSummary.bookmarkMetaMissing > 0) {
@@ -221,7 +248,7 @@
                         ));
                     }
                 }
-                parts.push(bt('search.summary.pixiv-total', 'Pixiv 总数 {count}', {count: searchState.total.toLocaleString()}));
+                parts.push(searchStatText('total', searchState.total));
                 setStatus(bt('status.search-complete', '搜索完成：{summary}', {summary: summaryJoin(parts)}), 'success');
             }
         } catch (e) {
@@ -282,7 +309,7 @@
         }
         if (!searchState.results.length) {
             const tips = [];
-            tips.push(bt('search.summary.pixiv-current-page-results', 'Pixiv 当前页 {count} 个结果', {count: searchState.rawResults.length}));
+            tips.push(searchStatText('current-page', searchState.rawResults.length));
             if (searchState.filterSummary.bookmarkFilterActive && searchState.filterSummary.bookmarkMetaMissing > 0) {
                 tips.push(bt(
                     'search.summary.bookmark-missing',
@@ -304,9 +331,9 @@
         const summary = searchState.submode === 'batch'
             ? [batchSummaryText(view)]
             : [
-                bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
+                searchStatText('total', searchState.total),
                 bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-                bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
+                searchStatText('returned', searchState.pixivPageCount)
             ];
         if (clientModeLabel) {
             summary.push(bt('search.summary.client-filtered', '{label} 筛后 {count} 个', {
@@ -364,7 +391,7 @@
 
     function batchSummaryText(view) {
         const parts = [
-            bt('search.batch.summary.fetched', '已抓取去重 {count} 个', {count: searchState.rawResults.length})
+            searchStatText('batch-fetched', searchState.rawResults.length)
         ];
         if (hasExtraSearchFilter()) {
             parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
@@ -793,7 +820,7 @@
             if (!filterStats) return;
 
             const parts = [
-                bt('search.batch.summary.fetched', '已抓取去重 {count} 个', {count: searchState.rawResults.length}),
+                searchStatText('batch-fetched', searchState.rawResults.length),
                 bt('search.batch.summary.range', '范围第 {start}–{end} 页', {
                     start: data.startPage,
                     end: data.endPage
@@ -807,7 +834,7 @@
             if (hasExtraSearchFilter()) {
                 parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
             }
-            parts.push(bt('search.summary.pixiv-total', 'Pixiv 总数 {count}', {count: searchState.total.toLocaleString()}));
+            parts.push(searchStatText('total', searchState.total));
             setStatus(bt('status.batch-fetch-complete', '批量获取完成：{summary}', {summary: summaryJoin(parts)}), 'success');
         } catch (e) {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;

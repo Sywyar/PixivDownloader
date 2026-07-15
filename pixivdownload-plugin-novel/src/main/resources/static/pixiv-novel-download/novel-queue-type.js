@@ -38,6 +38,24 @@ function novelBuildRangeRequest(ctx) {
     return request;
 }
 
+function formatNovelSearchStats(metric, stats) {
+    const count = Number(stats && stats.count);
+    const displayCount = (Number.isFinite(count) ? Math.max(0, count) : 0).toLocaleString();
+    if (metric === 'total') {
+        return bt('novel:batch.search.summary.total', '小说总数 {count} 部', {count: displayCount});
+    }
+    if (metric === 'returned') {
+        return bt('novel:batch.search.summary.returned', '小说返回 {count} 部', {count: displayCount});
+    }
+    if (metric === 'batch-fetched') {
+        return bt('novel:batch.search.summary.fetched', '已抓取去重 {count} 部小说', {count: displayCount});
+    }
+    if (metric === 'current-page') {
+        return bt('novel:batch.search.summary.current-page', '小说当前页 {count} 部', {count: displayCount});
+    }
+    return '';
+}
+
 function requireNovelQuickSession(loader) {
     return function () {
         if (!cookieHasPhpsessid()) {
@@ -710,9 +728,9 @@ function buildNovelSearchModel(view) {
     const summary = searchState.submode === 'batch'
         ? [batchSummaryText(view)]
         : [
-            bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
+            searchStatText('total', searchState.total),
             bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-            bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
+            searchStatText('returned', searchState.pixivPageCount)
         ];
     if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
         summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
@@ -803,9 +821,9 @@ function applyNovelSearchImperative(area, view) {
     const summary = searchState.submode === 'batch'
         ? [batchSummaryText(view)]
         : [
-            bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
+            searchStatText('total', searchState.total),
             bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-            bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
+            searchStatText('returned', searchState.pixivPageCount)
         ];
     if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
         summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
@@ -1173,6 +1191,7 @@ const NOVEL_DESCRIPTOR = {
             requestInit: novelPreviewRequestInit,
             buildRequest: novelBuildSearchRequest,
             buildRangeRequest: novelBuildRangeRequest,
+            formatStats: formatNovelSearchStats,
             queueId: novelQueueId,
             queueSource: 'search-novel',
             emptyResultsLabel() { return bt('novel:batch.search.no-novel-results', '无小说搜索结果'); },

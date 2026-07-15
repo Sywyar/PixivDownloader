@@ -128,6 +128,25 @@
             return request;
         }
 
+        function formatPixivSearchStats(metric, stats) {
+            const count = Number(stats && stats.count);
+            const displayCount = (Number.isFinite(count) ? Math.max(0, count) : 0).toLocaleString();
+            if (metric === 'total') {
+                return bt('search.summary.pixiv-total', 'Pixiv 总数 {count}', {count: displayCount});
+            }
+            if (metric === 'returned') {
+                return bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: displayCount});
+            }
+            if (metric === 'batch-fetched') {
+                return bt('search.batch.summary.pixiv-fetched', 'Pixiv 已抓取去重 {count} 个', {count: displayCount});
+            }
+            if (metric === 'current-page') {
+                return bt('search.summary.pixiv-current-page-results',
+                    'Pixiv 当前页 {count} 个结果', {count: displayCount});
+            }
+            return '';
+        }
+
         function requirePixivQuickSession(loader) {
             return function () {
                 if (!cookieHasPhpsessid()) {
@@ -319,6 +338,7 @@
                     thumbnailEndpoint,
                     buildRequest: buildSearchRequest,
                     buildRangeRequest,
+                    formatStats: formatPixivSearchStats,
                     queueId(item) { return String(item.id); },
                     queueSource: 'search',
                     emptyResultsLabel() { return bt('status.search-no-results', '无搜索结果'); },

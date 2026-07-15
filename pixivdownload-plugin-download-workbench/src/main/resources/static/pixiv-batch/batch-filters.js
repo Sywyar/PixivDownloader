@@ -454,8 +454,8 @@
         if (options.setStatus && searchState.currentWord) {
             const prefix = options.statusPrefix || bt('status.search-filters-applied', '已应用筛选：');
             const parts = [searchState.submode === 'batch'
-                ? bt('search.batch.summary.fetched', '已抓取去重 {count} 个', {count: stats.rawCount})
-                : bt('search.summary.current-page', '当前页 {count} 个', {count: stats.rawCount})];
+                ? searchStatText('batch-fetched', stats.rawCount)
+                : searchStatText('current-page', stats.rawCount)];
             if (hasExtraSearchFilter(filters)) {
                 parts.push(bt('search.summary.filtered-count', '筛选后 {count} 个', {count: stats.filteredCount}));
                 if (stats.bookmarkMetaMissing > 0) {
@@ -468,7 +468,7 @@
             } else {
                 parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
             }
-            parts.push(bt('search.summary.pixiv-total', 'Pixiv 总数 {count}', {count: searchState.total.toLocaleString()}));
+            parts.push(searchStatText('total', searchState.total));
             setStatus(prefix + (uiLang() === 'en-US' ? ' ' : '') + summaryJoin(parts), 'success');
         }
 
