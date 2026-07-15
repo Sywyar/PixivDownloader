@@ -527,6 +527,26 @@ function actionsAreAtOrigins(harness) {
         CSS.includes('.data-source-control {')
         && CSS.includes('.data-source-control .kind-switcher')
         && CSS.includes('.data-source-label {'));
+    ok('系列下载提供来源浏览器的中性宿主容器',
+        HTML.includes('class="series-source-browser"')
+        && HTML.includes('id="series-source-browser" hidden'));
+    const seriesBrowserCssStart = CSS.indexOf('.series-source-browser {');
+    const seriesBrowserCssEnd = CSS.indexOf('\n.quick-account {', seriesBrowserCssStart);
+    const seriesBrowserCss = CSS.slice(seriesBrowserCssStart, seriesBrowserCssEnd);
+    ok('来源浏览器样式覆盖标题、状态、列表、项目与分页导航',
+        seriesBrowserCssStart >= 0 && seriesBrowserCssEnd > seriesBrowserCssStart
+        && seriesBrowserCss.includes('.series-source-browser-title')
+        && seriesBrowserCss.includes('.series-source-browser-status')
+        && seriesBrowserCss.includes('.series-source-browser-list')
+        && seriesBrowserCss.includes('.series-source-browser-item')
+        && seriesBrowserCss.includes('.series-source-browser-navigation'));
+    ok('来源浏览器颜色只复用主题变量',
+        seriesBrowserCss.includes('var(--surface-muted)')
+        && seriesBrowserCss.includes('var(--line)')
+        && seriesBrowserCss.includes('var(--text)')
+        && seriesBrowserCss.includes('var(--muted)')
+        && seriesBrowserCss.includes('var(--brand)')
+        && !/#[0-9a-f]{3,8}\b|rgba?\s*\(/i.test(seriesBrowserCss));
 
     // 1) 声明式清单、默认值和首屏应用；i18n ready 前按钮保持隐藏。
     {

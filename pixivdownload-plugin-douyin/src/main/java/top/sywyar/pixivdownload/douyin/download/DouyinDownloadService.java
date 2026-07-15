@@ -27,6 +27,7 @@ import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
@@ -345,6 +346,22 @@ public class DouyinDownloadService {
                                              String cookie) throws DouyinClientException {
         DouyinCookieValidator.ensureUsable(cookie);
         return currentRuntime().client().listSeriesWorksPage(seriesId, cursor, positiveLimit(pageSize), cookie);
+    }
+
+    public DouyinFavoriteFolderListing listFavoriteFolders(String cursor,
+                                                            int pageSize,
+                                                            String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client().listFavoriteFolders(cursor, positiveLimit(pageSize), cookie);
+    }
+
+    public DouyinListing listFavoriteFolderWorksPage(String folderId,
+                                                      String cursor,
+                                                      int pageSize,
+                                                      String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client()
+                .listFavoriteFolderWorksPage(folderId, cursor, positiveLimit(pageSize), cookie);
     }
 
     public List<String> listAllAccountWorkIds(DouyinAccountSource source,

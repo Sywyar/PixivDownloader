@@ -1189,6 +1189,118 @@ class DefaultDouyinClientParserTest {
                 .isEqualTo(DouyinClientErrorCode.PAGINATION_STALLED);
     }
 
+    @Test
+    @DisplayName("自建收藏夹与夹内作品分别使用真实上游游标分页")
+    void pagesFavoriteFoldersAndFolderWorksIndependently() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"folder-next","total":6,"collects_list":[
+                  {"collects_id_str":"folder-a","collects_name":"收藏夹 A"},
+                  {"collects_info":{"collects_id":"folder-b","collects_name":"收藏夹 B"}}
+                ]}
+                """);
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"works-next","total":9,"aweme_list":[
+                  {"aweme_id":"9601","desc":"Folder work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9601.mp4"]}}}
+                ]}
+                """);
+        DefaultDouyinClient client = client(rest);
+
+        var folders = client.listFavoriteFolders("folder-current", 12, "sessionid=test");
+        var works = client.listFavoriteFolderWorksPage(
+                "folder-a", "works-current", 10, "sessionid=test");
+
+        assertThat(folders.items()).extracting("id", "title")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("folder-a", "收藏夹 A"),
+                        org.assertj.core.groups.Tuple.tuple("folder-b", "收藏夹 B"));
+        assertThat(folders.total()).isEqualTo(6);
+        assertThat(folders.nextCursor()).isEqualTo("folder-next");
+        assertThat(folders.hasMore()).isTrue();
+        assertThat(works.items()).extracting("id").containsExactly("9601");
+        assertThat(works.items().get(0).collectionId()).isEqualTo("folder-a");
+        assertThat(works.total()).isEqualTo(9);
+        assertThat(works.nextCursor()).isEqualTo("works-next");
+        assertThat(works.hasMore()).isTrue();
+        assertThat(rest.requests()).extracting(URI::getPath).containsExactly(
+                "/aweme/v1/web/collects/list/",
+                "/aweme/v1/web/collects/video/list/");
+        assertThat(rest.requests().get(0).getRawQuery())
+                .contains("cursor=folder-current", "count=12", "version_code=170400", "a_bogus=");
+        assertThat(rest.requests().get(1).getRawQuery())
+                .contains("collects_id=folder-a", "cursor=works-current", "count=10",
+                        "version_code=170400", "a_bogus=");
+        assertThat(rest.methods()).containsExactly(HttpMethod.GET, HttpMethod.GET);
+        assertThat(rest.cookies()).allSatisfy(cookie ->
+                assertThat(cookie).contains("sessionid=test", "msToken="));
+    }
+
+    @Test
+    @DisplayName("自建收藏夹两层响应缺少已知识别数组时分别报告结构异常")
+    void rejectsUnknownFavoriteFolderResponseStructures() {
+        FakeRestTemplate folderRest = new FakeRestTemplate();
+        folderRest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+        assertCodeName(() -> client(folderRest).listFavoriteFolders(
+                        "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+
+        FakeRestTemplate worksRest = new FakeRestTemplate();
+        worksRest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
+        assertCodeName(() -> client(worksRest).listFavoriteFolderWorksPage(
+                        "folder-a", "0", 20, "sessionid=test"),
+                "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("自建收藏夹候选缺少稳定 ID 或作品缺少媒体时分别报告过滤异常")
+    void rejectsFilteredFavoriteFolderCandidates() {
+        FakeRestTemplate folderRest = new FakeRestTemplate();
+        folderRest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":"done","collects_list":[
+                  {"collects_name":"Missing id"}
+                ]}
+                """);
+        assertCodeName(() -> client(folderRest).listFavoriteFolders(
+                        "0", 20, "sessionid=test"),
+                "RESPONSE_CANDIDATES_FILTERED");
+
+        FakeRestTemplate worksRest = new FakeRestTemplate();
+        worksRest.enqueue(200, """
+                {"status_code":0,"has_more":0,"cursor":"done","aweme_list":[
+                  {"aweme_id":"9602","desc":"Missing media"}
+                ]}
+                """);
+        assertCodeName(() -> client(worksRest).listFavoriteFolderWorksPage(
+                        "folder-a", "0", 20, "sessionid=test"),
+                "RESPONSE_CANDIDATES_FILTERED");
+    }
+
+    @Test
+    @DisplayName("自建收藏夹两层仍有下一页但游标未推进时分别明确失败")
+    void rejectsStalledFavoriteFolderCursors() {
+        FakeRestTemplate folderRest = new FakeRestTemplate();
+        folderRest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"folder-current","collects_list":[
+                  {"collects_id":"folder-a","collects_name":"收藏夹 A"}
+                ]}
+                """);
+        assertCodeName(() -> client(folderRest).listFavoriteFolders(
+                        "folder-current", 20, "sessionid=test"),
+                "PAGINATION_STALLED");
+
+        FakeRestTemplate worksRest = new FakeRestTemplate();
+        worksRest.enqueue(200, """
+                {"status_code":0,"has_more":1,"cursor":"works-current","aweme_list":[
+                  {"aweme_id":"9603","desc":"Folder work",
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9603.mp4"]}}}
+                ]}
+                """);
+        assertCodeName(() -> client(worksRest).listFavoriteFolderWorksPage(
+                        "folder-a", "works-current", 20, "sessionid=test"),
+                "PAGINATION_STALLED");
+    }
+
     private static DefaultDouyinClient client(String... bodies) {
         FakeRestTemplate rest = new FakeRestTemplate();
         for (String body : bodies) {

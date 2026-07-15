@@ -374,6 +374,15 @@ function quickDataSourceInitializer(sourceLiteral) {
     return acquisitionDataSourceInitializer('quick', sourceLiteral);
 }
 
+function seriesBrowserInitializer(browserLiteral) {
+    return BASIC_INITIALIZER.replace(
+        'series: {\n                    apiPath:',
+        `series: {
+                    browser: ${browserLiteral},
+                    apiPath:`
+    );
+}
+
 const REQUEST_OWNER_INITIALIZER = BASIC_INITIALIZER.replace(
     'user: {\n                    parseInput:',
     `user: {
@@ -599,6 +608,59 @@ const LATE_UI_INITIALIZER = `(function (context) {
             && Object.isFrozen(seriesSource));
         ok('series dataSource 自有 i18n namespace 会加入运行时 namespace 集合',
             (await series.qt.i18nNamespaces()).includes('series-source-i18n'));
+
+        const browserHarness = harness([manifest(1, [typeDescriptor({acquisitionModes: ['series']})])], {
+            '/modules/demo.js': {initializer: seriesBrowserInitializer(`{
+                        initialCursor: 'folder-start',
+                        pageSize: '12',
+                        title: function () { return 'Folders'; },
+                        loadingLabel: function () { return 'Loading folders'; },
+                        emptyLabel: function () { return 'No folders'; },
+                        buildPageRequest: function (context) {
+                            return {endpoint: '/api/demo/folders', params: {cursor: context.cursor}};
+                        },
+                        readPage: function (data) {
+                            return {items: data.folders, nextCursor: data.nextCursor, hasMore: data.hasMore};
+                        },
+                        itemId: function (item) { return item.id; },
+                        itemLabel: function (item) { return item.title; },
+                        select: function (item) {
+                            return {seriesId: 'folder:' + item.id, seriesTitle: item.title};
+                        }
+                    }`)}
+        });
+        await browserHarness.qt.bootstrap();
+        const browser = browserHarness.qt.acquisition('demo', 'series').browser;
+        const folder = {id: 'folder-7', title: 'Travel'};
+        const page = browser.readPage({folders: [folder], nextCursor: 'folder-next', hasMore: true});
+        ok('series browser 仅暴露规范化、冻结的中性浏览钩子',
+            Object.isFrozen(browser)
+            && browser.initialCursor === 'folder-start'
+            && browser.pageSize === 12
+            && browser.title() === 'Folders'
+            && browser.loadingLabel() === 'Loading folders'
+            && browser.emptyLabel() === 'No folders');
+        ok('series browser 保留分页读取、项目投影与选择钩子',
+            browser.buildPageRequest({cursor: 'opaque-cursor'}).params.cursor === 'opaque-cursor'
+            && page.items[0].id === 'folder-7'
+            && page.nextCursor === 'folder-next'
+            && page.hasMore === true
+            && browser.itemId(folder) === 'folder-7'
+            && browser.itemLabel(folder) === 'Travel'
+            && browser.select(folder).seriesId === 'folder:folder-7');
+
+        const invalidBrowser = harness([manifest(1, [typeDescriptor({acquisitionModes: ['series']})])], {
+            '/modules/demo.js': {initializer: seriesBrowserInitializer(`{
+                        buildPageRequest: function () { return {}; },
+                        readPage: function () { return {items: []}; },
+                        itemId: function (item) { return item.id; },
+                        itemLabel: function (item) { return item.title; }
+                    }`)}
+        });
+        await invalidBrowser.qt.bootstrap();
+        ok('缺少必需 select 钩子的 series browser 不进入运行时投影',
+            !Object.prototype.hasOwnProperty.call(
+                invalidBrowser.qt.acquisition('demo', 'series'), 'browser'));
 
         const fallback = harness([manifest(1, [typeDescriptor({
             order: 27,

@@ -109,6 +109,8 @@ const novelDescriptor = loadDescriptor(NOVEL_SOURCE, 'novel', {
     bt: (_key, fallback) => fallback
 });
 const douyinDescriptor = loadDescriptor(DOUYIN_SOURCE, 'douyin', {
+    bt: (_key, fallback, params) => String(fallback).replace(/\{(\w+)}/g,
+        (_match, name) => params && params[name] != null ? String(params[name]) : ''),
     localStorage: {
         getItem(key) {
             return key === 'pixiv_douyin_cookie'
@@ -208,6 +210,20 @@ const seriesSandbox = {
     AbortController,
     fetch(url, options) {
         requests.push({url: String(url), options: options || {}});
+        const requestUrl = String(url);
+        if (requestUrl.includes('/api/douyin/me/favorite-folders/folder-7/works')) {
+            const secondPage = requestUrl.includes('cursor=works-cursor-2');
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({
+                    folderId: 'folder-7',
+                    works: [{id: secondPage ? 'folder-work-2' : 'folder-work-1'}],
+                    total: 2,
+                    nextCursor: secondPage ? '' : 'works-cursor-2',
+                    hasMore: !secondPage
+                })
+            });
+        }
         const response = {
             ok: true,
             json: () => Promise.resolve({items: [], isLastPage: true})
@@ -218,7 +234,9 @@ const seriesSandbox = {
     },
     pixivHeader() {
         throw new Error('series 宿主不得自行读取 Pixiv Cookie');
-    }
+    },
+    bt: (_key, fallback, params) => String(fallback).replace(/\{(\w+)}/g,
+        (_match, name) => params && params[name] != null ? String(params[name]) : '')
 };
 vm.createContext(seriesSandbox);
 vm.runInContext(SERIES_SOURCE + [
@@ -229,6 +247,19 @@ vm.runInContext(SERIES_SOURCE + [
     '    seriesState.seriesId = seriesId;',
     '    return fetchSeriesPage(page, beginSeriesOperation());',
     '};',
+    'window.__testFetchCursorSeriesPages = async function (kind, seriesId, title) {',
+    '    seriesState.kind = kind;',
+    '    seriesState.dataSourceId = seriesDataSourceIdForOwnerType(kind);',
+    '    seriesState.seriesId = seriesId;',
+    '    seriesState.seriesTitle = title;',
+    '    initializeSeriesPageCursors();',
+    '    var operation = beginSeriesOperation();',
+    '    var first = await fetchSeriesPage(1, operation);',
+    '    cacheSeriesPageData(first, 1);',
+    '    var second = await fetchSeriesPage(2, operation);',
+    '    cacheSeriesPageData(second, 2);',
+    '    return {first: first, second: second, totalPages: seriesState.totalPages};',
+    '};',
     'window.__testSwitchSeriesSource = function (sourceId) {',
     '    seriesState.dataSourceId = sourceId;',
     '    invalidateSeriesRequests();',
@@ -238,6 +269,122 @@ vm.runInContext(SERIES_SOURCE + [
     '    return selectedSeriesAcquisitions().map(function (item) { return item.type; });',
     '};'
 ].join('\n'), seriesSandbox);
+
+function browserElement(tagName) {
+    const listeners = {};
+    return {
+        tagName: String(tagName || 'div').toUpperCase(),
+        children: [],
+        attributes: {},
+        hidden: false,
+        className: '',
+        textContent: '',
+        disabled: false,
+        type: '',
+        appendChild(child) { this.children.push(child); return child; },
+        replaceChildren(...children) { this.children = children; },
+        addEventListener(type, handler) { listeners[type] = handler; },
+        setAttribute(name, value) { this.attributes[name] = String(value); },
+        listeners
+    };
+}
+
+const seriesBrowserHost = browserElement('div');
+seriesBrowserHost.hidden = true;
+let seriesBrowserPublication = 1;
+let seriesBrowserFetchPlans = [];
+let releaseSeriesBrowserRequest = null;
+const seriesBrowserRequests = [];
+const seriesBrowserAcquisitions = {
+    illust: Object.assign({type: 'illust'}, pixivDescriptor.acquisition.series),
+    douyin: Object.assign({type: 'douyin'}, douyinDescriptor.acquisition.series)
+};
+function seriesBrowserResponse(data) {
+    return {ok: true, json: () => Promise.resolve(data)};
+}
+const seriesBrowserWindow = {
+    PixivBatch: {
+        queueTypes: {
+            acquisition(type, mode) {
+                return mode === 'series' ? seriesBrowserAcquisitions[type] : null;
+            },
+            acquisitionList(mode) {
+                return mode === 'series'
+                    ? [seriesBrowserAcquisitions.illust, seriesBrowserAcquisitions.douyin]
+                    : [];
+            },
+            manifestDescriptor(type) {
+                return {
+                    owner: {
+                        pluginId: type + '-plugin', packageId: type + '-package',
+                        generation: 1, publicationId: type === 'douyin' ? seriesBrowserPublication : 1
+                    }
+                };
+            },
+            acquisitionLease(type, mode) {
+                const publication = seriesBrowserPublication;
+                const controller = new AbortController();
+                return {
+                    type, mode, signal: controller.signal,
+                    isCurrent() { return publication === seriesBrowserPublication; },
+                    assertCurrent() {
+                        if (publication !== seriesBrowserPublication) throw new Error('stale browser publication');
+                    }
+                };
+            },
+            prepareAcquisitionRequest(type, mode, url, operation, context) {
+                const publication = seriesBrowserPublication;
+                const init = seriesBrowserAcquisitions[type].requestInit();
+                seriesBrowserRequests.push({type, mode, url, operation, context, init});
+                return {
+                    url,
+                    init,
+                    signal: null,
+                    isCurrent() { return publication === seriesBrowserPublication; },
+                    assertCurrent() {
+                        if (publication !== seriesBrowserPublication) throw new Error('stale browser publication');
+                    }
+                };
+            }
+        },
+        modes: {}
+    }
+};
+const seriesBrowserSandbox = {
+    window: seriesBrowserWindow,
+    document: {
+        getElementById(id) { return id === 'series-source-browser' ? seriesBrowserHost : null; },
+        createElement(tagName) { return browserElement(tagName); },
+        querySelectorAll() { return []; }
+    },
+    console: {warn() {}, log() {}, error() {}},
+    URL,
+    URLSearchParams,
+    Map,
+    Set,
+    AbortController,
+    Promise,
+    bt: (_key, fallback, params) => String(fallback).replace(/\{(\w+)}/g,
+        (_match, name) => params && params[name] != null ? String(params[name]) : ''),
+    fetch(url, options) {
+        const plan = seriesBrowserFetchPlans.shift();
+        assert.ok(plan, 'series browser fetch 应有响应计划');
+        if (plan.defer) {
+            return new Promise(resolve => {
+                releaseSeriesBrowserRequest = data => resolve(seriesBrowserResponse(data));
+            });
+        }
+        return Promise.resolve(seriesBrowserResponse(plan.data));
+    }
+};
+vm.createContext(seriesBrowserSandbox);
+vm.runInContext(SERIES_SOURCE + [
+    '',
+    'window.__seriesBrowserTest = {',
+    '    setSource: function (sourceId) { seriesState.dataSourceId = sourceId; },',
+    '    render: function (force) { return renderSeriesSourceBrowser(force); }',
+    '};'
+].join('\n'), seriesBrowserSandbox);
 
 (async function () {
     ok('系列解析候选严格按所选来源分组',
@@ -259,6 +406,93 @@ vm.runInContext(SERIES_SOURCE + [
     ok('真实宿主 Douyin series 请求携带中性取得凭证',
         douyinRequest.options.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf')
         && !douyinRequest.options.headers['X-Douyin-Cookie']);
+
+    const favoriteFolderPages = await seriesWindow.__testFetchCursorSeriesPages(
+        'douyin', 'favorite-folder:folder-7', 'Travel');
+    const favoriteFolderRequests = requests.filter(request =>
+        request.url.includes('/api/douyin/me/favorite-folders/folder-7/works'));
+    ok('真实宿主按 owner 的 cursor 连续请求收藏夹作品分页并携带中性凭证',
+        favoriteFolderRequests.length === 2
+        && favoriteFolderRequests[0].url.includes('cursor=0')
+        && favoriteFolderRequests[1].url.includes('cursor=works-cursor-2')
+        && favoriteFolderRequests.every(request =>
+            request.options.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf')));
+    ok('真实宿主将收藏夹 works 响应归一化并在末页收敛 cursor 分页',
+        favoriteFolderPages.first.items[0].id === 'folder-work-1'
+        && favoriteFolderPages.first.series.title === 'Travel'
+        && favoriteFolderPages.second.items[0].id === 'folder-work-2'
+        && favoriteFolderPages.second.isLastPage === true
+        && favoriteFolderPages.totalPages === 2);
+
+    const browserTest = seriesBrowserWindow.__seriesBrowserTest;
+    browserTest.setSource('douyin');
+    seriesBrowserFetchPlans = [{data: {
+        folders: [{id: 'folder-a', title: 'Folder A'}],
+        total: 2, nextCursor: 'folder-cursor-2', hasMore: true
+    }}];
+    await browserTest.render(true);
+    const firstBrowserRequest = seriesBrowserRequests.at(-1);
+    ok('series browser 列表请求经 owner 受控门并携带 Douyin 中性凭证',
+        firstBrowserRequest.type === 'douyin'
+        && firstBrowserRequest.mode === 'series'
+        && firstBrowserRequest.operation === 'browser'
+        && firstBrowserRequest.url.includes('/api/douyin/me/favorite-folders?')
+        && firstBrowserRequest.url.includes('cursor=0')
+        && firstBrowserRequest.init.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf'));
+    ok('series browser 用安全 DOM 渲染当前收藏夹页与可用下一页',
+        seriesBrowserHost.hidden === false
+        && seriesBrowserHost.children[2].children[0].textContent.includes('Folder A')
+        && seriesBrowserHost.children[3].children[2].disabled === false);
+
+    seriesBrowserFetchPlans = [{data: {
+        folders: [{id: 'folder-b', title: 'Folder B'}],
+        total: 2, nextCursor: '', hasMore: false
+    }}];
+    await seriesBrowserHost.children[3].children[2].listeners.click();
+    const secondBrowserRequest = seriesBrowserRequests.at(-1);
+    ok('series browser 下一页复用 owner 返回的 opaque cursor',
+        secondBrowserRequest.url.includes('cursor=folder-cursor-2')
+        && seriesBrowserHost.children[2].children[0].textContent.includes('Folder B')
+        && seriesBrowserHost.children[3].children[0].disabled === false
+        && seriesBrowserHost.children[3].children[2].disabled === true);
+
+    seriesBrowserFetchPlans = [{data: {
+        folders: [{id: 'folder-a', title: 'Folder A'}],
+        total: 2, nextCursor: 'folder-cursor-2', hasMore: true
+    }}];
+    await seriesBrowserHost.children[3].children[0].listeners.click();
+    ok('series browser 上一页回到已记录的首游标且恢复页按钮状态',
+        seriesBrowserRequests.at(-1).url.includes('cursor=0')
+        && seriesBrowserHost.children[2].children[0].textContent.includes('Folder A')
+        && seriesBrowserHost.children[3].children[0].disabled === true
+        && seriesBrowserHost.children[3].children[2].disabled === false);
+
+    seriesBrowserPublication = 10;
+    browserTest.setSource('douyin');
+    seriesBrowserFetchPlans = [
+        {defer: true},
+        {data: {folders: [{id: 'new-folder', title: 'New publication'}], hasMore: false}}
+    ];
+    const staleBrowserRender = browserTest.render(true);
+    const releaseOldBrowser = releaseSeriesBrowserRequest;
+    seriesBrowserPublication = 11;
+    await browserTest.render(true);
+    releaseOldBrowser({folders: [{id: 'old-folder', title: 'Old publication'}], hasMore: false});
+    await staleBrowserRender;
+    ok('series browser publication reload 后旧响应不会覆盖新代 DOM',
+        seriesBrowserHost.children[2].children.length === 1
+        && seriesBrowserHost.children[2].children[0].textContent.includes('New publication')
+        && !seriesBrowserHost.children[2].children[0].textContent.includes('Old publication'));
+
+    seriesBrowserFetchPlans = [{defer: true}];
+    const staleSourceRender = browserTest.render(true);
+    const releaseOldSource = releaseSeriesBrowserRequest;
+    browserTest.setSource('pixiv');
+    await browserTest.render(true);
+    releaseOldSource({folders: [{id: 'stale-folder', title: 'Stale source'}], hasMore: false});
+    await staleSourceRender;
+    ok('series 来源切换会 abort 并清空旧 browser，迟到响应不回写',
+        seriesBrowserHost.hidden === true && seriesBrowserHost.children.length === 0);
 
     deferNextSeriesRequest = true;
     const staleSeriesRequest = seriesWindow.__testFetchSeriesPage('illust', 44, 1);

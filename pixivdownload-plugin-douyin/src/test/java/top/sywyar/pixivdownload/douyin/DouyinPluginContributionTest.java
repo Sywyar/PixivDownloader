@@ -183,10 +183,14 @@ class DouyinPluginContributionTest {
                 "/pixiv-douyin.html",
                 "/pixiv-douyin/douyin-core.js",
                 "/api/douyin/gallery/projections",
-                "/api/douyin/history/7351/media/0");
+                "/api/douyin/history/7351/media/0",
+                "/api/douyin/me/favorite-folders",
+                "/api/douyin/me/favorite-folders/folder-a/works");
 
         assertThat(routes.isDeclared("/api/douyin/resolve", HttpMethod.GET)).isTrue();
         assertThat(routes.resolve("/api/douyin/resolve", HttpMethod.GET))
+                .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+        assertThat(routes.resolve("/api/douyin/me/favorite-collections", HttpMethod.GET))
                 .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
         for (String path : adminGalleryPaths) {
             assertThat(routes.resolve(path, HttpMethod.GET))

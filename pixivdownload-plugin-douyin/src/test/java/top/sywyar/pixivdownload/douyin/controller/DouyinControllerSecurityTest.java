@@ -22,6 +22,8 @@ import top.sywyar.pixivdownload.douyin.model.DouyinDownloadRequest;
 import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderSummary;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.net.URI;
@@ -427,6 +429,64 @@ class DouyinControllerSecurityTest {
                 "\"nextCursor\":\"work-cursor-2\"", "\"hasMore\":true");
         verify(service).listSeriesWorksPage("mix-1", "work-cursor-1", 12, null);
         verify(service, never()).listAllSeriesWorks(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("自建收藏夹列表透明传递通用凭证与真实游标")
+    void pagesFavoriteFoldersWithGenericCredential() throws Exception {
+        when(service.listFavoriteFolders("folder-current", 12, "generic-cookie"))
+                .thenReturn(new DouyinFavoriteFolderListing(
+                        List.of(new DouyinFavoriteFolderSummary("folder-a", "收藏夹 A")),
+                        4, "folder-next", true));
+
+        var response = mockMvc.perform(get("/api/douyin/me/favorite-folders")
+                        .param("cursor", "folder-current")
+                        .param("pageSize", "12")
+                        .header(AcquisitionCredentialResolver.HEADER_NAME, " generic-cookie "))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"folders\":[{\"id\":\"folder-a\",\"title\":\"收藏夹 A\"}]",
+                "\"total\":4", "\"nextCursor\":\"folder-next\"", "\"hasMore\":true");
+        verify(service).listFavoriteFolders("folder-current", 12, "generic-cookie");
+    }
+
+    @Test
+    @DisplayName("自建收藏夹作品透明传递路径 ID、通用凭证与真实游标")
+    void pagesFavoriteFolderWorksWithGenericCredential() throws Exception {
+        when(service.listFavoriteFolderWorksPage(
+                "folder-a", "works-current", 12, "generic-cookie"))
+                .thenReturn(new DouyinListing(List.of(work("folder-work")),
+                        7, 1, 12, false, "收藏夹 A", "folder-a", null, "works-next", true));
+
+        var response = mockMvc.perform(get("/api/douyin/me/favorite-folders/folder-a/works")
+                        .param("cursor", "works-current")
+                        .param("pageSize", "12")
+                        .header(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"folderId\":\"folder-a\"", "\"works\":[{\"id\":\"folder-work\"",
+                "\"total\":7", "\"nextCursor\":\"works-next\"", "\"hasMore\":true");
+        verify(service).listFavoriteFolderWorksPage(
+                "folder-a", "works-current", 12, "generic-cookie");
+    }
+
+    @Test
+    @DisplayName("非 loopback HTTP 请求不得向自建收藏夹端点提交凭证")
+    void rejectsFavoriteFolderCredentialOverRemoteHttp() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.isSecure()).thenReturn(false);
+        when(request.getRemoteAddr()).thenReturn("203.0.113.10");
+        DouyinController controller = new DouyinController(service, setupService, multiModeConfig);
+
+        ResponseEntity<?> response = controller.favoriteFolders(
+                "0", 24, "sessionid=test", request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        verifyNoInteractions(service);
     }
 
     @Test

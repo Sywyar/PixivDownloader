@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.douyin.model.DouyinAccountSource;
 import top.sywyar.pixivdownload.douyin.model.DouyinCollectionListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
 
 public interface DouyinClient {
 
@@ -76,6 +77,19 @@ public interface DouyinClient {
                                                              int limit,
                                                              String cookie) throws DouyinClientException {
         throw unsupported("Douyin favorite collections are not available");
+    }
+
+    default DouyinFavoriteFolderListing listFavoriteFolders(String cursor,
+                                                             int limit,
+                                                             String cookie) throws DouyinClientException {
+        throw unsupported("Douyin favorite folders are not available");
+    }
+
+    default DouyinListing listFavoriteFolderWorksPage(String folderId,
+                                                       String cursor,
+                                                       int limit,
+                                                       String cookie) throws DouyinClientException {
+        throw unsupported("Douyin favorite folder works are not available");
     }
 
     private static DouyinClientException unsupported(String message) {

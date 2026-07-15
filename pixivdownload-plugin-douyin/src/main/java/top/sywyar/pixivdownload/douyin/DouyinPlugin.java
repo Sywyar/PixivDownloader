@@ -88,6 +88,8 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/pixiv-douyin/**"),
                 WebRouteContribution.admin("/api/douyin/gallery/**"),
                 WebRouteContribution.admin("/api/douyin/history/**"),
+                WebRouteContribution.admin("/api/douyin/me/favorite-folders"),
+                WebRouteContribution.admin("/api/douyin/me/favorite-folders/**"),
                 WebRouteContribution.visitor("/api/douyin/**"),
                 WebRouteContribution.visitor("/pixiv-douyin-download/**"));
     }

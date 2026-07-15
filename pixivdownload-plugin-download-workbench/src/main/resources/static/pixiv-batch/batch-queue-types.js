@@ -358,6 +358,11 @@ window.PixivBatch.queueTypes = (function () {
                 const dataSource = normalizeAcquisitionDataSource(contribution.dataSource, backend);
                 if (dataSource) contribution.dataSource = dataSource;
                 else delete contribution.dataSource;
+                if (mode === 'series') {
+                    const browser = normalizeSeriesBrowser(contribution.browser);
+                    if (browser) contribution.browser = browser;
+                    else delete contribution.browser;
+                }
                 acquisition[mode] = contribution;
             }
         });
@@ -444,6 +449,21 @@ window.PixivBatch.queueTypes = (function () {
             displayI18nKey: text(value.displayI18nKey || backend.displayI18nKey),
             order: Number.isFinite(rawOrder) ? rawOrder : backend.order
         });
+    }
+
+    function normalizeSeriesBrowser(value) {
+        if (!isPlainObject(value)) return null;
+        const required = ['buildPageRequest', 'readPage', 'itemId', 'itemLabel', 'select'];
+        if (!required.every(name => typeof value[name] === 'function')) return null;
+        const pageSize = Number(value.pageSize);
+        const out = {
+            initialCursor: text(value.initialCursor || '0'),
+            pageSize: Number.isSafeInteger(pageSize) && pageSize > 0 ? pageSize : 24
+        };
+        required.concat(['title', 'loadingLabel', 'emptyLabel']).forEach(name => {
+            if (typeof value[name] === 'function') out[name] = value[name];
+        });
+        return Object.freeze(out);
     }
 
     function declaredContributionMap(value, declaredKeys, acceptLegacyKeys) {

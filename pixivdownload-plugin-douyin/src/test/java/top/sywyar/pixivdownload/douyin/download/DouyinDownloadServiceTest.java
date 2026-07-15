@@ -28,10 +28,13 @@ import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderSummary;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceRequest;
+import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 
 import java.lang.reflect.RecordComponent;
 import java.net.URI;
@@ -210,14 +213,20 @@ class DouyinDownloadServiceTest {
         var first = service.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/" + workId, "", VALID_COOKIE,
                 null, null, null, null, null, null, null,
-                List.of(new DouyinSourceRequest(
-                        "douyin.search", "猫", "猫", "https://www.douyin.com/search/猫", 3))),
+                List.of(
+                        new DouyinSourceRequest(
+                                DouyinSourceTypes.SEARCH, "猫", "猫",
+                                "https://www.douyin.com/search/猫", 3),
+                        new DouyinSourceRequest(
+                                DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER,
+                                "folder-1", "收藏夹", null, 1))),
                 "owner-a");
         var second = service.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/" + workId, "", VALID_COOKIE,
                 null, null, null, null, null, null, null,
                 List.of(new DouyinSourceRequest(
-                        "douyin.user", "author-1", "Author", "https://www.douyin.com/user/author-1", 8))),
+                        DouyinSourceTypes.USER, "author-1", "Author",
+                        "https://www.douyin.com/user/author-1", 8))),
                 "owner-a");
 
         assertThat(second.id()).isEqualTo(first.id());
@@ -228,8 +237,10 @@ class DouyinDownloadServiceTest {
                 .extracting(DouyinSourceRelation::sourceType, DouyinSourceRelation::sourceId,
                         DouyinSourceRelation::sourceOrder)
                 .containsExactlyInAnyOrder(
-                        org.assertj.core.groups.Tuple.tuple("douyin.search", "猫", 3),
-                        org.assertj.core.groups.Tuple.tuple("douyin.user", "author-1", 8));
+                        org.assertj.core.groups.Tuple.tuple(DouyinSourceTypes.SEARCH, "猫", 3),
+                        org.assertj.core.groups.Tuple.tuple(
+                                DouyinSourceTypes.ACCOUNT_FAVORITE_FOLDER, "folder-1", 1),
+                        org.assertj.core.groups.Tuple.tuple(DouyinSourceTypes.USER, "author-1", 8));
     }
 
     @Test
@@ -633,6 +644,32 @@ class DouyinDownloadServiceTest {
         assertThat(client.lastSeriesPageCursor).isEqualTo("opaque-current");
         assertThat(client.lastSeriesPageSize).isEqualTo(100);
         assertThat(client.lastSeriesPageCookie).isEqualTo(VALID_COOKIE);
+    }
+
+    @Test
+    @DisplayName("自建收藏夹两层游标 API 薄透传 Cookie 并限制页大小")
+    void delegatesBoundedFavoriteFolderCursorApisToClient() throws Exception {
+        FakeClient client = new FakeClient();
+        client.favoriteFolderListing = new DouyinFavoriteFolderListing(
+                List.of(new DouyinFavoriteFolderSummary("folder-a", "收藏夹 A")),
+                1, "folder-next", true);
+        client.favoriteFolderWorksListing = new DouyinListing(List.of(FakeClient.work("folder-work")),
+                3, 1, 100, false, "收藏夹 A", "folder-a", null, "works-next", true);
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        var folders = service.listFavoriteFolders("folder-current", 500, VALID_COOKIE);
+        var works = service.listFavoriteFolderWorksPage(
+                "folder-a", "works-current", 500, VALID_COOKIE);
+
+        assertThat(folders.items()).extracting("id").containsExactly("folder-a");
+        assertThat(works.items()).extracting("id").containsExactly("folder-work");
+        assertThat(client.lastFavoriteFolderCursor).isEqualTo("folder-current");
+        assertThat(client.lastFavoriteFolderPageSize).isEqualTo(100);
+        assertThat(client.lastFavoriteFolderCookie).isEqualTo(VALID_COOKIE);
+        assertThat(client.lastFavoriteFolderWorksId).isEqualTo("folder-a");
+        assertThat(client.lastFavoriteFolderWorksCursor).isEqualTo("works-current");
+        assertThat(client.lastFavoriteFolderWorksPageSize).isEqualTo(100);
+        assertThat(client.lastFavoriteFolderWorksCookie).isEqualTo(VALID_COOKIE);
     }
 
     @Test
@@ -1047,6 +1084,15 @@ class DouyinDownloadServiceTest {
         private String lastSeriesPageCursor;
         private int lastSeriesPageSize;
         private String lastSeriesPageCookie;
+        private DouyinFavoriteFolderListing favoriteFolderListing;
+        private String lastFavoriteFolderCursor;
+        private int lastFavoriteFolderPageSize;
+        private String lastFavoriteFolderCookie;
+        private DouyinListing favoriteFolderWorksListing;
+        private String lastFavoriteFolderWorksId;
+        private String lastFavoriteFolderWorksCursor;
+        private int lastFavoriteFolderWorksPageSize;
+        private String lastFavoriteFolderWorksCookie;
         private List<DouyinListing> accountPages;
         private int accountResolveCalls;
         private int accountPageCalls;
@@ -1139,6 +1185,28 @@ class DouyinDownloadServiceTest {
             return seriesPageListing != null
                     ? seriesPageListing
                     : DouyinClient.super.listSeriesWorksPage(seriesId, cursor, limit, cookie);
+        }
+
+        @Override
+        public DouyinFavoriteFolderListing listFavoriteFolders(String cursor,
+                                                                int limit,
+                                                                String cookie) {
+            lastFavoriteFolderCursor = cursor;
+            lastFavoriteFolderPageSize = limit;
+            lastFavoriteFolderCookie = cookie;
+            return favoriteFolderListing;
+        }
+
+        @Override
+        public DouyinListing listFavoriteFolderWorksPage(String folderId,
+                                                          String cursor,
+                                                          int limit,
+                                                          String cookie) {
+            lastFavoriteFolderWorksId = folderId;
+            lastFavoriteFolderWorksCursor = cursor;
+            lastFavoriteFolderWorksPageSize = limit;
+            lastFavoriteFolderWorksCookie = cookie;
+            return favoriteFolderWorksListing;
         }
 
         @Override

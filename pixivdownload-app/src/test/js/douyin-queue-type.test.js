@@ -273,10 +273,11 @@ function ok(label, cond) {
     ok('Cookie 不再把 msToken/odin_tt 作为硬性字段',
         descriptor.cookie.validate('ttwid=tt; passport_csrf_token=csrf; sid_tt=sid').suggestedMissing
             .includes('msToken'));
-    ok('acquisition.series 可发现', typeof qt.acquisition('douyin', 'series').parseUrl === 'function');
+    const seriesAcquisition = qt.acquisition('douyin', 'series');
+    ok('acquisition.series 可发现', typeof seriesAcquisition.parseUrl === 'function');
     sandbox.localStorage.setItem('pixiv_douyin_cookie',
         'ttwid=tt; passport_csrf_token=csrf; sessionid=sid');
-    const seriesRequestInit = qt.acquisition('douyin', 'series').requestInit();
+    const seriesRequestInit = seriesAcquisition.requestInit();
     ok('Douyin series 预览请求保持同源凭据策略', seriesRequestInit.credentials === 'same-origin');
     ok('Douyin series 预览请求只携带中性取得凭证',
         seriesRequestInit.headers['X-Acquisition-Credential'].includes('passport_csrf_token=csrf')
@@ -286,6 +287,64 @@ function ok(label, cond) {
         .every(mode => qt.supports('douyin', mode)));
     ok('acquisition.search 提供真实关键词请求',
         qt.acquisition('douyin', 'search').buildRequest({word: '猫', page: 2}).params.word === '猫');
+    const favoriteFolderBrowser = seriesAcquisition.browser;
+    ok('系列来源贡献账号自建收藏夹浏览器', favoriteFolderBrowser
+        && favoriteFolderBrowser.initialCursor === '0'
+        && favoriteFolderBrowser.pageSize === 24
+        && typeof favoriteFolderBrowser.buildPageRequest === 'function'
+        && typeof favoriteFolderBrowser.readPage === 'function'
+        && typeof favoriteFolderBrowser.select === 'function');
+    const favoriteFolderRequest = favoriteFolderBrowser.buildPageRequest({
+        cursor: 'folder-cursor-2', page: 2, limit: 24
+    });
+    ok('收藏夹浏览器请求账号自建收藏夹 cursor 分页接口',
+        favoriteFolderRequest.endpoint === '/api/douyin/me/favorite-folders'
+        && favoriteFolderRequest.params.cursor === 'folder-cursor-2'
+        && favoriteFolderRequest.params.pageSize === 24);
+    const folderItem = {id: 'folder-7', title: 'Travel'};
+    const favoriteFolderPage = favoriteFolderBrowser.readPage({
+        folders: [folderItem], total: 25, nextCursor: 'folder-cursor-3', hasMore: true
+    });
+    const favoriteFolderSelection = favoriteFolderBrowser.select(folderItem);
+    ok('收藏夹浏览器读取 folders 并投影稳定 synthetic series identity',
+        favoriteFolderPage.items[0].id === 'folder-7'
+        && favoriteFolderPage.total === 25
+        && favoriteFolderPage.nextCursor === 'folder-cursor-3'
+        && favoriteFolderPage.hasMore === true
+        && favoriteFolderBrowser.itemId(folderItem) === 'folder-7'
+        && favoriteFolderBrowser.itemLabel(folderItem).includes('Travel')
+        && favoriteFolderSelection.seriesId === 'favorite-folder:folder-7'
+        && favoriteFolderSelection.seriesTitle === 'Travel');
+    ok('普通合集保持页码分页，收藏夹 synthetic id 切换为游标分页',
+        seriesAcquisition.paginationMode('mix-7') === 'page'
+        && seriesAcquisition.paginationMode('favorite-folder:folder-7') === 'cursor'
+        && seriesAcquisition.initialCursor('favorite-folder:folder-7') === '0');
+    const favoriteFolderWorksPath = seriesAcquisition.apiPath(
+        'favorite-folder:folder-7', 2, {cursor: 'works-cursor-2'});
+    ok('收藏夹作品使用 folder works cursor/pageSize 分页接口',
+        favoriteFolderWorksPath.includes('/api/douyin/me/favorite-folders/folder-7/works?')
+        && favoriteFolderWorksPath.includes('cursor=works-cursor-2')
+        && favoriteFolderWorksPath.includes('pageSize=24'));
+    const favoriteFolderWorksPage = seriesAcquisition.normalizePage({
+        folderId: 'folder-7', works: [{id: 'work-9'}], total: 31,
+        nextCursor: 'works-cursor-3', hasMore: true
+    }, {seriesId: 'favorite-folder:folder-7'});
+    ok('收藏夹作品响应归一化为宿主系列分页模型',
+        favoriteFolderWorksPage.items[0].id === 'work-9'
+        && favoriteFolderWorksPage.total === 31
+        && favoriteFolderWorksPage.nextCursor === 'works-cursor-3'
+        && favoriteFolderWorksPage.hasMore === true);
+    const favoriteFolderMeta = seriesAcquisition.buildQueueMeta({id: 'work-9'}, 4, {
+        seriesId: 'favorite-folder:folder-7', seriesTitle: 'Travel'
+    });
+    ok('收藏夹队列 meta 使用独立来源语义且不伪装为合集系列',
+        favoriteFolderMeta.typeData.sourceType === 'douyin.account.favorite-folder'
+        && favoriteFolderMeta.typeData.sourceId === 'folder-7'
+        && favoriteFolderMeta.typeData.sourceUrl == null
+        && favoriteFolderMeta.typeData.seriesId == null
+        && favoriteFolderMeta.typeData.seriesTitle === ''
+        && favoriteFolderMeta.seriesId == null
+        && favoriteFolderMeta.seriesTitle == null);
     const douyinQuickSource = qt.acquisition('douyin', 'quick').dataSource;
     ok('Douyin quick 由插件贡献独立且只读的数据来源元数据',
         douyinQuickSource.id === 'douyin'
@@ -320,11 +379,12 @@ function ok(label, cond) {
         + descriptor.slots['quick-actions-mine'];
     const quickButtonActions = Array.from(quickButtonsHtml.matchAll(/<button\b[^>]*data-quick="([^"]+)"[^>]*>/g),
         match => match[1]).sort();
-    ok('四个 Douyin quick button 都以可点击 button 贡献到宿主 slot',
+    ok('快捷获取仅保留作品入口，收藏合集按钮已迁出可见 slot',
         quickButtonActions.join(',') ===
-            'douyin-favorite-collections,douyin-favorites,douyin-liked,douyin-own-works'
-        && (quickButtonsHtml.match(/type="button"/g) || []).length === 4
-        && (quickButtonsHtml.match(/class="[^"]*quick-action[^"]*"/g) || []).length === 4
+            'douyin-favorites,douyin-liked,douyin-own-works'
+        && (quickButtonsHtml.match(/type="button"/g) || []).length === 3
+        && (quickButtonsHtml.match(/class="[^"]*quick-action[^"]*"/g) || []).length === 3
+        && !quickButtonsHtml.includes('data-quick="douyin-favorite-collections"')
         && !/\sdisabled(?:\s|=|>)/i.test(quickButtonsHtml));
     const userAcquisition = qt.acquisition('douyin', 'user');
     ok('acquisition.user 使用可选分页取得钩子且不再声明 ID + cards 预览路径',

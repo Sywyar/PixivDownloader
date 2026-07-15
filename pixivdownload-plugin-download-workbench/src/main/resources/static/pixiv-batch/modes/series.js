@@ -18,10 +18,14 @@
         items: [],      // 当前页经附加筛选后的成员（渲染 / 「加入当前页」据此）
         allItems: [],
         itemsByPage: new Map(),
+        pageCursors: new Map(),
         filterSummary: {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false},
         filterSeq: 0,
         requestSeq: 0,
         requestController: null,
+        browserIdentity: null,
+        browserSeq: 0,
+        browserController: null,
         renderToken: 0,
         activeBlobUrls: []
     };
@@ -82,6 +86,198 @@
             .filter(acquisition => seriesDataSourceDescriptor(acquisition).id === selected);
     }
 
+    function seriesSourceBrowserAcquisition() {
+        return selectedSeriesAcquisitions().find(acquisition => acquisition.browser) || null;
+    }
+
+    function seriesBrowserRequestUrl(spec) {
+        if (typeof spec === 'string') return spec;
+        if (!spec || typeof spec !== 'object') {
+            throw new Error('series browser request builder returned no request');
+        }
+        const endpoint = String(spec.endpoint || '');
+        const params = new URLSearchParams();
+        Object.entries(spec.params || {}).forEach(([key, value]) => {
+            if (Array.isArray(value)) value.forEach(item => params.append(key, item));
+            else if (value != null) params.append(key, value);
+        });
+        return endpoint + (params.toString() ? (endpoint.includes('?') ? '&' : '?') + params : '');
+    }
+
+    function invalidateSeriesBrowser() {
+        if (seriesState.browserController) {
+            try { seriesState.browserController.abort(); } catch (e) { /* best effort */ }
+        }
+        seriesState.browserController = typeof AbortController === 'function' ? new AbortController() : null;
+        seriesState.browserSeq += 1;
+    }
+
+    async function renderSeriesSourceBrowser(force = false) {
+        const host = document.getElementById('series-source-browser');
+        if (!host) return;
+        const acquisition = seriesSourceBrowserAcquisition();
+        const browser = acquisition && acquisition.browser;
+        const identity = acquisition
+            ? [seriesState.dataSourceId, acquisition.type, seriesOwnerIdentity(acquisition.type)].join(':')
+            : null;
+        if (!force && identity && identity === seriesState.browserIdentity && !host.hidden) return;
+
+        invalidateSeriesBrowser();
+        seriesState.browserIdentity = identity;
+        host.replaceChildren();
+        host.hidden = !browser;
+        if (!browser) return;
+
+        const sequence = seriesState.browserSeq;
+        const controller = seriesState.browserController;
+        const lease = window.PixivBatch.queueTypes.acquisitionLease(acquisition.type, 'series');
+        const isCurrent = () => sequence === seriesState.browserSeq
+            && controller === seriesState.browserController
+            && (!controller || !controller.signal.aborted)
+            && identity === seriesState.browserIdentity
+            && lease.isCurrent();
+        const assertCurrent = () => {
+            if (!isCurrent()) {
+                const error = new Error('series browser is stale');
+                error.code = 'STALE_SERIES_BROWSER';
+                throw error;
+            }
+        };
+
+        const heading = document.createElement('div');
+        heading.className = 'series-source-browser-title';
+        heading.textContent = typeof browser.title === 'function'
+            ? browser.title() : bt('series.browser.title', '浏览当前数据来源');
+        const status = document.createElement('div');
+        status.className = 'series-source-browser-status';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        const list = document.createElement('div');
+        list.className = 'series-source-browser-list';
+        const navigation = document.createElement('div');
+        navigation.className = 'series-source-browser-navigation';
+        host.appendChild(heading);
+        host.appendChild(status);
+        host.appendChild(list);
+        host.appendChild(navigation);
+
+        const cursors = new Map([[1, String(browser.initialCursor || '0')]]);
+        let currentPage = 1;
+        let currentHasMore = false;
+
+        const renderNavigation = () => {
+            navigation.replaceChildren();
+            const previous = document.createElement('button');
+            previous.type = 'button';
+            previous.className = 'btn btn-gray';
+            previous.textContent = bt('series.browser.previous', '上一页');
+            previous.disabled = currentPage <= 1;
+            const page = document.createElement('span');
+            page.textContent = bt('series.browser.page', '第 {page} 页', {page: currentPage});
+            const next = document.createElement('button');
+            next.type = 'button';
+            next.className = 'btn btn-gray';
+            next.textContent = bt('series.browser.next', '下一页');
+            next.disabled = !currentHasMore || !cursors.has(currentPage + 1);
+            previous.addEventListener('click', () => loadPage(currentPage - 1));
+            next.addEventListener('click', () => loadPage(currentPage + 1));
+            navigation.appendChild(previous);
+            navigation.appendChild(page);
+            navigation.appendChild(next);
+        };
+
+        const renderItems = page => {
+            list.replaceChildren();
+            const items = Array.isArray(page.items) ? page.items : [];
+            if (!items.length) {
+                status.textContent = typeof browser.emptyLabel === 'function'
+                    ? browser.emptyLabel() : bt('series.browser.empty', '当前没有可浏览项目');
+                return;
+            }
+            status.textContent = '';
+            items.forEach(item => {
+                const id = String(browser.itemId(item) || '').trim();
+                if (!id) return;
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'series-source-browser-item';
+                button.textContent = String(browser.itemLabel(item) || id);
+                button.addEventListener('click', async () => {
+                    try {
+                        assertCurrent();
+                        const selection = await browser.select(item);
+                        assertCurrent();
+                        await loadSeriesSelection(acquisition.type, selection);
+                    } catch (error) {
+                        if (!isCurrent()) return;
+                        setStatus(bt('status.series-load-failed', '加载失败：{message}', {
+                            message: error && error.message ? error.message : String(error)
+                        }), 'error');
+                    }
+                });
+                list.appendChild(button);
+            });
+        };
+
+        const loadPage = async page => {
+            const targetPage = Math.max(1, Number(page) || 1);
+            const cursor = cursors.get(targetPage);
+            if (cursor == null) return;
+            status.textContent = typeof browser.loadingLabel === 'function'
+                ? browser.loadingLabel() : bt('series.browser.loading', '正在加载可浏览列表...');
+            list.replaceChildren();
+            navigation.replaceChildren();
+            try {
+                assertCurrent();
+                const requestSpec = browser.buildPageRequest({
+                    cursor,
+                    page: targetPage,
+                    limit: browser.pageSize,
+                    signal: controller && controller.signal
+                });
+                const request = window.PixivBatch.queueTypes.prepareAcquisitionRequest(
+                    acquisition.type, 'series', seriesBrowserRequestUrl(requestSpec), 'browser', {
+                        cursor, page: targetPage, limit: browser.pageSize
+                    });
+                const scope = seriesSignalScope([controller && controller.signal, request.signal]);
+                let raw;
+                try {
+                    const response = await fetch(request.url, Object.assign({}, request.init, {signal: scope.signal}));
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        request.assertCurrent();
+                        throw new Error(data.error || `HTTP ${response.status}`);
+                    }
+                    raw = await response.json();
+                } finally {
+                    scope.dispose();
+                }
+                request.assertCurrent();
+                assertCurrent();
+                const result = browser.readPage(raw, {cursor, page: targetPage, limit: browser.pageSize}) || {};
+                assertCurrent();
+                const nextCursor = result.nextCursor == null ? '' : String(result.nextCursor);
+                if (result.hasMore === true && (!nextCursor || nextCursor === cursor)) {
+                    throw new Error(bt('series.pagination.cursor-stalled', '数据来源分页游标未推进'));
+                }
+                currentPage = targetPage;
+                currentHasMore = result.hasMore === true && !!nextCursor;
+                if (currentHasMore) cursors.set(targetPage + 1, nextCursor);
+                else cursors.delete(targetPage + 1);
+                renderItems(result);
+                renderNavigation();
+            } catch (error) {
+                if (!isCurrent()) return;
+                status.textContent = bt('series.browser.load-failed', '加载列表失败：{message}', {
+                    message: error && error.message ? error.message : String(error)
+                });
+                renderNavigation();
+            }
+        };
+
+        await loadPage(1);
+    }
+
     function applySeriesDataSourceUi(sources = seriesDataSources()) {
         const activeId = seriesState.dataSourceId;
         document.querySelectorAll('#series-data-source-switcher label').forEach(label => {
@@ -127,6 +323,9 @@
         });
         if (typeof pageI18n !== 'undefined' && pageI18n) pageI18n.apply(switcher);
         applySeriesDataSourceUi(sources);
+        renderSeriesSourceBrowser().catch(error => {
+            console.warn('[series] source browser render failed:', error);
+        });
         return previousId != null && previousId !== seriesState.dataSourceId;
     }
 
@@ -251,6 +450,9 @@
         seriesState.dataSourceId = requested;
         applySeriesDataSourceUi(sources);
         if (resetView) clearSeriesPreview(null, true);
+        renderSeriesSourceBrowser(true).catch(error => {
+            console.warn('[series] source browser render failed:', error);
+        });
         return true;
     }
 
@@ -273,6 +475,7 @@
         seriesState.items = [];
         seriesState.allItems = [];
         seriesState.itemsByPage = new Map();
+        seriesState.pageCursors = new Map();
         seriesState.filterSummary = {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false};
         seriesState.filterSeq += 1;
         seriesState.renderToken += 1;
@@ -305,7 +508,26 @@
         if (!acq || seriesDataSourceDescriptor(acq, kind).id !== seriesState.dataSourceId) {
             throw new Error('series acquisition is unavailable for selected data source');
         }
-        return acq.apiPath(seriesId, page);
+        return acq.apiPath(seriesId, page, {
+            cursor: seriesState.pageCursors.get(page),
+            seriesTitle: seriesState.seriesTitle,
+            limit: getSeriesPageSize(kind)
+        });
+    }
+
+    function seriesPaginationMode(acq = seriesAcq()) {
+        if (!acq || typeof acq.paginationMode !== 'function') return 'page';
+        return acq.paginationMode(seriesState.seriesId) === 'cursor' ? 'cursor' : 'page';
+    }
+
+    function initializeSeriesPageCursors() {
+        seriesState.pageCursors = new Map();
+        const acq = seriesAcq();
+        if (!acq || seriesPaginationMode(acq) !== 'cursor') return;
+        const raw = typeof acq.initialCursor === 'function'
+            ? acq.initialCursor(seriesState.seriesId)
+            : acq.initialCursor;
+        seriesState.pageCursors.set(1, String(raw == null ? '0' : raw));
     }
 
     function dedupeSeriesItems(items) {
@@ -357,6 +579,21 @@
                 ? page
                 : Math.max(seriesState.totalPages || 1, page + 1);
         }
+        if (seriesPaginationMode() === 'cursor') {
+            const currentCursor = seriesState.pageCursors.get(page);
+            const nextCursor = data.nextCursor == null ? '' : String(data.nextCursor);
+            const hasMore = data.hasMore === true && data.isLastPage !== true;
+            if (hasMore && (!nextCursor || nextCursor === currentCursor)) {
+                throw new Error(bt('series.pagination.cursor-stalled', '数据来源分页游标未推进'));
+            }
+            if (hasMore) {
+                seriesState.pageCursors.set(page + 1, nextCursor);
+                seriesState.totalPages = Math.max(seriesState.totalPages || 1, page + 1);
+            } else {
+                seriesState.pageCursors.delete(page + 1);
+                seriesState.totalPages = page;
+            }
+        }
         seriesState.itemsByPage.set(page, items);
         if (activate) {
             seriesState.currentPage = page;
@@ -366,12 +603,22 @@
         rebuildSeriesAllItems();
     }
 
-    async function fetchSeriesPage(page, operation) {
+    async function fetchSeriesPageRequest(page, operation) {
         const acq = seriesAcq();
         if (!acq) throw new Error('series acquisition is unavailable for selected data source');
-        const apiPath = acq.apiPath(seriesState.seriesId, page);
+        const cursor = seriesState.pageCursors.get(page);
+        if (seriesPaginationMode(acq) === 'cursor' && cursor == null) {
+            throw new Error(bt('series.pagination.cursor-missing', '无法继续当前数据来源的第 {page} 页请求', {page}));
+        }
+        const apiPath = buildSeriesApiPath(seriesState.seriesId, page);
         const request = window.PixivBatch.queueTypes.prepareAcquisitionRequest(
-            seriesState.kind, 'series', apiPath, 'page', {seriesId: seriesState.seriesId, page});
+            seriesState.kind, 'series', apiPath, 'page', {
+                seriesId: seriesState.seriesId,
+                seriesTitle: seriesState.seriesTitle,
+                cursor,
+                limit: getSeriesPageSize(),
+                page
+            });
         return runWithSeriesSignals(operation, request.signal, async signal => {
             const res = await fetch(request.url, Object.assign({}, request.init, {signal}));
             if (!res.ok) {
@@ -379,10 +626,36 @@
                 request.assertCurrent();
                 throw new Error(data.error || `HTTP ${res.status}`);
             }
-            const data = await res.json();
+            const raw = await res.json();
             request.assertCurrent();
-            return data;
+            if (typeof acq.normalizePage !== 'function') return raw;
+            return acq.normalizePage(raw, {
+                seriesId: seriesState.seriesId,
+                seriesTitle: seriesState.seriesTitle,
+                cursor,
+                limit: getSeriesPageSize(),
+                page
+            });
         });
+    }
+
+    async function fetchSeriesPage(page, operation) {
+        const targetPage = Math.max(1, Number(page) || 1);
+        if (seriesPaginationMode() === 'cursor' && !seriesState.pageCursors.has(targetPage)) {
+            for (let cursorPage = 1; cursorPage < targetPage; cursorPage += 1) {
+                operation.assertCurrent();
+                if (seriesState.pageCursors.has(cursorPage + 1)) continue;
+                if (!seriesState.pageCursors.has(cursorPage)) {
+                    throw new Error(bt('series.pagination.cursor-missing', '无法继续当前数据来源的第 {page} 页请求', {
+                        page: cursorPage
+                    }));
+                }
+                const data = await fetchSeriesPageRequest(cursorPage, operation);
+                operation.assertCurrent();
+                cacheSeriesPageData(data, cursorPage, false);
+            }
+        }
+        return fetchSeriesPageRequest(targetPage, operation);
     }
 
     function setSeriesLoading(message) {
@@ -448,23 +721,18 @@
         }
     }
 
-    async function loadSeriesPreview() {
-        renderSeriesDataSourceSwitcher();
-        const input = document.getElementById('series-input-url');
-        const parsed = parseSeriesInput(input.value);
-        if (!parsed) {
-            setStatus(bt('status.series-url-invalid', '请输入当前数据来源支持的系列、合集或关联作品 URL'), 'error');
-            return;
-        }
-        const nextKind = parsed.type;
-        resetSeriesState(nextKind);
+    async function loadSeriesSelection(nextKind, selection) {
+        const parsed = selection && typeof selection === 'object' ? selection : null;
+        if (!parsed) throw new Error(bt('status.series-url-invalid', '请输入当前数据来源支持的系列、合集或关联作品 URL'));
+        const selectedKind = parsed.type || nextKind;
+        resetSeriesState(selectedKind);
         const operation = beginSeriesOperation();
         const requestSeq = operation.sequence;
         document.getElementById('series-results-area').innerHTML =
             `<div style="color:#888;text-align:center;padding:24px 0;">${esc(bt('status.series-loading', '正在加载系列信息...'))}</div>`;
         document.getElementById('series-meta-display').textContent = '';
         updateSeriesQueueButtons(true);
-        const lease = window.PixivBatch.queueTypes.acquisitionLease(nextKind, 'series');
+        const lease = window.PixivBatch.queueTypes.acquisitionLease(selectedKind, 'series');
         try {
             // 直接给出系列 id 的用直接值；只给作品 id 的按该类型的 resolveSeriesId 解析其所属系列。
             let seriesId = parsed.seriesId;
@@ -477,10 +745,14 @@
             }
             lease.assertCurrent();
             operation.assertCurrent();
-            seriesState.kind = nextKind;
-            seriesState.ownerIdentity = seriesOwnerIdentity(nextKind);
+            if (seriesId == null || String(seriesId).trim() === '') {
+                throw new Error(bt('status.series-url-invalid', '请输入当前数据来源支持的系列、合集或关联作品 URL'));
+            }
+            seriesState.kind = selectedKind;
+            seriesState.ownerIdentity = seriesOwnerIdentity(selectedKind);
             seriesState.seriesId = seriesId;
-            seriesState.seriesTitle = String(seriesId);
+            seriesState.seriesTitle = parsed.seriesTitle || String(seriesId);
+            initializeSeriesPageCursors();
             await loadSeriesPreviewPage(1, operation);
             if (!operation.isCurrent()) return;
             applyNovelSettingsVisibility();
@@ -494,6 +766,17 @@
             updateSeriesQueueButtons();
             setStatus(bt('status.series-load-failed', '加载失败：{message}', {message: e.message}), 'error');
         }
+    }
+
+    async function loadSeriesPreview() {
+        renderSeriesDataSourceSwitcher();
+        const input = document.getElementById('series-input-url');
+        const parsed = parseSeriesInput(input.value);
+        if (!parsed) {
+            setStatus(bt('status.series-url-invalid', '请输入当前数据来源支持的系列、合集或关联作品 URL'), 'error');
+            return;
+        }
+        return loadSeriesSelection(parsed.type, parsed);
     }
 
     // 系列预览的实时附加筛选：对当前页 rawItems 套同一套 matchSearchFilters，结果写回 items 再渲染。
@@ -556,7 +839,10 @@
         const authorPart = seriesState.seriesAuthorName
             ? bt('series.meta.author', '作者：{name}', {name: seriesState.seriesAuthorName})
             : '';
-        const typePart = acq.typeLabel();
+        const typePart = acq.typeLabel({
+            seriesId: seriesState.seriesId,
+            seriesTitle: seriesState.seriesTitle
+        });
         const pagePart = seriesState.totalPages > 1
             ? bt('series.meta.page', '第 {current} / {total} 页', {
                 current: seriesState.currentPage,

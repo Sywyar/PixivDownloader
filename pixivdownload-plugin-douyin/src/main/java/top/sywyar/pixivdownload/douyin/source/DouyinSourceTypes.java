@@ -10,6 +10,7 @@ public final class DouyinSourceTypes {
     public static final String ACCOUNT_OWN_WORKS = "douyin.account.own-works";
     public static final String ACCOUNT_LIKED_WORKS = "douyin.account.liked-works";
     public static final String ACCOUNT_FAVORITE_WORKS = "douyin.account.favorite-works";
+    public static final String ACCOUNT_FAVORITE_FOLDER = "douyin.account.favorite-folder";
     public static final String ACCOUNT_FAVORITE_COLLECTION = "douyin.account.favorite-collection";
 
     private DouyinSourceTypes() {

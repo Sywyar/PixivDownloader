@@ -30,6 +30,8 @@ import top.sywyar.pixivdownload.douyin.model.DouyinListing;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedView;
 import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderSummary;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.setup.SetupService;
 
@@ -349,6 +351,50 @@ public class DouyinController {
         }
     }
 
+    @GetMapping("/me/favorite-folders")
+    public ResponseEntity<?> favoriteFolders(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "24") int pageSize,
+            @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            requirePreviewPageSize(pageSize);
+            String safeCursor = requiredCursor(cursor);
+            DouyinFavoriteFolderListing listing = downloadService
+                    .listFavoriteFolders(safeCursor, pageSize, cookie);
+            return ResponseEntity.ok(new FavoriteFoldersView(
+                    listing.items().stream().map(FavoriteFolderView::from).toList(),
+                    listing.total(), listing.nextCursor(), listing.hasMore()));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
+    @GetMapping("/me/favorite-folders/{folderId}/works")
+    public ResponseEntity<?> favoriteFolderWorks(
+            @PathVariable String folderId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "24") int pageSize,
+            @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            requirePreviewPageSize(pageSize);
+            String safeCursor = requiredCursor(cursor);
+            DouyinListing listing = downloadService
+                    .listFavoriteFolderWorksPage(folderId, safeCursor, pageSize, cookie);
+            return ResponseEntity.ok(new FavoriteFolderWorksView(
+                    folderId,
+                    listing.items().stream().map(DouyinWorkView::from).toList(),
+                    listing.total(), listing.nextCursor(), listing.hasMore()));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
     private static DouyinAccountSource parseAccountSource(String source) throws DouyinClientException {
         return switch (source == null ? "" : source.trim().toLowerCase(java.util.Locale.ROOT)) {
             case "works", "own-works" -> DouyinAccountSource.OWN_WORKS;
@@ -549,5 +595,24 @@ public class DouyinController {
                                       int total,
                                       String nextCursor,
                                       boolean hasMore) {
+    }
+
+    public record FavoriteFolderView(String id, String title) {
+        static FavoriteFolderView from(DouyinFavoriteFolderSummary item) {
+            return new FavoriteFolderView(item.id(), item.title());
+        }
+    }
+
+    public record FavoriteFoldersView(List<FavoriteFolderView> folders,
+                                      int total,
+                                      String nextCursor,
+                                      boolean hasMore) {
+    }
+
+    public record FavoriteFolderWorksView(String folderId,
+                                          List<DouyinWorkView> works,
+                                          int total,
+                                          String nextCursor,
+                                          boolean hasMore) {
     }
 }

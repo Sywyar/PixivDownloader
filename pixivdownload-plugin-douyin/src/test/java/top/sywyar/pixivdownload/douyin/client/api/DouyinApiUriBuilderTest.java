@@ -50,15 +50,19 @@ class DouyinApiUriBuilderTest {
     }
 
     @Test
-    @DisplayName("收藏相关接口使用示例项目的 17.4.0 请求配置")
+    @DisplayName("自建收藏夹两层接口使用示例项目的 17.4.0 请求配置")
     void appliesCollectRequestProfile() {
-        var uri = new DouyinApiUriBuilder().api("/aweme/v1/web/collects/video/list/",
-                Map.of("collects_id", "folder-1", "cursor", 0, "count", 10),
-                "msToken=fromCookie");
+        for (String path : java.util.List.of(
+                "/aweme/v1/web/collects/list/",
+                "/aweme/v1/web/collects/video/list/")) {
+            var uri = new DouyinApiUriBuilder().api(path,
+                    Map.of("collects_id", "folder-1", "cursor", 0, "count", 10),
+                    "msToken=fromCookie");
 
-        assertThat(uri.getRawQuery())
-                .contains("version_code=170400", "version_name=17.4.0")
-                .doesNotContain("version_code=290100", "version_name=29.1.0");
+            assertThat(uri.getRawQuery())
+                    .contains("version_code=170400", "version_name=17.4.0")
+                    .doesNotContain("version_code=290100", "version_name=29.1.0");
+        }
     }
 
     @Test

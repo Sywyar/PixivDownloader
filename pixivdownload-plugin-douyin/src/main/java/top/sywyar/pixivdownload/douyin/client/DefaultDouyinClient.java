@@ -26,6 +26,8 @@ import top.sywyar.pixivdownload.douyin.model.DouyinParsedInput;
 import top.sywyar.pixivdownload.douyin.model.DouyinParsedKind;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
+import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderSummary;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 
 import java.net.URI;
@@ -438,6 +440,61 @@ public class DefaultDouyinClient implements DouyinClient {
         }
         int total = exactOrEstimatedTotal(root, items.size(), parseCursorNumber(currentCursor), hasMore);
         return new DouyinCollectionListing(items, total, next, hasMore);
+    }
+
+    @Override
+    public DouyinFavoriteFolderListing listFavoriteFolders(String cursor,
+                                                            int limit,
+                                                            String cookie) throws DouyinClientException {
+        int safeLimit = positivePageSize(limit);
+        String currentCursor = normalizeCursor(cursor);
+        JsonNode root = fetchApiJson("/aweme/v1/web/collects/list/", params(
+                "cursor", currentCursor,
+                "count", safeLimit), cookie);
+        ensureSuccessful(root, "Douyin favorite folder listing");
+        JsonNode candidates = requireRecognizedArray(root,
+                "Douyin favorite folder response", "collects_list", "collect_list", "items", "data");
+        LinkedHashMap<String, DouyinFavoriteFolderSummary> folders = new LinkedHashMap<>();
+        for (JsonNode raw : candidates) {
+            JsonNode folder = raw.path("collects_info").isObject()
+                    ? raw.path("collects_info") : raw;
+            String id = firstText(folder, "collects_id", "collects_id_str", "id");
+            if (id == null) {
+                continue;
+            }
+            folders.putIfAbsent(id, new DouyinFavoriteFolderSummary(
+                    id, blankToDefault(firstText(folder, "collects_name", "name", "title"), id)));
+        }
+        if (!candidates.isEmpty() && folders.isEmpty()) {
+            throw new DouyinClientException(
+                    DouyinClientErrorCode.RESPONSE_CANDIDATES_FILTERED,
+                    "Douyin favorite folder candidates did not contain a stable folder id");
+        }
+        boolean hasMore = hasMore(root);
+        String next = cursorValue(root, "cursor", "max_cursor");
+        if (hasMore && (next.isBlank() || currentCursor.equals(next))) {
+            throw paginationStalled("favorite-folders", currentCursor);
+        }
+        int total = exactOrEstimatedTotal(root, folders.size(), parseCursorNumber(currentCursor), hasMore);
+        return new DouyinFavoriteFolderListing(List.copyOf(folders.values()), total, next, hasMore);
+    }
+
+    @Override
+    public DouyinListing listFavoriteFolderWorksPage(String folderId,
+                                                      String cursor,
+                                                      int limit,
+                                                      String cookie) throws DouyinClientException {
+        String stableFolderId = requireStableId(folderId, "Douyin favorite folder id is required");
+        int safeLimit = positivePageSize(limit);
+        String currentCursor = normalizeCursor(cursor);
+        JsonNode root = fetchApiJson("/aweme/v1/web/collects/video/list/", params(
+                "collects_id", stableFolderId,
+                "cursor", currentCursor,
+                "count", safeLimit), cookie);
+        DouyinListing listing = workListing(root, 1, safeLimit,
+                new ListingContext(stableFolderId, null, stableFolderId, null),
+                "cursor", "aweme_list", "items", "data");
+        return requireAdvancingCursor(stableFolderId, currentCursor, listing);
     }
 
     private DouyinListing collectLogicalSlice(String ownerId,

@@ -188,7 +188,11 @@ function ok(label, cond) {
     });
     const seriesSourceKeys = [
         'series.data-source.label', 'series.data-source.pixiv',
-        'input.series.placeholder', 'status.series-empty', 'status.series-url-invalid'
+        'input.series.placeholder', 'status.series-empty', 'status.series-url-invalid',
+        'series.browser.title', 'series.browser.loading', 'series.browser.empty',
+        'series.browser.previous', 'series.browser.next', 'series.browser.page',
+        'series.browser.load-failed', 'series.pagination.cursor-stalled',
+        'series.pagination.cursor-missing'
     ];
     seriesSourceKeys.forEach(key => {
         ok('中文 batch bundle 提供系列来源文案: ' + key, zhKeys.has(key));
@@ -198,9 +202,15 @@ function ok(label, cond) {
         HTML.includes('data-i18n="series.data-source.label"')
         && HTML.includes('data-i18n-placeholder="input.series.placeholder"')
         && HTML.includes('data-i18n="status.series-empty"'));
-    ok('Douyin 中英文 bundle 均提供系列来源名称',
-        douyinZhKeys.has('series.data-source.douyin')
-        && douyinEnKeys.has('series.data-source.douyin'));
+    const douyinSeriesKeys = [
+        'series.data-source.douyin', 'series.browser.favorite-folders',
+        'series.browser.favorite-folders.loading', 'series.browser.favorite-folders.empty',
+        'series.browser.favorite-folders.item', 'series.type.favorite-folder'
+    ];
+    douyinSeriesKeys.forEach(key => {
+        ok('Douyin 中文 bundle 提供收藏夹系列文案: ' + key, douyinZhKeys.has(key));
+        ok('Douyin 英文 bundle 提供收藏夹系列文案: ' + key, douyinEnKeys.has(key));
+    });
 
     console.log(`\nbatch-core-i18n.test.js: ${passed} assertions passed`);
 })().catch(err => {

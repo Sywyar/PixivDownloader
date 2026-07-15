@@ -49,5 +49,11 @@ class DouyinEndpointRequestPolicyTest {
                     assertThat(policy.method()).isEqualTo(HttpMethod.GET);
                     assertThat(policy.requiresSignature()).isTrue();
                 });
+        assertThat(DouyinEndpointRequestPolicy.forPath(
+                "/aweme/v1/web/collects/list/"))
+                .isEqualTo(DouyinEndpointRequestPolicy.SIGNED_GET);
+        assertThat(DouyinEndpointRequestPolicy.forPath(
+                "/aweme/v1/web/collects/video/list/"))
+                .isEqualTo(DouyinEndpointRequestPolicy.SIGNED_GET);
     }
 }

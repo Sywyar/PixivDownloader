@@ -25,6 +25,7 @@ function bindDouyinEvent(target, eventName, handler) {
 }
 
 const DOUYIN_PAGE_SIZE = 24;
+const DOUYIN_FAVORITE_FOLDER_SERIES_PREFIX = 'favorite-folder:';
 const DOUYIN_COOKIE_REQUIRED_KEYS = ['ttwid', 'passport_csrf_token'];
 const DOUYIN_COOKIE_SESSION_KEYS = ['sessionid', 'sessionid_ss', 'sid_tt', 'sid_guard'];
 const DOUYIN_COOKIE_SESSION_LABEL = 'sessionid / sessionid_ss / sid_tt / sid_guard';
@@ -702,6 +703,24 @@ function douyinFavoriteCollectionWorksEndpoint(collectionId, context) {
     return `/api/douyin/me/favorite-collections/${encodeURIComponent(collectionId)}/works?${params}`;
 }
 
+function douyinFavoriteFolderWorksEndpoint(folderId, context) {
+    const params = new URLSearchParams();
+    params.set('cursor', String(context.cursor == null ? '0' : context.cursor));
+    params.set('pageSize', String(context.limit || DOUYIN_PAGE_SIZE));
+    return `/api/douyin/me/favorite-folders/${encodeURIComponent(folderId)}/works?${params}`;
+}
+
+function douyinFavoriteFolderSeriesId(folderId) {
+    return DOUYIN_FAVORITE_FOLDER_SERIES_PREFIX + String(folderId || '');
+}
+
+function douyinFavoriteFolderId(seriesId) {
+    const value = String(seriesId || '');
+    if (!value.startsWith(DOUYIN_FAVORITE_FOLDER_SERIES_PREFIX)) return null;
+    const folderId = value.substring(DOUYIN_FAVORITE_FOLDER_SERIES_PREFIX.length);
+    return folderId || null;
+}
+
 async function loadQuickDouyinFavoriteCollections(page, context) {
     douyinAssertQuickActionContext(context);
     const source = 'favorite-collections';
@@ -780,9 +799,7 @@ const DOUYIN_SLOTS = {
         '<button type="button" class="btn btn-blue quick-action" data-quick="douyin-liked" onclick="quickLoad(\'douyin-liked\')" ' +
         'data-i18n="douyin:quick.liked">Liked works</button>' +
         '<button type="button" class="btn btn-purple quick-action" data-quick="douyin-favorites" onclick="quickLoad(\'douyin-favorites\')" ' +
-        'data-i18n="douyin:quick.favorites">Favorite works</button>' +
-        '<button type="button" class="btn btn-yellow quick-action" data-quick="douyin-favorite-collections" onclick="quickLoad(\'douyin-favorite-collections\')" ' +
-        'data-i18n="douyin:quick.favorite-collections">Favorite collections</button>',
+        'data-i18n="douyin:quick.favorites">Favorite works</button>',
     'quick-actions-mine':
         '<button type="button" class="btn btn-green quick-action" data-quick="douyin-own-works" onclick="quickLoad(\'douyin-own-works\')" ' +
         'data-i18n="douyin:quick.own-works">My works</button>',
@@ -1000,16 +1017,85 @@ const DOUYIN_DESCRIPTOR = {
                 displayI18nKey: 'series.data-source.douyin',
                 order: 20
             },
+            browser: {
+                initialCursor: '0',
+                pageSize: DOUYIN_PAGE_SIZE,
+                title() {
+                    return douyinText('series.browser.favorite-folders', 'My favorite folders');
+                },
+                loadingLabel() {
+                    return douyinText('series.browser.favorite-folders.loading', 'Loading favorite folders...');
+                },
+                emptyLabel() {
+                    return douyinText('series.browser.favorite-folders.empty', 'No favorite folders are available');
+                },
+                buildPageRequest(context = {}) {
+                    const cursor = context.cursor == null ? '0' : String(context.cursor);
+                    const pageSize = Number(context.limit) || DOUYIN_PAGE_SIZE;
+                    return {
+                        endpoint: '/api/douyin/me/favorite-folders',
+                        params: {cursor, pageSize}
+                    };
+                },
+                readPage(data) {
+                    return {
+                        items: Array.isArray(data && data.folders) ? data.folders : [],
+                        total: Number(data && data.total) || 0,
+                        nextCursor: data && data.nextCursor,
+                        hasMore: !!(data && data.hasMore)
+                    };
+                },
+                itemId(item) { return item && item.id; },
+                itemLabel(item) {
+                    const id = item && item.id ? String(item.id) : '';
+                    const title = item && item.title ? String(item.title) : id;
+                    return douyinText('series.browser.favorite-folders.item', '{title} (ID {id})', {title, id});
+                },
+                select(item) {
+                    const id = item && item.id ? String(item.id) : '';
+                    return {
+                        seriesId: douyinFavoriteFolderSeriesId(id),
+                        seriesTitle: item && item.title ? String(item.title) : id
+                    };
+                }
+            },
             pageSize: DOUYIN_PAGE_SIZE,
             requestInit() {
                 return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
             },
-            apiPath(seriesId, page) {
+            paginationMode(seriesId) {
+                return douyinFavoriteFolderId(seriesId) ? 'cursor' : 'page';
+            },
+            initialCursor(seriesId) {
+                return douyinFavoriteFolderId(seriesId) ? '0' : null;
+            },
+            apiPath(seriesId, page, context = {}) {
+                const favoriteFolderId = douyinFavoriteFolderId(seriesId);
+                if (favoriteFolderId) {
+                    return douyinFavoriteFolderWorksEndpoint(favoriteFolderId, context);
+                }
                 if (String(seriesId).startsWith('music:')) {
                     const musicId = String(seriesId).substring('music:'.length);
                     return `/api/douyin/music/${encodeURIComponent(musicId)}?page=${page}&pageSize=${DOUYIN_PAGE_SIZE}`;
                 }
                 return `/api/douyin/series/${encodeURIComponent(seriesId)}?page=${page}&pageSize=${DOUYIN_PAGE_SIZE}`;
+            },
+            normalizePage(data, context = {}) {
+                const favoriteFolderId = douyinFavoriteFolderId(context.seriesId);
+                if (!favoriteFolderId) return data;
+                const total = Number(data && data.total);
+                return {
+                    series: {
+                        title: context.seriesTitle || favoriteFolderId,
+                        total: Number.isFinite(total) && total >= 0 ? Math.floor(total) : 0
+                    },
+                    total: Number.isFinite(total) && total >= 0 ? Math.floor(total) : 0,
+                    items: Array.isArray(data && data.works) ? data.works : [],
+                    page: Math.max(1, Number(context.page) || 1),
+                    isLastPage: !(data && data.hasMore),
+                    nextCursor: data && data.nextCursor,
+                    hasMore: !!(data && data.hasMore)
+                };
             },
             parseUrl(text) {
                 const parsed = douyinParseInput(text);
@@ -1017,24 +1103,32 @@ const DOUYIN_DESCRIPTOR = {
                 if (parsed && parsed.kind === 'music') return {seriesId: `music:${parsed.musicId}`};
                 return null;
             },
-            typeLabel() { return douyinText('series.type', 'Douyin collection'); },
+            typeLabel(context = {}) {
+                return douyinFavoriteFolderId(context.seriesId)
+                    ? douyinText('series.type.favorite-folder', 'Douyin favorite folder')
+                    : douyinText('series.type', 'Douyin collection');
+            },
             queueId: douyinQueueId,
             cardId(idx) { return douyinCardId('series', idx); },
             queueSource: 'series-douyin',
             render: renderDouyinSeriesResults,
             buildQueueMeta(item, seriesOrder, ctx) {
+                const favoriteFolderId = douyinFavoriteFolderId(ctx.seriesId);
                 const meta = Object.assign(douyinQueueMeta(item), {
-                    seriesId: ctx.seriesId,
+                    seriesId: favoriteFolderId ? null : ctx.seriesId,
                     seriesOrder,
-                    seriesTitle: ctx.seriesTitle
+                    seriesTitle: favoriteFolderId ? null : ctx.seriesTitle
                 });
                 meta.typeData = Object.assign({}, meta.typeData, {
-                    seriesId: String(ctx.seriesId).startsWith('music:') ? null : ctx.seriesId,
-                    seriesTitle: ctx.seriesTitle,
-                    sourceType: String(ctx.seriesId).startsWith('music:') ? 'douyin.music' : 'douyin.collection',
-                    sourceId: String(ctx.seriesId).replace(/^music:/, ''),
+                    seriesId: (favoriteFolderId || String(ctx.seriesId).startsWith('music:')) ? null : ctx.seriesId,
+                    seriesTitle: favoriteFolderId ? '' : ctx.seriesTitle,
+                    sourceType: favoriteFolderId ? 'douyin.account.favorite-folder'
+                        : String(ctx.seriesId).startsWith('music:') ? 'douyin.music' : 'douyin.collection',
+                    sourceId: favoriteFolderId || String(ctx.seriesId).replace(/^music:/, ''),
                     sourceTitle: ctx.seriesTitle || '',
-                    sourceUrl: String(ctx.seriesId).startsWith('music:')
+                    sourceUrl: favoriteFolderId
+                        ? null
+                        : String(ctx.seriesId).startsWith('music:')
                         ? `https://www.douyin.com/music/${encodeURIComponent(String(ctx.seriesId).substring(6))}`
                         : `https://www.douyin.com/mix/${encodeURIComponent(String(ctx.seriesId))}`,
                     sourceOrder: seriesOrder

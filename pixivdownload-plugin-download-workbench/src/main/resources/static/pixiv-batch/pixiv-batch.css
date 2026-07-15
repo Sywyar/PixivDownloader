@@ -2572,6 +2572,66 @@ body.schedule-modal-open {
     color: var(--text);
 }
 
+.series-source-browser {
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface-muted);
+}
+
+.series-source-browser[hidden] {
+    display: none;
+}
+
+.series-source-browser-title {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.series-source-browser-status {
+    min-height: 18px;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.series-source-browser-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.series-source-browser-item {
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.series-source-browser-item:hover,
+.series-source-browser-item:focus-visible {
+    border-color: var(--brand);
+    background: var(--hover-bg);
+}
+
+.series-source-browser-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
 .quick-account {
     display: flex;
     align-items: center;
