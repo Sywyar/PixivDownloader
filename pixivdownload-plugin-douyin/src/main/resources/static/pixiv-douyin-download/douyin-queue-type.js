@@ -26,6 +26,12 @@ function bindDouyinEvent(target, eventName, handler) {
 
 const DOUYIN_PAGE_SIZE = 24;
 const DOUYIN_FAVORITE_FOLDER_SERIES_PREFIX = 'favorite-folder:';
+const DOUYIN_USER_KIND_WORKS = 'douyin';
+const DOUYIN_USER_KIND_LIKED = 'douyin-user-liked';
+const DOUYIN_USER_KINDS = new Set([
+    DOUYIN_USER_KIND_WORKS,
+    DOUYIN_USER_KIND_LIKED
+]);
 const DOUYIN_COOKIE_REQUIRED_KEYS = ['ttwid', 'passport_csrf_token'];
 const DOUYIN_COOKIE_SESSION_KEYS = ['sessionid', 'sessionid_ss', 'sid_tt', 'sid_guard'];
 const DOUYIN_COOKIE_SESSION_LABEL = 'sessionid / sessionid_ss / sid_tt / sid_guard';
@@ -261,8 +267,15 @@ function douyinParseInput(text) {
 function douyinParseUserInput(text) {
     const raw = String(text || '').trim();
     const parsed = douyinParseInput(raw);
-    if (parsed && parsed.kind === 'user') return parsed.userId;
-    return /^[A-Za-z0-9._-]{6,256}$/.test(raw) ? raw : null;
+    if (parsed && parsed.kind === 'user') {
+        return parsed.userId === 'self' ? null : parsed.userId;
+    }
+    return raw !== 'self' && /^[A-Za-z0-9._-]{6,256}$/.test(raw) ? raw : null;
+}
+
+function douyinUserKind(context) {
+    const value = context && context.variant ? String(context.variant) : DOUYIN_USER_KIND_WORKS;
+    return DOUYIN_USER_KINDS.has(value) ? value : DOUYIN_USER_KIND_WORKS;
 }
 
 function douyinQueueId(item) {
@@ -429,6 +442,33 @@ function douyinCanonicalQueueItemUrl(item) {
     return /^https?:\/\//i.test(String(fallback || '').trim()) ? String(fallback).trim() : '';
 }
 
+function douyinLinkedAbortSignal(...candidates) {
+    const signals = candidates.filter(signal => signal && typeof signal.addEventListener === 'function');
+    if (signals.length <= 1) {
+        return {signal: signals[0] || null, dispose() {}};
+    }
+    const controller = new AbortController();
+    const listeners = [];
+    const abortFrom = signal => {
+        if (!controller.signal.aborted) controller.abort(signal.reason);
+    };
+    signals.forEach(signal => {
+        if (signal.aborted) {
+            abortFrom(signal);
+            return;
+        }
+        const listener = () => abortFrom(signal);
+        signal.addEventListener('abort', listener, {once: true});
+        listeners.push([signal, listener]);
+    });
+    return {
+        signal: controller.signal,
+        dispose() {
+            listeners.forEach(([signal, listener]) => signal.removeEventListener('abort', listener));
+        }
+    };
+}
+
 async function douyinFetchJson(path, options) {
     douyinAssertActive();
     const request = Object.assign({}, options || {});
@@ -444,16 +484,25 @@ async function douyinFetchJson(path, options) {
     Object.assign(headers, douyinAcquisitionCredentialHeaders(douyinEnsureCookieReady()));
     request.credentials = request.credentials || 'same-origin';
     request.headers = headers;
-    request.signal = _activationContext.signal;
-    const res = await fetch(`${BASE}${path}`, request);
-    douyinAssertActive();
-    const data = await res.json().catch(() => ({}));
-    douyinAssertActive();
-    if (!res.ok) {
-        const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
-        throw new Error(bt(key, data.message || `HTTP ${res.status}`));
+    const signalLease = douyinLinkedAbortSignal(request.signal, _activationContext.signal);
+    request.signal = signalLease.signal;
+    try {
+        const res = await fetch(`${BASE}${path}`, request);
+        douyinAssertActive();
+        const data = await res.json().catch(() => ({}));
+        douyinAssertActive();
+        if (!res.ok) {
+            const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
+            const error = new Error(bt(key, data.message || `HTTP ${res.status}`));
+            error.code = data.code || null;
+            error.messageKey = data.messageKey || null;
+            error.status = res.status;
+            throw error;
+        }
+        return data;
+    } finally {
+        signalLease.dispose();
     }
-    return data;
 }
 
 async function processDouyinItem(item) {
@@ -655,12 +704,11 @@ async function loadQuickDouyinAccount(source, sourceType, titleKey, titleFallbac
     if (data.hasMore && (!nextCursor || nextCursor === String(cursor))) {
         throw new Error(douyinText('error.pagination-stalled', 'The Douyin cursor did not advance'));
     }
-    const accountId = quickState.accountOwner === 'douyin' ? quickState.uid : null;
     items.forEach((item, index) => {
         item.sourceType = sourceType;
-        item.sourceId = accountId || source;
+        item.sourceId = source;
         item.sourceTitle = '';
-        item.sourceUrl = `/api/douyin/me/${source}`;
+        item.sourceUrl = null;
         item.sourceOrder = (safePage - 1) * DOUYIN_PAGE_SIZE + index;
     });
     const offset = (safePage - 1) * DOUYIN_PAGE_SIZE;
@@ -690,6 +738,71 @@ function douyinUserWorksPageEndpoint(userId, context) {
     const cursor = context.cursor || (Number(context.offset) === 0 ? '0' : null);
     if (cursor != null) params.set('cursor', String(cursor));
     return `/api/douyin/user/${encodeURIComponent(userId)}/works/ids?${params}`;
+}
+
+function douyinUserLikedPageEndpoint(userId, context) {
+    const params = new URLSearchParams();
+    params.set('offset', String(context.offset));
+    params.set('limit', String(context.limit));
+    const cursor = context.cursor || (Number(context.offset) === 0 ? '0' : null);
+    if (cursor != null) params.set('cursor', String(cursor));
+    return `/api/douyin/user/${encodeURIComponent(userId)}/liked/ids?${params}`;
+}
+
+function douyinUserProfileUrl(userId) {
+    return `https://www.douyin.com/user/${encodeURIComponent(String(userId))}`;
+}
+
+function douyinUserSourceType(kind) {
+    if (kind === DOUYIN_USER_KIND_LIKED) return 'douyin.user.liked-works';
+    return 'douyin.user';
+}
+
+function douyinDecorateUserItems(items, userId, kind, offset) {
+    const sourceType = douyinUserSourceType(kind);
+    return (Array.isArray(items) ? items : []).map((item, index) => Object.assign({}, item, {
+        douyinUserVariant: kind,
+        sourceType,
+        sourceId: String(userId),
+        sourceTitle: String(userId),
+        sourceUrl: douyinUserProfileUrl(userId),
+        sourceOrder: Math.max(0, Number(offset) || 0) + index
+    }));
+}
+
+async function douyinFetchUserPage(userId, context) {
+    const kind = douyinUserKind(context);
+    const targetUserId = String(userId);
+    const endpoint = kind === DOUYIN_USER_KIND_LIKED
+        ? douyinUserLikedPageEndpoint(targetUserId, context)
+        : douyinUserWorksPageEndpoint(targetUserId, context);
+    let data;
+    try {
+        data = await douyinFetchJson(endpoint, {signal: context.signal});
+    } catch (error) {
+        if (kind === DOUYIN_USER_KIND_LIKED && error && error.code === 'PERMISSION_DENIED') {
+            const hidden = new Error(douyinText('user.error.liked-hidden',
+                'This user has hidden their liked works, or the current Cookie cannot access them'));
+            hidden.code = error.code;
+            throw hidden;
+        }
+        throw error;
+    }
+    return {
+        items: douyinDecorateUserItems(data.items, targetUserId, kind, context.offset),
+        total: data.total,
+        nextCursor: data.nextCursor,
+        hasMore: !!data.hasMore
+    };
+}
+
+function douyinUserEmptyMessage(context) {
+    const kind = douyinUserKind(context);
+    if (kind === DOUYIN_USER_KIND_LIKED) {
+        return douyinText('user.empty.liked',
+            'No liked works were returned; the list may be empty, hidden, or inaccessible with the current Cookie');
+    }
+    return douyinText('user.empty.works', 'This user has no works');
 }
 
 function douyinFavoriteCollectionsEndpoint(cursor, pageSize) {
@@ -786,6 +899,12 @@ function douyinQuickInnerCard(item, idx, inQueue) {
 }
 
 const DOUYIN_SLOTS = {
+    'kind-option-user':
+        '<label data-kind="douyin"><input type="radio" name="user-kind" value="douyin">' +
+        '<span data-i18n="douyin:user.kind.works">Works</span></label>' +
+        '<label data-kind="douyin-user-liked" data-i18n-title="douyin:user.visibility-hint" ' +
+        'title="This list may be hidden or access-restricted"><input type="radio" name="user-kind" value="douyin-user-liked">' +
+        '<span data-i18n="douyin:user.kind.liked">Liked</span></label>',
     'kind-option-quick':
         '<label data-quick-kind="douyin"><input type="radio" name="quick-inner-kind" value="douyin">' +
         '<span data-i18n="douyin:batch.kind">Douyin</span></label>',
@@ -953,30 +1072,26 @@ const DOUYIN_DESCRIPTOR = {
             requestInit() {
                 return {credentials: 'same-origin', headers: douyinAcquisitionCredentialHeaders()};
             },
-            accepts(selection) { return selection === 'douyin'; },
+            accepts(selection) { return DOUYIN_USER_KINDS.has(String(selection)); },
             parseInput: douyinParseUserInput,
             fetchMeta() { return Promise.resolve(null); },
-            async fetchPage(userId, context) {
-                const data = await douyinFetchJson(
-                    douyinUserWorksPageEndpoint(userId, context),
-                    {signal: context.signal}
-                );
-                return {
-                    items: data.items || [],
-                    total: data.total,
-                    nextCursor: data.nextCursor,
-                    hasMore: !!data.hasMore
-                };
-            },
+            fetchPage: douyinFetchUserPage,
+            emptyMessage: douyinUserEmptyMessage,
             queueId: douyinQueueId,
             cardId(idx) { return douyinCardId('user', idx); },
             render: renderDouyinUserResults,
             buildQueueMeta(item, ctx) {
+                const kind = douyinUserKind({
+                    variant: item && item.douyinUserVariant ? item.douyinUserVariant : ctx.variant
+                });
+                const sourceType = item && item.sourceType ? item.sourceType : douyinUserSourceType(kind);
                 return douyinQueueMeta(Object.assign({}, item, {
-                    sourceType: 'douyin.user',
-                    sourceId: String(ctx.userId),
-                    sourceTitle: ctx.username || String(ctx.userId),
-                    sourceUrl: `https://www.douyin.com/user/${encodeURIComponent(String(ctx.userId))}`
+                    sourceType,
+                    sourceId: item && item.sourceId ? item.sourceId : String(ctx.userId),
+                    sourceTitle: item && item.sourceTitle
+                        ? item.sourceTitle : (ctx.username || String(ctx.userId)),
+                    sourceUrl: item && Object.prototype.hasOwnProperty.call(item, 'sourceUrl')
+                        ? item.sourceUrl : douyinUserProfileUrl(ctx.userId)
                 }));
             }
         },

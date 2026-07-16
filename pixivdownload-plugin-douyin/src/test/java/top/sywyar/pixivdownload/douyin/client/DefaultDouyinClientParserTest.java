@@ -662,6 +662,54 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
+    @DisplayName("目标用户喜欢作品使用 sec_uid 与不透明游标且不解析当前账号")
+    void listsTargetUserLikedWorksWithOpaqueCursor() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"has_more":1,"max_cursor":"liked-next","aweme_list":[
+                  {"aweme_id":"9151","desc":"Liked work","author":{"sec_uid":"sec-target","nickname":"目标作者"},
+                   "video":{"play_addr":{"url_list":["https://v3.douyinvod.com/9151.mp4"]}}}
+                ]}
+                """);
+
+        var listing = client(rest).listUserLikedWorksPage(
+                "sec-target", "liked-current", 24, "sessionid=test");
+
+        assertThat(listing.items()).extracting("id").containsExactly("9151");
+        assertThat(listing.ownerId()).isEqualTo("sec-target");
+        assertThat(listing.ownerName()).isEqualTo("目标作者");
+        assertThat(listing.nextCursor()).isEqualTo("liked-next");
+        assertThat(listing.hasMore()).isTrue();
+        assertThat(rest.requests()).singleElement().satisfies(uri -> {
+            assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/aweme/favorite/");
+            assertThat(uri.getRawQuery()).contains(
+                    "sec_user_id=sec-target",
+                    "max_cursor=liked-current",
+                    "count=24",
+                    "locate_query=false",
+                    "a_bogus=");
+        });
+        assertThat(rest.methods()).containsExactly(HttpMethod.GET);
+    }
+
+    @Test
+    @DisplayName("目标用户喜欢作品逻辑预览按游标批量遍历深页")
+    void targetUserLikedLogicalPaginationUsesUpstreamBatchSize() throws Exception {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, userPage(1, 20, true, "liked-20"));
+        rest.enqueue(200, userPage(21, 1, false, "liked-done"));
+
+        var listing = client(rest).listUserLikedWorks("sec-target", 20, 1, null);
+
+        assertThat(listing.items()).extracting("id").containsExactly("9021");
+        assertThat(rest.requests()).hasSize(2)
+                .allSatisfy(uri -> {
+                    assertThat(uri.getPath()).isEqualTo("/aweme/v1/web/aweme/favorite/");
+                    assertThat(uri.getRawQuery()).contains("sec_user_id=sec-target", "count=20");
+                });
+    }
+
+    @Test
     @DisplayName("关键词搜索已识别的空数组或 null 保持合法空结果")
     void keepsRecognizedEmptySearchPage() throws Exception {
         for (String body : List.of(
@@ -715,15 +763,27 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
-    @DisplayName("账号喜欢作品响应缺少已知识别数组时明确报告结构异常")
+    @DisplayName("目标用户喜欢作品响应缺少已知识别数组时明确报告结构异常")
     void rejectsUnknownLikedWorksResponseStructure() {
         FakeRestTemplate rest = new FakeRestTemplate();
         rest.enqueue(200, "{\"status_code\":0,\"unexpected\":[]}");
 
-        assertCodeName(() -> client(rest).listAccountWorksPage(
-                        favoriteAccount(), DouyinAccountSource.LIKED_WORKS,
-                        "0", 20, "sessionid=test"),
+        assertCodeName(() -> client(rest).listUserLikedWorksPage(
+                        "sec-target", "0", 20, "sessionid=test"),
                 "RESPONSE_STRUCTURE_UNRECOGNIZED");
+    }
+
+    @Test
+    @DisplayName("目标用户明确隐藏喜欢列表时报告权限拒绝")
+    void rejectsExplicitlyHiddenTargetUserLikedWorks() {
+        FakeRestTemplate rest = new FakeRestTemplate();
+        rest.enqueue(200, """
+                {"status_code":0,"status_msg":"该用户已隐藏喜欢列表","has_more":0,"aweme_list":[]}
+                """);
+
+        assertCodeName(() -> client(rest).listUserLikedWorksPage(
+                        "sec-target", "0", 20, "sessionid=test"),
+                "PERMISSION_DENIED");
     }
 
     @Test
@@ -788,6 +848,12 @@ class DefaultDouyinClientParserTest {
     void keepsRecognizedEmptyNonSearchListings() throws Exception {
         assertThat(client("{\"status_code\":0,\"has_more\":0,\"aweme_list\":[]}")
                 .listUserWorksPage("sec-user-1", "0", 20, "sessionid=test").items())
+                .isEmpty();
+        assertThat(client("{\"status_code\":0,\"has_more\":0,\"aweme_list\":[]}")
+                .listUserLikedWorksPage("sec-user-1", "0", 20, "sessionid=test").items())
+                .isEmpty();
+        assertThat(client("{\"status_code\":0,\"has_more\":0,\"aweme_list\":null}")
+                .listUserLikedWorksPage("sec-user-1", "0", 20, "sessionid=test").items())
                 .isEmpty();
         assertThat(client("{\"status_code\":0,\"has_more\":0,\"aweme_list\":[]}")
                 .listMusicWorksPage("music-1", "0", 20, "sessionid=test").items())

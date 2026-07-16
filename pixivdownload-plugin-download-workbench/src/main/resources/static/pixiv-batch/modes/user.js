@@ -13,6 +13,8 @@
     ]);
     let userInputDraftBoundElement = null;
     let userInputDraftSourceId = '';
+    let userRequestController = null;
+    let userOperationController = null;
 
     let userState = {
         kind: null,
@@ -36,6 +38,61 @@
         requestSeq: 0
     };
 
+    function abortUserRequests() {
+        const controllers = [userOperationController, userRequestController];
+        userOperationController = null;
+        userRequestController = null;
+        controllers.forEach(controller => {
+            if (!controller || controller.signal.aborted) return;
+            try { controller.abort(); } catch (e) { /* best effort */ }
+        });
+    }
+
+    function beginUserRequestGeneration() {
+        abortUserRequests();
+        userRequestController = new AbortController();
+    }
+
+    function beginUserOperation() {
+        const previous = userOperationController;
+        userOperationController = new AbortController();
+        if (!previous || previous.signal.aborted) return;
+        try { previous.abort(); } catch (e) { /* best effort */ }
+    }
+
+    function linkedUserRequestSignal(...signals) {
+        const sources = [
+            userRequestController && userRequestController.signal,
+            userOperationController && userOperationController.signal,
+            ...signals
+        ]
+            .filter((signal, index, all) => signal && all.indexOf(signal) === index);
+        if (!sources.length) return {signal: null, dispose() {}};
+        if (sources.length === 1) return {signal: sources[0], dispose() {}};
+
+        const controller = new AbortController();
+        const listeners = [];
+        const abort = source => {
+            if (controller.signal.aborted) return;
+            try { controller.abort(source && source.reason); } catch (e) { controller.abort(); }
+        };
+        sources.forEach(signal => {
+            if (signal.aborted) {
+                abort(signal);
+                return;
+            }
+            const listener = () => abort(signal);
+            signal.addEventListener('abort', listener, {once: true});
+            listeners.push([signal, listener]);
+        });
+        return {
+            signal: controller.signal,
+            dispose() {
+                listeners.forEach(([signal, listener]) => signal.removeEventListener('abort', listener));
+            }
+        };
+    }
+
     function userCardCacheKey(id) {
         return String(userState.kind || '') + ':' + String(id);
     }
@@ -43,6 +100,25 @@
     // 当前 user 模式作品类型的取得钩子；类型不可用时返回 null，由调用方停止该模式请求。
     function userAcq() {
         return window.PixivBatch.queueTypes.acquisition(userState.kind, 'user');
+    }
+    function userAcquisitionContext() {
+        return {
+            userId: userState.userId,
+            username: userState.username,
+            variant: userState.variant
+        };
+    }
+    function userEmptyMessage() {
+        const fallback = bt('status.user-no-artworks', '该用户暂无作品');
+        const acq = userAcq();
+        if (!acq || typeof acq.emptyMessage !== 'function') return fallback;
+        try {
+            const message = acq.emptyMessage(userAcquisitionContext());
+            return typeof message === 'string' && message.trim() ? message : fallback;
+        } catch (e) {
+            console.warn('[user] 获取空态文案失败：', e);
+            return fallback;
+        }
     }
     function userQueueId(item) {
         const acq = userAcq();
@@ -264,7 +340,15 @@
     }
 
     async function fetchUserIds(userId, lease) {
-        return userAcq().fetchIds(userId, {variant: userState.variant, signal: lease.signal});
+        const linked = linkedUserRequestSignal(lease.signal);
+        try {
+            return await userAcq().fetchIds(userId, {
+                variant: userState.variant,
+                signal: linked.signal
+            });
+        } finally {
+            linked.dispose();
+        }
     }
 
     async function fetchUserPage(page, lease) {
@@ -304,14 +388,20 @@
         if (page > 1 && cursor == null) {
             throw new Error(bt('pagination.error.cursor-unavailable', '分页游标不可用，请重新从第一页加载'));
         }
-        const data = await snapshot.acquisition.fetchPage(snapshot.userId, {
-            variant: snapshot.variant,
-            signal: lease.signal,
-            page,
-            offset,
-            limit: pageSize,
-            cursor
-        });
+        const linked = linkedUserRequestSignal(lease.signal);
+        let data;
+        try {
+            data = await snapshot.acquisition.fetchPage(snapshot.userId, {
+                variant: snapshot.variant,
+                signal: linked.signal,
+                page,
+                offset,
+                limit: pageSize,
+                cursor
+            });
+        } finally {
+            linked.dispose();
+        }
         assertSnapshotCurrent();
         const items = Array.isArray(data && data.items) ? data.items : [];
         const hasMore = !!(data && data.hasMore);
@@ -346,6 +436,7 @@
     }
 
     function resetUserState(kind, variant) {
+        beginUserRequestGeneration();
         cleanupUserBlobUrls();
         userState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'user');
         userState.variant = variant;
@@ -381,6 +472,7 @@
     }
 
     function clearUserPreview() {
+        abortUserRequests();
         resetPreviewCollapse('user-results-area', 'user-pagination');
         cleanupUserBlobUrls();
         userState.userId = '';
@@ -432,6 +524,7 @@
             saveSettings();
         }
         resetUserState(selected.type, selected.variant);
+        beginUserOperation();
         const requestSeq = userState.requestSeq;
         userState.userId = userId;
         state.userId = userId;
@@ -441,7 +534,12 @@
         try {
             let name = null;
             try {
-                name = await userAcq().fetchMeta(userId, {signal: lease.signal});
+                const linked = linkedUserRequestSignal(lease.signal);
+                try {
+                    name = await userAcq().fetchMeta(userId, {signal: linked.signal});
+                } finally {
+                    linked.dispose();
+                }
                 lease.assertCurrent();
                 if (requestSeq !== userState.requestSeq) return;
             } catch (e) {
@@ -464,9 +562,10 @@
                 userState.total = userState.allIds.length;
                 userState.totalPages = Math.max(1, Math.ceil(userState.total / userPageSize()));
                 if (!userState.allIds.length) {
-                    setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
+                    const emptyMessage = userEmptyMessage();
+                    setStatus(emptyMessage, 'warning');
                     const area = document.getElementById('user-results-area');
-                    if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
+                    if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(emptyMessage)}</div>`;
                     renderUserPagination();
                     updateUserQueueButtons();
                     return;
@@ -493,21 +592,28 @@
             const request = window.PixivBatch.queueTypes.prepareAcquisitionRequest(
                 userState.kind, 'user', `${endpoint}?${params}`, 'cards',
                 {userId: userState.userId, ids: missing.slice()});
-            const res = await fetch(request.url, request.init);
-            if (!res.ok) {
-                const d = await res.json().catch(() => ({}));
+            const linked = linkedUserRequestSignal(request.init && request.init.signal);
+            try {
+                const init = Object.assign({}, request.init || {}, {signal: linked.signal});
+                const res = await fetch(request.url, init);
+                if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    request.assertCurrent();
+                    throw new Error(d.error || `HTTP ${res.status}`);
+                }
+                const data = await res.json();
                 request.assertCurrent();
-                throw new Error(d.error || `HTTP ${res.status}`);
+                (data.items || []).forEach(it => userState.cardCache.set(userCardCacheKey(String(it.id)), it));
+            } finally {
+                linked.dispose();
             }
-            const data = await res.json();
-            request.assertCurrent();
-            (data.items || []).forEach(it => userState.cardCache.set(userCardCacheKey(String(it.id)), it));
         }
         return ids.map(id => userState.cardCache.get(userCardCacheKey(id))).filter(Boolean);
     }
 
     async function loadUserPreviewPage(page) {
         if (!userState.pagedAcquisition && !userState.allIds.length) return;
+        beginUserOperation();
         let p = Number(page);
         if (!Number.isFinite(p) || p < 1) p = 1;
         if (p > userState.totalPages) p = userState.totalPages;
@@ -539,9 +645,10 @@
             userState.rawItems = cards;
             if (userState.pagedAcquisition && p === 1 && !cards.length
                 && !userState.pageCache.get(p).hasMore) {
-                setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
+                const emptyMessage = userEmptyMessage();
+                setStatus(emptyMessage, 'warning');
                 const area = document.getElementById('user-results-area');
-                if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
+                if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(emptyMessage)}</div>`;
                 renderUserPagination();
                 updateUserQueueButtons();
                 return;
@@ -612,7 +719,7 @@
         if (!area) return;
         const renderToken = ++userState.renderToken;
         if (!userState.rawItems.length) {
-            area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
+            area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(userEmptyMessage())}</div>`;
             return;
         }
         const summary = [
@@ -694,7 +801,7 @@
 
     function buildUserQueueMeta(item) {
         const acq = userAcq();
-        return acq.buildQueueMeta(item, {userId: userState.userId, username: userState.username});
+        return acq.buildQueueMeta(item, userAcquisitionContext());
     }
 
     function syncUserResultsQueueState() {
@@ -772,7 +879,7 @@
     async function addAllUserResultsToQueue() {
         if (!hasUserResults()) return;
         const acq = userAcq();
-        const metaCtx = {userId: userState.userId, username: userState.username};
+        const metaCtx = userAcquisitionContext();
         const uiFilters = normalizeSearchFilters(getSearchFiltersFromUI());
         // 无附加筛选：直接按全部 ID 入队（最省请求，等价于旧版「获取全部作品」）。
         if (!userState.pagedAcquisition && !hasExtraSearchFilter(uiFilters)) {
@@ -792,7 +899,8 @@
         }
         // 分页取得或附加筛选都需要逐页读取卡片元数据；附加筛选先确认再继续。
         const lease = window.PixivBatch.queueTypes.acquisitionLease(userState.kind, 'user');
-        const requestSeq = userState.requestSeq;
+        beginUserOperation();
+        const requestSeq = ++userState.requestSeq;
         if (hasExtraSearchFilter(uiFilters)) {
             const confirmed = await uiConfirmKey(
                 'dialog.user-add-all-warning',
@@ -892,6 +1000,7 @@
         applyNovelSettingsVisibility();
         applySearchKindUI();
         updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
     }
 
     function reconcileUserTypeAvailability(ready = true) {

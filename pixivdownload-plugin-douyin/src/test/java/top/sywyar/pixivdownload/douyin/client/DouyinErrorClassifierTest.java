@@ -41,6 +41,23 @@ class DouyinErrorClassifierTest {
     }
 
     @Test
+    @DisplayName("HTTP 403 仅在正文明确私密时映射权限拒绝")
+    void classifiesExplicitPrivateForbiddenBodyWithoutGeneralizingAllForbiddenResponses() {
+        assertThat(DouyinErrorClassifier.classifyHttpStatus(403,
+                "{\"status_msg\":\"该用户已隐藏喜欢列表\"}".getBytes(StandardCharsets.UTF_8)))
+                .isEqualTo(DouyinClientErrorCode.PERMISSION_DENIED);
+        assertThat(DouyinErrorClassifier.classifyHttpStatus(403,
+                "Forbidden".getBytes(StandardCharsets.UTF_8)))
+                .isEqualTo(DouyinClientErrorCode.HTTP_FORBIDDEN);
+        assertThat(DouyinErrorClassifier.classifyHttpStatus(403,
+                "<style>body{overflow:hidden}</style>Forbidden".getBytes(StandardCharsets.UTF_8)))
+                .isEqualTo(DouyinClientErrorCode.HTTP_FORBIDDEN);
+        assertThat(DouyinErrorClassifier.classifyHttpStatus(403,
+                "请先完成验证码".getBytes(StandardCharsets.UTF_8)))
+                .isEqualTo(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE);
+    }
+
+    @Test
     @DisplayName("HTTP 200 响应中的明确限流状态码映射为限流")
     void classifiesKnownRateLimitStatusCodes() {
         assertThat(List.of(7, 429, 50_001, 2_190_001, 2_190_020, 28_003_017, 28_003_018))
@@ -98,6 +115,32 @@ class DouyinErrorClassifierTest {
                 .put("search_nil_type", "content_limit")
                 .put("search_nil_item", "hit_self_harm")
                 .put("text_type", 11);
+
+        assertThat(DouyinErrorClassifier.classifyJsonStatus(root)).isNull();
+    }
+
+    @Test
+    @DisplayName("成功状态中的明确私密或隐藏提示映射为权限拒绝")
+    void classifiesPrivateMessagesWithSuccessfulStatusCode() {
+        assertThat(List.of(
+                "该用户已隐藏喜欢列表",
+                "喜欢列表为私密内容",
+                "该内容仅自己可见",
+                "This list is private",
+                "Liked works are hidden"))
+                .allSatisfy(message -> assertThat(DouyinErrorClassifier.classifyJsonStatus(
+                        status(0, message))).isEqualTo(DouyinClientErrorCode.PERMISSION_DENIED));
+
+        assertThat(DouyinErrorClassifier.classifyJsonStatus(
+                status(0, "喜欢列表已隐藏，请先完成验证码验证")))
+                .isEqualTo(DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE);
+    }
+
+    @Test
+    @DisplayName("普通成功空结果不被推断为隐藏或权限拒绝")
+    void keepsOrdinaryEmptySuccessUnclassified() {
+        ObjectNode root = status(0, null);
+        root.putArray("aweme_list");
 
         assertThat(DouyinErrorClassifier.classifyJsonStatus(root)).isNull();
     }

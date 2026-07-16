@@ -118,13 +118,29 @@ public class DouyinController {
             DouyinListing listing = safeCursor == null
                     ? downloadService.listUserWorks(userId, offset, limit, cookie)
                     : downloadService.listUserWorksPage(userId, safeCursor, limit, cookie);
-            List<DouyinWorkView> items = listing.items().stream().map(DouyinWorkView::from).toList();
-            int minimumTotal = (int) Math.min(Integer.MAX_VALUE,
-                    (long) offset + items.size() + (listing.hasMore() ? 1L : 0L));
-            int total = Math.max(listing.total(), minimumTotal);
-            return ResponseEntity.ok(new UserWorksPageView(
-                    items.stream().map(DouyinWorkView::id).toList(),
-                    items, total, offset, limit, listing.nextCursor(), listing.hasMore()));
+            return ResponseEntity.ok(userWorksPage(listing, offset, limit));
+        } catch (DouyinClientException e) {
+            return clientError(e);
+        }
+    }
+
+    @GetMapping("/user/{userId}/liked/ids")
+    public ResponseEntity<?> userLikedIds(
+            @PathVariable String userId,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "24") int limit,
+            @RequestParam(required = false) String cursor,
+            @RequestHeader(name = "X-Douyin-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        cookie = acquisitionCredential(request, cookie);
+        try {
+            requireSecureCredentialTransport(request, cookie);
+            requirePreviewWindow(offset, limit);
+            String safeCursor = optionalCursor(cursor);
+            DouyinListing listing = safeCursor == null
+                    ? downloadService.listUserLikedWorks(userId, offset, limit, cookie)
+                    : downloadService.listUserLikedWorksPage(userId, safeCursor, limit, cookie);
+            return ResponseEntity.ok(userWorksPage(listing, offset, limit));
         } catch (DouyinClientException e) {
             return clientError(e);
         }
@@ -403,6 +419,16 @@ public class DouyinController {
             default -> throw new DouyinClientException(DouyinClientErrorCode.UNSUPPORTED_CONTENT,
                     "Unsupported Douyin account source");
         };
+    }
+
+    private static UserWorksPageView userWorksPage(DouyinListing listing, int offset, int limit) {
+        List<DouyinWorkView> items = listing.items().stream().map(DouyinWorkView::from).toList();
+        int minimumTotal = (int) Math.min(Integer.MAX_VALUE,
+                (long) offset + items.size() + (listing.hasMore() ? 1L : 0L));
+        int total = Math.max(listing.total(), minimumTotal);
+        return new UserWorksPageView(
+                items.stream().map(DouyinWorkView::id).toList(),
+                items, total, offset, limit, listing.nextCursor(), listing.hasMore());
     }
 
     private static void requirePreviewWindow(int offset, int limit) throws DouyinClientException {

@@ -37,6 +37,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     private static final String MODULE_URL = "/pixiv-douyin-download/douyin-queue-type.js";
     private static final List<String> UI_SLOT_TARGETS = List.of(
             "kind-option-quick",
+            "kind-option-user",
             "quick-actions-bookmarks",
             "quick-actions-mine",
             "import-hint",
@@ -86,8 +87,8 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/pixiv-douyin/**"),
                 WebRouteContribution.admin("/api/douyin/gallery/**"),
                 WebRouteContribution.admin("/api/douyin/history/**"),
-                WebRouteContribution.admin("/api/douyin/me/favorite-folders"),
-                WebRouteContribution.admin("/api/douyin/me/favorite-folders/**"),
+                WebRouteContribution.visitor("/api/douyin/me/favorite-folders"),
+                WebRouteContribution.visitor("/api/douyin/me/favorite-folders/**"),
                 WebRouteContribution.visitor("/api/douyin/**"),
                 WebRouteContribution.visitor("/pixiv-douyin-download/**"));
     }

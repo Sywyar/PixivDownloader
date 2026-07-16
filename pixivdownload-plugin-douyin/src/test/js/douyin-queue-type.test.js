@@ -104,9 +104,14 @@ function makeSandbox() {
             requests.push({url: String(url), options: options || {}});
             if (String(url).includes('/api/douyin/user/')
                 || /\/api\/douyin\/me\/(liked|favorites)\?/.test(String(url))
-                || String(url).includes('/api/douyin/me/favorite-collections?')) {
-                const body = apiResponses.shift() || {};
-                return Promise.resolve({ok: true, json: () => Promise.resolve(body)});
+                || String(url).includes('/api/douyin/me/favorite-collections?')
+                || String(url).includes('/api/douyin/me/favorite-folders')
+                || /\/api\/douyin\/me(?:\?|$)/.test(String(url))) {
+                const queued = apiResponses.shift() || {};
+                const status = Number(queued.__status) || 200;
+                const body = Object.prototype.hasOwnProperty.call(queued, '__body') ? queued.__body : queued;
+                return Promise.resolve({ok: status >= 200 && status < 300, status,
+                    json: () => Promise.resolve(body)});
             }
             if (String(url).includes('/api/douyin/download')) {
                 return Promise.resolve({ok: true, json: () => Promise.resolve({id: 'status-1'})});
@@ -128,12 +133,12 @@ function makeSandbox() {
                         pluginGeneration: 3, publicationId: 9, order: 30,
                         moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
                         acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick'],
-                        uiSlots: ['kind-option-quick',
+                        uiSlots: ['kind-option-user', 'kind-option-quick',
                             'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools'],
                         filters: []}
                 ],
                 tabs: [],
-                uiSlots: ['kind-option-quick',
+                uiSlots: ['kind-option-user', 'kind-option-quick',
                     'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools']
                     .map(target => ({
                         slotId: `douyin.${target}`, target,
@@ -246,6 +251,9 @@ function ok(label, cond) {
     ok('解析 note URL', parser('https://www.douyin.com/note/7350000000000000002').kind === 'single');
     ok('解析 gallery URL', parser('https://www.douyin.com/gallery/7350000000000000003').kind === 'single');
     ok('解析用户主页', parser('https://www.douyin.com/user/MS4wLjABAAAA-demo').kind === 'user');
+    const selfProfile = parser('https://www.douyin.com/user/self?showTab=favorite_collection');
+    ok('通用 URL 解析器识别 /user/self 用户路径',
+        selfProfile && selfProfile.kind === 'user' && selfProfile.userId === 'self');
     ok('解析合集 URL', parser('https://www.douyin.com/collection/12345').kind === 'series');
     ok('解析 mix URL', parser('https://www.douyin.com/mix/12345').kind === 'series');
     ok('解析 music URL 为音乐关联作品来源', parser('https://www.douyin.com/music/12345').kind === 'music');
@@ -261,9 +269,15 @@ function ok(label, cond) {
     ok('Douyin 不提前贡献计划任务队列映射', descriptor.scheduledQueueItem == null);
     ok('slots 包含 cookie-tools', !!descriptor.slots['cookie-tools']);
     ok('slots 不包含 settings-card', !descriptor.slots['settings-card']);
-    ok('Douyin 只在快捷获取贡献内部类型，不在 User/Search 重复来源类型',
-        !descriptor.slots['kind-option-user'] && !descriptor.slots['kind-option-search']
+    const userKinds = Array.from(descriptor.slots['kind-option-user']
+        .matchAll(/<label\b[^>]*data-kind="([^"]+)"[^>]*>/g), match => match[1]);
+    ok('Douyin 在 User 仅贡献作品与喜欢两个二级选项',
+        userKinds.join(',') === 'douyin,douyin-user-liked'
+        && !descriptor.slots['kind-option-search']
         && !!descriptor.slots['kind-option-quick']);
+    ok('喜欢选项公开列表可能隐藏的 i18n 提示',
+        descriptor.slots['kind-option-user'].includes('douyin:user.visibility-hint')
+        && !descriptor.slots['kind-option-user'].includes('douyin:user.self-only-hint'));
     ok('不暴露未经上游验证的附加筛选', qt.filtersFor('douyin') === null);
     ok('settings 不再暴露抖音下载设置卡', qt.settingsFor('douyin') === null);
     ok('Cookie 登录态字段校验通过',
@@ -395,6 +409,20 @@ function ok(label, cond) {
         typeof userAcquisition.fetchPage === 'function'
         && typeof userAcquisition.fetchIds !== 'function'
         && typeof userAcquisition.cardsEndpoint !== 'function');
+    ok('acquisition.user 由同一 Douyin owner 仅接受作品与喜欢二级选项',
+        ['douyin', 'douyin-user-liked']
+            .every(kind => userAcquisition.accepts(kind))
+        && !userAcquisition.accepts('douyin-user-favorites')
+        && !userAcquisition.accepts('douyin-user-favorite-folders')
+        && !userAcquisition.accepts('illust')
+        && typeof userAcquisition.emptyMessage === 'function');
+    ok('作品与喜欢二级选项提供来源自有的 i18n 空态',
+        userAcquisition.emptyMessage({variant: 'douyin'}).includes('no works')
+        && userAcquisition.emptyMessage({variant: 'douyin-user-liked'}).includes('hidden'));
+    ok('User 模式拒绝依赖当前账号 Cookie 的 self 别名',
+        userAcquisition.parseInput('self') === null
+        && userAcquisition.parseInput(
+            'https://www.douyin.com/user/self?showTab=favorite_collection') === null);
     sandbox.apiResponses.push({
         items: [{id: 'user-page-2'}], total: 49, nextCursor: 'opaque-3', hasMore: true
     });
@@ -407,9 +435,52 @@ function ok(label, cond) {
         userPage.items[0].id === 'user-page-2'
         && userPageRequest.url.includes('offset=24')
         && userPageRequest.url.includes('limit=24')
-        && userPageRequest.url.includes('cursor=opaque-2'));
+        && userPageRequest.url.includes('cursor=opaque-2')
+        && userAcquisition.buildQueueMeta(userPage.items[0], {
+            userId: 'sec-demo', username: 'sec-demo'
+        }).typeData.sourceType === 'douyin.user');
     ok('用户预览页不再发起逐 ID cards 请求',
         sandbox.requests.length === 1 && !sandbox.requests.some(req => req.url.includes('/works/cards')));
+
+    sandbox.apiResponses.push({
+        items: [{id: 'liked-page-1'}], total: 1, nextCursor: '', hasMore: false
+    });
+    sandbox.requests.length = 0;
+    const likedPage = await userAcquisition.fetchPage('sec-liked', {
+        variant: 'douyin-user-liked', offset: 0, limit: 24, cursor: '0',
+        signal: new AbortController().signal
+    });
+    const likedRequest = sandbox.requests.find(req => req.url.includes('/api/douyin/user/sec-liked/liked/ids'));
+    const likedMeta = userAcquisition.buildQueueMeta(likedPage.items[0], {
+        userId: 'sec-liked', username: 'sec-liked'
+    });
+    const likedMetaFromContext = userAcquisition.buildQueueMeta({id: 'liked-raw'}, {
+        variant: 'douyin-user-liked', userId: 'sec-liked', username: 'sec-liked'
+    });
+    ok('喜欢二级选项读取任意目标用户并写入独立来源关系',
+        likedRequest.url.includes('offset=0') && likedRequest.url.includes('limit=24')
+        && likedMeta.typeData.sourceType === 'douyin.user.liked-works'
+        && likedMeta.typeData.sourceId === 'sec-liked'
+        && likedMeta.typeData.sourceUrl === 'https://www.douyin.com/user/sec-liked'
+        && likedMetaFromContext.typeData.sourceType === 'douyin.user.liked-works');
+
+    sandbox.apiResponses.push({__status: 403, __body: {
+        success: false, code: 'PERMISSION_DENIED',
+        messageKey: 'douyin.error.permission-denied', message: 'denied'
+    }});
+    let likedHiddenError = null;
+    try {
+        await userAcquisition.fetchPage('sec-hidden', {
+            variant: 'douyin-user-liked', offset: 0, limit: 24, cursor: '0',
+            signal: new AbortController().signal
+        });
+    } catch (error) {
+        likedHiddenError = error;
+    }
+    ok('喜欢列表明确无权时映射为隐藏或 Cookie 无权的提示',
+        likedHiddenError && likedHiddenError.code === 'PERMISSION_DENIED'
+        && likedHiddenError.message.includes('hidden'));
+
     const quickAcq = qt.acquisition('douyin', 'quick');
     const quickUserPageRequest = quickAcq.buildUserPageRequest('sec-demo', {
         offset: 24, limit: 24, cursor: 'opaque-2'
@@ -516,13 +587,32 @@ function ok(label, cond) {
     };
     await sandbox.window.__testLoadQuickDouyinAccount(
         'liked', 'douyin.account.liked-works', 'quick.liked', 'Liked works', 1, actionContext);
+    const loadedLikedItem = sandbox.quickState.rawItems[0];
+    const loadedLikedMeta = quickAcq.buildQueueMeta(loadedLikedItem, {
+        action: 'douyin-liked', accountOwner: 'douyin', accountId: 'douyin-user'
+    });
     const leasedJump = sandbox.pagination.jump;
+    sandbox.apiResponses.push({
+        items: [{id: 'favorite-lease-1'}], total: 1, nextCursor: '', hasMore: false
+    });
+    await sandbox.window.__testLoadQuickDouyinAccount(
+        'favorites', 'douyin.account.favorite-works', 'quick.favorites', 'Favorite works',
+        1, actionContext);
+    const loadedFavoriteMeta = quickAcq.buildQueueMeta(sandbox.quickState.rawItems[0], {
+        action: 'douyin-favorites', accountOwner: 'douyin', accountId: 'douyin-user'
+    });
+    ok('Quick 喜欢/收藏与 User/计划来源使用稳定 token 且不持久化内部 API URL',
+        loadedLikedMeta.typeData.sourceId === 'liked'
+        && loadedLikedMeta.typeData.sourceUrl == null
+        && loadedFavoriteMeta.typeData.sourceId === 'favorites'
+        && loadedFavoriteMeta.typeData.sourceUrl == null);
     const requestCountBeforeStaleJump = sandbox.requests.length;
+    const currentRawItemId = sandbox.quickState.rawItems[0].id;
     actionCurrent = false;
     await assert.rejects(leasedJump(2), error => error && error.code === 'STALE_ACQUISITION');
     ok('Douyin quick 分页回调继承 action lease 且失效后不再请求或写状态',
         sandbox.requests.length === requestCountBeforeStaleJump
-        && sandbox.quickState.rawItems[0].id === 'lease-1');
+        && sandbox.quickState.rawItems[0].id === currentRawItemId);
 
     const importHook = qt.contributionsOf('import').find(item => item.type === 'douyin');
     const match = importHook.matchUrl('https://www.douyin.com/video/7351234567890123456 | title');

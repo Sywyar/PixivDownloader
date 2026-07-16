@@ -18,6 +18,12 @@ function propertyKeys(source) {
 const zhKeys = propertyKeys(ZH);
 const enKeys = propertyKeys(EN);
 const requiredKeys = [
+    'user.kind.works',
+    'user.kind.liked',
+    'user.visibility-hint',
+    'user.empty.works',
+    'user.empty.liked',
+    'user.error.liked-hidden',
     'series.data-source.douyin',
     'series.browser.favorite-folders',
     'series.browser.favorite-folders.loading',

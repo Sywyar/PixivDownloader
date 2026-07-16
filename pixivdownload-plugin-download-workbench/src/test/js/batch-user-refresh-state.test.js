@@ -51,6 +51,7 @@ function captureQueueSaveKeys() {
 
 function createUserDraftHarness(storage, initialSource, availableSources = [SOURCE_A, SOURCE_B]) {
     let selection = {sourceId: initialSource, type: 'owner-type'};
+    let scheduleUpdates = 0;
     const inputListeners = new Set();
     const input = {
         value: '',
@@ -85,6 +86,7 @@ function createUserDraftHarness(storage, initialSource, availableSources = [SOUR
         applyNovelSettingsVisibility() {},
         applySearchKindUI() {},
         updateExtraFiltersCardVisibility() {},
+        updateSaveScheduleCardVisibility() { scheduleUpdates++; },
         console: {warn() {}, log() {}, error() {}},
         Map, Set, Promise, URL, URLSearchParams, AbortController
     };
@@ -99,6 +101,7 @@ function createUserDraftHarness(storage, initialSource, availableSources = [SOUR
         api,
         input,
         inputListenerCount() { return inputListeners.size; },
+        scheduleUpdateCount() { return scheduleUpdates; },
         currentSource() { return selection.sourceId; },
         dispatchInput() {
             Array.from(inputListeners).forEach(listener => listener({target: input}));
@@ -149,6 +152,11 @@ function createUserDraftHarness(storage, initialSource, availableSources = [SOUR
     assert.ok(loadSettingsIndex >= 0 && initDraftsIndex >= 0
         && loadSettingsIndex < initDraftsIndex,
         'User 草稿必须在设置收敛来源后恢复');
+    const userKindStart = INIT_SOURCE.indexOf("bindKindSwitcher('user-kind-switcher'");
+    const searchKindStart = INIT_SOURCE.indexOf("bindKindSwitcher('search-kind-switcher'", userKindStart);
+    const userKindCallback = INIT_SOURCE.slice(userKindStart, searchKindStart);
+    assert.match(userKindCallback, /updateSaveScheduleCardVisibility\(\)/,
+        'User 二级类型切换后必须立即收敛计划任务卡片显隐');
 }
 
 {
@@ -184,6 +192,8 @@ function createUserDraftHarness(storage, initialSource, availableSources = [SOUR
     h.changeType('another-owner-type');
     assert.equal(h.input.value, 'https://source-a.example/users/84/request',
         '同一数据来源内切换作品类型不得替换输入草稿');
+    assert.equal(h.scheduleUpdateCount(), 1,
+        'User 来源或类型委托变化后必须刷新计划任务卡片显隐');
     h.switchSource(SOURCE_B);
     assert.equal(h.input.value, `https://source-b.example/user/${DOUYIN_SEC_UID}`,
         '切换来源应恢复目标来源自己的草稿');

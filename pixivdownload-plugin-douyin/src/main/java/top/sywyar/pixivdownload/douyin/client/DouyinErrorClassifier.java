@@ -65,8 +65,13 @@ public final class DouyinErrorClassifier {
             return DouyinClientErrorCode.COOKIE_EXPIRED;
         }
         if (status == 403) {
-            return looksLikeLoginOrRiskPage(body)
-                    ? DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE
+            if (looksLikeLoginOrRiskPage(body)) {
+                return DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE;
+            }
+            String text = body == null || body.length == 0
+                    ? null : new String(body, StandardCharsets.UTF_8);
+            return looksLikeExplicitHttpPermissionText(text)
+                    ? DouyinClientErrorCode.PERMISSION_DENIED
                     : DouyinClientErrorCode.HTTP_FORBIDDEN;
         }
         if (status == 404) {
@@ -91,6 +96,9 @@ public final class DouyinErrorClassifier {
         int status = root.path("status_code").asInt(0);
         String message = statusText(root,
                 "status_msg", "message", "prompts", "log_pb", "search_nil_info");
+        if (status == 0 && !looksLikeLoginOrRiskText(message) && looksLikePermissionText(message)) {
+            return DouyinClientErrorCode.PERMISSION_DENIED;
+        }
         if (status == 0 && (message == null || !looksLikeLoginOrRiskText(message))) {
             return null;
         }
@@ -106,7 +114,7 @@ public final class DouyinErrorClassifier {
         if (containsAny(message, "region", "country", "地区", "区域", "当前区域")) {
             return DouyinClientErrorCode.REGION_RESTRICTED;
         }
-        if (containsAny(message, "permission", "private", "not allowed", "无权限", "私密", "不可见")) {
+        if (looksLikePermissionText(message)) {
             return DouyinClientErrorCode.PERMISSION_DENIED;
         }
         if (isRateLimited(status, message)) {
@@ -119,6 +127,22 @@ public final class DouyinErrorClassifier {
             return DouyinClientErrorCode.LOGIN_OR_VERIFY_PAGE;
         }
         return status == 0 ? null : DouyinClientErrorCode.UPSTREAM_CLIENT_ERROR;
+    }
+
+    private static boolean looksLikePermissionText(String message) {
+        return containsAny(message,
+                "permission", "private", "not allowed", "hidden",
+                "visible only to me", "only visible to me",
+                "无权限", "私密", "不可见", "隐藏", "仅自己可见", "仅本人可见");
+    }
+
+    private static boolean looksLikeExplicitHttpPermissionText(String message) {
+        return containsAny(message,
+                "permission denied", "not allowed to view",
+                "list is private", "private list", "list is hidden",
+                "liked works are hidden", "has hidden their liked", "has hidden the list",
+                "visible only to me", "only visible to me",
+                "无权限", "私密", "不可见", "已隐藏", "仅自己可见", "仅本人可见");
     }
 
     private static boolean isRateLimited(int status, String message) {

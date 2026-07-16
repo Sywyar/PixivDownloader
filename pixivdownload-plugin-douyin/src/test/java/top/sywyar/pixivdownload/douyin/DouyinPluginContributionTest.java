@@ -97,6 +97,7 @@ class DouyinPluginContributionTest {
         assertThat(queueType.descriptor().settings()).isEmpty();
         assertThat(queueType.descriptor().uiSlots()).containsExactly(
                 "kind-option-quick",
+                "kind-option-user",
                 "quick-actions-bookmarks",
                 "quick-actions-mine",
                 "import-hint",
@@ -188,15 +189,25 @@ class DouyinPluginContributionTest {
                 "/pixiv-douyin.html",
                 "/pixiv-douyin/douyin-core.js",
                 "/api/douyin/gallery/projections",
-                "/api/douyin/history/7351/media/0",
+                "/api/douyin/history/7351/media/0");
+        List<String> visitorAcquisitionPaths = List.of(
+                "/api/douyin/me/favorites",
                 "/api/douyin/me/favorite-folders",
                 "/api/douyin/me/favorite-folders/folder-a/works");
 
         assertThat(routes.isDeclared("/api/douyin/resolve", HttpMethod.GET)).isTrue();
         assertThat(routes.resolve("/api/douyin/resolve", HttpMethod.GET))
                 .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+        assertThat(routes.resolve("/api/douyin/user/sec-user/liked/ids", HttpMethod.GET))
+                .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
         assertThat(routes.resolve("/api/douyin/me/favorite-collections", HttpMethod.GET))
                 .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+        for (String path : visitorAcquisitionPaths) {
+            assertThat(routes.resolve(path, HttpMethod.GET))
+                    .as("%s 使用 VISITOR 访问策略", path)
+                    .hasValueSatisfying(route ->
+                            assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+        }
         for (String path : adminGalleryPaths) {
             assertThat(routes.resolve(path, HttpMethod.GET))
                     .as("%s 使用 ADMIN 访问策略", path)
@@ -231,7 +242,7 @@ class DouyinPluginContributionTest {
                             .isEqualTo("/pixiv-douyin-gallery.html?view=all");
                 });
         assertThat(i18n.resolve("douyin")).isNotNull();
-        assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(5);
+        assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(6);
         assertThat(queueTypes.queueTypes()).singleElement()
                 .satisfies(registered -> assertThat(registered.queueType().type()).isEqualTo("douyin"));
 

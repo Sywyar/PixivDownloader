@@ -304,6 +304,24 @@ test('模块只注册九类稳定 Douyin 周期来源并统一生成字符串作
     }
 });
 
+test('douyin.user 仅在 User 作品二级项匹配，喜欢不误存为作品', () => {
+    const h = harness();
+    const user = h.contributions.get('douyin.user');
+    const context = {mode: 'user', workTypes: ['douyin']};
+
+    assert.equal(user.matches(context), true);
+    h.elements.get('user-id-input').value =
+        'https://www.douyin.com/user/self?showTab=favorite_collection';
+    assert.equal(user.matches(context), false);
+    assert.throws(() => user.capture(context), /stable Douyin user ID/);
+    h.elements.get('user-id-input').value = '';
+    h.state.settings.userKind = 'douyin-user-liked';
+    assert.equal(user.matches(context), false);
+
+    h.state.settings.userKind = 'douyin';
+    assert.equal(user.matches({mode: 'user', workTypes: ['illust']}), false);
+});
+
 test('真实来源 runtime 受控加载模块并在 publication 更替后使旧 lease 失效', async () => {
     const first = {
         epoch: 'douyin-epoch',

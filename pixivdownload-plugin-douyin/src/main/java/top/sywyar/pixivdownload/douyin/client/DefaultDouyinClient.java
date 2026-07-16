@@ -193,6 +193,46 @@ public class DefaultDouyinClient implements DouyinClient {
     }
 
     @Override
+    public DouyinListing listUserLikedWorks(String userId,
+                                            int offset,
+                                            int limit,
+                                            String cookie) throws DouyinClientException {
+        String stableUserId = requireStableId(userId, "Douyin user id is required");
+        int safeOffset = Math.max(0, offset);
+        int safeLimit = positivePageSize(limit);
+        return collectLogicalSlice(stableUserId, safeOffset, safeLimit, cookie,
+                (cursor, count) -> listUserLikedWorksPage(stableUserId, cursor, count, cookie));
+    }
+
+    @Override
+    public DouyinListing listUserLikedWorksPage(String userId,
+                                                String cursor,
+                                                int limit,
+                                                String cookie) throws DouyinClientException {
+        String stableUserId = requireStableId(userId, "Douyin user id is required");
+        return listLikedWorksPage(stableUserId, stableUserId, null, cursor, limit, cookie);
+    }
+
+    private DouyinListing listLikedWorksPage(String targetUserId,
+                                             String ownerId,
+                                             String ownerName,
+                                             String cursor,
+                                             int limit,
+                                             String cookie) throws DouyinClientException {
+        String currentCursor = normalizeCursor(cursor);
+        int safeLimit = positivePageSize(limit);
+        JsonNode root = fetchApiJson("/aweme/v1/web/aweme/favorite/", params(
+                "sec_user_id", targetUserId,
+                "max_cursor", currentCursor,
+                "count", safeLimit,
+                "locate_query", false), cookie);
+        DouyinListing listing = workListing(root, 1, safeLimit,
+                new ListingContext(ownerId, ownerName, null, null),
+                "max_cursor", "aweme_list", "items", "data");
+        return requireAdvancingCursor(ownerId, currentCursor, listing);
+    }
+
+    @Override
     public DouyinListing listSeriesWorks(String seriesId, int page, int pageSize, String cookie) throws DouyinClientException {
         int safePage = Math.max(1, page);
         int safePageSize = positivePageSize(pageSize);
@@ -360,23 +400,8 @@ public class DefaultDouyinClient implements DouyinClient {
         if (source == DouyinAccountSource.FAVORITE_WORKS) {
             return listFavoriteWorksPage(account, cursor, limit, cookie);
         }
-        String path = "/aweme/v1/web/aweme/favorite/";
-        String cursorName = "max_cursor";
-        String currentCursor = normalizeCursor(cursor);
-        LinkedHashMap<String, Object> request = new LinkedHashMap<>();
-        request.put("sec_user_id", account.secUserId());
-        request.put(cursorName, currentCursor);
-        request.put("count", positivePageSize(limit));
-        request.put("locate_query", false);
-        JsonNode root = fetchApiJson(path, request, cookie);
-        DouyinListing listing = workListing(root, 1, positivePageSize(limit),
-                new ListingContext(account.accountKey(), account.displayName(), null, null), cursorName,
-                "aweme_list", "items", "data");
-        DouyinListing accountListing = new DouyinListing(
-                listing.items(), listing.total(), listing.page(), listing.pageSize(),
-                listing.lastPage(), listing.title(), account.accountKey(), account.displayName(),
-                listing.nextCursor(), listing.hasMore());
-        return requireAdvancingCursor(account.accountKey(), currentCursor, accountListing);
+        return listLikedWorksPage(account.secUserId(), account.accountKey(), account.displayName(),
+                cursor, limit, cookie);
     }
 
     private DouyinListing listFavoriteWorksPage(DouyinAccount account,

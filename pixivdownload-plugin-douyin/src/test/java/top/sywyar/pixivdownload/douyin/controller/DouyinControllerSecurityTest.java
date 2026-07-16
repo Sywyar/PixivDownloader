@@ -268,6 +268,65 @@ class DouyinControllerSecurityTest {
     }
 
     @Test
+    @DisplayName("目标用户喜欢作品预览按有界 offset 与 limit 返回同形卡片页")
+    void pagesTargetUserLikedPreviewWithoutAccountSource() throws Exception {
+        when(service.listUserLikedWorks("sec-target", 24, 2, null))
+                .thenReturn(new DouyinListing(List.of(work("liked-24"), work("liked-25")),
+                        27, 2, 2, false, "liked", "sec-target", "作者", "liked-next", true));
+
+        var response = mockMvc.perform(get("/api/douyin/user/sec-target/liked/ids")
+                        .param("offset", "24").param("limit", "2"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"ids\":[\"liked-24\",\"liked-25\"]",
+                "\"items\":[", "\"total\":27", "\"offset\":24", "\"limit\":2",
+                "\"nextCursor\":\"liked-next\"", "\"hasMore\":true");
+        verify(service).listUserLikedWorks("sec-target", 24, 2, null);
+        verify(service, never()).listAccountWorksPage(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("目标用户喜欢作品携带不透明游标时直接取得真实游标页")
+    void pagesTargetUserLikedPreviewWithOpaqueCursor() throws Exception {
+        when(service.listUserLikedWorksPage("sec-target", "liked-current", 24, "generic-cookie"))
+                .thenReturn(new DouyinListing(List.of(work("liked-page")),
+                        49, 1, 24, false, "liked", "sec-target", "作者", "liked-next", true));
+
+        var response = mockMvc.perform(get("/api/douyin/user/sec-target/liked/ids")
+                        .param("offset", "24").param("limit", "24")
+                        .param("cursor", "liked-current")
+                        .header(AcquisitionCredentialResolver.HEADER_NAME, " generic-cookie "))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getContentAsString()).contains(
+                "\"ids\":[\"liked-page\"]", "\"nextCursor\":\"liked-next\"");
+        verify(service).listUserLikedWorksPage(
+                "sec-target", "liked-current", 24, "generic-cookie");
+        verify(service, never()).listUserLikedWorks(anyString(), anyInt(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("目标用户明确隐藏喜欢列表时返回稳定权限错误")
+    void returnsStablePermissionErrorForHiddenTargetUserLikes() throws Exception {
+        when(service.listUserLikedWorks("sec-target", 0, 24, null))
+                .thenThrow(new DouyinClientException(
+                        DouyinClientErrorCode.PERMISSION_DENIED,
+                        "Douyin work listing reported PERMISSION_DENIED"));
+
+        var response = mockMvc.perform(get("/api/douyin/user/sec-target/liked/ids"))
+                .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains(
+                "\"success\":false",
+                "\"code\":\"PERMISSION_DENIED\"",
+                "\"messageKey\":\"douyin.error.permission-denied\"");
+    }
+
+    @Test
     @DisplayName("用户作品预览拒绝越界 offset 与 limit")
     void rejectsUnboundedUserPreviewWindow() throws Exception {
         var invalidOffset = mockMvc.perform(get("/api/douyin/user/sec-user/works/ids")

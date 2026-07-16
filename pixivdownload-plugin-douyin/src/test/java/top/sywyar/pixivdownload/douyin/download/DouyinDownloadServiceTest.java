@@ -631,6 +631,26 @@ class DouyinDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("目标用户喜欢作品薄透传用户、游标与 Cookie 并限制窗口")
+    void delegatesBoundedTargetUserLikedWorksToClient() throws Exception {
+        FakeClient client = new FakeClient();
+        DouyinDownloadService service = service(client, Runnable::run);
+
+        DouyinListing logical = service.listUserLikedWorks("sec-target", -10, 0, VALID_COOKIE);
+        DouyinListing cursor = service.listUserLikedWorksPage(
+                "sec-target", "liked-current", 500, VALID_COOKIE);
+
+        assertThat(logical.items()).extracting("id").containsExactly("liked-logical");
+        assertThat(cursor.items()).extracting("id").containsExactly("liked-cursor");
+        assertThat(client.lastLikedUserId).isEqualTo("sec-target");
+        assertThat(client.lastLikedOffset).isZero();
+        assertThat(client.lastLikedLogicalLimit).isEqualTo(24);
+        assertThat(client.lastLikedCursor).isEqualTo("liked-current");
+        assertThat(client.lastLikedCursorLimit).isEqualTo(100);
+        assertThat(client.lastLikedCookie).isEqualTo(VALID_COOKIE);
+    }
+
+    @Test
     @DisplayName("合集作品游标页薄透传 Cookie 并限制页大小")
     void delegatesBoundedSeriesCursorPageToClient() throws Exception {
         FakeClient client = new FakeClient();
@@ -1084,6 +1104,12 @@ class DouyinDownloadServiceTest {
         private String lastSeriesPageCursor;
         private int lastSeriesPageSize;
         private String lastSeriesPageCookie;
+        private String lastLikedUserId;
+        private int lastLikedOffset;
+        private int lastLikedLogicalLimit;
+        private String lastLikedCursor;
+        private int lastLikedCursorLimit;
+        private String lastLikedCookie;
         private DouyinFavoriteFolderListing favoriteFolderListing;
         private String lastFavoriteFolderCursor;
         private int lastFavoriteFolderPageSize;
@@ -1157,6 +1183,29 @@ class DouyinDownloadServiceTest {
         @Override
         public DouyinListing listUserWorks(String userId, int offset, int limit, String cookie) {
             return new DouyinListing(List.of(work("u-" + userId)), 1, 1, limit, true, null, userId, "user:" + userId);
+        }
+
+        @Override
+        public DouyinListing listUserLikedWorks(String userId, int offset, int limit, String cookie) {
+            lastLikedUserId = userId;
+            lastLikedOffset = offset;
+            lastLikedLogicalLimit = limit;
+            lastLikedCookie = cookie;
+            return new DouyinListing(List.of(work("liked-logical")), 1, 1, limit,
+                    true, null, userId, "user:" + userId);
+        }
+
+        @Override
+        public DouyinListing listUserLikedWorksPage(String userId,
+                                                    String cursor,
+                                                    int limit,
+                                                    String cookie) {
+            lastLikedUserId = userId;
+            lastLikedCursor = cursor;
+            lastLikedCursorLimit = limit;
+            lastLikedCookie = cookie;
+            return new DouyinListing(List.of(work("liked-cursor")), 1, 1, limit,
+                    true, null, userId, "user:" + userId, "liked-next", false);
         }
 
         @Override

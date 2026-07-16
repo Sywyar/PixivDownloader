@@ -26,6 +26,8 @@ function element() {
 }
 
 function userHarness(acquisition, fetchImpl) {
+    const statuses = [];
+    const addCalls = [];
     const elements = {
         'user-results-area': element(),
         'user-pagination': element(),
@@ -55,7 +57,7 @@ function userHarness(acquisition, fetchImpl) {
         esc(value) { return String(value); },
         resetPreviewCollapse() {},
         updateUserQueueButtons: undefined,
-        setStatus() {},
+        setStatus(message, level) { statuses.push({message, level}); },
         normalizeSearchFilters(value) { return value || {}; },
         getSearchFiltersFromUI() { return {}; },
         saveSearchFilterPrefs() {},
@@ -73,7 +75,10 @@ function userHarness(acquisition, fetchImpl) {
         getInlineSearchBookmarkCount() { return null; },
         getCachedSearchMeta() { return null; },
         fetchThumbnailBlobUrl: async () => null,
-        addItemsToQueue() { return 0; },
+        addItemsToQueue(ids, metas) {
+            addCalls.push({ids: Array.from(ids), metas: Array.from(metas)});
+            return new Set(ids).size;
+        },
         removeFromQueue() { return false; },
         saveSettings() {},
         applyKindSwitcherUI() {},
@@ -83,14 +88,28 @@ function userHarness(acquisition, fetchImpl) {
         uiConfirmKey: async () => true
     };
     vm.createContext(sandbox);
-    vm.runInContext(USER_SOURCE + '\nwindow.__pagedUserTest = {userState, loadUserPreviewPage};', sandbox);
+    vm.runInContext(USER_SOURCE
+        + '\nwindow.__pagedUserTest = {userState, loadUserPreviewPage, renderUserResults,'
+        + ' buildUserQueueMeta, addAllUserResultsToQueue, resetUserState, clearUserPreview};', sandbox);
     const state = sandbox.window.__pagedUserTest.userState;
     Object.assign(state, {
         kind: 'demo', variant: 'demo', userId: 'user-1', username: 'User',
         pagedAcquisition: typeof acquisition.fetchPage === 'function',
         total: 4, totalPages: 2, allIds: [], pageCache: new Map(), pageCursors: new Map()
     });
-    return {sandbox, state, loadPage: sandbox.window.__pagedUserTest.loadUserPreviewPage};
+    return {
+        sandbox,
+        state,
+        elements,
+        statuses,
+        addCalls,
+        loadPage: sandbox.window.__pagedUserTest.loadUserPreviewPage,
+        renderResults: sandbox.window.__pagedUserTest.renderUserResults,
+        buildMeta: sandbox.window.__pagedUserTest.buildUserQueueMeta,
+        addAll: sandbox.window.__pagedUserTest.addAllUserResultsToQueue,
+        reset: sandbox.window.__pagedUserTest.resetUserState,
+        clear: sandbox.window.__pagedUserTest.clearUserPreview
+    };
 }
 
 test('中性 user fetchPage 连续两页推进 offset/cursor 且不调用 cards', async () => {
@@ -124,12 +143,95 @@ test('中性 user fetchPage 连续两页推进 offset/cursor 且不调用 cards'
     assert.deepStrictEqual(Array.from(h.state.rawItems, item => item.id), ['3', '4']);
 });
 
+test('user 空态钩子获得 variant 上下文并替换通用文案', async () => {
+    const contexts = [];
+    const acquisition = {
+        pageSize: 2,
+        fetchPage() {
+            return Promise.resolve({items: [], total: 0, nextCursor: '', hasMore: false});
+        },
+        queueId(item) { return String(item.id); },
+        cardId(index) { return `card-${index}`; },
+        render() {},
+        buildQueueMeta() { return {}; },
+        emptyMessage(context) {
+            contexts.push({...context});
+            return '该二级列表为空或不可见';
+        }
+    };
+    const h = userHarness(acquisition, () => {
+        throw new Error('paged acquisition must not call fetch directly');
+    });
+    h.state.variant = 'demo-hidden-list';
+
+    await h.loadPage(1);
+
+    assert.match(h.elements['user-results-area'].innerHTML, /该二级列表为空或不可见/);
+    assert.deepStrictEqual(h.statuses[h.statuses.length - 1], {
+        message: '该二级列表为空或不可见', level: 'warning'
+    });
+    assert.deepStrictEqual(contexts, [{
+        userId: 'user-1', username: 'User', variant: 'demo-hidden-list'
+    }]);
+
+    h.renderResults();
+    assert.strictEqual(contexts.length, 2);
+    assert.strictEqual(contexts[1].variant, 'demo-hidden-list');
+
+    acquisition.emptyMessage = () => null;
+    h.renderResults();
+    assert.match(h.elements['user-results-area'].innerHTML, /该用户暂无作品/);
+});
+
+test('user 单项与全部入队 meta 上下文均传递 variant', async () => {
+    const itemContexts = [];
+    const idContexts = [];
+    const acquisition = {
+        pageSize: 2,
+        queueId(item) { return String(item.id); },
+        cardId(index) { return `card-${index}`; },
+        render() {},
+        buildQueueMeta(item, context) {
+            itemContexts.push({item: item.id, context: {...context}});
+            return {id: item.id};
+        },
+        buildQueueMetaFromId(id, context) {
+            idContexts.push({id, context: {...context}});
+            return {id};
+        }
+    };
+    const h = userHarness(acquisition, () => {
+        throw new Error('legacy allIds fast path must not call fetch');
+    });
+    Object.assign(h.state, {
+        variant: 'demo-secondary',
+        pagedAcquisition: false,
+        allIds: ['1', '2'],
+        total: 2
+    });
+
+    h.buildMeta({id: 'single'});
+    await h.addAll();
+
+    const expected = {userId: 'user-1', username: 'User', variant: 'demo-secondary'};
+    assert.deepStrictEqual(itemContexts, [{item: 'single', context: expected}]);
+    assert.deepStrictEqual(idContexts, [
+        {id: '1', context: expected},
+        {id: '2', context: expected}
+    ]);
+    assert.deepStrictEqual(h.addCalls[0].ids, ['1', '2']);
+});
+
 test('中性 user fetchPage 的旧响应不会覆盖后发分页结果', async () => {
     const first = deferred();
     const second = deferred();
+    const signals = [];
     const acquisition = {
         pageSize: 2,
-        fetchPage(_userId, context) { return context.page === 1 ? first.promise : second.promise; },
+        fetchPage(_userId, context) {
+            signals.push(context.signal);
+            return context.page === 1 ? first.promise : second.promise;
+        },
         queueId(item) { return String(item.id); },
         cardId(index) { return `card-${index}`; },
         render() {},
@@ -140,6 +242,8 @@ test('中性 user fetchPage 的旧响应不会覆盖后发分页结果', async (
 
     const oldLoad = h.loadPage(1);
     const newLoad = h.loadPage(2);
+    assert.strictEqual(signals[0].aborted, true);
+    assert.strictEqual(signals[1].aborted, false);
     second.resolve({items: [{id: 'new'}], total: 4, nextCursor: '', hasMore: false});
     await newLoad;
     first.resolve({items: [{id: 'old'}], total: 4, nextCursor: 'cursor-2', hasMore: true});
@@ -185,6 +289,47 @@ test('切换用户后旧 fetchPage 不会写入新用户的 pageCache/cursor', a
     assert.strictEqual(oldCache.has(1), false);
     assert.strictEqual(oldCursors.has(2), false);
     assert.deepStrictEqual(Array.from(h.state.rawItems, item => item.id), ['b']);
+});
+
+test('清空 user 预览会中止当前分页链且不显示取消错误', async () => {
+    const started = deferred();
+    let requestSignal = null;
+    const acquisition = {
+        pageSize: 2,
+        fetchPage(_userId, context) {
+            requestSignal = context.signal;
+            started.resolve();
+            return new Promise((_resolve, reject) => {
+                const rejectAbort = () => {
+                    const error = new Error('aborted');
+                    error.name = 'AbortError';
+                    reject(error);
+                };
+                if (context.signal.aborted) rejectAbort();
+                else context.signal.addEventListener('abort', rejectAbort, {once: true});
+            });
+        },
+        queueId(item) { return String(item.id); },
+        cardId(index) { return `card-${index}`; },
+        render() {},
+        buildQueueMeta() { return {}; }
+    };
+    const h = userHarness(acquisition, () => Promise.reject(new Error('unexpected fetch')));
+    h.reset('demo', 'demo');
+    Object.assign(h.state, {
+        userId: 'user-a', username: 'User A', pagedAcquisition: true,
+        total: 2, totalPages: 1
+    });
+
+    const load = h.loadPage(1);
+    await started.promise;
+    h.clear();
+
+    assert.ok(requestSignal);
+    assert.strictEqual(requestSignal.aborted, true);
+    await load;
+    assert.strictEqual(h.statuses.some(status => status.level === 'error'), false);
+    assert.strictEqual(h.state.pageCache.has(1), false);
 });
 
 test('旧 user acquisition 仍走 fetchIds/cards 兼容路径', async () => {

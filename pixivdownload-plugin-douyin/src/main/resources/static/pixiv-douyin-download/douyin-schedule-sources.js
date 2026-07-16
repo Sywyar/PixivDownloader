@@ -179,7 +179,11 @@
             return !!quick && quick.sourceType === sourceType;
         }
         if (!hasDouyinWork(context)) return false;
-        if (sourceType === SOURCE.USER) return context.mode === 'user';
+        if (sourceType === SOURCE.USER) {
+            const input = document.getElementById('user-id-input');
+            return context.mode === 'user' && state.settings.userKind === WORK_TYPE
+                && parseUserId(input && input.value) !== 'self';
+        }
         if (sourceType === SOURCE.SEARCH) return context.mode === 'search';
         if (context.mode !== 'series') return false;
         const current = currentSeriesValue();
@@ -201,6 +205,10 @@
             if (!userId) {
                 throw new Error(t('schedule.error.user-id',
                     'Enter a valid Douyin user ID or profile URL'));
+            }
+            if (userId === 'self') {
+                throw new Error(t('schedule.error.user-id',
+                    'Enter a stable Douyin user ID or profile URL'));
             }
             return {source: {userId}, label: ''};
         }

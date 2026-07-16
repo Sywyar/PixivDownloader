@@ -243,6 +243,24 @@ public class DouyinDownloadService {
         return currentRuntime().client().listUserWorksPage(userId, cursor, positiveLimit(limit), cookie);
     }
 
+    public DouyinListing listUserLikedWorks(String userId,
+                                            int offset,
+                                            int limit,
+                                            String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client()
+                .listUserLikedWorks(userId, Math.max(0, offset), positiveLimit(limit), cookie);
+    }
+
+    public DouyinListing listUserLikedWorksPage(String userId,
+                                                String cursor,
+                                                int limit,
+                                                String cookie) throws DouyinClientException {
+        DouyinCookieValidator.ensureUsable(cookie);
+        return currentRuntime().client()
+                .listUserLikedWorksPage(userId, cursor, positiveLimit(limit), cookie);
+    }
+
     public List<String> listAllUserWorkIds(String userId, String cookie) throws DouyinClientException {
         DouyinCookieValidator.ensureUsable(cookie);
         return collectAllIds((cursor, count) -> currentRuntime().client()

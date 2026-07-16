@@ -19,6 +19,13 @@ public interface DouyinClient {
 
     DouyinListing listUserWorks(String userId, int offset, int limit, String cookie) throws DouyinClientException;
 
+    default DouyinListing listUserLikedWorks(String userId,
+                                              int offset,
+                                              int limit,
+                                              String cookie) throws DouyinClientException {
+        throw unsupported("Douyin user liked works are not available");
+    }
+
     DouyinListing listSeriesWorks(String seriesId, int page, int pageSize, String cookie) throws DouyinClientException;
 
     DouyinListing searchPublic(String word, int page, int pageSize, String cookie) throws DouyinClientException;
@@ -29,6 +36,13 @@ public interface DouyinClient {
                                             String cookie) throws DouyinClientException {
         int page = cursor == null || cursor.isBlank() || "0".equals(cursor.trim()) ? 1 : Integer.parseInt(cursor);
         return cursorFallback(listUserWorks(userId, Math.max(0, page - 1) * limit, limit, cookie), page);
+    }
+
+    default DouyinListing listUserLikedWorksPage(String userId,
+                                                 String cursor,
+                                                 int limit,
+                                                 String cookie) throws DouyinClientException {
+        throw unsupported("Douyin user liked works are not available");
     }
 
     default DouyinListing searchWorksPage(String word,

@@ -161,6 +161,7 @@
             applyNovelSettingsVisibility();
             // User 模式作品类型变化时，同步共享「附加筛选」里页数/字数字段的显隐
             applySearchKindUI();
+            updateSaveScheduleCardVisibility();
             // 切换插画/小说后旧预览结果不再适用，清空避免误导
             clearUserPreview();
         });
