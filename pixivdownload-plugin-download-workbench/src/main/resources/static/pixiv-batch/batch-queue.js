@@ -881,8 +881,6 @@
     }
 
     function saveQueue() {
-        if (state.userId) storeSet('pixiv_batch_last_user_id', state.userId);
-        if (state.username) storeSet('pixiv_batch_last_username', state.username);
         storeSet(storageKey(), JSON.stringify({
             queue: state.queue,
             isPaused: state.isPaused,

@@ -196,21 +196,6 @@
         const savedMode = normalizeImportMode(storeGet('pixiv_mode') || QUICK_FETCH_MODE);
         state.mode = savedMode;
 
-        // 在 switchMode 前先恢复 userId，否则 user 模式下 storageKey() 用空串找不到队列
-        if (savedMode === 'user') {
-            const savedUserId = storeGet('pixiv_batch_last_user_id') || '';
-            const savedUsername = storeGet('pixiv_batch_last_username') || '';
-            if (savedUserId) {
-                state.userId = savedUserId;
-                state.username = savedUsername;
-                document.getElementById('user-id-input').value = savedUserId;
-                document.getElementById('user-info-display').textContent =
-                    savedUsername
-                        ? bt('status.user-display', '用户：{name}（ID: {id}）', {name: savedUsername, id: savedUserId})
-                        : bt('status.user-display-id', 'ID: {id}', {id: savedUserId});
-            }
-        }
-
         if (savedMode === 'search') {
             const blurPref = storeGet('pixiv_search_blur_r18');
             if (blurPref !== null) {
@@ -227,6 +212,7 @@
 
         // Settings
         loadSettings();
+        window.PixivBatch.modes.user.initUserInputDraftPersistence();
         await refreshBatchCollections();
         applyCookieDependentUi();
 

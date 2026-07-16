@@ -5,6 +5,14 @@
        再由「将此页加入队列」「全部加入队列」入队；附加筛选实时过滤当前页）
     ============================================================ */
     const USER_PAGE_SIZE = 30;
+    const USER_INPUT_DRAFT_STORAGE_PREFIX = 'pixiv_batch_user_input:';
+    const USER_DATA_SOURCE_STORAGE_KEY = 'pixiv_batch_user_data_source';
+    const LEGACY_USER_INPUT_STORAGE_KEYS = Object.freeze([
+        'pixiv_batch_last_user_id',
+        'pixiv_batch_last_username'
+    ]);
+    let userInputDraftBoundElement = null;
+    let userInputDraftSourceId = '';
 
     let userState = {
         kind: null,
@@ -52,6 +60,110 @@
         if (!selected || !selected.sourceId) return [];
         return window.PixivBatch.queueTypes.typesForDataSource('user', selected.sourceId)
             .map(candidate => candidate.type);
+    }
+
+    function selectedUserSourceId(selection) {
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        const current = selection || (controls ? controls.selection('user') : null);
+        return current && current.sourceId != null ? String(current.sourceId).trim() : '';
+    }
+
+    function userInputDraftStorageKey(sourceId) {
+        const normalized = sourceId == null ? '' : String(sourceId).trim();
+        return normalized ? USER_INPUT_DRAFT_STORAGE_PREFIX + normalized : null;
+    }
+
+    function saveUserDataSourceSelection(sourceId) {
+        const normalized = sourceId == null ? '' : String(sourceId).trim();
+        if (!normalized) return false;
+        try {
+            storeSet(USER_DATA_SOURCE_STORAGE_KEY, normalized);
+            return true;
+        } catch (e) {
+            console.warn('[user] 保存数据来源选择失败：', e);
+            return false;
+        }
+    }
+
+    function restoreUserDataSourceSelection() {
+        const controls = window.PixivBatch && window.PixivBatch.modeControls;
+        if (!controls) return '';
+        let savedSourceId = '';
+        try {
+            const saved = storeGet(USER_DATA_SOURCE_STORAGE_KEY);
+            savedSourceId = saved == null ? '' : String(saved).trim();
+            if (savedSourceId
+                && typeof controls.selectSource === 'function') {
+                controls.selectSource('user', savedSourceId, false);
+            }
+        } catch (e) {
+            console.warn('[user] 读取数据来源选择失败：', e);
+        }
+        const current = selectedUserSourceId();
+        if (current) saveUserDataSourceSelection(current);
+        return current || savedSourceId;
+    }
+
+    function saveUserInputDraft(sourceId, value) {
+        const key = userInputDraftStorageKey(sourceId);
+        if (!key) return false;
+        try {
+            storeSet(key, String(value == null ? '' : value));
+            return true;
+        } catch (e) {
+            console.warn('[user] 保存分来源输入草稿失败：', e);
+            return false;
+        }
+    }
+
+    function loadUserInputDraft(sourceId) {
+        const key = userInputDraftStorageKey(sourceId);
+        if (!key) return '';
+        try {
+            const value = storeGet(key);
+            return value == null ? '' : String(value);
+        } catch (e) {
+            console.warn('[user] 读取分来源输入草稿失败：', e);
+            return '';
+        }
+    }
+
+    function restoreUserInputDraft(sourceId = selectedUserSourceId()) {
+        const input = document.getElementById('user-id-input');
+        if (!input) return '';
+        const normalized = sourceId == null ? '' : String(sourceId).trim();
+        if (!normalized) return input.value;
+        const value = loadUserInputDraft(normalized);
+        input.value = value;
+        userInputDraftSourceId = normalized;
+        return value;
+    }
+
+    function discardLegacyUserInputState() {
+        LEGACY_USER_INPUT_STORAGE_KEYS.forEach(key => {
+            try {
+                if (storeGet(key) != null) storeRemove(key);
+            } catch (e) {
+                console.warn('[user] 清理旧 User 输入状态失败：', e);
+            }
+        });
+    }
+
+    function initUserInputDraftPersistence() {
+        const input = document.getElementById('user-id-input');
+        if (!input) return '';
+        const sourceId = restoreUserDataSourceSelection();
+        const kindChanged = applyUserSourceKindAvailability();
+        if (kindChanged) saveSettings();
+        if (userInputDraftBoundElement !== input) {
+            userInputDraftBoundElement = input;
+            input.addEventListener('input', () => {
+                saveUserInputDraft(selectedUserSourceId() || userInputDraftSourceId, input.value);
+            });
+        }
+        // 旧键没有来源维度，不能安全迁移；清除后仅恢复当前插件来源自己的原始输入。
+        discardLegacyUserInputState();
+        return restoreUserInputDraft(sourceId);
     }
 
     function userKindOwner(kind) {
@@ -298,6 +410,7 @@
     async function loadUserPreview() {
         const input = document.getElementById('user-id-input');
         const rawInput = input.value;
+        saveUserInputDraft(selectedUserSourceId() || userInputDraftSourceId, rawInput);
         const selected = resolveUserSelection(state.settings.userKind, rawInput);
         if (!selected) {
             setStatus(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停'), 'warning');
@@ -318,7 +431,6 @@
             applySearchKindUI();
             saveSettings();
         }
-        if (input.value.trim() !== userId) input.value = userId;
         resetUserState(selected.type, selected.variant);
         const requestSeq = userState.requestSeq;
         userState.userId = userId;
@@ -762,7 +874,18 @@
         }
     }
 
-    function handleUserModeControlChange() {
+    function handleUserModeControlChange(detail) {
+        const previousSourceId = selectedUserSourceId(detail && detail.previous);
+        const currentSourceId = selectedUserSourceId(detail && detail.selection);
+        if (previousSourceId !== currentSourceId) {
+            const input = document.getElementById('user-id-input');
+            const draftSourceId = previousSourceId || userInputDraftSourceId;
+            if (input) saveUserInputDraft(draftSourceId, input.value);
+            if (currentSourceId) {
+                saveUserDataSourceSelection(currentSourceId);
+                restoreUserInputDraft(currentSourceId);
+            }
+        }
         const kindChanged = applyUserSourceKindAvailability();
         if (kindChanged) saveSettings();
         clearUserPreview();
@@ -791,5 +914,6 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
 window.PixivBatch.modes.user = window.PixivBatch.modes.user || {};
 window.PixivBatch.modes.user = Object.assign(window.PixivBatch.modes.user, {
     loadUserPreview, addCurrentUserPageToQueue, addAllUserResultsToQueue,
-    applyUserSourceKindAvailability, handleUserModeControlChange, reconcileUserTypeAvailability
+    applyUserSourceKindAvailability, handleUserModeControlChange, reconcileUserTypeAvailability,
+    initUserInputDraftPersistence, saveUserInputDraft, restoreUserInputDraft
 });

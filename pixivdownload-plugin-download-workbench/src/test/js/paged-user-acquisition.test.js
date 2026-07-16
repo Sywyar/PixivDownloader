@@ -213,6 +213,7 @@ test('旧 user acquisition 仍走 fetchIds/cards 兼容路径', async () => {
 
 test('Pixiv 来源内 /request URL 自动切回旧 userKind=request 且不跨来源探测', async () => {
     const calls = [];
+    const stored = new Map();
     let douyinDetectCalls = 0;
     const selection = {sourceId: 'pixiv', type: 'novel'};
     const base = {
@@ -296,7 +297,10 @@ test('Pixiv 来源内 /request URL 自动切回旧 userKind=request 且不跨来
         summaryJoin(parts) { return parts.join(' / '); }, summarySeparator() { return ' / '; },
         getInlineSearchBookmarkCount() { return null; }, getCachedSearchMeta() { return null; },
         fetchThumbnailBlobUrl: async () => null, addItemsToQueue() { return 0; },
-        removeFromQueue() { return false; }, uiAlertKey: async () => {}
+        removeFromQueue() { return false; }, uiAlertKey: async () => {},
+        storeGet(key) { return stored.has(key) ? stored.get(key) : null; },
+        storeSet(key, value) { stored.set(key, String(value)); },
+        storeRemove(key) { stored.delete(key); }
     };
     vm.createContext(sandbox);
     vm.runInContext(USER_SOURCE + '\nwindow.__requestDetectionTest = {loadUserPreview, userState, userKindOwner};', sandbox);
@@ -310,6 +314,9 @@ test('Pixiv 来源内 /request URL 自动切回旧 userKind=request 且不跨来
     ]);
     assert.deepStrictEqual(selection, {sourceId: 'pixiv', type: 'illust'});
     assert.strictEqual(sandbox.state.settings.userKind, 'request');
+    assert.strictEqual(elements['user-id-input'].value, 'https://www.pixiv.net/users/42/request');
+    assert.strictEqual(stored.get('pixiv_batch_user_input:pixiv'),
+        'https://www.pixiv.net/users/42/request');
     assert.strictEqual(douyinDetectCalls, 0);
     assert.strictEqual(sandbox.window.__requestDetectionTest.userState.kind, 'illust');
     assert.strictEqual(sandbox.window.__requestDetectionTest.userState.variant, 'request');
