@@ -513,7 +513,7 @@
             </div>
         </section>
 
-        <!-- 中部：下载设置 + 次级动作 -->
+        <!-- 中部：下载设置 -->
         <div class="wb-center">
 
             <!-- Settings -->
@@ -648,23 +648,6 @@
                 </div>
             </details>
 
-            <!-- 次级动作：重试失败 / 清除队列 为直接按钮，导出全部 / 导出未下载 收进「更多」菜单 -->
-            <div class="wb-actions">
-                <template data-batch-layout-action-origin="btn-retry"></template>
-                <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()" data-i18n="button.retry">🔁 重试失败</button>
-                <template data-batch-layout-action-origin="btn-clear"></template>
-                <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
-                <details class="more-menu">
-                    <summary class="more-summary"><span data-i18n="dashboard.more">更多</span> <span class="more-caret" aria-hidden="true">▾</span></summary>
-                    <div class="more-menu-panel">
-                        <template data-batch-layout-action-origin="btn-export"></template>
-                        <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
-                        <template data-batch-layout-action-origin="btn-export-failed"></template>
-                        <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
-                    </div>
-                </details>
-            </div>
-
         </div><!-- /wb-center -->
 
         <!-- 布局操作投影：复用既有按钮节点，匹配的布局按声明顺序暂存于此。 -->
@@ -672,7 +655,7 @@
              data-batch-layout-action-host="classic"
              data-batch-layout-action-order="btn-start btn-pause btn-retry btn-export btn-export-failed btn-clear"></div>
 
-        <!-- 右：常驻下载队列 rail（配额 / 压缩包 / 当前下载 / 队列） -->
+        <!-- 右：常驻下载队列 rail（配额 / 压缩包 / 当前下载 / 队列 / 队列操作） -->
         <aside class="queue-rail">
 
             <!-- Quota bar (only shown in multi mode with quota enabled) -->
@@ -718,6 +701,23 @@
                 </div>
 
             </div><!-- /download-progress-area -->
+
+            <!-- 队列操作：重试失败 / 清除队列为直接按钮，导出全部 / 导出未下载收进「更多」菜单 -->
+            <div class="wb-actions">
+                <template data-batch-layout-action-origin="btn-retry"></template>
+                <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()" data-i18n="button.retry">🔁 重试失败</button>
+                <template data-batch-layout-action-origin="btn-clear"></template>
+                <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
+                <details class="more-menu">
+                    <summary class="more-summary"><span data-i18n="dashboard.more">更多</span> <span class="more-caret" aria-hidden="true">▾</span></summary>
+                    <div class="more-menu-panel">
+                        <template data-batch-layout-action-origin="btn-export"></template>
+                        <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
+                        <template data-batch-layout-action-origin="btn-export-failed"></template>
+                        <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
+                    </div>
+                </details>
+            </div>
 
         </aside><!-- /queue-rail -->
 

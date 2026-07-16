@@ -79,7 +79,9 @@ html[data-batch-layout="workbench"] .queue-rail {
         align-items: start;
     }
 
-    html[data-batch-layout="workbench"] .queue-rail #download-progress-area {
+    html[data-batch-layout="workbench"] .queue-rail #download-progress-area,
+    html[data-batch-layout="workbench"] .queue-rail > .wb-actions {
+        grid-column: 1 / -1;
         min-width: 0;
     }
 }

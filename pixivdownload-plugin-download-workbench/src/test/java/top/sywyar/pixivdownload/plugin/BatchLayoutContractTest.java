@@ -332,7 +332,7 @@ class BatchLayoutContractTest {
     }
 
     @Test
-    @DisplayName("经典布局声明唯一六按钮投影并在队列前保留全部原位锚点")
+    @DisplayName("经典布局在队列前声明唯一六按钮投影并保留全部原位锚点")
     void classicActionProjectionIsDeclaredOnceBeforeQueue() throws IOException {
         String html = read(BATCH_HTML);
         List<String> actionIds = List.of(
@@ -357,6 +357,49 @@ class BatchLayoutContractTest {
                     .as("按钮 " + id + " 必须且只能保留一个真实节点")
                     .isEqualTo(1);
         }
+    }
+
+    @Test
+    @DisplayName("工作台队列操作位于队列下方且中宽队列跨满可用宽度")
+    void workbenchQueueActionsFollowQueueAndSpanIntermediateRail() throws IOException {
+        String html = read(BATCH_HTML);
+        String queueRail = sliceBetween(html, "<aside class=\"queue-rail\">",
+                "</aside><!-- /queue-rail -->");
+        String settingsColumn = sliceBetween(html, "<div class=\"wb-center\">",
+                "</div><!-- /wb-center -->");
+        int progressEnd = queueRail.indexOf("</div><!-- /download-progress-area -->");
+        int actionsAt = queueRail.indexOf("<div class=\"wb-actions\">");
+
+        assertThat(progressEnd).as("队列 rail 必须保留下载进度区结束锚点").isGreaterThanOrEqualTo(0);
+        assertThat(actionsAt).as("队列 rail 必须包含次级操作区").isGreaterThan(progressEnd);
+        assertThat(countOccurrences(queueRail, "<div class=\"wb-actions\">"))
+                .as("队列 rail 中次级操作区必须唯一")
+                .isEqualTo(1);
+        assertThat(settingsColumn).as("设置列下方不应继续承载队列操作").doesNotContain("wb-actions");
+
+        String mediumProjection = sliceBetween(read(WORKBENCH_LAYOUT_CSS),
+                "@media (max-width: 1200px) {", "@media (max-width: 820px) {");
+        assertThat(mediumProjection)
+                .contains(WORKBENCH_SCOPE + " .queue-rail #download-progress-area,")
+                .contains(WORKBENCH_SCOPE + " .queue-rail > .wb-actions")
+                .contains("grid-column: 1 / -1")
+                .contains("min-width: 0");
+    }
+
+    @Test
+    @DisplayName("共享反馈弹窗显式适配下载页深色变量")
+    void feedbackDialogsUseBatchThemeSurfacesInDarkMode() throws IOException {
+        String css = read(BASE_CSS);
+
+        assertThat(css)
+                .contains("--overlay-bg: var(--modal-backdrop)")
+                .contains("--on-brand: var(--brand-text)")
+                .contains("--danger: var(--danger-bg)")
+                .contains("--on-danger: var(--danger-text)")
+                .contains("html[data-theme=\"dark\"] .pixiv-feedback-dialog")
+                .contains("html[data-theme=\"dark\"] .pixiv-feedback-toast")
+                .contains("html[data-theme=\"dark\"] .pixiv-feedback-input")
+                .contains("html[data-theme=\"dark\"] .pixiv-feedback-button--secondary");
     }
 
     @Test

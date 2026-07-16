@@ -25,6 +25,11 @@
             --status-red: #dc3545;
             --modal-backdrop: rgba(0, 0, 0, .45);
             --modal-shadow: rgba(0, 0, 0, .28);
+            /* 共享 PixivFeedback 变量桥接：保持弹窗与本页主题使用同一组表面、遮罩及动作色。 */
+            --overlay-bg: var(--modal-backdrop);
+            --on-brand: var(--brand-text);
+            --danger: var(--danger-bg);
+            --on-danger: var(--danger-text);
         }
 
         /* Vue 槽位挂载宿主（pixiv-vue.js 的 prepareSlotHosts / anchorFor 在每个 data-qt-slot 的原开槽位置
@@ -3325,7 +3330,7 @@ body.schedule-modal-open {
     background: transparent;
 }
 
-/* ---- 中部：次级动作 + 更多菜单 ---- */
+/* ---- 队列底部：次级动作 + 更多菜单 ---- */
 .wb-actions {
     display: flex;
     align-items: center;
@@ -3433,6 +3438,21 @@ html[data-theme="dark"] .tools-body > .card {
     box-shadow: none;
     border: none;
     border-top: 1px solid var(--line);
+}
+
+/* 共享反馈弹窗显式跟随本页暗色表面，避免系统颜色 fallback 产生浅色面板或控件。 */
+html[data-theme="dark"] .pixiv-feedback-dialog,
+html[data-theme="dark"] .pixiv-feedback-toast {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--line);
+}
+
+html[data-theme="dark"] .pixiv-feedback-input,
+html[data-theme="dark"] .pixiv-feedback-button--secondary {
+    background: var(--control-bg);
+    color: var(--text);
+    border-color: var(--line);
 }
 
 /* ---- 响应式：窄屏堆叠，无横向溢出，主操作可点 ---- */
