@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.request;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import lombok.Data;
 import top.sywyar.pixivdownload.core.db.TagDto;
 
@@ -71,5 +73,15 @@ public class NovelDownloadRequest {
          * 但后端仍独立再剪 + 白名单 + 限长。仅前端交互下载链路填充；计划任务走后端自抓 body，不读此字段。
          */
         private String rawMetaJson;
+
+        @JsonGetter("xRestrict")
+        public int getXRestrict() {
+            return xRestrict;
+        }
+
+        @JsonSetter("xRestrict")
+        public void setXRestrict(int xRestrict) {
+            this.xRestrict = xRestrict;
+        }
     }
 }

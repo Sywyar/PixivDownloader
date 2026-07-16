@@ -5,9 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
 import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
+import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,6 +19,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelDownloadHttpProjectionContractTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    @DisplayName("小说下载请求应把 camelCase xRestrict 绑定到年龄分级")
+    void downloadRequestBindsCamelCaseXRestrict() throws Exception {
+        NovelDownloadRequest request = objectMapper.readValue("""
+                {"novelId":123,"other":{"xRestrict":2}}
+                """, NovelDownloadRequest.class);
+
+        assertThat(request.getOther().getXRestrict()).isEqualTo(2);
+
+        JsonNode json = objectMapper.valueToTree(request);
+        assertThat(json.path("other").path("xRestrict").asInt()).isEqualTo(2);
+        assertThat(json.path("other").has("xrestrict")).isFalse();
+    }
+
+    @Test
+    @DisplayName("小说列表响应应只输出 camelCase 年龄分级字段")
+    void novelSearchItemUsesCanonicalAgeRatingFields() {
+        NovelSearchResponse.NovelSearchItem item = new NovelSearchResponse.NovelSearchItem(
+                "123", "title", 1, 0, 10, 20, 30,
+                "456", "author", "cover", true, List.of("tag"));
+
+        JsonNode json = objectMapper.valueToTree(item);
+        assertThat(json.path("xRestrict").asInt()).isEqualTo(1);
+        assertThat(json.path("isOriginal").asBoolean()).isTrue();
+        assertThat(json.has("xrestrict")).isFalse();
+        assertThat(json.has("original")).isFalse();
+    }
 
     @Test
     @DisplayName("启动下载响应保持 success/message/downloadPath/downloadedCount 字段")

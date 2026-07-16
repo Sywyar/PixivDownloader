@@ -119,6 +119,8 @@ class NovelPixivProxyControllerTest {
                     .andExpect(jsonPath("$.items", hasSize(1)))
                     .andExpect(jsonPath("$.items[0].id").value("789012"))
                     .andExpect(jsonPath("$.items[0].title").value("Test Novel"))
+                    .andExpect(jsonPath("$.items[0].xRestrict").value(1))
+                    .andExpect(jsonPath("$.items[0].xrestrict").doesNotExist())
                     .andExpect(jsonPath("$.items[0].bookmarkCount").value(987))
                     .andExpect(jsonPath("$.items[0].wordCount").value(1200))
                     .andExpect(jsonPath("$.items[0].textLength").value(3600))
@@ -168,6 +170,44 @@ class NovelPixivProxyControllerTest {
                     .andExpect(jsonPath("$.error").value("Conflicting acquisition credential headers"));
 
             verifyNoInteractions(restTemplate);
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/pixiv/novel/{id}/meta")
+    class NovelMetaTests {
+
+        @BeforeEach
+        void setUpSoloMode() {
+            when(setupService.getMode()).thenReturn("solo");
+        }
+
+        @Test
+        @DisplayName("小说详情应透传并规范输出年龄分级")
+        void shouldReturnCanonicalNovelAgeRating() throws Exception {
+            String body = """
+                    {
+                      "error": false,
+                      "body": {
+                        "title": "R18G Novel",
+                        "xRestrict": 2,
+                        "aiType": 2,
+                        "isOriginal": true,
+                        "content": "body"
+                      }
+                    }
+                    """;
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(body.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+            mockMvc.perform(get("/api/pixiv/novel/789012/meta"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.xRestrict").value(2))
+                    .andExpect(jsonPath("$.xrestrict").doesNotExist())
+                    .andExpect(jsonPath("$.isAi").value(true))
+                    .andExpect(jsonPath("$.ai").doesNotExist())
+                    .andExpect(jsonPath("$.isOriginal").value(true))
+                    .andExpect(jsonPath("$.original").doesNotExist());
         }
     }
 

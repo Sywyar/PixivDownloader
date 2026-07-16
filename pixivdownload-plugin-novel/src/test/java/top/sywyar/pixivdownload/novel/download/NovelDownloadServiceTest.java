@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -36,6 +37,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -125,6 +127,23 @@ class NovelDownloadServiceTest {
 
         assertThat(ok).isTrue();
         verify(workMetaCaptureService, never()).captureForwardedNovel(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("下载服务应把 R18G 分级写入小说记录")
+    void shouldPersistNovelAgeRating() {
+        NovelDownloadRequest request = txtRequest(108L, null);
+        request.getOther().setXRestrict(2);
+
+        boolean ok = service.downloadBlocking(request, null);
+
+        assertThat(ok).isTrue();
+        ArgumentCaptor<Integer> rating = ArgumentCaptor.forClass(Integer.class);
+        verify(novelDatabase).insertNovel(
+                eq(108L), any(), any(), anyInt(), any(), anyLong(), rating.capture(), any(),
+                any(), any(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any());
+        assertThat(rating.getValue()).isEqualTo(2);
     }
 
     @Test

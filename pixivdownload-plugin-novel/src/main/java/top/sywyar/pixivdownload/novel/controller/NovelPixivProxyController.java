@@ -331,7 +331,7 @@ public class NovelPixivProxyController {
             return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, limitPage, p -> {
                 NovelSearchResponse r = fetchNovelSearchPage(word, order, mode, sMode, p, resolvedCredential);
                 return new RangePage(r.getItems(), r.getTotal(),
-                        o -> ((NovelSearchResponse.NovelSearchItem) o).getId());
+                        o -> ((NovelSearchResponse.NovelSearchItem) o).id());
             }));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
