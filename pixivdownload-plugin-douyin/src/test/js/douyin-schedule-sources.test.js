@@ -8,7 +8,7 @@ const vm = require('node:vm');
 
 const moduleSource = fs.readFileSync(path.join(
     __dirname,
-    '../../../../pixivdownload-plugin-douyin/src/main/resources/static/pixiv-douyin-download/douyin-schedule-sources.js'
+    '../../main/resources/static/pixiv-douyin-download/douyin-schedule-sources.js'
 ), 'utf8');
 const runtimeSource = fs.readFileSync(path.join(
     __dirname,

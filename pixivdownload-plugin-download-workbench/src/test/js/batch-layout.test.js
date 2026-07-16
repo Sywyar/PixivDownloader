@@ -5,20 +5,17 @@
  * 无浏览器 / 无 jsdom：用 Node vm + 最小 DOM / EventTarget / localStorage 加载真实生产
  * batch-layout.js，覆盖声明式多布局、两种单布局、零布局和存储异常矩阵。
  *
- * 运行：node pixivdownload-app/src/test/js/batch-layout.test.js
+ * 运行：node pixivdownload-plugin-download-workbench/src/test/js/batch-layout.test.js
  */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SOURCE_PATH = path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch',
+const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch',
     'batch-layout.js');
-const HTML_PATH = path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch.html');
-const CSS_PATH = path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch',
+const HTML_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch.html');
+const CSS_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch',
     'pixiv-batch.css');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');

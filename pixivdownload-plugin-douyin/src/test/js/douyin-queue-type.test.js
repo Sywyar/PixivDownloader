@@ -288,6 +288,9 @@ function ok(label, cond) {
         .every(mode => qt.supports('douyin', mode)));
     ok('acquisition.search 提供真实关键词请求',
         qt.acquisition('douyin', 'search').buildRequest({word: '猫', page: 2}).params.word === '猫');
+    ok('acquisition.search 贡献来源自有的搜索统计标签',
+        qt.acquisition('douyin', 'search').formatStats('batch-fetched', {count: 12})
+            === '已抓取去重 12 个抖音作品');
     const favoriteFolderBrowser = seriesAcquisition.browser;
     ok('系列来源贡献账号自建收藏夹浏览器', favoriteFolderBrowser
         && favoriteFolderBrowser.initialCursor === '0'

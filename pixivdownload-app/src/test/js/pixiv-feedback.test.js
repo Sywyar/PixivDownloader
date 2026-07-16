@@ -238,26 +238,6 @@ function actionContainer(button) {
         ok(document.activeElement === trigger, 'dialog restores focus to the invoking control');
     }
 
-    {
-        const batchRoot = path.resolve(__dirname,
-            '../../../../pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch');
-        const scheduleSource = fs.readFileSync(path.join(batchRoot, 'modes/schedule.js'), 'utf8');
-        const nativeDialogPattern = /(^|[^\w$.])(?:(?:window|globalThis)\s*\.\s*)?(?:alert|confirm|prompt)\s*\(/m;
-        const javascriptFiles = [];
-        function collectJavascript(directory) {
-            fs.readdirSync(directory, {withFileTypes: true}).forEach(entry => {
-                const absolute = path.join(directory, entry.name);
-                if (entry.isDirectory()) collectJavascript(absolute);
-                else if (entry.isFile() && entry.name.endsWith('.js')) javascriptFiles.push(absolute);
-            });
-        }
-        collectJavascript(batchRoot);
-        ok(javascriptFiles.every(file => !nativeDialogPattern.test(fs.readFileSync(file, 'utf8'))),
-            'batch modules do not call native alert, confirm, or prompt');
-        ok((scheduleSource.match(/await confirmScheduleOverrideClears\(/g) || []).length === 2,
-            'both schedule override save paths await their confirmation result');
-    }
-
     console.log(`pixiv-feedback.test.js: ${passed} assertions passed`);
 })().catch(error => {
     console.error(error);

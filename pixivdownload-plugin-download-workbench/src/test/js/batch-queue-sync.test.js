@@ -18,8 +18,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const STATIC = path.join(__dirname, '..', '..', '..', '..',
-    'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
+const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const QUEUE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue.js'), 'utf8');
 
 // 在沙箱里加载真实 batch-queue.js，返回 facade + 四个 sync 的调用计数器。

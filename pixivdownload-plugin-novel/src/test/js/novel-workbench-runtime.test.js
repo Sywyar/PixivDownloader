@@ -13,6 +13,11 @@ const WORKBENCH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'sr
 const QUEUE_TYPES_SOURCE = fs.readFileSync(path.join(WORKBENCH, 'batch-queue-types.js'), 'utf8');
 const DOWNLOAD_SOURCE = fs.readFileSync(path.join(WORKBENCH, 'batch-download.js'), 'utf8');
 
+function interpolate(template, vars) {
+    return String(template).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, key) =>
+        vars && Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match);
+}
+
 class El {
     constructor(tag) {
         this.tag = tag;
@@ -112,7 +117,7 @@ function runtimeHarness(manifests) {
         getCookie: () => '',
         parseUserIdInput() {},
         getUserMeta() {},
-        bt: (_key, fallback) => fallback,
+        bt: (_key, fallback, vars) => interpolate(fallback, vars),
         apiGet: url => Promise.resolve({bookmarkCount: 77, url}),
         fetch() {
             const data = manifests[Math.min(fetchIndex++, manifests.length - 1)];
@@ -158,7 +163,7 @@ async function waitUntil(predicate) {
         getCookie: () => '',
         parseUserIdInput() {},
         getUserMeta() {},
-        bt: (_key, fallback) => fallback,
+        bt: (_key, fallback, vars) => interpolate(fallback, vars),
         apiGet: url => Promise.resolve({bookmarkCount: 77, url}),
         state: {settings: {skipHistory: true, redownloadDeleted: false}, queue: []},
         setCurrent() {},
@@ -197,6 +202,8 @@ async function waitUntil(predicate) {
     const filter = descriptor.filters['novel-words'];
     const bookmark = await filter.bookmarkCountFetch('42');
 
+    assert.strictEqual(descriptor.acquisition.search.formatStats('current-page', {count: 12}),
+        '小说当前页 12 部');
     assert.ok(filter.matchExtra({wordCount: 1200}, {wordsMin: 1000, wordsMax: 1500}));
     assert.ok(!filter.matchExtra({wordCount: 400}, {wordsMin: 500, wordsMax: null}));
     assert.strictEqual(bookmark.bookmarkCount, 77);
@@ -251,7 +258,7 @@ async function waitUntil(predicate) {
     `Novel 在途历史请求在 publication 撤回后应由真实 workbench runtime 暂停且不误记失败：`
         + `aborted=${runtimeSignal.aborted}, status=${runtimeItem.status}, message=${runtimeItem.lastMessage}`);
 
-    console.log('novel-workbench-runtime.test.js: 14 assertions passed ✓');
+    console.log('novel-workbench-runtime.test.js: 15 assertions passed ✓');
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

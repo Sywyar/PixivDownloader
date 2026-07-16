@@ -7,14 +7,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * {@link ConditionalOnPluginEnabled} 装配语义：未配置默认装配、{@code enabled=false} 缺席、显式
  * {@code enabled=true} 装配；短横线插件 id 正常绑定；未标注本注解的 Bean 不受影响。
  * <p>
  * 本条件<b>只读 {@code plugins.<id>.enabled} 开关、不区分必选 / 可选插件</b>（把 id 当作不透明开关键）：
- * 必选插件「不可禁用」由 app 侧 {@link PluginRegistry} 注册期强制，且必选插件业务 Bean 一律不标本注解
+ * 必选插件「不可禁用」由 app 侧 {@code PluginRegistry} 注册期强制，且必选插件业务 Bean 一律不标本注解
  * （恒无条件装配），该不变量由 {@code PluginApiDependencyGuardTest} 守护——故此处不再用必选插件 id 验证
  * 「开关被忽略」（旧的 {@code isRequired} 短路分支已随 plugin-runtime 抽取删除）。
  */

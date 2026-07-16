@@ -77,6 +77,12 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 条件与开关绑定单测使用 ApplicationContextRunner；其传递依赖提供 MockEnvironment。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- 发现桥接单测以 Mockito 伪造 PF4J PluginManager / PluginWrapper 枚举，验证提取 / 诊断 / classloader 传播，
              不必构建真实外置插件 jar（@TempDir 下的 jar 在 Windows 易触发清理文件锁）。版本随 spring-boot 父工程管理 -->
         <dependency>

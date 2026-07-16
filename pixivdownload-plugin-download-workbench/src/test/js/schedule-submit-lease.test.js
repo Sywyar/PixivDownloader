@@ -8,7 +8,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(
     __dirname,
-    '../../../../pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/modes/schedule.js'
+    '../../main/resources/static/pixiv-batch/modes/schedule.js'
 ), 'utf8') + `
 window.__setScheduleEditing = function (id, tasks) {
     scheduleEditingId = id;

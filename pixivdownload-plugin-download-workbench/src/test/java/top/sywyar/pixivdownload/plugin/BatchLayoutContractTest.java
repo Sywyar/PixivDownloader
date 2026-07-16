@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 下载页经典 / 工作台双布局的静态资源契约守卫。运行态偏好、事件绑定与异常降级另由
- * {@code pixivdownload-app/src/test/js/batch-layout.test.js} 通过真实脚本执行验证。
+ * {@code pixivdownload-plugin-download-workbench/src/test/js/batch-layout.test.js} 通过真实脚本执行验证。
  */
 @DisplayName("下载页经典 / 工作台双布局静态契约守卫")
 class BatchLayoutContractTest {

@@ -8,11 +8,11 @@ const vm = require('node:vm');
 
 const runtimeSource = fs.readFileSync(path.join(
     __dirname,
-    '../../../../pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/batch-schedule-sources.js'
+    '../../main/resources/static/pixiv-batch/batch-schedule-sources.js'
 ), 'utf8');
 const pixivModuleSource = fs.readFileSync(path.join(
     __dirname,
-    '../../../../pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/pixiv-schedule-sources.js'
+    '../../main/resources/static/pixiv-batch/pixiv-schedule-sources.js'
 ), 'utf8');
 
 function source(overrides) {

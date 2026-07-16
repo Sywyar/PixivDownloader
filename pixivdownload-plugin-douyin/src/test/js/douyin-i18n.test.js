@@ -27,7 +27,11 @@ const requiredKeys = [
     'schedule.source.account-favorite-folder.name',
     'schedule.source.account-favorite-folder.description',
     'schedule.field.folder-id',
-    'error.stale-request'
+    'error.stale-request',
+    'search.summary.current-page',
+    'search.summary.total',
+    'search.summary.returned',
+    'search.summary.fetched'
 ];
 
 assert.deepStrictEqual(Array.from(zhKeys).sort(), Array.from(enKeys).sort(),

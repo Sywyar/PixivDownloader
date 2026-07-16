@@ -464,7 +464,7 @@ class PluginReleaseScriptsTest {
                 .isGreaterThan(workflow.indexOf("run: npm run test:js"));
         assertThat(packageJson.path("private").asBoolean()).isTrue();
         assertThat(packageJson.path("scripts").path("test:js").asText())
-                .isEqualTo("node --test \"**/src/test/js/*.test.js\"");
+                .isEqualTo("node --test \"pixivdownload-*/src/test/js/*.test.js\"");
         assertThat(packageJson.path("scripts").path("test:web-standards").asText())
                 .isEqualTo("node scripts/check-web-standards.mjs");
         assertThat(packageJson.has("dependencies")).isFalse();
