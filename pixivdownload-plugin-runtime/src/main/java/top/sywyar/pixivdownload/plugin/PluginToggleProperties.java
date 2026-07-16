@@ -24,9 +24,21 @@ import java.util.LinkedHashMap;
 public class PluginToggleProperties extends LinkedHashMap<String, PluginToggleProperties.PluginToggle> {
 
     /** 给定插件是否启用；未配置该插件时默认启用（true）。 */
-    public boolean isEnabled(String pluginId) {
+    public synchronized boolean isEnabled(String pluginId) {
         PluginToggle toggle = get(pluginId);
         return toggle == null || toggle.isEnabled();
+    }
+
+    /**
+     * 原子更新一个插件的当前开关值。运行期管理入口与状态查询共用本实例时，通过同一对象锁避免
+     * {@link LinkedHashMap} 在并发读写下暴露不安全状态。
+     */
+    public synchronized void setEnabled(String pluginId, boolean enabled) {
+        if (pluginId == null || pluginId.isBlank()) {
+            throw new IllegalArgumentException("pluginId must not be blank");
+        }
+        PluginToggle toggle = computeIfAbsent(pluginId, ignored -> new PluginToggle());
+        toggle.setEnabled(enabled);
     }
 
     /**

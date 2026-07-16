@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -77,6 +78,7 @@ public final class PluginPackageReader {
     static final String KEY_PIXIV_ICON_KEY = "pixiv.icon-key";
     static final String KEY_PIXIV_COLOR_TOKEN = "pixiv.color-token";
     static final String KEY_PIXIV_REPLACES = "pixiv.replaces";
+    static final String KEY_PIXIV_LIFECYCLE_POLICY = "pixiv.lifecycle-policy";
 
     private PluginPackageReader() {
     }
@@ -335,11 +337,17 @@ public final class PluginPackageReader {
         String iconKey = trimToNull(properties.getProperty(KEY_PIXIV_ICON_KEY));
         String colorToken = trimToNull(properties.getProperty(KEY_PIXIV_COLOR_TOKEN));
         List<String> replaces = parsePluginIds(properties.getProperty(KEY_PIXIV_REPLACES));
+        PluginLifecyclePolicy lifecyclePolicy;
+        try {
+            lifecyclePolicy = PluginLifecyclePolicy.parse(properties.getProperty(KEY_PIXIV_LIFECYCLE_POLICY));
+        } catch (IllegalArgumentException e) {
+            throw new PluginPackageException(PluginPackageException.Reason.MALFORMED, e.getMessage(), e);
+        }
         if (displayName == null) {
             displayName = (pf4jDescription != null) ? pf4jDescription : id;
         }
         return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayNamespace,
-                displayName, description, iconKey, colorToken, PluginKind.FEATURE, replaces);
+                displayName, description, iconKey, colorToken, PluginKind.FEATURE, replaces, lifecyclePolicy);
     }
 
     private static List<PluginDependencyRef> parseDependencies(String raw) {

@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.DependencyOrderProbePlu
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
@@ -61,6 +62,32 @@ class PluginRuntimeManagerTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    @DisplayName("包清单生命周期策略在 load、start 和动态清点后保持不丢失")
+    void preservesManifestLifecyclePolicyAcrossRuntimeDiscovery() throws IOException {
+        Path plugins = tempDir.resolve("plugins");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true, "process-restart");
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        LoadedPluginPackage loaded = manager.loadPlugin(jar);
+        assertThat(loaded.inventory().installations()).singleElement()
+                .satisfies(installation -> assertThat(installation.descriptor().lifecyclePolicy())
+                        .isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
+        assertThat(manager.loadedDescriptor(PROBE_ID)).hasValueSatisfying(descriptor ->
+                assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
+
+        LoadedPluginPackage started = manager.startPlugin(PROBE_ID);
+        assertThat(started.inventory().installations()).singleElement()
+                .satisfies(installation -> assertThat(installation.descriptor().lifecyclePolicy())
+                        .isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
+        assertThat(manager.inspectPlugins().installations()).singleElement()
+                .satisfies(installation -> assertThat(installation.descriptor().lifecyclePolicy())
+                        .isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
+        manager.shutdown();
+    }
 
     @Test
     @DisplayName("PF4J start 已变更 wrapper 后抛 Error 时本地阶段复核为 STARTED")
@@ -719,10 +746,14 @@ class PluginRuntimeManagerTest {
     }
 
     private static void writeProbeJar(Path jar, boolean privateLib) throws IOException {
+        writeProbeJar(jar, privateLib, null);
+    }
+
+    private static void writeProbeJar(Path jar, boolean privateLib, String lifecyclePolicy) throws IOException {
         Files.createDirectories(jar.getParent());
         try (OutputStream out = Files.newOutputStream(jar);
              ZipOutputStream zos = new ZipOutputStream(out)) {
-            addDescriptor(zos);
+            addDescriptor(zos, lifecyclePolicy);
             addClassEntry(zos, BootstrapProbePlugin.class, "");
             addClassEntry(zos, BootstrapProbeFeaturePlugin.class, "");
             if (privateLib) {
@@ -806,9 +837,14 @@ class PluginRuntimeManagerTest {
     }
 
     private static void addDescriptor(ZipOutputStream zos) throws IOException {
+        addDescriptor(zos, null);
+    }
+
+    private static void addDescriptor(ZipOutputStream zos, String lifecyclePolicy) throws IOException {
         String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
-                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + (lifecyclePolicy != null ? "pixiv.lifecycle-policy=" + lifecyclePolicy + "\n" : "");
         zos.putNextEntry(new ZipEntry("plugin.properties"));
         zos.write(props.getBytes(StandardCharsets.UTF_8));
         zos.closeEntry();

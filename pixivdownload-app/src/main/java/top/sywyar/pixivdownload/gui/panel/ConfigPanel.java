@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.PluginCredentialStore;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.AutoStartManager;
+import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
 import top.sywyar.pixivdownload.gui.DebugUnlockState;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.config.*;
@@ -62,6 +63,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final Function<String, String> webUrlProvider;
     private final Runnable onLocaleChanged;
     private final BooleanSupplier languageChangeBlocked;
+    private final BooleanSupplier restartConfirmation;
+    private final BooleanSupplier backendRestarter;
 
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
@@ -109,11 +112,27 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                        ConfigFieldSnapshot fieldSnapshot,
                        Runnable onLocaleChanged,
                        BooleanSupplier languageChangeBlocked) {
+        this(configPath, serverPort, webUrlProvider, fieldSnapshot, onLocaleChanged, languageChangeBlocked,
+                null, BackendLifecycleManager::restartAsync);
+    }
+
+    ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider,
+                ConfigFieldSnapshot fieldSnapshot,
+                Runnable onLocaleChanged,
+                BooleanSupplier languageChangeBlocked,
+                BooleanSupplier restartConfirmation,
+                BooleanSupplier backendRestarter) {
         this.configPath = configPath;
         this.serverPort = serverPort;
         this.webUrlProvider = webUrlProvider;
         this.onLocaleChanged = onLocaleChanged == null ? () -> { } : onLocaleChanged;
         this.languageChangeBlocked = languageChangeBlocked == null ? () -> false : languageChangeBlocked;
+        this.restartConfirmation = restartConfirmation == null
+                ? this::confirmBackendRestart
+                : restartConfirmation;
+        this.backendRestarter = backendRestarter == null
+                ? BackendLifecycleManager::restartAsync
+                : backendRestarter;
         this.editor = new ConfigFileEditor(configPath);
         this.currentMode = resolveCurrentMode();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
@@ -1020,7 +1039,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
             boolean restartRequired = hasRestartRequiredChanges || sectionRestartChange;
             log.info(logMessage("gui.config.log.saved", configPath));
-            if (hasHotReloadChanges) {
+            if (restartRequired && restartConfirmation.getAsBoolean()) {
+                if (requestBackendRestart()) {
+                    showNotice(message("gui.config.notice.restarting"));
+                } else {
+                    showNotice(message("gui.message.backend-busy"));
+                }
+            } else if (hasHotReloadChanges) {
                 showNotice(message("gui.config.notice.hot-reloading"));
                 reloadHotConfigAsync(restartRequired, hotReloadKeys);
             } else {
@@ -1141,6 +1166,34 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     spec.key() + ": " + safeMessage(e)), e);
             return message("gui.config.validation.storage-safe");
         }
+    }
+
+    private boolean requestBackendRestart() {
+        try {
+            return backendRestarter.getAsBoolean();
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.status.log.restart-request.failed", safeMessage(e)), e);
+            return false;
+        }
+    }
+
+    private boolean confirmBackendRestart() {
+        if (!isShowing()) {
+            return false;
+        }
+        Object[] options = {
+                message("gui.action.restart-service"),
+                message("gui.action.restart-later")
+        };
+        int answer = JOptionPane.showOptionDialog(this,
+                message("gui.config.dialog.restart-required.message"),
+                message("gui.config.dialog.restart-required.title"),
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]);
+        return answer == 0;
     }
 
     private static String validateFieldTypeValue(ConfigFieldSpec spec, String value) {

@@ -687,6 +687,24 @@ textarea {
     border-radius: var(--radius-pill);
 }
 
+.pm-tag--lifecycle-hot {
+    color: var(--status-green);
+    background: color-mix(in srgb, var(--status-green) 10%, transparent);
+    border-color: color-mix(in srgb, var(--status-green) 35%, var(--border));
+}
+
+.pm-tag--lifecycle-backend {
+    color: var(--status-blue);
+    background: color-mix(in srgb, var(--status-blue) 10%, transparent);
+    border-color: color-mix(in srgb, var(--status-blue) 35%, var(--border));
+}
+
+.pm-tag--lifecycle-process {
+    color: var(--status-yellow);
+    background: color-mix(in srgb, var(--status-yellow) 10%, transparent);
+    border-color: color-mix(in srgb, var(--status-yellow) 35%, var(--border));
+}
+
 .pm-progress {
     margin-top: 14px;
 }

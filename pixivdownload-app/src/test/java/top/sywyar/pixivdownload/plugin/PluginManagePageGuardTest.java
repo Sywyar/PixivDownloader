@@ -5,8 +5,10 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.NoSuchFileException;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,6 +29,8 @@ class PluginManagePageGuardTest {
     private static final String API = "plugin-manage/plugin-manage-api.js";
     private static final String VIEWS = "plugin-manage/plugin-manage-views.js";
     private static final String INIT = "plugin-manage/plugin-manage-init.js";
+    private static final String I18N_ZH = "i18n/web/plugins.properties";
+    private static final String I18N_EN = "i18n/web/plugins_en.properties";
 
     private static String read(String resource) throws IOException {
         String path = STATIC_ROOT + resource;
@@ -38,12 +42,24 @@ class PluginManagePageGuardTest {
         }
     }
 
+    private static Properties readProperties(String resource) throws IOException {
+        Properties properties = new Properties();
+        try (InputStream in = PluginManagePageGuardTest.class.getClassLoader().getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new NoSuchFileException(resource);
+            }
+            properties.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+        }
+        return properties;
+    }
+
     @Test
-    @DisplayName("页面引用共享脚本（i18n / lang / theme / navigation）+ 四个页面模块 + CSS，且 init 最后加载")
+    @DisplayName("页面引用共享脚本（含 PixivFeedback）+ 四个页面模块 + CSS，且 init 最后加载")
     void pageWiresSharedScriptsAndModulesInOrder() throws IOException {
         String html = read(HTML);
         for (String ref : new String[]{
                 "/js/pixiv-i18n.js", "/js/pixiv-lang-switcher.js", "/js/pixiv-theme.js", "/js/pixiv-navigation.js",
+                "/js/pixiv-feedback.js", "/css/pixiv-feedback.css",
                 "/plugin-manage/plugin-manage-core.js", "/plugin-manage/plugin-manage-api.js",
                 "/plugin-manage/plugin-manage-views.js", "/plugin-manage/plugin-manage-init.js",
                 "/plugin-manage/plugin-manage.css"}) {
@@ -55,6 +71,9 @@ class PluginManagePageGuardTest {
                     .as(earlier + " 应在 plugin-manage-init.js 之前加载")
                     .isLessThan(html.indexOf("plugin-manage-init.js"));
         }
+        assertThat(html.indexOf("pixiv-feedback.js"))
+                .as("共享反馈组件应在页面 init 之前加载")
+                .isLessThan(html.indexOf("plugin-manage-init.js"));
     }
 
     @Test
@@ -72,7 +91,7 @@ class PluginManagePageGuardTest {
     }
 
     @Test
-    @DisplayName("消费 admin 后端 API：core 声明 /api/plugins/status 与动词前缀 + 据响应 displayNamespace 解析（不硬编码）；api 走 POST 且携稳定机器码 code")
+    @DisplayName("消费 admin 后端 API：运行期动词、持久化启停与后端重启使用约定的方法和请求体")
     void consumesAdminBackendApi() throws IOException {
         String core = read(CORE);
         assertThat(core).as("状态查询端点").contains("'/api/plugins/status'");
@@ -89,7 +108,48 @@ class PluginManagePageGuardTest {
         String api = read(API);
         assertThat(api).as("拉取状态走 STATUS_URL").contains("PM.STATUS_URL");
         assertThat(api).as("动词为 POST").contains("method: 'POST'");
+        assertThat(api).as("持久化启停为 PUT").contains("method: 'PUT'");
+        assertThat(api).as("持久化启停使用 JSON enabled 请求体")
+                .contains("JSON.stringify({ enabled: enabled === true })");
+        assertThat(api).as("后端重启使用专用端点")
+                .contains("PM.BACKEND_RESTART_URL");
         assertThat(api).as("失败携后端稳定机器码 code").contains("err.code");
+    }
+
+    @Test
+    @DisplayName("生命周期策略完全由 DTO 驱动：三类标签、持久化开关与反馈弹窗均接线且不使用原生对话框")
+    void lifecyclePolicyDrivesLabelsTogglesAndRestartGuidance() throws IOException {
+        String core = read(CORE);
+        assertThat(core).contains("entry.lifecyclePolicy", "entry.configuredEnabled", "entry.toggleable");
+        assertThat(core).contains("HOT_RELOAD", "BACKEND_RESTART", "PROCESS_RESTART");
+
+        String views = read(VIEWS);
+        assertThat(views).contains("pm-tag--lifecycle-", "vm.showLifecycleTag", "vm.lifecycleLabel", "vm.enabled");
+
+        String init = read(INIT);
+        assertThat(init).as("需重启策略持久化启停配置").contains("PM.setEnabled");
+        assertThat(init).as("后端重启需先走共享确认框").contains("PixivFeedback.confirm", "PM.restartBackend");
+        assertThat(init).as("完整进程重启只走共享提醒框").contains("PixivFeedback.alert");
+        assertThat(init).as("禁止原生 confirm / alert")
+                .doesNotContain("window.confirm(", "window.alert(", "global.confirm(", "global.alert(");
+        assertThat(init).as("前端不得调用完整进程重启端点").doesNotContain("/api/gui/restart");
+    }
+
+    @Test
+    @DisplayName("生命周期与重启提示文案中英键集合一致且关键文案非空")
+    void lifecycleI18nKeysMatchAcrossLocales() throws IOException {
+        Properties zh = readProperties(I18N_ZH);
+        Properties en = readProperties(I18N_EN);
+        assertThat(zh.stringPropertyNames()).as("plugins 中英文案键集合一致")
+                .isEqualTo(en.stringPropertyNames());
+        for (String key : new String[]{
+                "lifecycle.hot-reload", "lifecycle.backend-restart", "lifecycle.process-restart",
+                "toggle.saved.enabled", "toggle.saved.disabled", "toggle.failed",
+                "restart.backend.message", "restart.backend.confirm", "restart.backend.later",
+                "restart.process.message", "restart.process.done"}) {
+            assertThat(zh.getProperty(key)).as("中文文案 " + key).isNotBlank();
+            assertThat(en.getProperty(key)).as("英文文案 " + key).isNotBlank();
+        }
     }
 
     @Test

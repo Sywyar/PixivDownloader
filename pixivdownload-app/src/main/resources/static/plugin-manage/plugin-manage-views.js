@@ -16,9 +16,21 @@
     }
 
     function switchTitle(vm) {
-        if (!vm.managed) return PM.t('switch.builtin', '内置插件，随主程序编译，不可热启停。');
-        if (!vm.allowDisable) return PM.t('switch.required', '必须插件，不可停用。');
-        return vm.running ? PM.t('switch.disable', '点击停用') : PM.t('switch.enable', '点击启用');
+        if (!vm.toggleable) {
+            if (vm.requiredByPolicy || !vm.allowDisable) return PM.t('switch.required', '必须插件，不可停用。');
+            if (vm.source === 'built-in') return PM.t('switch.builtin', '内置插件，随主程序编译，不可启停。');
+            return PM.t('switch.locked', '当前插件不可启停。');
+        }
+        var action = vm.enabled ? 'disable' : 'enable';
+        if (vm.lifecyclePolicy === 'BACKEND_RESTART') {
+            return PM.t('switch.' + action + '.backend-restart',
+                vm.enabled ? '点击停用；重启后端后生效' : '点击启用；重启后端后生效');
+        }
+        if (vm.lifecyclePolicy === 'PROCESS_RESTART') {
+            return PM.t('switch.' + action + '.process-restart',
+                vm.enabled ? '点击停用；重启软件后生效' : '点击启用；重启软件后生效');
+        }
+        return vm.enabled ? PM.t('switch.disable', '点击停用') : PM.t('switch.enable', '点击启用');
     }
 
     // —— 概览统计（信息区） ——
@@ -115,8 +127,8 @@
         parts.push('<div class="pm-card-sub" title="' + E(vm.sub) + '">' + E(vm.sub) + '</div>');
         parts.push('</div>');
 
-        var switchCls = 'pm-switch' + (vm.running ? ' on' : '') + (vm.toggleable ? '' : ' pm-switch--locked');
-        var switchAttrs = 'type="button" role="switch" aria-checked="' + (vm.running ? 'true' : 'false') + '"'
+        var switchCls = 'pm-switch' + (vm.enabled ? ' on' : '') + (vm.toggleable ? '' : ' pm-switch--locked');
+        var switchAttrs = 'type="button" role="switch" aria-checked="' + (vm.enabled ? 'true' : 'false') + '"'
             + ' data-pm-toggle="' + E(vm.id) + '" title="' + E(switchTitle(vm)) + '"'
             + ((!vm.toggleable || busy) ? ' disabled' : '');
         parts.push('<button class="' + switchCls + '" ' + switchAttrs + '></button>');
@@ -126,11 +138,11 @@
             parts.push('<p class="pm-card-desc">' + E(vm.desc) + '</p>');
         }
 
-        if (vm.tags.length) {
-            parts.push('<div class="pm-tags">' + vm.tags.map(function (tag) {
+        parts.push('<div class="pm-tags">' + (vm.showLifecycleTag
+            ? '<span class="pm-tag pm-tag--lifecycle-' + E(vm.lifecycleTone) + '">#' + E(vm.lifecycleLabel) + '</span>'
+            : '') + vm.tags.map(function (tag) {
                 return '<span class="pm-tag">#' + E(tag) + '</span>';
             }).join('') + '</div>');
-        }
 
         // 包级写操作状态。
         if (vm.updating) {

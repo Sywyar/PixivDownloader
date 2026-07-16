@@ -1,6 +1,6 @@
 'use strict';
 /*
- * 插件管理页后端调用：拉取插件状态、执行运行期生命周期动词。
+ * 插件管理页后端调用：拉取插件状态、执行运行期生命周期动词、持久化启停配置与请求后端重启。
  * 失败时抛出携带后端「稳定机器码」code 的错误（按 code 分支，message 仅作本地化展示）。
  */
 (function (global) {
@@ -41,6 +41,56 @@
             err.httpStatus = res.status;
             err.pluginId = body && body.pluginId;
             err.action = body && body.action;
+            throw err;
+        }
+        return body;
+    }
+
+    // PUT /api/plugins/{id}/enabled，持久化插件启停配置；实际生效方式由 lifecyclePolicy 决定。
+    async function setEnabled(id, enabled) {
+        var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/enabled';
+        var res = await fetch(url, {
+            method: 'PUT',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ enabled: enabled === true })
+        });
+        var body = null;
+        try {
+            body = await res.json();
+        } catch (parseError) {
+            body = null;
+        }
+        if (!res.ok) {
+            var err = new Error((body && body.message) || ('HTTP ' + res.status));
+            err.code = body && body.code;
+            err.httpStatus = res.status;
+            err.pluginId = body && body.pluginId;
+            throw err;
+        }
+        return body;
+    }
+
+    // POST /api/plugins/backend-restart，仅重启 Spring Boot 后端；完整进程重启不由本页触发。
+    async function restartBackend() {
+        var res = await fetch(PM.BACKEND_RESTART_URL, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        });
+        var body = null;
+        try {
+            body = await res.json();
+        } catch (parseError) {
+            body = null;
+        }
+        if (!res.ok) {
+            var err = new Error((body && body.message) || ('HTTP ' + res.status));
+            err.code = body && body.code;
+            err.httpStatus = res.status;
             throw err;
         }
         return body;
@@ -89,5 +139,7 @@
 
     PM.fetchStatus = fetchStatus;
     PM.performAction = performAction;
+    PM.setEnabled = setEnabled;
+    PM.restartBackend = restartBackend;
     PM.installPackage = installPackage;
 })(window);

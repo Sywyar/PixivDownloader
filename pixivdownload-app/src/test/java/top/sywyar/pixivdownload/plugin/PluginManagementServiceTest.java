@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
@@ -84,6 +85,7 @@ class PluginManagementServiceTest {
         PluginManagementService.PluginManagementEntry builtIn = entry(report, BUILT_IN_ID);
         assertThat(builtIn.source()).isEqualTo("built-in");
         assertThat(builtIn.managed()).isFalse();
+        assertThat(builtIn.toggleable()).isFalse();
         assertThat(builtIn.runtimePhase()).isNull();
         assertThat(builtIn.availableActions()).isEmpty();
 
@@ -92,6 +94,9 @@ class PluginManagementServiceTest {
         assertThat(external.managed()).isTrue();
         assertThat(external.runtimePhase()).isEqualTo(PluginRuntimePhase.STARTED);
         assertThat(external.allowDisable()).isTrue();
+        assertThat(external.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
+        assertThat(external.configuredEnabled()).isTrue();
+        assertThat(external.toggleable()).isTrue();
         assertThat(external.availableActions()).containsExactlyInAnyOrder(
                 "quiesce", "stop", "unload", "remove", "restart", "reload");
         // 未声明 requires 的描述符 → specified=false / satisfied=true / required="(unspecified)"，无依赖 → 空列表。
@@ -218,7 +223,36 @@ class PluginManagementServiceTest {
 
         PluginManagementService.PluginManagementEntry entry = entry(report, REQUIRED_EXTERNAL_ID);
         assertThat(entry.allowDisable()).isFalse();
+        assertThat(entry.toggleable()).isFalse();
         assertThat(entry.availableActions()).containsExactly("restart", "reload");
+    }
+
+    @Test
+    @DisplayName("非热重载策略只暴露期望启用态：不受运行期管理且不提供热管理动词")
+    void restartPolicyIsNotHotManaged() {
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        toggles.setEnabled(EXTERNAL_ID, false);
+        PluginDescriptor descriptor = new PluginDescriptor(
+                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", PluginApiRequirement.unspecified(), List.of(),
+                EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null,
+                "puzzle", "neutral", PluginKind.FEATURE, List.of(), PluginLifecyclePolicy.PROCESS_RESTART);
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+
+        PluginManagementService.PluginManagementEntry entry = entry(
+                new PluginManagementService(status, lifecycle, RequiredPluginPolicy.empty(), recovery, toggles).list(),
+                EXTERNAL_ID);
+
+        assertThat(entry.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
+        assertThat(entry.configuredEnabled()).isFalse();
+        assertThat(entry.toggleable()).isTrue();
+        assertThat(entry.managed()).isFalse();
+        assertThat(entry.availableActions()).isEmpty();
     }
 
     @Test
@@ -299,6 +333,26 @@ class PluginManagementServiceTest {
                         mock(RecoveryModeService.class))
                         .perform(BUILT_IN_ID, PluginManagementService.LifecycleAction.STOP),
                 PluginManagementErrorCode.BUILT_IN_PLUGIN);
+    }
+
+    @Test
+    @DisplayName("perform 按描述符策略拒绝非热重载插件，不按插件 id 特判")
+    void performRefusesRestartPolicyPlugin() {
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        PluginDescriptor descriptor = new PluginDescriptor(
+                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", PluginApiRequirement.unspecified(), List.of(),
+                EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null,
+                "puzzle", "neutral", PluginKind.FEATURE, List.of(), PluginLifecyclePolicy.BACKEND_RESTART);
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+
+        assertManagementError(() -> service(status, lifecycle, RequiredPluginPolicy.empty(),
+                        mock(RecoveryModeService.class))
+                        .perform(EXTERNAL_ID, PluginManagementService.LifecycleAction.STOP),
+                PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN);
+        verify(lifecycle, never()).stop(EXTERNAL_ID);
     }
 
     @Test

@@ -6,7 +6,7 @@
  * 数据来源：后端管理 API（admin-only，已接线）。后端响应见 PluginManagementService.PluginManagementReport：
  *   { recoveryMode, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
  *     version, kind, apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
- *     allowDisable, availableActions, messages } ] }
+ *     allowDisable, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
  * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
  * 提供的字段（更新机制 / 体积 / 下载量 / 作者）在此处优雅留空（见各 vm.hasUpdate 等占位字段），待后端补齐后再点亮。
@@ -14,6 +14,7 @@
 (function (global) {
     var STATUS_URL = '/api/plugins/status';
     var ACTION_URL_PREFIX = '/api/plugins/';
+    var BACKEND_RESTART_URL = '/api/plugins/backend-restart';
     var INSTALL_URL = '/api/plugins/install';
     // 受支持的本地插件包扩展名（与后端安装器一致：仅 .jar / .zip）；用于 <input accept> 与本地预校验。
     var INSTALL_ACCEPT = '.jar,.zip';
@@ -140,6 +141,22 @@
         return VERIFICATION_META[status] || { key: 'verification.unverified-local', tone: 'idle' };
     }
 
+    // 插件声明的启停生效策略。未知 token 按完整进程重启收敛，避免误走热启停。
+    var LIFECYCLE_POLICY_META = {
+        HOT_RELOAD:      { key: 'lifecycle.hot-reload', tone: 'hot', fallback: '热重载' },
+        BACKEND_RESTART: { key: 'lifecycle.backend-restart', tone: 'backend', fallback: '重启后端' },
+        PROCESS_RESTART: { key: 'lifecycle.process-restart', tone: 'process', fallback: '重启软件' }
+    };
+
+    function lifecyclePolicyOf(value) {
+        var token = value == null ? '' : String(value).trim().toUpperCase();
+        return LIFECYCLE_POLICY_META[token] ? token : 'PROCESS_RESTART';
+    }
+
+    function lifecyclePolicyMeta(policy) {
+        return LIFECYCLE_POLICY_META[lifecyclePolicyOf(policy)];
+    }
+
     function iconClass(iconKey) {
         return global.PixivPluginPresentationTokens.iconClass(iconKey);
     }
@@ -154,7 +171,7 @@
             return t('desc.not-installed', '该插件尚未安装。');
         }
         if (source === 'external') {
-            return t('desc.external', '外置插件，可在运行期启停。');
+            return t('desc.external', '外置插件；启停后的生效方式以生命周期标签为准。');
         }
         return t('desc.built-in', '内置插件，随主程序编译。');
     }
@@ -185,8 +202,13 @@
         var verification = entry.verification || {};
         var verificationStatus = verification.status || null;
         var verificationInfo = verificationMeta(verificationStatus);
+        var lifecyclePolicy = lifecyclePolicyOf(entry.lifecyclePolicy);
+        var lifecycleInfo = lifecyclePolicyMeta(lifecyclePolicy);
+        var configuredEnabled = entry.configuredEnabled !== false;
+        // 热重载插件的开关反映当前运行态；需重启插件反映已经持久化、将在重启后生效的配置态。
+        var enabled = lifecyclePolicy === 'HOT_RELOAD' ? running : configuredEnabled;
 
-        // 标签：用真实数据派生（类别 / 必须 / 是否可热管理）。
+        // 标签：类别 / 必须标签与独立的生命周期策略标签均只由后端投影派生。
         var tags = [];
         if (entry.kind) {
             tags.push(t('kind.' + String(entry.kind).toLowerCase(), entry.kind));
@@ -194,12 +216,10 @@
         if (entry.requiredByPolicy) {
             tags.push(t('tag.required', '必须'));
         }
-        if (entry.managed) {
-            tags.push(t('tag.managed', '可热管理'));
-        }
-
-        // 开关仅在「受管 + 允许停用」时可交互；内置 / 必须项锁定。
-        var toggleable = !!entry.managed && entry.allowDisable !== false;
+        // 开关可用性以后端稳定字段为权威；热重载还要求当前确由运行期管理，避免损坏 / 不兼容插件得到必然失败的开关。
+        // PROCESS_RESTART 插件可以不受热生命周期管理但仍允许持久化启停。
+        var toggleable = entry.toggleable === true
+            && (lifecyclePolicy !== 'HOT_RELOAD' || entry.managed === true);
 
         return {
             id: entry.id,
@@ -210,6 +230,12 @@
             statusLabel: t(meta.key, status),
             statusTone: meta.tone,
             running: running,
+            enabled: enabled,
+            configuredEnabled: configuredEnabled,
+            lifecyclePolicy: lifecyclePolicy,
+            lifecycleLabel: t(lifecycleInfo.key, lifecycleInfo.fallback),
+            lifecycleTone: lifecycleInfo.tone,
+            showLifecycleTag: source === 'external',
             runtimePhase: phase,
             phaseLabel: phase ? t('phase.' + String(phase).toLowerCase(), phase) : null,
             phaseTone: phase ? (PHASE_TONE[phase] || 'idle') : null,
@@ -226,7 +252,8 @@
             api: entry.apiRequirement || null,
             deps: entry.dependencies || [],
             messages: (entry.messages || []).concat(entry.operationDiagnostic ? [entry.operationDiagnostic] : []),
-            availableActions: entry.availableActions || [],
+            // 只有热重载策略继续暴露既有运行期动词；其余策略统一走持久化启停开关。
+            availableActions: lifecyclePolicy === 'HOT_RELOAD' ? (entry.availableActions || []) : [],
             managed: !!entry.managed,
             toggleable: toggleable,
             requiredByPolicy: !!entry.requiredByPolicy,
@@ -248,8 +275,8 @@
     function tabCounts(models) {
         return {
             all: models.length,
-            enabled: models.filter(function (p) { return p.running; }).length,
-            disabled: models.filter(function (p) { return !p.running; }).length,
+            enabled: models.filter(function (p) { return p.enabled; }).length,
+            disabled: models.filter(function (p) { return !p.enabled; }).length,
             external: models.filter(function (p) { return p.source === 'external'; }).length
         };
     }
@@ -268,9 +295,9 @@
         var list = models.slice();
         var tab = state.activeTab;
         if (tab === 'enabled') {
-            list = list.filter(function (p) { return p.running; });
+            list = list.filter(function (p) { return p.enabled; });
         } else if (tab === 'disabled') {
-            list = list.filter(function (p) { return !p.running; });
+            list = list.filter(function (p) { return !p.enabled; });
         } else if (tab === 'external') {
             list = list.filter(function (p) { return p.source === 'external'; });
         }
@@ -287,7 +314,7 @@
     function stats(models) {
         return {
             total: models.length,
-            enabled: models.filter(function (p) { return p.running; }).length,
+            enabled: models.filter(function (p) { return p.enabled; }).length,
             external: models.filter(function (p) { return p.source === 'external'; }).length,
             required: models.filter(function (p) { return p.requiredByPolicy; }).length
         };
@@ -355,6 +382,7 @@
     global.PixivPluginManage = {
         STATUS_URL: STATUS_URL,
         ACTION_URL_PREFIX: ACTION_URL_PREFIX,
+        BACKEND_RESTART_URL: BACKEND_RESTART_URL,
         INSTALL_URL: INSTALL_URL,
         INSTALL_ACCEPT: INSTALL_ACCEPT,
         state: state,
@@ -367,6 +395,8 @@
         statusMeta: statusMeta,
         verbMeta: verbMeta,
         verificationMeta: verificationMeta,
+        lifecyclePolicyOf: lifecyclePolicyOf,
+        lifecyclePolicyMeta: lifecyclePolicyMeta,
         allViewModels: allViewModels,
         tabsModel: tabsModel,
         filterModels: filterModels,

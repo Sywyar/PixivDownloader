@@ -55,6 +55,18 @@ class PluginTogglePropertiesTest {
     }
 
     @Test
+    @DisplayName("运行期 setEnabled 原子更新开关并立即反映到查询")
+    void runtimeUpdateIsVisibleToReads() {
+        PluginToggleProperties props = new PluginToggleProperties();
+
+        props.setEnabled("demo-plugin", false);
+        assertThat(props.isEnabled("demo-plugin")).isFalse();
+
+        props.setEnabled("demo-plugin", true);
+        assertThat(props.isEnabled("demo-plugin")).isTrue();
+    }
+
+    @Test
     @DisplayName("静态 isEnabled(Environment) 与实例语义一致：缺项默认启用、短横线 id、enabled=false 生效")
     void staticEnvironmentReadMirrorsInstanceSemantics() {
         MockEnvironment env = new MockEnvironment();

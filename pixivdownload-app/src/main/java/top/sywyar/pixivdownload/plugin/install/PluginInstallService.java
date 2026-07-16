@@ -13,7 +13,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
-import top.sywyar.pixivdownload.plugin.policy.StartupOnlyPlugins;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -116,12 +115,15 @@ public class PluginInstallService {
     private PluginInstallReport toReport(PluginActivationResult activation) {
         PluginInstallResult result = activation.installResult();
         PluginDescriptor descriptor = result.descriptor();
-        boolean startupOnly = result.accepted() && StartupOnlyPlugins.isStartupOnly(result.pluginId());
+        // 安装路径仅对进程重启策略延迟激活；BACKEND_RESTART 只约束管理页启停，安装仍会即时激活。
+        boolean effectiveAfterRestart = result.accepted()
+                && descriptor != null
+                && descriptor.lifecyclePolicy().requiresProcessRestart();
         List<PluginDependencyProblem> problems = activation.dependencyProblems().isEmpty()
                 ? dependencyResolver.installedProblems(descriptor)
                 : activation.dependencyProblems();
         return new PluginInstallReport(
-                result.outcome(), result.accepted(), startupOnly,
+                result.outcome(), result.accepted(), effectiveAfterRestart,
                 result.pluginId(), result.version(), result.previousVersion(),
                 declaredDependencies(descriptor), unsatisfiedDependencies(problems), problems, result.messages(),
                 activation.transactionId(), activation.activated(), activation.rolledBack(),

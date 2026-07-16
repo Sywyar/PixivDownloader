@@ -559,7 +559,9 @@ public class PluginRuntimeManager {
 
     /** 动态清点，不缓存插件对象或 classloader。 */
     public synchronized PluginInventory inspectPlugins() {
-        return pluginManager == null ? PluginInventory.empty() : new PixivPluginDiscoveryBridge().inspect(pluginManager);
+        return pluginManager == null
+                ? PluginInventory.empty()
+                : attachPackageMetadata(new PixivPluginDiscoveryBridge().inspect(pluginManager));
     }
 
     public synchronized PluginDiscoveryResult discoverFeaturePlugins() {
@@ -627,11 +629,31 @@ public class PluginRuntimeManager {
         List<PluginContextModule> modules = List.of();
         if (includeContributions && pluginManager != null) {
             PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
-            inventory = bridge.inspectLoadedPackage(pluginManager, entry.packageId);
+            inventory = attachPackageMetadata(bridge.inspectLoadedPackage(pluginManager, entry.packageId));
             modules = bridge.inspectLoadedContextModules(pluginManager, entry.packageId);
         }
         return new LoadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation,
                 entry.phase, inventory, modules);
+    }
+
+    /**
+     * 发现桥接从运行期插件实例重建功能元数据；包级替代关系与生命周期策略只存在于清单，
+     * 因此按当前 runtime entry 重新附着，确保 load/start 后仍保留已验签的包元数据。
+     */
+    private PluginInventory attachPackageMetadata(PluginInventory inventory) {
+        List<PluginInstallation> installations = inventory.installations().stream()
+                .map(installation -> {
+                    RuntimeEntry entry = entries.get(installation.descriptor().sourcePluginId());
+                    if (entry == null) {
+                        return installation;
+                    }
+                    PluginDescriptor descriptor = installation.descriptor()
+                            .withPackageMetadataFrom(entry.descriptor);
+                    return new PluginInstallation(descriptor, installation.status(), installation.classLoader(),
+                            installation.plugin());
+                })
+                .toList();
+        return new PluginInventory(installations, inventory.failures());
     }
 
     /** 当前发布格式要求一个物理包只贡献一个同 id 功能插件和至多一个 Spring 模块。 */

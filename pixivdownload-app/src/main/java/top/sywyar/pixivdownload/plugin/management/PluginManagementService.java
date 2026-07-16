@@ -2,18 +2,19 @@ package top.sywyar.pixivdownload.plugin.management;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
-import top.sywyar.pixivdownload.plugin.policy.StartupOnlyPlugins;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
@@ -60,6 +61,7 @@ public class PluginManagementService {
     private final PluginLifecycleService pluginLifecycleService;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final RecoveryModeService recoveryModeService;
+    private final PluginToggleProperties pluginToggles;
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final ExternalPluginInstaller installer;
     private final PluginProvenanceStore provenanceStore;
@@ -68,10 +70,20 @@ public class PluginManagementService {
                                    PluginLifecycleService pluginLifecycleService,
                                    RequiredPluginPolicy requiredPluginPolicy,
                                    RecoveryModeService recoveryModeService) {
+        this(pluginStatusService, pluginLifecycleService, requiredPluginPolicy, recoveryModeService,
+                new PluginToggleProperties());
+    }
+
+    public PluginManagementService(PluginStatusService pluginStatusService,
+                                   PluginLifecycleService pluginLifecycleService,
+                                   RequiredPluginPolicy requiredPluginPolicy,
+                                   RecoveryModeService recoveryModeService,
+                                   PluginToggleProperties pluginToggles) {
         this.pluginStatusService = pluginStatusService;
         this.pluginLifecycleService = pluginLifecycleService;
         this.requiredPluginPolicy = requiredPluginPolicy;
         this.recoveryModeService = recoveryModeService;
+        this.pluginToggles = pluginToggles;
         this.coordinator = null;
         this.installer = null;
         this.provenanceStore = null;
@@ -83,11 +95,13 @@ public class PluginManagementService {
                                    RequiredPluginPolicy requiredPluginPolicy,
                                    RecoveryModeService recoveryModeService,
                                    ExternalPluginLifecycleCoordinator coordinator,
-                                   ExternalPluginInstaller installer) {
+                                   ExternalPluginInstaller installer,
+                                   PluginToggleProperties pluginToggles) {
         this.pluginStatusService = pluginStatusService;
         this.pluginLifecycleService = pluginLifecycleService;
         this.requiredPluginPolicy = requiredPluginPolicy;
         this.recoveryModeService = recoveryModeService;
+        this.pluginToggles = pluginToggles;
         this.coordinator = coordinator;
         this.installer = installer;
         this.provenanceStore = new PluginProvenanceStore(installer.pluginsDirectory());
@@ -110,18 +124,17 @@ public class PluginManagementService {
         String id = diagnostic.id();
         PluginDescriptor descriptor = diagnostic.descriptor();
         PluginRuntimePhase phase = pluginLifecycleService.phase(id).orElse(null);
-        boolean installedOnly = descriptor != null && !BuiltInPlugins.isBuiltIn(id)
+        boolean builtIn = BuiltInPlugins.isBuiltIn(id);
+        PluginLifecyclePolicy lifecyclePolicy = descriptor != null ? descriptor.lifecyclePolicy() : null;
+        boolean installedOnly = descriptor != null && !builtIn
                 && diagnostic.status() == PluginStatus.INSTALLED && phase == null;
-        boolean startupOnly = StartupOnlyPlugins.isStartupOnly(id);
-        boolean managed = !startupOnly && (managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED
+        boolean managed = lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
+                && (managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED
                 || installedOnly);
-        boolean allowDisable = allowDisable(id);
+        boolean allowDisable = !builtIn && allowDisable(id);
+        boolean toggleable = descriptor != null && !builtIn && !requiredPluginPolicy.isRequired(id);
         ExternalPluginOperationSnapshot operation = coordinator != null
                 ? coordinator.operation(id).orElse(null) : null;
-        List<String> messages = new ArrayList<>(diagnostic.messages());
-        if (startupOnly) {
-            messages.add("startup-only plugin: changes take effect after a full process restart");
-        }
         return new PluginManagementEntry(
                 id,
                 descriptor != null ? descriptor.displayNamespace() : null,
@@ -140,12 +153,15 @@ public class PluginManagementService {
                 diagnostic.requiredByPolicy(),
                 allowDisable,
                 availableActions(managed, phase, allowDisable, installedOnly),
-                List.copyOf(messages),
+                List.copyOf(diagnostic.messages()),
                 verificationOf(id, descriptor),
                 pluginLifecycleService.generation(id).orElse(null),
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
                 operation != null ? operation.transactionId() : null,
-                operation != null ? operation.diagnostic() : null);
+                operation != null ? operation.diagnostic() : null,
+                lifecyclePolicy,
+                pluginToggles.isEnabled(id),
+                toggleable);
     }
 
     /** 描述符的插件间依赖声明投影（未安装的必选项无描述符 → 空列表）。 */
@@ -281,9 +297,18 @@ public class PluginManagementService {
 
     /** 校验 id 是受管外置插件；否则按「内置 / 未激活外置 / 未知」分别给出明确拒绝（附尝试的动词 token 供诊断）。 */
     private void requireManaged(String id, LifecycleAction action) {
-        if (StartupOnlyPlugins.isStartupOnly(id)) {
-            throw new PluginManagementException(PluginManagementErrorCode.STARTUP_ONLY_PLUGIN, id, action.token(), null,
-                    "Startup-only plugin cannot be hot-managed; a full process restart is required: " + id);
+        if (BuiltInPlugins.isBuiltIn(id)) {
+            throw new PluginManagementException(PluginManagementErrorCode.BUILT_IN_PLUGIN, id, action.token(), null,
+                    "Built-in plugin cannot be hot-managed at runtime: " + id);
+        }
+        var report = pluginStatusService.report();
+        var diagnostic = report != null ? report.byId(id) : Optional.<PluginDiagnostic>empty();
+        PluginDescriptor descriptor = diagnostic.map(PluginDiagnostic::descriptor).orElse(null);
+        if (descriptor != null && descriptor.lifecyclePolicy() != PluginLifecyclePolicy.HOT_RELOAD) {
+            throw new PluginManagementException(PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN,
+                    id, action.token(), null,
+                    "Plugin lifecycle policy does not allow hot management: "
+                            + descriptor.lifecyclePolicy().token());
         }
         if (pluginLifecycleService.managedPluginIds().contains(id)) {
             return;
@@ -291,11 +316,6 @@ public class PluginManagementService {
         if (pluginLifecycleService.phase(id).orElse(null) == PluginRuntimePhase.UNLOADED) {
             return;
         }
-        if (BuiltInPlugins.isBuiltIn(id)) {
-            throw new PluginManagementException(PluginManagementErrorCode.BUILT_IN_PLUGIN, id, action.token(), null,
-                    "Built-in plugin cannot be hot-managed at runtime: " + id);
-        }
-        var diagnostic = pluginStatusService.report().byId(id);
         if (diagnostic.isPresent()
                 && diagnostic.get().descriptor() != null
                 && diagnostic.get().status() == PluginStatus.INSTALLED
@@ -449,6 +469,9 @@ public class PluginManagementService {
      * @param availableActions 当前建议可用的运行期动词（建议性）
      * @param messages         诊断说明
      * @param verification     验签状态投影（前端只消费本字段，不自行推断可信来源）
+     * @param lifecyclePolicy  描述符声明的生命周期策略（无描述符时为 {@code null}）
+     * @param configuredEnabled 当前配置中的期望启用态（缺项默认 {@code true}）
+     * @param toggleable       是否允许管理入口修改期望启用态（内置 / 必选 / 无描述符均为 {@code false}）
      */
     public record PluginManagementEntry(
             String id,
@@ -473,7 +496,10 @@ public class PluginManagementService {
             Long generation,
             ExternalPluginOperation operation,
             String transactionId,
-            String operationDiagnostic) {
+            String operationDiagnostic,
+            PluginLifecyclePolicy lifecyclePolicy,
+            boolean configuredEnabled,
+            boolean toggleable) {
 
         /** 兼容不关心运行操作元数据的调用方与测试夹具。 */
         public PluginManagementEntry(
@@ -498,7 +524,38 @@ public class PluginManagementService {
             this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
                     apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
                     allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
-                    null, ExternalPluginOperation.IDLE, null, null);
+                    null, ExternalPluginOperation.IDLE, null, null,
+                    PluginLifecyclePolicy.HOT_RELOAD, true, false);
+        }
+
+        /** 兼容需要显式断言启用配置与生命周期策略、但不关心运行操作元数据的调用方。 */
+        public PluginManagementEntry(
+                String id,
+                String displayNamespace,
+                String displayNameKey,
+                String descriptionKey,
+                String iconKey,
+                String colorToken,
+                String version,
+                PluginKind kind,
+                PluginApiRequirementView apiRequirement,
+                List<PluginDependencyView> dependencies,
+                String source,
+                PluginStatus status,
+                PluginRuntimePhase runtimePhase,
+                boolean managed,
+                boolean requiredByPolicy,
+                boolean allowDisable,
+                List<String> availableActions,
+                List<String> messages,
+                PluginLifecyclePolicy lifecyclePolicy,
+                boolean configuredEnabled,
+                boolean toggleable) {
+            this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
+                    apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
+                    allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
+                    null, ExternalPluginOperation.IDLE, null, null,
+                    lifecyclePolicy, configuredEnabled, toggleable);
         }
     }
 

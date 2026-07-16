@@ -35,7 +35,7 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins
+- Plugin management page: a card list showing every plugin with status, source, version, dependencies, and activation policy; external plugins can hot-reload or guide a backend/app restart as declared
 - Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI
 - Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable

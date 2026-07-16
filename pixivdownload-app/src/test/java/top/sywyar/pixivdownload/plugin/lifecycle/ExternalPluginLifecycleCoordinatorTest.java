@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
@@ -21,6 +22,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +53,67 @@ class ExternalPluginLifecycleCoordinatorTest {
     RecoveryModeService recoveryModeService;
     @Mock
     PluginDependencyResolver dependencyResolver;
+
+    @Test
+    @DisplayName("进程重启策略安装只提交文件并延迟运行期激活")
+    void processRestartInstallCommitsWithoutRuntimeActivation() {
+        String pluginId = "gui-theme";
+        Path staged = Path.of("plugins", ".staging", "tx-process", "new.jar");
+        Path target = Path.of("plugins", "gui-theme.jar");
+        PluginDescriptor descriptor = descriptor(pluginId, PluginLifecyclePolicy.PROCESS_RESTART);
+        PluginInstallResult result = new PluginInstallResult(
+                PluginInstallOutcome.INSTALLED, descriptor, target, null, List.of());
+        PreparedPluginTransaction prepared = new PreparedPluginTransaction(
+                "tx-process", result, staged.getParent(), staged, target, List.of());
+        CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
+        when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
+        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(installer.commitTransaction(prepared)).thenReturn(committed);
+        when(lifecycleService.phase(pluginId)).thenReturn(Optional.empty());
+
+        PluginActivationResult activation = coordinator().installOrUpdate(
+                staged, false, PluginPackageOrigin.localUpload());
+
+        assertThat(activation.activated()).isFalse();
+        assertThat(activation.installResult().accepted()).isTrue();
+        verify(installer).markActivated(committed);
+        verify(installer).completeTransaction(committed);
+        verify(runtimeManager, never()).loadPlugin(target);
+        verify(runtimeManager, never()).startPlugin(pluginId);
+        verify(lifecycleService, never()).start(pluginId);
+    }
+
+    @Test
+    @DisplayName("后端重启策略安装仍即时完成物理与应用激活")
+    void backendRestartInstallStillActivatesImmediately() {
+        String pluginId = "backend-plugin";
+        Path staged = Path.of("plugins", ".staging", "tx-backend", "new.jar");
+        Path target = Path.of("plugins", "backend-plugin.jar");
+        PluginDescriptor descriptor = descriptor(pluginId, PluginLifecyclePolicy.BACKEND_RESTART);
+        PluginInstallResult result = new PluginInstallResult(
+                PluginInstallOutcome.INSTALLED, descriptor, target, null, List.of());
+        PreparedPluginTransaction prepared = new PreparedPluginTransaction(
+                "tx-backend", result, staged.getParent(), staged, target, List.of());
+        CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
+        LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
+        when(loaded.packageId()).thenReturn(pluginId);
+        when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
+        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(runtimeManager.packagePhases()).thenReturn(Map.of());
+        when(installer.commitTransaction(prepared)).thenReturn(committed);
+        when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
+        when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+
+        PluginActivationResult activation = coordinator().installOrUpdate(
+                staged, false, PluginPackageOrigin.localUpload());
+
+        assertThat(activation.activated()).isTrue();
+        assertThat(activation.runtimePhase()).isEqualTo(PluginRuntimePhase.STARTED);
+        verify(runtimeManager).loadPlugin(target);
+        verify(lifecycleService).adoptLoadedPackage(loaded);
+        verify(runtimeManager).startPlugin(pluginId);
+        verify(lifecycleService).start(pluginId);
+    }
 
     @Test
     @DisplayName("停止后的插件按可激活描述符校验并依次恢复框架与服务足迹")
@@ -235,9 +299,13 @@ class ExternalPluginLifecycleCoordinatorTest {
     }
 
     private static PluginDescriptor descriptor(String pluginId) {
+        return descriptor(pluginId, PluginLifecyclePolicy.HOT_RELOAD);
+    }
+
+    private static PluginDescriptor descriptor(String pluginId, PluginLifecyclePolicy lifecyclePolicy) {
         return new PluginDescriptor(pluginId, pluginId, "1.0.0",
                 PluginApiRequirement.unspecified(), List.of(), "example.Plugin", null,
-                "plugin.label", null, null, null, PluginKind.FEATURE);
+                "plugin.label", null, null, null, PluginKind.FEATURE, List.of(), lifecyclePolicy);
     }
 
     private static final class TestVirtualMachineError extends VirtualMachineError {

@@ -26,6 +26,7 @@ class PluginDescriptorTest {
         assertThat(descriptor.pluginClass()).isEqualTo(TestFeaturePlugin.class.getName());
         assertThat(descriptor.displayName()).isEqualTo("stats.label");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
         assertThat(descriptor.isApiCompatible()).isTrue();
         assertThat(descriptor.validationErrors()).isEmpty();
         assertThat(descriptor.externalValidationErrors()).isEmpty();
@@ -150,6 +151,23 @@ class PluginDescriptorTest {
                 .anyMatch(error -> error.contains("invalid replaced plugin id"))
                 .anyMatch(error -> error.contains("must not replace itself"))
                 .anyMatch(error -> error.contains("must be unique"));
+    }
+
+    @Test
+    @DisplayName("运行期功能描述符合并清单专属替代关系和生命周期策略")
+    void attachesPackageOnlyMetadata() {
+        PluginDescriptor runtimeDescriptor = external("gui-theme", "1.0.0", "1.0",
+                "com.example.ThemePlugin", "theme.label", PluginKind.FEATURE, List.of());
+        PluginDescriptor packageDescriptor = new PluginDescriptor("gui-theme-pack", "gui-theme-pack", "1.0.0",
+                PluginApiRequirement.parse("1.0"), List.of(), "com.example.ThemePlugin", null,
+                "package.label", null, null, null, PluginKind.FEATURE, List.of("legacy-theme"),
+                PluginLifecyclePolicy.PROCESS_RESTART);
+
+        PluginDescriptor attached = runtimeDescriptor.withPackageMetadataFrom(packageDescriptor);
+
+        assertThat(attached.displayName()).isEqualTo("theme.label");
+        assertThat(attached.replaces()).containsExactly("legacy-theme");
+        assertThat(attached.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);
     }
 
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,

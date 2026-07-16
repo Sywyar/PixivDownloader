@@ -57,6 +57,7 @@ class CsrfProtectionFilterTest {
     @CsvSource({
             "POST,/api/plugins/install",
             "POST,/api/plugins/demo/start",
+            "PUT,/api/plugins/demo/enabled",
             "POST,/api/plugin-market/official/demo/1.0.0/install",
             "POST,/api/collections/7/icon",
             "DELETE,/api/collections/7/icon",
@@ -108,6 +109,32 @@ class CsrfProtectionFilterTest {
     @DisplayName("跨站 Origin 拒绝上传写请求")
     void crossOriginHeaderRejectsProtectedWrite() throws Exception {
         MockHttpServletRequest request = request("POST", "/api/plugins/install");
+        request.addHeader(HttpHeaders.ORIGIN, "https://evil.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("插件启用态 PUT 携带同源 Origin 时放行")
+    void sameOriginPluginToggleAllowsPut() throws Exception {
+        MockHttpServletRequest request = request("PUT", "/api/plugins/demo/enabled");
+        request.addHeader(HttpHeaders.ORIGIN, "http://localhost:8080");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("插件启用态 PUT 携带跨站 Origin 时拒绝")
+    void crossOriginPluginToggleRejectsPut() throws Exception {
+        MockHttpServletRequest request = request("PUT", "/api/plugins/demo/enabled");
         request.addHeader(HttpHeaders.ORIGIN, "https://evil.example");
         MockHttpServletResponse response = new MockHttpServletResponse();
 

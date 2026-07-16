@@ -11,7 +11,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPlug
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
-import top.sywyar.pixivdownload.plugin.policy.StartupOnlyPlugins;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -188,15 +187,17 @@ public class ExternalPluginLifecycleCoordinator {
         String packageId = stagedResult.pluginId();
         ExternalPluginOperation operation = stagedResult.previousVersion() == null
                 ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
-        if (StartupOnlyPlugins.isStartupOnly(packageId)) {
+        // 进程重启插件不能安全进入当前 PF4J generation，只提交文件等待下次启动；后端重启策略在安装时仍
+        // 即时激活，其重启约束只应用于管理页启停，避免把已 activated 的安装结果误报为待重启生效。
+        if (stagedResult.descriptor().lifecyclePolicy().requiresProcessRestart()) {
             return withLock(packageId, operation, prepared.transactionId(), () ->
-                    withReplacementLocks(prepared, operation, () -> commitStartupOnly(prepared)));
+                    withReplacementLocks(prepared, operation, () -> commitForProcessRestart(prepared)));
         }
         return withLock(packageId, operation, prepared.transactionId(), () ->
                 withReplacementLocks(prepared, operation, () -> activatePrepared(prepared)));
     }
 
-    private PluginActivationResult commitStartupOnly(PreparedPluginTransaction prepared) {
+    private PluginActivationResult commitForProcessRestart(PreparedPluginTransaction prepared) {
         String packageId = prepared.result().pluginId();
         CommittedPluginTransaction committed = null;
         List<RetiredRuntime> retired = List.of();
@@ -220,7 +221,7 @@ public class ExternalPluginLifecycleCoordinator {
             rethrowFatal(failures.primary());
             PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
                     prepared.result().descriptor(), null, prepared.result().previousVersion(),
-                    List.of("startup-only commit failed: " + describe(failure),
+                    List.of("process-restart commit failed: " + describe(failure),
                             rolledBack && runtimeRestored
                                     ? "previous version restored" : "previous version recovery failed"));
             return new PluginActivationResult(prepared.transactionId(), failed, false, rolledBack,

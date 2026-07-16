@@ -5,9 +5,12 @@
  * 无浏览器 / 无 jsdom：在 Node 的 vm 沙箱里加载真实的 core + api + views 三个模块（DOM 仅在被调用的渲染函数里用到，
  * 本测试只调用纯函数与 api 层，故无需 DOM），用最小 i18n / fetch / FormData 桩验证两组契约：
  *
- * 一、展示元数据（既有）——卡片视图模型对后端 descriptionKey / iconKey / colorToken 的解析与受控白名单回退。
+ * 一、展示元数据——卡片视图模型对后端 descriptionKey / iconKey / colorToken 的解析与受控白名单回退，
+ *    并把 lifecyclePolicy / configuredEnabled / toggleable 映射为三类生命周期标签与开关语义。
  *
- * 二、本地插件包安装（消费 POST /api/plugins/install 的 PluginInstallResponse）：
+ * 二、启停 API——HOT_RELOAD 继续保留运行期动词；需重启策略通过 PUT /enabled 持久化，后端重启走独立 POST。
+ *
+ * 三、本地插件包安装（消费 POST /api/plugins/install 的 PluginInstallResponse）：
  *   A) API 层 installPackage：multipart 请求路径 / 方法 / file 字段 / allowDowngrade 默认 false；4xx 仍返回结构化体；
  *      未选文件不发请求（抛 localValidation）；拿不到结构化响应才抛 httpStatus。
  *   B) 视图模型 buildInstallResult：outcome → 色调（accepted=ok、DUPLICATE=info、拒绝/失败=bad）、字段映射。
@@ -64,6 +67,9 @@ vm.runInContext(VIEWS_SRC, sandbox);
 const PM = sandbox.window.PixivPluginManage;
 ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.allViewModels === 'function'
+    && typeof PM.lifecyclePolicyMeta === 'function'
+    && typeof PM.setEnabled === 'function'
+    && typeof PM.restartBackend === 'function'
     && typeof PM.installPackage === 'function'
     && typeof PM.buildInstallResult === 'function'
     && typeof PM.renderInstallResultHtml === 'function');
@@ -89,7 +95,7 @@ function vmOf(entry) {
 
 // 通用来源回退文案（与 core 的 sourceDesc 默认 fallback 一致）。
 const DESC_BUILT_IN = '内置插件，随主程序编译。';
-const DESC_EXTERNAL = '外置插件，可在运行期启停。';
+const DESC_EXTERNAL = '外置插件；启停后的生效方式以生命周期标签为准。';
 const DESC_NOT_INSTALLED = '该插件尚未安装。';
 
 // —— 1) descriptionKey 命中：经 tns(displayNamespace, descriptionKey, fallback) 解析 ——
@@ -98,6 +104,55 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
         displayNamespace: 'gallery', displayNameKey: 'plugin.name', descriptionKey: 'plugin.summary',
         iconKey: 'gallery', colorToken: 'green' });
     eq('descriptionKey 命中 → 卡片简介取 tns(namespace,key) 的解析值', vmm.desc, 'NS[gallery/plugin.summary]');
+})();
+
+// —— 6) 生命周期策略：标签、开关状态、可切换性与运行期动词均以后端稳定字段为准 ——
+(function () {
+    const hot = vmOf({
+        id: 'hot', source: 'external', status: 'STARTED', managed: true, runtimePhase: 'STARTED',
+        lifecyclePolicy: 'HOT_RELOAD', configuredEnabled: false, toggleable: true,
+        availableActions: ['stop']
+    });
+    eq('HOT_RELOAD 标签', hot.lifecycleLabel, '热重载');
+    eq('HOT_RELOAD tone', hot.lifecycleTone, 'hot');
+    ok('HOT_RELOAD 开关反映当前运行态', hot.enabled === true && hot.running === true);
+    ok('HOT_RELOAD 受运行期管理时允许切换', hot.toggleable === true);
+    ok('外置插件显示生命周期标签', hot.showLifecycleTag === true);
+    ok('HOT_RELOAD 保留后端运行期动词', hot.availableActions.length === 1 && hot.availableActions[0] === 'stop');
+
+    const unmanagedHot = vmOf({
+        id: 'unmanaged-hot', source: 'external', status: 'FAILED', managed: false,
+        lifecyclePolicy: 'HOT_RELOAD', configuredEnabled: true, toggleable: true
+    });
+    ok('HOT_RELOAD 即便后端标记 toggleable，未受运行期管理时仍锁定', unmanagedHot.toggleable === false);
+
+    const backend = vmOf({
+        id: 'backend', source: 'external', status: 'STARTED', managed: true, runtimePhase: 'STARTED',
+        lifecyclePolicy: 'BACKEND_RESTART', configuredEnabled: false, toggleable: true,
+        availableActions: ['stop']
+    });
+    eq('BACKEND_RESTART 标签', backend.lifecycleLabel, '重启后端');
+    eq('BACKEND_RESTART tone', backend.lifecycleTone, 'backend');
+    ok('BACKEND_RESTART 开关反映持久化配置态', backend.enabled === false && backend.running === true);
+    eq('BACKEND_RESTART 不暴露热生命周期动词', backend.availableActions.length, 0);
+
+    const process = vmOf({
+        id: 'process', source: 'external', status: 'STARTED', managed: false,
+        lifecyclePolicy: 'PROCESS_RESTART', configuredEnabled: true, toggleable: true,
+        availableActions: ['stop']
+    });
+    eq('PROCESS_RESTART 标签', process.lifecycleLabel, '重启软件');
+    eq('PROCESS_RESTART tone', process.lifecycleTone, 'process');
+    ok('PROCESS_RESTART 可不受热生命周期管理但仍允许持久化启停', process.toggleable === true && process.enabled === true);
+    eq('PROCESS_RESTART 不暴露热生命周期动词', process.availableActions.length, 0);
+
+    const builtIn = vmOf({
+        id: 'core', source: 'built-in', status: 'STARTED', managed: false,
+        lifecyclePolicy: 'HOT_RELOAD', configuredEnabled: true, toggleable: false
+    });
+    ok('内置插件不显示外置生命周期标签', builtIn.showLifecycleTag === false);
+
+    eq('未知生命周期策略安全收敛为完整进程重启', PM.lifecyclePolicyOf('future-policy'), 'PROCESS_RESTART');
 })();
 
 // —— 2) descriptionKey 缺失 → 回退按来源的通用简介，不抛 ——
@@ -163,7 +218,7 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
 })();
 
 // ============================================================
-// 二、本地插件包安装
+// 三、本地插件包安装
 // ============================================================
 
 // 后端各 outcome 的最小响应体构造（字段名严格对齐 PluginInstallResponse）。
@@ -352,6 +407,34 @@ async function apiTests() {
     nextFetchResponse = { ok: true, status: 200, body: installResponse({ outcome: 'INSTALLED' }) };
     await PM.installPackage({ name: 'Archive.ZIP' }, false);
     eq('installPackage 大写 .ZIP 通过本地校验并发请求', fetchCalls.length, 1);
+
+    // A-8) 持久化启停：PUT /api/plugins/{id}/enabled + JSON {enabled}。
+    fetchCalls.length = 0;
+    nextFetchResponse = { ok: true, status: 200, body: { id: 'demo plugin', enabled: false } };
+    const disabled = await PM.setEnabled('demo plugin', false);
+    eq('setEnabled 返回结构化体', disabled.enabled, false);
+    eq('setEnabled 编码插件 id', fetchCalls[0].url, '/api/plugins/demo%20plugin/enabled');
+    eq('setEnabled 方法 = PUT', fetchCalls[0].opts.method, 'PUT');
+    eq('setEnabled Content-Type = application/json', fetchCalls[0].opts.headers['Content-Type'], 'application/json');
+    eq('setEnabled body = {enabled:false}', JSON.parse(fetchCalls[0].opts.body).enabled, false);
+    eq('setEnabled 带 same-origin 凭据', fetchCalls[0].opts.credentials, 'same-origin');
+
+    // A-9) 持久化失败保留后端稳定错误码与 HTTP 状态。
+    fetchCalls.length = 0;
+    nextFetchResponse = { ok: false, status: 409, body: { code: 'REQUIRED_PLUGIN', message: 'required' } };
+    let toggleErr = null;
+    try { await PM.setEnabled('required', false); } catch (e) { toggleErr = e; }
+    ok('setEnabled 失败携稳定 code/httpStatus', toggleErr
+        && toggleErr.code === 'REQUIRED_PLUGIN' && toggleErr.httpStatus === 409);
+
+    // A-10) 后端重启只请求专用 POST；204 / 空响应体也视为已受理。
+    fetchCalls.length = 0;
+    nextFetchResponse = { ok: true, status: 204, body: null, throwJson: true };
+    const restartResult = await PM.restartBackend();
+    eq('restartBackend 空响应返回 null', restartResult, null);
+    eq('restartBackend 请求路径', fetchCalls[0].url, '/api/plugins/backend-restart');
+    eq('restartBackend 方法 = POST', fetchCalls[0].opts.method, 'POST');
+    eq('restartBackend 带 same-origin 凭据', fetchCalls[0].opts.credentials, 'same-origin');
 }
 
 (async function () {

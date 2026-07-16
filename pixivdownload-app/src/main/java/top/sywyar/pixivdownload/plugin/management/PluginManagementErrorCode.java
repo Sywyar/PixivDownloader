@@ -14,14 +14,17 @@ public enum PluginManagementErrorCode {
     /** 未知插件 id（既非内置、也未安装、也不在必选策略要求中）。 */
     UNKNOWN_PLUGIN(HttpStatus.NOT_FOUND, "plugin.manage.error.unknown"),
 
+    /** 启用态写请求缺少必需的 enabled 布尔字段。 */
+    INVALID_TOGGLE_REQUEST(HttpStatus.BAD_REQUEST, "plugin.manage.error.invalid-toggle-request"),
+
     /** 内置插件随主程序编译，不支持运行期热启停。 */
     BUILT_IN_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.built-in"),
 
     /** 外置插件当前未激活（已被 {@code plugins.<id>.enabled} 配置禁用），运行期动词不可用。 */
     INACTIVE_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.inactive"),
 
-    /** startup-only 外置插件只在完整进程启动前生效，不支持普通热启停 / 卸载 / 重载。 */
-    STARTUP_ONLY_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.startup-only"),
+    /** 描述符声明了重启生效策略，不能经普通运行期动词热管理。 */
+    RESTART_REQUIRED_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.restart-required"),
 
     /** 必选插件不允许被停用类动词（quiesce / stop / unload）降级。 */
     REQUIRED_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.required"),
@@ -34,6 +37,15 @@ public enum PluginManagementErrorCode {
     DEPENDENCY_BLOCKED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-blocked"),
 
     DEPENDENCY_UNSATISFIED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-unsatisfied"),
+
+    /** 插件期望启用态无法安全写入宿主配置。 */
+    TOGGLE_PERSIST_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.toggle-persist-failed"),
+
+    /** 当前进程没有由桌面生命周期管理器持有的 RUNNING 后端上下文。 */
+    BACKEND_RESTART_UNAVAILABLE(HttpStatus.CONFLICT, "plugin.manage.error.backend-restart-unavailable"),
+
+    /** 已接受一个尚未触发的后端上下文重启请求。 */
+    BACKEND_RESTART_PENDING(HttpStatus.CONFLICT, "plugin.manage.error.backend-restart-pending"),
 
     PHYSICAL_UNLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.physical-unload-failed");
 

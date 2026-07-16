@@ -7,6 +7,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
@@ -14,6 +15,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.LifecycleAction;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
@@ -28,11 +30,13 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
@@ -41,6 +45,8 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementController;
+import top.sywyar.pixivdownload.plugin.management.BackendContextRestartService;
+import top.sywyar.pixivdownload.plugin.management.PluginEnabledConfigurationService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementException;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
@@ -59,12 +65,16 @@ class PluginManagementControllerTest {
 
     private PluginManagementService service;
     private PluginInstallService installService;
+    private PluginEnabledConfigurationService enabledConfigurationService;
+    private BackendContextRestartService backendRestartService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         service = mock(PluginManagementService.class);
         installService = mock(PluginInstallService.class);
+        enabledConfigurationService = mock(PluginEnabledConfigurationService.class);
+        backendRestartService = mock(BackendContextRestartService.class);
         AppMessages messages = mock(AppMessages.class);
         AppLocaleResolver localeResolver = mock(AppLocaleResolver.class);
         when(localeResolver.resolveLocale(any())).thenReturn(Locale.ENGLISH);
@@ -75,7 +85,8 @@ class PluginManagementControllerTest {
                 new PluginInstallResponseMapper(messages, localeResolver);
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new PluginManagementController(
-                        service, installService, installResponseMapper, messages, localeResolver))
+                        service, installService, installResponseMapper,
+                        enabledConfigurationService, backendRestartService, messages, localeResolver))
                 .build();
     }
 
@@ -88,7 +99,7 @@ class PluginManagementControllerTest {
                         new PluginManagementService.PluginApiRequirementView(true, true, "1.0"),
                         List.of(new PluginManagementService.PluginDependencyView("download-workbench", "1.0", false)),
                         "external", PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, true,
-                        List.of("stop"), List.of()))));
+                        List.of("stop"), List.of(), PluginLifecyclePolicy.HOT_RELOAD, true, true))));
 
         mockMvc.perform(get("/api/plugins/status"))
                 .andExpect(status().isOk())
@@ -100,6 +111,9 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.plugins[0].source").value("external"))
                 .andExpect(jsonPath("$.plugins[0].runtimePhase").value("STARTED"))
                 .andExpect(jsonPath("$.plugins[0].managed").value(true))
+                .andExpect(jsonPath("$.plugins[0].lifecyclePolicy").value("HOT_RELOAD"))
+                .andExpect(jsonPath("$.plugins[0].configuredEnabled").value(true))
+                .andExpect(jsonPath("$.plugins[0].toggleable").value(true))
                 .andExpect(jsonPath("$.plugins[0].apiRequirement.specified").value(true))
                 .andExpect(jsonPath("$.plugins[0].apiRequirement.satisfied").value(true))
                 .andExpect(jsonPath("$.plugins[0].apiRequirement.required").value("1.0"))
@@ -137,6 +151,53 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.phase").value(phase.name()));
 
         verify(service).perform("demo-ext", action);
+    }
+
+    @Test
+    @DisplayName("PUT /api/plugins/{id}/enabled 持久化期望启用态并返回生命周期策略")
+    void enabledToggleDelegatesToConfigurationService() throws Exception {
+        when(enabledConfigurationService.update("demo-ext", false)).thenReturn(
+                new PluginEnabledConfigurationService.PluginEnabledState(
+                        "demo-ext", false, PluginLifecyclePolicy.BACKEND_RESTART));
+
+        mockMvc.perform(put("/api/plugins/demo-ext/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("demo-ext"))
+                .andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.lifecyclePolicy").value("BACKEND_RESTART"));
+
+        verify(enabledConfigurationService).update("demo-ext", false);
+    }
+
+    @Test
+    @DisplayName("PUT 插件启用态请求缺少 enabled 时返回结构化 400 且不写配置")
+    void enabledToggleRejectsMissingEnabled() throws Exception {
+        mockMvc.perform(put("/api/plugins/demo-ext/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_TOGGLE_REQUEST"))
+                .andExpect(jsonPath("$.message")
+                        .value("localized:plugin.manage.error.invalid-toggle-request"))
+                .andExpect(jsonPath("$.pluginId").value("demo-ext"))
+                .andExpect(jsonPath("$.action").value("update-enabled"));
+
+        verify(enabledConfigurationService, never()).update(anyString(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("POST /api/plugins/backend-restart 接受后端上下文重启请求")
+    void backendRestartDelegatesToRestartService() throws Exception {
+        when(backendRestartService.requestRestart())
+                .thenReturn(new BackendContextRestartService.BackendRestartResult(true));
+
+        mockMvc.perform(post("/api/plugins/backend-restart"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accepted").value(true));
+
+        verify(backendRestartService).requestRestart();
     }
 
     @Test

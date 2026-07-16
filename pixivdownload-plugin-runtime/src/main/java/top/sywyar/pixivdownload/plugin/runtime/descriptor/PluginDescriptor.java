@@ -36,6 +36,7 @@ import java.util.regex.Pattern;
  * @param colorToken       卡片强调色的受控 token（来自 {@link PixivFeaturePlugin#colorToken()} 或包描述符 {@code pixiv.color-token}；可空，由消费端回退默认）
  * @param kind             插件类别
  * @param replaces         安装新包后精确替代的旧插件包 id；仅外置包描述符声明，内置插件为空
+ * @param lifecyclePolicy  插件包声明的运行期生效策略；旧包未声明时默认为热重载
  */
 public record PluginDescriptor(
         String id,
@@ -50,7 +51,8 @@ public record PluginDescriptor(
         String iconKey,
         String colorToken,
         PluginKind kind,
-        List<String> replaces) {
+        List<String> replaces,
+        PluginLifecyclePolicy lifecyclePolicy) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
@@ -74,6 +76,15 @@ public record PluginDescriptor(
         requires = requires != null ? requires : PluginApiRequirement.unspecified();
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         replaces = replaces != null ? List.copyOf(replaces) : List.of();
+        lifecyclePolicy = lifecyclePolicy != null ? lifecyclePolicy : PluginLifecyclePolicy.HOT_RELOAD;
+    }
+
+    public PluginDescriptor(String id, String sourcePluginId, String version, PluginApiRequirement requires,
+                            List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
+                            String displayName, String description, String iconKey, String colorToken,
+                            PluginKind kind, List<String> replaces) {
+        this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
+                description, iconKey, colorToken, kind, replaces, PluginLifecyclePolicy.HOT_RELOAD);
     }
 
     public PluginDescriptor(String id, String sourcePluginId, String version, PluginApiRequirement requires,
@@ -81,7 +92,7 @@ public record PluginDescriptor(
                             String displayName, String description, String iconKey, String colorToken,
                             PluginKind kind) {
         this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
-                description, iconKey, colorToken, kind, List.of());
+                description, iconKey, colorToken, kind, List.of(), PluginLifecyclePolicy.HOT_RELOAD);
     }
 
     /**
@@ -112,7 +123,23 @@ public record PluginDescriptor(
                 plugin.iconKey(),
                 plugin.colorToken(),
                 plugin.kind(),
-                List.of());
+                List.of(),
+                PluginLifecyclePolicy.HOT_RELOAD);
+    }
+
+    /**
+     * 把仅存在于已签名包清单中的元数据合并到运行期功能描述符。插件实例仍拥有展示与功能身份，
+     * 但替代关系和生命周期策略只以包清单为事实来源，避免加载后被 PF4J / 插件实例重建的描述符覆盖。
+     */
+    public PluginDescriptor withPackageMetadataFrom(PluginDescriptor packageDescriptor) {
+        Objects.requireNonNull(packageDescriptor, "packageDescriptor");
+        if (!Objects.equals(sourcePluginId, packageDescriptor.sourcePluginId())) {
+            throw new IllegalArgumentException("package metadata source id mismatch: "
+                    + sourcePluginId + " != " + packageDescriptor.sourcePluginId());
+        }
+        return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
+                displayNamespace, displayName, description, iconKey, colorToken, kind,
+                packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy());
     }
 
     /** 该描述符声明的核心 API 版本要求是否被当前核心满足（{@code requires} 兼容性）。 */

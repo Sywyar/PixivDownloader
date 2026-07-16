@@ -8,8 +8,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -34,6 +36,8 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
  *   <li>读：{@code GET /api/plugins/status} —— 全部插件的状态 + 运行期阶段 + 可用动词 + 是否处于恢复模式。</li>
  *   <li>写：{@code POST /api/plugins/{id}/{verb}}，verb ∈ load / start / quiesce / stop / unload / reload ——
  *       委托 {@link PluginManagementService}（含必选插件停用守卫、内置 / 未激活 / 未知 id 拒绝）。</li>
+ *   <li>开关：{@code PUT /api/plugins/{id}/enabled} —— 持久化外置可选插件的期望启用态；
+ *       {@code POST /api/plugins/backend-restart} —— 仅在桌面生命周期管理器持有 RUNNING 上下文时延迟重启后端。</li>
  *   <li>装：{@code POST /api/plugins/install}（{@code multipart/form-data}，{@code file} 部分）—— 上传本地
  *       {@code .jar} / {@code .zip} 插件包，委托 {@link PluginInstallService} 校验后安全落盘到 {@code plugins/}。
  *       安装走统一事务编排：校验后物理卸载旧代、原子替换并即时激活，失败时恢复旧版本。结果分类经
@@ -49,16 +53,22 @@ public class PluginManagementController {
     private final PluginManagementService pluginManagementService;
     private final PluginInstallService pluginInstallService;
     private final PluginInstallResponseMapper installResponseMapper;
+    private final PluginEnabledConfigurationService enabledConfigurationService;
+    private final BackendContextRestartService backendRestartService;
     private final AppMessages messages;
     private final AppLocaleResolver localeResolver;
 
     public PluginManagementController(PluginManagementService pluginManagementService,
                                       PluginInstallService pluginInstallService,
                                       PluginInstallResponseMapper installResponseMapper,
+                                      PluginEnabledConfigurationService enabledConfigurationService,
+                                      BackendContextRestartService backendRestartService,
                                       AppMessages messages, AppLocaleResolver localeResolver) {
         this.pluginManagementService = pluginManagementService;
         this.pluginInstallService = pluginInstallService;
         this.installResponseMapper = installResponseMapper;
+        this.enabledConfigurationService = enabledConfigurationService;
+        this.backendRestartService = backendRestartService;
         this.messages = messages;
         this.localeResolver = localeResolver;
     }
@@ -117,6 +127,23 @@ public class PluginManagementController {
         return pluginManagementService.perform(id, LifecycleAction.RELOAD);
     }
 
+    /** 持久化一个外置可选插件的期望启用态；实际生效方式由描述符生命周期策略决定。 */
+    @PutMapping("/{id}/enabled")
+    public PluginEnabledConfigurationService.PluginEnabledState updateEnabled(
+            @PathVariable String id, @RequestBody PluginEnabledRequest request) {
+        if (request == null || request.enabled() == null) {
+            throw new PluginManagementException(PluginManagementErrorCode.INVALID_TOGGLE_REQUEST,
+                    id, "update-enabled", null, "Plugin enabled request must include enabled");
+        }
+        return enabledConfigurationService.update(id, request.enabled());
+    }
+
+    /** 仅在桌面生命周期管理器持有 RUNNING 后端上下文时接受延迟重启请求。 */
+    @PostMapping("/backend-restart")
+    public BackendContextRestartService.BackendRestartResult restartBackend() {
+        return backendRestartService.requestRestart();
+    }
+
     /**
      * 安装一个上传的本地插件包（{@code .jar} / {@code .zip}）：委托 {@link PluginInstallService} 校验后安全落盘到
      * {@code plugins/}，并由统一生命周期编排器即时加载 / 启动；失败时报告旧版本是否已恢复。结果分类
@@ -153,5 +180,9 @@ public class PluginManagementController {
                 ex.action(),
                 ex.runtimePhase());
         return ResponseEntity.status(ex.status()).body(body);
+    }
+
+    /** 插件期望启用态写请求。 */
+    public record PluginEnabledRequest(Boolean enabled) {
     }
 }

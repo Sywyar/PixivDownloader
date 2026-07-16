@@ -72,7 +72,7 @@
         PM.renderAll();
     }
 
-    // 开关：据当前运行态决定 start / stop（仅受管 + 允许停用的插件可切换）。
+    // 开关：热重载插件沿用 start / stop；其它策略持久化 enabled 后按策略提示重启。
     function onToggle(id) {
         var models = PM.allViewModels();
         var vm = null;
@@ -80,7 +80,64 @@
             if (models[i].id === id) { vm = models[i]; break; }
         }
         if (!vm || !vm.toggleable) return;
-        onAction(id, vm.running ? 'stop' : 'start');
+        if (vm.lifecyclePolicy === 'HOT_RELOAD') {
+            onAction(id, vm.running ? 'stop' : 'start');
+            return;
+        }
+        onConfiguredToggle(vm);
+    }
+
+    async function onConfiguredToggle(vm) {
+        if (PM.state.busyId) return;
+        var targetEnabled = !vm.enabled;
+        PM.state.busyId = vm.id;
+        PM.renderAll();
+        try {
+            try {
+                await PM.setEnabled(vm.id, targetEnabled);
+            } catch (e) {
+                var saveMessage = (e && e.message) || PM.t('toggle.error.generic', '保存插件启停设置失败');
+                PM.toast(PM.t('toggle.failed', '保存插件启停设置失败：{message}', { message: saveMessage }), 'error');
+                return;
+            }
+
+            PM.toast(PM.t(targetEnabled ? 'toggle.saved.enabled' : 'toggle.saved.disabled',
+                targetEnabled ? '{plugin} 的启用设置已保存。' : '{plugin} 的停用设置已保存。',
+                { plugin: vm.name }), 'ok');
+            // 先重拉状态，让开关立即反映 configuredEnabled；运行态仍由后端 runtimePhase 如实展示。
+            await load();
+
+            if (vm.lifecyclePolicy === 'BACKEND_RESTART') {
+                var restartNow = await global.PixivFeedback.confirm({
+                    title: PM.t('restart.backend.title', '重启后端'),
+                    message: PM.t('restart.backend.message',
+                        '“{plugin}”的启停设置需要重启后端才能生效。是否立即重启？', { plugin: vm.name }),
+                    confirmLabel: PM.t('restart.backend.confirm', '立即重启'),
+                    cancelLabel: PM.t('restart.backend.later', '稍后')
+                });
+                if (restartNow) {
+                    try {
+                        await PM.restartBackend();
+                        PM.toast(PM.t('restart.backend.requested', '后端正在重启，请稍候。'), 'ok');
+                    } catch (e) {
+                        var restartMessage = (e && e.message) || PM.t('restart.backend.error.generic', '后端重启失败');
+                        PM.toast(PM.t('restart.backend.failed', '后端重启失败：{message}',
+                            { message: restartMessage }), 'error');
+                    }
+                }
+            } else if (vm.lifecyclePolicy === 'PROCESS_RESTART') {
+                await global.PixivFeedback.alert({
+                    title: PM.t('restart.process.title', '需要重启软件'),
+                    message: PM.t('restart.process.message',
+                        '“{plugin}”的启停设置需要完整重启软件后才能生效。请手动退出并重新启动。',
+                        { plugin: vm.name }),
+                    confirmLabel: PM.t('restart.process.done', '知道了')
+                });
+            }
+        } finally {
+            PM.state.busyId = null;
+            PM.renderAll();
+        }
     }
 
     // 执行运行期动词；动作串行化（busyId），完成后重拉状态 + 刷新导航（启停插件会增减跨插件入口）。

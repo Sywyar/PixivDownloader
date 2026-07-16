@@ -73,7 +73,8 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return true;
         }
 
-        if ("POST".equals(normalizedMethod) && path.startsWith("/api/plugins/")) {
+        if (("POST".equals(normalizedMethod) || "PUT".equals(normalizedMethod))
+                && path.startsWith("/api/plugins/")) {
             return true;
         }
         if ("POST".equals(normalizedMethod) && PLUGIN_MARKET_INSTALL_PATH.matcher(path).matches()) {

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -147,7 +148,8 @@ class PluginPackageReaderTest {
                 + PluginPackageReader.KEY_PIXIV_DISPLAY_NAME_KEY + "=plugin.name\n"
                 + PluginPackageReader.KEY_PIXIV_DESCRIPTION_KEY + "=plugin.summary\n"
                 + PluginPackageReader.KEY_PIXIV_ICON_KEY + "=mail\n"
-                + PluginPackageReader.KEY_PIXIV_COLOR_TOKEN + "=green\n";
+                + PluginPackageReader.KEY_PIXIV_COLOR_TOKEN + "=green\n"
+                + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=backend-restart\n";
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
         entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
@@ -161,6 +163,7 @@ class PluginPackageReaderTest {
         assertThat(descriptor.description()).isEqualTo("plugin.summary");
         assertThat(descriptor.iconKey()).isEqualTo("mail");
         assertThat(descriptor.colorToken()).isEqualTo("green");
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.BACKEND_RESTART);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
     }
 
@@ -184,7 +187,27 @@ class PluginPackageReaderTest {
         assertThat(descriptor.description()).isNull();
         assertThat(descriptor.iconKey()).isNull();
         assertThat(descriptor.colorToken()).isNull();
+        assertThat(descriptor.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.HOT_RELOAD);
         assertThat(descriptor.externalValidationErrors()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("显式未知生命周期 token 作为错误清单被拒绝")
+    void rejectsUnknownLifecyclePolicy() {
+        String properties = PluginPackageFixtures.pluginProperties(
+                "bad-policy", "1.0.0", "1.0", "com.example.BadPolicyPlugin")
+                + PluginPackageReader.KEY_PIXIV_LIFECYCLE_POLICY + "=reload-sometime\n";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(PluginPackageReader.PLUGIN_PROPERTIES, properties.getBytes(StandardCharsets.UTF_8));
+        entries.put("classes/Marker.class", PluginPackageFixtures.bytes("x"));
+        Path zip = tempDir.resolve("bad-policy.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip))
+                .isInstanceOfSatisfying(PluginPackageException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.MALFORMED);
+                    assertThat(failure).hasMessageContaining("unsupported plugin lifecycle policy");
+                });
     }
 
     @Test
