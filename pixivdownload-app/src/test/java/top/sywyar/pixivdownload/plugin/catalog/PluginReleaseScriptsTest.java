@@ -115,6 +115,8 @@ class PluginReleaseScriptsTest {
                 "function Get-OfficialRequiredPlugins",
                 "Id = \"download-workbench\"",
                 "Module = \"pixivdownload-plugin-download-workbench\"",
+                "Id = \"douyin\"",
+                "Module = \"pixivdownload-plugin-douyin\"",
                 "function Get-OfficialDistributionPlugins",
                 "Format = \"jar\"",
                 "PrivateLibs = $true",
@@ -146,6 +148,7 @@ class PluginReleaseScriptsTest {
 
         assertThat(officialPluginIds).contains("download-workbench");
         assertThat(officialPluginIds).contains("notification");
+        assertThat(officialPluginIds).contains("douyin");
         assertThat(generator).contains(
                 "pixiv.display-namespace",
                 "pixiv.display-name-key",
@@ -207,6 +210,16 @@ class PluginReleaseScriptsTest {
         }
         assertI18nValue("pixivdownload-plugin-ai", "ai", "plugin.name", "AI 翻译", "AI Translation");
         assertI18nValue("pixivdownload-plugin-tts", "tts", "plugin.name", "TTS 朗读", "TTS Narration");
+    }
+
+    @Test
+    @DisplayName("市场策展将通知基础插件归为依赖、Douyin 归为下载类型扩展")
+    void marketCurationClassifiesDependencyAndDownloadTypeExtension() throws Exception {
+        JsonNode curation = new ObjectMapper().readTree(
+                repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
+
+        assertThat(curation.path("notification").path("category").asText()).isEqualTo("dependency");
+        assertThat(curation.path("douyin").path("category").asText()).isEqualTo("download-type");
     }
 
     @Test
@@ -529,7 +542,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("已发布后变更的官方插件使用新补丁版本且未发布插件保持初始版本")
+    @DisplayName("官方插件使用独立版本且恢复验证夹具保持初始版本")
     void officialPluginVersionsDoNotReusePublishedAssets() throws Exception {
         for (String module : List.of(
                 "pixivdownload-plugin-download-workbench", "pixivdownload-plugin-stats",
@@ -544,7 +557,8 @@ class PluginReleaseScriptsTest {
         assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains("plugin.version=1.0.1");
         assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
                 .contains("plugin.version=1.0.0");
-        assertThat(script("plugin-distribution-common.ps1")).doesNotContain("Id = \"douyin\"");
+        assertThat(script("plugin-distribution-common.ps1"))
+                .contains("Id = \"douyin\"", "Module = \"pixivdownload-plugin-douyin\"");
     }
 
     @Test

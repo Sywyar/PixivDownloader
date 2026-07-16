@@ -18,8 +18,8 @@ class PluginCatalogCategoryTest {
         assertThat(PluginCatalogCategory.UTILITY.id()).isEqualTo("utility");
         assertThat(PluginCatalogCategory.AGGREGATE_ID).isEqualTo("all");
         assertThat(PluginCatalogCategory.values()).extracting(PluginCatalogCategory::id)
-                .containsExactlyInAnyOrder("translate", "download", "convert", "notify",
-                        "backup", "security", "ui", "utility")
+                .containsExactlyInAnyOrder("translate", "download-type", "download", "convert", "notify",
+                        "backup", "security", "ui", "utility", "dependency")
                 .doesNotContain("all");
     }
 
@@ -27,6 +27,8 @@ class PluginCatalogCategoryTest {
     @DisplayName("fromId：已知（大小写 / 空白不敏感）/ 未知 / 空")
     void fromId() {
         assertThat(PluginCatalogCategory.fromId("  Backup ")).contains(PluginCatalogCategory.BACKUP);
+        assertThat(PluginCatalogCategory.fromId(" Download-Type "))
+                .contains(PluginCatalogCategory.DOWNLOAD_TYPE);
         assertThat(PluginCatalogCategory.fromId("nope")).isEmpty();
         assertThat(PluginCatalogCategory.fromId("all")).as("聚合项不是条目分类").isEmpty();
         assertThat(PluginCatalogCategory.fromId(null)).isEmpty();
@@ -46,6 +48,7 @@ class PluginCatalogCategoryTest {
     @DisplayName("isKnown：区分已知分类与回退值")
     void isKnown() {
         assertThat(PluginCatalogCategory.isKnown("notify")).isTrue();
+        assertThat(PluginCatalogCategory.isKnown("dependency")).isTrue();
         assertThat(PluginCatalogCategory.isKnown("all")).isFalse();
         assertThat(PluginCatalogCategory.isKnown("nope")).isFalse();
     }

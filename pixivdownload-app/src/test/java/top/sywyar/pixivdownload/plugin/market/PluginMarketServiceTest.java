@@ -111,15 +111,19 @@ class PluginMarketServiceTest {
                 "download", List.of("tag"), "javascript:alert(1)", "MIT",
                 4.5, 10, 1000L, null, null, "1.0.0", "2026-06-01",
                 "<script>", "rgb(1,2,3)", true, false);
-        PluginCatalogMarketMeta translateMeta = new PluginCatalogMarketMeta(
-                Map.of(), Map.of(), Map.of(), null, null, "translate", List.of(),
+        PluginCatalogMarketMeta downloadTypeMeta = new PluginCatalogMarketMeta(
+                Map.of(), Map.of(), Map.of(), null, null, "download-type", List.of(),
+                null, null, null, null, null, null, null, null, null, null, null, false, false);
+        PluginCatalogMarketMeta dependencyMeta = new PluginCatalogMarketMeta(
+                Map.of(), Map.of(), Map.of(), null, null, "dependency", List.of(),
                 null, null, null, null, null, null, null, null, null, null, null, false, false);
         PluginCatalogManifest manifest = new PluginCatalogManifest("1", null, List.of(
                 new PluginCatalogEntry("a", "a", "plugin.name", null, unsafe, List.of(
                         new PluginCatalogPackage("1.0.0", "https://x/a.jar", 100L, "ab", null, null,
                                 "1.0", List.of(), null, List.of(), "stable", false))),
-                new PluginCatalogEntry("b", "b", "plugin.name", null, translateMeta, List.of()),
-                new PluginCatalogEntry("c", "c", "plugin.name", null, null, List.of()))); // null market → utility 回退
+                new PluginCatalogEntry("b", "b", "plugin.name", null, downloadTypeMeta, List.of()),
+                new PluginCatalogEntry("c", "c", "plugin.name", null, dependencyMeta, List.of()),
+                new PluginCatalogEntry("d", "d", "plugin.name", null, null, List.of()))); // null market → utility 回退
         when(catalogService.load(PluginRepository.OFFICIAL_ID)).thenReturn(manifest);
 
         PluginCatalogProperties props = new PluginCatalogProperties();
@@ -129,12 +133,13 @@ class PluginMarketServiceTest {
         assertThat(view.enabled()).isTrue();
         assertThat(view.repositoryId()).isEqualTo(PluginRepository.OFFICIAL_ID);
         assertThat(view.coreApiVersion()).isEqualTo(PluginApiVersion.VERSION);
-        // 分类计数：all 在首 = 3；download=1 / translate=1 / utility=1（null market 回退）；其余分类计 0。
+        // 分类计数：all 在首 = 4；download / download-type / dependency / utility（null market 回退）各 1。
         assertThat(view.categories().get(0).category()).isEqualTo(PluginCatalogCategory.AGGREGATE_ID);
-        assertThat(view.categories().get(0).count()).isEqualTo(3);
-        assertThat(view.categories()).anySatisfy(c -> {
-            if (c.category().equals("download")) assertThat(c.count()).isEqualTo(1);
-        });
+        assertThat(view.categories().get(0).count()).isEqualTo(4);
+        assertThat(view.categories())
+                .filteredOn(c -> List.of("download", "download-type", "dependency").contains(c.category()))
+                .hasSize(3)
+                .allSatisfy(c -> assertThat(c.count()).isEqualTo(1));
         assertThat(view.categories()).anySatisfy(c -> {
             if (c.category().equals(PluginCatalogCategory.FALLBACK.id())) assertThat(c.count()).isGreaterThanOrEqualTo(1);
         });
@@ -144,11 +149,11 @@ class PluginMarketServiceTest {
         assertThat(market.colorToken()).isEqualTo(CatalogPresentationToken.DEFAULT_COLOR);
         assertThat(market.homepageUrl()).isNull();
         assertThat(view.entries().get(0).latestVersion()).isEqualTo("1.0.0");
-        // 无已安装插件（空状态报告）→ 有版本制品的条目（a）未安装、无版本制品的条目（b/c）不可安装；已安装数 0。
+        // 无已安装插件（空状态报告）→ 有版本制品的条目（a）未安装、无版本制品的条目（b/c/d）不可安装；已安装数 0。
         assertThat(view.installedCount()).isZero();
         assertThat(view.entries()).extracting(PluginMarketEntryView::installStatus)
                 .containsExactly(MarketInstallStatus.NOT_INSTALLED, MarketInstallStatus.UNAVAILABLE,
-                        MarketInstallStatus.UNAVAILABLE);
+                        MarketInstallStatus.UNAVAILABLE, MarketInstallStatus.UNAVAILABLE);
     }
 
     @Test

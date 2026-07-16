@@ -174,8 +174,9 @@
         }
         if (state.masterEnabled && state.catalog) {
             body += '<div class="pmk-repos">' + categoryChips() + '</div>' +
-                '<div class="pmk-toolbar"><div class="pmk-toolbar-head"><span class="pmk-toolbar-title">' +
-                esc(PMK.categoryLabel(state.category)) + '</span></div>' +
+                '<div class="pmk-toolbar"><div class="pmk-toolbar-head"><div class="pmk-toolbar-title-row"><span class="pmk-toolbar-title">' +
+                esc(PMK.categoryLabel(state.category)) + '</span></div><p class="pmk-toolbar-description">' +
+                esc(PMK.categoryDescription(state.category)) + '</p></div>' +
                 '<div class="pmk-search"><i class="fa-solid fa-magnifying-glass"></i>' +
                 '<input type="text" id="pmk-fb-search" value="' + esc(state.search) + '" placeholder="' + esc(t('search.placeholder', '搜索插件、作者或标签…')) + '" autocomplete="off"></div></div>' +
                 '<div id="pmk-fb-grid">' + gridHtml() + '</div>';
@@ -192,6 +193,8 @@
         if (grid && state.catalog) grid.innerHTML = gridHtml();
         var title = rootEl && rootEl.querySelector('.pmk-toolbar-title');
         if (title) title.textContent = PMK.categoryLabel(state.category);
+        var description = rootEl && rootEl.querySelector('.pmk-toolbar-description');
+        if (description) description.textContent = PMK.categoryDescription(state.category);
         // 分类 chip 高亮同步。
         var chips = rootEl ? rootEl.querySelectorAll('[data-pmk-cat]') : [];
         for (var i = 0; i < chips.length; i++) {

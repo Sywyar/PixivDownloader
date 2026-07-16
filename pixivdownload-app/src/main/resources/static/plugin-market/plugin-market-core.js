@@ -70,13 +70,17 @@
     };
 
     // —— 分类词表（与后端 PluginCatalogCategory 对齐；图标为本地白名单内的受控 token）——
-    PMK.CATEGORY_ORDER = ['all', 'translate', 'download', 'convert', 'notify', 'backup', 'security', 'ui', 'utility'];
+    PMK.CATEGORY_ORDER = ['all', 'translate', 'download-type', 'download', 'convert', 'notify', 'backup', 'security', 'ui', 'utility', 'dependency'];
     PMK.CATEGORY_ICON = {
-        all: 'grip', translate: 'language', download: 'bolt', convert: 'rotate', notify: 'bell',
-        backup: 'cloud', security: 'shield-halved', ui: 'palette', utility: 'screwdriver-wrench'
+        all: 'grip', translate: 'language', 'download-type': 'plug', download: 'bolt', convert: 'rotate',
+        notify: 'bell', backup: 'cloud', security: 'shield-halved', ui: 'palette',
+        utility: 'screwdriver-wrench', dependency: 'layer-group'
     };
     PMK.categoryLabel = function (id) {
         return PMK.t('category.' + id, id);
+    };
+    PMK.categoryDescription = function (id) {
+        return PMK.t('category.' + id + '.description', '');
     };
 
     // —— 排序选项（设计要求的推荐 / 最近更新 / 下载量 / 评分，并补名称；缺字段时稳定降级）——

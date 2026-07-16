@@ -12,6 +12,18 @@
     "officialRequired": true,
     "changeNotes": ["下载工作台从核心壳外置为官方必需插件"]
   },
+  "douyin": {
+    "description": { "zh": "提供抖音视频、图文与实况作品的链接解析、批量与计划下载、本地画廊和作品详情。", "en": "Adds link parsing, batch and scheduled downloads, a local gallery, and work details for Douyin videos, image posts, and live photos." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "download-type",
+    "tags": ["douyin", "download", "video", "image", "schedule"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "recommended": false,
+    "officialRequired": false,
+    "changeNotes": ["首个外置版本"]
+  },
   "gui-theme": {
     "description": { "zh": "为桌面 GUI 提供跟随系统、浅色、深色与 Moonlight 主题，并在完整重启后应用启动期主题。", "en": "Adds system, light, dark, and Moonlight themes to the desktop GUI, applied during startup after a full restart." },
     "author": "Sywyar",
@@ -76,7 +88,7 @@
     "description": { "zh": "提供通知场景开关和中性通知级别文案，不发送邮件或推送；邮件与推送插件依赖它共享通知语义。", "en": "Provides notification scenario toggles and neutral severity labels without sending mail or push messages; mail and push plugins depend on it for shared notification semantics." },
     "author": "Sywyar",
     "sourceType": "official",
-    "category": "notify",
+    "category": "dependency",
     "tags": ["notification", "scenario", "configuration"],
     "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
     "license": "AGPL-3.0-only",

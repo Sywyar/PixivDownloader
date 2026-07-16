@@ -48,6 +48,7 @@ function Get-OfficialOptionalPlugins {
         [pscustomobject]@{ Id = "duplicate"; Module = "pixivdownload-plugin-duplicate"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "gallery"; Module = "pixivdownload-plugin-gallery"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "novel"; Module = "pixivdownload-plugin-novel"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "notification"; Module = "pixivdownload-plugin-notification"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "push"; Module = "pixivdownload-plugin-push"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{

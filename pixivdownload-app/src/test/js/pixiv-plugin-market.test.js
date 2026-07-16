@@ -33,7 +33,12 @@ ok('PixivPluginMarket 已挂载（core+data）', PMK
 
 PMK.state.i18n.client = {
     lang: 'zh-CN',
-    t: (prefixedKey, fallback) => (fallback != null ? fallback : prefixedKey)
+    t: (prefixedKey, fallback) => {
+        if (prefixedKey === 'plugin-market:category.dependency.description') {
+            return '这是其他插件的依赖，会自动安装，一般无需手动安装。';
+        }
+        return fallback != null ? fallback : prefixedKey;
+    }
 };
 
 function entry(id, name, summary, iconToken, colorToken, category) {
@@ -66,7 +71,7 @@ function entry(id, name, summary, iconToken, colorToken, category) {
     ['download-workbench', '下载工作台', 'download', 'pixiv', 'download', 'fa-solid fa-download'],
     ['gui-theme', 'GUI 主题', 'palette', 'blue', 'ui', 'fa-solid fa-palette'],
     ['stats', '统计', 'chart-line', 'green', 'utility', 'fa-solid fa-chart-line'],
-    ['notification', '通知', 'bell', 'teal', 'notify', 'fa-solid fa-bell'],
+    ['notification', '通知', 'bell', 'teal', 'dependency', 'fa-solid fa-bell'],
     ['push', '推送通知', 'bell', 'blue', 'notify', 'fa-solid fa-bell'],
     ['mail', '邮件通知', 'mail', 'green', 'notify', 'fa-solid fa-envelope'],
     ['tts', 'TTS 朗读', 'audio-lines', 'amber', 'utility', 'fa-solid fa-wave-square'],
@@ -86,5 +91,17 @@ function entry(id, name, summary, iconToken, colorToken, category) {
 
 eq('未知图标 token → 默认 puzzle', PMK.iconClass('definitely-unknown'), 'fa-solid fa-puzzle-piece');
 eq('未知颜色 token → 默认 neutral', PMK.colorClass('pink'), 'pmk-accent--neutral');
+eq('分类顺序包含下载类型扩展与依赖', PMK.CATEGORY_ORDER.join(','),
+    'all,translate,download-type,download,convert,notify,backup,security,ui,utility,dependency');
+eq('下载类型扩展使用 plug 图标', PMK.iconClass(PMK.CATEGORY_ICON['download-type']), 'fa-solid fa-plug');
+eq('依赖分类使用 layer-group 图标', PMK.iconClass(PMK.CATEGORY_ICON.dependency), 'fa-solid fa-layer-group');
+eq('分类说明从 i18n 动态解析', PMK.categoryDescription('dependency'),
+    '这是其他插件的依赖，会自动安装，一般无需手动安装。');
+const categoryList = PMK.data.categoryList({categories: [
+    {category: 'download-type', count: 2},
+    {category: 'dependency', count: 1}
+]});
+eq('下载类型扩展分类使用后端派生计数', categoryList.find(cat => cat.id === 'download-type').count, 2);
+eq('依赖分类使用后端派生计数', categoryList.find(cat => cat.id === 'dependency').count, 1);
 
 console.log('pixiv-plugin-market.test.js: ' + passed + ' assertions passed');

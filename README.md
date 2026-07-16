@@ -71,7 +71,7 @@
 当前发布包采用外置插件布局：
 
 - `download-workbench` 是 required 外置插件，提供下载页、下载 API、队列、userscript 入口、Pixiv 插画代理和计划任务宿主。Windows 安装包与离线全量包会随包携带它；缺失、损坏、不兼容或验签失败时，程序进入恢复路径，只开放登录、插件管理和安装修复入口。
-- `stats`、`duplicate`、`gallery`、`novel`、`tts`、`ai`、`push`、`mail`、`gui-theme`、`notification` 是官方可选插件。安装并启用后对应页面、API、静态资源、i18n、导航、GUI 配置字段或能力贡献可用；缺失或禁用时这些入口自然缺席，不会触发恢复路径。
+- `stats`、`duplicate`、`gallery`、`novel`、`douyin`、`tts`、`ai`、`push`、`mail`、`gui-theme`、`notification` 是官方可选插件。安装并启用后对应页面、API、静态资源、i18n、导航、GUI 配置字段或能力贡献可用；缺失或禁用时这些入口自然缺席，不会触发恢复路径。
 - GitHub Release 仅提供 Windows 安装包和 full-offline package（离线全量包）。独立核心壳 JAR 与默认下载器包仍用于构建 / 恢复流程，不作为普通下载附件发布。
 - Windows 安装包携带 required `download-workbench`，并可在附加功能页从签名官方清单安装可选插件；full-offline package（离线全量包）在此基础上携带全部官方可选插件与离线验签所需文件。
 - `duplicate` 缺失或禁用不影响下载完成后的图片 Hash 写入，也不会删除历史 Hash 数据。

@@ -175,7 +175,17 @@ class PluginMarketPageGuardTest {
         List<String> critical = List.of(
                 "nav.label", "plugin.summary", "page.heading", "seg.market", "seg.installed",
                 "section.repositories", "sidebar.browse", "filter.official", "filter.compatible",
-                "category.all", "category.translate", "category.utility",
+                "category.all", "category.all.description",
+                "category.translate", "category.translate.description",
+                "category.download-type", "category.download-type.description",
+                "category.download", "category.download.description",
+                "category.convert", "category.convert.description",
+                "category.notify", "category.notify.description",
+                "category.backup", "category.backup.description",
+                "category.security", "category.security.description",
+                "category.ui", "category.ui.description",
+                "category.utility", "category.utility.description",
+                "category.dependency", "category.dependency.description",
                 "sort.recommended", "sort.updated", "sort.downloads", "sort.rating", "sort.name",
                 "install.action.install", "install.action.update", "install.state.installed",
                 "install.state.incompatible", "install.state.unavailable",
@@ -187,6 +197,28 @@ class PluginMarketPageGuardTest {
             assertThat(zh.getProperty(key)).as("zh 缺关键键 %s", key).isNotBlank();
             assertThat(en.getProperty(key)).as("en 缺关键键 %s", key).isNotBlank();
         }
+    }
+
+    @Test
+    @DisplayName("分类说明显示在当前分类标题下方，Vue 与基础回退视图行为一致")
+    void categoryDescriptionsRenderInVueAndFallback() throws IOException {
+        String core = read(CORE);
+        String vue = read(VUE);
+        String fallback = read(FALLBACK);
+        String css = read("static/plugin-market/plugin-market.css");
+        Properties zh = loadProps("i18n/web/plugin-market.properties");
+
+        assertThat(core).contains("'download-type'", "dependency", "PMK.categoryDescription");
+        assertThat(vue).contains("pmk-toolbar-title-row", "pmk-toolbar-description", "{{ categoryDescription }}");
+        assertThat(fallback).contains(
+                "pmk-toolbar-title-row",
+                "esc(PMK.categoryDescription(state.category))",
+                "description.textContent = PMK.categoryDescription(state.category)");
+        assertThat(css).contains(".pmk-toolbar-title-row", ".pmk-toolbar-description");
+        assertThat(zh.getProperty("category.dependency.description"))
+                .contains("其他插件的依赖", "自动安装", "无需手动安装");
+        assertThat(zh.getProperty("category.download-type.description"))
+                .contains("数据来源", "下载类型", "Pixiv 下载器");
     }
 
     @Test
