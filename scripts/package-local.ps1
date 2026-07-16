@@ -4,6 +4,7 @@ param(
     [string]$PrebuiltJar,
     [string]$PrebuiltPluginsDir,
     [switch]$SkipPlugins,
+    [switch]$AllowUnsignedLocalPlugins,
     [switch]$RunTests,
     [switch]$SkipPortable,
     [switch]$SkipOfflinePortable,
@@ -34,7 +35,11 @@ $OnlineAppDir = Join-Path $OnlineAppImageRoot "PixivDownload"
 $OfflineAppImageRoot = Join-Path $BuildRoot "app-image-full"
 $OfflineAppDir = Join-Path $OfflineAppImageRoot "PixivDownload"
 $InnoToolchainDir = Join-Path $BuildRoot "inno-admin-loader"
-$OutDir = Join-Path $BuildRoot "out"
+$OutDir = if ($AllowUnsignedLocalPlugins) {
+    Join-Path $BuildRoot "out-local-unsigned"
+} else {
+    Join-Path $BuildRoot "out"
+}
 $WixDir = Join-Path $BuildRoot "wix"
 $FfmpegDir = Join-Path $BuildRoot "ffmpeg"
 $FfmpegUnpackDir = Join-Path $FfmpegDir "unpack"
@@ -53,6 +58,8 @@ $FfmpegLicense = Join-Path $FfmpegDir "ffmpeg-LGPL.txt"
 $OnlineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-online-portable.zip"
 $OfflineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-portable.zip"
 $SetupPath = Join-Path $OutDir "$AppName-$Version-win-x64-setup.exe"
+$LocalUnsignedSetupPath = Join-Path $OutDir "$AppName-$Version-LOCAL-UNSIGNED-win-x64-setup.exe"
+$ResultSetupPath = if ($AllowUnsignedLocalPlugins) { $LocalUnsignedSetupPath } else { $SetupPath }
 $InnoScript = Join-Path $ProjectRoot "packaging/windows/inno/PixivDownload.iss"
 $SetExeExecutionLevelScript = Join-Path $PSScriptRoot "set-windows-exe-requested-execution-level.ps1"
 $PrepareInnoAdminLoaderScript = Join-Path $PSScriptRoot "prepare-inno-admin-loader.ps1"
@@ -205,7 +212,8 @@ function Stage-OfficialPlugins {
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
         [string]$OfficialKeyId,
         [string]$PrivateKeyFile,
-        [Parameter(Mandatory = $true)][string]$SignatureToolJar
+        [string]$SignatureToolJar,
+        [switch]$AllowUnsignedLocalPlugins
     )
     $pluginsDir = Join-Path $AppDir "plugins"
     Ensure-Directory $pluginsDir
@@ -227,25 +235,36 @@ function Stage-OfficialPlugins {
         } else {
             $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         }
-        $sourceSignaturePath = Find-PluginArtifactSignatureSidecar $sourceArtifact
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
         $stableName = "$($plugin.Module).$extension"
         $targetArtifact = Join-Path $pluginsDir $stableName
         Copy-Item $sourceArtifact $targetArtifact -Force
         $sha = Get-Sha256Hex $targetArtifact
         [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $stableName`n", $utf8NoBom)
-        $signature = Get-PluginArtifactSignatureForDistribution `
-            -ToolJar $SignatureToolJar `
-            -ArtifactPath $targetArtifact `
-            -PluginId $plugin.Id `
-            -Version $descriptor["plugin.version"] `
-            -ExistingSignaturePath $sourceSignaturePath `
-            -OfficialKeyId $OfficialKeyId `
-            -PrivateKeyFile $PrivateKeyFile `
-            -OutputPath "$targetArtifact.sig"
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
-        [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
-            $sha $signature $verifiedAt)
+        if ($AllowUnsignedLocalPlugins) {
+            foreach ($signatureSidecar in @("$targetArtifact.sig", "$targetArtifact.sig.json")) {
+                Remove-Item -LiteralPath $signatureSidecar -Force -ErrorAction SilentlyContinue
+            }
+            $signature = $null
+            [void](Write-UnsignedLocalPluginProvenanceSidecar $targetArtifact $verifiedAt)
+        } else {
+            if ([string]::IsNullOrWhiteSpace($SignatureToolJar)) {
+                throw "SignatureToolJar is required unless -AllowUnsignedLocalPlugins is used."
+            }
+            $sourceSignaturePath = Find-PluginArtifactSignatureSidecar $sourceArtifact
+            $signature = Get-PluginArtifactSignatureForDistribution `
+                -ToolJar $SignatureToolJar `
+                -ArtifactPath $targetArtifact `
+                -PluginId $plugin.Id `
+                -Version $descriptor["plugin.version"] `
+                -ExistingSignaturePath $sourceSignaturePath `
+                -OfficialKeyId $OfficialKeyId `
+                -PrivateKeyFile $PrivateKeyFile `
+                -OutputPath "$targetArtifact.sig"
+            [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
+                $sha $signature $verifiedAt)
+        }
         $manifest += [ordered]@{
             id       = $plugin.Id
             version  = $descriptor["plugin.version"]
@@ -262,6 +281,14 @@ function Stage-OfficialPlugins {
     [System.IO.File]::WriteAllText((Join-Path $pluginsDir "SHA256SUMS"), (($sumLines -join "`n") + "`n"), $utf8NoBom)
     $manifestJson = ConvertTo-Json @($manifest) -Depth 5
     [System.IO.File]::WriteAllText((Join-Path $pluginsDir "plugins-manifest.json"), $manifestJson + "`n", $utf8NoBom)
+    if ($AllowUnsignedLocalPlugins) {
+        $warning = @(
+            "LOCAL TEST BUILD ONLY",
+            "Plugins in this directory are accepted as unsigned local uploads.",
+            "Do not distribute this installer or app image."
+        ) -join "`n"
+        [System.IO.File]::WriteAllText((Join-Path $pluginsDir "LOCAL-UNSIGNED-BUILD.txt"), $warning + "`n", $utf8NoBom)
+    }
     return $manifest.Count
 }
 
@@ -581,14 +608,40 @@ LGPL License: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
 "@ | Set-Content -Path $FfmpegLicense -Encoding UTF8
 }
 
+if ($AllowUnsignedLocalPlugins) {
+    if ($SkipPlugins) {
+        throw "AllowUnsignedLocalPlugins cannot be combined with SkipPlugins."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrebuiltPluginsDir)) {
+        throw "AllowUnsignedLocalPlugins only accepts plugin artifacts built from the current source tree; PrebuiltPluginsDir is not allowed."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OfficialKeyId) -or
+        -not [string]::IsNullOrWhiteSpace($PrivateKeyFile) -or
+        -not [string]::IsNullOrWhiteSpace($SignatureToolJar)) {
+        throw "AllowUnsignedLocalPlugins cannot be combined with OfficialKeyId, PrivateKeyFile, or SignatureToolJar."
+    }
+    if (-not $SkipPortable -or -not $SkipOfflinePortable) {
+        throw "AllowUnsignedLocalPlugins requires SkipPortable and SkipOfflinePortable so no unsigned portable archive is produced."
+    }
+    if ($SkipInstaller) {
+        throw "AllowUnsignedLocalPlugins is only for building a local test installer; SkipInstaller is not allowed."
+    }
+}
+
 Push-Location $ProjectRoot
 try {
     Write-Step "Checking local toolchain"
+    if ($AllowUnsignedLocalPlugins) {
+        Write-Host "LOCAL TEST ONLY: staging current-source plugins as unsigned local uploads." -ForegroundColor Red
+        Write-Host "Do not distribute the resulting installer or app image." -ForegroundColor Red
+    }
     $InstallerVersion = Get-InstallerVersion $Version
     $resolvedPrebuiltPluginsDir = ""
     if (-not $SkipPlugins) {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
-        $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
+        if (-not $AllowUnsignedLocalPlugins) {
+            $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
+        }
     }
     $mavenCmd = $null
     if (-not $PrebuiltJar) {
@@ -661,20 +714,29 @@ try {
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
 
-    # Stage the required external plugins into the (online) app-image plugins/ folder before packaging.
-    # The online portable and installer are the default downloader package: core shell + required
-    # download-workbench. The offline app-image later adds optional plugins to become full-offline.
+    # The explicit local unsigned installer stages every current-source user plugin except Douyin.
+    # Normal signed packaging keeps the existing required-plugin/default-downloader behavior.
     if (-not $SkipPlugins) {
-        Write-Step "Staging official required external plugins into app-image plugins/"
-        $requiredPlugins = @(Get-OfficialRequiredPlugins)
-        $requiredCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -Plugins $requiredPlugins `
+        if ($AllowUnsignedLocalPlugins) {
+            Write-Step "Staging current-source default plugins without signatures (local test only)"
+            $onlinePlugins = @(Get-OfficialDistributionPlugins -IncludeOptional |
+                Where-Object { $_.Id -ne "douyin" })
+        } else {
+            Write-Step "Staging official required external plugins into app-image plugins/"
+            $onlinePlugins = @(Get-OfficialRequiredPlugins)
+        }
+        $onlinePluginCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -Plugins $onlinePlugins `
             -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
             -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
-            -SignatureToolJar $SignatureToolJar
-        Write-Host ("    {0} official required plugin(s) staged under plugins/ (default downloader)." -f $requiredCount) -ForegroundColor Green
+            -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
+        Write-Host ("    {0} plugin(s) staged under plugins/." -f $onlinePluginCount) -ForegroundColor Green
 
-        Write-Step "Staging signed installer plugin catalog snapshot"
-        Stage-InstallerPluginCatalogSnapshot -AppDir $OnlineAppDir -SignatureToolJar $SignatureToolJar
+        if ($AllowUnsignedLocalPlugins) {
+            Write-Step "Skipping installer plugin catalog for local unsigned test build"
+        } else {
+            Write-Step "Staging signed installer plugin catalog snapshot"
+            Stage-InstallerPluginCatalogSnapshot -AppDir $OnlineAppDir -SignatureToolJar $SignatureToolJar
+        }
     } else {
         Write-Step "Skipping plugin staging (-SkipPlugins): core shell only; required plugin missing triggers recovery"
     }
@@ -715,7 +777,7 @@ try {
         $innoCompiler = & $PrepareInnoAdminLoaderScript -CompilerPath $innoCompilerSource -OutputDirectory $InnoToolchainDir
 
         Write-Step "Building Windows setup"
-        $installerPluginCatalogEnabled = if ($SkipPlugins) { "0" } else { "1" }
+        $installerPluginCatalogEnabled = if ($SkipPlugins -or $AllowUnsignedLocalPlugins) { "0" } else { "1" }
         Invoke-External $innoCompiler @(
             "/DAppVersion=$Version",
             "/DInstallerVersion=$InstallerVersion",
@@ -725,6 +787,12 @@ try {
             "/DSignatureToolJar=$SignatureToolJar",
             $InnoScript
         )
+        if ($AllowUnsignedLocalPlugins) {
+            if (-not (Test-Path -LiteralPath $SetupPath -PathType Leaf)) {
+                throw "Inno Setup did not produce the expected intermediate installer: $SetupPath"
+            }
+            Move-Item -LiteralPath $SetupPath -Destination $LocalUnsignedSetupPath -Force
+        }
     }
 
     Write-Step "Done"
@@ -738,10 +806,12 @@ try {
         Write-Host "Offline portable: $OfflineZipPath"
     }
     if (-not $SkipInstaller) {
-        Write-Host "Windows setup : $SetupPath"
+        Write-Host "Windows setup : $ResultSetupPath"
     }
     Write-Host "App dir       : $OnlineAppDir"
-    if (-not $SkipPlugins) {
+    if ($AllowUnsignedLocalPlugins) {
+        Write-Host "Plugins       : LOCAL TEST ONLY; current-source defaults, unsigned LOCAL_UPLOAD provenance" -ForegroundColor Red
+    } elseif (-not $SkipPlugins) {
         Write-Host "Plugins       : required plugins in default package; optional plugins only in full-offline portable"
     } else {
         Write-Host "Plugins       : none bundled (-SkipPlugins; core shell recovery package)"

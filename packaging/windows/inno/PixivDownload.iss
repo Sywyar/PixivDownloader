@@ -165,6 +165,8 @@ zhcn.AppRunningAbort=PixivDownload 正在运行，安装无法继续，已取消
 ; 文件清单内，升级时既不复制也不删除，得以保留。插件启用 / 禁用状态存放在 {app}\config\config.yaml
 ; （plugins.<id>.enabled），同样位于 {app} 根目录、升级时不受影响。
 Type: filesandordirs; Name: "{app}\app"; Check: ShouldInstallApplicationFiles
+; A local unsigned build copies this marker again through [Files]. A signed upgrade leaves it deleted.
+Type: files; Name: "{app}\plugins\LOCAL-UNSIGNED-BUILD.txt"; Check: ShouldInstallApplicationFiles
 
 [Files]
 ; app-image 根目录已含 plugins\（package-local.ps1 预置的官方 required 插件 jar + 校验文件 + manifest）；

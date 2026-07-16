@@ -274,6 +274,27 @@ function Write-PluginProvenanceSidecar {
     return $sidecar
 }
 
+function Write-UnsignedLocalPluginProvenanceSidecar {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArtifactPath,
+        [Parameter(Mandatory = $true)][string]$VerifiedAt
+    )
+    $artifact = Get-Item -LiteralPath $ArtifactPath
+    $provenanceDir = Join-Path $artifact.Directory.FullName "provenance"
+    New-Item -ItemType Directory -Force -Path $provenanceDir | Out-Null
+    $sidecar = Join-Path $provenanceDir "$($artifact.Name).pixiv-plugin-provenance"
+    $lines = @(
+        "formatVersion=1",
+        "source=LOCAL_UPLOAD",
+        "officialRepository=false",
+        "status=UNSIGNED_ALLOWED",
+        "verifiedAt=$VerifiedAt",
+        "diagnosticCode=UNSIGNED_ALLOWED"
+    )
+    [System.IO.File]::WriteAllText($sidecar, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+    return $sidecar
+}
+
 function Assert-NoPrivateKeyMaterial {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return }

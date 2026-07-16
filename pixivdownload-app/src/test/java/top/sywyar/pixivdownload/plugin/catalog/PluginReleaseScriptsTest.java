@@ -239,10 +239,13 @@ class PluginReleaseScriptsTest {
                 "function Get-PluginArtifactSignatureForDistribution",
                 "\"verify-artifact\"",
                 "function Write-PluginProvenanceSidecar",
+                "function Write-UnsignedLocalPluginProvenanceSidecar",
                 "Join-Path $artifact.Directory.FullName \"provenance\"",
                 ".pixiv-plugin-provenance",
                 "signature.formatVersion=$($Signature.formatVersion)",
-                "status=VERIFIED"
+                "status=VERIFIED",
+                "source=LOCAL_UPLOAD",
+                "status=UNSIGNED_ALLOWED"
         );
         for (String script : List.of(distribution, windows)) {
             assertThat(script).contains(
@@ -273,7 +276,18 @@ class PluginReleaseScriptsTest {
                 "catalog.en.txt",
                 "catalog.zh-CN.txt",
                 "installer-plugin-catalog-items.iss.inc",
-                "$installerPluginCatalogEnabled = if ($SkipPlugins) { \"0\" } else { \"1\" }",
+                "[switch]$AllowUnsignedLocalPlugins",
+                "Get-OfficialDistributionPlugins -IncludeOptional",
+                "Where-Object { $_.Id -ne \"douyin\" }",
+                "Write-UnsignedLocalPluginProvenanceSidecar",
+                "LOCAL-UNSIGNED-BUILD.txt",
+                "AllowUnsignedLocalPlugins only accepts plugin artifacts built from the current source tree",
+                "AllowUnsignedLocalPlugins requires SkipPortable and SkipOfflinePortable",
+                "AllowUnsignedLocalPlugins is only for building a local test installer",
+                "out-local-unsigned",
+                "$AppName-$Version-LOCAL-UNSIGNED-win-x64-setup.exe",
+                "Move-Item -LiteralPath $SetupPath -Destination $LocalUnsignedSetupPath -Force",
+                "$installerPluginCatalogEnabled = if ($SkipPlugins -or $AllowUnsignedLocalPlugins) { \"0\" } else { \"1\" }",
                 "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
                 "/DSignatureToolJar=$SignatureToolJar");
         assertThat(catalogStage).contains(
@@ -296,6 +310,7 @@ class PluginReleaseScriptsTest {
                 "PluginCheckList.Parent := OptionalPluginsPage.Surface",
                 "PageID = OptionalPluginsPage.ID",
                 "#include \"..\\..\\..\\build\\installer-plugin-catalog-items.iss.inc\"",
+                "Type: files; Name: \"{app}\\plugins\\LOCAL-UNSIGNED-BUILD.txt\"; Check: ShouldInstallApplicationFiles",
                 "LoadCompiledInstallerPluginCatalogItems",
                 "PackagedPluginCatalogManifestPath",
                 "LoadPackagedInstallerPluginCatalog",
@@ -369,22 +384,35 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("本地一键安装器脚本从签名清单拉取插件后构建安装包")
-    void oneShotInstallerScriptUsesSignedCatalogPluginInputs() throws Exception {
+    @DisplayName("本地一键安装器脚本支持签名 catalog 与显式当前源码 unsigned 测试输入")
+    void oneShotInstallerScriptSupportsCatalogAndExplicitUnsignedLocalInputs() throws Exception {
         String script = script("package-installer-with-plugins.ps1");
 
         assertThat(script).contains(
                 "[string]$CoreApiVersion = \"1.3.0\"",
-                "pixivdownload-plugin-signature,pixivdownload-app",
+                "[ValidateSet(\"Catalog\", \"Local\")]",
+                "[string]$PluginSource = \"Catalog\"",
+                "[switch]$AllowUnsignedLocalPlugins",
+                "Get-OfficialDistributionPlugins -IncludeOptional",
+                "Where-Object { $_.Id -ne \"douyin\" }",
+                "$mavenProjects = @($mavenProjects | Select-Object -Unique)",
+                "if ($PluginSource -eq \"Catalog\")",
                 "stage-official-plugin-inputs-from-catalog.ps1",
                 "package-local.ps1",
                 "Resolve-SignatureToolJar",
                 "SignatureToolJar must not be empty.",
                 "-IncludeOptional",
-                "-PrebuiltPluginsDir $PluginInputsDir",
-                "-SignatureToolJar $resolvedSignatureToolJar",
-                "-SkipPortable",
-                "-SkipOfflinePortable",
+                "$packageArgs.PrebuiltPluginsDir = $PluginInputsDir",
+                "$packageArgs.SignatureToolJar = $resolvedSignatureToolJar",
+                "AllowUnsignedLocalPlugins can only be used with -PluginSource Local.",
+                "PluginSource Local requires -AllowUnsignedLocalPlugins",
+                "AllowUnsignedLocalPlugins cannot be combined with SignatureToolJar.",
+                "$packageArgs.AllowUnsignedLocalPlugins = $true",
+                "LOCAL TEST ONLY",
+                "SkipPortable = $true",
+                "SkipOfflinePortable = $true",
+                "& $PackageLocalScript @packageArgs",
+                "build/out-local-unsigned/PixivDownload-$Version-LOCAL-UNSIGNED-win-x64-setup.exe",
                 "PixivDownload-$Version-win-x64-setup.exe"
         );
         assertThat(script).doesNotContain(
@@ -392,6 +420,13 @@ class PluginReleaseScriptsTest {
                 "OfficialKeyId",
                 "PrivateKeyFile"
         );
+
+        assertThat(script("assemble-plugin-distribution.ps1")).doesNotContain("AllowUnsignedLocalPlugins");
+        assertThat(script("stage-official-plugin-inputs-from-catalog.ps1"))
+                .doesNotContain("AllowUnsignedLocalPlugins");
+        for (String name : List.of("release.yml", "nightly.yml", "publish-plugins.yml")) {
+            assertThat(workflow(name)).as(name).doesNotContain("AllowUnsignedLocalPlugins");
+        }
     }
 
     @Test
