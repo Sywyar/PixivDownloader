@@ -632,6 +632,7 @@
        下载管理器
     ============================================================ */
     async function start() {
+        if (state.isRunning) return;
         if (state.queue.length === 0) {
             setStatus(bt('status.queue-empty', '队列为空'), 'error');
             return;
@@ -642,6 +643,8 @@
         }
 
         await refreshBatchCollections();
+        // 后端检查 / 收藏夹刷新期间可能发生重复点击；较早的调用已经启动时，后续调用不得重置 worker 状态。
+        if (state.isRunning) return;
 
         state.queue.forEach(q => {
             if (['idle', 'failed', 'paused'].includes(q.status)) {
@@ -649,11 +652,22 @@
                 q.lastMessageParts = null;
             }
         });
-        state.isRunning = true;
         state.isPaused = false;
         state.stopRequested = false;
         state.activeWorkers = 0;
         quotaExceededHandled = false;
+
+        // completed / skipped 是终态；队列没有待处理项时直接收尾，避免打开 SSE 或启动空 worker 池。
+        if (!state.queue.some(q => q.status === 'pending')) {
+            state.isRunning = false;
+            updateStats();
+            saveQueue();
+            renderQueue();
+            setStatus(bt('status.batch-finished', '批量下载结束'), 'info');
+            updateButtonsState();
+            return;
+        }
+        state.isRunning = true;
 
         updateStats();
         updateButtonsState();
@@ -678,8 +692,14 @@
     // 调低并发数由各 worker 在 workerLoop 顶部自行退出，不在此处理。
     function ensureWorkers() {
         if (!state.isRunning || state.stopRequested) return;
+        // 运行中调用同时负责幂等恢复被服务端关闭的聚合 SSE；即使 worker 已满也不能跳过。
         ensureSharedSSE();
-        while (state.activeWorkers < desiredConcurrency()) {
+        const workersToStart = Math.max(0, desiredConcurrency() - state.activeWorkers);
+        if (workersToStart === 0) return;
+        // 先为整批 worker 预留计数，再逐个启动。worker 可能在首次 await 前同步退出，
+        // 固定启动次数与预留计数共同避免它反复改变循环条件，确保本次补充数量有界。
+        state.activeWorkers += workersToStart;
+        for (let i = 0; i < workersToStart; i++) {
             workerLoop().finally(handleWorkerExit);
         }
     }
@@ -687,6 +707,10 @@
     // 最后一个 worker 退出（队列已抽干）时统一收尾；调低并发数导致的多余 worker 退出不触发收尾。
     function handleWorkerExit() {
         if (!state.isRunning || state.activeWorkers > 0) return;
+        finishBatch();
+    }
+
+    function finishBatch() {
         closeAllSSE();
         state.isRunning = false;
         saveQueue();
@@ -700,7 +724,6 @@
     }
 
     async function workerLoop() {
-        state.activeWorkers++;
         try {
             while (state.isRunning && !state.stopRequested) {
                 // 并发数实时调低时，多余的 worker 在处理完当前作品后退出（不中断在途下载）。
