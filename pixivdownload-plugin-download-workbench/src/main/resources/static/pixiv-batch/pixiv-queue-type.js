@@ -156,10 +156,78 @@
             };
         }
 
-        function artworkQueueMeta(item) {
+        function pixivQueueSourceType(context) {
+            const ctx = context && typeof context === 'object' ? context : {};
+            const inner = ctx.inner && typeof ctx.inner === 'object' ? ctx.inner : null;
+            if (inner && inner.type === 'collection') return 'collection';
+            if (inner && inner.type === 'following-user') return 'user-new';
+            if (ctx.variant === 'request') return 'user-request';
+            return {
+                'my-illust-bookmarks-show': 'my-bookmarks',
+                'my-illust-bookmarks-hide': 'my-bookmarks',
+                'my-illusts': 'user-new',
+                'my-request-artworks': 'user-request',
+                'my-following-new': 'follow-latest'
+            }[String(ctx.action || '')] || null;
+        }
+
+        function pixivQueueTypeData(item, context) {
+            const data = {};
+            const illustType = item && item.illustType != null ? Number(item.illustType) : NaN;
+            if (Number.isInteger(illustType) && illustType >= 0 && illustType <= 2) {
+                data.illustType = illustType;
+            }
+            const sourceType = pixivQueueSourceType(context);
+            if (sourceType) data.sourceType = sourceType;
+            return Object.keys(data).length ? data : null;
+        }
+
+        function pixivMergeQueueTypeData(currentValue, incomingValue) {
+            const current = currentValue && typeof currentValue === 'object' ? currentValue : {};
+            const incoming = incomingValue && typeof incomingValue === 'object' ? incomingValue : {};
+            const merged = Object.assign({}, incoming, current);
+            Object.keys(incoming).forEach(key => {
+                if (merged[key] == null || merged[key] === '') merged[key] = incoming[key];
+            });
+            return {
+                typeData: Object.keys(merged).length ? merged : null,
+                keepExisting: false,
+                reprocessExisting: false
+            };
+        }
+
+        function pixivQueueTags(item) {
+            const data = item && item.typeData && typeof item.typeData === 'object'
+                ? item.typeData : {};
+            const illustType = Number(data.illustType);
+            const tags = [];
+            if ((item && item.ugoiraProgress) || illustType === 2) {
+                tags.push({id: 'media.ugoira', label: bt('queue.tag.ugoira', '动图')});
+            } else if (illustType === 1) {
+                tags.push({id: 'media.manga', label: bt('queue.tag.manga', '漫画')});
+            } else if (illustType === 0) {
+                tags.push({id: 'media.image', label: bt('queue.tag.image', '图片')});
+            } else {
+                tags.push({id: 'media.illust', label: bt('queue.tag.illust', '插画')});
+            }
+            if (data.sourceType === 'collection') {
+                tags.push({id: 'origin.collection', label: bt('queue.tag.collection', '珍藏集')});
+            } else if (data.sourceType === 'my-bookmarks') {
+                tags.push({id: 'origin.bookmark', label: bt('queue.tag.bookmark', '收藏')});
+            } else if (data.sourceType === 'user-request') {
+                tags.push({id: 'origin.request', label: bt('queue.tag.request', '约稿')});
+            }
+            if (item && item.isAi === true) {
+                tags.push({id: 'attribute.ai', label: bt('queue.tag.ai', 'AI')});
+            }
+            return tags;
+        }
+
+        function artworkQueueMeta(item, context) {
             return {
                 title: item.title || '',
                 kind: type,
+                typeData: pixivQueueTypeData(item, context),
                 authorId: item.userId ? Number(item.userId) : null,
                 authorName: item.userName || '',
                 isAi: Number(item.aiType ?? 0) >= 2,
@@ -169,14 +237,14 @@
         }
 
         function userQueueMeta(item, ctx) {
-            const meta = artworkQueueMeta(item);
+            const meta = artworkQueueMeta(item, ctx);
             meta.authorId = item.userId ? Number(item.userId) : Number(ctx.userId);
             meta.authorName = item.userName || ctx.username || ctx.userId;
             return meta;
         }
 
         function seriesQueueMeta(item, seriesOrder, ctx) {
-            const meta = artworkQueueMeta(item);
+            const meta = artworkQueueMeta(item, ctx);
             meta.authorId = item.userId || ctx.seriesAuthorId;
             meta.authorName = item.userName || ctx.seriesAuthorName;
             meta.seriesId = ctx.seriesId;
@@ -263,6 +331,8 @@
 
         const descriptor = {
             process: processIllustItem,
+            queueTags: pixivQueueTags,
+            mergeQueueTypeData: pixivMergeQueueTypeData,
             scheduledSse: true,
             scheduledQueueItem(item, ctx) {
                 const rawId = String(item.workId != null ? item.workId : (item.id == null ? '' : item.id));
@@ -270,7 +340,8 @@
                     id: rawId,
                     kind: type,
                     rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
-                    source: scheduledSourceStyle(ctx.sourceType)
+                    source: scheduledSourceStyle(ctx.sourceType),
+                    typeData: ctx.sourceType ? {sourceType: String(ctx.sourceType)} : null
                 };
             },
             import: {
@@ -339,6 +410,7 @@
                     buildQueueMetaFromId(_id, ctx) {
                         return {
                             kind: type,
+                            typeData: pixivQueueTypeData({}, ctx),
                             authorId: Number(ctx.userId),
                             authorName: ctx.username || ctx.userId
                         };
@@ -419,7 +491,9 @@
                     render: renderQuickIllustGrid,
                     innerCardHtml: pixivQuickInnerCard,
                     buildQueueMeta: artworkQueueMeta,
-                    buildQueueMetaFromId() { return {kind: type}; },
+                    buildQueueMetaFromId(_id, ctx) {
+                        return {kind: type, typeData: pixivQueueTypeData({}, ctx)};
+                    },
                     actions: {
                         'my-illust-bookmarks-show': {
                             viewType: 'works-list', kind: type, pageSize: QUICK_PAGE_SIZE_ILLUST,

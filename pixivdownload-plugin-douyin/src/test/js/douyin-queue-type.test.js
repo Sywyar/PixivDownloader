@@ -266,7 +266,8 @@ function ok(label, cond) {
 
     ok('descriptor contractVersion=1', descriptor.contractVersion === 1);
     ok('process(item) 存在', typeof descriptor.process === 'function');
-    ok('Douyin 不提前贡献计划任务队列映射', descriptor.scheduledQueueItem == null);
+    ok('Douyin 贡献计划任务队列映射以保留来源标签',
+        typeof descriptor.scheduledQueueItem === 'function');
     ok('slots 包含 cookie-tools', !!descriptor.slots['cookie-tools']);
     ok('slots 不包含 settings-card', !descriptor.slots['settings-card']);
     const userKinds = Array.from(descriptor.slots['kind-option-user']
@@ -497,6 +498,9 @@ function ok(label, cond) {
     ok('quick 二层珍藏集使用真实 collection id 建立来源关系',
         favoriteCollectionMeta.typeData.sourceId === 'collection-7'
         && favoriteCollectionMeta.typeData.sourceRelations[0].sourceId === 'collection-7');
+    ok('quick 二层收藏合集贡献插件自有来源标签',
+        descriptor.queueTags(favoriteCollectionMeta).some(tag =>
+            tag.id === 'origin.favorite-collection' && tag.label === '收藏合集'));
     const followingUserMeta = quickAcq.buildQueueMeta({id: 'work-2'}, {
         action: 'my-following',
         inner: {type: 'following-user', userId: 'sec-user', name: 'Creator'}
@@ -536,7 +540,11 @@ function ok(label, cond) {
         && livePhotoMeta.typeData.douyinId === '7350000000000000099'
         && livePhotoMeta.typeData.input === 'https://www.douyin.com/note/7350000000000000099'
         && livePhotoMeta.typeData.sourceType === 'douyin.user'
+        && livePhotoMeta.typeData.mediaKind === 'LIVE_PHOTO'
         && !JSON.stringify(livePhotoMeta.typeData).includes('signed.example'));
+    ok('实况照片贡献图片、视频和实况三个媒体标签',
+        descriptor.queueTags(livePhotoMeta).map(tag => tag.id).join(',')
+            === 'media.image,media.video,media.live-photo');
 
     const collectionAction = qt.quickActionsFor('douyin')['douyin-favorite-collections'];
     const collectionWorksRequest = collectionAction.buildCollectionWorksPageRequest('mix-1', {
@@ -623,6 +631,15 @@ function ok(label, cond) {
     ok('import.buildItem 写入 typeData.input', item.typeData && /douyin\.com\/video/.test(item.typeData.input));
     ok('import.buildItem 同步建立单项来源关系列表', item.typeData.sourceRelations.length === 1
         && item.typeData.sourceRelations[0].sourceType === 'douyin.single');
+    ok('视频 URL 导入时可在解析详情前贡献视频标签',
+        descriptor.queueTags(item).some(tag => tag.id === 'media.video'));
+    const noteItem = importHook.buildItem(
+        importHook.matchUrl('https://www.douyin.com/note/7351234567890123457'), 'Image post');
+    const numericItem = importHook.buildItem(importHook.matchUrl('7351234567890123458'), 'Unknown media');
+    ok('图文 URL 贡献图片与图文标签，纯数字 ID 不臆测媒体类型',
+        descriptor.queueTags(noteItem).map(tag => tag.id).join(',')
+            === 'media.image,media.image-note'
+        && descriptor.queueTags(numericItem).length === 0);
 
     const collectionMatch = importHook.matchUrl('https://www.douyin.com/collection/12345');
     const collectionItem = importHook.buildItem(collectionMatch, 'Collection title');
@@ -632,6 +649,22 @@ function ok(label, cond) {
     ok('import 用户主页使用明确的用户来源关系', userItem.typeData.sourceType === 'douyin.user');
     const musicItem = importHook.buildItem(importHook.matchUrl('https://www.douyin.com/music/12345'), 'Music');
     ok('import 音乐链接使用关联作品来源关系', musicItem.typeData.sourceType === 'douyin.music');
+
+    const scheduledItem = descriptor.scheduledQueueItem({
+        workId: 'scheduled-1', title: 'Scheduled work'
+    }, {sourceType: 'douyin.account.favorite-folder'});
+    ok('计划任务队列缺少媒体元数据时仍保留收藏夹来源标签且不臆测媒体类型',
+        !scheduledItem.typeData.mediaKind
+        && descriptor.queueTags(scheduledItem).map(tag => tag.id).join(',')
+            === 'origin.favorite-folder');
+    ok('目标用户喜欢与账号喜欢统一贡献“喜欢”标签',
+        descriptor.queueTags({kind: 'douyin', typeData: {
+            sourceType: 'douyin.user.liked-works', sourceId: 'user-1'
+        }}).some(tag => tag.id === 'origin.liked'));
+    ok('账号收藏作品贡献“收藏”标签',
+        descriptor.queueTags({kind: 'douyin', typeData: {
+            sourceType: 'douyin.account.favorite-works', sourceId: 'favorites'
+        }}).some(tag => tag.id === 'origin.favorite'));
 
     ok('Douyin descriptor 暴露中性的 typeData 合并 hook', typeof descriptor.mergeQueueTypeData === 'function');
     ok('Douyin descriptor 暴露中性的 canonical URL hook', typeof descriptor.canonicalUrl === 'function');

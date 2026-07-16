@@ -18,6 +18,16 @@ function propertyKeys(source) {
 const zhKeys = propertyKeys(ZH);
 const enKeys = propertyKeys(EN);
 const requiredKeys = [
+    'queue.tag.image',
+    'queue.tag.video',
+    'queue.tag.image-note',
+    'queue.tag.live-photo',
+    'queue.tag.collection',
+    'queue.tag.music',
+    'queue.tag.favorite',
+    'queue.tag.favorite-folder',
+    'queue.tag.favorite-collection',
+    'queue.tag.liked',
     'user.kind.works',
     'user.kind.liked',
     'user.visibility-hint',

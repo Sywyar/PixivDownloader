@@ -252,9 +252,13 @@ function douyinParseInput(text) {
     if (modalId && /^\d{5,}$/.test(modalId)) {
         return {kind: 'single', id: modalId, workId: modalId, url: `https://www.douyin.com/video/${modalId}`};
     }
-    let m = path.match(/^\/(?:video|note|gallery|slides)\/([^/?#]+)/)
-        || path.match(/^\/share\/(?:video|note|gallery|slides)\/([^/?#]+)/);
-    if (m) return {kind: 'single', id: m[1], workId: m[1], url: parsed.href};
+    let m = path.match(/^\/(?:share\/)?(video|note|gallery|slides)\/([^/?#]+)/);
+    if (m) {
+        return {
+            kind: 'single', id: m[2], workId: m[2], url: parsed.href,
+            mediaKindHint: m[1] === 'video' ? 'VIDEO' : 'IMAGE_NOTE'
+        };
+    }
     m = path.match(/^\/user\/([^/?#]+)/);
     if (m) return {kind: 'user', id: m[1], userId: m[1], url: parsed.href};
     m = path.match(/^\/(?:collection|mix)\/([^/?#]+)/);
@@ -289,9 +293,46 @@ function douyinCardId(prefix, idx) {
     return `${prefix}-douyin-card-${idx}`;
 }
 
+const DOUYIN_QUEUE_MEDIA_KINDS = new Set(['VIDEO', 'IMAGE_NOTE', 'LIVE_PHOTO', 'IMAGE']);
+const DOUYIN_QUEUE_SOURCE_TAGS = Object.freeze({
+    'douyin.collection': ['origin.collection', 'queue.tag.collection', '合集'],
+    'douyin.music': ['origin.music', 'queue.tag.music', '音乐'],
+    'douyin.account.favorite-works': ['origin.favorite', 'queue.tag.favorite', '收藏'],
+    'douyin.account.favorite-folder': ['origin.favorite-folder', 'queue.tag.favorite-folder', '收藏夹'],
+    'douyin.account.favorite-collection': [
+        'origin.favorite-collection', 'queue.tag.favorite-collection', '收藏合集'
+    ],
+    'douyin.account.liked-works': ['origin.liked', 'queue.tag.liked', '喜欢'],
+    'douyin.user.liked-works': ['origin.liked', 'queue.tag.liked', '喜欢']
+});
+
+function douyinQueueMediaKind(item) {
+    const data = douyinQueueTypeData(item);
+    const candidates = [
+        item && item.mediaKind,
+        data.mediaKind,
+        item && item.kind !== 'douyin' ? item.kind : null
+    ];
+    for (const candidate of candidates) {
+        const normalized = candidate == null ? '' : String(candidate).trim().toUpperCase();
+        if (DOUYIN_QUEUE_MEDIA_KINDS.has(normalized)) return normalized;
+    }
+    return null;
+}
+
+function douyinQueueMediaCount(item) {
+    const data = douyinQueueTypeData(item);
+    const rawValue = item && item.mediaCount != null ? item.mediaCount : data.mediaCount;
+    if (rawValue == null || String(rawValue).trim() === '') return null;
+    const value = Number(rawValue);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
 function douyinQueueMeta(item) {
     const douyinId = String(item.id || item.workId || item.douyinId || '');
     const url = item.url || item.pageUrl || '';
+    const mediaKind = douyinQueueMediaKind(item);
+    const mediaCount = douyinQueueMediaCount(item);
     return {
         title: item.title || douyinText('queue.fallback', 'Douyin {id}', {id: item.id}),
         douyinId,
@@ -309,7 +350,9 @@ function douyinQueueMeta(item) {
             sourceId: item.sourceId || null,
             sourceTitle: item.sourceTitle || '',
             sourceUrl: item.sourceUrl || null,
-            sourceOrder: Number.isInteger(item.sourceOrder) ? item.sourceOrder : null
+            sourceOrder: Number.isInteger(item.sourceOrder) ? item.sourceOrder : null,
+            mediaKind,
+            mediaCount
         })
     };
 }
@@ -373,6 +416,13 @@ function douyinAppendSourceRelation(relations, indexes, value) {
 function douyinNormalizeQueueTypeData(value) {
     const data = value && typeof value === 'object' && !Array.isArray(value)
         ? Object.assign({}, value) : {};
+    const mediaKind = data.mediaKind == null ? '' : String(data.mediaKind).trim().toUpperCase();
+    if (DOUYIN_QUEUE_MEDIA_KINDS.has(mediaKind)) data.mediaKind = mediaKind;
+    else delete data.mediaKind;
+    const mediaCount = data.mediaCount == null || String(data.mediaCount).trim() === ''
+        ? NaN : Number(data.mediaCount);
+    if (Number.isSafeInteger(mediaCount) && mediaCount >= 0) data.mediaCount = mediaCount;
+    else delete data.mediaCount;
     const relations = [];
     const indexes = new Map();
     if (Array.isArray(data.sourceRelations)) {
@@ -402,6 +452,12 @@ function douyinMergeQueueTypeData(currentValue, incomingValue) {
     Object.keys(incomingData).forEach(key => {
         if (merged[key] == null || merged[key] === '') merged[key] = incomingData[key];
     });
+    if ((!currentData.mediaKind || currentData.mediaKind === 'UNSUPPORTED') && incomingData.mediaKind) {
+        merged.mediaKind = incomingData.mediaKind;
+    }
+    if (currentData.mediaCount == null && incomingData.mediaCount != null) {
+        merged.mediaCount = incomingData.mediaCount;
+    }
     const relations = [];
     const indexes = new Map();
     currentData.sourceRelations.forEach(relation => douyinAppendSourceRelation(relations, indexes, relation));
@@ -440,6 +496,40 @@ function douyinCanonicalQueueItemUrl(item) {
     if (douyinId) return `https://www.douyin.com/video/${encodeURIComponent(String(douyinId))}`;
     const fallback = douyinInputFromQueueItem(item);
     return /^https?:\/\//i.test(String(fallback || '').trim()) ? String(fallback).trim() : '';
+}
+
+function douyinQueueTags(item) {
+    const data = douyinNormalizeQueueTypeData(douyinQueueTypeData(item));
+    const mediaKind = douyinQueueMediaKind(item);
+    const tags = [];
+    if (mediaKind === 'VIDEO') {
+        tags.push({id: 'media.video', label: douyinText('queue.tag.video', '视频')});
+    } else if (mediaKind === 'IMAGE_NOTE') {
+        tags.push({id: 'media.image', label: douyinText('queue.tag.image', '图片')});
+        tags.push({id: 'media.image-note', label: douyinText('queue.tag.image-note', '图文')});
+    } else if (mediaKind === 'LIVE_PHOTO') {
+        tags.push({id: 'media.image', label: douyinText('queue.tag.image', '图片')});
+        tags.push({id: 'media.video', label: douyinText('queue.tag.video', '视频')});
+        tags.push({id: 'media.live-photo', label: douyinText('queue.tag.live-photo', '实况')});
+    } else if (mediaKind === 'IMAGE') {
+        tags.push({id: 'media.image', label: douyinText('queue.tag.image', '图片')});
+    }
+
+    const sourceTypes = [];
+    data.sourceRelations.forEach(relation => sourceTypes.push(relation.sourceType));
+    if (data.sourceType) sourceTypes.push(data.sourceType);
+    const seen = new Set();
+    sourceTypes.forEach(sourceType => {
+        if (!Object.prototype.hasOwnProperty.call(DOUYIN_QUEUE_SOURCE_TAGS, sourceType)) return;
+        const contribution = DOUYIN_QUEUE_SOURCE_TAGS[sourceType];
+        if (!contribution || seen.has(contribution[0])) return;
+        seen.add(contribution[0]);
+        tags.push({
+            id: contribution[0],
+            label: douyinText(contribution[1], contribution[2])
+        });
+    });
+    return tags;
 }
 
 function douyinLinkedAbortSignal(...candidates) {
@@ -1011,9 +1101,31 @@ function douyinScheduleSource(sourceType, source, label) {
 const DOUYIN_DESCRIPTOR = {
     slots: DOUYIN_SLOTS,
     process: processDouyinItem,
+    queueTags: douyinQueueTags,
     mergeQueueTypeData: douyinMergeQueueTypeData,
     canonicalUrl: douyinCanonicalQueueItemUrl,
     scheduledSse: false,
+    scheduledQueueItem(item, ctx) {
+        const rawId = String(item.workId != null ? item.workId : (item.id == null ? '' : item.id));
+        const sourceType = ctx && ctx.sourceType ? String(ctx.sourceType) : null;
+        return {
+            id: rawId,
+            kind: 'douyin',
+            rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
+            typeData: douyinNormalizeQueueTypeData({
+                input: item.url || item.pageUrl || rawId,
+                url: item.url || item.pageUrl || '',
+                douyinId: rawId,
+                sourceType,
+                sourceId: item.sourceId || null,
+                sourceTitle: item.sourceTitle || '',
+                sourceUrl: item.sourceUrl || null,
+                sourceOrder: Number.isInteger(item.sourceOrder) ? item.sourceOrder : null,
+                mediaKind: douyinQueueMediaKind(item),
+                mediaCount: douyinQueueMediaCount(item)
+            })
+        };
+    },
     cookie: {
         parseInput: douyinParseInput,
         validate: douyinValidateCookie
@@ -1053,7 +1165,9 @@ const DOUYIN_DESCRIPTOR = {
                     sourceId: displayId,
                     sourceTitle: title || '',
                     sourceUrl: parsed.url,
-                    sourceOrder: null
+                    sourceOrder: null,
+                    mediaKind: parsed.mediaKindHint || null,
+                    mediaCount: null
                 })
             };
         },

@@ -42,7 +42,7 @@ function hostFormatter(acquisition) {
     };
 }
 
-function pixivSearchAcquisition() {
+function pixivDescriptor() {
     let descriptor = null;
     const controller = new AbortController();
     const context = {
@@ -101,8 +101,8 @@ function pixivSearchAcquisition() {
     vm.createContext(sandbox);
     vm.runInContext(PIXIV_SOURCE, sandbox);
     assert.ok(descriptor && descriptor.acquisition && descriptor.acquisition.search,
-        'Pixiv search acquisition should register');
-    return descriptor.acquisition.search;
+        'Pixiv descriptor should register');
+    return descriptor;
 }
 
 test('宿主使用来源统计格式化钩子并在异常时回退中性文案', () => {
@@ -123,8 +123,29 @@ test('宿主使用来源统计格式化钩子并在异常时回退中性文案',
 });
 
 test('Pixiv 行为模块贡献来源自有的搜索统计标签', () => {
-    const pixiv = pixivSearchAcquisition();
+    const pixiv = pixivDescriptor().acquisition.search;
     assert.strictEqual(pixiv.formatStats('total', {count: 12}), 'Pixiv 总数 12');
+});
+
+test('Pixiv 行为模块按媒体与取得来源贡献队列标签', () => {
+    const descriptor = pixivDescriptor();
+    const ugoira = descriptor.acquisition.search.buildQueueMeta({
+        id: '1', title: 'Animated', illustType: 2, aiType: 2
+    });
+    const ugoiraTags = descriptor.queueTags(Object.assign({id: '1'}, ugoira));
+    assert.deepStrictEqual(Array.from(ugoiraTags, tag => tag.id), ['media.ugoira', 'attribute.ai']);
+
+    const collection = descriptor.acquisition.quick.buildQueueMeta({
+        id: '2', title: 'Image', illustType: 0
+    }, {inner: {type: 'collection', id: 'showcase-2'}});
+    const collectionTags = descriptor.queueTags(Object.assign({id: '2'}, collection));
+    assert.deepStrictEqual(Array.from(collectionTags, tag => tag.id),
+        ['media.image', 'origin.collection']);
+
+    const merged = descriptor.mergeQueueTypeData(
+        {sourceType: 'collection'}, {illustType: 1});
+    assert.strictEqual(merged.typeData.sourceType, 'collection');
+    assert.strictEqual(merged.typeData.illustType, 1);
 });
 
 test('搜索批量抓取与筛选状态统一走来源统计格式化入口', () => {

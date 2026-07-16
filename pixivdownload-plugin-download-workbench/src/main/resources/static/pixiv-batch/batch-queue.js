@@ -120,16 +120,70 @@
         }[status] || status;
     }
 
+    function queueAcquisitionMode(source) {
+        const normalizedSource = String(normalizeImportMode(source) || '').trim();
+        if (normalizedSource === QUICK_FETCH_MODE
+            || normalizedSource.startsWith(QUICK_FETCH_MODE + '-')) return 'quick';
+        if (normalizedSource === SINGLE_IMPORT_MODE
+            || normalizedSource.startsWith(SINGLE_IMPORT_MODE + '-')) return 'single-import';
+        if (normalizedSource === 'user' || normalizedSource.startsWith('user-')) return 'user';
+        if (normalizedSource === 'search' || normalizedSource.startsWith('search-')) return 'search';
+        if (normalizedSource === 'series' || normalizedSource.startsWith('series-')) return 'series';
+        if (normalizedSource === 'schedule' || normalizedSource.startsWith('schedule-')) return 'schedule';
+        return 'single-import';
+    }
+
     function queueSourceText(source) {
-        const normalizedSource = normalizeImportMode(source);
         return {
             user: bt('queue.source.user', 'User'),
             search: bt('queue.source.search', 'Search'),
             series: bt('queue.source.series', 'Series'),
-            [QUICK_FETCH_MODE]: bt('queue.source.quick-fetch', '快捷'),
-            [SINGLE_IMPORT_MODE]: bt('queue.source.import', '导入'),
-            [SINGLE_IMPORT_NOVEL_SOURCE]: bt('queue.source.import', '导入')
-        }[normalizedSource] || bt('queue.source.import', '导入');
+            quick: bt('queue.source.quick-fetch', '快捷'),
+            'single-import': bt('queue.source.import', '导入'),
+            schedule: bt('queue.source.schedule', '计划')
+        }[queueAcquisitionMode(source)] || bt('queue.source.import', '导入');
+    }
+
+    function normalizeQueueDataSource(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const id = value.id == null ? '' : String(value.id).trim();
+        const displayNamespace = value.displayNamespace == null
+            ? '' : String(value.displayNamespace).trim();
+        const displayI18nKey = value.displayI18nKey == null
+            ? '' : String(value.displayI18nKey).trim();
+        if (!id || id.length > 64 || displayNamespace.length > 128 || displayI18nKey.length > 160) {
+            return null;
+        }
+        return {id, displayNamespace, displayI18nKey};
+    }
+
+    function activeQueueDataSource(kind, source) {
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (!queueTypes || typeof queueTypes.dataSourceForType !== 'function') return null;
+        try {
+            return normalizeQueueDataSource(
+                queueTypes.dataSourceForType(kind, queueAcquisitionMode(source)));
+        } catch (e) {
+            console.warn('[queue] 队列数据来源解析失败：', kind, e);
+            return null;
+        }
+    }
+
+    function queueDataSource(item) {
+        const live = activeQueueDataSource(item && item.kind, item && item.source);
+        const stored = normalizeQueueDataSource(item && item.dataSource);
+        if (live || stored) return live || stored;
+        const fallback = item && item.kind != null ? String(item.kind).trim() : '';
+        return fallback ? {id: fallback, displayNamespace: '', displayI18nKey: ''} : null;
+    }
+
+    function queueDataSourceText(source) {
+        if (!source) return bt('queue.unknown', '未知');
+        if (!source.displayI18nKey) return source.id;
+        const key = source.displayNamespace
+            ? source.displayNamespace + ':' + source.displayI18nKey
+            : source.displayI18nKey;
+        return bt(key, source.id);
     }
 
     // 渲染时派生队列项标题：模型里 title 只存原始字符串（可为空），
@@ -379,6 +433,9 @@
                 null,
                 'restore'
             ).typeData;
+            normalized.dataSource = activeQueueDataSource(
+                normalized.kind || 'illust', normalized.source)
+                || normalizeQueueDataSource(normalized.dataSource);
             normalized.canonicalUrl = queueItemCanonicalUrl(normalized);
             seen.set(id, normalized);
             uniqueItems.push(normalized);
@@ -473,6 +530,15 @@
             reason
         );
         if (result.changed) existingItem.typeData = result.typeData;
+        const activeDataSource = activeQueueDataSource(
+            existingItem.kind || incoming.kind || 'illust',
+            existingItem.source || incoming.source
+        );
+        if (activeDataSource) {
+            existingItem.dataSource = activeDataSource;
+        } else if (!normalizeQueueDataSource(existingItem.dataSource)) {
+            existingItem.dataSource = normalizeQueueDataSource(incoming.dataSource);
+        }
         if (!normalizeQueueCanonicalUrl(existingItem.canonicalUrl)) {
             const incomingCanonical = queueItemStoredCanonicalUrl(incoming);
             existingItem.canonicalUrl = incomingCanonical || queueItemCanonicalUrl(existingItem);
@@ -508,16 +574,19 @@
             const typeData = reconcileQueueTypeData(
                 m.kind || 'illust', null, m.typeData || m.pluginData, 'add'
             ).typeData;
+            const normalizedSource = normalizeImportMode(source || SINGLE_IMPORT_MODE);
             const queueItem = {
                 id,
                 kind: m.kind || 'illust',
                 typeData,
+                dataSource: activeQueueDataSource(m.kind || 'illust', normalizedSource)
+                    || normalizeQueueDataSource(m.dataSource),
                 novelId: m.novelId || null,
                 mergeAfterSeriesId: m.mergeAfterSeriesId || null,
                 // title 存原始字符串（可为空），fallback 文案由渲染层 queueItemDisplayTitle(q) 派生，避免跨语言切换显示旧译。
                 title: m.title || '',
                 status: state.isRunning ? 'pending' : 'idle',
-                source: normalizeImportMode(source || SINGLE_IMPORT_MODE),
+                source: normalizedSource,
                 username: username || '',
                 authorId,
                 authorName,
@@ -798,7 +867,7 @@
     }
 
     // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，
-    // 保证两处队列展示完全一致（进度条、来源/分级/AI 标记、小说进度等）。
+    // 保证两处队列展示完全一致（进度条、数据来源/模式/分级/插件标签、小说进度等）。
     // opts.removable=false 时不渲染移除按钮（计划任务为服务端队列，前端不可移除）。
     // opts.queueId 给行根节点打一个稳定的 data-queue-id，供「只替换单行 outerHTML」的局部刷新定位该行
     //（计划任务详情高频 SSE 刷新用，避免整块 innerHTML 重建）；不传则不输出该属性，普通队列调用不受影响。
@@ -818,26 +887,26 @@
             + formatNovelTranslateHtml(q);
         const desc = q.lastMessage || queueStatusText(q.status);
         const descHtml = renderQueueMessageHtml(q, desc);
-        const sourceTone = q.source === 'user'
-            ? {label: queueSourceText('user'), bg: '#007bff'}
-            : q.source === 'search' || q.source === 'search-novel'
-                ? {label: queueSourceText('search'), bg: '#28a745'}
-                : q.source === 'series' || q.source === 'series-novel'
-                    ? {label: queueSourceText('series'), bg: '#6366f1'}
-                    : q.source === QUICK_FETCH_MODE
-                        ? {label: queueSourceText(QUICK_FETCH_MODE), bg: '#f59e0b'}
-                        : {label: queueSourceText(SINGLE_IMPORT_MODE), bg: '#6610f2'};
-        const srcLabel = `<span style="background:${sourceTone.bg};color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">${esc(sourceTone.label)}</span>`;
-        const R18Label = q.xRestrict == null
-            ? `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">${esc(bt('queue.unknown', '未知'))}</span>`
-            : q.xRestrict === 2
-                ? `<span style="background:#b91c1c;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R-18G</span>`
-                : q.xRestrict === 1
-                    ? `<span style="background:#dc3545;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R-18</span>`
-                    : `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`;
-        const AILabel = q.isAi === true
-            ? `<span style="background:#d946ef;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">AI</span>`
-            : '';
+        const sourceDescriptor = queueDataSource(q);
+        const sourceLabel = `<span class="queue-tag queue-tag--source" data-source-id="${esc(sourceDescriptor ? sourceDescriptor.id : 'unknown')}">${esc(queueDataSourceText(sourceDescriptor))}</span>`;
+        const acquisitionMode = queueAcquisitionMode(q.source);
+        const modeClass = acquisitionMode === 'single-import' ? 'import' : acquisitionMode;
+        const modeLabel = `<span class="queue-tag queue-tag--mode queue-tag--mode-${modeClass}">${esc(queueSourceText(q.source))}</span>`;
+        const xRestrict = q.xRestrict == null ? null : Number(q.xRestrict);
+        const rating = xRestrict === 2
+            ? {id: 'r18g', label: 'R-18G'}
+            : xRestrict === 1
+                ? {id: 'r18', label: 'R-18'}
+                : xRestrict === null || !Number.isFinite(xRestrict)
+                    ? {id: 'unknown', label: bt('queue.unknown', '未知')}
+                    : {id: 'sfw', label: 'SFW'};
+        const ratingLabel = `<span class="queue-tag queue-tag--rating queue-tag--rating-${rating.id}">${esc(rating.label)}</span>`;
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const contributedTags = queueTypes && typeof queueTypes.queueTags === 'function'
+            ? queueTypes.queueTags(q) : [];
+        const pluginLabels = (Array.isArray(contributedTags) ? contributedTags : [])
+            .map(tag => `<span class="queue-tag queue-tag--plugin" data-queue-tag-id="${esc(tag.id)}">${esc(tag.label)}</span>`)
+            .join('');
         const canRemove = removable && q.status !== 'downloading';
         const removeBtn = canRemove
             ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="${esc(bt('queue.remove', '移除'))}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
@@ -847,14 +916,12 @@
             ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(q.novelId || String(q.id).replace(/^n/, ''))}`
             : `https://www.pixiv.net/artworks/${q.id}`;
         const linkBtn = `<a href="${linkHref}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
-        const novelTag = isNovel
-            ? `<span style="background:#0d9488;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">📕 ${esc(bt('queue.novel', '小说'))}</span>`
-            : '';
         return `<div class="queue-item"${queueIdAttr} style="border-left-color:${statusColor(q.status)}">
-      <div class="q-title" style="display:flex;align-items:center;gap:2px;">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(queueItemDisplayTitle(q))}${novelTag}${srcLabel}${R18Label}${AILabel}</span>
+      <div class="q-title">
+        <span class="q-title-main">${esc(queueItemDisplayTitle(q))}</span>
         ${linkBtn}${removeBtn}
       </div>
+      <div class="q-tags">${sourceLabel}${modeLabel}${ratingLabel}${pluginLabels}</div>
       <div class="q-meta">ID: ${isNovel ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)' : q.id} | ${descHtml}</div>
       ${prog}
       ${detailProg}

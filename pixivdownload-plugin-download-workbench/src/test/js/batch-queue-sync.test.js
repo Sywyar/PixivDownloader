@@ -38,6 +38,27 @@ function load() {
         updateAdminPackButton: () => {},
         SINGLE_IMPORT_MODE: 'single-import',
         SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel',
+        QUICK_FETCH_MODE: 'quick-fetch',
+        bt(key, fallback, args) {
+            const messages = {
+                'demo:source.pixiv': 'Pixiv',
+                'demo:source.douyin': '抖音',
+                'queue.source.search': 'Search',
+                'queue.source.series': 'Series',
+                'queue.source.quick-fetch': 'Quick',
+                'queue.source.import': 'Import',
+                'queue.source.schedule': 'Schedule',
+                'queue.unknown': 'Unknown'
+            };
+            let value = messages[key] || fallback || key;
+            Object.entries(args || {}).forEach(([name, replacement]) => {
+                value = value.replace('{' + name + '}', String(replacement));
+            });
+            return value;
+        },
+        esc: value => String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
         document: {getElementById: () => ({textContent: '', innerHTML: ''})},
         console: {warn() {}, log() {}, error() {}}
     };
@@ -112,15 +133,31 @@ function relationMergeBehavior(reasons) {
 // ===== 5) addItemsToQueue 入队后同步全部四个预览，并保留类型私有队列数据 =====
 {
     const {sandbox, queue, calls} = load();
+    sandbox.window.PixivBatch.queueTypes = {
+        get() { return null; },
+        dataSourceForType() {
+            return {
+                id: 'pixiv', displayNamespace: 'batch', displayI18nKey: 'data-source.pixiv'
+            };
+        }
+    };
     resetCalls(calls);
     const added = queue.addItemsToQueue(['333', '444'], [
-        {typeData: {input: 'https://example.test/work/333', token: 'abc'}},
+        {
+            typeData: {input: 'https://example.test/work/333', token: 'abc'},
+            dataSource: {id: 'forged', displayNamespace: 'forged', displayI18nKey: 'source.forged'}
+        },
         {}
     ], 'search', '', null, '');
     ok('5: 新增 2 项', added === 2);
     ok('5: 队列含 2 项', sandbox.state.queue.length === 2);
     ok('5: 保留类型私有队列数据', sandbox.state.queue[0].typeData.input === 'https://example.test/work/333'
         && sandbox.state.queue[0].typeData.token === 'abc');
+    ok('5: 仅持久化数据来源稳定 token 与展示键，不写入本地化标签',
+        sandbox.state.queue[0].dataSource.id === 'pixiv'
+        && sandbox.state.queue[0].dataSource.displayNamespace === 'batch'
+        && sandbox.state.queue[0].dataSource.displayI18nKey === 'data-source.pixiv'
+        && !Object.prototype.hasOwnProperty.call(sandbox.state.queue[0].dataSource, 'label'));
     ok('5: 四个 sync 各被回调一次（含 quick）', allFour(calls));
 }
 
@@ -129,11 +166,19 @@ function relationMergeBehavior(reasons) {
     const {sandbox, queue} = load();
     const reasons = [];
     const behavior = relationMergeBehavior(reasons);
-    sandbox.window.PixivBatch.queueTypes = {get: type => type === 'demo' ? behavior : null};
+    sandbox.window.PixivBatch.queueTypes = {
+        get: type => type === 'demo' ? behavior : null,
+        dataSourceForType() {
+            return {id: 'owned', displayNamespace: 'demo', displayI18nKey: 'source.owned'};
+        }
+    };
     const firstAdded = queue.addItemsToQueue(['demo-1'], [{kind: 'demo', typeData: {values: ['source-a']}}]);
+    sandbox.state.queue[0].dataSource = {id: 'forged'};
     const duplicateAdded = queue.addItemsToQueue(['demo-1'], [{kind: 'demo', typeData: {values: ['source-b']}}]);
     ok('6: 新项计入 added、重复项只合并不重复计数', firstAdded === 1 && duplicateAdded === 0);
     ok('6: add 入口保序合并类型私有数据', sandbox.state.queue[0].typeData.values.join(',') === 'source-a,source-b');
+    ok('6: 重复项修补始终以活动 acquisition 的 owner 绑定来源覆盖自报值',
+        sandbox.state.queue[0].dataSource.id === 'owned');
     const sameSource = queue.reconcileQueueItemTypeData(
         sandbox.state.queue[0], {kind: 'demo', typeData: {values: ['source-b']}}, 'toggle');
     ok('6: 同来源 toggle 不要求保留现有项', sameSource.keepExisting === false);
@@ -226,4 +271,51 @@ function relationMergeBehavior(reasons) {
         lines[3] === ' | Unavailable' && !lines[3].includes('pixiv.net'));
 }
 
-console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (10 scenarios) ✓`);
+// ===== 11) 队列标签固定按数据来源、模式、年龄、插件贡献顺序渲染并转义 =====
+{
+    const {sandbox, queue} = load();
+    sandbox.window.PixivBatch.queueTypes = {
+        get() { return null; },
+        dataSourceForType(kind) {
+            return kind === 'douyin'
+                ? {id: 'douyin', displayNamespace: 'demo', displayI18nKey: 'source.douyin'}
+                : {id: 'pixiv', displayNamespace: 'demo', displayI18nKey: 'source.pixiv'};
+        },
+        queueTags() {
+            return [
+                {id: 'media.ugoira', label: '<动图>'},
+                {id: 'origin.collection', label: '珍藏集'}
+            ];
+        }
+    };
+    const html = queue.buildQueueItemHtml({
+        id: '777', kind: 'illust', title: '<Title>', status: 'idle',
+        source: 'search-douyin', xRestrict: 1
+    });
+    const sourceIndex = html.indexOf('data-source-id="pixiv">Pixiv');
+    const modeIndex = html.indexOf('>Search</span>');
+    const ratingIndex = html.indexOf('>R-18</span>');
+    const pluginIndex = html.indexOf('data-queue-tag-id="media.ugoira"');
+    ok('11: 标签顺序为数据来源、取得模式、年龄分级、插件标签',
+        sourceIndex >= 0 && sourceIndex < modeIndex && modeIndex < ratingIndex
+        && ratingIndex < pluginIndex);
+    ok('11: 标题与插件标签仅按文本输出并完成 HTML 转义',
+        html.includes('&lt;Title&gt;') && html.includes('&lt;动图&gt;')
+        && !html.includes('<Title>') && !html.includes('><动图><'));
+
+    const douyinSchedule = queue.buildQueueItemHtml({
+        id: 'd1', kind: 'douyin', title: 'Scheduled', status: 'idle',
+        source: 'schedule-douyin', xRestrict: null
+    });
+    const douyinSeries = queue.buildQueueItemHtml({
+        id: 'd2', kind: 'douyin', title: 'Series', status: 'idle',
+        source: 'series-douyin', xRestrict: 0
+    });
+    ok('11: 带类型后缀的计划与系列来源不会再误标为导入',
+        douyinSchedule.includes('data-source-id="douyin">抖音')
+        && douyinSchedule.includes('>Schedule</span>')
+        && !douyinSchedule.includes('>Import</span>')
+        && douyinSeries.includes('>Series</span>'));
+}
+
+console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (11 scenarios) ✓`);

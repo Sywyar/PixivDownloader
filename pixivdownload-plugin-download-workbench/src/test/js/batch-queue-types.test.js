@@ -368,6 +368,14 @@ function quickAndImportDataSourceInitializer(sourceLiteral) {
         'single-import', sourceLiteral, quickDataSourceInitializer(sourceLiteral));
 }
 
+function queueTagsInitializer(hookLiteral) {
+    return BASIC_INITIALIZER.replace(
+        'scheduledSse: false,',
+        `scheduledSse: false,
+            queueTags: ${hookLiteral},`
+    );
+}
+
 function seriesBrowserInitializer(browserLiteral) {
     return BASIC_INITIALIZER.replace(
         'series: {\n                    apiPath:',
@@ -693,6 +701,8 @@ const LATE_UI_INITIALIZER = `(function (context) {
             && fallbackSource.displayNamespace === 'demo-manifest'
             && fallbackSource.displayI18nKey === 'type.demo'
             && fallbackSource.order === 27);
+        ok('计划队列优先采用类型显式贡献的数据来源而非其它模式的旧式类型回退',
+            fallback.qt.dataSourceForType('demo', 'schedule').id === 'fallback-source');
 
         const blank = harness([manifest(1, [typeDescriptor()])], {
             '/modules/demo.js': {initializer: quickDataSourceInitializer(`{id: '   '}`)}
@@ -789,6 +799,78 @@ const LATE_UI_INITIALIZER = `(function (context) {
         ok('single-import 也从活动 import contributions 聚合只读支持来源',
             singleImport.map(source => source.id).join(',') === 'source-b,source-a,legacy'
             && singleImport.find(source => source.id === 'source-a').types.length === 2);
+        const typeASource = h.qt.dataSourceForType('type-a', 'quick');
+        const scheduledTypeCSource = h.qt.dataSourceForType('type-c', 'schedule');
+        ok('dataSourceForType 优先解析指定取得模式并为计划模式确定性回退活动来源',
+            typeASource.id === 'source-a' && typeASource.type === 'type-a'
+            && scheduledTypeCSource.id === 'source-b' && scheduledTypeCSource.type === 'type-c'
+            && Object.isFrozen(typeASource) && Object.isFrozen(scheduledTypeCSource));
+        ok('dataSourceForType 对旧类型使用 manifest 展示元数据，缺席类型返回 null',
+            h.qt.dataSourceForType('legacy', 'quick').id === 'legacy'
+            && h.qt.dataSourceForType('missing', 'quick') === null);
+    }
+
+    {
+        const h = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: queueTagsInitializer(`function (item) {
+                testState.queueTagSnapshotFrozen = Object.isFrozen(item)
+                    && Object.isFrozen(item.typeData);
+                testState.queueTagSnapshotHasMessage = Object.prototype.hasOwnProperty.call(
+                    item, 'lastMessage');
+                try { item.typeData.origin = 'forged'; } catch (e) {}
+                return [
+                    {id: ' Media.Image ', label: ' Image '},
+                    {id: 'media.image', label: 'duplicate'},
+                    {id: 'bad id', label: 'invalid'},
+                    {id: 'origin.collection', label: 'Collection'}
+                ];
+            }`)}
+        });
+        await h.qt.bootstrap();
+        const sourceItem = {
+            id: '7', kind: 'demo', typeData: {origin: 'collection'},
+            lastMessage: 'large volatile progress message'
+        };
+        const tags = h.qt.queueTags(sourceItem);
+        ok('queueTags 使用冻结快照并规范化稳定 id、标签文本及重复项',
+            h.sandbox.testState.queueTagSnapshotFrozen === true
+            && h.sandbox.testState.queueTagSnapshotHasMessage === false
+            && tags.map(tag => tag.id).join(',') === 'media.image,origin.collection'
+            && tags[0].label === 'Image' && sourceItem.typeData.origin === 'collection');
+        ok('queueTags 返回深冻结的纯文本快照',
+            Object.isFrozen(tags) && tags.every(Object.isFrozen));
+
+        const failing = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: queueTagsInitializer(
+                `function () { throw new Error('tag failure'); }`)}
+        });
+        await failing.qt.bootstrap();
+        const fallbackTags = failing.qt.queueTags({kind: 'demo'});
+        ok('queueTags 插件异常时隔离失败并返回冻结空数组',
+            fallbackTags.length === 0 && Object.isFrozen(fallbackTags));
+
+        const asyncFailing = harness([manifest(1, [typeDescriptor()])], {
+            '/modules/demo.js': {initializer: queueTagsInitializer(
+                `function () { return Promise.reject(new Error('async tag failure')); }`)}
+        });
+        await asyncFailing.qt.bootstrap();
+        const asyncFallbackTags = asyncFailing.qt.queueTags({kind: 'demo'});
+        await new Promise(resolve => setTimeout(resolve, 0));
+        ok('queueTags 拒绝异步结果并吸收 rejected Promise',
+            asyncFallbackTags.length === 0 && Object.isFrozen(asyncFallbackTags));
+
+        const lifecycle = harness([
+            manifest(1, [typeDescriptor()]),
+            manifest(2, [])
+        ], {
+            '/modules/demo.js': {initializer: queueTagsInitializer(
+                `function () { return [{id: 'media.demo', label: 'Demo'}]; }`)}
+        });
+        await lifecycle.qt.bootstrap();
+        const activeTags = lifecycle.qt.queueTags({kind: 'demo'});
+        await lifecycle.qt.refresh();
+        ok('queueTags 在 publication 撤回后立即缺席',
+            activeTags.length === 1 && lifecycle.qt.queueTags({kind: 'demo'}).length === 0);
     }
 
     {

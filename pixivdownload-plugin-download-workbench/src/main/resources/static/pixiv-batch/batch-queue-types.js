@@ -8,6 +8,10 @@ window.PixivBatch.queueTypes = (function () {
     const INITIALIZER_TIMEOUT_MS = 5000;
     const SCRIPT_LOAD_TIMEOUT_MS = 5000;
     const KNOWN_MODES = new Set(['single-import', 'user', 'search', 'series', 'quick']);
+    const QUEUE_TAG_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+    const MAX_QUEUE_TAGS = 8;
+    const MAX_QUEUE_TAG_LABEL_LENGTH = 48;
+    const EMPTY_QUEUE_TAGS = Object.freeze([]);
     const SLOT_MODE = Object.freeze({
         'kind-option-user': 'user',
         'kind-option-search': 'search',
@@ -52,6 +56,63 @@ window.PixivBatch.queueTypes = (function () {
         if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
         const proto = Object.getPrototypeOf(value);
         return proto === Object.prototype || proto === null;
+    }
+
+    function freezeJsonValue(value) {
+        if (!value || typeof value !== 'object') return value;
+        if (Array.isArray(value)) {
+            value.forEach(freezeJsonValue);
+            return Object.freeze(value);
+        }
+        Object.keys(value).forEach(key => freezeJsonValue(value[key]));
+        return Object.freeze(value);
+    }
+
+    // 队列标签钩子只读取一个与持久化模型断开的中性快照，不能借渲染修改宿主队列；
+    // 不复制消息、下载明细等高频大字段，避免大队列每次进度刷新都克隆完整行模型。
+    function queueItemSnapshot(value) {
+        const raw = value && typeof value === 'object' ? value : {};
+        try {
+            const json = JSON.stringify({
+                id: raw.id,
+                kind: raw.kind,
+                source: raw.source,
+                typeData: raw.typeData || raw.pluginData || null,
+                xRestrict: raw.xRestrict,
+                isAi: raw.isAi === true,
+                ugoiraProgress: raw.ugoiraProgress || null
+            });
+            if (json && json.length <= 131072) {
+                return freezeJsonValue(JSON.parse(json));
+            }
+        } catch (e) {
+            // 非 JSON 值或循环引用降级为只含中性身份的快照。
+        }
+        return Object.freeze({
+            id: text(raw.id),
+            kind: text(raw.kind),
+            source: text(raw.source),
+            typeData: null
+        });
+    }
+
+    function normalizedQueueTags(value) {
+        if (!Array.isArray(value)) return EMPTY_QUEUE_TAGS;
+        const seen = new Set();
+        const tags = [];
+        value.some(candidate => {
+            if (!isPlainObject(candidate)) return false;
+            const id = text(candidate.id).toLowerCase();
+            const label = text(candidate.label);
+            if (!QUEUE_TAG_ID_PATTERN.test(id) || !label
+                || label.length > MAX_QUEUE_TAG_LABEL_LENGTH || seen.has(id)) {
+                return false;
+            }
+            seen.add(id);
+            tags.push(Object.freeze({id, label}));
+            return tags.length >= MAX_QUEUE_TAGS;
+        });
+        return tags.length ? Object.freeze(tags) : EMPTY_QUEUE_TAGS;
     }
 
     function normalizedModuleUrl(value) {
@@ -1084,6 +1145,27 @@ window.PixivBatch.queueTypes = (function () {
         return entry ? entry.behavior : null;
     }
 
+    // 类型模块可在渲染期贡献纯文本标签。宿主统一限制数量/长度、按稳定 id 去重并在最终 HTML 中转义；
+    // 插件不能返回 HTML，也不能用异步结果跨 publication 回写旧队列。
+    function queueTags(item) {
+        const type = text(item && item.kind);
+        const behavior = get(type);
+        if (!behavior || typeof behavior.queueTags !== 'function') return EMPTY_QUEUE_TAGS;
+        try {
+            const value = behavior.queueTags(queueItemSnapshot(item));
+            if (value && typeof value.then === 'function') {
+                // 同步 hook 意外返回 rejected Promise 时仍要吸收 rejection，避免把插件错误
+                // 泄漏为页面级 unhandledrejection；该 publication 的标签本轮直接降级为空。
+                Promise.resolve(value).catch(() => undefined);
+                throw new Error('queueTags must return a synchronous array');
+            }
+            return normalizedQueueTags(value);
+        } catch (e) {
+            console.warn('[queueTypes] 队列类型标签贡献失败：', type, e);
+            return EMPTY_QUEUE_TAGS;
+        }
+    }
+
     function has(type) {
         return !!activeEntry(type);
     }
@@ -1208,6 +1290,52 @@ window.PixivBatch.queueTypes = (function () {
             order: Number.isFinite(order) ? order : 0,
             type
         };
+    }
+
+    function frozenDataSourceDescriptor(value) {
+        return value ? Object.freeze({
+            id: value.id,
+            displayNamespace: value.displayNamespace,
+            displayI18nKey: value.displayI18nKey,
+            order: value.order,
+            type: value.type
+        }) : null;
+    }
+
+    // 队列项按实际取得模式优先解析来源；计划队列等没有手动模式的场景，则从该类型全部活动
+    // acquisition 中选确定性的首个来源。旧模块未声明 dataSource 时沿用类型展示元数据作为中性回退。
+    function dataSourceForType(type, mode) {
+        const normalizedType = text(type);
+        if (!normalizedType || !has(normalizedType)) return null;
+        const normalizedMode = text(mode);
+        if (KNOWN_MODES.has(normalizedMode)) {
+            const contribution = acquisition(normalizedType, normalizedMode);
+            if (contribution) {
+                return frozenDataSourceDescriptor(dataSourceDescriptor(
+                    Object.assign({}, contribution, {type: normalizedType})));
+            }
+        }
+        const explicitCandidates = [];
+        const fallbackCandidates = [];
+        const explicitSeen = new Set();
+        const fallbackSeen = new Set();
+        KNOWN_MODES.forEach(candidateMode => {
+            const contribution = acquisition(normalizedType, candidateMode);
+            if (!contribution) return;
+            const candidate = dataSourceDescriptor(Object.assign({}, contribution, {type: normalizedType}));
+            if (!candidate) return;
+            const explicit = isPlainObject(contribution.dataSource);
+            const seen = explicit ? explicitSeen : fallbackSeen;
+            if (seen.has(candidate.id)) return;
+            seen.add(candidate.id);
+            (explicit ? explicitCandidates : fallbackCandidates).push(candidate);
+        });
+        const candidates = explicitCandidates.length ? explicitCandidates : fallbackCandidates;
+        if (!candidates.length) {
+            return frozenDataSourceDescriptor(dataSourceDescriptor({type: normalizedType}));
+        }
+        candidates.sort((left, right) => (left.order - right.order) || left.id.localeCompare(right.id));
+        return frozenDataSourceDescriptor(candidates[0]);
     }
 
     function dataSourceTypeDescriptor(type) {
@@ -1630,6 +1758,7 @@ window.PixivBatch.queueTypes = (function () {
         bootstrap,
         refresh(force) { return refresh(!!force, false); },
         get,
+        queueTags,
         has,
         isEnabled,
         isTypeAvailable,
@@ -1639,6 +1768,7 @@ window.PixivBatch.queueTypes = (function () {
         manifestDescriptor,
         acquisition,
         acquisitionList,
+        dataSourceForType,
         dataSourcesForMode,
         typesForDataSource,
         supports,

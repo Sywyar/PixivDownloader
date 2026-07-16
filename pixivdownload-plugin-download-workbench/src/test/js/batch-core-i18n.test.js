@@ -146,6 +146,17 @@ function ok(label, cond) {
         'search.summary.source-returned',
         'search.batch.summary.pixiv-fetched'
     ];
+    const queueTagKeys = [
+        'queue.source.schedule',
+        'queue.tag.image',
+        'queue.tag.illust',
+        'queue.tag.manga',
+        'queue.tag.ugoira',
+        'queue.tag.collection',
+        'queue.tag.bookmark',
+        'queue.tag.request',
+        'queue.tag.ai'
+    ];
 
     ok('默认 namespace 仍被加载', ['batch', 'common', 'ai', 'tour'].every(ns => namespaces.includes(ns)));
     ok('batch 中英文 bundle 的 key 集合保持一致',
@@ -153,6 +164,10 @@ function ok(label, cond) {
     searchStatisticsKeys.forEach(key => {
         ok('中文 batch bundle 提供来源统计文案: ' + key, zhKeys.has(key));
         ok('英文 batch bundle 提供来源统计文案: ' + key, enKeys.has(key));
+    });
+    queueTagKeys.forEach(key => {
+        ok('中文 batch bundle 提供队列标签文案: ' + key, zhKeys.has(key));
+        ok('英文 batch bundle 提供队列标签文案: ' + key, enKeys.has(key));
     });
     ok('固定 namespace 不依赖任一可选插件', !fixedNamespaces.includes("'plugin-a'"));
     ok('控制器仍从活动下载类型动态收集 namespace', SOURCE.includes('await qt.i18nNamespaces()'));

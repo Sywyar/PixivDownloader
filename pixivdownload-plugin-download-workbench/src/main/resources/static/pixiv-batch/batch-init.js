@@ -282,6 +282,11 @@
         applyCookieHint();
         updateBatchLimitNote();
         updateButtonsState();
+        // 数据来源与类型自有标签都来自当前 publication；即使 i18n namespace 集合未变化，
+        // stop/reload 后也必须立即撤掉旧标签并用新 generation 重绘。
+        renderQueue();
+        setCurrent(state.currentItemId ? state.queue.find(q => q.id === state.currentItemId) || null : null);
+        if (state.mode === 'schedule') loadScheduleTasks();
         if (state.mode === QUICK_FETCH_MODE) updateQuickAccountBar();
         refreshPageI18nNamespaces().catch(e => {
             console.warn('[batch] 刷新扩展 i18n namespace 失败：', e);

@@ -209,6 +209,12 @@ async function waitUntil(predicate) {
     assert.strictEqual(bookmark.bookmarkCount, 77);
     assert.strictEqual(bookmark.url, '/api/pixiv/novel/42/bookmark-count');
     assert.strictEqual(descriptor.settings['novel-settings-card'].cardId, 'novel-settings-card');
+    const novelQueueMeta = descriptor.acquisition.quick.buildQueueMeta({
+        id: '42', title: 'Novel', aiType: 2
+    }, {inner: {type: 'collection', id: 'showcase-42'}});
+    assert.deepStrictEqual(Array.from(
+        descriptor.queueTags(Object.assign({id: 'n42'}, novelQueueMeta)), tag => tag.id),
+    ['media.novel', 'origin.collection', 'attribute.ai']);
 
     const item = {id: 'n42', novelId: '42', kind: 'novel', status: 'downloading'};
     const processing = descriptor.process(item, context);
@@ -237,6 +243,10 @@ async function waitUntil(predicate) {
     assert.strictEqual(runtimeBookmark.url, '/api/pixiv/novel/42/bookmark-count');
     assert.strictEqual(runtimeSetting.type, 'novel');
     assert.strictEqual(runtimeSetting.cardId, 'novel-settings-card');
+    assert.deepStrictEqual(Array.from(h.qt.queueTags({
+        id: 'n42', kind: 'novel', isAi: true,
+        typeData: {sourceType: 'my-bookmarks'}
+    }), tag => tag.id), ['media.novel', 'origin.bookmark', 'attribute.ai']);
 
     let runtimeSignal = null;
     h.sandbox.fetch = function (url, init) {
@@ -258,7 +268,7 @@ async function waitUntil(predicate) {
     `Novel 在途历史请求在 publication 撤回后应由真实 workbench runtime 暂停且不误记失败：`
         + `aborted=${runtimeSignal.aborted}, status=${runtimeItem.status}, message=${runtimeItem.lastMessage}`);
 
-    console.log('novel-workbench-runtime.test.js: 15 assertions passed ✓');
+    console.log('novel-workbench-runtime.test.js: 17 assertions passed ✓');
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

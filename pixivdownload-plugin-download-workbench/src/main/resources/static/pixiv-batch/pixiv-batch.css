@@ -632,10 +632,83 @@
         }
 
         .queue-item .q-title {
+            display: flex;
+            align-items: center;
+            gap: 2px;
             font-weight: bold;
             font-size: 12px;
             margin-bottom: 2px;
             min-width: 0;
+        }
+
+        .queue-item .q-title-main {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .queue-item .q-tags {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 3px;
+            margin-bottom: 3px;
+        }
+
+        .queue-tag {
+            display: inline-flex;
+            align-items: center;
+            min-height: 16px;
+            padding: 1px 5px;
+            border: 1px solid transparent;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+
+        .queue-tag--source {
+            background: var(--brand);
+            color: var(--brand-text);
+        }
+
+        .queue-tag--mode {
+            background: var(--status-gray);
+            color: var(--brand-text);
+        }
+
+        .queue-tag--mode-search,
+        .queue-tag--mode-schedule {
+            background: var(--status-green);
+        }
+
+        .queue-tag--mode-series {
+            background: color-mix(in srgb, var(--brand) 70%, var(--status-gray));
+        }
+
+        .queue-tag--mode-quick {
+            background: var(--status-yellow);
+            color: var(--text);
+        }
+
+        .queue-tag--rating-r18,
+        .queue-tag--rating-r18g {
+            background: var(--danger-bg);
+            color: var(--danger-text);
+        }
+
+        .queue-tag--rating-sfw {
+            background: var(--status-green);
+            color: var(--brand-text);
+        }
+
+        .queue-tag--rating-unknown,
+        .queue-tag--plugin {
+            border-color: var(--line);
+            background: var(--control-muted-bg);
+            color: var(--text);
         }
 
         .queue-item .q-meta {

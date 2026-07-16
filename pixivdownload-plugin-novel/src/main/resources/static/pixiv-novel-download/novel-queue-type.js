@@ -1109,9 +1109,45 @@ function novelQuickInnerCard(item, idx, inQueue) {
 
 // 小说作品类型 descriptor：下载行为（process）+ 取得侧 UI 槽位（slots）+ 取得侧行为钩子
 // （acquisition：user/search/series/quick）+ 批量导入解析（import）+ 附加筛选（filters）+ 设置卡（settings）。
+function novelQueueSourceType(context) {
+    const ctx = context && typeof context === 'object' ? context : {};
+    const inner = ctx.inner && typeof ctx.inner === 'object' ? ctx.inner : null;
+    if (inner && inner.type === 'collection') return 'collection';
+    if (inner && inner.type === 'following-user') return 'user-new';
+    return {
+        'my-novel-bookmarks-show': 'my-bookmarks',
+        'my-novel-bookmarks-hide': 'my-bookmarks',
+        'my-novels': 'user-new'
+    }[String(ctx.action || '')] || null;
+}
+
+function novelQueueTypeData(context) {
+    const sourceType = novelQueueSourceType(context);
+    return sourceType ? {sourceType} : null;
+}
+
+function novelQueueTags(item) {
+    const data = item && item.typeData && typeof item.typeData === 'object'
+        ? item.typeData : {};
+    const tags = [{
+        id: 'media.novel',
+        label: bt('novel:batch.kind.novel', '小说')
+    }];
+    if (data.sourceType === 'collection') {
+        tags.push({id: 'origin.collection', label: bt('queue.tag.collection', '珍藏集')});
+    } else if (data.sourceType === 'my-bookmarks') {
+        tags.push({id: 'origin.bookmark', label: bt('queue.tag.bookmark', '收藏')});
+    }
+    if (item && item.isAi === true) {
+        tags.push({id: 'attribute.ai', label: bt('queue.tag.ai', 'AI')});
+    }
+    return tags;
+}
+
 const NOVEL_DESCRIPTOR = {
     slots: NOVEL_SLOTS,
     process: processNovelItem,
+    queueTags: novelQueueTags,
     // 批量导入单作品：小说链接 / `novel:` 区段头 / 裸 id 的解析与入队项构造。
     import: {
         dataSource: {
@@ -1181,6 +1217,7 @@ const NOVEL_DESCRIPTOR = {
                     title: item.title || bt('queue.novel-fallback', '小说 {id}', {id: item.id}),
                     novelId: String(item.id),
                     kind: 'novel',
+                    typeData: novelQueueTypeData(ctx),
                     authorId: item.userId ? Number(item.userId) : Number(ctx.userId),
                     authorName: item.userName || ctx.username || ctx.userId,
                     isAi: Number(item.aiType ?? 0) >= 2,
@@ -1193,6 +1230,7 @@ const NOVEL_DESCRIPTOR = {
                     title: bt('queue.novel-fallback', '小说 {id}', {id}),
                     novelId: String(id),
                     kind: 'novel',
+                    typeData: novelQueueTypeData(ctx),
                     authorId: Number(ctx.userId),
                     authorName: ctx.username || ctx.userId
                 };
@@ -1299,11 +1337,12 @@ const NOVEL_DESCRIPTOR = {
             skipThumbnail: true,
             render: renderQuickNovelGrid,
             innerCardHtml: novelQuickInnerCard,
-            buildQueueMeta(item) {
+            buildQueueMeta(item, ctx) {
                 return {
                     title: item.title || '',
                     novelId: String(item.id),
                     kind: 'novel',
+                    typeData: novelQueueTypeData(ctx),
                     authorId: item.userId ? Number(item.userId) : null,
                     authorName: item.userName || '',
                     isAi: Number(item.aiType ?? 0) >= 2,
@@ -1311,8 +1350,8 @@ const NOVEL_DESCRIPTOR = {
                     tags: Array.isArray(item.tags) ? item.tags : []
                 };
             },
-            buildQueueMetaFromId(id) {
-                return {novelId: String(id), kind: 'novel'};
+            buildQueueMetaFromId(id, ctx) {
+                return {novelId: String(id), kind: 'novel', typeData: novelQueueTypeData(ctx)};
             },
             // 快捷获取入口动作（我的小说收藏 / 我的小说）：宿主 quickLoad / quickScheduleSource 据此派发。
             actions: {
@@ -1384,6 +1423,7 @@ if (window.PixivBatch && window.PixivBatch.queueTypes) {
                     kind: context.type,
                     rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
                     source,
+                    typeData: sourceType ? {sourceType} : null,
                     translatePhase: item.translatePhase || null,
                     translateElapsed: item.translateElapsedSeconds == null ? 0 : item.translateElapsedSeconds,
                     translateSeriesPending: item.translateSeriesPending == null ? 0 : item.translateSeriesPending

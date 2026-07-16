@@ -790,6 +790,9 @@ const initDocumentListeners = new Map();
 const previewClears = {user: 0, search: 0, series: 0, quick: 0};
 const quickReadyStates = [];
 let settingReconciles = 0;
+let queueRenders = 0;
+let currentRenders = 0;
+let scheduleLoads = 0;
 const initSandbox = {
     window: {
         PixivBatch: {
@@ -818,9 +821,11 @@ const initSandbox = {
     applyCookieHint() {},
     updateBatchLimitNote() {},
     updateButtonsState() {},
+    renderQueue() { queueRenders++; },
+    setCurrent() { currentRenders++; },
     updateQuickAccountBar() {},
     updateSaveScheduleCardVisibility() {},
-    loadScheduleTasks() {},
+    loadScheduleTasks() { scheduleLoads++; },
     refreshPageI18nNamespaces: () => Promise.resolve(false),
     console: {warn() {}, log() {}, error() {}},
     Promise
@@ -836,6 +841,12 @@ ok('ready 事件再收敛设置与预览且不丢失事件链',
     settingReconciles === 1 && Object.values(previewClears).every(count => count === 2));
 ok('queue type reconcile 把 loading/ready 状态传给 quick 来源选择收敛',
     quickReadyStates.length === 2 && quickReadyStates[0] === false && quickReadyStates[1] === true);
+ok('queue type publication 变化会同步重绘队列与当前项标签',
+    queueRenders === 2 && currentRenders === 2 && scheduleLoads === 0);
+initSandbox.state.mode = 'schedule';
+runtimeListeners.get('pixivbatch:queuetypeschanged')({detail: {ready: true}});
+ok('计划模式在 publication 变化后会重新拉取计划队列标签',
+    queueRenders === 3 && currentRenders === 3 && scheduleLoads === 1);
 ok('batch init 将新增来源控件与只读导入来源交给稳定 modeControls 委托',
     INIT_SOURCE.includes('window.PixivBatch.modeControls.bind()')
     && INIT_SOURCE.includes('window.PixivBatch.modeControls.renderAll()'));
