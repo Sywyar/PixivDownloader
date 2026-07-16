@@ -21,14 +21,14 @@ class NovelPluginContributionTest {
     private final NovelPlugin plugin = new NovelPlugin();
 
     @Test
-    @DisplayName("插件描述符要求提供通用计划任务契约的核心 API 1.1")
-    void descriptorRequiresScheduleApi11() throws Exception {
+    @DisplayName("未发布插件描述符统一要求首个核心 API 1.0")
+    void descriptorRequiresInitialApi10() throws Exception {
         Properties descriptor = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
             assertThat(input).isNotNull();
             descriptor.load(input);
         }
-        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.1");
+        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.0");
     }
 
     @Test

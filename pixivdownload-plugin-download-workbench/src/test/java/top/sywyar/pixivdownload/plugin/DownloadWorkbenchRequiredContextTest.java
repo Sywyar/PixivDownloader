@@ -47,14 +47,14 @@ class DownloadWorkbenchRequiredContextTest {
     }
 
     @Test
-    @DisplayName("插件描述符要求提供通用计划任务保存契约的核心 API 1.2")
-    void descriptorRequiresScheduleApi12() throws Exception {
+    @DisplayName("未发布插件描述符统一要求首个核心 API 1.0")
+    void descriptorRequiresInitialApi10() throws Exception {
         Properties descriptor = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
             assertThat(input).isNotNull();
             descriptor.load(input);
         }
-        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.2");
+        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.0");
     }
 
     @Test

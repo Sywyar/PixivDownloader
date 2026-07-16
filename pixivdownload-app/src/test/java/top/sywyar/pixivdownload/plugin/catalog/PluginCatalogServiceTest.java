@@ -287,7 +287,8 @@ class PluginCatalogServiceTest {
                         "iconToken": "chart-line",
                         "colorToken": "green",
                         "recommended": true,
-                        "officialRequired": false
+                        "officialRequired": false,
+                        "defaultInstalled": true
                       },
                       "packages": [
                         {
@@ -329,11 +330,39 @@ class PluginCatalogServiceTest {
         assertThat(market.latestVersion()).isEqualTo("1.2.3");
         assertThat(market.iconToken()).isEqualTo("chart-line");
         assertThat(market.recommended()).isTrue();
+        assertThat(market.defaultInstalled()).isTrue();
         PluginCatalogPackage pkg = entry.packages().get(0);
         assertThat(pkg.releasedTime()).isEqualTo("2026-06-20");
         assertThat(pkg.changeNotes()).containsExactly("fix A", "add B");
         assertThat(pkg.channel()).isEqualTo("beta");
         assertThat(pkg.deprecated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("旧市场清单缺少 defaultInstalled 时按 false 兼容")
+    void missingDefaultInstalledMetadataDefaultsToFalse() {
+        PluginCatalogService service = service(false, "");
+        String json = """
+                {
+                  "schemaVersion": "1",
+                  "entries": [
+                    {
+                      "pluginId": "legacy",
+                      "market": {
+                        "displayName": {"en": "Legacy plugin"},
+                        "category": "utility"
+                      },
+                      "packages": []
+                    }
+                  ]
+                }
+                """;
+
+        PluginCatalogMarketMeta market = service.parseManifest(json.getBytes(StandardCharsets.UTF_8))
+                .entries().get(0).market();
+
+        assertThat(market).isNotNull();
+        assertThat(market.defaultInstalled()).isFalse();
     }
 
     @Test

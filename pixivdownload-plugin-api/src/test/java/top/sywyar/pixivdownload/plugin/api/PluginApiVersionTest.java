@@ -20,10 +20,10 @@ class PluginApiVersionTest {
     }
 
     @Test
-    @DisplayName("来源默认网络路由契约发布为向后兼容的 1.3 版本")
+    @DisplayName("全部未发布契约统一锁定为首个 1.0.0 版本")
     void frozenContractIsStableAndNonNegative() {
         assertThat(PluginApiVersion.MAJOR).isEqualTo(1);
-        assertThat(PluginApiVersion.MINOR).isEqualTo(3);
+        assertThat(PluginApiVersion.MINOR).isZero();
         assertThat(PluginApiVersion.PATCH).isEqualTo(0);
     }
 

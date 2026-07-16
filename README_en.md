@@ -22,7 +22,7 @@
 ## Features
 
 > [!NOTE]
-> Some capabilities are provided by official optional plugins. The Windows installer preinstalls the required `download-workbench`; the full-offline package carries every official optional plugin.
+> Official plugins still run as separate PF4J JARs. The Windows installer pre-stages every user-facing official plugin except `douyin` at build time; the full-offline package also carries `douyin`.
 
 - One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
 - Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
@@ -68,17 +68,18 @@ Download the latest version from [Releases](../../releases):
 
 | Type                                | Description                                                         |
 |-------------------------------------|---------------------------------------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg and official plugin install |
-| `PixivDownload-*-full-offline.zip`  | Full offline package, requires Java 17+; includes the core shell, required `download-workbench`, and every official optional plugin |
+| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall and optional FFmpeg; pre-stages every user-facing official plugin except `douyin` |
+| `PixivDownload-*-full-offline.zip`  | Full offline package, requires Java 17+; includes the core shell and every user-facing official plugin, including `douyin` |
 
 ### Packages and official plugins
 
 Current builds use external plugins:
 
 - `download-workbench` is the required external plugin. It provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The Windows installer and full-offline package bundle it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path and only exposes login, plugin management, and repair/install entry points.
-- `stats`, `duplicate`, `gallery`, `novel`, `douyin`, `tts`, `ai`, `push`, `mail`, `gui-theme`, and `notification` are official optional plugins. When installed and enabled, their pages, APIs, static resources, i18n, navigation, GUI config fields, or capability contributions are available. When missing or disabled, those entries are simply absent and do not trigger recovery.
+- `stats`, `duplicate`, `gallery`, `novel`, `tts`, `ai`, `push`, `mail`, `gui-theme`, and `notification` are default-installed plugins. Their separate external JARs are pre-staged into `plugins/` for the Windows installer and default portable build; they are not merged into the core boot JAR.
+- `douyin` is currently the only official plugin that is not installed by default. It can be installed on demand from the plugin marketplace, while the full-offline package also carries it.
 - GitHub Releases provide only the Windows installer and the full-offline package. The standalone core shell JAR and default downloader package are still used by build / recovery flows, but are not published as normal download assets.
-- The Windows installer bundles the required `download-workbench` plugin and can install optional plugins from the signed official catalog on the optional features page. The full-offline package adds every official optional plugin plus the files needed for offline verification.
+- The Windows installer's plugin-selection page is temporarily skipped, while its catalog projection, download, verification, and installation logic remains in place. The full-offline package adds `douyin` and all files needed for offline verification to the default pre-staged set.
 - Missing or disabling `duplicate` does not affect image Hash writes after downloads and does not delete historical Hash data.
 - Missing or disabling `gallery` only removes the local gallery, artwork detail pages, display APIs, navigation, and related static resources. The download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, and local resource index remain intact.
 - Missing or disabling `novel` removes novel downloading, the Pixiv novel proxy, core novel APIs, scheduled novel runner, translation / merge / body-save entry points, the novel gallery, novel reader, navigation, static resources, and i18n. Historical novel bodies, translation state, narration data, compiled outputs, and metadata are retained and become readable again after reinstalling the plugin.

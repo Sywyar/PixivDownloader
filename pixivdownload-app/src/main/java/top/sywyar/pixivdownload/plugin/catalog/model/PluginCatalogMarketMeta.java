@@ -37,6 +37,7 @@ import java.util.Map;
  * @param colorToken     展示强调色受控 token（非法 / 空 → {@link CatalogPresentationToken#sanitizeColor} 回退）
  * @param recommended    是否官方推荐（仅展示）
  * @param officialRequired 是否官方标记为必备 / 必选（仅展示，<b>不</b>等同核心必选插件策略）
+ * @param defaultInstalled 是否由该发行渠道默认安装（仅展示 / 筛选，不改变 required 或启停语义）
  */
 public record PluginCatalogMarketMeta(
         Map<String, String> displayName,
@@ -58,7 +59,8 @@ public record PluginCatalogMarketMeta(
         String iconToken,
         String colorToken,
         boolean recommended,
-        boolean officialRequired) {
+        boolean officialRequired,
+        boolean defaultInstalled) {
 
     public PluginCatalogMarketMeta {
         displayName = displayName != null ? Map.copyOf(displayName) : Map.of();

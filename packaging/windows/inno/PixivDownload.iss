@@ -2,7 +2,7 @@
 #define AppPublisher "sywyar"
 #define AppExeName "PixivDownload.exe"
 #define FfmpegArchiveUrl "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
-#define PluginApiVersion "1.3.0"
+#define PluginApiVersion "1.0.0"
 
 #ifndef AppVersion
 #define AppVersion "0.0.1-local"
@@ -160,16 +160,17 @@ zhcn.AppRunningAbort=PixivDownload 正在运行，安装无法继续，已取消
 ; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时
 ; 残留在 {app}\app 下。安装文件复制前先清空该目录，避免旧版本 jar 堆积。
 ; 用户数据（config.yaml、pixiv-download\ 等）位于 {app} 根目录而非 {app}\app，不受影响。
-; 故意不清空 {app}\plugins：官方 required 插件以稳定文件名（<module>.jar）随 app-image 携带，[Files] 的
+; 故意不清空 {app}\plugins：官方默认安装插件以稳定文件名（<module>.jar）随 app-image 携带，[Files] 的
 ; ignoreversion 会就地覆盖同名文件、不留旧版本残留；用户自行安装的第三方插件（不同文件名）不在安装器
 ; 文件清单内，升级时既不复制也不删除，得以保留。插件启用 / 禁用状态存放在 {app}\config\config.yaml
 ; （plugins.<id>.enabled），同样位于 {app} 根目录、升级时不受影响。
 Type: filesandordirs; Name: "{app}\app"; Check: ShouldInstallApplicationFiles
-; A local unsigned build copies this marker again through [Files]. A signed upgrade leaves it deleted.
+; 本地 unsigned 测试包会由后续 [Files] 重新复制此标记；正式包没有该文件，故升级时保持删除，
+; 避免曾安装测试包的目录永久显示为 unsigned。
 Type: files; Name: "{app}\plugins\LOCAL-UNSIGNED-BUILD.txt"; Check: ShouldInstallApplicationFiles
 
 [Files]
-; app-image 根目录已含 plugins\（package-local.ps1 预置的官方 required 插件 jar + 校验文件 + manifest）；
+; app-image 根目录已含 plugins\（package-local.ps1 预置的官方默认安装插件 jar + 校验文件 + manifest）；
 ; 此处递归复制即把 plugins\ 一并装入 {app}\plugins。
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallApplicationFiles
 #if InstallerPluginCatalogEnabled == "1"
@@ -983,6 +984,33 @@ begin
   end;
 end;
 
+procedure ReconcileBundledDefaultPlugins;
+var
+  ScriptPath: String;
+  ManifestPath: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  ManifestPath := ExpandConstant('{app}\plugins\plugins-manifest.json');
+  if not FileExists(ManifestPath) then
+  begin
+    Log('No bundled plugin manifest found; skipping default-plugin reconciliation.');
+    exit;
+  end;
+  ExtractPluginInstallerSupportFiles;
+  ScriptPath := ExpandConstant('{tmp}\' + PluginInstallScriptName);
+  Params :=
+    '-ReconcileBundledDefaults' +
+    ' -ManifestFile ' + QuoteArg(ManifestPath) +
+    ' -InstallDir ' + QuoteArg(ExpandConstant('{app}'));
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -File ' + QuoteArg(ScriptPath) + ' ' + Params,
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    RaiseException('Could not start bundled plugin reconciliation: ' + SysErrorMessage(ResultCode));
+  if ResultCode <> 0 then
+    RaiseException('Bundled plugin reconciliation failed with exit code ' + IntToStr(ResultCode) + '.');
+end;
+
 procedure InitializeWizard;
 var
   RepairButton: TNewButton;
@@ -1728,6 +1756,9 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ErrorMessage: String;
 begin
+  if (CurStep = ssPostInstall) and ShouldInstallApplicationFiles then
+    ReconcileBundledDefaultPlugins;
+
   if (CurStep = ssPostInstall) and AnyPluginSelected then
   begin
     try

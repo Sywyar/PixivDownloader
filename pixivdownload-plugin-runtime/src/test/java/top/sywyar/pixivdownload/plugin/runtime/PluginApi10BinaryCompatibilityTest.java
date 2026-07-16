@@ -37,22 +37,22 @@ import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 使用冻结的历史 ABI 编译真实 thin PF4J JAR，防止当前 API 的默认方法破坏旧插件加载。 */
+/** 使用冻结的未发布 1.0 草案 ABI 编译真实 thin PF4J JAR，防止当前 API 的默认方法破坏早期插件加载。 */
 @DisplayName("Plugin API 外置插件二进制兼容")
 class PluginApi10BinaryCompatibilityTest {
 
     private static final String PLUGIN_ID = "api10-binary-fixture";
-    private static final String API11_PLUGIN_ID = "api11-binary-fixture";
-    private static final String API12_PLUGIN_ID = "api12-binary-fixture";
+    private static final String PRE_PREPARE_PLUGIN_ID = "api10-pre-prepare-binary-fixture";
+    private static final String PRE_ROUTE_PLUGIN_ID = "api10-pre-route-binary-fixture";
     private static final String PLUGIN_VERSION = "1.0.0";
 
     @TempDir
     Path tempDir;
 
     @Test
-    @DisplayName("按冻结 1.0 ABI 编译的 thin JAR 可由 1.3 核心真实加载并调用新增默认方法")
+    @DisplayName("按冻结 1.0 草案 ABI 编译的 thin JAR 可由 1.0 核心真实加载并调用新增默认方法")
     void frozenApi10JarLoadsAgainstCurrentApi() throws Exception {
-        assertThat(PluginApiVersion.VERSION).isEqualTo("1.3.0");
+        assertThat(PluginApiVersion.VERSION).isEqualTo("1.0.0");
         Path oldApiJar = compileFrozenApi10();
         Path plugins = tempDir.resolve("plugins");
         Files.createDirectories(plugins);
@@ -87,15 +87,15 @@ class PluginApi10BinaryCompatibilityTest {
     }
 
     @Test
-    @DisplayName("按冻结 1.1 ABI 编译的来源执行器由 1.3 核心加载并调用默认 prepare")
-    void frozenApi11SourceExecutorUsesCurrentDefaultPrepare() throws Exception {
-        assertThat(PluginApiVersion.VERSION).isEqualTo("1.3.0");
-        Path oldApiJar = compileFrozenApi11();
-        Path plugins = tempDir.resolve("plugins-api11");
+    @DisplayName("按尚无 prepare 的 1.0 草案 ABI 编译的来源执行器可调用当前默认 prepare")
+    void prePrepareApi10SourceExecutorUsesCurrentDefaultPrepare() throws Exception {
+        assertThat(PluginApiVersion.VERSION).isEqualTo("1.0.0");
+        Path oldApiJar = compilePrePrepareApi10();
+        Path plugins = tempDir.resolve("plugins-api10-pre-prepare");
         Files.createDirectories(plugins);
-        Path fixtureJar = compileApi11FixtureJar(
-                oldApiJar, plugins.resolve(API11_PLUGIN_ID + ".jar"));
-        writeLocalProvenance(plugins, fixtureJar, API11_PLUGIN_ID, PLUGIN_VERSION);
+        Path fixtureJar = compilePrePrepareFixtureJar(
+                oldApiJar, plugins.resolve(PRE_PREPARE_PLUGIN_ID + ".jar"));
+        writeLocalProvenance(plugins, fixtureJar, PRE_PREPARE_PLUGIN_ID, PLUGIN_VERSION);
 
         try (ZipFile zip = new ZipFile(fixtureJar.toFile())) {
             assertThat(zip.stream().map(ZipEntry::getName))
@@ -107,15 +107,15 @@ class PluginApi10BinaryCompatibilityTest {
             PluginRuntimeStatus status = manager.start();
             PluginDiscoveryResult discovery = manager.discoverFeaturePlugins();
 
-            assertThat(status.loadedPluginIds()).containsExactly(API11_PLUGIN_ID);
-            assertThat(status.startedPluginIds()).containsExactly(API11_PLUGIN_ID);
+            assertThat(status.loadedPluginIds()).containsExactly(PRE_PREPARE_PLUGIN_ID);
+            assertThat(status.startedPluginIds()).containsExactly(PRE_PREPARE_PLUGIN_ID);
             assertThat(status.failures()).isEmpty();
             assertThat(discovery.failures()).isEmpty();
             assertThat(discovery.discovered()).singleElement()
-                    .satisfies(item -> assertThat(item.plugin().id()).isEqualTo(API11_PLUGIN_ID));
+                    .satisfies(item -> assertThat(item.plugin().id()).isEqualTo(PRE_PREPARE_PLUGIN_ID));
 
             ScheduledSourceExecutor executor = (ScheduledSourceExecutor) discovery.discovered().get(0).plugin();
-            assertThat(executor.sourceType()).isEqualTo("api11-fixture-source");
+            assertThat(executor.sourceType()).isEqualTo("api10-pre-prepare-fixture-source");
             assertThat(executor.getClass().getDeclaredMethods())
                     .noneMatch(method -> method.getName().equals("prepare"));
             assertThat(ScheduledSourceExecutor.class
@@ -138,15 +138,15 @@ class PluginApi10BinaryCompatibilityTest {
     }
 
     @Test
-    @DisplayName("按冻结 1.2 ABI 编译的来源执行器由 1.3 核心调用旧九参数执行计划构造器")
-    void frozenApi12SourceExecutorUsesCompatibleNineArgumentPlanConstructor() throws Exception {
-        assertThat(PluginApiVersion.VERSION).isEqualTo("1.3.0");
-        Path oldApiJar = compileFrozenApi12();
-        Path plugins = tempDir.resolve("plugins-api12");
+    @DisplayName("按尚无来源路由的 1.0 草案 ABI 编译的来源执行器可调用旧九参数执行计划构造器")
+    void preRouteApi10SourceExecutorUsesCompatibleNineArgumentPlanConstructor() throws Exception {
+        assertThat(PluginApiVersion.VERSION).isEqualTo("1.0.0");
+        Path oldApiJar = compilePreRouteApi10();
+        Path plugins = tempDir.resolve("plugins-api10-pre-route");
         Files.createDirectories(plugins);
-        Path fixtureJar = compileApi12FixtureJar(
-                oldApiJar, plugins.resolve(API12_PLUGIN_ID + ".jar"));
-        writeLocalProvenance(plugins, fixtureJar, API12_PLUGIN_ID, PLUGIN_VERSION);
+        Path fixtureJar = compilePreRouteFixtureJar(
+                oldApiJar, plugins.resolve(PRE_ROUTE_PLUGIN_ID + ".jar"));
+        writeLocalProvenance(plugins, fixtureJar, PRE_ROUTE_PLUGIN_ID, PLUGIN_VERSION);
 
         try (ZipFile zip = new ZipFile(fixtureJar.toFile())) {
             assertThat(zip.stream().map(ZipEntry::getName))
@@ -158,12 +158,12 @@ class PluginApi10BinaryCompatibilityTest {
             PluginRuntimeStatus status = manager.start();
             PluginDiscoveryResult discovery = manager.discoverFeaturePlugins();
 
-            assertThat(status.loadedPluginIds()).containsExactly(API12_PLUGIN_ID);
-            assertThat(status.startedPluginIds()).containsExactly(API12_PLUGIN_ID);
+            assertThat(status.loadedPluginIds()).containsExactly(PRE_ROUTE_PLUGIN_ID);
+            assertThat(status.startedPluginIds()).containsExactly(PRE_ROUTE_PLUGIN_ID);
             assertThat(status.failures()).isEmpty();
             assertThat(discovery.failures()).isEmpty();
             assertThat(discovery.discovered()).singleElement()
-                    .satisfies(item -> assertThat(item.plugin().id()).isEqualTo(API12_PLUGIN_ID));
+                    .satisfies(item -> assertThat(item.plugin().id()).isEqualTo(PRE_ROUTE_PLUGIN_ID));
 
             ScheduledSourceExecutor executor = (ScheduledSourceExecutor) discovery.discovered().get(0).plugin();
             ScheduledExecutionPlan plan = executor.plan(new ScheduledTaskDefinition(
@@ -174,7 +174,7 @@ class PluginApi10BinaryCompatibilityTest {
                     "{\"value\":1}",
                     new ScheduledTaskPresentation("任务", null, Map.of("kind", "fixture"))));
 
-            assertThat(plan.requiredWorkTypes()).containsExactly("api12-work");
+            assertThat(plan.requiredWorkTypes()).containsExactly("api10-pre-route-work");
             assertThat(plan.sourceDefaultRoute()).isEqualTo(ScheduledNetworkRoute.inherit());
         } finally {
             manager.shutdown();
@@ -221,9 +221,9 @@ class PluginApi10BinaryCompatibilityTest {
         return jar;
     }
 
-    private Path compileFrozenApi11() throws IOException {
-        Path sources = tempDir.resolve("api11-src");
-        Path classes = tempDir.resolve("api11-classes");
+    private Path compilePrePrepareApi10() throws IOException {
+        Path sources = tempDir.resolve("api10-pre-prepare-src");
+        Path classes = tempDir.resolve("api10-pre-prepare-classes");
         writeSource(sources, "top/sywyar/pixivdownload/plugin/api/plugin/PluginKind.java", """
                 package top.sywyar.pixivdownload.plugin.api.plugin;
                 public enum PluginKind { CORE, FEATURE }
@@ -310,14 +310,14 @@ class PluginApi10BinaryCompatibilityTest {
                 }
                 """);
         compile(classes, null, javaSources(sources));
-        Path jar = tempDir.resolve("pixivdownload-plugin-api-1.1-fixture.jar");
+        Path jar = tempDir.resolve("pixivdownload-plugin-api-1.0-pre-prepare-fixture.jar");
         zipClasses(classes, jar, null);
         return jar;
     }
 
-    private Path compileFrozenApi12() throws IOException {
-        Path sources = tempDir.resolve("api12-src");
-        Path classes = tempDir.resolve("api12-classes");
+    private Path compilePreRouteApi10() throws IOException {
+        Path sources = tempDir.resolve("api10-pre-route-src");
+        Path classes = tempDir.resolve("api10-pre-route-classes");
         writeSource(sources, "top/sywyar/pixivdownload/plugin/api/plugin/PluginKind.java", """
                 package top.sywyar.pixivdownload.plugin.api.plugin;
                 public enum PluginKind { CORE, FEATURE }
@@ -453,7 +453,7 @@ class PluginApi10BinaryCompatibilityTest {
                 }
                 """);
         compile(classes, null, javaSources(sources));
-        Path jar = tempDir.resolve("pixivdownload-plugin-api-1.2-fixture.jar");
+        Path jar = tempDir.resolve("pixivdownload-plugin-api-1.0-pre-route-fixture.jar");
         zipClasses(classes, jar, null);
         return jar;
     }
@@ -506,11 +506,11 @@ class PluginApi10BinaryCompatibilityTest {
         return jar;
     }
 
-    private Path compileApi11FixtureJar(Path oldApiJar, Path jar) throws IOException, URISyntaxException {
-        Path sources = tempDir.resolve("api11-fixture-src");
-        Path classes = tempDir.resolve("api11-fixture-classes");
-        writeSource(sources, "fixture/api11/Api11Feature.java", """
-                package fixture.api11;
+    private Path compilePrePrepareFixtureJar(Path oldApiJar, Path jar) throws IOException, URISyntaxException {
+        Path sources = tempDir.resolve("api10-pre-prepare-fixture-src");
+        Path classes = tempDir.resolve("api10-pre-prepare-fixture-classes");
+        writeSource(sources, "fixture/preprepare/PrePrepareFeature.java", """
+                package fixture.preprepare;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
                 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
@@ -519,48 +519,48 @@ class PluginApi10BinaryCompatibilityTest {
                 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
                 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
                 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
-                public final class Api11Feature implements PixivFeaturePlugin, ScheduledSourceExecutor {
-                    public String id() { return "api11-binary-fixture"; }
+                public final class PrePrepareFeature implements PixivFeaturePlugin, ScheduledSourceExecutor {
+                    public String id() { return "api10-pre-prepare-binary-fixture"; }
                     public String displayName() { return "plugin.name"; }
                     public String description() { return "plugin.summary"; }
                     public PluginKind kind() { return PluginKind.FEATURE; }
-                    public String sourceType() { return "api11-fixture-source"; }
+                    public String sourceType() { return "api10-pre-prepare-fixture-source"; }
                     public ScheduledExecutionPlan plan(ScheduledTaskDefinition task)
                             throws ScheduledExecutionException { return null; }
                     public ScheduledDiscoveryResult discover(ScheduledSourceContext context)
                             throws ScheduledExecutionException { return null; }
                 }
                 """);
-        writeSource(sources, "fixture/api11/Api11Plugin.java", """
-                package fixture.api11;
+        writeSource(sources, "fixture/preprepare/PrePreparePlugin.java", """
+                package fixture.preprepare;
                 import java.util.List;
                 import org.pf4j.Plugin;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
-                public final class Api11Plugin extends Plugin implements PixivPluginProvider {
+                public final class PrePreparePlugin extends Plugin implements PixivPluginProvider {
                     public List<PixivFeaturePlugin> featurePlugins() {
-                        return List.of(new Api11Feature());
+                        return List.of(new PrePrepareFeature());
                     }
                 }
                 """);
         String classpath = String.join(File.pathSeparator,
                 oldApiJar.toString(), codeSource(Plugin.class).toString(), codeSource(Logger.class).toString());
         compile(classes, classpath, javaSources(sources));
-        String descriptor = "plugin.id=" + API11_PLUGIN_ID + "\n"
+        String descriptor = "plugin.id=" + PRE_PREPARE_PLUGIN_ID + "\n"
                 + "plugin.version=" + PLUGIN_VERSION + "\n"
-                + "plugin.requires=1.1\n"
-                + "plugin.class=fixture.api11.Api11Plugin\n"
+                + "plugin.requires=1.0\n"
+                + "plugin.class=fixture.preprepare.PrePreparePlugin\n"
                 + "plugin.provider=test\n"
-                + "plugin.description=api 1.1 binary fixture\n";
+                + "plugin.description=api 1.0 pre-prepare binary fixture\n";
         zipClasses(classes, jar, descriptor);
         return jar;
     }
 
-    private Path compileApi12FixtureJar(Path oldApiJar, Path jar) throws IOException, URISyntaxException {
-        Path sources = tempDir.resolve("api12-fixture-src");
-        Path classes = tempDir.resolve("api12-fixture-classes");
-        writeSource(sources, "fixture/api12/Api12Feature.java", """
-                package fixture.api12;
+    private Path compilePreRouteFixtureJar(Path oldApiJar, Path jar) throws IOException, URISyntaxException {
+        Path sources = tempDir.resolve("api10-pre-route-fixture-src");
+        Path classes = tempDir.resolve("api10-pre-route-fixture-classes");
+        writeSource(sources, "fixture/preroute/PreRouteFeature.java", """
+                package fixture.preroute;
                 import java.util.List;
                 import java.util.Set;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -572,16 +572,16 @@ class PluginApi10BinaryCompatibilityTest {
                 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
                 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
                 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
-                public final class Api12Feature implements PixivFeaturePlugin, ScheduledSourceExecutor {
-                    public String id() { return "api12-binary-fixture"; }
+                public final class PreRouteFeature implements PixivFeaturePlugin, ScheduledSourceExecutor {
+                    public String id() { return "api10-pre-route-binary-fixture"; }
                     public String displayName() { return "plugin.name"; }
                     public String description() { return "plugin.summary"; }
                     public PluginKind kind() { return PluginKind.FEATURE; }
-                    public String sourceType() { return "api12-fixture-source"; }
+                    public String sourceType() { return "api10-pre-route-fixture-source"; }
                     public ScheduledExecutionPlan plan(ScheduledTaskDefinition task)
                             throws ScheduledExecutionException {
                         return new ScheduledExecutionPlan(
-                                Set.of("api12-work"),
+                                Set.of("api10-pre-route-work"),
                                 null,
                                 ScheduledCredentialRequirement.NONE,
                                 false,
@@ -595,27 +595,27 @@ class PluginApi10BinaryCompatibilityTest {
                             throws ScheduledExecutionException { return null; }
                 }
                 """);
-        writeSource(sources, "fixture/api12/Api12Plugin.java", """
-                package fixture.api12;
+        writeSource(sources, "fixture/preroute/PreRoutePlugin.java", """
+                package fixture.preroute;
                 import java.util.List;
                 import org.pf4j.Plugin;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
-                public final class Api12Plugin extends Plugin implements PixivPluginProvider {
+                public final class PreRoutePlugin extends Plugin implements PixivPluginProvider {
                     public List<PixivFeaturePlugin> featurePlugins() {
-                        return List.of(new Api12Feature());
+                        return List.of(new PreRouteFeature());
                     }
                 }
                 """);
         String classpath = String.join(File.pathSeparator,
                 oldApiJar.toString(), codeSource(Plugin.class).toString(), codeSource(Logger.class).toString());
         compile(classes, classpath, javaSources(sources));
-        String descriptor = "plugin.id=" + API12_PLUGIN_ID + "\n"
+        String descriptor = "plugin.id=" + PRE_ROUTE_PLUGIN_ID + "\n"
                 + "plugin.version=" + PLUGIN_VERSION + "\n"
-                + "plugin.requires=1.2\n"
-                + "plugin.class=fixture.api12.Api12Plugin\n"
+                + "plugin.requires=1.0\n"
+                + "plugin.class=fixture.preroute.PreRoutePlugin\n"
                 + "plugin.provider=test\n"
-                + "plugin.description=api 1.2 binary fixture\n";
+                + "plugin.description=api 1.0 pre-route binary fixture\n";
         zipClasses(classes, jar, descriptor);
         return jar;
     }

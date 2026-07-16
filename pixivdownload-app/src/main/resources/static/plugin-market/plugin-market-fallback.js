@@ -13,6 +13,7 @@
         loading: true, error: null, masterEnabled: false, coreApiVersion: '',
         repositories: [], activeRepositoryId: null, defaultRepositoryId: null,
         catalog: null, catalogError: null, category: 'all', search: '',
+        hideDefaultInstalled: true, hideDependencies: true,
         // 异步竞态护栏：每次 catalog 拉取自增 token，回调只在仍最新时落地（仓库快速切换丢弃旧响应）。
         catalogToken: 0,
         installing: {}, installResults: {}
@@ -99,7 +100,9 @@
     function gridHtml() {
         var repoId = state.catalog.repositoryId;
         var cards = PMK.data.filterAndSort(state.catalog.entries, {
-            category: state.category, search: state.search, sort: 'recommended'
+            category: state.category, search: state.search,
+            hideDefaultInstalled: state.hideDefaultInstalled, hideDependencies: state.hideDependencies,
+            sort: 'recommended'
         }).map(function (entry) {
             var card = PMK.data.cardModel(entry);
             card.repositoryId = repoId;   // 卡片绑定其同源仓库（安装请求与安装态键控同一来源）
@@ -129,6 +132,20 @@
                 '<i class="' + esc(cat.icon) + '"></i><span class="pmk-repo-chip-name">' + esc(cat.label) + '</span>' +
                 '<span class="pmk-repo-chip-meta">' + cat.count + '</span></button>';
         }).join('');
+    }
+
+    function filterChip(id, enabled, label, icon) {
+        return '<button class="pmk-repo-chip' + (enabled ? ' active' : '') + '" data-pmk-filter="' + esc(id) +
+            '" aria-pressed="' + (enabled ? 'true' : 'false') + '">' +
+            '<i class="fa-solid ' + esc(icon) + '"></i><span class="pmk-repo-chip-name">' + esc(label) + '</span></button>';
+    }
+
+    function filterChips() {
+        return '<div class="pmk-repos"><span class="pmk-repos-label">' + esc(t('sidebar.filter', '筛选')) + '</span>' +
+            filterChip('hideDefaultInstalled', state.hideDefaultInstalled,
+                t('filter.hide-default-installed', '隐藏默认安装插件'), 'fa-box-archive') +
+            filterChip('hideDependencies', state.hideDependencies,
+                t('filter.hide-dependencies', '隐藏依赖插件'), 'fa-layer-group') + '</div>';
     }
 
     function shellHtml() {
@@ -174,6 +191,7 @@
         }
         if (state.masterEnabled && state.catalog) {
             body += '<div class="pmk-repos">' + categoryChips() + '</div>' +
+                filterChips() +
                 '<div class="pmk-toolbar"><div class="pmk-toolbar-head"><div class="pmk-toolbar-title-row"><span class="pmk-toolbar-title">' +
                 esc(PMK.categoryLabel(state.category)) + '</span></div><p class="pmk-toolbar-description">' +
                 esc(PMK.categoryDescription(state.category)) + '</p></div>' +
@@ -304,6 +322,15 @@
             }
             var cat = e.target.closest('[data-pmk-cat]');
             if (cat) { state.category = cat.getAttribute('data-pmk-cat'); updateGrid(); return; }
+            var filter = e.target.closest('[data-pmk-filter]');
+            if (filter) {
+                var filterId = filter.getAttribute('data-pmk-filter');
+                if (filterId === 'hideDefaultInstalled' || filterId === 'hideDependencies') {
+                    state[filterId] = !state[filterId];
+                    paint();
+                }
+                return;
+            }
             var install = e.target.closest('[data-pmk-install]');
             if (install && !install.disabled) {
                 doInstall(install.getAttribute('data-pmk-repo'), install.getAttribute('data-pmk-install'),

@@ -289,10 +289,10 @@ jobs:
           ## 使用说明
 
           ### Windows 安装包
-          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装包支持语言选择，并在“附加功能”页提供“下载并安装 FFmpeg”和官方可选插件安装选项。
+          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装包支持语言选择，并在“附加功能”页提供“下载并安装 FFmpeg”选项；除 Douyin 外的面向用户的官方插件已在构建期预置。
 
           FFmpeg 不再内置到安装包中；勾选该选项后，安装器会在主程序安装完成后联网下载 FFmpeg，并显示独立下载/解压进度。未勾选或下载失败时，普通图片下载不受影响，后续也可以在 GUI 的“状态”页点击“下载 FFmpeg”重试。
-          官方可选插件会从签名官方清单安装并启用；清单网络获取超时或失败时会使用安装包内置的签名清单快照。
+          安装器中的插件选择页当前暂时跳过；Douyin 插件可在启动后从 Web 插件市场按需安装。
 
           ### 离线全量包（跨平台）
           下载 `PixivDownload-${{ github.ref_name }}-full-offline.zip`，解压后在目录内运行：
@@ -301,7 +301,7 @@ jobs:
           java -Dfile.encoding=UTF-8 -jar PixivDownload-${{ github.ref_name }}.jar
           ```
 
-          该包包含核心壳、签名后的 required `download-workbench` 插件、全部官方可选插件、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，适合离线部署或非 Windows 环境。Release 不再提供独立 JAR、core-shell-only 包或 default-downloader 包作为普通下载附件。
+          该包包含核心壳、全部面向用户的签名官方插件（含 Douyin）、`.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，适合离线部署或非 Windows 环境。Release 不再提供独立 JAR、core-shell-only 包或 default-downloader 包作为普通下载附件。
 
           ### 网页端一站式下载
 

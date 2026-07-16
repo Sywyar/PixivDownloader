@@ -9,7 +9,7 @@
 
         . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
-    It defines the canonical official external plugin lists plus the plugin-jar inspection and
+    It defines the canonical official external plugin sets plus the plugin-jar inspection and
     checksum helpers. It performs no work on its own and writes nothing to disk.
 
     ASCII-only (no BOM, English comments): these scripts run under Windows powershell(5.1); non-ASCII
@@ -17,8 +17,8 @@
     other scripts/*.ps1).
 #>
 
-# Official required external plugins (id / Maven module / artifact format). These are bundled into the
-# default downloader package and are also published to the official plugin repository for repair/recovery.
+# Official required external plugins (id / Maven module / artifact format). Required is a runtime/recovery
+# policy: only these plugins may force the core shell into recovery mode when missing.
 function Get-OfficialRequiredPlugins {
     [CmdletBinding()]
     param()
@@ -27,13 +27,14 @@ function Get-OfficialRequiredPlugins {
     )
 }
 
-# Official optional external plugins (id / Maven module / artifact format). recovery-sentinel is a recovery-mode
-# validation fixture, not a user-facing official plugin, so it is only ever included on demand
-# (assembler -IncludeSentinel) and never bundled into user-facing portable / installer packages.
-function Get-OfficialOptionalPlugins {
+# Official plugins installed into the default build artifacts. They remain separate PF4J artifacts and retain
+# their runtime required/optional semantics; this list only controls build-time staging. Douyin is intentionally
+# excluded and remains available on demand from the plugin market / full-offline distribution.
+function Get-OfficialDefaultInstalledPlugins {
     [CmdletBinding()]
-    param([switch]$IncludeSentinel)
-    $plugins = @(
+    param()
+    $plugins = @(Get-OfficialRequiredPlugins)
+    $plugins += @(
         [pscustomobject]@{
             Id = "gui-theme"; Module = "pixivdownload-plugin-gui-theme"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/guitheme/";
@@ -48,7 +49,6 @@ function Get-OfficialOptionalPlugins {
         [pscustomobject]@{ Id = "duplicate"; Module = "pixivdownload-plugin-duplicate"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "gallery"; Module = "pixivdownload-plugin-gallery"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "novel"; Module = "pixivdownload-plugin-novel"; Format = "jar"; PrivateLibs = $false },
-        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "notification"; Module = "pixivdownload-plugin-notification"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "push"; Module = "pixivdownload-plugin-push"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{
@@ -64,6 +64,17 @@ function Get-OfficialOptionalPlugins {
         [pscustomobject]@{ Id = "tts"; Module = "pixivdownload-plugin-tts"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "ai"; Module = "pixivdownload-plugin-ai"; Format = "jar"; PrivateLibs = $false }
     )
+    return $plugins
+}
+
+# Official plugins not installed by the default build. recovery-sentinel is a recovery-mode validation fixture,
+# not a user-facing official plugin, so it is only ever included on demand (assembler -IncludeSentinel).
+function Get-OfficialOptionalPlugins {
+    [CmdletBinding()]
+    param([switch]$IncludeSentinel)
+    $plugins = @(
+        [pscustomobject]@{ Id = "douyin"; Module = "pixivdownload-plugin-douyin"; Format = "jar"; PrivateLibs = $false }
+    )
     if ($IncludeSentinel) {
         $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }
     }
@@ -76,7 +87,7 @@ function Get-OfficialDistributionPlugins {
         [switch]$IncludeOptional,
         [switch]$IncludeSentinel
     )
-    $plugins = @(Get-OfficialRequiredPlugins)
+    $plugins = @(Get-OfficialDefaultInstalledPlugins)
     if ($IncludeOptional) {
         $plugins += @(Get-OfficialOptionalPlugins -IncludeSentinel:$IncludeSentinel)
     } elseif ($IncludeSentinel) {

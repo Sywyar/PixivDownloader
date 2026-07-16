@@ -138,7 +138,7 @@ class StatsExternalPluginIntegrationTest {
         PluginDescriptor descriptor = stats.descriptor();
         assertThat(descriptor.id()).isEqualTo("stats");
         assertThat(descriptor.sourcePluginId()).isEqualTo("stats");
-        assertThat(descriptor.version()).isEqualTo("1.0.1");
+        assertThat(descriptor.version()).isEqualTo("1.0.0");
         assertThat(descriptor.pluginClass()).isEqualTo("top.sywyar.pixivdownload.stats.StatsPf4jPlugin");
         assertThat(descriptor.requires().present()).isTrue();
         assertThat(descriptor.isApiCompatible()).isTrue();

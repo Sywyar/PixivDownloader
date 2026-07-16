@@ -175,6 +175,7 @@ class PluginMarketPageGuardTest {
         List<String> critical = List.of(
                 "nav.label", "plugin.summary", "page.heading", "seg.market", "seg.installed",
                 "section.repositories", "sidebar.browse", "filter.official", "filter.compatible",
+                "filter.hide-default-installed", "filter.hide-dependencies",
                 "category.all", "category.all.description",
                 "category.translate", "category.translate.description",
                 "category.download-type", "category.download-type.description",
@@ -197,6 +198,35 @@ class PluginMarketPageGuardTest {
             assertThat(zh.getProperty(key)).as("zh 缺关键键 %s", key).isNotBlank();
             assertThat(en.getProperty(key)).as("en 缺关键键 %s", key).isNotBlank();
         }
+    }
+
+    @Test
+    @DisplayName("默认安装与依赖筛选消费目录中性字段，默认开启且 Vue / 基础回退视图一致")
+    void defaultInstalledAndDependencyFiltersStayDataDrivenAndConsistent() throws IOException {
+        String data = read(DATA);
+        String vue = read(VUE);
+        String fallback = read(FALLBACK);
+
+        assertThat(data).as("默认安装判定只读 catalog market.defaultInstalled，缺字段自然为 false")
+                .contains("m.defaultInstalled", "D.entryDefaultInstalled", "opts.hideDefaultInstalled");
+        assertThat(data).as("依赖插件判定只读中性 category=dependency")
+                .contains("D.entryCategory(entry) === 'dependency'", "opts.hideDependencies");
+        assertThat(data).as("数据层不得按具体插件 id 判断默认安装或依赖")
+                .doesNotContain("'douyin'")
+                .doesNotContain("'download-workbench'");
+
+        assertThat(vue).as("Vue 主视图应提供两个默认开启的筛选并传给共享数据层")
+                .contains("filter.hide-default-installed", "filter.hide-dependencies",
+                        "hideDefaultInstalled: true", "hideDependencies: true",
+                        "hideDefaultInstalled: this.hideDefaultInstalled",
+                        "hideDependencies: this.hideDependencies",
+                        ":aria-label=\"t(\\'filter.hide-default-installed\\'",
+                        ":aria-label=\"t(\\'filter.hide-dependencies\\'");
+        assertThat(fallback).as("基础回退视图应提供同名、同默认值的筛选并传给共享数据层")
+                .contains("filter.hide-default-installed", "filter.hide-dependencies",
+                        "hideDefaultInstalled: true", "hideDependencies: true",
+                        "data-pmk-filter", "hideDefaultInstalled: state.hideDefaultInstalled",
+                        "hideDependencies: state.hideDependencies");
     }
 
     @Test

@@ -39,6 +39,14 @@
         var m = market(entry);
         return !!(m && m.recommended);
     };
+    // “默认安装”是 catalog 明确投影的中性展示事实；旧 / 社区清单缺字段时按 false，绝不据插件 id 或本机安装态猜测。
+    D.entryDefaultInstalled = function (entry) {
+        var m = market(entry);
+        return !!(m && m.defaultInstalled);
+    };
+    D.entryDependency = function (entry) {
+        return D.entryCategory(entry) === 'dependency';
+    };
     D.entryTags = function (entry) {
         var m = market(entry);
         return (m && Array.isArray(m.tags)) ? m.tags : [];
@@ -166,6 +174,8 @@
     // —— 筛选 + 搜索 + 排序 ——
     function matches(entry, opts) {
         if (opts.category && opts.category !== 'all' && D.entryCategory(entry) !== opts.category) return false;
+        if (opts.hideDefaultInstalled && D.entryDefaultInstalled(entry)) return false;
+        if (opts.hideDependencies && D.entryDependency(entry)) return false;
         if (opts.onlyOfficial && !D.entryOfficial(entry)) return false;
         // 「仅兼容当前版本」按条目自身的兼容标记（= 最新可安装版本是否被当前核心 API 满足）判定，而非派生的
         // installStatus —— 已安装但最新版本不兼容的条目（installStatus=INSTALLED）也应被该筛选排除。

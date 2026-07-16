@@ -66,7 +66,7 @@ public record ScheduledExecutionPlan(
     }
 
     /**
-     * 兼容 1.2 及更早插件的构造入口。未声明来源默认路由时继续继承宿主全局路由。
+     * 兼容早期 1.0 草案插件的构造入口。未声明来源默认路由时继续继承宿主全局路由。
      */
     public ScheduledExecutionPlan(
             Set<String> requiredWorkTypes,

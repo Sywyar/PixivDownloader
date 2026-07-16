@@ -81,6 +81,14 @@
 '          <div class="pmk-side-divider"></div>',
 '          <div class="pmk-side-label">{{ t(\'sidebar.filter\', \'筛选\') }}</div>',
 '          <div class="pmk-filter">',
+'            <span class="pmk-filter-label"><i class="fa-solid fa-box-archive pmk-fi-default"></i>{{ t(\'filter.hide-default-installed\', \'隐藏默认安装插件\') }}</span>',
+'            <button type="button" class="pmk-switch" :class="{on: hideDefaultInstalled}" :aria-pressed="hideDefaultInstalled" :aria-label="t(\'filter.hide-default-installed\', \'隐藏默认安装插件\')" @click="hideDefaultInstalled = !hideDefaultInstalled"></button>',
+'          </div>',
+'          <div class="pmk-filter">',
+'            <span class="pmk-filter-label"><i class="fa-solid fa-layer-group pmk-fi-dependency"></i>{{ t(\'filter.hide-dependencies\', \'隐藏依赖插件\') }}</span>',
+'            <button type="button" class="pmk-switch" :class="{on: hideDependencies}" :aria-pressed="hideDependencies" :aria-label="t(\'filter.hide-dependencies\', \'隐藏依赖插件\')" @click="hideDependencies = !hideDependencies"></button>',
+'          </div>',
+'          <div class="pmk-filter">',
 '            <span class="pmk-filter-label"><i class="fa-solid fa-circle-check pmk-fi-official"></i>{{ t(\'filter.official\', \'仅官方插件\') }}</span>',
 '            <button class="pmk-switch" :class="{on: onlyOfficial}" :aria-pressed="onlyOfficial" @click="onlyOfficial = !onlyOfficial"></button>',
 '          </div>',
@@ -306,6 +314,8 @@
                     category: 'all',
                     search: '',
                     sort: 'recommended',
+                    hideDefaultInstalled: true,
+                    hideDependencies: true,
                     onlyOfficial: false,
                     onlyCompatible: false,
                     selectedPluginId: null,
@@ -320,7 +330,9 @@
                 filteredEntries: function () {
                     this.i18nRev; // 语言变化时重排（名称排序依赖本地化名）
                     return PMK.data.filterAndSort(this.entries, {
-                        category: this.category, search: this.search, onlyOfficial: this.onlyOfficial,
+                        category: this.category, search: this.search,
+                        hideDefaultInstalled: this.hideDefaultInstalled, hideDependencies: this.hideDependencies,
+                        onlyOfficial: this.onlyOfficial,
                         onlyCompatible: this.onlyCompatible, sort: this.sort
                     });
                 },

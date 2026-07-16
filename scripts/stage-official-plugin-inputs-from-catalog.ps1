@@ -4,10 +4,10 @@
 
 .DESCRIPTION
     Downloads manifest.json + manifest.json.sig from the official plugin repository, verifies the
-    manifest with the built-in official trust root, then downloads the required official plugin
-    artifacts (and optional artifacts when -IncludeOptional is set). Each artifact is verified using
-    the structured package signature embedded in the catalog and is staged with adjacent .sig and
-    .sha256 sidecars for downstream packaging scripts.
+    manifest with the built-in official trust root, then downloads the canonical default-installed
+    official plugin artifacts (plus on-demand artifacts when -IncludeOptional is set). Each artifact
+    is verified using the structured package signature embedded in the catalog and is staged with
+    adjacent .sig and .sha256 sidecars for downstream packaging scripts.
 #>
 [CmdletBinding()]
 param(
@@ -15,7 +15,7 @@ param(
     [string]$OutputDir,
     [Parameter(Mandatory = $true)][string]$SignatureToolJar,
     [switch]$IncludeOptional,
-    [string]$CoreApiVersion = "1.3.0"
+    [string]$CoreApiVersion = "1.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -146,10 +146,6 @@ function Assert-CatalogPackage($Plugin, $Package) {
 }
 
 $OutputDir = Assert-SafeRemovableDir $OutputDir $ProjectRoot
-if (Test-Path -LiteralPath $OutputDir) {
-    Remove-Item -LiteralPath $OutputDir -Recurse -Force
-}
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 $workDir = Join-Path ([System.IO.Path]::GetTempPath()) ("pixivdownload-plugin-catalog-" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $workDir | Out-Null
@@ -177,12 +173,60 @@ try {
     }
 
     $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional:$IncludeOptional)
+    $catalogIds = @(
+        @(Get-Prop $manifest "entries") |
+            ForEach-Object { [string](Get-Prop $_ "pluginId") } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Sort-Object -Unique
+    )
+    $missingPluginIds = @()
+    $incompatiblePluginIds = @()
+    $stagingPlans = @()
     foreach ($plugin in $plugins) {
-        Write-Step "Staging signed plugin '$($plugin.Id)'"
         $entry = Find-CatalogEntry $manifest $plugin.Id
-        if ($null -eq $entry) { throw "Plugin $($plugin.Id) not found in official catalog." }
+        if ($null -eq $entry) {
+            $missingPluginIds += $plugin.Id
+            continue
+        }
         $package = Select-CatalogPackage $entry
+        if ($null -eq $package) {
+            $incompatiblePluginIds += $plugin.Id
+            continue
+        }
         Assert-CatalogPackage $plugin $package
+        $stagingPlans += [pscustomobject]@{
+            Plugin = $plugin
+            Package = $package
+        }
+    }
+
+    $problems = @()
+    if ($missingPluginIds.Count -gt 0) {
+        $problems += "missing canonical plugin id(s): $($missingPluginIds -join ', ')"
+    }
+    if ($incompatiblePluginIds.Count -gt 0) {
+        $problems += "no package compatible with core API $CoreApiVersion for: $($incompatiblePluginIds -join ', ')"
+    }
+    if ($problems.Count -gt 0) {
+        $available = if ($catalogIds.Count -gt 0) { $catalogIds -join ", " } else { "<none>" }
+        $generatedTime = [string](Get-Prop $manifest "generatedTime")
+        if ([string]::IsNullOrWhiteSpace($generatedTime)) { $generatedTime = "<unknown>" }
+        throw ("Official catalog is not synchronized with this source tree ({0}). " +
+            "Catalog URL: {1}. Catalog generatedTime: {2}. Available catalog plugin ids: {3}. " +
+            "Publish the current official plugins first, pass a matching -ManifestUrl, or use " +
+            "package-installer-with-plugins.ps1 -PluginSource Local with the official signing key.") -f `
+            ($problems -join "; "), $rawManifestUrl, $generatedTime, $available
+    }
+
+    if (Test-Path -LiteralPath $OutputDir) {
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+
+    foreach ($plan in $stagingPlans) {
+        $plugin = $plan.Plugin
+        $package = $plan.Package
+        Write-Step "Staging signed plugin '$($plugin.Id)'"
 
         $version = [string](Get-Prop $package "version")
         $assetName = Get-OfficialPluginArtifactName $plugin $version

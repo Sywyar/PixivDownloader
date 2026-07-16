@@ -6,8 +6,8 @@
 # The image consumes a signed distribution directory. Do not copy Maven target plugin
 # jars here: required plugins must include .sha256, .sig, provenance, and manifest
 # sidecars so PluginRuntimeManager can verify them before PF4J loads them.
-# Optional plugins, including gallery, novel and duplicate in full-offline distributions, are copied
-# with plugins/ as-is; only required download-workbench is enforced below.
+# Default-installed plugins and the on-demand Douyin artifact are copied from the signed
+# distribution as-is; only required download-workbench is enforced below.
 FROM eclipse-temurin:17-jre
 
 ARG PIXIVDOWNLOADER_DISTRIBUTION=build/dist/default-downloader

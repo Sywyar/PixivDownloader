@@ -21,7 +21,7 @@
 ## 功能特点
 
 > [!NOTE]
-> 部分功能由官方可选插件提供；Windows 安装包预置必需的 `download-workbench`，离线全量包会携带全部官方可选插件。
+> 官方插件仍以独立 PF4J JAR 运行；Windows 安装包会在构建期预置除 `douyin` 外的全部面向用户的官方插件，离线全量包还会携带 `douyin`。
 
 - 一站式下载网页，支持快捷获取、批量导入单作品、User 模式、Search 模式、系列模式
 - 快捷获取：凭已保存的 Cookie 一键拉取本账户的收藏（插画/小说，含不公开）、自己的作品（含不公开）、关注列表、珍藏集，可钻取查看并加入下载队列
@@ -63,17 +63,18 @@
 
 | 类型                                  | 说明                                 |
 |-------------------------------------|------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows 安装包，支持修复/更改/卸载，可选安装 FFmpeg 与官方可选插件 |
-| `PixivDownload-*-full-offline.zip`  | 离线全量包，需 Java 17+；包含核心壳、必需的 `download-workbench` 与全部官方可选插件 |
+| `PixivDownload-*-win-x64-setup.exe` | Windows 安装包，支持修复/更改/卸载，可选安装 FFmpeg；构建期预置除 `douyin` 外的全部面向用户的官方插件 |
+| `PixivDownload-*-full-offline.zip`  | 离线全量包，需 Java 17+；包含核心壳与全部面向用户的官方插件（含 `douyin`） |
 
 ### 安装包与官方插件
 
 当前发布包采用外置插件布局：
 
 - `download-workbench` 是 required 外置插件，提供下载页、下载 API、队列、userscript 入口、Pixiv 插画代理和计划任务宿主。Windows 安装包与离线全量包会随包携带它；缺失、损坏、不兼容或验签失败时，程序进入恢复路径，只开放登录、插件管理和安装修复入口。
-- `stats`、`duplicate`、`gallery`、`novel`、`douyin`、`tts`、`ai`、`push`、`mail`、`gui-theme`、`notification` 是官方可选插件。安装并启用后对应页面、API、静态资源、i18n、导航、GUI 配置字段或能力贡献可用；缺失或禁用时这些入口自然缺席，不会触发恢复路径。
+- `stats`、`duplicate`、`gallery`、`novel`、`tts`、`ai`、`push`、`mail`、`gui-theme`、`notification` 会作为默认安装插件在构建期预置到 Windows 安装包和默认 portable 的 `plugins/`；它们仍是独立外置插件，不进入核心 boot JAR。
+- `douyin` 是当前唯一不默认安装的官方插件，可在插件市场按需安装；离线全量包会额外携带它。
 - GitHub Release 仅提供 Windows 安装包和 full-offline package（离线全量包）。独立核心壳 JAR 与默认下载器包仍用于构建 / 恢复流程，不作为普通下载附件发布。
-- Windows 安装包携带 required `download-workbench`，并可在附加功能页从签名官方清单安装可选插件；full-offline package（离线全量包）在此基础上携带全部官方可选插件与离线验签所需文件。
+- Windows 安装包的插件选择页暂时跳过，原有清单投影、下载、验签和安装逻辑仍保留；full-offline package（离线全量包）在默认预置集合基础上额外携带 `douyin` 与离线验签所需文件。
 - `duplicate` 缺失或禁用不影响下载完成后的图片 Hash 写入，也不会删除历史 Hash 数据。
 - `gallery` 缺失或禁用只影响本地画廊、作品详情、展示 API、导航和相关静态资源；下载页、下载 API、userscript、Pixiv 插画代理、计划任务宿主、作品元数据、下载事实、Hash 与本地资源索引仍正常保留。
 - `novel` 缺失或禁用时，小说下载、小说 Pixiv 代理、小说核心 API、计划任务小说执行器、翻译 / 合订 / 正文保存入口、小说画廊、小说阅读页、导航、静态资源和 i18n 均缺席；历史小说正文、翻译状态、narration 数据、合订结果与元数据保留，重新安装后继续可读。

@@ -110,13 +110,13 @@ class PluginMarketServiceTest {
                 Map.of("zh", "示例"), Map.of(), Map.of(), "author", "community",
                 "download", List.of("tag"), "javascript:alert(1)", "MIT",
                 4.5, 10, 1000L, null, null, "1.0.0", "2026-06-01",
-                "<script>", "rgb(1,2,3)", true, false);
+                "<script>", "rgb(1,2,3)", true, false, true);
         PluginCatalogMarketMeta downloadTypeMeta = new PluginCatalogMarketMeta(
                 Map.of(), Map.of(), Map.of(), null, null, "download-type", List.of(),
-                null, null, null, null, null, null, null, null, null, null, null, false, false);
+                null, null, null, null, null, null, null, null, null, null, null, false, false, false);
         PluginCatalogMarketMeta dependencyMeta = new PluginCatalogMarketMeta(
                 Map.of(), Map.of(), Map.of(), null, null, "dependency", List.of(),
-                null, null, null, null, null, null, null, null, null, null, null, false, false);
+                null, null, null, null, null, null, null, null, null, null, null, false, false, false);
         PluginCatalogManifest manifest = new PluginCatalogManifest("1", null, List.of(
                 new PluginCatalogEntry("a", "a", "plugin.name", null, unsafe, List.of(
                         new PluginCatalogPackage("1.0.0", "https://x/a.jar", 100L, "ab", null, null,
@@ -148,6 +148,7 @@ class PluginMarketServiceTest {
         assertThat(market.iconToken()).isEqualTo(CatalogPresentationToken.DEFAULT_ICON);
         assertThat(market.colorToken()).isEqualTo(CatalogPresentationToken.DEFAULT_COLOR);
         assertThat(market.homepageUrl()).isNull();
+        assertThat(market.defaultInstalled()).isTrue();
         assertThat(view.entries().get(0).latestVersion()).isEqualTo("1.0.0");
         // 无已安装插件（空状态报告）→ 有版本制品的条目（a）未安装、无版本制品的条目（b/c/d）不可安装；已安装数 0。
         assertThat(view.installedCount()).isZero();

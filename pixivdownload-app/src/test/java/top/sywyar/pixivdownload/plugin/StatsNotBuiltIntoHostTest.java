@@ -4,24 +4,23 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-
-import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
- * 未安装 stats 外置插件时的核心默认语义（requirement：未安装 stats 时其导航 / route / static / i18n contribution
- * 不进入活动 registry）。stats 已从内置组合根 {@link BuiltInPlugins} 移出、改为外置 PF4J 插件，故仅由内置插件
- * 构建的各下游注册中心里<b>不应有任何 stats 贡献</b>——其页面 / API 因「未声明即 404」不可达。
+ * stats 外置插件不编入宿主核心壳的边界。默认发行包会在构建期把 stats artifact 预置到 {@code plugins/}，但 stats
+ * 仍已从内置组合根 {@link BuiltInPlugins} 移出，因此仅由内置插件构建的各下游注册中心里<b>不应有任何 stats 贡献</b>。
  *
  * <p>真实「放入外置 stats jar 后启动加载、以 EXTERNAL 来源接入并注册 stats 贡献」由
  * {@link StatsExternalPluginIntegrationTest} 用真实插件 jar 覆盖。统计事实底层表（{@code statistics}）归核心、
  * 不随 stats 是否安装而增删（核心 schema 由 {@code CoreSchemaContribution} 声明、与 stats 无关），故此处不涉及。
  */
-@DisplayName("未安装 stats 外置插件：内置注册中心无任何 stats 贡献")
-class StatsNotInstalledByDefaultTest {
+@DisplayName("stats 不编入宿主核心壳：内置注册中心无任何 stats 贡献")
+class StatsNotBuiltIntoHostTest {
 
     private final PluginRegistry registry = new PluginRegistry(BuiltInPlugins.createAll());
 

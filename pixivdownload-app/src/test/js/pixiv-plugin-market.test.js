@@ -59,7 +59,8 @@ function entry(id, name, summary, iconToken, colorToken, category) {
             totalDownloadCount: 0,
             iconToken: iconToken,
             colorToken: colorToken,
-            recommended: true
+            recommended: true,
+            defaultInstalled: false
         },
         packages: [],
         installStatus: 'NOT_INSTALLED',
@@ -103,5 +104,45 @@ const categoryList = PMK.data.categoryList({categories: [
 ]});
 eq('下载类型扩展分类使用后端派生计数', categoryList.find(cat => cat.id === 'download-type').count, 2);
 eq('依赖分类使用后端派生计数', categoryList.find(cat => cat.id === 'dependency').count, 1);
+
+const defaultInstalled = entry('bundled-tool', '默认内置工具', 'summary', 'puzzle-piece', 'green', 'utility');
+defaultInstalled.market.defaultInstalled = true;
+const manuallyInstalled = entry('manual-tool', '手动安装工具', 'summary', 'puzzle-piece', 'blue', 'utility');
+manuallyInstalled.installStatus = 'INSTALLED';
+manuallyInstalled.installedVersion = '1.0.0';
+const dependency = entry('shared-base', '共享依赖', 'summary', 'layer-group', 'teal', 'dependency');
+const legacyEntry = entry('legacy-tool', '旧清单工具', 'summary', 'puzzle-piece', 'amber', 'utility');
+delete legacyEntry.market.defaultInstalled;
+const filteredIds = PMK.data.filterAndSort(
+    [defaultInstalled, manuallyInstalled, dependency, legacyEntry],
+    {
+        category: 'all', search: '', sort: 'name', onlyOfficial: false, onlyCompatible: false,
+        hideDefaultInstalled: true, hideDependencies: true
+    }
+).map(item => item.pluginId).sort().join(',');
+eq('默认开启两个隐藏筛选时只排除 catalog 标记的默认内置项与依赖分类', filteredIds,
+    'legacy-tool,manual-tool');
+const hideDefaultOnlyIds = PMK.data.filterAndSort(
+    [defaultInstalled, manuallyInstalled, dependency, legacyEntry],
+    {category: 'all', search: '', sort: 'name', hideDefaultInstalled: true, hideDependencies: false}
+).map(item => item.pluginId).sort().join(',');
+eq('只隐藏默认安装插件时仍显示依赖插件', hideDefaultOnlyIds,
+    'legacy-tool,manual-tool,shared-base');
+const hideDependenciesOnlyIds = PMK.data.filterAndSort(
+    [defaultInstalled, manuallyInstalled, dependency, legacyEntry],
+    {category: 'all', search: '', sort: 'name', hideDefaultInstalled: false, hideDependencies: true}
+).map(item => item.pluginId).sort().join(',');
+eq('只隐藏依赖插件时仍显示默认安装插件', hideDependenciesOnlyIds,
+    'bundled-tool,legacy-tool,manual-tool');
+const showAllIds = PMK.data.filterAndSort(
+    [defaultInstalled, manuallyInstalled, dependency, legacyEntry],
+    {category: 'all', search: '', sort: 'name', hideDefaultInstalled: false, hideDependencies: false}
+).map(item => item.pluginId).sort().join(',');
+eq('关闭两个隐藏筛选后恢复全部条目', showAllIds,
+    'bundled-tool,legacy-tool,manual-tool,shared-base');
+ok('手动安装状态不冒充默认安装事实', !PMK.data.entryDefaultInstalled(manuallyInstalled));
+ok('旧清单缺 defaultInstalled 字段时稳定视为非默认安装', !PMK.data.entryDefaultInstalled(legacyEntry));
+ok('依赖判定只消费中性 category', PMK.data.entryDependency(dependency));
+ok('默认安装判定不硬编码任何插件 id', DATA_SRC.includes('m.defaultInstalled') && !DATA_SRC.includes("'douyin'"));
 
 console.log('pixiv-plugin-market.test.js: ' + passed + ' assertions passed');

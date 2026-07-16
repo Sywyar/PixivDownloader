@@ -144,6 +144,7 @@ function Resolve-LocalizedTextMap([string]$module, [string]$namespace, [string]$
 
 $curation = Read-Json $CurationFile
 $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
+$defaultInstalledPluginIds = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Id })
 
 # Fetch the previously published manifest to preserve cumulative download counts.
 $existingManifestUrl = "https://raw.githubusercontent.com/$Repo/master/manifest.json"
@@ -271,6 +272,7 @@ try {
             colorToken       = $colorToken
             recommended      = [bool]$c.recommended
             officialRequired = [bool]$c.officialRequired
+            defaultInstalled = ($defaultInstalledPluginIds -contains $id)
         }
 
         $package = [ordered]@{

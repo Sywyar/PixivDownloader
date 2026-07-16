@@ -1,16 +1,18 @@
 <#
 .SYNOPSIS
-    Build the Windows installer with signed catalog inputs or current-source local test plugins.
+    Build the Windows installer with official plugin inputs.
 
 .DESCRIPTION
     One-command wrapper for local installer verification:
 
       1. Build the app boot jar and plugin signature CLI.
-      2. Use the signed catalog (default), or build current-source plugins for an explicit unsigned local test.
+      2. Use either the signed plugin repository catalog (default) or locally built official plugins.
       3. Build only the Windows setup package through package-local.ps1.
 
-    Local mode requires -AllowUnsignedLocalPlugins. It stages every current-source user plugin except Douyin
-    with explicit LOCAL_UPLOAD provenance and never changes the catalog or release verification policy.
+    Catalog mode requires the signed catalog to contain the canonical default-installed plugin set.
+    Local mode builds that set from the current source tree and normally requires the official signing key.
+    -AllowUnsignedLocalPlugins creates a local-test-only installer using explicit LOCAL_UPLOAD provenance;
+    it never changes the catalog or release verification policy.
 #>
 [CmdletBinding()]
 param(
@@ -20,7 +22,9 @@ param(
     [string]$ManifestUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
     [string]$PluginInputsDir,
     [string]$SignatureToolJar,
-    [string]$CoreApiVersion = "1.3.0",
+    [string]$CoreApiVersion = "1.0.0",
+    [string]$OfficialKeyId,
+    [string]$PrivateKeyFile,
     [switch]$AllowUnsignedLocalPlugins,
     [switch]$RunTests
 )
@@ -87,11 +91,21 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 if ($AllowUnsignedLocalPlugins -and $PluginSource -ne "Local") {
     throw "AllowUnsignedLocalPlugins can only be used with -PluginSource Local."
 }
-if ($PluginSource -eq "Local" -and -not $AllowUnsignedLocalPlugins) {
-    throw "PluginSource Local requires -AllowUnsignedLocalPlugins and is only for local testing."
-}
-if ($AllowUnsignedLocalPlugins -and -not [string]::IsNullOrWhiteSpace($SignatureToolJar)) {
-    throw "AllowUnsignedLocalPlugins cannot be combined with SignatureToolJar."
+if ($PluginSource -eq "Local" -and $AllowUnsignedLocalPlugins) {
+    if (-not [string]::IsNullOrWhiteSpace($OfficialKeyId) -or
+        -not [string]::IsNullOrWhiteSpace($PrivateKeyFile) -or
+        -not [string]::IsNullOrWhiteSpace($SignatureToolJar)) {
+        throw "AllowUnsignedLocalPlugins cannot be combined with OfficialKeyId, PrivateKeyFile, or SignatureToolJar."
+    }
+} elseif ($PluginSource -eq "Local") {
+    if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) {
+        throw "OfficialKeyId is required when -PluginSource Local is used."
+    }
+    if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or
+        -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
+        throw "PrivateKeyFile is required when -PluginSource Local is used and must point to an Ed25519 PKCS#8 PEM file."
+    }
+    $PrivateKeyFile = (Resolve-Path -LiteralPath $PrivateKeyFile).Path
 }
 if (-not (Test-Path -LiteralPath $StagePluginsScript -PathType Leaf)) {
     throw "Missing script: $StagePluginsScript"
@@ -106,14 +120,12 @@ try {
 
     $mavenProjects = @("pixivdownload-plugin-signature", "pixivdownload-app")
     if ($PluginSource -eq "Local") {
-        $localPluginModules = @(Get-OfficialDistributionPlugins -IncludeOptional |
-            Where-Object { $_.Id -ne "douyin" } |
-            ForEach-Object { $_.Module })
-        $mavenProjects += $localPluginModules
+        $defaultPluginModules = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Module })
+        $mavenProjects += $defaultPluginModules
     }
     $mavenProjects = @($mavenProjects | Select-Object -Unique)
 
-    Write-Step "Building application jar and selected plugin inputs"
+    Write-Step "Building application jar, signature tool, and selected plugin inputs"
     $mavenArgs = @(
         "-pl", ($mavenProjects -join ","),
         "-am",
@@ -127,7 +139,7 @@ try {
     Invoke-External $maven $mavenArgs
 
     $resolvedSignatureToolJar = ""
-    if ($PluginSource -eq "Catalog") {
+    if (-not $AllowUnsignedLocalPlugins) {
         Write-Step "Resolving signature tool and boot jar"
         $resolvedSignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
         if ([string]::IsNullOrWhiteSpace($resolvedSignatureToolJar)) {
@@ -148,20 +160,27 @@ try {
         SkipPortable = $true
         SkipOfflinePortable = $true
     }
+    if ($AllowUnsignedLocalPlugins) {
+        $packageArgs.AllowUnsignedLocalPlugins = $true
+    } else {
+        $packageArgs.SignatureToolJar = $resolvedSignatureToolJar
+    }
+
     if ($PluginSource -eq "Catalog") {
         Write-Step "Staging official plugin inputs from signed catalog"
         & $StagePluginsScript `
             -ManifestUrl $ManifestUrl `
             -OutputDir $PluginInputsDir `
             -SignatureToolJar $resolvedSignatureToolJar `
-            -CoreApiVersion $CoreApiVersion `
-            -IncludeOptional
+            -CoreApiVersion $CoreApiVersion
         $packageArgs.PrebuiltPluginsDir = $PluginInputsDir
-        $packageArgs.SignatureToolJar = $resolvedSignatureToolJar
-    } else {
-        Write-Step "Using current-source plugins without signatures (LOCAL TEST ONLY)"
+    } elseif ($AllowUnsignedLocalPlugins) {
+        Write-Step "Using current-source default-installed plugins without signatures (LOCAL TEST ONLY)"
         Write-Host "Do not distribute the resulting installer or app image." -ForegroundColor Red
-        $packageArgs.AllowUnsignedLocalPlugins = $true
+    } else {
+        Write-Step "Using locally built default-installed plugins with official signing"
+        $packageArgs.OfficialKeyId = $OfficialKeyId
+        $packageArgs.PrivateKeyFile = $PrivateKeyFile
     }
 
     Write-Step "Building Windows installer"

@@ -113,6 +113,8 @@ class PluginReleaseScriptsTest {
 
         assertThat(common).contains(
                 "function Get-OfficialRequiredPlugins",
+                "function Get-OfficialDefaultInstalledPlugins",
+                "function Get-OfficialOptionalPlugins",
                 "Id = \"download-workbench\"",
                 "Module = \"pixivdownload-plugin-download-workbench\"",
                 "Id = \"douyin\"",
@@ -161,6 +163,9 @@ class PluginReleaseScriptsTest {
                 "summary          = $summary",
                 "iconToken        = $iconToken",
                 "colorToken       = $colorToken");
+        assertThat(generator).contains(
+                "$defaultInstalledPluginIds = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Id })",
+                "defaultInstalled = ($defaultInstalledPluginIds -contains $id)");
         assertThat(generator).doesNotContain(
                 "$c.displayName",
                 "$c.summary",
@@ -192,6 +197,9 @@ class PluginReleaseScriptsTest {
             assertThat(entry.path("officialRequired").asBoolean())
                     .as("%s officialRequired should mirror required plugin policy, not replace it", pluginId)
                     .isEqualTo("download-workbench".equals(pluginId));
+            assertThat(entry.has("defaultInstalled"))
+                    .as("%s defaultInstalled is derived from the distribution source", pluginId)
+                    .isFalse();
 
             Map<String, String> descriptor = readProperties(repoRoot().resolve(plugin.module())
                     .resolve("src/main/resources/plugin.properties"));
@@ -220,6 +228,57 @@ class PluginReleaseScriptsTest {
 
         assertThat(curation.path("notification").path("category").asText()).isEqualTo("dependency");
         assertThat(curation.path("douyin").path("category").asText()).isEqualTo("download-type");
+    }
+
+    @Test
+    @DisplayName("默认安装集合包含除 Douyin 外的全部用户插件，optional 集合仅保留 Douyin")
+    void distributionSeparatesDefaultInstalledAndOnDemandPlugins() throws Exception {
+        String common = script("plugin-distribution-common.ps1");
+        Matcher defaultInstalled = Pattern.compile(
+                "function Get-OfficialDefaultInstalledPlugins(?<body>.*?)function Get-OfficialOptionalPlugins",
+                Pattern.DOTALL).matcher(common);
+        assertThat(defaultInstalled.find()).isTrue();
+        assertThat(defaultInstalled.group("body")).contains(
+                "Get-OfficialRequiredPlugins",
+                "Id = \"gui-theme\"", "Id = \"stats\"", "Id = \"duplicate\"",
+                "Id = \"gallery\"", "Id = \"novel\"", "Id = \"notification\"",
+                "Id = \"push\"", "Id = \"mail\"", "Id = \"tts\"", "Id = \"ai\"")
+                .doesNotContain("Id = \"douyin\"", "Id = \"recovery-sentinel\"");
+
+        Matcher optional = Pattern.compile(
+                "function Get-OfficialOptionalPlugins(?<body>.*?)function Get-OfficialDistributionPlugins",
+                Pattern.DOTALL).matcher(common);
+        assertThat(optional.find()).isTrue();
+        assertThat(optional.group("body")).contains("Id = \"douyin\"")
+                .doesNotContain("Id = \"stats\"", "Id = \"gallery\"");
+        assertThat(common).contains("$plugins = @(Get-OfficialDefaultInstalledPlugins)");
+    }
+
+    @Test
+    @DisplayName("Windows 升级按随包 manifest 清理同 id 旧包，保留清单外插件")
+    void installerUpgradeReconcilesOnlyBundledDefaultPluginIds() throws Exception {
+        String inno = innoScript();
+        String installerInstall = innoSupportScript("installer-plugin-install.ps1");
+
+        assertThat(installerInstall).contains(
+                "ParameterSetName = \"Reconcile\"",
+                "[switch]$ReconcileBundledDefaults",
+                "function Reconcile-BundledDefaultPlugins",
+                "Get-Prop $entry \"id\"",
+                "Get-Prop $entry \"version\"",
+                "Get-Prop $entry \"file\"",
+                "Read-PluginDescriptorFromPackage $stableArtifact",
+                "Remove-SupersededInstalledPlugins $pluginsDir $pluginId $stableArtifact",
+                "\"$($artifact.FullName).sig.json\"");
+        assertThat(inno).contains(
+                "procedure ReconcileBundledDefaultPlugins;",
+                "{app}\\plugins\\plugins-manifest.json",
+                "-ReconcileBundledDefaults",
+                "ewWaitUntilTerminated",
+                "(CurStep = ssPostInstall) and ShouldInstallApplicationFiles");
+        assertThat(inno).doesNotContain(
+                "{app}\\plugins\\douyin-*",
+                "Type: filesandordirs; Name: \"{app}\\plugins\"");
     }
 
     @Test
@@ -264,7 +323,9 @@ class PluginReleaseScriptsTest {
                 "CoreShellOnly and DefaultDownloader cannot be combined.");
         assertThat(windows).contains(
                 "$OfficialPluginCatalogUrl = \"https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json\"",
-                "$InstallerPluginApiVersion = \"1.3.0\"",
+                "$InstallerPluginApiVersion = \"1.0.0\"",
+                "$EnableInstallerPluginSelection = $false",
+                "Get-OfficialDefaultInstalledPlugins",
                 "Stage-InstallerPluginCatalogSnapshot",
                 "Write-InstallerPluginCatalogProjection",
                 "Write-InstallerPluginCatalogInclude",
@@ -276,9 +337,9 @@ class PluginReleaseScriptsTest {
                 "catalog.en.txt",
                 "catalog.zh-CN.txt",
                 "installer-plugin-catalog-items.iss.inc",
+                "Get-InstallerCatalogProp $market \"defaultInstalled\"",
+                "if ($EnableInstallerPluginSelection)",
                 "[switch]$AllowUnsignedLocalPlugins",
-                "Get-OfficialDistributionPlugins -IncludeOptional",
-                "Where-Object { $_.Id -ne \"douyin\" }",
                 "Write-UnsignedLocalPluginProvenanceSidecar",
                 "LOCAL-UNSIGNED-BUILD.txt",
                 "AllowUnsignedLocalPlugins only accepts plugin artifacts built from the current source tree",
@@ -287,19 +348,28 @@ class PluginReleaseScriptsTest {
                 "out-local-unsigned",
                 "$AppName-$Version-LOCAL-UNSIGNED-win-x64-setup.exe",
                 "Move-Item -LiteralPath $SetupPath -Destination $LocalUnsignedSetupPath -Force",
-                "$installerPluginCatalogEnabled = if ($SkipPlugins -or $AllowUnsignedLocalPlugins) { \"0\" } else { \"1\" }",
+                "$installerPluginCatalogEnabled = if ((-not $SkipPlugins) -and $EnableInstallerPluginSelection) { \"1\" } else { \"0\" }",
                 "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
                 "/DSignatureToolJar=$SignatureToolJar");
         assertThat(catalogStage).contains(
-                "[string]$CoreApiVersion = \"1.3.0\"",
+                "[string]$CoreApiVersion = \"1.0.0\"",
                 "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
                 "\"verify-manifest\"",
                 "Assert-PluginArtifactSignature",
                 "Get-OfficialDistributionPlugins -IncludeOptional:$IncludeOptional",
+                "$missingPluginIds = @()",
+                "$incompatiblePluginIds = @()",
+                "$stagingPlans = @()",
+                "Official catalog is not synchronized with this source tree",
+                "Catalog generatedTime:",
+                "package-installer-with-plugins.ps1 -PluginSource Local with the official signing key",
                 "[System.IO.File]::WriteAllText($artifactSignaturePath",
                 "$artifactPath.sha256");
+        assertThat(catalogStage.indexOf("Remove-Item -LiteralPath $OutputDir -Recurse -Force"))
+                .as("catalog 完整性预检失败时不得删除既有 plugin inputs")
+                .isGreaterThan(catalogStage.indexOf("if ($problems.Count -gt 0)"));
         assertThat(inno).contains(
-                "#define PluginApiVersion \"1.3.0\"",
+                "#define PluginApiVersion \"1.0.0\"",
                 "#define InstallerPluginCatalogEnabled \"0\"",
                 "#error SignatureToolJar must be defined when InstallerPluginCatalogEnabled is 1.",
                 "#if InstallerPluginCatalogEnabled == \"1\"",
@@ -364,7 +434,7 @@ class PluginReleaseScriptsTest {
                 "FinishInstallerPluginCatalogLoad",
                 "ExtractPluginInstallerSupportFiles");
         assertThat(installerInstall).contains(
-                "[string]$CoreApiVersion = \"1.3.0\"",
+                "[string]$CoreApiVersion = \"1.0.0\"",
                 "$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)",
                 "$Utf8NoBom.GetBytes($Value + \"`n\")",
                 "function Escape-StateField",
@@ -384,29 +454,29 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("本地一键安装器脚本支持签名 catalog 与显式当前源码 unsigned 测试输入")
-    void oneShotInstallerScriptSupportsCatalogAndExplicitUnsignedLocalInputs() throws Exception {
+    @DisplayName("本地一键安装器脚本支持签名 catalog、当前源码官方签名及显式本地 unsigned 测试输入")
+    void oneShotInstallerScriptSupportsCatalogSignedLocalAndExplicitUnsignedLocalInputs() throws Exception {
         String script = script("package-installer-with-plugins.ps1");
 
         assertThat(script).contains(
-                "[string]$CoreApiVersion = \"1.3.0\"",
+                "[string]$CoreApiVersion = \"1.0.0\"",
                 "[ValidateSet(\"Catalog\", \"Local\")]",
                 "[string]$PluginSource = \"Catalog\"",
+                "[string]$OfficialKeyId",
+                "[string]$PrivateKeyFile",
                 "[switch]$AllowUnsignedLocalPlugins",
-                "Get-OfficialDistributionPlugins -IncludeOptional",
-                "Where-Object { $_.Id -ne \"douyin\" }",
+                "Get-OfficialDefaultInstalledPlugins",
                 "$mavenProjects = @($mavenProjects | Select-Object -Unique)",
                 "if ($PluginSource -eq \"Catalog\")",
                 "stage-official-plugin-inputs-from-catalog.ps1",
                 "package-local.ps1",
                 "Resolve-SignatureToolJar",
                 "SignatureToolJar must not be empty.",
-                "-IncludeOptional",
                 "$packageArgs.PrebuiltPluginsDir = $PluginInputsDir",
-                "$packageArgs.SignatureToolJar = $resolvedSignatureToolJar",
+                "$packageArgs.OfficialKeyId = $OfficialKeyId",
+                "$packageArgs.PrivateKeyFile = $PrivateKeyFile",
                 "AllowUnsignedLocalPlugins can only be used with -PluginSource Local.",
-                "PluginSource Local requires -AllowUnsignedLocalPlugins",
-                "AllowUnsignedLocalPlugins cannot be combined with SignatureToolJar.",
+                "AllowUnsignedLocalPlugins cannot be combined with OfficialKeyId, PrivateKeyFile, or SignatureToolJar.",
                 "$packageArgs.AllowUnsignedLocalPlugins = $true",
                 "LOCAL TEST ONLY",
                 "SkipPortable = $true",
@@ -416,11 +486,14 @@ class PluginReleaseScriptsTest {
                 "PixivDownload-$Version-win-x64-setup.exe"
         );
         assertThat(script).doesNotContain(
-                "-SkipPlugins",
-                "OfficialKeyId",
-                "PrivateKeyFile"
+                "-IncludeOptional",
+                "-SkipPlugins"
         );
+    }
 
+    @Test
+    @DisplayName("本地 unsigned 安装器开关不得进入正式分发或发布 workflow")
+    void unsignedLocalInstallerModeIsExcludedFromDistributionAndReleaseWorkflows() throws Exception {
         assertThat(script("assemble-plugin-distribution.ps1")).doesNotContain("AllowUnsignedLocalPlugins");
         assertThat(script("stage-official-plugin-inputs-from-catalog.ps1"))
                 .doesNotContain("AllowUnsignedLocalPlugins");
@@ -577,36 +650,30 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("官方插件使用独立版本且恢复验证夹具保持初始版本")
-    void officialPluginVersionsDoNotReusePublishedAssets() throws Exception {
-        for (String module : List.of(
-                "pixivdownload-plugin-download-workbench", "pixivdownload-plugin-stats",
-                "pixivdownload-plugin-duplicate",
-                "pixivdownload-plugin-notification", "pixivdownload-plugin-gui-theme",
-                "pixivdownload-plugin-push", "pixivdownload-plugin-mail",
-                "pixivdownload-plugin-tts", "pixivdownload-plugin-ai")) {
-            assertThat(pluginDescriptor(module)).as(module).contains("plugin.version=1.0.1");
+    @DisplayName("所有未发布官方插件统一使用初始版本 1.0.0 和首个核心 API 1.0")
+    void officialPluginVersionsStartAtInitialVersion() throws Exception {
+        String common = script("plugin-distribution-common.ps1");
+        for (OfficialPlugin plugin : officialDistributionPlugins(common)) {
+            assertThat(pluginDescriptor(plugin.module())).as(plugin.id())
+                    .contains("plugin.version=1.0.0", "plugin.requires=1.0");
         }
-        assertThat(pluginDescriptor("pixivdownload-plugin-gallery")).contains("plugin.version=1.0.2");
-        assertThat(pluginDescriptor("pixivdownload-plugin-novel")).contains("plugin.version=1.0.0");
-        assertThat(pluginDescriptor("pixivdownload-plugin-douyin")).contains("plugin.version=1.0.1");
         assertThat(pluginDescriptor("pixivdownload-plugin-recovery-sentinel"))
-                .contains("plugin.version=1.0.0");
-        assertThat(script("plugin-distribution-common.ps1"))
+                .contains("plugin.version=1.0.0", "plugin.requires=1.0");
+        assertThat(common)
                 .contains("Id = \"douyin\"", "Module = \"pixivdownload-plugin-douyin\"");
     }
 
     @Test
-    @DisplayName("Douyin 下载类型 descriptor 包声明最低核心 API 1.3")
-    void douyinDescriptorDeclaresItsMinimumCoreApi() throws Exception {
+    @DisplayName("市场清单从 descriptor 投影初始核心 API 要求")
+    void marketManifestProjectsInitialCoreApi() throws Exception {
         String descriptor = pluginDescriptor("pixivdownload-plugin-douyin");
 
         assertThat(descriptor)
-                .contains("plugin.requires=1.3")
+                .contains("plugin.requires=1.0")
                 .doesNotContain(
-                        "plugin.requires=1.0",
                         "plugin.requires=1.1",
-                        "plugin.requires=1.2");
+                        "plugin.requires=1.2",
+                        "plugin.requires=1.3");
         assertThat(script("generate-market-manifest.ps1")).contains(
                 "$requires = $d[\"plugin.requires\"]",
                 "requiredCoreApi   = (Get-RequiredCoreApi $requires)");

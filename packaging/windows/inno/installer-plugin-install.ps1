@@ -1,13 +1,16 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Install")]
 param(
-    [Parameter(Mandatory = $true)][string]$ManifestFile,
-    [Parameter(Mandatory = $true)][string]$PluginIds,
-    [Parameter(Mandatory = $true)][string]$InstallDir,
-    [Parameter(Mandatory = $true)][string]$ProgressFile,
-    [Parameter(Mandatory = $true)][string]$SignatureToolJar,
-    [Parameter(Mandatory = $true)][string]$JavaPath,
-    [string]$ProxyUrl,
-    [string]$CoreApiVersion = "1.3.0"
+    [Parameter(Mandatory = $true, ParameterSetName = "Reconcile")][switch]$ReconcileBundledDefaults,
+    [Parameter(Mandatory = $true, ParameterSetName = "Install")]
+    [Parameter(Mandatory = $true, ParameterSetName = "Reconcile")][string]$ManifestFile,
+    [Parameter(Mandatory = $true, ParameterSetName = "Install")][string]$PluginIds,
+    [Parameter(Mandatory = $true, ParameterSetName = "Install")]
+    [Parameter(Mandatory = $true, ParameterSetName = "Reconcile")][string]$InstallDir,
+    [Parameter(Mandatory = $true, ParameterSetName = "Install")][string]$ProgressFile,
+    [Parameter(Mandatory = $true, ParameterSetName = "Install")][string]$SignatureToolJar,
+    [Parameter(Mandatory = $true, ParameterSetName = "Install")][string]$JavaPath,
+    [Parameter(ParameterSetName = "Install")][string]$ProxyUrl,
+    [Parameter(ParameterSetName = "Install")][string]$CoreApiVersion = "1.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -207,12 +210,14 @@ function Import-ZipFileAssembly {
     throw "Unable to load System.IO.Compression.ZipFile assembly."
 }
 
-function Read-PluginIdFromPackage([string]$Path) {
+function Read-PluginDescriptorFromPackage([string]$Path) {
     Import-ZipFileAssembly
     $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
     try {
         $entry = $archive.GetEntry("plugin.properties")
-        if ($null -eq $entry) { return "" }
+        if ($null -eq $entry) {
+            return [pscustomobject]@{ PluginId = ""; Version = "" }
+        }
         $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
         try {
             $text = $reader.ReadToEnd()
@@ -222,17 +227,23 @@ function Read-PluginIdFromPackage([string]$Path) {
     } finally {
         $archive.Dispose()
     }
+    $pluginId = ""
+    $version = ""
     foreach ($line in ($text -split "`r?`n")) {
         $trimmed = $line.Trim()
         if ($trimmed -eq "" -or $trimmed.StartsWith("#")) { continue }
         $idx = $trimmed.IndexOf("=")
         if ($idx -lt 1) { continue }
         $key = $trimmed.Substring(0, $idx).Trim()
-        if ($key -eq "plugin.id") {
-            return $trimmed.Substring($idx + 1).Trim()
-        }
+        $value = $trimmed.Substring($idx + 1).Trim()
+        if ($key -eq "plugin.id") { $pluginId = $value }
+        if ($key -eq "plugin.version") { $version = $value }
     }
-    return ""
+    return [pscustomobject]@{ PluginId = $pluginId; Version = $version }
+}
+
+function Read-PluginIdFromPackage([string]$Path) {
+    return (Read-PluginDescriptorFromPackage $Path).PluginId
 }
 
 function Remove-ArtifactWithCompanions([string]$ArtifactPath) {
@@ -242,12 +253,60 @@ function Remove-ArtifactWithCompanions([string]$ArtifactPath) {
         $artifact.FullName,
         "$($artifact.FullName).sha256",
         "$($artifact.FullName).sig",
+        "$($artifact.FullName).sig.json",
         "$($artifact.FullName).pixiv-plugin-provenance",
         $provenance
     )) {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Force -ErrorAction Stop
         }
+    }
+}
+
+function Reconcile-BundledDefaultPlugins([string]$BundledManifestFile, [string]$ApplicationDir) {
+    if (-not (Test-Path -LiteralPath $BundledManifestFile -PathType Leaf)) {
+        throw "Bundled plugin manifest not found: $BundledManifestFile"
+    }
+    $pluginsDir = Join-Path $ApplicationDir "plugins"
+    if (-not (Test-Path -LiteralPath $pluginsDir -PathType Container)) {
+        throw "Bundled plugin directory not found: $pluginsDir"
+    }
+    # Windows PowerShell 5.1 can preserve a JSON array as one pipeline object when it is wrapped
+    # directly in @(...). Assign first, then normalize, so every manifest entry is iterated.
+    $parsedManifest = Get-Content -LiteralPath $BundledManifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    $entries = @($parsedManifest)
+    if ($entries.Count -eq 0) {
+        throw "Bundled plugin manifest is empty."
+    }
+    $seenIds = @{}
+    foreach ($entry in $entries) {
+        $pluginId = [string](Get-Prop $entry "id")
+        $version = [string](Get-Prop $entry "version")
+        $file = [string](Get-Prop $entry "file")
+        if ([string]::IsNullOrWhiteSpace($pluginId) -or
+            [string]::IsNullOrWhiteSpace($version) -or
+            [string]::IsNullOrWhiteSpace($file)) {
+            throw "Bundled plugin manifest entry is missing id, version, or file."
+        }
+        if ($seenIds.ContainsKey($pluginId)) {
+            throw "Bundled plugin manifest contains duplicate id: $pluginId"
+        }
+        $seenIds[$pluginId] = $true
+        $fileName = [System.IO.Path]::GetFileName($file)
+        $extension = [System.IO.Path]::GetExtension($fileName).ToLowerInvariant()
+        if ([System.IO.Path]::IsPathRooted($file) -or $fileName -ne $file -or
+            ($extension -ne ".jar" -and $extension -ne ".zip")) {
+            throw "Unsafe bundled plugin file name for ${pluginId}: $file"
+        }
+        $stableArtifact = Join-Path $pluginsDir $fileName
+        if (-not (Test-Path -LiteralPath $stableArtifact -PathType Leaf)) {
+            throw "Bundled plugin artifact not found for ${pluginId}: $stableArtifact"
+        }
+        $descriptor = Read-PluginDescriptorFromPackage $stableArtifact
+        if ($descriptor.PluginId -ne $pluginId -or $descriptor.Version -ne $version) {
+            throw "Bundled plugin descriptor does not match manifest for $pluginId."
+        }
+        Remove-SupersededInstalledPlugins $pluginsDir $pluginId $stableArtifact
     }
 }
 
@@ -391,6 +450,16 @@ function Enable-Plugin([string]$PluginId) {
         $lines.Add($line)
     }
     [System.IO.File]::WriteAllText($configPath, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+}
+
+if ($ReconcileBundledDefaults) {
+    try {
+        Reconcile-BundledDefaultPlugins $ManifestFile $InstallDir
+        exit 0
+    } catch {
+        Write-Error (Format-Error $_)
+        exit 1
+    }
 }
 
 try {

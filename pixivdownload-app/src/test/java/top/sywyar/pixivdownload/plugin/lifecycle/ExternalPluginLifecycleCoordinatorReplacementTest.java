@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
@@ -53,7 +54,8 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         Path retiredArtifact = Path.of("plugins", "legacy-theme-1.0.0.jar");
         PluginDescriptor descriptor = new PluginDescriptor("gui-theme", "gui-theme", "1.1.0",
                 PluginApiRequirement.parse("1.0"), List.of(), "example.ThemePlugin", null,
-                "theme.label", null, null, null, PluginKind.FEATURE, List.of(retiredId));
+                "theme.label", null, null, null, PluginKind.FEATURE, List.of(retiredId),
+                PluginLifecyclePolicy.PROCESS_RESTART);
         PluginInstallResult result = new PluginInstallResult(PluginInstallOutcome.INSTALLED, descriptor,
                 Path.of("plugins", "gui-theme-1.1.0.jar"), null, List.of());
         PreparedPluginTransaction prepared = new PreparedPluginTransaction("tx", result,

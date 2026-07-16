@@ -49,7 +49,8 @@ $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
 $FfmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
 $OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
-$InstallerPluginApiVersion = "1.3.0"
+$InstallerPluginApiVersion = "1.0.0"
+$EnableInstallerPluginSelection = $false
 $InstallerCatalogDirName = "installer-catalog"
 $InstallerCatalogIncludePath = Join-Path $BuildRoot "installer-plugin-catalog-items.iss.inc"
 $FfmpegExe = Join-Path $FfmpegDir "ffmpeg.exe"
@@ -247,6 +248,8 @@ function Stage-OfficialPlugins {
                 Remove-Item -LiteralPath $signatureSidecar -Force -ErrorAction SilentlyContinue
             }
             $signature = $null
+            $provenanceSource = "LOCAL_UPLOAD"
+            $verificationStatus = "UNSIGNED_ALLOWED"
             [void](Write-UnsignedLocalPluginProvenanceSidecar $targetArtifact $verifiedAt)
         } else {
             if ([string]::IsNullOrWhiteSpace($SignatureToolJar)) {
@@ -262,6 +265,8 @@ function Stage-OfficialPlugins {
                 -OfficialKeyId $OfficialKeyId `
                 -PrivateKeyFile $PrivateKeyFile `
                 -OutputPath "$targetArtifact.sig"
+            $provenanceSource = "MARKET_CATALOG"
+            $verificationStatus = "VERIFIED"
             [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
                 $sha $signature $verifiedAt)
         }
@@ -272,10 +277,13 @@ function Stage-OfficialPlugins {
             required = ($requiredPluginIds -contains $plugin.Id)
             file     = $stableName
             sha256   = $sha
+            source   = $provenanceSource
+            verification = $verificationStatus
             signature = $signature
         }
         $sumLines += "$sha  $stableName"
-        Write-Host ("    OK: staged {0} (id {1}, sha256 {2})." -f $stableName, $plugin.Id, $sha) -ForegroundColor Green
+        Write-Host ("    OK: staged {0} (id {1}, sha256 {2}, verification {3})." -f `
+            $stableName, $plugin.Id, $sha, $verificationStatus) -ForegroundColor Green
     }
     # Checksums + manifest live alongside the jars inside plugins/ (paths relative to plugins/).
     [System.IO.File]::WriteAllText((Join-Path $pluginsDir "SHA256SUMS"), (($sumLines -join "`n") + "`n"), $utf8NoBom)
@@ -431,6 +439,7 @@ function New-InstallerCatalogProjectionRows {
         if ([string]::IsNullOrWhiteSpace($pluginId)) { continue }
         $market = Get-InstallerCatalogProp $entry "market"
         if ([bool](Get-InstallerCatalogProp $market "officialRequired")) { continue }
+        if ([bool](Get-InstallerCatalogProp $market "defaultInstalled")) { continue }
         $pkg = Select-InstallerCatalogPackage $entry
         if (-not (Test-InstallerCatalogInstallablePackage $pkg $CoreApiVersion)) { continue }
         $rows.Add([pscustomobject]@{
@@ -714,28 +723,22 @@ try {
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
 
-    # The explicit local unsigned installer stages every current-source user plugin except Douyin.
-    # Normal signed packaging keeps the existing required-plugin/default-downloader behavior.
+    # Stage all default-installed external plugins into the online app-image before packaging. They remain
+    # separate PF4J artifacts; only Douyin is left for on-demand installation / the full-offline image.
     if (-not $SkipPlugins) {
-        if ($AllowUnsignedLocalPlugins) {
-            Write-Step "Staging current-source default plugins without signatures (local test only)"
-            $onlinePlugins = @(Get-OfficialDistributionPlugins -IncludeOptional |
-                Where-Object { $_.Id -ne "douyin" })
-        } else {
-            Write-Step "Staging official required external plugins into app-image plugins/"
-            $onlinePlugins = @(Get-OfficialRequiredPlugins)
-        }
-        $onlinePluginCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -Plugins $onlinePlugins `
+        Write-Step "Staging official default-installed external plugins into app-image plugins/"
+        $defaultInstalledPlugins = @(Get-OfficialDefaultInstalledPlugins)
+        $defaultInstalledCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -Plugins $defaultInstalledPlugins `
             -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
             -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
             -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
-        Write-Host ("    {0} plugin(s) staged under plugins/." -f $onlinePluginCount) -ForegroundColor Green
+        Write-Host ("    {0} official default-installed plugin(s) staged under plugins/." -f $defaultInstalledCount) -ForegroundColor Green
 
-        if ($AllowUnsignedLocalPlugins) {
-            Write-Step "Skipping installer plugin catalog for local unsigned test build"
-        } else {
+        if ($EnableInstallerPluginSelection) {
             Write-Step "Staging signed installer plugin catalog snapshot"
             Stage-InstallerPluginCatalogSnapshot -AppDir $OnlineAppDir -SignatureToolJar $SignatureToolJar
+        } else {
+            Write-Step "Skipping installer plugin selection (temporarily disabled; implementation retained)"
         }
     } else {
         Write-Step "Skipping plugin staging (-SkipPlugins): core shell only; required plugin missing triggers recovery"
@@ -758,7 +761,7 @@ try {
             $fullOfflineCount = Stage-OfficialPlugins -AppDir $OfflineAppDir -Plugins $fullOfflinePlugins `
                 -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
                 -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
-                -SignatureToolJar $SignatureToolJar
+                -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
             Write-Host ("    {0} official plugin(s) staged under plugins/ (full-offline)." -f $fullOfflineCount) -ForegroundColor Green
         }
         $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
@@ -777,7 +780,7 @@ try {
         $innoCompiler = & $PrepareInnoAdminLoaderScript -CompilerPath $innoCompilerSource -OutputDirectory $InnoToolchainDir
 
         Write-Step "Building Windows setup"
-        $installerPluginCatalogEnabled = if ($SkipPlugins -or $AllowUnsignedLocalPlugins) { "0" } else { "1" }
+        $installerPluginCatalogEnabled = if ((-not $SkipPlugins) -and $EnableInstallerPluginSelection) { "1" } else { "0" }
         Invoke-External $innoCompiler @(
             "/DAppVersion=$Version",
             "/DInstallerVersion=$InstallerVersion",
@@ -812,7 +815,7 @@ try {
     if ($AllowUnsignedLocalPlugins) {
         Write-Host "Plugins       : LOCAL TEST ONLY; current-source defaults, unsigned LOCAL_UPLOAD provenance" -ForegroundColor Red
     } elseif (-not $SkipPlugins) {
-        Write-Host "Plugins       : required plugins in default package; optional plugins only in full-offline portable"
+        Write-Host "Plugins       : all user-facing official plugins except Douyin in default package; Douyin added by full-offline"
     } else {
         Write-Host "Plugins       : none bundled (-SkipPlugins; core shell recovery package)"
     }
