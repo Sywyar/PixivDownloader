@@ -282,12 +282,12 @@ public class NovelDatabase {
         return novelMapper.countAll();
     }
 
-    /** Returns the subset of the given novel ids that have already been downloaded. */
-    public List<Long> getExistingNovelIds(java.util.Collection<Long> novelIds) {
+    /** Returns existing download records and their current soft-delete state in one snapshot query. */
+    public List<NovelDownloadedStatusRow> getDownloadedStatuses(java.util.Collection<Long> novelIds) {
         if (novelIds == null || novelIds.isEmpty()) {
             return List.of();
         }
-        return novelMapper.findExistingNovelIds(novelIds);
+        return novelMapper.findDownloadedStatuses(novelIds);
     }
 
     public void updateExtensions(long novelId, String extensions) {

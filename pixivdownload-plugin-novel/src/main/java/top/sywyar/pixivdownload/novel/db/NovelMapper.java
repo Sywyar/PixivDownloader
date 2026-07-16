@@ -517,11 +517,11 @@ public interface NovelMapper {
 
     @Select({
             "<script>",
-            "SELECT novel_id FROM novels WHERE deleted = 0 AND novel_id IN",
+            "SELECT novel_id AS novelId, deleted FROM novels WHERE novel_id IN",
             "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
             "</script>"
     })
-    List<Long> findExistingNovelIds(@Param("ids") Collection<Long> ids);
+    List<NovelDownloadedStatusRow> findDownloadedStatuses(@Param("ids") Collection<Long> ids);
 
     @Select("SELECT COUNT(*) FROM novel_collections WHERE collection_id = #{collectionId}")
     long countNovelsByCollectionId(@Param("collectionId") long collectionId);

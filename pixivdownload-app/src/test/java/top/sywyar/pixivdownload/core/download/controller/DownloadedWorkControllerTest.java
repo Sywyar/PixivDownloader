@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.response.StatisticsResponse;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.hamcrest.Matchers.*;
 import static org.mockito.Mockito.*;
@@ -125,13 +126,14 @@ class DownloadedWorkControllerTest {
     // ========== POST /api/downloaded/batch ==========
 
     @Test
-    @DisplayName("POST /api/downloaded/batch 应批量返回作品信息")
+    @DisplayName("POST /api/downloaded/batch 默认仅批量返回有效作品")
     void shouldReturnBatchArtworks() throws Exception {
         ArtworkRecord record1 = new ArtworkRecord(1L, "A", "/a", 1, "jpg", 100L, false, null, null, null, true, null, null);
         ArtworkRecord record2 = new ArtworkRecord(2L, "B", "/b", 2, "png", 200L, false, null, null, null, false, null, null);
-        when(downloadedArtworkService.getDownloadedRecord(1L)).thenReturn(record1);
-        when(downloadedArtworkService.getDownloadedRecord(2L)).thenReturn(record2);
-        when(downloadedArtworkService.getDownloadedRecord(3L)).thenReturn(null);
+        ArtworkRecord deleted = new ArtworkRecord(3L, "C", "/c", 1, "jpg", 300L,
+                false, null, null, null, false, null, null, null, null, null, null,
+                true, null, null);
+        when(pixivDatabase.getArtworks(List.of(1L, 2L, 3L))).thenReturn(List.of(record1, record2, deleted));
 
         mockMvc.perform(post("/api/downloaded/batch")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -141,7 +143,34 @@ class DownloadedWorkControllerTest {
                 .andExpect(jsonPath("$.artworks[0].artworkId").value(1))
                 .andExpect(jsonPath("$.artworks[0].isAi").value(true))
                 .andExpect(jsonPath("$.artworks[1].artworkId").value(2))
-                .andExpect(jsonPath("$.artworks[1].isAi").value(false));
+                .andExpect(jsonPath("$.artworks[1].isAi").value(false))
+                .andExpect(jsonPath("$.deletedArtworkIds", empty()));
+
+        verify(pixivDatabase).getArtworks(List.of(1L, 2L, 3L));
+        verify(pixivDatabase).getArtworkTags(List.of(1L, 2L));
+        verify(pixivDatabase).getFileNameTemplates(Set.of(1L));
+        verify(pixivDatabase, never()).getArtworkTags(anyLong());
+        verify(pixivDatabase, never()).getFileNameTemplate(anyLong());
+        verify(downloadedArtworkService, never()).getDownloadedRecord(anyLong());
+    }
+
+    @Test
+    @DisplayName("POST /api/downloaded/batch 可将软删除记录作为独立 ID 列表返回")
+    void shouldReturnDeletedArtworkIdsSeparatelyWhenRequested() throws Exception {
+        ArtworkRecord active = new ArtworkRecord(1L, "A", "/a", 1, "jpg", 100L,
+                false, null, null, null, true, null, null);
+        ArtworkRecord deleted = new ArtworkRecord(2L, "B", "/b", 2, "png", 200L,
+                false, null, null, null, false, null, null, null, null, null, null,
+                true, null, null);
+        when(pixivDatabase.getArtworks(List.of(1L, 2L, 3L))).thenReturn(List.of(active, deleted));
+
+        mockMvc.perform(post("/api/downloaded/batch")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"artworkIds\": [1, 2, 3], \"includeDeleted\": true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.artworks", hasSize(1)))
+                .andExpect(jsonPath("$.artworks[0].artworkId").value(1))
+                .andExpect(jsonPath("$.deletedArtworkIds", contains(2)));
     }
 
     // ========== GET /api/downloaded/statistics ==========

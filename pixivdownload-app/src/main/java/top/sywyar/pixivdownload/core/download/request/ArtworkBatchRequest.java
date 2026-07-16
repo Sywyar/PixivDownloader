@@ -11,4 +11,9 @@ import java.util.List;
 @AllArgsConstructor
 public class ArtworkBatchRequest {
     private List<Long> artworkIds;
+    private boolean includeDeleted;
+
+    public ArtworkBatchRequest(List<Long> artworkIds) {
+        this(artworkIds, false);
+    }
 }

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -36,7 +37,9 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -91,20 +94,43 @@ public class DownloadedWorkController {
 
     @PostMapping("/downloaded/batch")
     public ResponseEntity<BatchArtworksResponse> getBatchArtworks(@RequestBody ArtworkBatchRequest request) {
-        List<ArtworkRecord> artworks = new LinkedList<>();
-        for (Long artworkId : request.getArtworkIds()) {
-            ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
-            // 软删除的作品对历史读取面不可见（页面「已下载」标记不应命中）
-            if (artwork == null || artwork.deleted()) {
+        List<Long> requestedIds = request == null || request.getArtworkIds() == null
+                ? List.of()
+                : request.getArtworkIds().stream().filter(java.util.Objects::nonNull).toList();
+        Map<Long, ArtworkRecord> recordsById = new HashMap<>();
+        for (ArtworkRecord artwork : pixivDatabase.getArtworks(requestedIds)) {
+            recordsById.put(artwork.artworkId(), artwork);
+        }
+
+        List<ArtworkRecord> artworks = new ArrayList<>();
+        List<Long> deletedArtworkIds = new ArrayList<>();
+        for (Long artworkId : requestedIds) {
+            ArtworkRecord artwork = recordsById.get(artworkId);
+            if (artwork == null) {
+                continue;
+            }
+            if (artwork.deleted()) {
+                if (request.isIncludeDeleted()) {
+                    deletedArtworkIds.add(artworkId);
+                }
                 continue;
             }
             artworks.add(artwork);
         }
+
         Map<Long, String> authorNames = resolveAuthorNames(artworks);
+        List<Long> activeArtworkIds = artworks.stream().map(ArtworkRecord::artworkId).toList();
+        Map<Long, List<TagDto>> tagsByArtworkId = pixivDatabase.getArtworkTags(activeArtworkIds);
+        Set<Long> fileNameIds = new HashSet<>();
+        for (ArtworkRecord artwork : artworks) {
+            fileNameIds.add(resolveFileNameId(artwork));
+        }
+        Map<Long, String> fileNameTemplates = pixivDatabase.getFileNameTemplates(fileNameIds);
         List<DownloadedResponse> downloadedResponses = artworks.stream()
-                .map(artwork -> toDownloadedResponse(artwork, authorNames))
+                .map(artwork -> toDownloadedResponse(
+                        artwork, authorNames, tagsByArtworkId, fileNameTemplates))
                 .toList();
-        return ResponseEntity.ok(new BatchArtworksResponse(downloadedResponses));
+        return ResponseEntity.ok(new BatchArtworksResponse(downloadedResponses, deletedArtworkIds));
     }
 
     @GetMapping("/downloaded/statistics")
@@ -253,6 +279,22 @@ public class DownloadedWorkController {
 
     private DownloadedResponse toDownloadedResponse(ArtworkRecord artwork, Map<Long, String> authorNames) {
         List<TagDto> tags = pixivDatabase.getArtworkTags(artwork.artworkId());
+        long fileNameId = resolveFileNameId(artwork);
+        Map<Long, String> fileNameTemplates = new HashMap<>();
+        fileNameTemplates.put(fileNameId, pixivDatabase.getFileNameTemplate(fileNameId));
+        return toDownloadedResponse(
+                artwork,
+                authorNames,
+                tags == null ? Map.of() : Map.of(artwork.artworkId(), tags),
+                fileNameTemplates);
+    }
+
+    private DownloadedResponse toDownloadedResponse(
+            ArtworkRecord artwork,
+            Map<Long, String> authorNames,
+            Map<Long, List<TagDto>> tagsByArtworkId,
+            Map<Long, String> fileNameTemplates) {
+        long fileNameId = resolveFileNameId(artwork);
         return DownloadedResponse.builder()
                 .artworkId(artwork.artworkId())
                 .title(artwork.title())
@@ -269,8 +311,8 @@ public class DownloadedWorkController {
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
                 .description(artwork.description())
                 .fileName(artwork.fileName())
-                .fileNameTemplate(pixivDatabase.getFileNameTemplate(resolveFileNameId(artwork)))
-                .tags(tags)
+                .fileNameTemplate(ArtworkFileNameFormatter.normalizeTemplate(fileNameTemplates.get(fileNameId)))
+                .tags(tagsByArtworkId.getOrDefault(artwork.artworkId(), List.of()))
                 .deleted(artwork.deleted())
                 .build();
     }

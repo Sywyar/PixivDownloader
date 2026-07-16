@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
@@ -31,6 +32,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -442,14 +444,35 @@ public class NovelGalleryController {
 
     @PostMapping("/novels/downloaded-batch")
     public ResponseEntity<NovelDownloadedBatchResponse> downloadedBatch(
-            @RequestBody NovelDownloadedBatchRequest request) {
+            @RequestBody NovelDownloadedBatchRequest request,
+            HttpServletRequest httpRequest) {
         List<Long> ids = request == null || request.novelIds() == null ? List.of() : request.novelIds();
-        return ResponseEntity.ok(new NovelDownloadedBatchResponse(novelDatabase.getExistingNovelIds(ids)));
+        boolean includeDeleted = request != null
+                && request.includeDeleted()
+                && GuestAccessGuard.extractSession(httpRequest) == null;
+        List<Long> downloadedIds = new ArrayList<>();
+        List<Long> deletedIds = new ArrayList<>();
+        for (NovelDownloadedStatusRow status : novelDatabase.getDownloadedStatuses(ids)) {
+            if (status.deleted()) {
+                if (includeDeleted) deletedIds.add(status.novelId());
+            } else {
+                downloadedIds.add(status.novelId());
+            }
+        }
+        return ResponseEntity.ok(new NovelDownloadedBatchResponse(downloadedIds, deletedIds));
     }
 
-    public record NovelDownloadedBatchRequest(List<Long> novelIds) {}
+    public record NovelDownloadedBatchRequest(List<Long> novelIds, boolean includeDeleted) {
+        public NovelDownloadedBatchRequest(List<Long> novelIds) {
+            this(novelIds, false);
+        }
+    }
 
-    public record NovelDownloadedBatchResponse(List<Long> novelIds) {}
+    public record NovelDownloadedBatchResponse(List<Long> novelIds, List<Long> deletedNovelIds) {
+        public NovelDownloadedBatchResponse(List<Long> novelIds) {
+            this(novelIds, List.of());
+        }
+    }
 
     public record NovelContentResponse(String content, String lang, boolean translated,
                                        String translatedTitle, String translatedDescription) {}

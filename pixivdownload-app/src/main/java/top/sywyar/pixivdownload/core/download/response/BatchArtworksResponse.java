@@ -9,4 +9,9 @@ import java.util.List;
 @AllArgsConstructor
 public class BatchArtworksResponse {
     private final List<DownloadedResponse> artworks;
+    private final List<Long> deletedArtworkIds;
+
+    public BatchArtworksResponse(List<DownloadedResponse> artworks) {
+        this(artworks, List.of());
+    }
 }
