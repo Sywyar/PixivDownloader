@@ -211,13 +211,6 @@ public final class FieldRenderer {
      * 布局：[标签] [控件 + 帮助文字 + 需重启标记]
      */
     private static RenderedPanel renderFieldPanel(ConfigFieldSpec spec, JComponent control) {
-        JLabel effect = new JLabel(message(spec.requiresRestart()
-                ? "gui.label.restart-required"
-                : "gui.label.hot-reload"));
-        effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
-        effect.setForeground(spec.requiresRestart()
-                ? new Color(180, 100, 0)
-                : new Color(0, 128, 96));
         JTextArea validationError = createTextArea("");
         validationError.setForeground(VALIDATION_ERROR_COLOR);
         validationError.setVisible(false);
@@ -225,13 +218,32 @@ public final class FieldRenderer {
         return new RenderedPanel(buildFieldPanel(
                 spec.label() + message("gui.punctuation.colon"),
                 control,
-                effect,
+                buildEffectLabel(spec.requiresRestart()),
                 spec.helpText(),
                 validationError), validationError);
     }
 
     public static JPanel fieldPanel(String labelText, JComponent control, JComponent effect, String helpText) {
         return buildFieldPanel(labelText, control, effect, helpText, null);
+    }
+
+    /**
+     * 为不进入普通字段注册表、但仍需采用标准配置项外观的控件构建统一字段面板。
+     */
+    public static JPanel fieldPanel(String labelText, JComponent control,
+                                    boolean requiresRestart, String helpText) {
+        return buildFieldPanel(labelText, control, buildEffectLabel(requiresRestart), helpText, null);
+    }
+
+    private static JLabel buildEffectLabel(boolean requiresRestart) {
+        JLabel effect = new JLabel(message(requiresRestart
+                ? "gui.label.restart-required"
+                : "gui.label.hot-reload"));
+        effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
+        effect.setForeground(requiresRestart
+                ? new Color(180, 100, 0)
+                : new Color(0, 128, 96));
+        return effect;
     }
 
     private static JPanel buildFieldPanel(String labelText, JComponent control, JComponent effect,

@@ -158,7 +158,8 @@ public class MainFrame extends JFrame {
         toolsPanel = new ToolsPanel(configPath);
         // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件市场 / 管理页」。
         configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
-                ConfigFieldRegistry.snapshot(guiConfigContributions()));
+                ConfigFieldRegistry.snapshot(guiConfigContributions()),
+                this::reloadLocale, statusPanel::isUpdateInstalling);
         pluginsPanel = new PluginsPanel(serverPort, statusPanel::getWebUrl);
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);

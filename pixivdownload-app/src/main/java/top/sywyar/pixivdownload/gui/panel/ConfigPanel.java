@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSectionContext;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigFieldRows;
+import top.sywyar.pixivdownload.gui.panel.configtab.ConfigMenuTree;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigSectionResolver;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -30,6 +31,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 /**
@@ -58,6 +60,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final String currentMode;
     /** Web 页 URL 构造器（scheme 按 SSL、主机名按域名推导），供「打开 Web 插件市场」入口复用。 */
     private final Function<String, String> webUrlProvider;
+    private final Runnable onLocaleChanged;
+    private final BooleanSupplier languageChangeBlocked;
 
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
@@ -78,6 +82,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     /** 提示条（保存后显示） */
     private final JLabel noticeBar = new JLabel(" ");
 
+    /** 配置导航只遍历这棵显式树，避免把 section 内部的切换控件误当成菜单。 */
+    private final JTabbedPane topTabs = new JTabbedPane(JTabbedPane.TOP);
+    private final Map<JTabbedPane, List<ConfigMenuTree.Node<JComponent>>> renderedMenuNodes =
+            new IdentityHashMap<>();
+    private ConfigMenuTree<JComponent> configMenuTree = new ConfigMenuTree<>(List.of());
+    private boolean expandAllConfigMenus;
+
     /** 调试模式解锁监听：彩蛋触发后在 EDT 上刷新可见性并提示。面板加入/移出窗口时随之注册/注销，避免泄漏。 */
     private final Runnable debugUnlockListener = () -> SwingUtilities.invokeLater(this::onDebugUnlocked);
 
@@ -91,9 +102,18 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     public ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider,
                        ConfigFieldSnapshot fieldSnapshot) {
+        this(configPath, serverPort, webUrlProvider, fieldSnapshot, null, null);
+    }
+
+    public ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider,
+                       ConfigFieldSnapshot fieldSnapshot,
+                       Runnable onLocaleChanged,
+                       BooleanSupplier languageChangeBlocked) {
         this.configPath = configPath;
         this.serverPort = serverPort;
         this.webUrlProvider = webUrlProvider;
+        this.onLocaleChanged = onLocaleChanged == null ? () -> { } : onLocaleChanged;
+        this.languageChangeBlocked = languageChangeBlocked == null ? () -> false : languageChangeBlocked;
         this.editor = new ConfigFileEditor(configPath);
         this.currentMode = resolveCurrentMode();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
@@ -153,7 +173,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         setLayout(new BorderLayout(0, 0));
 
         List<ConfigSection> resolvedSections = new ArrayList<>();
-        JTabbedPane topTabs = new JTabbedPane(JTabbedPane.TOP);
         List<ScopedGroup> hostGroups = visibleGroups(ConfigScope.HOST).stream()
                 .map(group -> new ScopedGroup(group, ConfigScope.HOST))
                 .toList();
@@ -162,6 +181,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 .toList();
         Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope =
                 buildSectionsByScope(hostGroups, pluginGroups, resolvedSections);
+
+        List<ConfigMenuTree.Node<JComponent>> menuRoots = new ArrayList<>();
+        InterfacePreferencesPanel interfacePanel = new InterfacePreferencesPanel(
+                configPath, onLocaleChanged, languageChangeBlocked, this::setExpandAllConfigMenus);
+        expandAllConfigMenus = interfacePanel.isExpandAllSelected();
+        menuRoots.add(ConfigMenuTree.leaf(
+                "interface", message("gui.config.category.interface"), interfacePanel));
 
         Set<String> assignedHostGroupIds = new LinkedHashSet<>();
         for (TopCategory category : topCategories()) {
@@ -173,22 +199,28 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     .filter(group -> group.scope() == ConfigScope.HOST)
                     .map(group -> group.spec().id())
                     .forEach(assignedHostGroupIds::add);
-            JComponent panel = category.pluginCategory()
-                    ? buildPluginCategoryPanel(groups, sectionsByScope)
-                    : buildCategoryPanel(category, groups, sectionsByScope);
-            topTabs.addTab(category.label(), panel);
+            ConfigMenuTree.Node<JComponent> menuNode = category.pluginCategory()
+                    ? buildPluginCategoryNode(category, groups, sectionsByScope)
+                    : ConfigMenuTree.leaf(category.id(), category.label(),
+                    buildCategoryPanel(category, groups, sectionsByScope));
+            menuRoots.add(menuNode);
         }
+        int fallbackIndex = 0;
         for (ScopedGroup group : hostGroups) {
             if (assignedHostGroupIds.contains(group.spec().id())) {
                 continue;
             }
             String groupId = normalizeGroupId(group.spec().id());
-            TopCategory fallback = new TopCategory(group.label(),
+            String fallbackId = "fallback:" + (groupId == null ? fallbackIndex : groupId);
+            TopCategory fallback = new TopCategory(fallbackId, group.label(),
                     groupId == null ? Set.of() : Set.of(groupId), false, false);
-            topTabs.addTab(fallback.label(),
-                    buildCategoryPanel(fallback, List.of(group), sectionsByScope));
+            menuRoots.add(ConfigMenuTree.leaf(fallback.id(), fallback.label(),
+                    buildCategoryPanel(fallback, List.of(group), sectionsByScope)));
+            fallbackIndex++;
         }
         sections = List.copyOf(resolvedSections);
+        configMenuTree = new ConfigMenuTree<>(menuRoots);
+        renderConfigMenuTabs();
         add(topTabs, BorderLayout.CENTER);
 
         // 底部面板：提示条 + 按钮
@@ -226,17 +258,17 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private List<TopCategory> topCategories() {
         return List.of(
-                new TopCategory(message("gui.config.group.download"),
+                new TopCategory("download", message("gui.config.group.download"),
                         Set.of(GuiConfigGroups.DOWNLOAD), false, false),
-                new TopCategory(message("gui.config.category.runtime-network"),
+                new TopCategory("runtime-network", message("gui.config.category.runtime-network"),
                         Set.of(GuiConfigGroups.SERVER, GuiConfigGroups.PROXY,
                                 GuiConfigGroups.HTTPS, GuiConfigGroups.UPDATE), false, true),
-                new TopCategory(message("gui.config.category.access-control"),
+                new TopCategory("access-control", message("gui.config.category.access-control"),
                         Set.of(GuiConfigGroups.MULTI_MODE, GuiConfigGroups.GUEST_INVITE,
                                 GuiConfigGroups.SECURITY), false, true),
-                new TopCategory(message("gui.config.category.automation-maintenance"),
+                new TopCategory("automation-maintenance", message("gui.config.category.automation-maintenance"),
                         Set.of(GuiConfigGroups.SCHEDULE, GuiConfigGroups.MAINTENANCE), false, true),
-                new TopCategory(message("gui.config.group.plugins"),
+                new TopCategory("plugins", message("gui.config.group.plugins"),
                         Set.of(GuiConfigGroups.PLUGINS), true, true)
         );
     }
@@ -298,8 +330,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         return sp;
     }
 
-    private JComponent buildPluginCategoryPanel(List<ScopedGroup> groups,
-                                                Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope) {
+    private ConfigMenuTree.Node<JComponent> buildPluginCategoryNode(
+            TopCategory category,
+            List<ScopedGroup> groups,
+            Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope) {
         List<ScopedGroup> marketGroups = groups.stream()
                 .filter(group -> group.scope() == ConfigScope.HOST)
                 .toList();
@@ -307,30 +341,135 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 .filter(group -> group.scope() == ConfigScope.PLUGIN)
                 .toList();
 
-        JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
+        List<ConfigMenuTree.Node<JComponent>> children = new ArrayList<>();
         if (!marketGroups.isEmpty()) {
             TopCategory marketCategory = new TopCategory(
-                    message("gui.config.scope.plugin-market-settings"), Set.of(), false, false);
-            tabs.addTab(marketCategory.label(),
-                    buildCategoryPanel(marketCategory, marketGroups, sectionsByScope));
+                    "plugins:market", message("gui.config.scope.plugin-market-settings"),
+                    Set.of(), false, false);
+            children.add(ConfigMenuTree.leaf(marketCategory.id(), marketCategory.label(),
+                    buildCategoryPanel(marketCategory, marketGroups, sectionsByScope)));
         }
         TopCategory pluginSettingsCategory = new TopCategory(
-                message("gui.config.scope.plugins"), Set.of(), false, true);
-        tabs.addTab(pluginSettingsCategory.label(),
-                pluginSettingGroups.isEmpty()
-                        ? buildEmptyScopePanel(ConfigScope.PLUGIN)
-                        : buildPluginSettingsPanel(pluginSettingGroups, sectionsByScope));
+                "plugins:settings", message("gui.config.scope.plugins"), Set.of(), false, true);
+        ConfigMenuTree.Node<JComponent> pluginSettingsNode = pluginSettingGroups.isEmpty()
+                ? ConfigMenuTree.leaf(pluginSettingsCategory.id(), pluginSettingsCategory.label(),
+                buildEmptyScopePanel(ConfigScope.PLUGIN))
+                : ConfigMenuTree.branch(pluginSettingsCategory.id(), pluginSettingsCategory.label(),
+                buildPluginSettingNodes(pluginSettingGroups, sectionsByScope));
+        children.add(pluginSettingsNode);
+        return ConfigMenuTree.branch(category.id(), category.label(), children);
+    }
+
+    private List<ConfigMenuTree.Node<JComponent>> buildPluginSettingNodes(
+            List<ScopedGroup> pluginSettingGroups,
+            Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope) {
+        List<ConfigMenuTree.Node<JComponent>> nodes = new ArrayList<>();
+        int groupIndex = 0;
+        for (ScopedGroup group : pluginSettingGroups) {
+            String normalizedId = normalizeGroupId(group.spec().id());
+            String nodeId = "plugins:settings:"
+                    + (normalizedId == null ? "group-" + groupIndex : normalizedId + ":" + groupIndex);
+            TopCategory groupCategory = new TopCategory(
+                    nodeId, group.label(), Set.of(), false, false);
+            nodes.add(ConfigMenuTree.leaf(nodeId, group.label(),
+                    buildCategoryPanel(groupCategory, List.of(group), sectionsByScope)));
+            groupIndex++;
+        }
+        return List.copyOf(nodes);
+    }
+
+    private void setExpandAllConfigMenus(boolean expanded) {
+        if (expandAllConfigMenus == expanded) {
+            return;
+        }
+        expandAllConfigMenus = expanded;
+        // 复用同一棵树和同一批叶子组件；延后到当前复选框事件结束后再重新挂载。
+        SwingUtilities.invokeLater(this::renderConfigMenuTabs);
+    }
+
+    private void renderConfigMenuTabs() {
+        String selectedLeafId = selectedMenuLeafId(topTabs);
+        topTabs.removeAll();
+        renderedMenuNodes.clear();
+        topTabs.setTabLayoutPolicy(expandAllConfigMenus
+                ? JTabbedPane.SCROLL_TAB_LAYOUT
+                : JTabbedPane.WRAP_TAB_LAYOUT);
+
+        List<ConfigMenuTree.Node<JComponent>> visibleRoots = configMenuTree.roots(expandAllConfigMenus);
+        renderedMenuNodes.put(topTabs, visibleRoots);
+        for (ConfigMenuTree.Node<JComponent> node : visibleRoots) {
+            topTabs.addTab(node.label(), renderMenuNode(node));
+        }
+        if (selectedLeafId != null) {
+            selectMenuLeaf(topTabs, selectedLeafId);
+        }
+        topTabs.revalidate();
+        topTabs.repaint();
+    }
+
+    private JComponent renderMenuNode(ConfigMenuTree.Node<JComponent> node) {
+        if (node instanceof ConfigMenuTree.Leaf<?> leaf) {
+            return (JComponent) leaf.payload();
+        }
+        ConfigMenuTree.Branch<JComponent> branch = (ConfigMenuTree.Branch<JComponent>) node;
+        JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
+        tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        renderedMenuNodes.put(tabs, branch.children());
+        for (ConfigMenuTree.Node<JComponent> child : branch.children()) {
+            tabs.addTab(child.label(), renderMenuNode(child));
+        }
         return tabs;
     }
 
-    private JComponent buildPluginSettingsPanel(List<ScopedGroup> pluginSettingGroups,
-                                                Map<ConfigScope, Map<String, ConfigSection>> sectionsByScope) {
-        JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
-        for (ScopedGroup group : pluginSettingGroups) {
-            TopCategory groupCategory = new TopCategory(group.label(), Set.of(), false, false);
-            tabs.addTab(group.label(), buildCategoryPanel(groupCategory, List.of(group), sectionsByScope));
+    private String selectedMenuLeafId(JTabbedPane tabs) {
+        List<ConfigMenuTree.Node<JComponent>> nodes = renderedMenuNodes.get(tabs);
+        int selectedIndex = tabs.getSelectedIndex();
+        if (nodes == null || selectedIndex < 0 || selectedIndex >= nodes.size()) {
+            return null;
         }
-        return tabs;
+        ConfigMenuTree.Node<JComponent> selected = nodes.get(selectedIndex);
+        if (selected instanceof ConfigMenuTree.Leaf<?> leaf) {
+            return leaf.id();
+        }
+        Component selectedComponent = tabs.getSelectedComponent();
+        if (selectedComponent instanceof JTabbedPane nested && renderedMenuNodes.containsKey(nested)) {
+            String nestedLeafId = selectedMenuLeafId(nested);
+            if (nestedLeafId != null) {
+                return nestedLeafId;
+            }
+        }
+        ConfigMenuTree.Branch<JComponent> branch = (ConfigMenuTree.Branch<JComponent>) selected;
+        return branch.leavesDepthFirst().stream()
+                .findFirst()
+                .map(ConfigMenuTree.Leaf::id)
+                .orElse(null);
+    }
+
+    private boolean selectMenuLeaf(JTabbedPane tabs, String leafId) {
+        List<ConfigMenuTree.Node<JComponent>> nodes = renderedMenuNodes.get(tabs);
+        if (nodes == null) {
+            return false;
+        }
+        for (int i = 0; i < nodes.size(); i++) {
+            ConfigMenuTree.Node<JComponent> node = nodes.get(i);
+            if (node instanceof ConfigMenuTree.Leaf<?> leaf) {
+                if (leaf.id().equals(leafId)) {
+                    tabs.setSelectedIndex(i);
+                    return true;
+                }
+                continue;
+            }
+            ConfigMenuTree.Branch<JComponent> branch = (ConfigMenuTree.Branch<JComponent>) node;
+            boolean containsLeaf = branch.leavesDepthFirst().stream()
+                    .anyMatch(leaf -> leaf.id().equals(leafId));
+            if (!containsLeaf) {
+                continue;
+            }
+            tabs.setSelectedIndex(i);
+            Component child = tabs.getComponentAt(i);
+            return child instanceof JTabbedPane nested && selectMenuLeaf(nested, leafId);
+        }
+        return false;
     }
 
     private void addGroupHeading(JPanel content, String label) {
@@ -1661,7 +1800,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
     }
 
-    private record TopCategory(String label,
+    private record TopCategory(String id,
+                               String label,
                                Set<String> hostGroupIds,
                                boolean pluginCategory,
                                boolean showGroupHeadings) {

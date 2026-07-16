@@ -46,13 +46,14 @@ class ConfigItemTemplateCoverageGuardTest {
     /**
      * 模板有意<b>不</b>提供 GUI 字段网格项的配置键（显式豁免；新增豁免须在此登记并说明理由）：
      * <ul>
-     *   <li>{@code app.language} / {@code app.theme} —— 由 GUI 自带的语言 / 主题切换器管理，不进配置字段网格；</li>
+     *   <li>{@code app.language} / {@code app.theme} / {@code app.config-menu-expand-all} ——
+     *       由 GUI「界面」页的即时偏好控件管理，不进配置字段网格；</li>
      *   <li>{@code plugin-catalog.repositories} —— 自定义仓库<b>列表</b>型配置，由「插件」分组的仓库列表编辑器
      *       （{@code PluginMarketConfigSection}，经 {@code PluginRepositoryConfigEditor} 结构化读写）管理，不入字段网格。</li>
      * </ul>
      */
     private static final Set<String> TEMPLATE_KEYS_WITHOUT_GUI_FIELD = Set.of(
-            "app.language", "app.theme", "plugin-catalog.repositories");
+            "app.language", "app.theme", "app.config-menu-expand-all", "plugin-catalog.repositories");
 
     /**
      * 插件启停键仍写入模板并由启动 / Web 插件前端消费，但桌面 GUI 配置页不呈现这些开关。

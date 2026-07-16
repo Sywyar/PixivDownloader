@@ -15,9 +15,7 @@ import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
 import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
-import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
@@ -73,16 +71,12 @@ public class StatusPanel extends JPanel {
     private final JButton openFfmpegDirButton = new JButton(message("gui.ffmpeg.action.open-dir"));
     private final JProgressBar ffmpegProgress = new JProgressBar();
 
-    private final JComboBox<LocaleOption> languageCombo = new JComboBox<>();
-    private final JComboBox<StatusPanelThemeOption> themeCombo = new JComboBox<>();
-    private final java.awt.event.ActionListener themeActionListener = e -> applyThemeSelection();
-    private final Runnable themeChangeListener = this::onThemeChanged;
+    private final Runnable themeChangeListener = this::applyUpdateBannerColors;
     private GuiThemeListenerSession themeListenerSession = GuiThemeListenerSession.none();
 
     private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
-    private final Runnable onLocaleChanged;
     private final Runnable onConfigChanged;
     private final GuiWebEntrySnapshot guiWebEntries;
     private final GuiLocalApiClient guiApiClient;
@@ -121,25 +115,34 @@ public class StatusPanel extends JPanel {
 
     /** 一份待安装的更新选项：URL、安装包大小、发布说明、发布页 URL、最新版本号。 */
     private record PendingInstall(String url, long size, String releaseNotes, String releaseNotesUrl, String latestVersion) {}
-    private LocaleOption currentAppliedLanguageOption;
-    private final java.awt.event.ActionListener languageActionListener = e -> applyLanguageSelection();
-
     public StatusPanel(int serverPort, String rootFolder, Path configPath,
-                       Runnable onLocaleChanged, Runnable onConfigChanged) {
-        this(serverPort, rootFolder, configPath, onLocaleChanged, onConfigChanged, GuiWebEntrySnapshot.empty());
+                       Runnable onConfigChanged) {
+        this(serverPort, rootFolder, configPath, null, onConfigChanged, GuiWebEntrySnapshot.empty());
     }
 
+    /**
+     * 保留语言选择器迁移前的构造签名；语言重建回调现由 {@link ConfigPanel} 消费。
+     */
+    public StatusPanel(int serverPort, String rootFolder, Path configPath,
+                       Runnable onLocaleChanged, Runnable onConfigChanged) {
+        this(serverPort, rootFolder, configPath, onLocaleChanged, onConfigChanged,
+                GuiWebEntrySnapshot.empty());
+    }
+
+    /**
+     * 保留语言选择器迁移前的构造签名；语言重建回调现由 {@link ConfigPanel} 消费。
+     */
     public StatusPanel(int serverPort, String rootFolder, Path configPath,
                        Runnable onLocaleChanged, Runnable onConfigChanged,
                        GuiWebEntrySnapshot guiWebEntries) {
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
-        this.onLocaleChanged = onLocaleChanged;
         this.onConfigChanged = onConfigChanged;
         this.guiWebEntries = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
         this.guiApiClient = new GuiLocalApiClient(serverPort);
         buildUi();
+        themeListenerSession = GuiThemeManager.addChangeListener(themeChangeListener);
         BackendLifecycleManager.addListener(backendListener);
         startPolling();
         refreshFfmpegState();
@@ -156,7 +159,6 @@ public class StatusPanel extends JPanel {
         JPanel badgeRow = new JPanel(new BorderLayout(12, 0));
         badgeRow.setOpaque(false);
         badgeRow.add(statusBadge, BorderLayout.WEST);
-        badgeRow.add(buildPreferencesRow(), BorderLayout.EAST);
 
         JPanel content = new JPanel(new GridBagLayout());
         content.setOpaque(false);
@@ -427,223 +429,10 @@ public class StatusPanel extends JPanel {
         updateBannerNightly.repaint();
     }
 
-    private void onThemeChanged() {
-        syncThemeComboSelection();
-        applyUpdateBannerColors();
-    }
-
     private JButton webButton(String label, String path) {
         JButton button = new JButton(label);
         button.addActionListener(e -> openWebPage(path));
         return button;
-    }
-
-    private JComponent buildPreferencesRow() {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
-        row.setOpaque(false);
-        row.add(buildThemeSelector());
-        row.add(buildLanguageSelector());
-        return row;
-    }
-
-    private JComponent buildThemeSelector() {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        row.setOpaque(false);
-
-        JLabel label = new JLabel(message("gui.status.theme.label"));
-        label.setForeground(Color.GRAY);
-
-        refreshThemeOptions();
-        syncThemeComboSelection();
-        themeCombo.setToolTipText(message("gui.status.theme.tooltip"));
-        themeCombo.addActionListener(themeActionListener);
-        themeListenerSession = GuiThemeManager.addChangeListener(themeChangeListener);
-
-        row.add(label);
-        row.add(themeCombo);
-        return row;
-    }
-
-    private void refreshThemeOptions() {
-        String selectedId = StatusPanelThemeModel.selectedThemeId(themeCombo, GuiThemeManager.configuredThemeId());
-        themeCombo.removeActionListener(themeActionListener);
-        StatusPanelThemeModel.refreshOptions(themeCombo,
-                GuiMessages.currentLocale(),
-                message("gui.status.theme.option.unavailable"),
-                message("gui.status.theme.option.system-fallback"),
-                selectedId);
-        themeCombo.addActionListener(themeActionListener);
-    }
-
-    private void syncThemeComboSelection() {
-        themeCombo.removeActionListener(themeActionListener);
-        StatusPanelThemeModel.syncSelection(themeCombo);
-        themeCombo.addActionListener(themeActionListener);
-    }
-
-    private void applyThemeSelection() {
-        StatusPanelThemeOption option = (StatusPanelThemeOption) themeCombo.getSelectedItem();
-        if (option == null || option.unavailable()) {
-            return;
-        }
-        String next = option.id();
-        if (next.equals(GuiThemeManager.configuredThemeId())) {
-            return;
-        }
-
-        boolean persisted = persistThemeId(next);
-        // LAF 重建会重装包括本下拉框在内的所有组件 UI；若在组合框自身的
-        // 选中回调里同步触发，会拆掉正在栈上执行回调的旧 UI delegate（其 comboBox 被置 null），
-        // 方向键导航的 selectNextPossibleValue() 末尾再 repaint 就会 NPE。推迟到当前键盘事件
-        // 派发结束后再切换，等价于 applyLanguageSelection() 对 onLocaleChanged 的处理。
-        SwingUtilities.invokeLater(() -> GuiThemeManager.applyThemeId(next));
-
-        if (!persisted && configPath != null) {
-            log.warn(logMessage("gui.status.log.theme.persist-failed-warn", configPath));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.status.theme.persist-failed.message"),
-                    message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
-        }
-    }
-
-    private boolean persistThemeId(String themeId) {
-        boolean persisted = GuiThemeManager.persistThemeId(configPath, themeId);
-        if (!persisted) {
-            log.warn(logMessage("gui.status.log.theme.persist-failed", themeId));
-        }
-        return persisted;
-    }
-
-    private JComponent buildLanguageSelector() {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        row.setOpaque(false);
-
-        JLabel label = new JLabel(message("gui.status.language.label"));
-        label.setForeground(Color.GRAY);
-
-        // null locale 表示"跟随系统"：写空值到 config.yaml，由 SystemLocaleDetector 兜底解析
-        LocaleOption[] options = {
-                new LocaleOption(null, message("gui.status.language.option.follow-system")),
-                new LocaleOption(Locale.US, message("gui.status.language.option.en")),
-                new LocaleOption(Locale.SIMPLIFIED_CHINESE, message("gui.status.language.option.zh-cn")),
-        };
-        for (LocaleOption option : options) {
-            languageCombo.addItem(option);
-        }
-        selectInitialLanguageOption(options);
-        languageCombo.setToolTipText(message("gui.status.language.tooltip"));
-        languageCombo.addActionListener(languageActionListener);
-
-        row.add(label);
-        row.add(languageCombo);
-        return row;
-    }
-
-    /**
-     * 根据 config.yaml 中已持久化的 app.language 决定初始选中项：
-     * 配置为空（或文件缺失）则选"跟随系统"；否则匹配对应 locale。
-     */
-    private void selectInitialLanguageOption(LocaleOption[] options) {
-        String persisted = readPersistedLanguageTag();
-        if (persisted == null || persisted.isBlank()) {
-            languageCombo.setSelectedItem(options[0]);
-            currentAppliedLanguageOption = options[0];
-            return;
-        }
-        Locale parsed = AppLocale.parse(persisted);
-        if (parsed == null) {
-            languageCombo.setSelectedItem(options[0]);
-            currentAppliedLanguageOption = options[0];
-            return;
-        }
-        Locale normalized = AppLocale.normalize(parsed);
-        for (LocaleOption option : options) {
-            if (option.locale() != null && option.locale().equals(normalized)) {
-                languageCombo.setSelectedItem(option);
-                currentAppliedLanguageOption = option;
-                return;
-            }
-        }
-        languageCombo.setSelectedItem(options[0]);
-        currentAppliedLanguageOption = options[0];
-    }
-
-    private String readPersistedLanguageTag() {
-        if (configPath == null || !Files.exists(configPath)) {
-            return null;
-        }
-        try {
-            return new ConfigFileEditor(configPath).read("app.language");
-        } catch (Exception e) {
-            log.debug(logMessage("gui.status.log.language.persist-failed", e.getMessage()));
-            return null;
-        }
-    }
-
-    private void applyLanguageSelection() {
-        if (updateInstalling) {
-            languageCombo.removeActionListener(languageActionListener);
-            if (currentAppliedLanguageOption != null) {
-                languageCombo.setSelectedItem(currentAppliedLanguageOption);
-            }
-            languageCombo.addActionListener(languageActionListener);
-            JOptionPane.showMessageDialog(this,
-                    message("gui.update.dialog.language-blocked.message"),
-                    message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        LocaleOption option = (LocaleOption) languageCombo.getSelectedItem();
-        if (option == null) {
-            return;
-        }
-
-        // 持久化：跟随系统 = 写空字符串（与 AppLocale.parse(null) 行为一致）
-        String persistValue = option.locale() == null ? "" : option.locale().toLanguageTag();
-        boolean persisted = persistLanguagePreference(persistValue);
-
-        // 推算本次会话应用的 locale。
-        // 显式选择 → 直接使用；跟随系统 → 复用 SystemLocaleDetector 的解析链路。
-        if (option.locale() != null) {
-            Locale.setDefault(option.locale());
-        } else {
-            SystemLocaleDetector.detectAndApply();
-        }
-        GuiMessages.clearLocaleOverride();
-
-        if (!persisted && configPath != null) {
-            log.warn(logMessage("gui.status.log.language.persist-failed-warn", configPath));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.status.language.persist-failed.message"),
-                    message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
-        }
-
-        currentAppliedLanguageOption = option;
-
-        if (onLocaleChanged != null) {
-            // 回调将销毁本 Panel 并重建标签页，因此异步触发，避免在控件回调链中改变父容器
-            SwingUtilities.invokeLater(onLocaleChanged);
-        }
-    }
-
-    private boolean persistLanguagePreference(String value) {
-        if (configPath == null || !Files.exists(configPath)) {
-            return false;
-        }
-        try {
-            new ConfigFileEditor(configPath).write("app.language", value == null ? "" : value);
-            return true;
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.language.persist-failed", e.getMessage()));
-            return false;
-        }
-    }
-
-    private record LocaleOption(Locale locale, String label) {
-        @Override
-        public String toString() {
-            return label;
-        }
     }
 
     private static void addRow(JPanel grid, GridBagConstraints g, int row, String key, Component value) {
@@ -1735,6 +1524,11 @@ public class StatusPanel extends JPanel {
 
     public String getBatchUrl() {
         return getWebUrl(BATCH_PAGE);
+    }
+
+    /** 更新安装期间语言切换会重建窗口，因此界面偏好页需只读此状态并暂时阻止切换。 */
+    public boolean isUpdateInstalling() {
+        return updateInstalling;
     }
 
     public void dispose() {

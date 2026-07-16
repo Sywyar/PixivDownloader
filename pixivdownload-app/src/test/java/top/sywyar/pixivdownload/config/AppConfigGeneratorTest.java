@@ -52,6 +52,9 @@ class AppConfigGeneratorTest {
         assertThat(content).contains("Service listening port");
         assertThat(content).contains("#   pack-and-delete  Pack and delete source files (default)");
         assertThat(content).contains("GUI and log language (en-US/zh-CN; leave blank to auto-detect from system language)");
+        assertThat(content).contains("app.config-menu-expand-all: false");
+        assertThat(content).contains(
+                "Whether to promote every leaf page from nested configuration menus directly to the top-level tabs");
         assertThat(content).contains("Built-in plugin toggles");
         // download-workbench 是必选插件，模板不写其开关。
         assertThat(content).doesNotContain("plugins.download-workbench.enabled");
@@ -74,5 +77,7 @@ class AppConfigGeneratorTest {
         assertThat(content).contains("# ---- 以下为自动补全的新增配置项（请按需修改）----");
         assertThat(content).contains("download.root-folder: pixiv-download");
         assertThat(content).contains("GUI 与日志语言（en-US/zh-CN，留空则跟随系统语言自动检测）");
+        assertThat(content).contains("app.config-menu-expand-all: false");
+        assertThat(content).contains("是否将配置页所有多级菜单的末级页面直接展开为一级标签");
     }
 }

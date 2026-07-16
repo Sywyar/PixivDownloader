@@ -32,6 +32,7 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.SwingUtilities;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import java.awt.Color;
@@ -370,6 +371,7 @@ class GuiConfigSectionResolverTest {
         JTabbedPane topTabs = firstTabbedPane(panel);
 
         assertThat(tabTitles(topTabs)).containsExactly(
+                GuiMessages.get("gui.config.category.interface"),
                 GuiMessages.get("gui.config.group.download"),
                 GuiMessages.get("gui.config.category.runtime-network"),
                 GuiMessages.get("gui.config.category.access-control"),
@@ -386,6 +388,85 @@ class GuiConfigSectionResolverTest {
         assertThat(visibleFieldRowsDeep(tabComponent(pluginTabs,
                 GuiMessages.get("gui.config.scope.plugin-market-settings"))))
                 .contains("plugin-catalog.enabled");
+    }
+
+    @Test
+    @DisplayName("展开配置菜单时递归把所有末级页面提升为一级页签")
+    void configPanelPromotesEveryLeafPageWhenExpansionIsEnabled() throws IOException {
+        Path configPath = tempDir.resolve("config.yaml");
+        Files.writeString(configPath, "app.config-menu-expand-all: true\n", StandardCharsets.UTF_8);
+        String serverGroup = GuiMessages.get("gui.config.group.server");
+        ConfigFieldSpec pluginField = ConfigFieldSpec.builder(
+                        "fixture.menu", "Fixture", FieldType.STRING, serverGroup)
+                .groupId(GuiConfigGroups.SERVER)
+                .ownerPluginId("fixture")
+                .defaultValue("")
+                .build();
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(pluginField), List.of(), List.of()));
+
+        ConfigPanel panel = new ConfigPanel(configPath, 6999, path -> path, snapshot);
+        JTabbedPane topTabs = firstTabbedPane(panel);
+
+        assertThat(tabTitles(topTabs)).containsSubsequence(
+                GuiMessages.get("gui.config.category.interface"),
+                GuiMessages.get("gui.config.group.download"),
+                GuiMessages.get("gui.config.category.runtime-network"),
+                GuiMessages.get("gui.config.category.access-control"),
+                GuiMessages.get("gui.config.category.automation-maintenance"),
+                GuiMessages.get("gui.config.scope.plugin-market-settings"),
+                serverGroup);
+        assertThat(tabTitles(topTabs)).doesNotContain(
+                GuiMessages.get("gui.config.group.plugins"),
+                GuiMessages.get("gui.config.scope.plugins"));
+        assertThat(Arrays.stream(topTabs.getComponents()))
+                .noneMatch(JTabbedPane.class::isInstance);
+        Component marketTab = tabComponent(topTabs,
+                GuiMessages.get("gui.config.scope.plugin-market-settings"));
+        topTabs.setSelectedComponent(marketTab);
+        assertThat(visibleFieldRowsDeep(marketTab))
+                .contains("plugin-catalog.enabled");
+        Component pluginGroupTab = tabComponent(topTabs, serverGroup);
+        topTabs.setSelectedComponent(pluginGroupTab);
+        assertThat(visibleFieldRowsDeep(pluginGroupTab))
+                .containsExactly("fixture.menu");
+    }
+
+    @Test
+    @DisplayName("切换菜单层级时复用叶子组件并保留未保存字段值")
+    void togglingMenuExpansionReusesLeafComponentsAndDraftValues() throws Exception {
+        Path configPath = tempDir.resolve("config.yaml");
+        Files.writeString(configPath, "app.config-menu-expand-all: false\n", StandardCharsets.UTF_8);
+        String serverGroup = GuiMessages.get("gui.config.group.server");
+        ConfigFieldSpec pluginField = ConfigFieldSpec.builder(
+                        "fixture.menu", "Fixture", FieldType.STRING, serverGroup)
+                .groupId(GuiConfigGroups.SERVER)
+                .ownerPluginId("fixture")
+                .defaultValue("")
+                .build();
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(pluginField), List.of(), List.of()));
+        ConfigPanel panel = new ConfigPanel(configPath, 6999, path -> path, snapshot);
+        JTabbedPane topTabs = firstTabbedPane(panel);
+        Component originalLeaf = pluginGroupTab(topTabs, serverGroup);
+        JCheckBox expandAll = preferenceCheckBox(panel, "app.config-menu-expand-all");
+        panel.setFieldValue("fixture.menu", "draft-value");
+
+        SwingUtilities.invokeAndWait(expandAll::doClick);
+        SwingUtilities.invokeAndWait(() -> { });
+
+        assertThat(tabComponent(topTabs, serverGroup)).isSameAs(originalLeaf);
+        assertThat(panel.currentFieldValue("fixture.menu")).isEqualTo("draft-value");
+        assertThat(Files.readString(configPath, StandardCharsets.UTF_8))
+                .contains("app.config-menu-expand-all: true");
+
+        SwingUtilities.invokeAndWait(expandAll::doClick);
+        SwingUtilities.invokeAndWait(() -> { });
+
+        assertThat(pluginGroupTab(topTabs, serverGroup)).isSameAs(originalLeaf);
+        assertThat(panel.currentFieldValue("fixture.menu")).isEqualTo("draft-value");
+        assertThat(Files.readString(configPath, StandardCharsets.UTF_8))
+                .contains("app.config-menu-expand-all: false");
     }
 
     @Test
@@ -440,10 +521,12 @@ class GuiConfigSectionResolverTest {
         Component pluginsTab = tabComponent(topTabs, GuiMessages.get("gui.config.group.plugins"));
 
         assertThat(tabTitles(topTabs)).containsExactly(
+                GuiMessages.get("gui.config.category.interface"),
                 GuiMessages.get("gui.config.category.runtime-network"),
                 GuiMessages.get("gui.config.group.plugins"));
         assertThat(runtimeTab).isInstanceOf(JScrollPane.class);
         assertThat(pluginsTab).isInstanceOf(JTabbedPane.class);
+        topTabs.setSelectedComponent(runtimeTab);
         assertThat(visibleFieldRowsDeep(runtimeTab)).contains("host.plugins");
         assertThat(visibleFieldRowsDeep(runtimeTab)).doesNotContain("plugin.plugins");
         topTabs.setSelectedComponent(pluginsTab);
@@ -634,9 +717,12 @@ class GuiConfigSectionResolverTest {
                 path -> path, snapshot);
         JTabbedPane topTabs = firstTabbedPane(panel);
 
-        assertThat(tabTitles(topTabs)).containsExactly(GuiMessages.get("gui.config.group.plugins"));
-        assertThat(topTabs.getComponentAt(0)).isInstanceOf(JTabbedPane.class);
-        JTabbedPane pluginTabs = (JTabbedPane) topTabs.getComponentAt(0);
+        assertThat(tabTitles(topTabs)).containsExactly(
+                GuiMessages.get("gui.config.category.interface"),
+                GuiMessages.get("gui.config.group.plugins"));
+        Component pluginsTab = tabComponent(topTabs, GuiMessages.get("gui.config.group.plugins"));
+        assertThat(pluginsTab).isInstanceOf(JTabbedPane.class);
+        JTabbedPane pluginTabs = (JTabbedPane) pluginsTab;
         assertThat(tabTitles(pluginTabs)).containsExactly(GuiMessages.get("gui.config.scope.plugins"));
         Component pluginSettingsTab = tabComponent(pluginTabs, GuiMessages.get("gui.config.scope.plugins"));
         assertThat(pluginSettingsTab).isInstanceOf(JTabbedPane.class);
@@ -887,6 +973,31 @@ class GuiConfigSectionResolverTest {
             }
         }
         throw new AssertionError("Tabbed pane title not found: " + title);
+    }
+
+    private static Component pluginGroupTab(JTabbedPane topTabs, String groupTitle) {
+        JTabbedPane pluginTabs = (JTabbedPane) tabComponent(
+                topTabs, GuiMessages.get("gui.config.group.plugins"));
+        JTabbedPane pluginGroupTabs = (JTabbedPane) tabComponent(
+                pluginTabs, GuiMessages.get("gui.config.scope.plugins"));
+        return tabComponent(pluginGroupTabs, groupTitle);
+    }
+
+    private static JCheckBox preferenceCheckBox(Container root, String preferenceKey) {
+        for (Component component : root.getComponents()) {
+            if (component instanceof JCheckBox checkBox
+                    && preferenceKey.equals(checkBox.getClientProperty("gui.interface.preference-key"))) {
+                return checkBox;
+            }
+            if (component instanceof Container container) {
+                try {
+                    return preferenceCheckBox(container, preferenceKey);
+                } catch (AssertionError ignored) {
+                    // Continue searching sibling components.
+                }
+            }
+        }
+        throw new AssertionError("Preference checkbox not found: " + preferenceKey);
     }
 
     private static List<String> visibleFieldRows(JPanel content) {
