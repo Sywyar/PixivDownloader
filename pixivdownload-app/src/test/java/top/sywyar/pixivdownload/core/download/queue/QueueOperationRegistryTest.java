@@ -2,7 +2,9 @@ package top.sywyar.pixivdownload.core.download.queue;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;

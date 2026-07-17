@@ -11,9 +11,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry.OwnedQueueOperations;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -2101,13 +2101,13 @@ class PluginLifecycleServiceTest {
      */
     private static final class RecordingQueueOperations implements QueueOperations {
         private final String type;
-        private final top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker tracker;
+        private final top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker tracker;
         int clearAllCount;
         boolean failClearAllWithError;
 
         RecordingQueueOperations(String type) {
             this.type = type;
-            this.tracker = new top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker(type);
+            this.tracker = new top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker(type);
         }
 
         @Override
@@ -2116,7 +2116,7 @@ class PluginLifecycleServiceTest {
         }
 
         @Override
-        public top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain prepareQuiesce(
+        public top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain prepareQuiesce(
                 String registeredQueueType) {
             return tracker.prepareQuiesce();
         }

@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -38,6 +39,17 @@ public class GlobalExceptionHandler {
         String logDetail = messages.getOrDefault(Locale.getDefault(), e.getMessageCode(), e.getDefaultMessage(), e.getMessageArgs());
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(e.getStatus()).body(new ErrorResponse(message));
+    }
+
+    @ExceptionHandler(QueueNotAcceptingException.class)
+    public ResponseEntity<ErrorResponse> handleQueueNotAccepting(
+            QueueNotAcceptingException e, Locale locale) {
+        String message = messages.getOrDefault(locale, "plugin.unavailable.quiesced",
+                "插件正在停用中，暂时不可用，请稍后重试");
+        String logDetail = messages.getOrDefault(Locale.getDefault(), "plugin.unavailable.quiesced",
+                "插件正在停用中，暂时不可用，请稍后重试");
+        log.warn(logMessage("error.log.request.failed", logDetail + " [queueType=" + e.queueType() + "]"));
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ErrorResponse(message));
     }
 
     @ExceptionHandler(ResponseStatusException.class)

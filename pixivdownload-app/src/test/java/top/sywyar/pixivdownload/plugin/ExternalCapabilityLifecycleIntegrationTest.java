@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -241,7 +241,7 @@ class ExternalCapabilityLifecycleIntegrationTest {
                 }
 
                 @Override
-                public top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain prepareQuiesce(
+                public top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain prepareQuiesce(
                         String registeredQueueType) {
                     return tracker.prepareQuiesce();
                 }

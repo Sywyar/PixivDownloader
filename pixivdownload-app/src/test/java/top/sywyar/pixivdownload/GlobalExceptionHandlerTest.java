@@ -4,8 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.common.ErrorResponse;
-import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -67,7 +67,7 @@ class GlobalExceptionHandlerTest {
     @Test
     @DisplayName("队列清退竞态应返回本地化 503 而不是裸 500")
     void shouldHandleQuiescedQueueAsServiceUnavailable() {
-        ResponseEntity<ErrorResponse> response = handler.handleLocalized(
+        ResponseEntity<ErrorResponse> response = handler.handleQueueNotAccepting(
                 new QueueNotAcceptingException("illust"), Locale.SIMPLIFIED_CHINESE);
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
