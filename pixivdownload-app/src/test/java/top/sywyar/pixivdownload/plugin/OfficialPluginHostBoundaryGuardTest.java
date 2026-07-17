@@ -60,7 +60,6 @@ class OfficialPluginHostBoundaryGuardTest {
      */
     private static final Set<String> APP_ARTIFACT_TRANSITION_ALLOWLIST = Set.of(
             "pixivdownload-plugin-download-workbench",
-            "pixivdownload-plugin-duplicate",
             "pixivdownload-plugin-gallery",
             "pixivdownload-plugin-novel");
 
@@ -104,7 +103,8 @@ class OfficialPluginHostBoundaryGuardTest {
 
         assertThat(appConsumers).allMatch(APP_ARTIFACT_TRANSITION_ALLOWLIST::contains);
         assertThat(appConsumers)
-                .doesNotContain("pixivdownload-plugin-douyin", "pixivdownload-plugin-tts");
+                .doesNotContain("pixivdownload-plugin-douyin", "pixivdownload-plugin-duplicate",
+                        "pixivdownload-plugin-tts");
     }
 
     private static void collectConcreteRuntimeViolations(Path repositoryRoot,

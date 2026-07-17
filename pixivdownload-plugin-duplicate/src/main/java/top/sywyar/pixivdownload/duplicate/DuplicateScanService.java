@@ -3,14 +3,11 @@ package top.sywyar.pixivdownload.duplicate;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
-import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
-import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -21,11 +18,9 @@ public class DuplicateScanService implements QueueOperations {
 
     private static final String SCAN_QUEUE_TYPE = "duplicate-scan";
 
-    private final ImageHashMapper imageHashMapper;
-    private final ArtworkHashService artworkHashService;
+    private final ArtworkHashIndexMaintenance hashIndexMaintenance;
     private final DuplicateService duplicateService;
-    private final PixivDatabase pixivDatabase;
-    private final AppMessages messages;
+    private final MessageResolver messages;
     private final TaskExecutor taskExecutor;
     private final QueueTaskTracker taskTracker = new QueueTaskTracker(SCAN_QUEUE_TYPE);
 
@@ -35,16 +30,12 @@ public class DuplicateScanService implements QueueOperations {
     private volatile int total;
     private volatile Long startedTime;
 
-    public DuplicateScanService(ImageHashMapper imageHashMapper,
-                                ArtworkHashService artworkHashService,
+    public DuplicateScanService(ArtworkHashIndexMaintenance hashIndexMaintenance,
                                 DuplicateService duplicateService,
-                                PixivDatabase pixivDatabase,
-                                AppMessages messages,
+                                MessageResolver messages,
                                 TaskExecutor taskExecutor) {
-        this.imageHashMapper = imageHashMapper;
-        this.artworkHashService = artworkHashService;
+        this.hashIndexMaintenance = hashIndexMaintenance;
         this.duplicateService = duplicateService;
-        this.pixivDatabase = pixivDatabase;
         this.messages = messages;
         this.taskExecutor = taskExecutor;
     }
@@ -60,7 +51,9 @@ public class DuplicateScanService implements QueueOperations {
             scanClaimed = true;
             startedTime = System.currentTimeMillis();
             processed = 0;
-            total = force ? safeLongToInt(pixivDatabase.countArtworks()) : imageHashMapper.countArtworksMissingHashes();
+            total = force
+                    ? safeLongToInt(hashIndexMaintenance.artworkCount())
+                    : hashIndexMaintenance.missingArtworkCount();
             state = "RUNNING";
 
             handedOff = task.handoff(() -> runScan(force, task));
@@ -133,8 +126,8 @@ public class DuplicateScanService implements QueueOperations {
                 return;
             }
             if (force) {
-                imageHashMapper.deleteAll();
-                for (Long artworkId : pixivDatabase.getArtworkIdsSortedByTimeDesc()) {
+                hashIndexMaintenance.clearAllHashes();
+                for (Long artworkId : hashIndexMaintenance.artworkIdsNewestFirst()) {
                     if (task.isCancellationRequested()) {
                         resetCancelledState();
                         return;
@@ -144,7 +137,7 @@ public class DuplicateScanService implements QueueOperations {
             } else {
                 // 一次性快照缺哈希作品列表后遍历：若按批轮询，文件缺失/损坏/不可哈希的作品会
                 // 始终写入 0 行、永远留在"缺哈希"集合里，导致 artworkIdsMissingHashes 永不返回空、循环无法终止。
-                for (Long artworkId : imageHashMapper.artworkIdsMissingHashes(Integer.MAX_VALUE)) {
+                for (Long artworkId : hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE)) {
                     if (task.isCancellationRequested()) {
                         resetCancelledState();
                         return;
@@ -201,10 +194,7 @@ public class DuplicateScanService implements QueueOperations {
         if (artworkId == null) {
             return;
         }
-        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (artwork != null) {
-            artworkHashService.recordArtworkHashes(artwork);
-        }
+        hashIndexMaintenance.rebuildArtwork(artworkId);
         processed = total <= 0 ? processed + 1 : Math.min(processed + 1, total);
     }
 

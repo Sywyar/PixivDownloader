@@ -3,9 +3,10 @@ package top.sywyar.pixivdownload.duplicate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
-import top.sywyar.pixivdownload.core.hash.ImageHashRow;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashEntry;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashFingerprint;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.util.List;
 
@@ -17,9 +18,9 @@ import static org.mockito.Mockito.when;
 @DisplayName("DuplicateService 单元测试")
 class DuplicateServiceTest {
 
-    private final ImageHashMapper imageHashMapper = mock(ImageHashMapper.class);
-    private final AppMessages messages = mock(AppMessages.class);
-    private final DuplicateService duplicateService = new DuplicateService(imageHashMapper, messages);
+    private final ArtworkHashIndexQuery hashIndexQuery = mock(ArtworkHashIndexQuery.class);
+    private final MessageResolver messages = mock(MessageResolver.class);
+    private final DuplicateService duplicateService = new DuplicateService(hashIndexQuery, messages);
 
     @BeforeEach
     void setUpMessages() {
@@ -87,20 +88,17 @@ class DuplicateServiceTest {
                 .hasMessageContaining("32");
     }
 
-    private void stubRows(List<ImageHashRow> rows) {
-        when(imageHashMapper.countAllHashRows()).thenReturn((long) rows.size());
-        when(imageHashMapper.maxCreatedTime()).thenReturn(123L);
-        when(imageHashMapper.findAll()).thenReturn(rows);
+    private void stubRows(List<ArtworkHashEntry> rows) {
+        when(hashIndexQuery.fingerprint()).thenReturn(new ArtworkHashFingerprint(rows.size(), 123L));
+        when(hashIndexQuery.findAllEntries()).thenReturn(rows);
     }
 
-    private static ImageHashRow row(long artworkId, int page, long dHash, Long aHash) {
-        return new ImageHashRow(
+    private static ArtworkHashEntry row(long artworkId, int page, long dHash, Long aHash) {
+        return new ArtworkHashEntry(
                 artworkId,
                 page,
-                "jpg",
                 dHash,
                 aHash,
-                123L,
                 "title-" + artworkId,
                 9000L + artworkId,
                 "author-" + artworkId,

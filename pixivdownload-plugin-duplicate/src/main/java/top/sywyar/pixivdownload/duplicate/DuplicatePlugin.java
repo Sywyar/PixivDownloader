@@ -15,8 +15,7 @@ import java.util.Set;
 
 /**
  * 重复检测插件：基于核心图片 Hash 索引的疑似重复页面、API 与手动重扫入口。
- * Hash 的下载后即时计算属核心资产索引能力（核心服务 {@code core.hash.ArtworkHashService}，由
- * {@code ArtworkDownloadExecutor} 注入），不属本插件、不随本插件禁用；而缺失 Hash 的批量回填维护任务
+ * Hash 的下载后即时计算属宿主核心资产索引能力，不属本插件、不随本插件禁用；而缺失 Hash 的批量回填维护任务
  * （{@link DuplicateHashBackfillTask}）随本插件归属、
  * 经 {@link #maintenanceTasks()} 声明，禁用本插件时维护窗口跳过它、重新启用后恢复（只补齐历史缺口
  * 与失败哨兵，下载期已即时记录的 Hash 无需重抓）。

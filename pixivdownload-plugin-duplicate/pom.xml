@@ -27,9 +27,9 @@
         </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
-            <artifactId>PixivDownload</artifactId>
+            <artifactId>pixivdownload-core-api</artifactId>
             <version>${project.version}</version>
-            <scope>compile</scope>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.pf4j</groupId>
@@ -45,6 +45,11 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>

@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.duplicate;
 
 import lombok.RequiredArgsConstructor;
-import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
-import top.sywyar.pixivdownload.core.hash.ImageHashRow;
-import top.sywyar.pixivdownload.core.hash.ImageHasher;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashEntry;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashFingerprint;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.ArrayDeque;
@@ -28,8 +28,8 @@ public class DuplicateService {
     private static final String SCOPE_CROSS_ARTWORK = "cross-artwork";
     private static final String SCOPE_ALL = "all";
 
-    private final ImageHashMapper imageHashMapper;
-    private final AppMessages messages;
+    private final ArtworkHashIndexQuery hashIndexQuery;
+    private final MessageResolver messages;
 
     private volatile CacheEntry cache;
 
@@ -48,7 +48,7 @@ public class DuplicateService {
                                           int size,
                                           DuplicateDto.ScanStatus scanStatus) {
         Query query = normalize(threshold, aHashThreshold, scope, page, size);
-        CacheFingerprint fingerprint = fingerprint();
+        ArtworkHashFingerprint fingerprint = hashIndexQuery.fingerprint();
         List<DuplicateDto.Group> allGroups = cachedGroups(query, fingerprint);
         int totalGroups = allGroups.size();
         int from = Math.min(query.page() * query.size(), totalGroups);
@@ -66,7 +66,7 @@ public class DuplicateService {
         cache = null;
     }
 
-    private List<DuplicateDto.Group> cachedGroups(Query query, CacheFingerprint fingerprint) {
+    private List<DuplicateDto.Group> cachedGroups(Query query, ArtworkHashFingerprint fingerprint) {
         CacheEntry current = cache;
         CacheKey key = new CacheKey(query.threshold(), query.aHashThreshold(), query.scope(), fingerprint);
         if (current != null && current.key().equals(key)) {
@@ -84,16 +84,16 @@ public class DuplicateService {
     }
 
     private List<DuplicateDto.Group> buildGroups(Query query) {
-        List<ImageHashRow> rows = imageHashMapper.findAll();
+        List<ArtworkHashEntry> rows = hashIndexQuery.findAllEntries();
         if (rows.size() < 2) {
             return List.of();
         }
         UnionFind unionFind = new UnionFind(rows.size());
         BkTree tree = new BkTree();
         for (int i = 0; i < rows.size(); i++) {
-            ImageHashRow row = rows.get(i);
+            ArtworkHashEntry row = rows.get(i);
             for (int candidate : tree.query(row.dHash(), query.threshold())) {
-                ImageHashRow other = rows.get(candidate);
+                ArtworkHashEntry other = rows.get(candidate);
                 if (isAHashMatch(row, other, query.aHashThreshold())) {
                     unionFind.union(i, candidate);
                 }
@@ -101,20 +101,21 @@ public class DuplicateService {
             tree.add(row.dHash(), i);
         }
 
-        Map<Integer, List<ImageHashRow>> grouped = new LinkedHashMap<>();
+        Map<Integer, List<ArtworkHashEntry>> grouped = new LinkedHashMap<>();
         for (int i = 0; i < rows.size(); i++) {
             grouped.computeIfAbsent(unionFind.find(i), ignored -> new ArrayList<>()).add(rows.get(i));
         }
 
         List<DuplicateDto.Group> result = new ArrayList<>();
-        for (List<ImageHashRow> groupRows : grouped.values()) {
+        for (List<ArtworkHashEntry> groupRows : grouped.values()) {
             if (groupRows.size() < 2) {
                 continue;
             }
             if (SCOPE_CROSS_ARTWORK.equals(query.scope()) && isSingleArtworkGroup(groupRows)) {
                 continue;
             }
-            groupRows.sort(Comparator.comparingLong(ImageHashRow::artworkId).thenComparingInt(ImageHashRow::page));
+            groupRows.sort(Comparator.comparingLong(ArtworkHashEntry::artworkId)
+                    .thenComparingInt(ArtworkHashEntry::page));
             int maxDistance = maxDHashDistance(groupRows);
             List<DuplicateDto.Item> items = groupRows.stream()
                     .map(this::toItem)
@@ -128,7 +129,7 @@ public class DuplicateService {
         return List.copyOf(result);
     }
 
-    private DuplicateDto.Item toItem(ImageHashRow row) {
+    private DuplicateDto.Item toItem(ArtworkHashEntry row) {
         long authorId = row.authorId() == null ? 0L : row.authorId();
         String authorName = row.authorName();
         if ((authorName == null || authorName.isBlank()) && row.authorId() != null) {
@@ -151,16 +152,16 @@ public class DuplicateService {
         );
     }
 
-    private boolean isAHashMatch(ImageHashRow left, ImageHashRow right, int threshold) {
+    private boolean isAHashMatch(ArtworkHashEntry left, ArtworkHashEntry right, int threshold) {
         if (left.aHash() == null || right.aHash() == null) {
             return true;
         }
-        return ImageHasher.hamming(left.aHash(), right.aHash()) <= threshold;
+        return hamming(left.aHash(), right.aHash()) <= threshold;
     }
 
-    private boolean isSingleArtworkGroup(List<ImageHashRow> rows) {
+    private boolean isSingleArtworkGroup(List<ArtworkHashEntry> rows) {
         long artworkId = rows.get(0).artworkId();
-        for (ImageHashRow row : rows) {
+        for (ArtworkHashEntry row : rows) {
             if (row.artworkId() != artworkId) {
                 return false;
             }
@@ -168,23 +169,23 @@ public class DuplicateService {
         return true;
     }
 
-    private int maxDHashDistance(List<ImageHashRow> rows) {
+    private int maxDHashDistance(List<ArtworkHashEntry> rows) {
         int max = 0;
         for (int i = 0; i < rows.size(); i++) {
             for (int j = i + 1; j < rows.size(); j++) {
-                max = Math.max(max, ImageHasher.hamming(rows.get(i).dHash(), rows.get(j).dHash()));
+                max = Math.max(max, hamming(rows.get(i).dHash(), rows.get(j).dHash()));
             }
         }
         return max;
     }
 
-    private String groupId(List<ImageHashRow> rows) {
-        ImageHashRow first = rows.get(0);
+    private String groupId(List<ArtworkHashEntry> rows) {
+        ArtworkHashEntry first = rows.get(0);
         return "g-" + first.artworkId() + "-p" + first.page();
     }
 
-    private CacheFingerprint fingerprint() {
-        return new CacheFingerprint(imageHashMapper.countAllHashRows(), imageHashMapper.maxCreatedTime());
+    private static int hamming(long left, long right) {
+        return Long.bitCount(left ^ right);
     }
 
     private Query normalize(Integer threshold, Integer aHashThreshold, String scope, int page, int size) {
@@ -210,10 +211,7 @@ public class DuplicateService {
     private record Query(int threshold, int aHashThreshold, String scope, int page, int size) {
     }
 
-    private record CacheFingerprint(long rowCount, Long maxCreatedTime) {
-    }
-
-    private record CacheKey(int threshold, int aHashThreshold, String scope, CacheFingerprint fingerprint) {
+    private record CacheKey(int threshold, int aHashThreshold, String scope, ArtworkHashFingerprint fingerprint) {
     }
 
     private record CacheEntry(CacheKey key, List<DuplicateDto.Group> groups) {
@@ -269,7 +267,7 @@ public class DuplicateService {
             }
             Node node = root;
             while (true) {
-                int distance = ImageHasher.hamming(hash, node.hash);
+                int distance = hamming(hash, node.hash);
                 Node child = node.children.get(distance);
                 if (child == null) {
                     node.children.put(distance, new Node(hash, index));
@@ -288,7 +286,7 @@ public class DuplicateService {
             stack.push(root);
             while (!stack.isEmpty()) {
                 Node node = stack.pop();
-                int distance = ImageHasher.hamming(hash, node.hash);
+                int distance = hamming(hash, node.hash);
                 if (distance <= threshold) {
                     result.add(node.index);
                 }
