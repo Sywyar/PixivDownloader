@@ -9,17 +9,18 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
+import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,11 +31,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,18 +49,16 @@ class GalleryBatchServiceTest {
     @Mock
     private WorkAssetService workAssetService;
     @Mock
-    private CollectionService collectionService;
+    private ArtworkCollectionMembership collectionMembership;
     @Mock
-    private UserQuotaService userQuotaService;
-    @Mock
-    private MultiModeSettings multiModeSettings;
+    private ArchiveExportService archiveExportService;
 
     private GalleryBatchService service;
 
     @BeforeEach
     void setUp() {
         service = new GalleryBatchService(galleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeSettings, new ObjectMapper());
+                collectionMembership, archiveExportService, new ObjectMapper());
     }
 
     @Test
@@ -77,63 +73,114 @@ class GalleryBatchServiceTest {
     @DisplayName("filter 模式应委托画廊筛选查询并应用排除列表")
     void shouldResolveFilterMode() {
         ArtworkBatchRequest.Filter filter = new ArtworkBatchRequest.Filter(
-                null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null);
+                null, null, "artworkId", "asc", "  needle  ", "title", "r18", "yes",
+                List.of("JPG", "invalid"), null, List.of(11L, 11L, 0L), null, null,
+                List.of(21L), null, null, 22L, null, null, null);
         ArtworkBatchRequest request = new ArtworkBatchRequest("filter",
                 null, List.of(6L), filter, null, null, null, null);
         when(galleryService.findArtworkIds(any())).thenReturn(List.of(5L, 6L, 7L));
 
         assertThat(service.resolveArtworkIds(request)).containsExactly(5L, 7L);
+
+        ArgumentCaptor<WorkQuery> queryCaptor = ArgumentCaptor.forClass(WorkQuery.class);
+        verify(galleryService).findArtworkIds(queryCaptor.capture());
+        WorkQuery query = queryCaptor.getValue();
+        assertThat(query.page()).isZero();
+        assertThat(query.size()).isEqualTo(200);
+        assertThat(query.sort()).isEqualTo("artworkId");
+        assertThat(query.order()).isEqualTo("asc");
+        assertThat(query.search()).isEqualTo("needle");
+        assertThat(query.searchType()).isEqualTo("title");
+        assertThat(query.r18()).isEqualTo("r18");
+        assertThat(query.ai()).isEqualTo("yes");
+        assertThat(query.formats()).containsExactly("jpg");
+        assertThat(query.tagIds()).containsExactly(11L);
+        assertThat(query.authorIds()).containsExactly(21L, 22L);
     }
 
     @Test
-    @DisplayName("不支持的打包格式应抛出 400")
-    void shouldRejectUnsupportedFormat() {
+    @DisplayName("批量收藏应只通过核心收藏成员端口并统计新增数量")
+    void shouldCollectThroughCoreMembershipPort() {
+        when(collectionMembership.addArtwork(9L, 1L)).thenReturn(true);
+        when(collectionMembership.addArtwork(9L, 2L)).thenReturn(false);
+
+        assertThat(service.collectArtworks(Arrays.asList(1L, 1L, 0L, 2L), 9L)).isEqualTo(1);
+
+        verify(collectionMembership).addArtwork(9L, 1L);
+        verify(collectionMembership).addArtwork(9L, 2L);
+    }
+
+    @Test
+    @DisplayName("格式校验异常应在读取作品元数据前由核心归档端口原样传播")
+    void shouldPropagateArchiveFormatValidation() {
+        IllegalArgumentException invalidFormat = new IllegalArgumentException("unsupported format");
+        when(archiveExportService.normalizeFormat("rar")).thenThrow(invalidFormat);
+
         assertThatThrownBy(() -> service.exportArtworks(List.of(1L), "author", "rar", false))
-                .isInstanceOf(LocalizedException.class);
+                .isSameAs(invalidFormat);
+        verifyNoInteractions(workMetadataRepository, workAssetService);
     }
 
     @Test
-    @DisplayName("空 ID 集合应返回空导出结果且不触发打包")
-    void shouldReturnEmptyResultForNoIds() {
-        ArchiveExportSupport.ExportResult result = service.exportArtworks(List.of(), null, null, false);
+    @DisplayName("空 ID 集合应把空导出请求交给核心归档端口")
+    void shouldDelegateEmptyResultForNoIds() {
+        when(archiveExportService.normalizeFormat(null)).thenReturn("zip");
+        when(archiveExportService.export(any())).thenReturn(ArchiveExportResult.empty());
+
+        ArchiveExportResult result = service.exportArtworks(List.of(), null, null, false);
+
         assertThat(result.emptyArchive()).isTrue();
+        ArgumentCaptor<ArchiveExportRequest> requestCaptor =
+                ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().entries()).isEmpty();
+        assertThat(requestCaptor.getValue().workCount()).isZero();
+        assertThat(requestCaptor.getValue().fileCount()).isZero();
     }
 
     @Test
     @DisplayName("默认按作者分类打包，条目路径为 artworks/{作者}/{ID - 标题}")
     void shouldGroupByAuthorByDefault() throws Exception {
-        List<UserQuotaService.ArchiveItem> items = exportSingleArtwork("author", false);
-        assertThat(items.get(0).entryName()).isEqualTo("artworks/Artist/10 - Title/file.jpg");
-        assertThat(items.get(items.size() - 1).entryName()).isEqualTo("manifest.json");
+        ArchiveExportRequest request = exportSingleArtwork("author", false);
+        assertThat(request.entries().get(0).entryName())
+                .isEqualTo("artworks/Artist/10 - Title/file.jpg");
+        assertThat(request.entries().get(request.entries().size() - 1).entryName())
+                .isEqualTo("manifest.json");
     }
 
     @Test
     @DisplayName("按作品 ID 打包时条目应以作品 ID 为顶层目录")
     void shouldGroupByArtworkId() throws Exception {
-        List<UserQuotaService.ArchiveItem> items = exportSingleArtwork("id", false);
-        assertThat(items.get(0).entryName()).isEqualTo("10/file.jpg");
+        ArchiveExportRequest request = exportSingleArtwork("id", false);
+        assertThat(request.entries().get(0).entryName()).isEqualTo("10/file.jpg");
     }
 
     @Test
-    @DisplayName("勾选导出后删除时，打包成功回调应执行批量删除")
-    void shouldDeleteAfterExportViaCallback() throws Exception {
-        ArgumentCaptor<Runnable> afterReady = ArgumentCaptor.forClass(Runnable.class);
-        exportSingleArtwork("author", true, afterReady);
-        assertThat(afterReady.getValue()).isNotNull();
-        afterReady.getValue().run();
-        verify(galleryService).deleteArtworks(List.of(10L));
+    @DisplayName("归档请求应保留作品 ID、manifest 和作品文件")
+    void shouldPreserveManifestAndWorkIdentity() throws Exception {
+        ArchiveExportRequest request = exportSingleArtwork("author", false);
+
+        ArchiveExportEntry file = request.entries().get(0);
+        ArchiveExportEntry manifest = request.entries().get(1);
+        assertThat(file.sourcePath()).isEqualTo(tempDir.resolve("file.jpg"));
+        assertThat(file.workId()).isEqualTo(10L);
+        assertThat(manifest.entryName()).isEqualTo("manifest.json");
+        assertThat(new String(manifest.bytes(), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("\"type\" : \"artwork\"")
+                .contains("\"id\" : 10");
     }
 
-    private List<UserQuotaService.ArchiveItem> exportSingleArtwork(String groupBy, boolean deleteAfter)
-            throws Exception {
-        return exportSingleArtwork(groupBy, deleteAfter, ArgumentCaptor.forClass(Runnable.class));
+    @Test
+    @DisplayName("勾选导出后删除时应只向宿主提交纯值删除指令")
+    void shouldRequestDeleteAfterExportWithoutPluginCallback() throws Exception {
+        ArchiveExportRequest request = exportSingleArtwork("author", true);
+
+        assertThat(request.deleteAfterReady()).isNotNull();
+        assertThat(request.deleteAfterReady().workType()).isEqualTo(WorkType.ARTWORK.name());
+        assertThat(request.deleteAfterReady().workIds()).containsExactly(10L);
     }
 
-    @SuppressWarnings("unchecked")
-    private List<UserQuotaService.ArchiveItem> exportSingleArtwork(String groupBy, boolean deleteAfter,
-                                                                   ArgumentCaptor<Runnable> afterReady)
-            throws Exception {
+    private ArchiveExportRequest exportSingleArtwork(String groupBy, boolean deleteAfter) throws Exception {
         WorkMetadata meta = new WorkMetadata(WorkType.ARTWORK, 10L, "Title", null, 0, false,
                 99L, "Artist", null, null, null, List.of(), 0L, 1, "jpg", tempDir.toString(),
                 false, null, null, null, null, null, null, null, null);
@@ -142,22 +189,22 @@ class GalleryBatchServiceTest {
         when(workAssetService.findAsset(WorkType.ARTWORK, 10L)).thenReturn(Optional.of(
                 new LocalWorkAsset(WorkType.ARTWORK, 10L, tempDir, 1,
                         List.of(new WorkAssetFile(0, image, "jpg")))));
-        when(userQuotaService.triggerAdminFileArchive(anyList(), anyString(), anyInt(), any()))
-                .thenReturn("token-1");
-        when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(60);
+        ArchiveExportResult expected = new ArchiveExportResult("token-1", 3600, 1, 1);
+        when(archiveExportService.normalizeFormat("zip")).thenReturn("zip");
+        when(archiveExportService.export(any())).thenReturn(expected);
 
-        ArchiveExportSupport.ExportResult result =
+        ArchiveExportResult result =
                 service.exportArtworks(List.of(10L), groupBy, "zip", deleteAfter);
 
-        assertThat(result.archiveToken()).isEqualTo("token-1");
-        assertThat(result.workCount()).isEqualTo(1);
-        assertThat(result.fileCount()).isEqualTo(1);
-        assertThat(result.archiveExpireSeconds()).isEqualTo(3600);
-
-        ArgumentCaptor<List<UserQuotaService.ArchiveItem>> itemsCaptor =
-                ArgumentCaptor.forClass((Class) List.class);
-        verify(userQuotaService).triggerAdminFileArchive(
-                itemsCaptor.capture(), eq("artworks"), eq(1), afterReady.capture());
-        return itemsCaptor.getValue();
+        assertThat(result).isEqualTo(expected);
+        ArgumentCaptor<ArchiveExportRequest> requestCaptor =
+                ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(requestCaptor.capture());
+        ArchiveExportRequest request = requestCaptor.getValue();
+        assertThat(request.exportType()).isEqualTo("artworks");
+        assertThat(request.workCount()).isEqualTo(1);
+        assertThat(request.fileCount()).isEqualTo(1);
+        assertThat(request.format()).isEqualTo("zip");
+        return request;
     }
 }

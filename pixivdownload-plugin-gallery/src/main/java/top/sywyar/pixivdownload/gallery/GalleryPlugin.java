@@ -31,8 +31,7 @@ import java.util.Set;
  * （仅 GET/HEAD，仍需经 invite session 校验，落在 AuthFilter 的 GUEST_ALLOWED 清单）——
  * 该双重语义由路由镜像测试逐条守护。无私有表（artworks 系按卸载投影测试归 core）。
  * <p>
- * 核心列使用声明只覆盖核心数据层 SQL 仓库
- * {@link top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository}（已收编进核心）触及的表列；
+ * 核心列使用声明只覆盖宿主核心数据层的插画画廊 SQL 查询所触及的表列；
  * 经核心接口（WorkQueryService / WorkMetadataRepository 等）读写的列由核心自行负责，
  * 不在此声明。现有查询全部由核心 schema 既有索引承载，无需向核心表补新索引
  * （{@code SchemaContribution.indexes()} 维持显式拒绝，形态决策继续推迟）。

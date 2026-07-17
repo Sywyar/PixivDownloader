@@ -9,10 +9,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
-import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryPageResponse;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,7 +23,6 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -50,14 +49,14 @@ class GalleryControllerTest {
     }
 
     @Test
-    @DisplayName("正向与排除筛选参数映射到 GalleryQuery，并透传访客限制纯值")
+    @DisplayName("正向与排除筛选参数映射到稳定作品查询，并透传访客限制纯值")
     void shouldMapPositiveAndNegativeFilterParams() throws Exception {
         WorkRestriction restriction = new WorkRestriction(
                 Set.of(0), false, List.of(11L), true, List.of());
         when(workVisibilityService.restrictionFrom(any(HttpServletRequest.class), eq(WorkType.ARTWORK)))
                 .thenReturn(restriction);
-        when(galleryService.query(any(), same(restriction)))
-                .thenReturn(new PagedHistoryResponse(List.of(), 0, 0, 24, 0));
+        when(galleryService.query(any()))
+                .thenReturn(new GalleryPageResponse(List.of(), 0, 0, 24, 0));
 
         mockMvc.perform(get("/api/gallery/artworks")
                         .param("tagIds", "11,12")
@@ -69,16 +68,17 @@ class GalleryControllerTest {
                         .param("authorId", "22"))
                 .andExpect(status().isOk());
 
-        ArgumentCaptor<GalleryQuery> captor = ArgumentCaptor.forClass(GalleryQuery.class);
-        verify(galleryService).query(captor.capture(), same(restriction));
+        ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
+        verify(galleryService).query(captor.capture());
         verify(workVisibilityService).restrictionFrom(any(HttpServletRequest.class), eq(WorkType.ARTWORK));
 
-        GalleryQuery query = captor.getValue();
-        assertThat(query.getTagIds()).containsExactly(11L, 12L);
-        assertThat(query.getExcludedTagIds()).containsExactly(13L);
-        assertThat(query.getOptionalTagIds()).containsExactly(14L, 15L);
-        assertThat(query.getAuthorIds()).containsExactly(21L, 22L);
-        assertThat(query.getExcludedAuthorIds()).containsExactly(31L);
-        assertThat(query.getOptionalAuthorIds()).containsExactly(41L, 42L);
+        WorkQuery query = captor.getValue();
+        assertThat(query.tagIds()).containsExactly(11L, 12L);
+        assertThat(query.excludedTagIds()).containsExactly(13L);
+        assertThat(query.optionalTagIds()).containsExactly(14L, 15L);
+        assertThat(query.authorIds()).containsExactly(21L, 22L);
+        assertThat(query.excludedAuthorIds()).containsExactly(31L);
+        assertThat(query.optionalAuthorIds()).containsExactly(41L, 42L);
+        assertThat(query.restriction()).isSameAs(restriction);
     }
 }

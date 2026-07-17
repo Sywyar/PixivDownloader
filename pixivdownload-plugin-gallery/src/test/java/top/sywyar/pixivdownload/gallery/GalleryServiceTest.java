@@ -8,10 +8,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.download.response.DownloadedResponse;
-import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryArtworkResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryPageResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryTagOptionResponse;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
@@ -88,7 +87,7 @@ class GalleryServiceTest {
         @Test
         @DisplayName("query 先 search 取 id 分页，再批量 hydrate，内容顺序与 id 顺序一致、分页字段透传")
         void shouldSearchThenHydrateInOrder() {
-            GalleryQuery query = GalleryQuery.builder()
+            WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
                     .page(0).size(2).sort("date").order("desc").searchType("all")
                     .tagIds(List.of(11L)).build();
             when(workQueryService.search(any())).thenReturn(new PagedResult<>(
@@ -97,12 +96,12 @@ class GalleryServiceTest {
             when(workMetadataRepository.findAll(WorkType.ARTWORK, List.of(2L, 1L)))
                     .thenReturn(List.of(meta(2L, null, null), meta(1L, null, null)));
 
-            PagedHistoryResponse response = galleryService.query(query);
+            GalleryPageResponse response = galleryService.query(query);
 
-            assertThat(response.getContent()).extracting(DownloadedResponse::getArtworkId)
+            assertThat(response.content()).extracting(GalleryArtworkResponse::artworkId)
                     .containsExactly(2L, 1L);
-            assertThat(response.getTotalElements()).isEqualTo(5);
-            assertThat(response.getTotalPages()).isEqualTo(3);
+            assertThat(response.totalElements()).isEqualTo(5);
+            assertThat(response.totalPages()).isEqualTo(3);
 
             ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
             verify(workQueryService).search(captor.capture());
@@ -117,12 +116,13 @@ class GalleryServiceTest {
         @Test
         @DisplayName("query 将 WorkRestriction 纯值传入核心接口")
         void shouldPassWorkRestriction() {
-            GalleryQuery query = GalleryQuery.builder().page(0).size(24).build();
             WorkRestriction restriction = new WorkRestriction(
                     Set.of(0), false, List.of(7L), true, List.of());
+            WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                    .page(0).size(24).restriction(restriction).build();
             when(workQueryService.search(any())).thenReturn(new PagedResult<>(List.of(), 0, 0, 24, 0));
 
-            galleryService.query(query, restriction);
+            galleryService.query(query);
 
             ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
             verify(workQueryService).search(captor.capture());
@@ -140,13 +140,13 @@ class GalleryServiceTest {
                     .thenReturn(Optional.of(meta(1L, 88L, 700L)));
             when(workMetadataRepository.find(WorkType.ARTWORK, 404L)).thenReturn(Optional.empty());
 
-            DownloadedResponse found = galleryService.findArtwork(1L);
+            GalleryArtworkResponse found = galleryService.findArtwork(1L);
             assertThat(found).isNotNull();
-            assertThat(found.getArtworkId()).isEqualTo(1L);
-            assertThat(found.getTitle()).isEqualTo("标题1");
-            assertThat(found.getAuthorName()).isEqualTo("作者88");
-            assertThat(found.getSeriesId()).isEqualTo(700L);
-            assertThat(found.isDeleted()).isFalse();
+            assertThat(found.artworkId()).isEqualTo(1L);
+            assertThat(found.title()).isEqualTo("标题1");
+            assertThat(found.authorName()).isEqualTo("作者88");
+            assertThat(found.seriesId()).isEqualTo(700L);
+            assertThat(found.deleted()).isFalse();
 
             assertThat(galleryService.findArtwork(404L)).isNull();
         }
@@ -162,7 +162,7 @@ class GalleryServiceTest {
                     .thenReturn(List.of(meta(2L, 88L, null)));
 
             assertThat(galleryService.byAuthor(1L, 0))
-                    .extracting(DownloadedResponse::getArtworkId).containsExactly(2L);
+                    .extracting(GalleryArtworkResponse::artworkId).containsExactly(2L);
 
             when(workMetadataRepository.find(WorkType.ARTWORK, 3L))
                     .thenReturn(Optional.of(meta(3L, null, null)));
@@ -178,11 +178,11 @@ class GalleryServiceTest {
             when(workQueryService.tagByName(WorkType.ARTWORK, "魔法", null))
                     .thenReturn(Optional.of(new TagOption(5L, "魔法", "magic", 3L)));
 
-            List<GalleryRepository.TagOption> tags = galleryService.listTags("魔", 100, null);
-            assertThat(tags).containsExactly(new GalleryRepository.TagOption(5L, "魔法", "magic", 3));
+            List<GalleryTagOptionResponse> tags = galleryService.listTags("魔", 100, null);
+            assertThat(tags).containsExactly(new GalleryTagOptionResponse(5L, "魔法", "magic", 3));
 
             assertThat(galleryService.findTag("魔法", null))
-                    .isEqualTo(new GalleryRepository.TagOption(5L, "魔法", "magic", 3));
+                    .isEqualTo(new GalleryTagOptionResponse(5L, "魔法", "magic", 3));
 
             ArgumentCaptor<TagQuery> captor = ArgumentCaptor.forClass(TagQuery.class);
             verify(workQueryService).tags(captor.capture());

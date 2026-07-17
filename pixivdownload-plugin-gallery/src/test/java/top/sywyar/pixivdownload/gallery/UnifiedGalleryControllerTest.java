@@ -4,8 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
-import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
-import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendHook;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendProvider;
@@ -17,13 +15,12 @@ import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
+import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
-import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCountResult;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker;
-import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeQuery;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeSnapshot;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkResult;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
@@ -34,10 +31,12 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
@@ -55,27 +54,22 @@ class UnifiedGalleryControllerTest {
         assertThat(GalleryBatchService.class.isAnnotationPresent(Deprecated.class)).isFalse();
         assertThat(GalleryFrontendContribution.class.isAnnotationPresent(Deprecated.class)).isFalse();
         assertThat(GalleryFrontendProvider.class.isAnnotationPresent(Deprecated.class)).isFalse();
-        assertThat(GalleryCapabilityRegistry.class.isAnnotationPresent(Deprecated.class)).isFalse();
-        assertThat(GalleryProjectionBroker.class.isAnnotationPresent(Deprecated.class)).isFalse();
-        assertThat(GalleryWorkBroker.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryRuntimeQuery.class.isAnnotationPresent(Deprecated.class)).isFalse();
     }
 
     @Test
     @DisplayName("全部兼容端点通过标准响应头声明弃用日期且不承诺移除")
     void compatibilityApiPublishesDeprecationHeader() throws Exception {
-        GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
-        when(registry.snapshot()).thenReturn(snapshot());
-        GalleryProjectionBroker projectionBroker = mock(GalleryProjectionBroker.class);
-        when(projectionBroker.page(any(), anySet()))
+        GalleryRuntimeQuery runtimeQuery = mock(GalleryRuntimeQuery.class);
+        when(runtimeQuery.snapshot(anySet())).thenReturn(snapshot(false));
+        when(runtimeQuery.page(any(), anySet()))
                 .thenReturn(new GalleryProjectionPage(List.of(), null, false, List.of()));
-        when(projectionBroker.count(any(), anySet()))
-                .thenReturn(new GalleryCountResult(0, List.of()));
-        when(projectionBroker.facets(any(), anySet())).thenReturn(GalleryFacetPage.empty());
-        GalleryWorkBroker workBroker = mock(GalleryWorkBroker.class);
-        when(workBroker.find(any(), anySet()))
+        when(runtimeQuery.count(any(), anySet())).thenReturn(new GalleryCountResult(0, List.of()));
+        when(runtimeQuery.facets(any(), anySet())).thenReturn(GalleryFacetPage.empty());
+        when(runtimeQuery.findWork(any(), anySet()))
                 .thenReturn(new GalleryWorkResult(Optional.empty(), List.of()));
-        UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                projectionBroker, workBroker, ownerIdentityResolver(false));
+        UnifiedGalleryController controller = new UnifiedGalleryController(
+                runtimeQuery, ownerIdentityResolver(false));
         MockMvc mockMvc = standaloneSetup(controller).build();
 
         for (String path : List.of(
@@ -104,17 +98,17 @@ class UnifiedGalleryControllerTest {
     }
 
     @Test
-    @DisplayName("游客与受邀访客不暴露同 owner 的管理员专属前端贡献")
-    void sharedDescriptorsExcludeAdministrativeData() {
-        GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
-        when(registry.snapshot()).thenReturn(snapshot());
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                mock(GalleryProjectionBroker.class), mock(GalleryWorkBroker.class),
-                ownerIdentityResolver(false));
+    @DisplayName("游客与受邀访客只请求共享数据范围")
+    void sharedDescriptorsUseSharedAccessOnly() {
+        GalleryRuntimeQuery runtimeQuery = mock(GalleryRuntimeQuery.class);
+        Set<GalleryDataAccess> sharedAccess = Set.of(GalleryDataAccess.SHARED);
+        when(runtimeQuery.snapshot(eq(sharedAccess))).thenReturn(snapshot(false));
+        UnifiedGalleryController controller = new UnifiedGalleryController(
+                runtimeQuery, ownerIdentityResolver(false));
 
-        var response = controller.descriptors(request);
+        var response = controller.descriptors(new MockHttpServletRequest());
 
+        verify(runtimeQuery).snapshot(sharedAccess);
         assertThat(response.generation()).isEqualTo(23);
         assertThat(response.projections()).extracting(GalleryProjectionDescriptor::sourceId)
                 .containsExactly("shared");
@@ -139,18 +133,18 @@ class UnifiedGalleryControllerTest {
     }
 
     @Test
-    @DisplayName("管理员 descriptors 可见共享与管理员专属前端贡献")
+    @DisplayName("管理员 descriptors 请求共享与管理员数据并净化注册诊断")
     void administrativeDescriptorsIncludeAllAuthorizedFrontends() {
-        GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
-        when(registry.snapshot()).thenReturn(snapshot());
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                mock(GalleryProjectionBroker.class), mock(GalleryWorkBroker.class),
-                ownerIdentityResolver(true));
+        GalleryRuntimeQuery runtimeQuery = mock(GalleryRuntimeQuery.class);
+        Set<GalleryDataAccess> adminAccess = Set.of(
+                GalleryDataAccess.SHARED, GalleryDataAccess.ADMIN_ONLY);
+        when(runtimeQuery.snapshot(eq(adminAccess))).thenReturn(snapshot(true));
+        UnifiedGalleryController controller = new UnifiedGalleryController(
+                runtimeQuery, ownerIdentityResolver(true));
 
-        var response = controller.descriptors(request);
+        var response = controller.descriptors(new MockHttpServletRequest());
 
-        assertThat(response.generation()).isEqualTo(23);
+        verify(runtimeQuery).snapshot(adminAccess);
         assertThat(response.projections()).extracting(GalleryProjectionDescriptor::sourceId)
                 .containsExactly("shared", "admin");
         assertThat(response.works()).extracting(GalleryWorkDescriptor::sourceId)
@@ -164,22 +158,35 @@ class UnifiedGalleryControllerTest {
     }
 
     @Test
+    @DisplayName("非管理员 descriptors 即使门面误返诊断也不泄露全局注册信息")
+    void sharedDescriptorsDropUnexpectedRegistryDiagnostics() {
+        GalleryRuntimeQuery runtimeQuery = mock(GalleryRuntimeQuery.class);
+        GalleryDiagnostic diagnostic = new GalleryDiagnostic(
+                "registry", null, null, "registry-warning", "private detail");
+        when(runtimeQuery.snapshot(eq(Set.of(GalleryDataAccess.SHARED))))
+                .thenReturn(new GalleryRuntimeSnapshot(
+                        1, List.of(), List.of(), List.of(), List.of(diagnostic)));
+        UnifiedGalleryController controller = new UnifiedGalleryController(
+                runtimeQuery, ownerIdentityResolver(false));
+
+        assertThat(controller.descriptors(new MockHttpServletRequest()).diagnostics()).isEmpty();
+    }
+
+    @Test
     @DisplayName("只读 API 诊断不返回 provider 异常原文")
     void publicDiagnosticsDropProviderFailureMessages() {
-        GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
-        when(registry.snapshot()).thenReturn(snapshot());
-        GalleryProjectionBroker projectionBroker = mock(GalleryProjectionBroker.class);
-        when(projectionBroker.page(any(), anySet())).thenReturn(new GalleryProjectionPage(
+        GalleryRuntimeQuery runtimeQuery = mock(GalleryRuntimeQuery.class);
+        when(runtimeQuery.page(any(), anySet())).thenReturn(new GalleryProjectionPage(
                 List.of(), null, false, List.of(new GalleryDiagnostic(
                         "shared-projection", "shared", GalleryKind.IMAGE,
                         "gallery-provider-page-failed", "SQLException: password=secret"))));
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                projectionBroker, mock(GalleryWorkBroker.class), ownerIdentityResolver(false));
+        UnifiedGalleryController controller = new UnifiedGalleryController(
+                runtimeQuery, ownerIdentityResolver(false));
 
         GalleryProjectionPage response = controller.projections(
                 GalleryKind.IMAGE, "shared", null, null, null, null, null,
-                GallerySortField.DOWNLOADED_AT, GallerySortDirection.DESC, null, 50, request);
+                GallerySortField.DOWNLOADED_AT, GallerySortDirection.DESC, null, 50,
+                new MockHttpServletRequest());
 
         assertThat(response.diagnostics()).singleElement().satisfies(diagnostic -> {
             assertThat(diagnostic.code()).isEqualTo("gallery-provider-page-failed");
@@ -187,58 +194,42 @@ class UnifiedGalleryControllerTest {
         });
     }
 
-    private static GalleryCapabilityRegistry.Snapshot snapshot() {
+    private static GalleryRuntimeSnapshot snapshot(boolean admin) {
         GalleryProjectionDescriptor sharedProjection = descriptor("shared", GalleryDataAccess.SHARED);
-        GalleryProjectionDescriptor adminProjection = descriptor("admin", GalleryDataAccess.ADMIN_ONLY);
         GalleryWorkDescriptor sharedWork = new GalleryWorkDescriptor(
                 "shared", "work", GalleryDataAccess.SHARED);
+        if (!admin) {
+            return new GalleryRuntimeSnapshot(
+                    23, List.of(sharedProjection), List.of(sharedWork),
+                    List.of(frontend("shared", 10)), List.of());
+        }
+        GalleryProjectionDescriptor adminProjection = descriptor("admin", GalleryDataAccess.ADMIN_ONLY);
         GalleryWorkDescriptor adminWork = new GalleryWorkDescriptor(
                 "admin", "work", GalleryDataAccess.ADMIN_ONLY);
-        return new GalleryCapabilityRegistry.Snapshot(
+        return new GalleryRuntimeSnapshot(
                 23,
-                List.of(projectionProvider(
-                        "mixed-owner", List.of(sharedProjection, adminProjection))),
-                List.of(workProvider(
-                        "mixed-owner", List.of(sharedWork, adminWork))),
-                List.of(
-                        frontend("mixed-owner", "shared", 10),
-                        frontend("mixed-owner", "admin", 20),
-                        frontend("mixed-owner", "unproven", 30)),
                 List.of(sharedProjection, adminProjection),
                 List.of(sharedWork, adminWork),
+                List.of(frontend("shared", 10), frontend("admin", 20)),
                 List.of(new GalleryDiagnostic(
                         "registry", null, null, "registry-warning", "diagnostic")));
     }
 
-    private static GalleryCapabilityRegistry.RegisteredProjectionProvider projectionProvider(
-            String owner, List<GalleryProjectionDescriptor> descriptors) {
-        return new GalleryCapabilityRegistry.RegisteredProjectionProvider(
-                owner, owner + "-projection", mock(GalleryProjectionProvider.class), descriptors);
-    }
-
-    private static GalleryCapabilityRegistry.RegisteredWorkProvider workProvider(
-            String owner, List<GalleryWorkDescriptor> descriptors) {
-        return new GalleryCapabilityRegistry.RegisteredWorkProvider(
-                owner, owner + "-work", mock(GalleryWorkProvider.class), descriptors);
-    }
-
-    private static GalleryCapabilityRegistry.RegisteredFrontendContribution frontend(
-            String owner, String source, int order) {
-        return new GalleryCapabilityRegistry.RegisteredFrontendContribution(owner,
-                new GalleryFrontendContribution(
-                        source + ".view",
-                        "/gallery-extensions/" + source + ".js",
-                        new GalleryFrontendScope(
-                                Set.of(source),
-                                Set.of("work"),
-                                Set.of(GalleryKind.IMAGE),
-                                Set.of(GalleryMediaKind.IMAGE)),
-                        Set.of(GalleryFrontendHook.VIEW_ENTRY),
-                        "/pixiv-gallery.html?galleryKind=IMAGE&sourceId=" + source,
-                        "gallery",
-                        "gallery.view." + source,
-                        "images",
-                        order));
+    private static GalleryFrontendContribution frontend(String source, int order) {
+        return new GalleryFrontendContribution(
+                source + ".view",
+                "/gallery-extensions/" + source + ".js",
+                new GalleryFrontendScope(
+                        Set.of(source),
+                        Set.of("work"),
+                        Set.of(GalleryKind.IMAGE),
+                        Set.of(GalleryMediaKind.IMAGE)),
+                Set.of(GalleryFrontendHook.VIEW_ENTRY),
+                "/pixiv-gallery.html?galleryKind=IMAGE&sourceId=" + source,
+                "gallery",
+                "gallery.view." + source,
+                "images",
+                order);
     }
 
     private static GalleryProjectionDescriptor descriptor(String source, GalleryDataAccess access) {

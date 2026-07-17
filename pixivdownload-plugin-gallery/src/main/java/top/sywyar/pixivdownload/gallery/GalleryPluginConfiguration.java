@@ -3,8 +3,9 @@ package top.sywyar.pixivdownload.gallery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
+import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeQuery;
 import top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
@@ -13,7 +14,6 @@ import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 /**
  * gallery 插件的 Bean 装配收敛点：业务 Bean（含 {@code @RestController}）均经
@@ -67,11 +67,9 @@ public class GalleryPluginConfiguration {
     @ConditionalOnPluginEnabled("gallery")
     @SuppressWarnings("deprecation")
     public UnifiedGalleryController unifiedGalleryController(
-            top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry registry,
-            top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker projectionBroker,
-            top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker workBroker,
+            GalleryRuntimeQuery galleryRuntimeQuery,
             RequestOwnerIdentityResolver ownerIdentityResolver) {
-        return new UnifiedGalleryController(registry, projectionBroker, workBroker, ownerIdentityResolver);
+        return new UnifiedGalleryController(galleryRuntimeQuery, ownerIdentityResolver);
     }
 
     @Bean
@@ -79,12 +77,11 @@ public class GalleryPluginConfiguration {
     public GalleryBatchService galleryBatchService(GalleryService galleryService,
                                                    WorkMetadataRepository workMetadataRepository,
                                                    WorkAssetService workAssetService,
-                                                   CollectionService collectionService,
-                                                   UserQuotaService userQuotaService,
-                                                   MultiModeSettings multiModeSettings,
+                                                   ArtworkCollectionMembership collectionMembership,
+                                                   ArchiveExportService archiveExportService,
                                                    ObjectMapper objectMapper) {
         return new GalleryBatchService(galleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeSettings, objectMapper);
+                collectionMembership, archiveExportService, objectMapper);
     }
 
     @Bean

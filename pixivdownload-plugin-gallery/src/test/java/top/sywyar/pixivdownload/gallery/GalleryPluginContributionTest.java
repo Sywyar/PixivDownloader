@@ -2,20 +2,14 @@ package top.sywyar.pixivdownload.gallery;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
-import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
-import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
-import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
-import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -122,26 +116,17 @@ class GalleryPluginContributionTest {
     }
 
     @Test
-    @DisplayName("gallery 声明的核心列使用均能在受管 schema 中找到对应表列")
-    void coreColumnUsagesResolveAgainstManagedSchema() {
-        ManagedDatabaseSchema.DatabaseSchema schema =
-                DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
-        for (CoreColumnUsage usage : plugin.coreColumnUsages()) {
-            ManagedDatabaseSchema.TableSpec table = schema.tables().values().stream()
-                    .filter(spec -> spec.name().equals(ManagedDatabaseSchema.normalizeIdentifier(usage.table())))
-                    .findFirst()
-                    .orElse(null);
-            assertThat(table)
-                    .as("gallery 声明的核心表 %s 应在受管 schema 中", usage.table())
-                    .isNotNull();
-            Set<String> columns = table.columns().stream()
-                    .map(ManagedDatabaseSchema.ColumnSpec::name)
-                    .collect(Collectors.toSet());
-            for (String column : usage.columns()) {
-                assertThat(columns)
-                        .as("gallery 声明的核心列 %s.%s 应在受管 schema 中", usage.table(), column)
-                        .contains(ManagedDatabaseSchema.normalizeIdentifier(column));
-            }
-        }
+    @DisplayName("gallery 精确声明读取的核心表列")
+    void coreColumnUsagesDeclareGalleryReadModel() {
+        assertThat(plugin.coreColumnUsages()).containsExactly(
+                new CoreColumnUsage("artworks", List.of(
+                        "artwork_id", "title", "description", "author_id", "R18", "is_ai",
+                        "extensions", "count", "moved", "time", "deleted",
+                        "series_id", "series_order")),
+                new CoreColumnUsage("artwork_tags", List.of("artwork_id", "tag_id")),
+                new CoreColumnUsage("tags", List.of("tag_id", "name", "translated_name")),
+                new CoreColumnUsage("authors", List.of("author_id", "name")),
+                new CoreColumnUsage("manga_series", List.of("series_id", "title")),
+                new CoreColumnUsage("artwork_collections", List.of("artwork_id", "collection_id")));
     }
 }

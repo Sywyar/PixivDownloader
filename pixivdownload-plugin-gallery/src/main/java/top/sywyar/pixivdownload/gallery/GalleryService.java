@@ -1,11 +1,10 @@
 package top.sywyar.pixivdownload.gallery;
 
 import lombok.RequiredArgsConstructor;
-import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.download.response.DownloadedResponse;
-import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryArtworkResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryPageResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryTagOptionResponse;
+import top.sywyar.pixivdownload.gallery.web.GalleryTagResponse;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
@@ -37,53 +36,51 @@ public class GalleryService {
     private final WorkMetadataRepository workMetadataRepository;
     private final WorkDeletionService workDeletionService;
 
-    public PagedHistoryResponse query(GalleryQuery query) {
-        return query(query, null);
-    }
-
-    public PagedHistoryResponse query(GalleryQuery query, WorkRestriction restriction) {
-        PagedResult<WorkSummary> result = workQueryService.search(toWorkQuery(query, restriction));
-        List<DownloadedResponse> content = toResponses(toIds(result.content()));
-        return new PagedHistoryResponse(content, result.totalElements(),
+    public GalleryPageResponse query(WorkQuery query) {
+        PagedResult<WorkSummary> result = workQueryService.search(query);
+        List<GalleryArtworkResponse> content = toResponses(toIds(result.content()));
+        return new GalleryPageResponse(content, result.totalElements(),
                 result.page(), result.size(), result.totalPages());
     }
 
-    public List<Long> findArtworkIds(GalleryQuery query) {
-        return toIds(workQueryService.searchAll(toWorkQuery(query, null)));
+    public List<Long> findArtworkIds(WorkQuery query) {
+        return toIds(workQueryService.searchAll(query));
     }
 
-    public List<GalleryRepository.TagOption> listTags(String search, int limit, WorkRestriction restriction) {
+    public List<GalleryTagOptionResponse> listTags(String search,
+                                                   int limit,
+                                                   WorkRestriction restriction) {
         List<TagOption> tags = workQueryService.tags(
                 new TagQuery(WorkType.ARTWORK, search, limit, restriction));
-        List<GalleryRepository.TagOption> out = new ArrayList<>(tags.size());
+        List<GalleryTagOptionResponse> out = new ArrayList<>(tags.size());
         for (TagOption tag : tags) {
-            out.add(toRepositoryTag(tag));
+            out.add(toTagOptionResponse(tag));
         }
         return out;
     }
 
-    public List<GalleryRepository.TagOption> listTags(String search, int limit) {
+    public List<GalleryTagOptionResponse> listTags(String search, int limit) {
         return listTags(search, limit, null);
     }
 
-    public GalleryRepository.TagOption findTag(String name, String translatedName) {
+    public GalleryTagOptionResponse findTag(String name, String translatedName) {
         return workQueryService.tagByName(WorkType.ARTWORK, name, translatedName)
-                .map(GalleryService::toRepositoryTag)
+                .map(GalleryService::toTagOptionResponse)
                 .orElse(null);
     }
 
-    public DownloadedResponse findArtwork(long artworkId) {
+    public GalleryArtworkResponse findArtwork(long artworkId) {
         return workMetadataRepository.find(WorkType.ARTWORK, artworkId)
-                .map(GalleryService::toDownloadedResponse)
+                .map(GalleryService::toArtworkResponse)
                 .orElse(null);
     }
 
-    public List<DownloadedResponse> related(long artworkId, int limit) {
+    public List<GalleryArtworkResponse> related(long artworkId, int limit) {
         return toResponses(toIds(
                 workQueryService.relatedByTags(WorkType.ARTWORK, artworkId, clampLimit(limit))));
     }
 
-    public List<DownloadedResponse> byAuthor(long artworkId, int limit) {
+    public List<GalleryArtworkResponse> byAuthor(long artworkId, int limit) {
         WorkMetadata base = workMetadataRepository.find(WorkType.ARTWORK, artworkId).orElse(null);
         if (base == null || base.authorId() == null) {
             return List.of();
@@ -92,7 +89,7 @@ public class GalleryService {
                 WorkType.ARTWORK, base.authorId(), artworkId, clampLimit(limit))));
     }
 
-    public List<DownloadedResponse> bySeries(long artworkId, int limit) {
+    public List<GalleryArtworkResponse> bySeries(long artworkId, int limit) {
         WorkMetadata base = workMetadataRepository.find(WorkType.ARTWORK, artworkId).orElse(null);
         if (base == null || base.seriesId() == null || base.seriesId() <= 0) {
             return List.of();
@@ -126,14 +123,14 @@ public class GalleryService {
         return Math.min(limit, 60);
     }
 
-    private List<DownloadedResponse> toResponses(List<Long> ids) {
+    private List<GalleryArtworkResponse> toResponses(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
         List<WorkMetadata> metas = workMetadataRepository.findAll(WorkType.ARTWORK, ids);
-        List<DownloadedResponse> out = new ArrayList<>(metas.size());
+        List<GalleryArtworkResponse> out = new ArrayList<>(metas.size());
         for (WorkMetadata meta : metas) {
-            out.add(toDownloadedResponse(meta));
+            out.add(toArtworkResponse(meta));
         }
         return out;
     }
@@ -146,69 +143,29 @@ public class GalleryService {
         return out;
     }
 
-    private WorkQuery toWorkQuery(GalleryQuery query, WorkRestriction restriction) {
-        return WorkQuery.builder(WorkType.ARTWORK)
-                .page(query.getPage())
-                .size(query.getSize())
-                .sort(query.getSort())
-                .order(query.getOrder())
-                .search(query.getSearch())
-                .searchType(query.getSearchType())
-                .r18(query.getR18())
-                .ai(query.getAi())
-                .formats(query.getFormats())
-                .collectionIds(query.getCollectionIds())
-                .tagIds(query.getTagIds())
-                .excludedTagIds(query.getExcludedTagIds())
-                .optionalTagIds(query.getOptionalTagIds())
-                .authorIds(query.getAuthorIds())
-                .excludedAuthorIds(query.getExcludedAuthorIds())
-                .optionalAuthorIds(query.getOptionalAuthorIds())
-                .seriesIds(query.getSeriesIds())
-                .excludedSeriesIds(query.getExcludedSeriesIds())
-                .restriction(restriction)
-                .build();
-    }
-
-    private static GalleryRepository.TagOption toRepositoryTag(TagOption tag) {
-        return new GalleryRepository.TagOption(
+    private static GalleryTagOptionResponse toTagOptionResponse(TagOption tag) {
+        return new GalleryTagOptionResponse(
                 tag.tagId(), tag.name(), tag.translatedName(), (int) tag.workCount());
     }
 
-    private static DownloadedResponse toDownloadedResponse(WorkMetadata meta) {
+    private static GalleryArtworkResponse toArtworkResponse(WorkMetadata meta) {
         Long seriesId = meta.seriesId();
-        return DownloadedResponse.builder()
-                .artworkId(meta.workId())
-                .title(meta.title())
-                .folder(meta.folder())
-                .count(meta.pageCount())
-                .extensions(meta.extensions())
-                .time(meta.downloadTime())
-                .moved(meta.moved())
-                .moveFolder(meta.moveFolder())
-                .moveTime(meta.moveTime())
-                .xRestrict(meta.xRestrict())
-                .isAi(meta.isAi())
-                .authorId(meta.authorId())
-                .authorName(meta.authorName())
-                .description(meta.description())
-                .fileName(meta.fileNameTemplateId())
-                .fileNameTemplate(meta.fileNameTemplate())
-                .tags(toTagDtos(meta.tags()))
-                .seriesId(seriesId == null || seriesId <= 0 ? null : seriesId)
-                .seriesOrder(meta.seriesOrder())
-                .seriesTitle(meta.seriesTitle())
-                .deleted(false)
-                .build();
+        return new GalleryArtworkResponse(
+                meta.workId(), meta.title(), meta.folder(), meta.pageCount(), meta.extensions(),
+                meta.downloadTime(), meta.moved(), meta.moveFolder(), meta.moveTime(),
+                meta.xRestrict(), meta.isAi(), meta.authorId(), meta.authorName(),
+                meta.description(), meta.fileNameTemplateId(), meta.fileNameTemplate(),
+                toTagResponses(meta.tags()), seriesId == null || seriesId <= 0 ? null : seriesId,
+                meta.seriesOrder(), meta.seriesTitle(), false);
     }
 
-    private static List<TagDto> toTagDtos(List<WorkTag> tags) {
+    private static List<GalleryTagResponse> toTagResponses(List<WorkTag> tags) {
         if (tags == null || tags.isEmpty()) {
             return List.of();
         }
-        List<TagDto> out = new ArrayList<>(tags.size());
+        List<GalleryTagResponse> out = new ArrayList<>(tags.size());
         for (WorkTag tag : tags) {
-            out.add(new TagDto(tag.tagId(), tag.name(), tag.translatedName()));
+            out.add(new GalleryTagResponse(tag.tagId(), tag.name(), tag.translatedName()));
         }
         return out;
     }

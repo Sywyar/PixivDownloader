@@ -60,7 +60,6 @@ class OfficialPluginHostBoundaryGuardTest {
      */
     private static final Set<String> APP_ARTIFACT_TRANSITION_ALLOWLIST = Set.of(
             "pixivdownload-plugin-download-workbench",
-            "pixivdownload-plugin-gallery",
             "pixivdownload-plugin-novel");
 
     @Test

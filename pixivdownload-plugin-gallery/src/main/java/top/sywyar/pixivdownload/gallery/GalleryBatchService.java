@@ -1,13 +1,18 @@
 package top.sywyar.pixivdownload.gallery;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
-import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
+import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
+import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
+import top.sywyar.pixivdownload.gallery.web.GalleryWorkQueryFactory;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
@@ -16,10 +21,10 @@ import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
-import top.sywyar.pixivdownload.quota.ArchiveExportSupport.ExportResult;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -45,103 +50,103 @@ public class GalleryBatchService {
     private final GalleryService galleryService;
     private final WorkMetadataRepository workMetadataRepository;
     private final WorkAssetService workAssetService;
-    private final CollectionService collectionService;
-    private final UserQuotaService userQuotaService;
-    private final MultiModeSettings multiModeSettings;
+    private final ArtworkCollectionMembership collectionMembership;
+    private final ArchiveExportService archiveExportService;
     private final ObjectMapper objectMapper;
 
     public List<Long> resolveArtworkIds(ArtworkBatchRequest request) {
         if (request != null && request.filterMode()) {
             List<Long> ids = galleryService.findArtworkIds(toGalleryQuery(request.filter()));
-            return ArchiveExportSupport.applyExclusions(ids, request.excludeIds());
+            return ArchiveExportRules.applyExclusions(ids, request.excludeIds());
         }
-        return ArchiveExportSupport.applyExclusions(request == null ? null : request.ids(),
+        return ArchiveExportRules.applyExclusions(request == null ? null : request.ids(),
                 request == null ? null : request.excludeIds());
     }
 
     public int collectArtworks(Collection<Long> artworkIds, long collectionId) {
         int changed = 0;
-        for (Long id : ArchiveExportSupport.normalizeIds(artworkIds)) {
-            if (collectionService.addArtwork(collectionId, id)) {
+        for (Long id : ArchiveExportRules.normalizeIds(artworkIds)) {
+            if (collectionMembership.addArtwork(collectionId, id)) {
                 changed++;
             }
         }
         return changed;
     }
 
-    public ExportResult exportArtworks(Collection<Long> artworkIds, String groupBy, String format,
-                                       boolean deleteAfter) {
-        ArchiveExportSupport.normalizeFormat(format);
-        boolean groupById = ArchiveExportSupport.groupById(groupBy);
-        List<Long> ids = ArchiveExportSupport.normalizeIds(artworkIds);
+    public ArchiveExportResult exportArtworks(Collection<Long> artworkIds, String groupBy, String format,
+                                              boolean deleteAfter) {
+        String normalizedFormat = archiveExportService.normalizeFormat(format);
+        boolean groupById = ArchiveExportRules.groupById(groupBy);
+        List<Long> ids = ArchiveExportRules.normalizeIds(artworkIds);
         if (ids.isEmpty()) {
-            return ExportResult.empty();
+            return archiveExportService.export(new ArchiveExportRequest(
+                    List.of(), "artworks", 0, 0, normalizedFormat, null));
         }
 
         List<WorkMetadata> metas = workMetadataRepository.findAll(WorkType.ARTWORK, ids);
-        List<UserQuotaService.ArchiveItem> items = new ArrayList<>();
+        List<ArchiveExportEntry> entries = new ArrayList<>();
         List<Map<String, Object>> manifest = new ArrayList<>();
         int fileCount = 0;
 
         for (WorkMetadata meta : metas) {
             String baseDir = groupById
                     ? String.valueOf(meta.workId())
-                    : "artworks/" + ArchiveExportSupport.authorSegment(meta.authorId(), meta.authorName())
-                            + "/" + ArchiveExportSupport.workSegment(meta.workId(), meta.title());
+                    : "artworks/" + ArchiveExportRules.authorSegment(meta.authorId(), meta.authorName())
+                            + "/" + ArchiveExportRules.workSegment(meta.workId(), meta.title());
             List<Map<String, Object>> fileEntries = new ArrayList<>();
             List<WorkAssetFile> files = workAssetService.findAsset(WorkType.ARTWORK, meta.workId())
                     .map(LocalWorkAsset::files)
                     .orElse(List.of());
             for (WorkAssetFile file : files) {
-                String entryName = baseDir + "/" + ArchiveExportSupport.safeSegment(
+                String entryName = baseDir + "/" + ArchiveExportRules.safeSegment(
                         file.path().getFileName().toString(), "page-" + (file.page() + 1));
-                items.add(UserQuotaService.ArchiveItem.file(file.path(), entryName, meta.workId()));
-                fileEntries.add(ArchiveExportSupport.fileManifest(entryName, file.path()));
+                entries.add(ArchiveExportEntry.file(file.path(), entryName, meta.workId()));
+                fileEntries.add(fileManifest(entryName, file.path()));
                 fileCount++;
             }
             manifest.add(artworkManifest(meta, fileEntries));
         }
 
         if (fileCount == 0) {
-            return ExportResult.empty(ids.size());
+            return archiveExportService.export(new ArchiveExportRequest(
+                    List.of(), "artworks", ids.size(), 0, normalizedFormat, null));
         }
 
-        items.add(UserQuotaService.ArchiveItem.bytes("manifest.json",
-                ArchiveExportSupport.jsonBytes(objectMapper, manifest)));
-        Runnable afterReady = deleteAfter ? () -> galleryService.deleteArtworks(ids) : null;
-        String token = userQuotaService.triggerAdminFileArchive(items, "artworks", ids.size(), afterReady);
-        return new ExportResult(token, archiveExpireSeconds(), ids.size(), fileCount);
+        entries.add(ArchiveExportEntry.bytes("manifest.json", jsonBytes(manifest)));
+        return archiveExportService.export(new ArchiveExportRequest(
+                entries, "artworks", ids.size(), fileCount, normalizedFormat,
+                deleteAfter ? new ArchiveWorkDeletion(WorkType.ARTWORK.name(), ids) : null));
     }
 
-    private GalleryQuery toGalleryQuery(ArtworkBatchRequest.Filter filter) {
-        List<Long> authorIds = new ArrayList<>(ArchiveExportSupport.normalizeIds(filter.authorIds()));
+    private WorkQuery toGalleryQuery(ArtworkBatchRequest.Filter filter) {
+        List<Long> authorIds = new ArrayList<>(ArchiveExportRules.normalizeIds(filter.authorIds()));
         if (filter.authorId() != null && filter.authorId() > 0 && !authorIds.contains(filter.authorId())) {
             authorIds.add(filter.authorId());
         }
-        List<Long> seriesIds = new ArrayList<>(ArchiveExportSupport.normalizeIds(filter.seriesIds()));
+        List<Long> seriesIds = new ArrayList<>(ArchiveExportRules.normalizeIds(filter.seriesIds()));
         if (filter.seriesId() != null && filter.seriesId() > 0 && !seriesIds.contains(filter.seriesId())) {
             seriesIds.add(filter.seriesId());
         }
-        GalleryQuery query = GalleryQuery.normalize(
+        return GalleryWorkQueryFactory.create(
                 0,
                 200,
                 filter.sort(),
                 filter.order(),
                 filter.search(),
+                filter.searchType(),
                 filter.r18(),
                 filter.ai(),
                 normalizeFormats(filter.formats()),
-                ArchiveExportSupport.normalizeIds(filter.collectionIds()),
-                ArchiveExportSupport.normalizeIds(filter.tagIds()),
-                ArchiveExportSupport.normalizeIds(filter.notTagIds()),
-                ArchiveExportSupport.normalizeIds(filter.orTagIds()),
+                ArchiveExportRules.normalizeIds(filter.collectionIds()),
+                ArchiveExportRules.normalizeIds(filter.tagIds()),
+                ArchiveExportRules.normalizeIds(filter.notTagIds()),
+                ArchiveExportRules.normalizeIds(filter.orTagIds()),
                 authorIds,
-                ArchiveExportSupport.normalizeIds(filter.notAuthorIds()),
-                ArchiveExportSupport.normalizeIds(filter.orAuthorIds()),
+                ArchiveExportRules.normalizeIds(filter.notAuthorIds()),
+                ArchiveExportRules.normalizeIds(filter.orAuthorIds()),
                 seriesIds,
-                ArchiveExportSupport.normalizeIds(filter.notSeriesIds()));
-        query.setSearchType(GalleryQuery.normalizeSearchType(filter.searchType()));
-        return query;
+                ArchiveExportRules.normalizeIds(filter.notSeriesIds()),
+                null);
     }
 
     private List<String> normalizeFormats(Collection<String> formats) {
@@ -171,23 +176,42 @@ public class GalleryBatchService {
         out.put("xRestrict", meta.xRestrict());
         out.put("isAi", meta.isAi());
         out.put("time", meta.downloadTime());
-        out.put("tags", ArchiveExportSupport.tagNames(toTagDtos(meta.tags())));
+        out.put("tags", tagManifest(meta.tags()));
         out.put("files", files);
         return out;
     }
 
-    private static List<TagDto> toTagDtos(List<WorkTag> tags) {
+    private static List<Map<String, Object>> tagManifest(List<WorkTag> tags) {
         if (tags == null || tags.isEmpty()) {
             return List.of();
         }
-        List<TagDto> out = new ArrayList<>(tags.size());
+        List<Map<String, Object>> out = new ArrayList<>(tags.size());
         for (WorkTag tag : tags) {
-            out.add(new TagDto(tag.tagId(), tag.name(), tag.translatedName()));
+            if (tag == null) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", tag.tagId());
+            item.put("name", tag.name());
+            item.put("translatedName", tag.translatedName());
+            out.add(item);
         }
         return out;
     }
 
-    private long archiveExpireSeconds() {
-        return (long) multiModeSettings.getArchiveExpireMinutes() * 60;
+    private static Map<String, Object> fileManifest(String archivePath, Path originalPath) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("archivePath", archivePath);
+        out.put("originalPath", originalPath == null
+                ? null : originalPath.toAbsolutePath().normalize().toString());
+        return out;
+    }
+
+    private byte[] jsonBytes(Object value) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(value);
+        } catch (JsonProcessingException e) {
+            return "[]\n".getBytes(StandardCharsets.UTF_8);
+        }
     }
 }
