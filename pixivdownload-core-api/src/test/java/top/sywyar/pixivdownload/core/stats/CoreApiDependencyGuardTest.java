@@ -12,6 +12,13 @@ import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
+import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
+import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.gallery.GalleryDataProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
@@ -58,6 +65,8 @@ class CoreApiDependencyGuardTest {
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.ai..",
                         "top.sywyar.pixivdownload.config..",
+                        "top.sywyar.pixivdownload.core.archive..",
+                        "top.sywyar.pixivdownload.core.collection..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
@@ -141,6 +150,18 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(ArtworkHashIndexMaintenance.class.getName())).isTrue();
         assertThat(CLASSES.contain(ArtworkHashEntry.class.getName())).isTrue();
         assertThat(CLASSES.contain(ArtworkHashFingerprint.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含归档导出与作品收藏成员端口")
+    void coreApiContainsArchiveAndCollectionContracts() {
+        assertThat(CLASSES.contain(ArchiveExportRules.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArchiveExportEntry.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArchiveExportRequest.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArchiveExportResult.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArchiveExportService.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArchiveWorkDeletion.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkCollectionMembership.class.getName())).isTrue();
     }
 
     @Test
