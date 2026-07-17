@@ -226,6 +226,12 @@ function douyinSafeId(value) {
     return String(value || '').replace(/[^A-Za-z0-9_-]+/g, '_') || 'unknown';
 }
 
+function douyinCancelWorkKey(value) {
+    if (value == null) return null;
+    const raw = String(value);
+    return raw.length > 0 && raw.length <= 4096 && raw.trim() !== '' ? raw : null;
+}
+
 function douyinParseInput(text) {
     const raw = String(text || '').trim();
     if (/^\d{5,}$/.test(raw)) {
@@ -330,6 +336,9 @@ function douyinQueueMediaCount(item) {
 
 function douyinQueueMeta(item) {
     const douyinId = String(item.id || item.workId || item.douyinId || '');
+    const rawWorkKey = item.cancelWorkKey != null ? item.cancelWorkKey
+        : item.workId != null ? item.workId
+            : item.douyinId != null ? item.douyinId : item.id;
     const url = item.url || item.pageUrl || '';
     const mediaKind = douyinQueueMediaKind(item);
     const mediaCount = douyinQueueMediaCount(item);
@@ -337,6 +346,7 @@ function douyinQueueMeta(item) {
         title: item.title || douyinText('queue.fallback', 'Douyin {id}', {id: item.id}),
         douyinId,
         kind: 'douyin',
+        cancelWorkKey: douyinCancelWorkKey(rawWorkKey),
         url,
         authorId: item.userId || item.authorId || null,
         authorName: item.userName || item.authorName || '',
@@ -595,7 +605,7 @@ async function douyinFetchJson(path, options) {
     }
 }
 
-async function processDouyinItem(item) {
+async function processDouyinItem(item, processContext) {
     douyinAssertActive();
     item.lastMessage = douyinText('status.queued', 'Queued');
     item.totalImages = 1;
@@ -635,6 +645,11 @@ async function processDouyinItem(item) {
             if (!res.ok) {
                 const key = data.messageKey ? douyinI18nKey(data.messageKey) : 'douyin:error.request-failed';
                 throw new Error(bt(key, data.message || `HTTP ${res.status}`));
+            }
+            const authoritativeWorkKey = douyinCancelWorkKey(data.workId);
+            if (authoritativeWorkKey && processContext
+                && typeof processContext.updateItem === 'function') {
+                processContext.updateItem({cancelWorkKey: authoritativeWorkKey});
             }
             const statusId = data.id;
             item.douyinStatusId = statusId;
@@ -1111,6 +1126,7 @@ const DOUYIN_DESCRIPTOR = {
         return {
             id: rawId,
             kind: 'douyin',
+            cancelWorkKey: douyinCancelWorkKey(rawId),
             rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
             typeData: douyinNormalizeQueueTypeData({
                 input: item.url || item.pageUrl || rawId,
@@ -1150,6 +1166,7 @@ const DOUYIN_DESCRIPTOR = {
                 id: douyinQueueId(parsed),
                 douyinId: displayId,
                 kind: 'douyin',
+                cancelWorkKey: douyinCancelWorkKey(displayId),
                 url: parsed.url,
                 title: title || douyinText('queue.fallback', 'Douyin {id}', {id: displayId}),
                 typeData: douyinNormalizeQueueTypeData({
@@ -1445,6 +1462,7 @@ const DOUYIN_DESCRIPTOR = {
                     ? String(ctx.accountId) : 'own-works';
                 return {
                     kind: 'douyin',
+                    cancelWorkKey: douyinCancelWorkKey(id),
                     typeData: douyinNormalizeQueueTypeData({
                         input: String(id), douyinId: String(id),
                         sourceType: 'douyin.account.own-works', sourceId

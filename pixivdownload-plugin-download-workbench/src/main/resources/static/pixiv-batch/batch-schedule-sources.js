@@ -583,6 +583,63 @@ window.PixivBatch.scheduleSources = (function () {
         }
     }
 
+    function scopedSourceContext(entry, context) {
+        const raw = context && typeof context === 'object' ? context : {};
+        const host = raw.__scheduleAcquisitionHost;
+        const out = {};
+        Object.keys(raw).forEach(key => {
+            if (key !== '__scheduleAcquisitionHost'
+                    && key !== 'acquisitionInput' && key !== 'restoreAcquisition') {
+                out[key] = raw[key];
+            }
+        });
+        const acquisitionMode = value => {
+            assertEntryCurrent(entry);
+            const mode = normalizeAcquisitionMode(text(value) || text(raw.mode));
+            if (!mode || !entry.descriptor.acquisitionModes.includes(mode)) {
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                    'schedule source acquisition mode is unavailable');
+            }
+            return mode;
+        };
+        out.acquisitionInput = modeValue => {
+            const mode = acquisitionMode(modeValue);
+            if (!host || typeof host.input !== 'function') {
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                    'schedule acquisition input is unavailable');
+            }
+            const value = host.input(mode);
+            if (value && typeof value.then === 'function') {
+                Promise.resolve(value).catch(() => {});
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_DEFINITION_INVALID',
+                    'schedule acquisition input must be read synchronously');
+            }
+            assertEntryCurrent(entry);
+            return value == null ? '' : String(value);
+        };
+        out.restoreAcquisition = (modeValue, value) => {
+            const mode = acquisitionMode(modeValue);
+            if (!host || typeof host.restore !== 'function') {
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
+                    'schedule acquisition restore is unavailable');
+            }
+            const restored = host.restore(mode, value == null ? '' : String(value));
+            if (restored && typeof restored.then === 'function') {
+                Promise.resolve(restored).catch(() => {});
+                throw sourceEditorError(
+                    'SCHEDULE_SOURCE_DEFINITION_INVALID',
+                    'schedule acquisition restore must complete synchronously');
+            }
+            assertEntryCurrent(entry);
+            return restored !== false;
+        };
+        return Object.freeze(out);
+    }
+
     function guardReturnedValue(value, entry, seen) {
         if (typeof value === 'function') {
             return function () {
@@ -716,7 +773,7 @@ window.PixivBatch.scheduleSources = (function () {
                     matchesFound.push(entry);
                     continue;
                 }
-                const matched = matches(context);
+                const matched = matches(scopedSourceContext(entry, context));
                 if (matched && typeof matched.then === 'function') {
                     Promise.resolve(matched).catch(() => {});
                     throw new Error('schedule source matches hook must return synchronously');
@@ -741,7 +798,8 @@ window.PixivBatch.scheduleSources = (function () {
         const entry = matchingEntry(mode, context);
         if (!entry) return null;
         const preview = typeof entry.methods.preview === 'function'
-            ? invokeSync(entry.descriptor.sourceType, 'preview', [context], null)
+            ? invokeSync(entry.descriptor.sourceType, 'preview',
+                [scopedSourceContext(entry, context)], null)
             : null;
         const previewValue = preview && typeof preview === 'object' ? preview : null;
         return Object.freeze({
@@ -763,7 +821,8 @@ window.PixivBatch.scheduleSources = (function () {
                 'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE',
                 'schedule source editor is unavailable');
         }
-        const captured = invokeSync(entry.descriptor.sourceType, 'capture', [context], null);
+        const captured = invokeSync(entry.descriptor.sourceType, 'capture',
+            [scopedSourceContext(entry, context)], null);
         if (!captured || typeof captured !== 'object') {
             throw sourceEditorError(
                 'SCHEDULE_SOURCE_DEFINITION_INVALID',
@@ -786,31 +845,41 @@ window.PixivBatch.scheduleSources = (function () {
 
     function restoreTask(task, context) {
         const sourceType = text(task && (task.sourceType || task.type));
-        return invokeSync(sourceType, 'restore', [task, context], null);
+        const entry = handler(sourceType);
+        return invokeSync(sourceType, 'restore',
+            [task, entry ? scopedSourceContext(entry, context) : context], null);
     }
 
     function summary(task, context) {
         const sourceType = text(task && (task.sourceType || task.type));
-        return invokeSync(sourceType, 'summary', [task, context], null);
+        const entry = handler(sourceType);
+        return invokeSync(sourceType, 'summary',
+            [task, entry ? scopedSourceContext(entry, context) : context], null);
     }
 
     function fetchLimitMode(sourceType, definition, context) {
-        return normalizeFetchLimitMode(
-            invokeSync(sourceType, 'fetchLimitMode', [definition, context], null));
+        const entry = handler(sourceType);
+        return normalizeFetchLimitMode(invokeSync(sourceType, 'fetchLimitMode',
+            [definition, entry ? scopedSourceContext(entry, context) : context], null));
     }
 
     function quickSourceNote(sourceType, context) {
-        return invokeSync(sourceType, 'quickSourceNote', [context], null);
+        const entry = handler(sourceType);
+        return invokeSync(sourceType, 'quickSourceNote',
+            [entry ? scopedSourceContext(entry, context) : context], null);
     }
 
     function credentialActions(sourceType, context) {
-        return invoke(sourceType, 'credentialActions', [context], null);
+        const entry = handler(sourceType);
+        return invoke(sourceType, 'credentialActions',
+            [entry ? scopedSourceContext(entry, context) : context], null);
     }
 
     function invokeCredentialAction(sourceType, actionName, args, context) {
         const entry = handler(sourceType);
         if (!entry) throw new Error('schedule source credential action is unavailable');
-        const actions = invoke(sourceType, 'credentialActions', [context], null);
+        const actions = invoke(sourceType, 'credentialActions',
+            [scopedSourceContext(entry, context)], null);
         const run = value => {
             const action = value && value[text(actionName)];
             if (typeof action !== 'function') {

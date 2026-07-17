@@ -654,6 +654,16 @@
             white-space: nowrap;
         }
 
+        .queue-item .queue-cancel-btn {
+            padding: 0 2px;
+            border: 0;
+            background: none;
+            color: var(--danger-bg);
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+        }
+
         .queue-item .q-tags {
             display: flex;
             flex-wrap: wrap;

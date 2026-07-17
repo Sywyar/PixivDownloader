@@ -71,6 +71,21 @@
         }
     }
 
+    function scheduleAcquisitionInput(mode) {
+        if (mode !== 'single-import') return null;
+        const field = document.getElementById('single-import-textarea');
+        return field ? String(field.value || '') : null;
+    }
+
+    function restoreScheduleAcquisition(mode, value) {
+        if (mode !== 'single-import') return false;
+        switchMode('single-import');
+        const field = document.getElementById('single-import-textarea');
+        if (!field) return false;
+        field.value = String(value == null ? '' : value);
+        return true;
+    }
+
     function scheduleSourceContext() {
         let quickSource = scheduleEditingQuickSource;
         if (!quickSource && state.mode === QUICK_FETCH_MODE && typeof quickScheduleSource === 'function') {
@@ -100,7 +115,11 @@
             workType: firstType,
             workTypes: Object.freeze(workTypes),
             workTypeOwnerPluginId: manifest && manifest.owner ? manifest.owner.pluginId : null,
-            admin: !!isAdmin
+            admin: !!isAdmin,
+            __scheduleAcquisitionHost: Object.freeze({
+                input: scheduleAcquisitionInput,
+                restore: restoreScheduleAcquisition
+            })
         });
     }
 

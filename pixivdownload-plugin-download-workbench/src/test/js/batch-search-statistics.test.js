@@ -148,6 +148,19 @@ test('Pixiv 行为模块按媒体与取得来源贡献队列标签', () => {
     assert.strictEqual(merged.typeData.illustType, 1);
 });
 
+test('Pixiv 各取得入口在顶层携带原始数字取消键', () => {
+    const descriptor = pixivDescriptor();
+    const search = descriptor.acquisition.search.buildQueueMeta({id: 123456, title: 'Image'});
+    const imported = descriptor.import.buildItem('234567', 'Imported');
+    const quick = descriptor.acquisition.quick.buildQueueMetaFromId('345678', {});
+    const scheduled = descriptor.scheduledQueueItem({workId: '456789'}, {sourceType: 'search'});
+
+    assert.strictEqual(search.cancelWorkKey, '123456');
+    assert.strictEqual(imported.cancelWorkKey, '234567');
+    assert.strictEqual(quick.cancelWorkKey, '345678');
+    assert.strictEqual(scheduled.cancelWorkKey, '456789');
+});
+
 test('搜索批量抓取与筛选状态统一走来源统计格式化入口', () => {
     assert.ok(!SEARCH_SOURCE.includes("bt('search.summary.pixiv-total'"));
     assert.ok(!FILTER_SOURCE.includes("bt('search.summary.pixiv-total'"));

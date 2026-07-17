@@ -152,6 +152,69 @@ test('来源 manifest 声明的模式与模块共同决定可调用行为', asyn
     );
 });
 
+test('取得输入与回灌 helper 绑定 owner publication 并在失活后拒绝调用', async () => {
+    let leasedContext = null;
+    const restores = [];
+    const host = {
+        input(mode) {
+            assert.equal(mode, 'single-import');
+            return 'https://example.invalid/work/456 | title';
+        },
+        restore(mode, value) {
+            restores.push({mode, value});
+            return true;
+        }
+    };
+    const install = runtime => runtime.registerModule('/plugins/source-a.js', api => {
+        api.registerSource('source-a', {
+            matches(context) {
+                return context.acquisitionInput('single-import').includes('/456');
+            },
+            capture(context) {
+                leasedContext = context;
+                return {params: {input: context.acquisitionInput('single-import')}};
+            },
+            restore(_task, context) {
+                context.restoreAcquisition('single-import', 'restored-value');
+                return {mode: 'single-import'};
+            },
+            summary: () => ({sections: []})
+        });
+    });
+    const installers = new Map([['/plugins/source-a.js', install]]);
+    const first = source({acquisitionModes: ['single-import']});
+    const second = source({
+        acquisitionModes: ['single-import'],
+        pluginGeneration: 2,
+        publicationId: 22,
+        activationToken: 'activation-b'
+    });
+    const runtime = harness([manifest(1, [first]), manifest(2, [second])], installers);
+    const context = {
+        mode: 'single-import',
+        workTypes: ['work-a'],
+        __scheduleAcquisitionHost: host
+    };
+
+    await runtime.refresh(false);
+    const captured = runtime.captureForMode('single-import', context);
+    assert.equal(captured.params.input, 'https://example.invalid/work/456 | title');
+    assert.equal(Object.prototype.hasOwnProperty.call(leasedContext,
+        '__scheduleAcquisitionHost'), false);
+    assert.throws(() => leasedContext.acquisitionInput('search'),
+        /acquisition mode is unavailable/);
+    assert.deepEqual(JSON.parse(JSON.stringify(runtime.restoreTask({
+        sourceType: 'source-a'
+    }, context))), {mode: 'single-import'});
+    assert.deepEqual(restores, [{mode: 'single-import', value: 'restored-value'}]);
+
+    const oldContext = leasedContext;
+    await runtime.refresh(false);
+    assert.throws(() => oldContext.acquisitionInput('single-import'), /stale/);
+    assert.throws(() => oldContext.restoreAcquisition('single-import', 'late'), /stale/);
+    assert.equal(restores.length, 1);
+});
+
 test('来源模块返回无效任务定义时提供稳定错误码', async () => {
     const installers = new Map([
         ['/plugins/source-a.js', validInitializer('/plugins/source-a.js', {

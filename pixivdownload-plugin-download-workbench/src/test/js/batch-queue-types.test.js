@@ -83,6 +83,7 @@ function typeDescriptor(overrides = {}) {
         publicationId: 1,
         order: 10,
         moduleUrl: '/modules/demo.js',
+        queue: {clearAll: true, clearForOwner: true, cancel: true},
         acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick']
     }, overrides);
 }
@@ -458,6 +459,14 @@ const IN_FLIGHT_PROCESS_INITIALIZER = `(function (context) {
     }}};
 })`;
 
+const PATCH_PROCESS_INITIALIZER = `(function () {
+    return {descriptor: {process: function (item, invocation) {
+        testState.patchItem = item;
+        testState.patchInvocation = invocation;
+        return invocation.type;
+    }}};
+})`;
+
 const LATE_QUEUE_INITIALIZER = `(function (context) {
     testState.lateQueueContext = context;
     return new Promise(function (resolve) {
@@ -489,6 +498,17 @@ const UI_INITIALIZER = `(function (context) {
         testState.uiCleanups = (testState.uiCleanups || 0) + 1;
     });
 })`;
+
+function quickActionInitializer(...actions) {
+    const entries = actions.map(action => `'${action}': {load: function () {}}`).join(',');
+    return BASIC_INITIALIZER.replace(
+        `quick: {
+                    queueId:`,
+        `quick: {
+                    actions: {${entries}},
+                    queueId:`
+    );
+}
 
 const LATE_UI_INITIALIZER = `(function (context) {
     testState.lateUiContext = context;
@@ -558,11 +578,91 @@ const LATE_UI_INITIALIZER = `(function (context) {
         ok('owner 由后端 manifest 注入', h.qt.descriptor('demo').owner.ownerPluginId === 'nested-owner');
         ok('manifestDescriptor 只读暴露后端 owner/i18n 视图',
             h.qt.manifestDescriptor('demo').owner.pluginId === 'nested-owner'
-            && Object.isFrozen(h.qt.manifestDescriptor('demo').acquisitionModes));
+            && Object.isFrozen(h.qt.manifestDescriptor('demo').acquisitionModes)
+            && h.qt.manifestDescriptor('demo').queue.cancel === true
+            && Object.isFrozen(h.qt.manifestDescriptor('demo').queue));
         ok('模块不能用 descriptor 覆盖 type', h.qt.descriptor('demo').type === 'demo');
         ok('scheduledQueueItem 调用 owner hook', h.qt.scheduledQueueItem('demo', {id: '7'}, {}).id === 'owned-7');
         ok('scheduled SSE 能力来自 descriptor', h.qt.supportsScheduledSse('demo') === false);
         ok('缺席类型不会默认订阅 scheduled SSE', h.qt.supportsScheduledSse('missing') === false);
+    }
+
+    {
+        const h = harness([
+            manifest(1, [typeDescriptor()]),
+            manifest(2, [])
+        ], {'/modules/demo.js': {initializer: BASIC_INITIALIZER}});
+        await h.qt.bootstrap();
+        const manifestFetch = h.sandbox.fetch;
+        const cancellationRequests = [];
+        h.sandbox.fetch = (url, init) => {
+            if (String(url).endsWith('/api/download/extensions')) return manifestFetch(url, init);
+            cancellationRequests.push({url: String(url), init});
+            return Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({success: true})
+            });
+        };
+        const rawWorkKey = ' opaque/path:part ? # 中文 ';
+        const item = {
+            id: 'demo:display-only',
+            kind: 'demo',
+            status: 'downloading',
+            cancelWorkKey: rawWorkKey
+        };
+        ok('活动类型只有后端声明 cancel 且队列项携原始 workKey 时才可取消',
+            h.qt.canCancel(item) === true);
+        const result = await h.qt.cancel(item);
+        const cancellationBody = JSON.parse(cancellationRequests[0].init.body);
+        ok('单项取消按 queueType 定向 POST JSON，原样保留 workKey 并携后端 publication owner',
+            result.success === true
+            && cancellationRequests.length === 1
+            && cancellationRequests[0].url === '/api/download/queue/demo/cancel'
+            && cancellationRequests[0].init.method === 'POST'
+            && cancellationRequests[0].init.credentials === 'same-origin'
+            && cancellationBody.workKey === rawWorkKey
+            && cancellationBody.owner.pluginId === 'demo-owner'
+            && cancellationBody.owner.packageId === 'demo-package'
+            && cancellationBody.owner.generation === 1
+            && cancellationBody.owner.publicationId === 1);
+        ok('第三方类型绝不从展示 id 推导取消键',
+            h.qt.canCancel({id: 'demo:display-only', kind: 'demo', status: 'downloading'}) === false);
+        await assert.rejects(
+            () => h.qt.cancel({id: 'demo:display-only', kind: 'demo'}),
+            error => error && error.code === 'QUEUE_CANCEL_UNAVAILABLE');
+        passed++;
+        ok('缺失原始 workKey 的第三方队列项不会发请求', cancellationRequests.length === 1);
+
+        let releaseCancellation;
+        h.sandbox.fetch = (url, init) => {
+            if (String(url).endsWith('/api/download/extensions')) return manifestFetch(url, init);
+            return new Promise(resolve => {
+                releaseCancellation = () => resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({success: true})
+                });
+            });
+        };
+        const stale = h.qt.cancel(item);
+        await waitUntil(() => typeof releaseCancellation === 'function');
+        await h.qt.refresh(false);
+        releaseCancellation();
+        await assert.rejects(stale, /stale/);
+        passed++;
+        ok('类型 publication 失活后取消能力立即撤回', h.qt.canCancel(item) === false);
+    }
+
+    {
+        const illust = typeDescriptor({type: 'illust'});
+        const h = harness([manifest(1, [illust])], {
+            '/modules/demo.js': {initializer: BASIC_INITIALIZER}
+        });
+        await h.qt.bootstrap();
+        ok('仅 illust 旧队列项允许从安全数字展示 id 回退取消键',
+            h.qt.canCancel({id: '123456', kind: 'illust'}) === true
+            && h.qt.canCancel({id: 'illust:123456', kind: 'illust'}) === false);
     }
 
     {
@@ -952,6 +1052,49 @@ const LATE_UI_INITIALIZER = `(function (context) {
     }
 
     {
+        const demo = typeDescriptor({
+            acquisitionModes: ['quick'], i18nNamespace: 'demo-i18n'
+        });
+        const foreign = typeDescriptor({
+            type: 'foreign', ownerPluginId: 'foreign-owner', packageId: 'foreign-package',
+            publicationId: 2, order: 5, moduleUrl: '/modules/foreign.js',
+            acquisitionModes: ['quick'], i18nNamespace: 'foreign-i18n'
+        });
+        const demoUi = uiSlotDescriptor({
+            slotId: 'demo.settings', moduleUrl: '/modules/ui-slot.js',
+            owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+        });
+        const h = harness([
+            manifest(1, [demo, foreign], 'ui-contract', [demoUi]),
+            manifest(2, [], 'ui-contract')
+        ], {
+            '/modules/demo.js': {initializer: quickActionInitializer('demo-featured', 'collision')},
+            '/modules/foreign.js': {initializer: quickActionInitializer('foreign-featured', 'collision')},
+            '/modules/ui-slot.js': {initializer: UI_INITIALIZER, ui: true}
+        });
+        const dispatched = [];
+        h.sandbox.window.PixivBatch.modes = {quick: {
+            quickLoad(action) { dispatched.push(action); return 'sent:' + action; }
+        }};
+        await h.qt.bootstrap();
+        const context = h.sandbox.testState.uiContexts[0];
+        ok('UI context supports 只暴露同 owner 的活动取得能力',
+            context.supports('demo', 'quick') === true
+            && context.supports('foreign', 'quick') === false
+            && context.supports('demo', 'search') === false);
+        ok('UI context 只派发同 owner 已声明的 quick action',
+            context.dispatchQuickAction('demo-featured') === 'sent:demo-featured'
+            && context.dispatchQuickAction('foreign-featured') === false
+            && context.dispatchQuickAction('collision') === false
+            && context.dispatchQuickAction('missing') === false
+            && dispatched.join(',') === 'demo-featured');
+        await h.qt.refresh();
+        ok('UI publication 失效后 supports 立即关闭', context.supports('demo', 'quick') === false);
+        assert.throws(() => context.dispatchQuickAction('demo-featured'), /stale/);
+        passed++;
+    }
+
+    {
         const h = harness([manifest(1, [
             typeDescriptor(),
             typeDescriptor({
@@ -1212,6 +1355,44 @@ const LATE_UI_INITIALIZER = `(function (context) {
             && hostWrites.current.length === 0);
         assert.throws(() => invocation.assertActive(), error => error && error.code === 'STALE_QUEUE_TYPE');
         passed++;
+    }
+
+    {
+        const h = harness([
+            manifest(1, [typeDescriptor({
+                acquisitionModes: [], i18nNamespace: 'demo-i18n'
+            })]),
+            manifest(2, [])
+        ], {'/modules/demo.js': {initializer: PATCH_PROCESS_INITIALIZER}});
+        const commits = [];
+        h.sandbox.window.PixivBatch.queue = {
+            commitQueueItemPatch(item, patch) {
+                commits.push({item, patch});
+                return 'committed';
+            }
+        };
+        await h.qt.bootstrap();
+        ok('process context 固定绑定当前调用的活动队列项', vm.runInContext(
+            "window.PixivBatch.queueTypes.get('demo').process({id:'patch-item'})", h.sandbox) === 'demo');
+        ok('process context updateItem 由宿主 bridge 原子提交受控 patch', vm.runInContext(
+            "testState.patchInvocation.updateItem({status:'failed',statusMessageKey:'demo-i18n:error.queue'})",
+            h.sandbox) === 'committed'
+            && commits.length === 1
+            && commits[0].item === h.sandbox.testState.patchItem
+            && commits[0].patch.status === 'failed'
+            && commits[0].patch.statusMessageKey === 'demo-i18n:error.queue'
+            && Object.getPrototypeOf(commits[0].patch) === null);
+        assert.throws(() => vm.runInContext(
+            "testState.patchInvocation.updateItem({statusMessageKey:'foreign:error.queue'})", h.sandbox),
+        /i18n namespace/);
+        passed++;
+        ok('跨 namespace 文案键在到达宿主 bridge 前即被拒绝', commits.length === 1);
+        await h.qt.refresh();
+        assert.throws(() => vm.runInContext(
+            "testState.patchInvocation.updateItem({status:'completed'})", h.sandbox),
+        error => error && error.code === 'STALE_QUEUE_TYPE');
+        passed++;
+        ok('旧 publication 的 updateItem 不会跨代提交', commits.length === 1);
     }
 
     {

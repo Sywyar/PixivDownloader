@@ -219,6 +219,7 @@
 
         // Queue
         loadQueueForMode();
+        window.PixivBatch.queue.bindQueueActions(document);
         updateButtonsState();
         updateStats();
 

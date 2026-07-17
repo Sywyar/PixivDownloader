@@ -39,7 +39,8 @@ window.__deleteScheduleTask = deleteScheduleTask;
 window.__postScheduleCookie = postScheduleCookie;
 window.__showScheduleOverrideModal = showScheduleOverrideModal;
 window.__saveScheduleOverride = saveScheduleOverride;
-window.__updateScheduleFetchLimitVisibility = updateScheduleFetchLimitVisibility;`;
+window.__updateScheduleFetchLimitVisibility = updateScheduleFetchLimitVisibility;
+window.__scheduleSourceContext = scheduleSourceContext;`;
 
 function deferred() {
     let resolve;
@@ -80,12 +81,14 @@ function harness(options) {
     element('sch-fetch-limit-row');
     element('sch-fetch-limit-hint-watermark');
     element('sch-fetch-limit-hint-per-run');
+    element('single-import-textarea', {value: config.singleImportValue || ''});
     const status = element('sch-form-status');
 
     let current = true;
     let fetchCount = 0;
     const requests = [];
     const confirmCalls = [];
+    const switchedModes = [];
     const lease = {
         activationToken: 'token-a',
         signal: new AbortController().signal,
@@ -158,6 +161,10 @@ function harness(options) {
             confirmCalls.push({key, fallback, vars});
             return config.confirm ? config.confirm.promise : Promise.resolve(true);
         },
+        switchMode(mode) {
+            switchedModes.push(mode);
+            sandbox.state.mode = mode;
+        },
         fetch(url, init) {
             fetchCount++;
             requests.push({url, init: init || {}});
@@ -192,6 +199,7 @@ function harness(options) {
         showOverride: sandbox.window.__showScheduleOverrideModal,
         saveOverride: sandbox.window.__saveScheduleOverride,
         updateFetchLimit: sandbox.window.__updateScheduleFetchLimitVisibility,
+        sourceContext: sandbox.window.__scheduleSourceContext,
         element: id => elements.get(id),
         status,
         stale() { current = false; },
@@ -199,9 +207,24 @@ function harness(options) {
         get fetchCount() { return fetchCount; },
         get requests() { return requests; },
         get confirmCount() { return confirmCalls.length; },
-        get confirmCalls() { return confirmCalls.slice(); }
+        get confirmCalls() { return confirmCalls.slice(); },
+        get switchedModes() { return switchedModes.slice(); }
     };
 }
+
+test('计划来源 context 只通过宿主 adapter 读取并回灌取得输入', () => {
+    const h = harness({singleImportValue: 'original-input'});
+    const context = h.sourceContext();
+    const host = context.__scheduleAcquisitionHost;
+
+    assert.equal(host.input('single-import'), 'original-input');
+    assert.equal(host.input('search'), null);
+    assert.equal(host.restore('single-import', 'restored-input'), true);
+    assert.deepEqual(h.switchedModes, ['single-import']);
+    assert.equal(h.element('single-import-textarea').value, 'restored-input');
+    assert.equal(host.restore('search', 'ignored'), false);
+    assert.deepEqual(h.switchedModes, ['single-import']);
+});
 
 test('宿主来源错误使用当前语言文案且插件校验消息保持原样', async () => {
     const cases = [

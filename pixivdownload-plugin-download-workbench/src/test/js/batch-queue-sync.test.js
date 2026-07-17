@@ -23,7 +23,7 @@ const QUEUE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-queue.js'), 'utf8'
 
 // 在沙箱里加载真实 batch-queue.js，返回 facade + 四个 sync 的调用计数器。
 function load() {
-    const calls = {search: 0, series: 0, user: 0, quick: 0, workers: 0};
+    const calls = {search: 0, series: 0, user: 0, quick: 0, workers: 0, statuses: []};
     const sandbox = {
         window: {PixivBatch: {}},
         state: {queue: [], isRunning: false},
@@ -36,6 +36,7 @@ function load() {
         normalizeAuthorId: v => v,
         ensureWorkers: () => { calls.workers++; },
         updateAdminPackButton: () => {},
+        setStatus: (message, tone) => { calls.statuses.push({message, tone}); },
         SINGLE_IMPORT_MODE: 'single-import',
         SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel',
         QUICK_FETCH_MODE: 'quick-fetch',
@@ -94,6 +95,8 @@ function relationMergeBehavior(reasons) {
     };
 }
 
+(async function () {
+
 // ===== 1) facade 暴露 syncAllResultsQueueState =====
 {
     const {queue} = load();
@@ -145,14 +148,19 @@ function relationMergeBehavior(reasons) {
     const added = queue.addItemsToQueue(['333', '444'], [
         {
             typeData: {input: 'https://example.test/work/333', token: 'abc'},
+            cancelWorkKey: ' opaque/path ? # 中文 ',
             dataSource: {id: 'forged', displayNamespace: 'forged', displayI18nKey: 'source.forged'}
         },
         {}
     ], 'search', '', null, '');
     ok('5: 新增 2 项', added === 2);
     ok('5: 队列含 2 项', sandbox.state.queue.length === 2);
+    ok('5: 新队列项的动态状态文案键初始为空', sandbox.state.queue[0].statusMessageKey === null);
     ok('5: 保留类型私有队列数据', sandbox.state.queue[0].typeData.input === 'https://example.test/work/333'
         && sandbox.state.queue[0].typeData.token === 'abc');
+    ok('5: 顶层取消键按不透明原始字符串保留且不从展示 id 派生',
+        sandbox.state.queue[0].cancelWorkKey === ' opaque/path ? # 中文 '
+        && !Object.prototype.hasOwnProperty.call(sandbox.state.queue[1], 'cancelWorkKey'));
     ok('5: 仅持久化数据来源稳定 token 与展示键，不写入本地化标签',
         sandbox.state.queue[0].dataSource.id === 'pixiv'
         && sandbox.state.queue[0].dataSource.displayNamespace === 'batch'
@@ -273,7 +281,7 @@ function relationMergeBehavior(reasons) {
 
 // ===== 11) 队列标签固定按数据来源、模式、年龄、插件贡献顺序渲染并转义 =====
 {
-    const {sandbox, queue} = load();
+    const {sandbox, queue, calls} = load();
     sandbox.window.PixivBatch.queueTypes = {
         get() { return null; },
         dataSourceForType(kind) {
@@ -318,4 +326,169 @@ function relationMergeBehavior(reasons) {
         && douyinSeries.includes('>Series</span>'));
 }
 
-console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (11 scenarios) ✓`);
+// ===== 12) 外部类型 patch 只能原子更新受控字段，并立即统计 / 持久化 / 渲染 =====
+{
+    const {sandbox, queue} = load();
+    const item = {
+        id: 'demo-patch', kind: 'demo', status: 'downloading',
+        downloadedCount: 0, totalImages: 1, lastMessage: 'old baked text'
+    };
+    sandbox.state.queue = [item];
+    sandbox.testPatchItem = item;
+    const calls = {stats: 0, save: 0, render: 0};
+    sandbox.updateStats = () => { calls.stats++; };
+    sandbox.saveQueue = () => { calls.save++; };
+    sandbox.renderQueue = () => { calls.render++; };
+    const completedAt = '2026-07-17T01:02:03.000Z';
+    sandbox.testCompletedAt = completedAt;
+    const result = vm.runInContext(`window.PixivBatch.queue.commitQueueItemPatch(testPatchItem, {
+        status: 'failed',
+        rawStatus: 'failed',
+        failureCode: 'example.queue-failed',
+        statusMessageKey: 'example-download:error.queue',
+        downloadedCount: 0,
+        totalImages: 1,
+        cancelWorkKey: ' authoritative/work:key ',
+        endTime: testCompletedAt
+    })`, sandbox);
+    ok('12: patch 绑定并返回活动队列项', result === item && item.status === 'failed');
+    ok('12: 机器状态、命名空间文案键和 ISO 时间按既有口径写入',
+        item.rawStatus === 'failed'
+        && item.failureCode === 'example.queue-failed'
+        && item.statusMessageKey === 'example-download:error.queue'
+        && item.cancelWorkKey === ' authoritative/work:key '
+        && item.endTime === completedAt);
+    ok('12: 每次有效 patch 立即统计、持久化并渲染',
+        calls.stats === 1 && calls.save === 1 && calls.render === 1);
+
+    const snapshot = JSON.stringify(item);
+    assert.throws(() => vm.runInContext(
+        "window.PixivBatch.queue.commitQueueItemPatch(testPatchItem, {status:'completed',title:'forged'})",
+        sandbox), /unsupported queue item patch field/);
+    assert.throws(() => vm.runInContext(
+        "window.PixivBatch.queue.commitQueueItemPatch(testPatchItem, {status:'completed',endTime:'not-an-iso-time'})",
+        sandbox), /ISO-8601/);
+    assert.throws(() => vm.runInContext(
+        "window.PixivBatch.queue.commitQueueItemPatch(testPatchItem, {cancelWorkKey:'   '})",
+        sandbox), /cancelWorkKey/);
+    ok('12: 任一非法字段会在写入前原子拒绝', JSON.stringify(item) === snapshot);
+    ok('12: 非法 patch 不触发统计、持久化或渲染',
+        calls.stats === 1 && calls.save === 1 && calls.render === 1);
+    assert.throws(() => vm.runInContext(
+        "window.PixivBatch.queue.commitQueueItemPatch({id:'detached'}, {status:'failed'})", sandbox),
+    /not active/);
+    ok('12: 脱离当前队列的对象不可跨代回写', calls.stats === 1 && calls.save === 1 && calls.render === 1);
+}
+
+// ===== 13) 队列卡片动态翻译 statusMessageKey，并按 canonicalUrl / Pixiv fallback 决定链接 =====
+{
+    const {sandbox, queue} = load();
+    sandbox.window.PixivBatch.queueTypes = {get() { return null; }, queueTags() { return []; }};
+    const failed = {
+        id: 'demo-link', kind: 'demo', title: 'Demo', status: 'failed',
+        canonicalUrl: 'https://example.invalid/work/demo-link',
+        statusMessageKey: 'example-download:error.queue',
+        lastMessage: 'stale baked English',
+        lastMessageParts: [{text: 'stale baked part', tone: 'error'}]
+    };
+    sandbox.bt = (key, fallback) => key === 'example-download:error.queue'
+        ? 'Current English error' : (fallback || key);
+    const english = queue.buildQueueItemHtml(failed);
+    sandbox.bt = (key, fallback) => key === 'example-download:error.queue'
+        ? '当前中文错误' : (fallback || key);
+    const chinese = queue.buildQueueItemHtml(failed);
+    ok('13: statusMessageKey 每次渲染按当前语言解析且优先于旧 lastMessage',
+        english.includes('Current English error') && !english.includes('stale baked English')
+        && !english.includes('stale baked part')
+        && chinese.includes('当前中文错误') && !chinese.includes('Current English error'));
+    ok('13: 非 Pixiv 类型卡片使用其 canonicalUrl',
+        chinese.includes('href="https://example.invalid/work/demo-link"'));
+
+    const novel = queue.buildQueueItemHtml({
+        id: 'n2468', novelId: '2468', kind: 'novel', title: 'Novel', status: 'idle'
+    });
+    const illust = queue.buildQueueItemHtml({id: '1357', kind: 'illust', title: 'Illust', status: 'idle'});
+    const unavailable = queue.buildQueueItemHtml({
+        id: 'opaque', kind: 'inactive-plugin', title: 'Inactive', status: 'idle'
+    });
+    ok('13: 小说无 canonicalUrl 时保留 show.php fallback',
+        novel.includes('href="https://www.pixiv.net/novel/show.php?id=2468"'));
+    ok('13: Pixiv 插画无 canonicalUrl 时保留 artworks fallback',
+        illust.includes('href="https://www.pixiv.net/artworks/1357"'));
+    ok('13: 非 Pixiv 类型无 canonicalUrl 时不渲染伪链接',
+        !unavailable.includes('<a href=') && !unavailable.includes('pixiv.net'));
+}
+
+// ===== 14) 下载中队列项仅在活动类型声明 cancel 且携稳定 workKey 时显示委托取消动作 =====
+{
+    const {sandbox, queue, calls} = load();
+    sandbox.window.PixivBatch.queueTypes = {
+        get() { return null; },
+        queueTags() { return []; },
+        canCancel(item) { return item && item.cancelWorkKey === 'raw/work-key'; }
+    };
+    const cancellable = queue.buildQueueItemHtml({
+        id: 'demo:display-id', kind: 'demo', title: 'Running', status: 'downloading',
+        cancelWorkKey: 'raw/work-key'
+    });
+    const unavailable = queue.buildQueueItemHtml({
+        id: 'demo:display-id-2', kind: 'demo', title: 'Inactive', status: 'downloading'
+    });
+    ok('14: 可取消下载中行只携展示 id 定位属性，实际 raw key 留在队列模型交 bridge 读取',
+        cancellable.includes('data-queue-cancel-id="demo:display-id"')
+        && !cancellable.includes('raw/work-key'));
+    ok('14: 类型失活或缺少 raw workKey 时不渲染取消动作',
+        !unavailable.includes('data-queue-cancel-id'));
+    ok('14: 新取消动作使用委托事件而不新增 inline onclick',
+        !/data-queue-cancel-id=[^>]+onclick=/.test(cancellable)
+        && typeof queue.bindQueueActions === 'function'
+        && typeof queue.requestQueueItemCancel === 'function');
+    ok('14: 请求成功或失败均不写入永久 cancelRequested 模型字段',
+        !QUEUE_SOURCE.includes('cancelRequested'));
+
+    const item = {
+        id: 'demo:display-id', kind: 'demo', title: 'Running', status: 'downloading',
+        cancelWorkKey: 'raw/work-key'
+    };
+    sandbox.state.queue = [item];
+    let cancelledItem = null;
+    sandbox.window.PixivBatch.queueTypes = {
+        canCancel() { return true; },
+        async cancel(candidate) { cancelledItem = candidate; }
+    };
+    let clickHandler = null;
+    const root = {
+        addEventListener(type, handler) {
+            if (type === 'click') clickHandler = handler;
+        }
+    };
+    const button = {
+        closest(selector) { return selector === '[data-queue-cancel-id]' ? this : null; },
+        getAttribute(name) { return name === 'data-queue-cancel-id' ? item.id : null; }
+    };
+    ok('14: 队列动作根节点只绑定一次委托 click',
+        queue.bindQueueActions(root) === true && queue.bindQueueActions(root) === false
+        && typeof clickHandler === 'function');
+    clickHandler({target: button, preventDefault() {}, stopPropagation() {}});
+    await new Promise(resolve => setImmediate(resolve));
+    ok('14: 委托点击把真实队列 item 交给 queueTypes.cancel，由 bridge 读取 raw key',
+        cancelledItem === item && cancelledItem.cancelWorkKey === 'raw/work-key');
+    ok('14: 取消请求成功只显示瞬时 i18n 状态提示',
+        calls.statuses.at(-1).tone === 'success'
+        && calls.statuses.at(-1).message === '已请求取消下载'
+        && !Object.prototype.hasOwnProperty.call(item, 'cancelRequested'));
+
+    sandbox.window.PixivBatch.queueTypes.cancel = async () => { throw new Error('HTTP 503'); };
+    clickHandler({target: button, preventDefault() {}, stopPropagation() {}});
+    await new Promise(resolve => setImmediate(resolve));
+    ok('14: HTTP 失败只显示错误提示且不留下永久请求态',
+        calls.statuses.at(-1).tone === 'error'
+        && calls.statuses.at(-1).message === '取消下载请求失败'
+        && !Object.prototype.hasOwnProperty.call(item, 'cancelRequested'));
+}
+
+console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (14 scenarios) ✓`);
+})().catch(error => {
+    console.error('TEST FAILED:', error && error.stack ? error.stack : error);
+    process.exit(1);
+});

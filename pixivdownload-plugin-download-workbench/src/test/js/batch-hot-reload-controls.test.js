@@ -851,4 +851,96 @@ ok('batch init 将新增来源控件与只读导入来源交给稳定 modeContro
     INIT_SOURCE.includes('window.PixivBatch.modeControls.bind()')
     && INIT_SOURCE.includes('window.PixivBatch.modeControls.renderAll()'));
 
-console.log(`batch-hot-reload-controls.test.js: ${passed} assertions passed ✓`);
+(async function verifyQuickPublishWorksContract() {
+    const events = [];
+    const queueClasses = [new Set(), new Set()];
+    const card = index => ({classList: {
+        toggle(name, enabled) {
+            if (enabled) queueClasses[index].add(name);
+            else queueClasses[index].delete(name);
+            events.push('sync:' + index + ':' + enabled);
+        }
+    }});
+    const quickAction = modeElement();
+    quickAction.dataset.quick = 'demo-featured';
+    const actionClasses = new Set();
+    quickAction.classList = {
+        contains(name) { return actionClasses.has(name); },
+        toggle(name, enabled) {
+            if (enabled) actionClasses.add(name); else actionClasses.delete(name);
+        }
+    };
+    const elements = {
+        'quick-preview-area': modeElement(),
+        'quick-preview-title': modeElement({text: ''}),
+        'quick-preview-toolbar': modeElement(),
+        'quick-pagination': modeElement(),
+        'quick-add-page': modeElement(),
+        'quick-add-all': modeElement(),
+        'quick-following-search': modeElement(),
+        'quick-collapse-page': modeElement(),
+        'quick-inner-section': modeElement(),
+        'demo-card-0': card(0),
+        'demo-card-1': card(1),
+        querySelectorAll(selector) { return selector === '.quick-action' ? [quickAction] : []; }
+    };
+    const acquisition = {
+        type: 'demo',
+        dataSource: {id: 'demo-source'},
+        actions: {
+            'demo-featured': {
+                viewType: 'works-list',
+                kind: 'demo',
+                async load(_action, context) {
+                    await context.publishWorks({
+                        items: [{id: 'one'}, {id: 'two'}],
+                        total: 1,
+                        title: 'Demo works',
+                        toolbar: {showAdd: true}
+                    });
+                }
+            }
+        },
+        queueId(item) { return item.id; },
+        gridCardId(_prefix, index) { return 'demo-card-' + index; },
+        render(items) { events.push('render:' + items.length); },
+        buildQueueMeta() { return {}; }
+    };
+    const controller = new AbortController();
+    const h = realModeHarness(QUICK_SOURCE, '({outer: quickState, inner: quickInner})', elements, {
+        registry: {
+            acquisitionList(mode) { return mode === 'quick' ? [acquisition] : []; },
+            acquisition(type, mode) { return type === 'demo' && mode === 'quick' ? acquisition : null; },
+            resolveTypeForMode(type, mode) { return type === 'demo' && mode === 'quick' ? type : null; },
+            acquisitionLease() {
+                return {signal: controller.signal, isCurrent() { return true; }, assertCurrent() {}};
+            }
+        },
+        normalizeSearchFilters: value => value,
+        getSearchFiltersFromUI: () => ({}),
+        hasBookmarkFilter: () => false,
+        hasExtraSearchFilter: () => false,
+        computeFilteredItems: async items => ({
+            filtered: items,
+            stats: {rawCount: items.length, filteredCount: items.length, bookmarkMetaMissing: 0, bookmarkFilterActive: false}
+        })
+    });
+    h.sandbox.state.mode = 'quick-fetch';
+    h.sandbox.state.queue = [{id: 'one'}];
+    h.state.outer.dataSourceId = 'demo-source';
+    await h.sandbox.window.PixivBatch.modes.quick.quickLoad('demo-featured');
+    ok('quick publishWorks 由宿主接管 items/title/toolbar，并把 total 规范为不少于 items',
+        h.state.outer.rawItems.length === 2 && h.state.outer.items.length === 2
+        && h.state.outer.total === 2
+        && elements['quick-preview-title'].textContent === 'Demo works'
+        && elements['quick-add-page'].style.display === ''
+        && !elements['quick-add-page'].disabled);
+    ok('quick publishWorks 在 owner render 后同步首屏 inQueue 状态',
+        (events[0] === 'render:2')
+        && queueClasses[0].has('in-queue')
+        && !queueClasses[1].has('in-queue'));
+    console.log(`batch-hot-reload-controls.test.js: ${passed} assertions passed ✓`);
+})().catch(error => {
+    console.error(error && error.stack ? error.stack : error);
+    process.exit(1);
+});

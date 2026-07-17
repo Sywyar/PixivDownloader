@@ -126,6 +126,7 @@
         state.queue.forEach(q => {
             if (['pending', 'idle', 'paused'].includes(q.status)) {
                 q.status = 'failed';
+                q.statusMessageKey = null;
                 q.lastMessage = bt('queue.message.failed-quota', '失败 - 达到限额');
                 q.endTime = q.endTime || new Date().toISOString();
             }
@@ -760,6 +761,7 @@
         const idx = state.queue.findIndex(q => q.status === 'pending' && !downloadingIds.has(q.id));
         if (idx === -1) return null;
         state.queue[idx].status = 'downloading';
+        state.queue[idx].statusMessageKey = null;
         state.queue[idx].startTime = new Date().toISOString();
         saveQueue();
         renderQueue();
@@ -770,6 +772,7 @@
     // 插画为内置类型（processIllustItem）；小说等由各自插件的行为模块注册（见 batch-queue-types.js）。
     function pauseUnavailableQueueType(item) {
         item.status = 'paused';
+        item.statusMessageKey = null;
         item.endTime = null;
         item.lastMessageParts = null;
         item.lastMessage = bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用），已暂停');
@@ -1148,6 +1151,7 @@
         }
         failed.forEach(q => {
             q.status = 'pending';
+            q.statusMessageKey = null;
             q.lastMessage = '';
             q.startTime = null;
             q.endTime = null;

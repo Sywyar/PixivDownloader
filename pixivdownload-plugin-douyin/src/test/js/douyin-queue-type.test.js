@@ -114,7 +114,9 @@ function makeSandbox() {
                     json: () => Promise.resolve(body)});
             }
             if (String(url).includes('/api/douyin/download')) {
-                return Promise.resolve({ok: true, json: () => Promise.resolve({id: 'status-1'})});
+                return Promise.resolve({ok: true, json: () => Promise.resolve({
+                    id: 'status-1', workId: ' backend/work:key ? # 中文 '
+                })});
             }
             if (String(url).includes('/api/douyin/status/status-1')) {
                 return Promise.resolve({ok: true, json: () => Promise.resolve({
@@ -132,6 +134,7 @@ function makeSandbox() {
                     {contractVersion: 1, type: 'douyin', ownerPluginId: 'douyin', packageId: 'douyin',
                         pluginGeneration: 3, publicationId: 9, order: 30,
                         moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
+                        queue: {clearAll: true, clearForOwner: true, cancel: true},
                         acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick'],
                         uiSlots: ['kind-option-user', 'kind-option-quick',
                             'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools'],
@@ -220,6 +223,14 @@ function makeSandbox() {
             return this.parseCookieToHeaderString(storage.get(key) || '', this.getCookieFmt());
         }
     };
+    sandbox.queuePatches = [];
+    sandbox.window.PixivBatch.queue = {
+        commitQueueItemPatch(item, patch) {
+            sandbox.queuePatches.push(Object.assign({}, patch));
+            Object.assign(item, patch);
+            return item;
+        }
+    };
     return sandbox;
 }
 
@@ -263,6 +274,8 @@ function ok(label, cond) {
     ok('Douyin 行为模块已注册', qt.has('douyin') === true);
     ok('Douyin 类型启用后可用', qt.isTypeAvailable('douyin') === true);
     ok('后端 downloadTypes descriptor 可读取', qt.downloadTypes().some(d => d.type === 'douyin' && d.contractVersion === 1));
+    ok('后端 descriptor 明确声明 Douyin 支持单项取消',
+        qt.manifestDescriptor('douyin').queue.cancel === true);
 
     ok('descriptor contractVersion=1', descriptor.contractVersion === 1);
     ok('process(item) 存在', typeof descriptor.process === 'function');
@@ -363,7 +376,8 @@ function ok(label, cond) {
         && favoriteFolderMeta.typeData.seriesId == null
         && favoriteFolderMeta.typeData.seriesTitle === ''
         && favoriteFolderMeta.seriesId == null
-        && favoriteFolderMeta.seriesTitle == null);
+        && favoriteFolderMeta.seriesTitle == null
+        && favoriteFolderMeta.cancelWorkKey === 'work-9');
     const douyinQuickSource = qt.acquisition('douyin', 'quick').dataSource;
     ok('Douyin quick 由插件贡献独立且只读的数据来源元数据',
         douyinQuickSource.id === 'douyin'
@@ -520,7 +534,8 @@ function ok(label, cond) {
     ok('本人作品来源只接受 Douyin owner 的账号 UID',
         wrongOwnerMeta.typeData.sourceId === 'own-works'
         && ownWorksMeta.typeData.sourceId === 'douyin-user'
-        && ownWorksIdMeta.typeData.sourceId === 'douyin-user');
+        && ownWorksIdMeta.typeData.sourceId === 'douyin-user'
+        && ownWorksIdMeta.cancelWorkKey === 'work-5');
 
     const livePhoto = {
         id: '7350000000000000099', kind: 'LIVE_PHOTO',
@@ -627,6 +642,10 @@ function ok(label, cond) {
     const item = importHook.buildItem(match, 'Custom title');
     ok('import.matchUrl 返回结构化结果', match && match.workId === '7351234567890123456');
     ok('import.buildItem 生成 Douyin 队列项', item.id === 'd7351234567890123456' && item.kind === 'douyin');
+    ok('Douyin 导入展示 id 与原始取消键分离',
+        item.id === 'd7351234567890123456'
+        && item.cancelWorkKey === '7351234567890123456'
+        && qt.canCancel(item) === true);
     ok('import.buildItem 保留标题与 URL', item.title === 'Custom title' && /douyin\.com\/video/.test(item.url));
     ok('import.buildItem 写入 typeData.input', item.typeData && /douyin\.com\/video/.test(item.typeData.input));
     ok('import.buildItem 同步建立单项来源关系列表', item.typeData.sourceRelations.length === 1
@@ -656,7 +675,8 @@ function ok(label, cond) {
     ok('计划任务队列缺少媒体元数据时仍保留收藏夹来源标签且不臆测媒体类型',
         !scheduledItem.typeData.mediaKind
         && descriptor.queueTags(scheduledItem).map(tag => tag.id).join(',')
-            === 'origin.favorite-folder');
+            === 'origin.favorite-folder'
+        && scheduledItem.cancelWorkKey === 'scheduled-1');
     ok('目标用户喜欢与账号喜欢统一贡献“喜欢”标签',
         descriptor.queueTags({kind: 'douyin', typeData: {
             sourceType: 'douyin.user.liked-works', sourceId: 'user-1'
@@ -717,7 +737,7 @@ function ok(label, cond) {
         helperRequest.options.headers['Content-Type'] === 'application/json');
     ok('douyinFetchJson 保持同源凭据策略', helperRequest.options.credentials === 'same-origin');
 
-    await descriptor.process({
+    const processedItem = {
         id: 'dshort-XUyPmdu7naU',
         kind: 'douyin',
         title: 'Queued short',
@@ -731,7 +751,8 @@ function ok(label, cond) {
                 {sourceType: 'douyin.search', sourceId: 'cat', sourceUrl: 'https://www.douyin.com/search/cat'}
             ]
         }
-    });
+    };
+    await descriptor.process(processedItem);
     const typedRequest = sandbox.requests.find(req => req.url.includes('/api/douyin/download'));
     const typedBody = JSON.parse(typedRequest.options.body);
     ok('process(item) 使用 typeData.input 作为下载输入',
@@ -744,6 +765,9 @@ function ok(label, cond) {
         && typedBody.sourceRelations[0].sourceId === 'cat'
         && typedBody.sourceRelations[0].sourceUrl === 'https://www.douyin.com/search/cat'
         && typedBody.sourceRelations[1].sourceId === 'mix-1');
+    ok('process(item) 用启动响应 workId 原样覆盖权威取消键',
+        processedItem.cancelWorkKey === ' backend/work:key ? # 中文 '
+        && sandbox.queuePatches.some(patch => patch.cancelWorkKey === processedItem.cancelWorkKey));
 
     sandbox.requests.length = 0;
     const inflightItem = {

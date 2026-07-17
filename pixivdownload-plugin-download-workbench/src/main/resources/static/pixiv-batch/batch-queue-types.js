@@ -11,6 +11,7 @@ window.PixivBatch.queueTypes = (function () {
     const QUEUE_TAG_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
     const MAX_QUEUE_TAGS = 8;
     const MAX_QUEUE_TAG_LABEL_LENGTH = 48;
+    const MAX_CANCEL_WORK_KEY_LENGTH = 4096;
     const EMPTY_QUEUE_TAGS = Object.freeze([]);
     const SLOT_MODE = Object.freeze({
         'kind-option-user': 'user',
@@ -50,6 +51,14 @@ window.PixivBatch.queueTypes = (function () {
 
     function text(value) {
         return value == null ? '' : String(value).trim();
+    }
+
+    function normalizedCancelWorkKey(value) {
+        if (typeof value !== 'string' || value.length === 0
+            || value.length > MAX_CANCEL_WORK_KEY_LENGTH || value.trim() === '') {
+            return null;
+        }
+        return value;
     }
 
     function isPlainObject(value) {
@@ -207,6 +216,8 @@ window.PixivBatch.queueTypes = (function () {
             : [];
         const declaredSlots = Array.isArray(raw.uiSlots)
             ? Array.from(new Set(raw.uiSlots.map(text).filter(Boolean))) : [];
+        const rawQueue = raw.queue && typeof raw.queue === 'object' && !Array.isArray(raw.queue)
+            ? raw.queue : {};
         const descriptor = Object.assign({}, raw, {
             contractVersion,
             type,
@@ -219,6 +230,11 @@ window.PixivBatch.queueTypes = (function () {
             order: Number.isFinite(order) ? order : 0,
             acquisitionModes: Object.freeze(acquisitionModes),
             uiSlots: Object.freeze(declaredSlots),
+            queue: Object.freeze({
+                clearAll: rawQueue.clearAll === true,
+                clearForOwner: rawQueue.clearForOwner === true,
+                cancel: rawQueue.cancel === true
+            }),
             filters: Object.freeze(Array.isArray(raw.filters) ? raw.filters.map(text).filter(Boolean) : []),
             settings: Object.freeze(Array.isArray(raw.settings) ? raw.settings.map(text).filter(Boolean) : [])
         });
@@ -391,8 +407,8 @@ window.PixivBatch.queueTypes = (function () {
                 behavior[key] = descriptor[key];
             }
         });
-        const processContext = processInvocationContext(backend, activation, moduleScope);
         behavior.process = function (item) {
+            const processContext = processInvocationContext(backend, activation, moduleScope, item);
             processContext.assertActive();
             return descriptor.process.call(this, item, processContext);
         };
@@ -450,14 +466,36 @@ window.PixivBatch.queueTypes = (function () {
         return guardValue(behavior, activation, new Map());
     }
 
-    function processInvocationContext(backend, activation, moduleScope) {
+    function processInvocationContext(backend, activation, moduleScope, item) {
         const active = () => moduleScope.valid && isContextActive(activation);
+        const i18nNamespace = text(backend.i18nNamespace || backend.displayNamespace);
         return Object.freeze({
             type: backend.type,
             signal: moduleScope.controller.signal,
             isActive() { return active(); },
             assertActive() {
                 if (!active()) throw staleQueueTypeError();
+            },
+            updateItem(patch) {
+                if (!active()) throw staleQueueTypeError();
+                if (!isPlainObject(patch)) throw new Error('queue item patch must be a plain object');
+                const normalized = Object.assign(Object.create(null), patch);
+                if (Object.prototype.hasOwnProperty.call(normalized, 'statusMessageKey')) {
+                    const key = text(normalized.statusMessageKey);
+                    if (!key) {
+                        normalized.statusMessageKey = null;
+                    } else {
+                        if (!i18nNamespace || !key.startsWith(i18nNamespace + ':')) {
+                            throw new Error('statusMessageKey must belong to the queue type i18n namespace');
+                        }
+                        normalized.statusMessageKey = key;
+                    }
+                }
+                const queue = window.PixivBatch && window.PixivBatch.queue;
+                if (!queue || typeof queue.commitQueueItemPatch !== 'function') {
+                    throw new Error('queue item patch bridge is unavailable');
+                }
+                return queue.commitQueueItemPatch(item, normalized);
             }
         });
     }
@@ -845,6 +883,15 @@ window.PixivBatch.queueTypes = (function () {
     function uiModuleContext(load, activation, module) {
         const descriptor = load.descriptor;
         const active = () => module.scope.valid && isContextActive(activation);
+        const ownsType = type => {
+            const behavior = get(type);
+            const owner = behavior && behavior.owner;
+            return !!owner
+                && owner.ownerPluginId === descriptor.ownerPluginId
+                && owner.packageId === descriptor.packageId
+                && owner.pluginGeneration === descriptor.pluginGeneration
+                && owner.publicationId === descriptor.publicationId;
+        };
         return Object.freeze({
             epoch: load.epoch,
             revision: load.revision,
@@ -857,6 +904,21 @@ window.PixivBatch.queueTypes = (function () {
             slots: descriptor.slots,
             signal: module.scope.controller.signal,
             isActive() { return active(); },
+            supports(type, mode) {
+                return active() && ownsType(type) && supports(type, mode);
+            },
+            dispatchQuickAction(action) {
+                if (!active()) throw new Error('download UI module activation is stale');
+                const actionId = text(action);
+                if (!actionId) return false;
+                const actionOwnerType = current.orderedTypes.find(type =>
+                    Object.prototype.hasOwnProperty.call(quickActionsFor(type), actionId));
+                if (!actionOwnerType || !ownsType(actionOwnerType)) return false;
+                const quick = window.PixivBatch && window.PixivBatch.modes
+                    && window.PixivBatch.modes.quick;
+                if (!quick || typeof quick.quickLoad !== 'function') return false;
+                return quick.quickLoad(actionId);
+            },
             assertActive() {
                 if (!active()) throw new Error('download UI module activation is stale');
             },
@@ -1215,6 +1277,7 @@ window.PixivBatch.queueTypes = (function () {
             moduleUrl: item.moduleUrl,
             i18nNamespace: text(item.i18nNamespace),
             acquisitionModes: Object.freeze(item.acquisitionModes.slice()),
+            queue: item.queue,
             owner: Object.freeze({
                 pluginId: item.ownerPluginId,
                 packageId: item.packageId,
@@ -1349,6 +1412,68 @@ window.PixivBatch.queueTypes = (function () {
             iconKey: text(manifest.iconKey),
             colorToken: text(manifest.colorToken)
         });
+    }
+
+    function cancelWorkKey(item) {
+        const value = item && typeof item === 'object' ? item : {};
+        if (Object.prototype.hasOwnProperty.call(value, 'cancelWorkKey')) {
+            return normalizedCancelWorkKey(value.cancelWorkKey);
+        }
+        const type = text(value.kind);
+        const legacyId = typeof value.id === 'string' ? value.id : '';
+        return type === 'illust' && /^[0-9]{1,18}$/.test(legacyId) ? legacyId : null;
+    }
+
+    function canCancel(item) {
+        const type = text(item && item.kind);
+        const entry = activeEntry(type);
+        return !!entry && entry.descriptor.queue.cancel === true && cancelWorkKey(item) !== null;
+    }
+
+    async function cancel(item) {
+        const type = text(item && item.kind);
+        const entry = activeEntry(type);
+        const workKey = cancelWorkKey(item);
+        if (!entry || entry.descriptor.queue.cancel !== true || workKey === null) {
+            const error = new Error('queue item cancellation is unavailable');
+            error.code = 'QUEUE_CANCEL_UNAVAILABLE';
+            throw error;
+        }
+        const response = await fetch(BASE + '/api/download/queue/' + encodeURIComponent(type) + '/cancel', {
+            method: 'POST',
+            credentials: 'same-origin',
+            cache: 'no-store',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                workKey,
+                owner: {
+                    pluginId: entry.descriptor.ownerPluginId,
+                    packageId: entry.descriptor.packageId,
+                    generation: entry.descriptor.pluginGeneration,
+                    publicationId: entry.descriptor.publicationId
+                }
+            }),
+            signal: entry.activation.controller.signal
+        });
+        if (activeEntry(type) !== entry) throw staleQueueTypeError();
+        let payload = null;
+        try {
+            payload = await response.json();
+        } catch (e) {
+            payload = null;
+        }
+        if (activeEntry(type) !== entry) throw staleQueueTypeError();
+        if (!response.ok) {
+            const error = new Error('queue cancellation HTTP ' + response.status);
+            error.code = payload && typeof payload.code === 'string' && payload.code
+                ? payload.code : 'QUEUE_CANCEL_FAILED';
+            error.status = response.status;
+            throw error;
+        }
+        return payload;
     }
 
     // 每个取得模式都投影成中立的「来源 -> 活动作品类型」只读快照。来源元数据属于
@@ -1759,6 +1884,8 @@ window.PixivBatch.queueTypes = (function () {
         refresh(force) { return refresh(!!force, false); },
         get,
         queueTags,
+        canCancel,
+        cancel,
         has,
         isEnabled,
         isTypeAvailable,

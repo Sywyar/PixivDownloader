@@ -287,7 +287,7 @@
     }
 
     function renderQueueMessageHtml(q, fallbackText) {
-        if (Array.isArray(q.lastMessageParts) && q.lastMessageParts.length) {
+        if (!q.statusMessageKey && Array.isArray(q.lastMessageParts) && q.lastMessageParts.length) {
             return q.lastMessageParts
                 .map(part => `<span style="color:${toneColor(part.tone, statusColor(q.status))};font-weight:bold;">${esc(part.text)}</span>`)
                 .join('');
@@ -415,6 +415,17 @@
     /* ============================================================
        队列管理
     ============================================================ */
+    const MAX_QUEUE_CANCEL_WORK_KEY_LENGTH = 4096;
+    const queueActionRoots = new WeakSet();
+
+    function normalizeQueueCancelWorkKey(value) {
+        if (typeof value !== 'string' || value.length === 0
+            || value.length > MAX_QUEUE_CANCEL_WORK_KEY_LENGTH || value.trim() === '') {
+            return null;
+        }
+        return value;
+    }
+
     function dedupeQueueItems(items) {
         const seen = new Map();
         const uniqueItems = [];
@@ -427,6 +438,9 @@
                 continue;
             }
             const normalized = {...item, id};
+            const cancelWorkKey = normalizeQueueCancelWorkKey(normalized.cancelWorkKey);
+            if (cancelWorkKey === null) delete normalized.cancelWorkKey;
+            else normalized.cancelWorkKey = cancelWorkKey;
             normalized.typeData = reconcileQueueTypeData(
                 normalized.kind || 'illust',
                 normalized.typeData || normalized.pluginData,
@@ -543,10 +557,15 @@
             const incomingCanonical = queueItemStoredCanonicalUrl(incoming);
             existingItem.canonicalUrl = incomingCanonical || queueItemCanonicalUrl(existingItem);
         }
+        if (normalizeQueueCancelWorkKey(existingItem.cancelWorkKey) === null) {
+            const incomingCancelWorkKey = normalizeQueueCancelWorkKey(incoming.cancelWorkKey);
+            if (incomingCancelWorkKey !== null) existingItem.cancelWorkKey = incomingCancelWorkKey;
+        }
         let requeued = false;
         if (result.reprocessExisting
             && ['completed', 'failed', 'skipped'].includes(String(existingItem.status || ''))) {
             existingItem.status = state.isRunning ? 'pending' : 'idle';
+            existingItem.statusMessageKey = null;
             existingItem.lastMessage = '';
             existingItem.lastMessageParts = null;
             existingItem.startTime = null;
@@ -603,6 +622,7 @@
                 downloadedCount: 0,
                 startTime: null,
                 endTime: null,
+                statusMessageKey: null,
                 lastMessage: '',
                 lastMessageParts: null,
                 bookmarkResult: null,
@@ -610,6 +630,8 @@
                 ugoiraProgress: null,
                 imageProgress: null
             };
+            const cancelWorkKey = normalizeQueueCancelWorkKey(m.cancelWorkKey);
+            if (cancelWorkKey !== null) queueItem.cancelWorkKey = cancelWorkKey;
             queueItem.canonicalUrl = normalizeQueueCanonicalUrl(m.canonicalUrl)
                 || queueItemCanonicalUrl(queueItem);
             state.queue.push(queueItem);
@@ -625,6 +647,92 @@
         }
         syncAllResultsQueueState();
         return added;
+    }
+
+    const QUEUE_ITEM_PATCH_FIELDS = new Set([
+        'status', 'rawStatus', 'failureCode', 'statusMessageKey',
+        'downloadedCount', 'totalImages', 'startTime', 'endTime', 'cancelWorkKey'
+    ]);
+    const QUEUE_ITEM_PROCESS_STATUSES = new Set(['downloading', 'completed', 'failed', 'skipped']);
+
+    // 外部下载类型只能通过此宿主桥回写受控的运行态字段。完整校验通过后才一次性应用，
+    // 随即重算统计、持久化并渲染，避免插件握有 state/saveQueue/renderQueue 等宿主私有能力。
+    function commitQueueItemPatch(item, patch) {
+        if (!item || !state.queue.includes(item)) throw new Error('queue item is not active');
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+            throw new Error('queue item patch must be a plain object');
+        }
+        const proto = Object.getPrototypeOf(patch);
+        if (proto !== Object.prototype && proto !== null) {
+            throw new Error('queue item patch must be a plain object');
+        }
+        const keys = Object.keys(patch);
+        if (!keys.length) return item;
+        keys.forEach(key => {
+            if (!QUEUE_ITEM_PATCH_FIELDS.has(key)) throw new Error('unsupported queue item patch field: ' + key);
+        });
+
+        const normalized = Object.create(null);
+        if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
+            const status = String(patch.status || '').trim();
+            if (!QUEUE_ITEM_PROCESS_STATUSES.has(status)) throw new Error('unsupported queue item status');
+            normalized.status = status;
+        }
+        ['rawStatus', 'failureCode'].forEach(key => {
+            if (!Object.prototype.hasOwnProperty.call(patch, key)) return;
+            if (patch[key] == null || String(patch[key]).trim() === '') {
+                normalized[key] = null;
+                return;
+            }
+            const value = String(patch[key]).trim();
+            if (value.length > 128) throw new Error(key + ' is too long');
+            normalized[key] = value;
+        });
+        if (Object.prototype.hasOwnProperty.call(patch, 'statusMessageKey')) {
+            if (patch.statusMessageKey == null || String(patch.statusMessageKey).trim() === '') {
+                normalized.statusMessageKey = null;
+            } else {
+                const key = String(patch.statusMessageKey).trim();
+                if (key.length > 193 || !/^[a-z0-9][a-z0-9._-]{0,63}:[^\s:]{1,128}$/i.test(key)) {
+                    throw new Error('invalid statusMessageKey');
+                }
+                normalized.statusMessageKey = key;
+            }
+        } else if (Object.prototype.hasOwnProperty.call(normalized, 'status')
+            && normalized.status !== 'failed') {
+            normalized.statusMessageKey = null;
+        }
+        ['downloadedCount', 'totalImages'].forEach(key => {
+            if (!Object.prototype.hasOwnProperty.call(patch, key)) return;
+            const value = Number(patch[key]);
+            if (!Number.isSafeInteger(value) || value < 0) throw new Error(key + ' must be a non-negative integer');
+            normalized[key] = value;
+        });
+        ['startTime', 'endTime'].forEach(key => {
+            if (!Object.prototype.hasOwnProperty.call(patch, key)) return;
+            if (patch[key] == null) {
+                normalized[key] = null;
+                return;
+            }
+            const value = String(patch[key]).trim();
+            const timestamp = Date.parse(value);
+            if (!value || value.length > 64 || !Number.isFinite(timestamp)
+                || new Date(timestamp).toISOString() !== value) {
+                throw new Error(key + ' must be an ISO-8601 timestamp or null');
+            }
+            normalized[key] = value;
+        });
+        if (Object.prototype.hasOwnProperty.call(patch, 'cancelWorkKey')) {
+            const value = normalizeQueueCancelWorkKey(patch.cancelWorkKey);
+            if (value === null) throw new Error('cancelWorkKey must be a non-blank string');
+            normalized.cancelWorkKey = value;
+        }
+
+        Object.keys(normalized).forEach(key => { item[key] = normalized[key]; });
+        updateStats();
+        saveQueue();
+        renderQueue();
+        return item;
     }
 
     function queueItemCanonicalUrl(item) {
@@ -866,6 +974,54 @@
         el.innerHTML = state.queue.map(q => buildQueueItemHtml(q, {removable: true})).join('');
     }
 
+    function canCancelQueueItem(item) {
+        if (!item || item.status !== 'downloading') return false;
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (!queueTypes || typeof queueTypes.canCancel !== 'function') return false;
+        try {
+            return queueTypes.canCancel(item) === true;
+        } catch (e) {
+            console.warn('[queue] 队列单项取消能力检查失败：', item.kind, e);
+            return false;
+        }
+    }
+
+    async function requestQueueItemCancel(id) {
+        const item = state.queue.find(candidate => String(candidate.id) === String(id));
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (!item || item.status !== 'downloading' || !queueTypes
+            || typeof queueTypes.cancel !== 'function' || !canCancelQueueItem(item)) {
+            setStatus(bt('status.cancel-failed', '取消下载请求失败'), 'error');
+            renderQueue();
+            return false;
+        }
+        try {
+            await queueTypes.cancel(item);
+            setStatus(bt('status.cancel-requested', '已请求取消下载'), 'success');
+            return true;
+        } catch (e) {
+            console.warn('[queue] 队列单项取消请求失败：', item.kind, e);
+            setStatus(bt('status.cancel-failed', '取消下载请求失败'), 'error');
+            renderQueue();
+            return false;
+        }
+    }
+
+    function bindQueueActions(root) {
+        if (!root || typeof root.addEventListener !== 'function' || queueActionRoots.has(root)) return false;
+        root.addEventListener('click', event => {
+            const target = event && event.target;
+            const button = target && typeof target.closest === 'function'
+                ? target.closest('[data-queue-cancel-id]') : null;
+            if (!button) return;
+            if (event && typeof event.preventDefault === 'function') event.preventDefault();
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+            requestQueueItemCancel(button.getAttribute('data-queue-cancel-id'));
+        });
+        queueActionRoots.add(root);
+        return true;
+    }
+
     // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，
     // 保证两处队列展示完全一致（进度条、数据来源/模式/分级/插件标签、小说进度等）。
     // opts.removable=false 时不渲染移除按钮（计划任务为服务端队列，前端不可移除）。
@@ -885,7 +1041,9 @@
             + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
             + formatNovelProgressHtml(q)
             + formatNovelTranslateHtml(q);
-        const desc = q.lastMessage || queueStatusText(q.status);
+        const desc = q.statusMessageKey
+            ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status))
+            : (q.lastMessage || queueStatusText(q.status));
         const descHtml = renderQueueMessageHtml(q, desc);
         const sourceDescriptor = queueDataSource(q);
         const sourceLabel = `<span class="queue-tag queue-tag--source" data-source-id="${esc(sourceDescriptor ? sourceDescriptor.id : 'unknown')}">${esc(queueDataSourceText(sourceDescriptor))}</span>`;
@@ -908,18 +1066,23 @@
             .map(tag => `<span class="queue-tag queue-tag--plugin" data-queue-tag-id="${esc(tag.id)}">${esc(tag.label)}</span>`)
             .join('');
         const canRemove = removable && q.status !== 'downloading';
+        const cancelBtn = removable && canCancelQueueItem(q)
+            ? `<button type="button" class="queue-cancel-btn" data-queue-cancel-id="${esc(String(q.id))}" title="${esc(bt('queue.cancel', '取消下载'))}" aria-label="${esc(bt('queue.cancel', '取消下载'))}">■</button>`
+            : '';
         const removeBtn = canRemove
             ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="${esc(bt('queue.remove', '移除'))}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
             : '';
         const isNovel = q.kind === 'novel';
-        const linkHref = isNovel
+        const linkHref = queueItemCanonicalUrl(q) || (isNovel
             ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(q.novelId || String(q.id).replace(/^n/, ''))}`
-            : `https://www.pixiv.net/artworks/${q.id}`;
-        const linkBtn = `<a href="${linkHref}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
+            : '');
+        const linkBtn = linkHref
+            ? `<a href="${esc(linkHref)}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`
+            : '';
         return `<div class="queue-item"${queueIdAttr} style="border-left-color:${statusColor(q.status)}">
       <div class="q-title">
         <span class="q-title-main">${esc(queueItemDisplayTitle(q))}</span>
-        ${linkBtn}${removeBtn}
+        ${linkBtn}${cancelBtn}${removeBtn}
       </div>
       <div class="q-tags">${sourceLabel}${modeLabel}${ratingLabel}${pluginLabels}</div>
       <div class="q-meta">ID: ${isNovel ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)' : q.id} | ${descHtml}</div>
@@ -973,6 +1136,7 @@
                     q.source = normalizeImportMode(q.source);
                     if (q.status === 'downloading') {
                         q.status = 'failed';
+                        q.statusMessageKey = null;
                         q.lastMessage = bt('queue.message.failed-refresh', '失败 — 页面刷新导致中断');
                         q.lastMessageParts = null;
                     }
@@ -1026,4 +1190,4 @@
 
 // ---- PixivBatch facade ----
 window.PixivBatch.queue = window.PixivBatch.queue || {};
-window.PixivBatch.queue = Object.assign(window.PixivBatch.queue, { addItemsToQueue, removeFromQueue, reconcileQueueItemTypeData, syncAllResultsQueueState, renderQueue, buildQueueItemHtml, updateStats, setCurrent, handleExport, handleExportFailed, dedupeQueueItems, queueItemDisplayTitle, queueItemCanonicalUrl, buildQueueExportLines, renderQueueMessageHtml });
+window.PixivBatch.queue = Object.assign(window.PixivBatch.queue, { addItemsToQueue, removeFromQueue, requestQueueItemCancel, bindQueueActions, reconcileQueueItemTypeData, commitQueueItemPatch, syncAllResultsQueueState, renderQueue, buildQueueItemHtml, updateStats, setCurrent, handleExport, handleExportFailed, dedupeQueueItems, queueItemDisplayTitle, queueItemCanonicalUrl, buildQueueExportLines, renderQueueMessageHtml });

@@ -694,6 +694,32 @@
                 throw error;
             }
         };
+        const publishWorks = async payload => {
+            assertCurrent();
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                throw new Error('quick works payload must be an object');
+            }
+            const items = Array.isArray(payload.items) ? payload.items.slice() : [];
+            const declaredTotal = Number(payload.total);
+            quickState.rawItems = items;
+            quickState.total = Number.isFinite(declaredTotal) && declaredTotal >= 0
+                ? Math.max(items.length, Math.floor(declaredTotal)) : items.length;
+            quickSetTitle(payload.title == null ? '' : String(payload.title));
+            const toolbar = payload.toolbar && typeof payload.toolbar === 'object'
+                && !Array.isArray(payload.toolbar) ? payload.toolbar : {};
+            quickShowToolbar({
+                showBack: toolbar.showBack === true,
+                showAdd: toolbar.showAdd === true,
+                showSearch: toolbar.showSearch === true,
+                showKindSwitcher: toolbar.showKindSwitcher === true
+            });
+            await quickRenderOuterWorks();
+            assertCurrent();
+            syncQuickQueueState();
+            updateExtraFiltersCardVisibility();
+            updateSaveScheduleCardVisibility();
+            applyNovelSettingsVisibility();
+        };
         // 高亮当前按钮
         document.querySelectorAll('.quick-action').forEach(b => {
             b.classList.toggle('quick-active', b.dataset.quick === action);
@@ -715,7 +741,8 @@
             await desc.load(action, {
                 signal: lease.signal,
                 isCurrent,
-                assertCurrent
+                assertCurrent,
+                publishWorks
             });
             assertCurrent();
             if (!isCurrent()) return;

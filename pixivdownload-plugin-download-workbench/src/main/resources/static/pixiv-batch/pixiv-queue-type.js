@@ -182,6 +182,11 @@
             return Object.keys(data).length ? data : null;
         }
 
+        function pixivCancelWorkKey(value) {
+            const raw = value == null ? '' : String(value);
+            return /^[0-9]{1,18}$/.test(raw) ? raw : null;
+        }
+
         function pixivMergeQueueTypeData(currentValue, incomingValue) {
             const current = currentValue && typeof currentValue === 'object' ? currentValue : {};
             const incoming = incomingValue && typeof incomingValue === 'object' ? incomingValue : {};
@@ -227,6 +232,7 @@
             return {
                 title: item.title || '',
                 kind: type,
+                cancelWorkKey: pixivCancelWorkKey(item.id),
                 typeData: pixivQueueTypeData(item, context),
                 authorId: item.userId ? Number(item.userId) : null,
                 authorName: item.userName || '',
@@ -339,6 +345,7 @@
                 return {
                     id: rawId,
                     kind: type,
+                    cancelWorkKey: pixivCancelWorkKey(rawId),
                     rawTitle: item.title && String(item.title).trim() ? String(item.title) : null,
                     source: scheduledSourceStyle(ctx.sourceType),
                     typeData: ctx.sourceType ? {sourceType: String(ctx.sourceType)} : null
@@ -362,6 +369,7 @@
                     return {
                         id: String(id),
                         kind: type,
+                        cancelWorkKey: pixivCancelWorkKey(id),
                         title: title || bt('queue.artwork-fallback', '作品 {id}', {id})
                     };
                 },
@@ -410,6 +418,7 @@
                     buildQueueMetaFromId(_id, ctx) {
                         return {
                             kind: type,
+                            cancelWorkKey: pixivCancelWorkKey(_id),
                             typeData: pixivQueueTypeData({}, ctx),
                             authorId: Number(ctx.userId),
                             authorName: ctx.username || ctx.userId
@@ -492,7 +501,11 @@
                     innerCardHtml: pixivQuickInnerCard,
                     buildQueueMeta: artworkQueueMeta,
                     buildQueueMetaFromId(_id, ctx) {
-                        return {kind: type, typeData: pixivQueueTypeData({}, ctx)};
+                        return {
+                            kind: type,
+                            cancelWorkKey: pixivCancelWorkKey(_id),
+                            typeData: pixivQueueTypeData({}, ctx)
+                        };
                     },
                     actions: {
                         'my-illust-bookmarks-show': {
