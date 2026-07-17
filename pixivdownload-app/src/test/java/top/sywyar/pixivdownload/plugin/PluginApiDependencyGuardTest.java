@@ -13,6 +13,8 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -24,7 +26,6 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * 包依赖守卫。后续每个解耦步骤完成后，把对应的「禁止依赖」追加固化到这里，防止回潮。
@@ -576,7 +577,7 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("common 不得依赖业务包：项目内仅允许 common/config/i18n")
+    @DisplayName("common 不得依赖业务包：仅允许基础设施包与共享 LocalRequestTrust")
     void commonDependsOnlyOnInfrastructure() {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.common..")
@@ -585,8 +586,11 @@ class PluginApiDependencyGuardTest {
                                 .and(DescribedPredicate.not(JavaClass.Predicates.resideInAnyPackage(
                                         "top.sywyar.pixivdownload.common..",
                                         "top.sywyar.pixivdownload.config..",
-                                        "top.sywyar.pixivdownload.i18n.."))))
-                .because("common 是叶子工具包，只允许依赖 config / i18n 两个基础设施包")
+                                        "top.sywyar.pixivdownload.i18n..")
+                                        .or(JavaClass.Predicates.belongToAnyOf(LocalRequestTrust.class)))))
+                .because("common 是叶子工具包，只允许依赖 config / i18n 基础设施包；"
+                        + "NetworkUtils 可精确委托 core-api 中纯 JDK 的 LocalRequestTrust，"
+                        + "不得借此宽放 web 包或其它业务类型")
                 .check(CLASSES);
     }
 
