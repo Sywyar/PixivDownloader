@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
@@ -24,7 +24,7 @@ import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -114,8 +114,8 @@ class ScheduleHostProductionWiringTest {
                 mock(NotificationService.class),
                 mock(AppMessages.class),
                 mock(WebI18nBundleRegistry.class),
-                mock(SetupService.class),
-                new DownloadConfig(),
+                mock(UserDisplayNameProvider.class),
+                mock(DownloadSettings.class),
                 direct,
                 direct,
                 engine);

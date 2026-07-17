@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -32,6 +33,20 @@ class DownloadWorkbenchDependencyGuardTest {
                             "top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
                             || javaClass.getPackageName().startsWith(
                                     "top.sywyar.pixivdownload.novel.download");
+                }
+            };
+    private static final Set<String> HOST_BOUNDARY_IMPLEMENTATIONS = Set.of(
+            "top.sywyar.pixivdownload.common.UuidUtils",
+            "top.sywyar.pixivdownload.config.RuntimeFiles",
+            "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
+            "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
+            "top.sywyar.pixivdownload.setup.SetupService",
+            "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard");
+    private static final DescribedPredicate<JavaClass> HOST_BOUNDARY_IMPLEMENTATION =
+            new DescribedPredicate<>("host runtime/config/setup implementation") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    return HOST_BOUNDARY_IMPLEMENTATIONS.contains(javaClass.getFullName());
                 }
             };
 
@@ -107,6 +122,15 @@ class DownloadWorkbenchDependencyGuardTest {
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
                 .should().dependOnClassesThat(CONCRETE_DOWNLOAD_SERVICE)
                 .because("下载队列控制器的跨类型取消 / 清空只能经核心 QueueOperationRegistry + QueueOperations")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载工作台不得依赖宿主运行路径、配置、setup 与访客守卫实现")
+    void workbenchDoesNotDependOnHostBoundaryImplementations() {
+        noClasses()
+                .should().dependOnClassesThat(HOST_BOUNDARY_IMPLEMENTATION)
+                .because("外置插件只能依赖稳定路径/设置/身份端口与 WorkVisibilityService")
                 .check(CLASSES);
     }
 

@@ -23,13 +23,13 @@ import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
@@ -65,7 +65,7 @@ class ArtworkDownloadExecutorTest {
     Path tempDir;
 
     @Mock
-    private DownloadConfig downloadConfig;
+    private DownloadSettings downloadSettings;
     @Mock
     private ApplicationEventPublisher eventPublisher;
     @Mock
@@ -107,7 +107,7 @@ class ArtworkDownloadExecutorTest {
     }
 
     private ArtworkDownloadExecutor newExecutor(TaskExecutor taskExecutor) {
-        return new ArtworkDownloadExecutor(downloadConfig, eventPublisher, pixivDatabase,
+        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
                 userQuotaService, downloadRestTemplate, taskScheduler, taskExecutor,
                 pixivBookmarkService, ugoiraService,
                 authorService, collectionService, mangaSeriesService, artworkHashService,
@@ -139,8 +139,8 @@ class ArtworkDownloadExecutorTest {
             assertThatThrownBy(() -> executor.downloadImages(1002L, "title", List.of("https://i.pximg.net/b.jpg"),
                     "https://www.pixiv.net/artworks/1002", new DownloadRequest.Other(), null, "owner-a"))
                     .isInstanceOf(QueueNotAcceptingException.class)
-                    .satisfies(error -> assertThat(((QueueNotAcceptingException) error).getStatus().value())
-                            .isEqualTo(503));
+                    .satisfies(error -> assertThat(((QueueNotAcceptingException) error).queueType())
+                            .isEqualTo("illust"));
         }
 
         @Test
@@ -448,8 +448,8 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
+            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
             lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
@@ -511,9 +511,9 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
             // 走用户独立目录分支：isUserDownload=true 且 isUserFlatFolder=false
-            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
+            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(false);
             lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
@@ -578,7 +578,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("isUserFlatFolder=true 时即便 xRestrict==2 也不应下沉到 R18G")
         void shouldRespectFlatFolderEvenWhenXRestrictIsR18g() {
-            when(downloadConfig.isUserFlatFolder()).thenReturn(true);
+            when(downloadSettings.isUserFlatFolder()).thenReturn(true);
             DownloadRequest.Other other = userOther(2);
 
             artworkDownloadExecutor.downloadImages(42345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
@@ -598,8 +598,8 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
+            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
             lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
@@ -641,8 +641,8 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
+            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
             lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
@@ -759,8 +759,8 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
+            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(false);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
         }
 
@@ -806,8 +806,8 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("有图片下载失败时不写下载历史且状态标记为失败")
         void shouldNotRecordHistoryWhenAnyImageFails() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
+            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(false);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000200L);
             byte[] payload = {1, 2, 3};
             when(downloadRestTemplate.execute(eq(OK_URL), eq(HttpMethod.GET), any(), any()))

@@ -18,15 +18,20 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.net.URI;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
@@ -47,22 +52,25 @@ class PixivProxyControllerTest {
     @Mock
     private RestTemplate restTemplate;
     @Mock
-    private SetupService setupService;
+    private ApplicationModeProvider applicationModeProvider;
+    @Mock
+    private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock
     private UserQuotaService userQuotaService;
     @Mock
-    private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
+    private WorkVisibilityService workVisibilityService;
 
-    private MultiModeConfig multiModeConfig;
+    @Mock
+    private MultiModeSettings multiModeSettings;
 
     @BeforeEach
     void setUp() {
-        multiModeConfig = new MultiModeConfig();
         PixivFetchService pixivFetchService =
                 new PixivFetchService(restTemplate, objectMapper);
         PixivProxyController controller = new PixivProxyController(
-                objectMapper, restTemplate, pixivFetchService, setupService, userQuotaService,
-                multiModeConfig, guestAccessGuard, APP_MESSAGES);
+                objectMapper, restTemplate, pixivFetchService, applicationModeProvider,
+                requestOwnerIdentityResolver, userQuotaService,
+                multiModeSettings, workVisibilityService, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -76,8 +84,7 @@ class PixivProxyControllerTest {
 
         @BeforeEach
         void setUpSoloMode() {
-            // search endpoint calls checkMultiModeAccess which calls setupService.getMode()
-            lenient().when(setupService.getMode()).thenReturn("solo");
+            lenient().when(applicationModeProvider.getMode()).thenReturn("solo");
         }
 
         private static final String PIXIV_SEARCH_RESPONSE = """
@@ -356,12 +363,16 @@ class PixivProxyControllerTest {
 
         @BeforeEach
         void setUpMultiMode() {
-            when(setupService.getMode()).thenReturn("multi");
+            when(applicationModeProvider.getMode()).thenReturn("multi");
+            lenient().when(requestOwnerIdentityResolver.resolve(any()))
+                    .thenReturn(RequestOwnerIdentity.owner("generated-owner"));
         }
 
         @Test
         @DisplayName("缺少 UUID（cookie/header 都无）应返回 401")
         void shouldReturn401WhenUuidMissing() throws Exception {
+            when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.empty());
+
             mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.error").value(containsString("UUID")));
@@ -373,8 +384,10 @@ class PixivProxyControllerTest {
         @DisplayName("UUID 已存在但代理请求超额应返回 429 + 提示")
         void shouldReturn429WhenProxyQuotaExceeded() throws Exception {
             String uuid = UUID.randomUUID().toString();
-            multiModeConfig.getQuota().setMaxProxyRequests(20);
-            multiModeConfig.getQuota().setResetPeriodHours(24);
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(uuid));
+            when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.of(uuid));
+            when(multiModeSettings.getMaxProxyRequests()).thenReturn(20);
+            when(multiModeSettings.getResetPeriodHours()).thenReturn(24);
             when(userQuotaService.checkAndReserveProxy(uuid)).thenReturn(false);
 
             mockMvc.perform(get("/api/pixiv/user/9999/artworks")
@@ -387,7 +400,7 @@ class PixivProxyControllerTest {
         @Test
         @DisplayName("多人模式下管理员应跳过代理请求限流")
         void shouldBypassProxyLimitForAdmin() throws Exception {
-            when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
             when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
@@ -401,6 +414,8 @@ class PixivProxyControllerTest {
         @DisplayName("UUID 合法且未超额应放行并消费一次代理配额")
         void shouldReserveProxyQuotaAndPassThrough() throws Exception {
             String uuid = UUID.randomUUID().toString();
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(uuid));
+            when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.of(uuid));
             when(userQuotaService.checkAndReserveProxy(uuid)).thenReturn(true);
             when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
@@ -421,7 +436,7 @@ class PixivProxyControllerTest {
 
         @BeforeEach
         void setUpSoloMode() {
-            when(setupService.getMode()).thenReturn("solo");
+            when(applicationModeProvider.getMode()).thenReturn("solo");
         }
 
         private static final String PIXIV_SEARCH_RESPONSE = """
@@ -475,10 +490,9 @@ class PixivProxyControllerTest {
         @Test
         @DisplayName("multi 模式管理员不受 limitPage 限制")
         void shouldNotLimitRangePagesForMultiModeAdmin() throws Exception {
-            reset(setupService);
-            when(setupService.getMode()).thenReturn("multi");
-            when(setupService.isAdminLoggedIn(any())).thenReturn(true);
-            multiModeConfig.setLimitPage(1);
+            reset(applicationModeProvider, requestOwnerIdentityResolver);
+            when(applicationModeProvider.getMode()).thenReturn("multi");
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
             when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
@@ -518,7 +532,7 @@ class PixivProxyControllerTest {
 
         @BeforeEach
         void setUpSoloMode() {
-            when(setupService.getMode()).thenReturn("solo");
+            when(applicationModeProvider.getMode()).thenReturn("solo");
         }
 
         @Test
@@ -562,6 +576,8 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.tags[0].translatedName").value("猫"))
                     .andExpect(jsonPath("$.tags[1].name").value("Original"))
                     .andExpect(jsonPath("$.tags[1].translatedName").doesNotExist());
+
+            verify(workVisibilityService).requireVisible(any(), eq(WorkType.ARTWORK), eq(12345L));
         }
 
         @Test

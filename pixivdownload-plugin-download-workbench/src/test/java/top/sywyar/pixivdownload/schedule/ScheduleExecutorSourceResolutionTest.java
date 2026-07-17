@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.schedule;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.hc.core5.http.HttpHost;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,8 +10,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
@@ -35,7 +35,7 @@ import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 import java.util.List;
 import java.util.Map;
@@ -56,6 +56,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -93,7 +94,9 @@ class ScheduleExecutorSourceResolutionTest {
     @Mock
     private AppMessages appMessages;
     @Mock
-    private SetupService setupService;
+    private UserDisplayNameProvider userDisplayNameProvider;
+    @Mock
+    private DownloadSettings downloadSettings;
     @Mock
     private WorkMetaCaptureService workMetaCaptureService;
 
@@ -105,6 +108,8 @@ class ScheduleExecutorSourceResolutionTest {
     @BeforeEach
     void setUp() {
         runState = new ScheduleRunState();
+        lenient().when(downloadSettings.getMaxConcurrent()).thenReturn(10);
+        lenient().when(downloadSettings.getNovelMaxConcurrent()).thenReturn(10);
     }
 
     @AfterEach
@@ -113,15 +118,15 @@ class ScheduleExecutorSourceResolutionTest {
         OutboundProxyOverride.clear();
     }
 
-    /** 用统一能力注册中心构造被测执行器（同步下载池，默认 DownloadConfig）。 */
+    /** 用统一能力注册中心构造被测执行器（同步下载池，使用宿主只读下载设置）。 */
     private ScheduleExecutor newExecutor(ScheduleCapabilityRegistry registry) {
         ObjectMapper objectMapper = new ObjectMapper();
         return new ScheduleExecutor(store, registry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(),
                 objectMapper, new PixivSchedulePersistenceCodec(objectMapper),
-                overuseWarningService, notificationService, appMessages, setupService,
-                new DownloadConfig(), SYNC_EXECUTOR, SYNC_EXECUTOR);
+                overuseWarningService, notificationService, appMessages, userDisplayNameProvider,
+                downloadSettings, SYNC_EXECUTOR, SYNC_EXECUTOR);
     }
 
     private ScheduleCapabilityRegistry downloadWorkbenchCapabilities() {
@@ -332,8 +337,8 @@ class ScheduleExecutorSourceResolutionTest {
         DurableRun durableRun = stubDurableClaim(task);
         stubNormalCompletion(task, durableRun);
 
-        AtomicReference<HttpHost> proxyDuringDiscovery = new AtomicReference<>();
-        AtomicReference<HttpHost> proxyDuringDownload = new AtomicReference<>();
+        AtomicReference<OutboundProxyEndpoint> proxyDuringDiscovery = new AtomicReference<>();
+        AtomicReference<OutboundProxyEndpoint> proxyDuringDownload = new AtomicReference<>();
 
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenAnswer(inv -> {
             proxyDuringDiscovery.set(OutboundProxyOverride.current());

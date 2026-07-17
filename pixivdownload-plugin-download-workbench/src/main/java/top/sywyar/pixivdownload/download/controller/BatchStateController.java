@@ -5,11 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.download.request.BatchStateRequest;
 import top.sywyar.pixivdownload.download.response.BatchStateResponse;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -23,12 +22,12 @@ public class BatchStateController {
 
     private final Path stateFile;
     private volatile String cachedState = "{}";
-    private final SetupService setupService;
+    private final ApplicationModeProvider applicationModeProvider;
 
-    public BatchStateController(DownloadConfig downloadConfig,
-                                SetupService setupService) {
-        this.setupService = setupService;
-        this.stateFile = RuntimeFiles.resolveBatchStatePath(downloadConfig.getRootFolder());
+    public BatchStateController(RuntimePathProvider runtimePathProvider,
+                                ApplicationModeProvider applicationModeProvider) {
+        this.applicationModeProvider = applicationModeProvider;
+        this.stateFile = runtimePathProvider.resolveBatchStatePath();
     }
 
     @PostConstruct
@@ -41,7 +40,7 @@ public class BatchStateController {
 
     @GetMapping(value = "/state", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<BatchStateResponse> getState() {
-        if (!"solo".equals(setupService.getMode())) {
+        if (!"solo".equals(applicationModeProvider.getMode())) {
             return ResponseEntity.status(403).build();
         }
         return ResponseEntity.ok(new BatchStateResponse(cachedState));
@@ -49,7 +48,7 @@ public class BatchStateController {
 
     @PostMapping(value = "/state", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> saveState(@RequestBody BatchStateRequest request) throws IOException {
-        if (!"solo".equals(setupService.getMode())) {
+        if (!"solo".equals(applicationModeProvider.getMode())) {
             return ResponseEntity.status(403).build();
         }
         cachedState = request.getState().toString();

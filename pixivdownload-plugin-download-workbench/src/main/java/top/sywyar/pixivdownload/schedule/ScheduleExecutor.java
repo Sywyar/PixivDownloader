@@ -8,10 +8,10 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppLocale;
@@ -46,7 +46,7 @@ import top.sywyar.pixivdownload.download.schedule.source.DiscoveryMode;
 import top.sywyar.pixivdownload.download.schedule.source.PageSupplier;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSource;
 import top.sywyar.pixivdownload.download.schedule.source.ScheduledSourceContext;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Download;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
@@ -131,8 +131,8 @@ public class ScheduleExecutor {
     private final NotificationService notificationService;
     private final AppMessages messages;
     private final WebI18nBundleRegistry webI18nBundleRegistry;
-    private final SetupService setupService;
-    private final DownloadConfig downloadConfig;
+    private final UserDisplayNameProvider userDisplayNameProvider;
+    private final DownloadSettings downloadSettings;
     // 字段名与 bean 名一致，借此按名解析到对应下载池（避免 @Primary 的 applicationTaskExecutor）。
     private final TaskExecutor downloadTaskExecutor;
     private final TaskExecutor novelDownloadTaskExecutor;
@@ -155,15 +155,15 @@ public class ScheduleExecutor {
             OveruseWarningService overuseWarningService,
             NotificationService notificationService,
             AppMessages messages,
-            SetupService setupService,
-            DownloadConfig downloadConfig,
+            UserDisplayNameProvider userDisplayNameProvider,
+            DownloadSettings downloadSettings,
             TaskExecutor downloadTaskExecutor,
             TaskExecutor novelDownloadTaskExecutor) {
         this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
-                overuseWarningService, notificationService, messages, setupService,
-                downloadConfig, downloadTaskExecutor, novelDownloadTaskExecutor, null);
+                overuseWarningService, notificationService, messages, userDisplayNameProvider,
+                downloadSettings, downloadTaskExecutor, novelDownloadTaskExecutor, null);
     }
 
     /** 保留既有显式构造调用；descriptor i18n registry 仅由正式插件装配注入。 */
@@ -183,16 +183,16 @@ public class ScheduleExecutor {
             OveruseWarningService overuseWarningService,
             NotificationService notificationService,
             AppMessages messages,
-            SetupService setupService,
-            DownloadConfig downloadConfig,
+            UserDisplayNameProvider userDisplayNameProvider,
+            DownloadSettings downloadSettings,
             TaskExecutor downloadTaskExecutor,
             TaskExecutor novelDownloadTaskExecutor,
             ScheduleExecutionEngine scheduleExecutionEngine) {
         this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
-                overuseWarningService, notificationService, messages, null, setupService,
-                downloadConfig, downloadTaskExecutor, novelDownloadTaskExecutor,
+                overuseWarningService, notificationService, messages, null, userDisplayNameProvider,
+                downloadSettings, downloadTaskExecutor, novelDownloadTaskExecutor,
                 scheduleExecutionEngine);
     }
 
@@ -2405,7 +2405,7 @@ public class ScheduleExecutor {
 
     /** 邮件问候称呼：用户自定义称呼优先，否则回退本地化默认「管理员 / administrator」。 */
     private String greetingName(Locale locale) {
-        String displayName = setupService.getDisplayName();
+        String displayName = userDisplayNameProvider.getDisplayName();
         if (displayName != null && !displayName.isBlank()) {
             return displayName;
         }
@@ -2450,7 +2450,7 @@ public class ScheduleExecutor {
 
     /** 有效作品级并发数：clamp 到对应下载池大小，避免在池外堆积过多在途任务。 */
     private int effectiveConcurrency(boolean novel, int taskConcurrent) {
-        int poolSize = novel ? downloadConfig.getNovelMaxConcurrent() : downloadConfig.getMaxConcurrent();
+        int poolSize = novel ? downloadSettings.getNovelMaxConcurrent() : downloadSettings.getMaxConcurrent();
         return Math.max(1, Math.min(Math.max(1, taskConcurrent), poolSize));
     }
 

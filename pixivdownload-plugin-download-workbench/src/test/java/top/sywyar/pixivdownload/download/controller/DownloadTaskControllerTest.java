@@ -15,11 +15,13 @@ import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.util.List;
 import java.util.Locale;
@@ -39,19 +41,24 @@ class DownloadTaskControllerTest {
     @Mock
     private ArtworkDownloadExecutor artworkDownloadExecutor;
     @Mock
-    private SetupService setupService;
+    private ApplicationModeProvider applicationModeProvider;
+    @Mock
+    private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock
     private UserQuotaService userQuotaService;
     @Mock
     private PixivDatabase pixivDatabase;
 
-    private MultiModeConfig multiModeConfig;
+    @Mock
+    private MultiModeSettings multiModeSettings;
 
     @BeforeEach
     void setUp() {
-        multiModeConfig = new MultiModeConfig();
+        lenient().when(requestOwnerIdentityResolver.resolve(any()))
+                .thenReturn(RequestOwnerIdentity.adminScope());
         DownloadTaskController controller = new DownloadTaskController(
-                artworkDownloadExecutor, setupService, userQuotaService, multiModeConfig, pixivDatabase, APP_MESSAGES);
+                artworkDownloadExecutor, applicationModeProvider, requestOwnerIdentityResolver,
+                userQuotaService, multiModeSettings, pixivDatabase, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -66,7 +73,7 @@ class DownloadTaskControllerTest {
         @Test
         @DisplayName("合法请求应成功发起下载")
         void shouldStartDownload() throws Exception {
-            when(setupService.getMode()).thenReturn("solo");
+            when(applicationModeProvider.getMode()).thenReturn("solo");
 
             DownloadRequest request = new DownloadRequest();
             request.setArtworkId(12345L);
@@ -99,10 +106,12 @@ class DownloadTaskControllerTest {
         @Test
         @DisplayName("多人模式配额超出时应返回 429")
         void shouldReturn429WhenQuotaExceeded() throws Exception {
-            when(setupService.getMode()).thenReturn("multi");
-            multiModeConfig.getQuota().setEnabled(true);
-            multiModeConfig.getQuota().setArchiveExpireMinutes(60);
-            multiModeConfig.setPostDownloadMode("pack-and-delete");
+            String ownerUuid = "12345678-1234-1234-1234-123456789abc";
+            when(applicationModeProvider.getMode()).thenReturn("multi");
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(ownerUuid));
+            when(multiModeSettings.isQuotaEnabled()).thenReturn(true);
+            when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(60);
+            when(multiModeSettings.getPostDownloadMode()).thenReturn("pack-and-delete");
 
             when(userQuotaService.checkAndReserve(anyString(), anyInt()))
                     .thenReturn(new UserQuotaService.QuotaCheckResult(false, 50, 50, 3600));
@@ -116,7 +125,7 @@ class DownloadTaskControllerTest {
             mockMvc.perform(post("/api/download/pixiv")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
-                            .header("X-User-UUID", "12345678-1234-1234-1234-123456789abc"))
+                            .header("X-User-UUID", ownerUuid))
                     .andExpect(status().is(429))
                     .andExpect(jsonPath("$.quotaExceeded").value(true))
                     .andExpect(jsonPath("$.archiveToken").value("archive-token"));
@@ -125,9 +134,10 @@ class DownloadTaskControllerTest {
         @Test
         @DisplayName("多人模式非管理员传入 collectionId 时应被清空")
         void shouldStripCollectionIdForNonAdminInMultiMode() throws Exception {
-            when(setupService.getMode()).thenReturn("multi");
-            when(setupService.isAdminLoggedIn(any())).thenReturn(false);
-            multiModeConfig.getQuota().setEnabled(false);
+            when(applicationModeProvider.getMode()).thenReturn("multi");
+            when(requestOwnerIdentityResolver.resolve(any()))
+                    .thenReturn(RequestOwnerIdentity.owner("owner-a"));
+            when(multiModeSettings.isQuotaEnabled()).thenReturn(false);
 
             DownloadRequest request = new DownloadRequest();
             request.setArtworkId(12345L);
@@ -155,9 +165,8 @@ class DownloadTaskControllerTest {
         @Test
         @DisplayName("多人模式下已登录管理员应跳过配额检查")
         void shouldSkipQuotaCheckForAdminInMultiMode() throws Exception {
-            when(setupService.getMode()).thenReturn("multi");
-            when(setupService.isAdminLoggedIn(any())).thenReturn(true);
-            multiModeConfig.getQuota().setEnabled(true);
+            when(applicationModeProvider.getMode()).thenReturn("multi");
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
 
             DownloadRequest request = new DownloadRequest();
             request.setArtworkId(12345L);

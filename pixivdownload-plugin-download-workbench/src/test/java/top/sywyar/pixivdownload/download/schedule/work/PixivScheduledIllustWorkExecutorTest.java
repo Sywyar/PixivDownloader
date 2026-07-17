@@ -14,8 +14,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
@@ -293,7 +293,7 @@ class PixivScheduledIllustWorkExecutorTest {
                 downloadRunner,
                 new PixivSchedulePersistenceCodec(objectMapper),
                 objectMapper,
-                new DownloadConfig());
+                mock(DownloadSettings.class));
     }
 
     private ContextFixture context(

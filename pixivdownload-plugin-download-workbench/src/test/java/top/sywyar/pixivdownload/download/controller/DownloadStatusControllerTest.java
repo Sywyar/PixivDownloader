@@ -14,7 +14,8 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.DownloadStatus;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.util.List;
 import java.util.Locale;
@@ -34,12 +35,12 @@ class DownloadStatusControllerTest {
     @Mock
     private ArtworkDownloadExecutor artworkDownloadExecutor;
     @Mock
-    private SetupService setupService;
+    private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
 
     @BeforeEach
     void setUp() {
         DownloadStatusController controller = new DownloadStatusController(
-                artworkDownloadExecutor, setupService, APP_MESSAGES);
+                artworkDownloadExecutor, requestOwnerIdentityResolver, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -69,7 +70,7 @@ class DownloadStatusControllerTest {
             status.setDownloadedCount(3);
             status.setCurrentImageIndex(2);
             status.setDownloadPath("/path/to/download");
-            when(setupService.hasAdminScope(any())).thenReturn(true);
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
             when(artworkDownloadExecutor.getDownloadStatus(12345L)).thenReturn(status);
 
             mockMvc.perform(get("/api/download/status/12345"))
@@ -83,7 +84,7 @@ class DownloadStatusControllerTest {
         @Test
         @DisplayName("不存在的下载任务应返回未找到")
         void shouldReturnNotFoundStatus() throws Exception {
-            when(setupService.hasAdminScope(any())).thenReturn(true);
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
             when(artworkDownloadExecutor.getDownloadStatus(99999L)).thenReturn(null);
 
             mockMvc.perform(get("/api/download/status/99999").locale(Locale.SIMPLIFIED_CHINESE))
@@ -98,7 +99,7 @@ class DownloadStatusControllerTest {
     @Test
     @DisplayName("GET /api/download/status/active 应返回活跃下载列表")
     void shouldReturnActiveDownloads() throws Exception {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         when(artworkDownloadExecutor.getDownloadStatus()).thenReturn(List.of(1L, 2L, 3L));
 
         mockMvc.perform(get("/api/download/status/active"))

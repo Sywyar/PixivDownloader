@@ -7,7 +7,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -79,8 +79,8 @@ class ScheduleHostPluginConfigurationTest {
                 overuseWarningService,
                 mock(NotificationService.class),
                 mock(AppMessages.class),
-                mock(SetupService.class),
-                new DownloadConfig(),
+                mock(UserDisplayNameProvider.class),
+                mock(DownloadSettings.class),
                 direct,
                 direct);
         ScheduleService service = configuration.scheduleService(

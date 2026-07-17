@@ -10,7 +10,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
@@ -30,7 +30,7 @@ import top.sywyar.pixivdownload.schedule.execution.ScheduleNetworkRouteResolver;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleWorkConcurrencyLimiter;
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 /**
  * 计划任务宿主插件的 Bean 装配收敛点。承载调度安全壳的全部托管 Bean：执行器 / 服务 / tick runner / 控制器 /
@@ -162,15 +162,15 @@ public class ScheduleHostPluginConfiguration {
                                              NotificationService notificationService,
                                              AppMessages messages,
                                              WebI18nBundleRegistry webI18nBundleRegistry,
-                                             SetupService setupService,
-                                             DownloadConfig downloadConfig,
+                                             UserDisplayNameProvider userDisplayNameProvider,
+                                             DownloadSettings downloadSettings,
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                              @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
-                notificationService, messages, webI18nBundleRegistry, setupService, downloadConfig,
+                notificationService, messages, webI18nBundleRegistry, userDisplayNameProvider, downloadSettings,
                 downloadTaskExecutor, novelDownloadTaskExecutor, scheduleExecutionEngine);
     }
 
@@ -190,14 +190,14 @@ public class ScheduleHostPluginConfiguration {
                                              OveruseWarningService overuseWarningService,
                                              NotificationService notificationService,
                                              AppMessages messages,
-                                             SetupService setupService,
-                                             DownloadConfig downloadConfig,
+                                             UserDisplayNameProvider userDisplayNameProvider,
+                                             DownloadSettings downloadSettings,
                                              TaskExecutor downloadTaskExecutor,
                                              TaskExecutor novelDownloadTaskExecutor) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelMetadataRepository,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
-                notificationService, messages, setupService, downloadConfig,
+                notificationService, messages, userDisplayNameProvider, downloadSettings,
                 downloadTaskExecutor, novelDownloadTaskExecutor);
     }
 

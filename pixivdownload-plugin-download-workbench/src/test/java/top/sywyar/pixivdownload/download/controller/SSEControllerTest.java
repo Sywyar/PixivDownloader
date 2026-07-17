@@ -19,8 +19,9 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
-import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -52,7 +53,7 @@ class SSEControllerTest {
     @Mock
     private TaskScheduler taskScheduler;
     @Mock
-    private SetupService setupService;
+    private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock
     private ScheduledFuture<?> heartbeatFuture;
 
@@ -62,8 +63,10 @@ class SSEControllerTest {
     @BeforeEach
     void setUp() {
         pluginStreamRegistry = new PluginStreamRegistry();
-        controller = new SSEController(taskScheduler, setupService, TestI18nBeans.appMessages(),
+        controller = new SSEController(taskScheduler, requestOwnerIdentityResolver, TestI18nBeans.appMessages(),
                 pluginStreamRegistry);
+        lenient().when(requestOwnerIdentityResolver.resolve(any()))
+                .thenReturn(RequestOwnerIdentity.adminScope());
         lenient().when(taskScheduler.scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30))))
                 .thenAnswer(invocation -> heartbeatFuture);
     }
@@ -81,7 +84,7 @@ class SSEControllerTest {
     void shouldRegisterArtworkEmitterWithCurrentLocale() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         String ownerUuid = "123e4567-e89b-12d3-a456-426614174000";
-        when(setupService.hasAdminScope(any())).thenReturn(false);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(ownerUuid));
         MockHttpServletRequest request = requestWithUuid(ownerUuid);
 
         SseEmitter emitter = controller.createSSEConnection(12345L, request);
@@ -179,7 +182,8 @@ class SSEControllerTest {
     @DisplayName("createAggregatedSSEConnection 应记录 owner UUID 和语言")
     void shouldRegisterAggregatedEmitterWithOwnerAndLocale() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-        when(setupService.hasAdminScope(any())).thenReturn(false);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(
+                "123e4567-e89b-12d3-a456-426614174000"));
 
         MockHttpServletRequest request = requestWithUuid("123e4567-e89b-12d3-a456-426614174000");
 
@@ -200,7 +204,7 @@ class SSEControllerTest {
     @DisplayName("closeSSEConnection 应返回本地化响应并移除连接")
     void shouldCloseConnectionAndReturnLocalizedMessage() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-        when(setupService.hasAdminScope(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
 
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putArtworkSubscription(999L, emitter, Locale.US);
@@ -224,6 +228,7 @@ class SSEControllerTest {
         aggregatedHeartbeatTasks().put("conn-1", heartbeatFuture);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-User-UUID", ownerUuid);
+        when(requestOwnerIdentityResolver.resolve(request)).thenReturn(RequestOwnerIdentity.owner(ownerUuid));
         String closeToken = createAggregatedCloseToken("conn-1", ownerUuid, false);
 
         var response = controller.closeAggregatedSSEConnection(closeToken, request);
@@ -246,7 +251,9 @@ class SSEControllerTest {
         putAggregatedSubscription("conn-1", emitter, ownerUuid, false, Locale.US);
         aggregatedHeartbeatTasks().put("conn-1", heartbeatFuture);
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("X-User-UUID", "223e4567-e89b-12d3-a456-426614174000");
+        String otherOwnerUuid = "223e4567-e89b-12d3-a456-426614174000";
+        request.addHeader("X-User-UUID", otherOwnerUuid);
+        when(requestOwnerIdentityResolver.resolve(request)).thenReturn(RequestOwnerIdentity.owner(otherOwnerUuid));
         String closeToken = createAggregatedCloseToken("conn-1", ownerUuid, false);
 
         var response = controller.closeAggregatedSSEConnection(closeToken, request);
@@ -258,6 +265,43 @@ class SSEControllerTest {
         assertThat(aggregatedHeartbeatTasks()).containsKey("conn-1");
         assertThat(emitter.events).isEmpty();
         assertThat(emitter.completed).isFalse();
+    }
+
+    @Test
+    @DisplayName("solo 管理员作用域但未认证时不得关闭管理员聚合连接")
+    void shouldRejectAdminScopeWithoutAuthenticatedSession() throws Exception {
+        RecordingSseEmitter emitter = new RecordingSseEmitter();
+        putAggregatedSubscription("admin-conn", emitter, null, true, Locale.US);
+        aggregatedHeartbeatTasks().put("admin-conn", heartbeatFuture);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(requestOwnerIdentityResolver.isAdminAuthenticated(request)).thenReturn(false);
+        String closeToken = createAggregatedCloseToken("admin-conn", null, true);
+
+        var response = controller.closeAggregatedSSEConnection(closeToken, request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        assertThat(aggregatedEmitters()).containsKey("admin-conn");
+        assertThat(aggregatedHeartbeatTasks()).containsKey("admin-conn");
+        assertThat(emitter.completed).isFalse();
+    }
+
+    @Test
+    @DisplayName("真实管理员认证可关闭管理员聚合连接")
+    void shouldAllowAuthenticatedAdminToCloseAdminSubscription() throws Exception {
+        RecordingSseEmitter emitter = new RecordingSseEmitter();
+        putAggregatedSubscription("admin-conn", emitter, null, true, Locale.US);
+        aggregatedHeartbeatTasks().put("admin-conn", heartbeatFuture);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(requestOwnerIdentityResolver.isAdminAuthenticated(request)).thenReturn(true);
+        String closeToken = createAggregatedCloseToken("admin-conn", null, true);
+
+        var response = controller.closeAggregatedSSEConnection(closeToken, request);
+
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().isSuccess()).isTrue();
+        assertThat(aggregatedEmitters()).doesNotContainKey("admin-conn");
+        assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("admin-conn");
+        assertThat(emitter.completed).isTrue();
     }
 
     @Test
@@ -282,7 +326,7 @@ class SSEControllerTest {
     @Test
     @DisplayName("正常关闭事件发送失败时作品级与聚合连接仍 complete")
     void normalCloseSendFailureStillCompletesBothConnectionKinds() throws Exception {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         FailingSseEmitter artwork = new FailingSseEmitter();
         putArtworkSubscription(781L, artwork, Locale.US);
         heartbeatTasks().put("admin:781", heartbeatFuture);
@@ -292,7 +336,7 @@ class SSEControllerTest {
         FailingSseEmitter aggregated = new FailingSseEmitter();
         putAggregatedSubscription("close-failed", aggregated, null, true, Locale.US);
         aggregatedHeartbeatTasks().put("close-failed", heartbeatFuture);
-        when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.isAdminAuthenticated(any())).thenReturn(true);
         String token = createAggregatedCloseToken("close-failed", null, true);
         controller.closeAggregatedSSEConnection(token, new MockHttpServletRequest());
 
@@ -306,7 +350,7 @@ class SSEControllerTest {
     @Test
     @DisplayName("作品级 / 聚合连接注册进插件推流注册中心；拥有它的插件 closeForPlugin 时全部关闭、注册中心清空")
     void registersStreamsUnderOwningPluginAndClosesThemOnTeardown() {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
 
         controller.createSSEConnection(111L, new MockHttpServletRequest());
         controller.createAggregatedSSEConnection(new MockHttpServletRequest());
@@ -342,7 +386,7 @@ class SSEControllerTest {
     @Test
     @DisplayName("同一作品的两个连接使用精确 stream token，quiesce 会同时关闭")
     void duplicateArtworkConnectionsAreBothClosedOnQuiesce() {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         controller.createSSEConnection(779L, new MockHttpServletRequest());
         controller.createSSEConnection(779L, new MockHttpServletRequest());
 
@@ -358,7 +402,7 @@ class SSEControllerTest {
     @Test
     @DisplayName("旧连接 completion 只注销自己的 token，不会移除同作品新连接")
     void oldArtworkCompletionDoesNotRemoveNewConnection() throws Exception {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         SseEmitter oldEmitter = controller.createSSEConnection(780L, new MockHttpServletRequest());
         SseEmitter newEmitter = controller.createSSEConnection(780L, new MockHttpServletRequest());
         var oldEntry = artworkEmitters().entrySet().stream()
@@ -489,7 +533,7 @@ class SSEControllerTest {
     @Test
     @DisplayName("作品级连接正常关闭后只保留 controller 后台 drain token")
     void normalCloseUnregistersStream() {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
+        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         controller.createSSEConnection(222L, new MockHttpServletRequest());
         assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
 

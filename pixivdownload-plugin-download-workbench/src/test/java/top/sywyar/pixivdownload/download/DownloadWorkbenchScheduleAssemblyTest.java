@@ -3,8 +3,8 @@ package top.sywyar.pixivdownload.download;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -55,8 +55,8 @@ class DownloadWorkbenchScheduleAssemblyTest {
         ArtworkDownloader artworkDownloader = mock(ArtworkDownloader.class);
         ScheduledIllustWorkRunner legacyIllustRunner =
                 configuration.scheduledIllustWorkRunner(artworkDownloader);
-        DownloadConfig downloadConfig = new DownloadConfig();
-        downloadConfig.setMaxConcurrent(3);
+        DownloadSettings downloadSettings = mock(DownloadSettings.class);
+        when(downloadSettings.getMaxConcurrent()).thenReturn(3, 2);
         PixivScheduledIllustWorkExecutor illustExecutor =
                 configuration.pixivScheduledIllustWorkExecutor(
                         mock(PixivFetchService.class),
@@ -66,9 +66,8 @@ class DownloadWorkbenchScheduleAssemblyTest {
                         legacyIllustRunner,
                         persistenceCodec,
                         objectMapper,
-                        downloadConfig);
+                        downloadSettings);
         assertThat(illustExecutor.maxConcurrency()).isEqualTo(3);
-        downloadConfig.setMaxConcurrent(2);
         assertThat(illustExecutor.maxConcurrency()).isEqualTo(2);
         OveruseWarningService overuseWarningService = mock(OveruseWarningService.class);
         PixivScheduledCredentialPolicy credentialPolicy =

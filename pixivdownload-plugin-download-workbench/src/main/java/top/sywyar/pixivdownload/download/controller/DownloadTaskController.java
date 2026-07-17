@@ -8,8 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.common.UuidUtils;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -17,8 +16,10 @@ import top.sywyar.pixivdownload.download.response.AlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.QuotaExceededResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 @RestController
 @RequestMapping("/api")
@@ -26,9 +27,10 @@ import top.sywyar.pixivdownload.setup.SetupService;
 public class DownloadTaskController {
 
     private final ArtworkDownloadExecutor artworkDownloadExecutor;
-    private final SetupService setupService;
+    private final ApplicationModeProvider applicationModeProvider;
+    private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final UserQuotaService userQuotaService;
-    private final MultiModeConfig multiModeConfig;
+    private final MultiModeSettings multiModeSettings;
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
 
@@ -36,7 +38,7 @@ public class DownloadTaskController {
     public ResponseEntity<?> downloadPixivImages(
             @Valid @RequestBody DownloadRequest request,
             HttpServletRequest httpRequest) {
-        String mode = setupService.getMode();
+        String mode = applicationModeProvider.getMode();
         if (request.getOther() == null) {
             request.setOther(new DownloadRequest.Other());
         }
@@ -51,7 +53,7 @@ public class DownloadTaskController {
         // 多人模式：never-delete/timed-delete 模式下，已下载过的作品直接返回成功，不消耗配额。
         // 软删除的作品文件已不在磁盘，视为未下载放行（是否真正重下由客户端的下载设置决定）。
         if ("multi".equals(mode)) {
-            String pdMode = multiModeConfig.getPostDownloadMode();
+            String pdMode = multiModeSettings.getPostDownloadMode();
             if ("never-delete".equals(pdMode) || "timed-delete".equals(pdMode)) {
                 if (pixivDatabase.hasActiveArtwork(request.getArtworkId())) {
                     return ResponseEntity.ok(new AlreadyDownloadedResponse(
@@ -60,15 +62,16 @@ public class DownloadTaskController {
             }
         }
 
+        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(httpRequest);
         String userUuid = null;
-        boolean isAdmin = setupService.isAdminLoggedIn(httpRequest);
+        boolean isAdmin = identity.admin();
         stripUnauthorizedCollectionSelection(request, mode, isAdmin);
         if (!isAdmin && "multi".equals(mode)) {
-            userUuid = extractUserUuid(httpRequest);
+            userUuid = identity.ownerUuid();
         }
 
         // 多人模式且配额启用时，检查下载配额
-        if (userUuid != null && multiModeConfig.getQuota().isEnabled()) {
+        if (userUuid != null && multiModeSettings.isQuotaEnabled()) {
             int imageCount = request.getOther().isUgoira() ? 1 : request.getImageUrls().size();
             UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid, imageCount);
 
@@ -79,7 +82,7 @@ public class DownloadTaskController {
                         true,
                         messages.get("download.quota.exceeded"),
                         archiveToken,
-                        (long) multiModeConfig.getQuota().getArchiveExpireMinutes() * 60,
+                        (long) multiModeSettings.getArchiveExpireMinutes() * 60,
                         check.artworksUsed(),
                         check.maxArtworks(),
                         check.resetSeconds()
@@ -104,11 +107,6 @@ public class DownloadTaskController {
                 .downloadPath(messages.get("download.download-path.pending", String.valueOf(request.getArtworkId())))
                 .downloadedCount(request.getImageUrls().size())
                 .build());
-    }
-
-    /** 提取用户 UUID：优先 cookie，其次 X-User-UUID 请求头，最后基于 IP+UA 生成 */
-    private String extractUserUuid(HttpServletRequest req) {
-        return UuidUtils.extractOrGenerateUuid(req);
     }
 
     private void stripUnauthorizedCollectionSelection(DownloadRequest request, String mode, boolean isAdmin) {

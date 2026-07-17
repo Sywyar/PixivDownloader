@@ -11,14 +11,16 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
@@ -49,8 +51,7 @@ import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
-import top.sywyar.pixivdownload.setup.SetupService;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
@@ -83,7 +84,7 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public ArtworkDownloadExecutor artworkDownloadExecutor(DownloadConfig downloadConfig,
+    public ArtworkDownloadExecutor artworkDownloadExecutor(DownloadSettings downloadSettings,
                                                            ApplicationEventPublisher eventPublisher,
                                                            PixivDatabase pixivDatabase,
                                                            UserQuotaService userQuotaService,
@@ -100,7 +101,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            DownloadStatisticsService downloadStatisticsService,
                                                            DownloadedArtworkService downloadedArtworkService,
                                                            AppMessages messages) {
-        return new ArtworkDownloadExecutor(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
+        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase, userQuotaService,
                 downloadRestTemplate, taskScheduler, downloadTaskExecutor,
                 pixivBookmarkService, ugoiraService, authorService,
                 collectionService, mangaSeriesService, artworkHashService, workMetaCaptureService,
@@ -122,10 +123,10 @@ public class DownloadWorkbenchPluginConfiguration {
             ScheduledIllustWorkRunner scheduledIllustWorkRunner,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
-            DownloadConfig downloadConfig) {
+            DownloadSettings downloadSettings) {
         return new PixivScheduledIllustWorkExecutor(
                 pixivFetchService, pixivDatabase, artworkDownloader, workMetaCaptureService,
-                scheduledIllustWorkRunner, persistenceCodec, objectMapper, downloadConfig);
+                scheduledIllustWorkRunner, persistenceCodec, objectMapper, downloadSettings);
     }
 
     @Bean
@@ -229,20 +230,21 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public BatchStateController batchStateController(DownloadConfig downloadConfig,
-                                                     SetupService setupService) {
-        return new BatchStateController(downloadConfig, setupService);
+    public BatchStateController batchStateController(RuntimePathProvider runtimePathProvider,
+                                                     ApplicationModeProvider applicationModeProvider) {
+        return new BatchStateController(runtimePathProvider, applicationModeProvider);
     }
 
     @Bean
     public DownloadTaskController downloadTaskController(ArtworkDownloadExecutor artworkDownloadExecutor,
-                                                         SetupService setupService,
+                                                         ApplicationModeProvider applicationModeProvider,
+                                                         RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                          UserQuotaService userQuotaService,
-                                                         MultiModeConfig multiModeConfig,
+                                                         MultiModeSettings multiModeSettings,
                                                          PixivDatabase pixivDatabase,
                                                          AppMessages messages) {
-        return new DownloadTaskController(artworkDownloadExecutor, setupService, userQuotaService,
-                multiModeConfig, pixivDatabase, messages);
+        return new DownloadTaskController(artworkDownloadExecutor, applicationModeProvider,
+                requestOwnerIdentityResolver, userQuotaService, multiModeSettings, pixivDatabase, messages);
     }
 
     @Bean
@@ -268,29 +270,31 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public DownloadStatusController downloadStatusController(ArtworkDownloadExecutor artworkDownloadExecutor,
-                                                             SetupService setupService,
+                                                             RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                              AppMessages messages) {
-        return new DownloadStatusController(artworkDownloadExecutor, setupService, messages);
+        return new DownloadStatusController(artworkDownloadExecutor, requestOwnerIdentityResolver, messages);
     }
 
     @Bean
     public SSEController sseController(@Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                                       SetupService setupService,
+                                       RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                        AppMessages messages,
                                        PluginStreamRegistry pluginStreamRegistry) {
-        return new SSEController(taskScheduler, setupService, messages, pluginStreamRegistry);
+        return new SSEController(taskScheduler, requestOwnerIdentityResolver, messages, pluginStreamRegistry);
     }
 
     @Bean
     public PixivProxyController pixivProxyController(ObjectMapper objectMapper,
                                                      @Qualifier("restTemplate") RestTemplate restTemplate,
                                                      PixivFetchService pixivFetchService,
-                                                     SetupService setupService,
+                                                     ApplicationModeProvider applicationModeProvider,
+                                                     RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                      UserQuotaService userQuotaService,
-                                                     MultiModeConfig multiModeConfig,
-                                                     GuestAccessGuard guestAccessGuard,
+                                                     MultiModeSettings multiModeSettings,
+                                                     WorkVisibilityService workVisibilityService,
                                                      AppMessages messages) {
-        return new PixivProxyController(objectMapper, restTemplate, pixivFetchService, setupService,
-                userQuotaService, multiModeConfig, guestAccessGuard, messages);
+        return new PixivProxyController(objectMapper, restTemplate, pixivFetchService,
+                applicationModeProvider, requestOwnerIdentityResolver,
+                userQuotaService, multiModeSettings, workVisibilityService, messages);
     }
 }

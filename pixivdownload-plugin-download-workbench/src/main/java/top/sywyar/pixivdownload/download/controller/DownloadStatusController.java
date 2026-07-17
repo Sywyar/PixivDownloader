@@ -8,14 +8,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.response.ActiveDownloadResponse;
 import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.DownloadStatusResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.util.List;
 
@@ -26,7 +26,7 @@ import java.util.List;
 public class DownloadStatusController {
 
     private final ArtworkDownloadExecutor artworkDownloadExecutor;
-    private final SetupService setupService;
+    private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final AppMessages messages;
 
     @GetMapping("/download/status")
@@ -41,10 +41,10 @@ public class DownloadStatusController {
     @GetMapping("/download/status/{artworkId}")
     public ResponseEntity<DownloadStatusResponse> getDownloadStatus(@PathVariable Long artworkId,
                                                                     HttpServletRequest httpRequest) {
-        boolean adminScope = setupService.hasAdminScope(httpRequest);
-        DownloadStatus status = adminScope
+        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(httpRequest);
+        DownloadStatus status = identity.admin()
                 ? artworkDownloadExecutor.getDownloadStatus(artworkId)
-                : artworkDownloadExecutor.getDownloadStatus(artworkId, extractUserUuid(httpRequest), false);
+                : artworkDownloadExecutor.getDownloadStatus(artworkId, identity.ownerUuid(), false);
         if (status == null) {
             return ResponseEntity.ok(DownloadStatusResponse.builder()
                     .success(false)
@@ -76,15 +76,10 @@ public class DownloadStatusController {
 
     @GetMapping("download/status/active")
     public ResponseEntity<ActiveDownloadResponse> getActiveDownload(HttpServletRequest httpRequest) {
-        boolean adminScope = setupService.hasAdminScope(httpRequest);
-        List<Long> active = adminScope
+        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(httpRequest);
+        List<Long> active = identity.admin()
                 ? artworkDownloadExecutor.getDownloadStatus()
-                : artworkDownloadExecutor.getDownloadStatus(extractUserUuid(httpRequest), false);
+                : artworkDownloadExecutor.getDownloadStatus(identity.ownerUuid(), false);
         return ResponseEntity.ok(new ActiveDownloadResponse(active));
-    }
-
-    /** 提取用户 UUID：优先 cookie，其次 X-User-UUID 请求头，最后基于 IP+UA 生成 */
-    private String extractUserUuid(HttpServletRequest req) {
-        return UuidUtils.extractOrGenerateUuid(req);
     }
 }

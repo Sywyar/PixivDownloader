@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.download.schedule.work;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.client.HttpClientErrorException;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustSettings;
@@ -44,7 +44,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
     private final ScheduledIllustWorkRunner downloadRunner;
     private final PixivSchedulePersistenceCodec persistenceCodec;
     private final ObjectMapper objectMapper;
-    private final DownloadConfig downloadConfig;
+    private final DownloadSettings downloadSettings;
     private final Map<SeriesKey, PixivFetchService.IllustSeriesMeta> seriesCache =
             new ConcurrentHashMap<>();
     private final Map<Long, ScheduledTaskDefinition> seriesCacheRuns =
@@ -58,7 +58,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
             ScheduledIllustWorkRunner downloadRunner,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
-            DownloadConfig downloadConfig) {
+            DownloadSettings downloadSettings) {
         this.fetchService = fetchService;
         this.pixivDatabase = pixivDatabase;
         this.artworkDownloader = artworkDownloader;
@@ -66,7 +66,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         this.downloadRunner = downloadRunner;
         this.persistenceCodec = persistenceCodec;
         this.objectMapper = objectMapper;
-        this.downloadConfig = Objects.requireNonNull(downloadConfig, "downloadConfig");
+        this.downloadSettings = Objects.requireNonNull(downloadSettings, "downloadSettings");
     }
 
     @Override
@@ -76,7 +76,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
 
     @Override
     public int maxConcurrency() {
-        return downloadConfig.getMaxConcurrent();
+        return downloadSettings.getMaxConcurrent();
     }
 
     @Override

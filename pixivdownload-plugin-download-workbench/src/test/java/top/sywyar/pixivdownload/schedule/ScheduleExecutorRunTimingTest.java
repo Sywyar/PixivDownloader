@@ -10,6 +10,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
@@ -49,6 +50,7 @@ import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlExcep
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionResult;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
+import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
 import java.io.IOException;
 import java.util.List;
@@ -104,7 +106,9 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private WebI18nBundleRegistry webI18nBundleRegistry;
     @Mock
-    private top.sywyar.pixivdownload.setup.SetupService setupService;
+    private UserDisplayNameProvider userDisplayNameProvider;
+    @Mock
+    private DownloadSettings downloadSettings;
 
     private ObjectMapper objectMapper;
     private PixivSchedulePersistenceCodec codec;
@@ -116,6 +120,8 @@ class ScheduleExecutorRunTimingTest {
         objectMapper = new ObjectMapper();
         codec = new PixivSchedulePersistenceCodec(objectMapper);
         localRunState = new ScheduleRunState();
+        lenient().when(downloadSettings.getMaxConcurrent()).thenReturn(10);
+        lenient().when(downloadSettings.getNovelMaxConcurrent()).thenReturn(10);
         executor = newExecutor(SYNC_EXECUTOR, SYNC_EXECUTOR);
 
         lenient().when(store.tryQueueNow(anyLong(), anyLong(), anyString()))
@@ -1070,8 +1076,8 @@ class ScheduleExecutorRunTimingTest {
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
                 artworkDownloader, novelMetadataRepository, new ScheduleConfig(), localRunState,
                 new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
-                notificationService, appMessages, setupService,
-                new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(),
+                notificationService, appMessages, userDisplayNameProvider,
+                downloadSettings,
                 downloadExecutor, novelExecutor);
     }
 
@@ -1110,8 +1116,8 @@ class ScheduleExecutorRunTimingTest {
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
                 artworkDownloader, novelMetadataRepository, new ScheduleConfig(), localRunState,
                 new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
-                notificationService, appMessages, webI18nBundleRegistry, setupService,
-                new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(),
+                notificationService, appMessages, webI18nBundleRegistry, userDisplayNameProvider,
+                downloadSettings,
                 SYNC_EXECUTOR, SYNC_EXECUTOR, engine);
     }
 

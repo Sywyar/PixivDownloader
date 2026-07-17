@@ -14,19 +14,19 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
-import top.sywyar.pixivdownload.setup.SetupService;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -64,7 +64,7 @@ public class SSEController {
     private static final String STREAM_OWNER_PLUGIN_ID = DownloadWorkbenchPlugin.ID;
 
     private final TaskScheduler taskScheduler;
-    private final SetupService setupService;
+    private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final AppMessages messages;
     private final PluginStreamRegistry pluginStreamRegistry;
     private final ExecutorService sseProgressExecutor;
@@ -82,11 +82,11 @@ public class SSEController {
     private final String backgroundStreamToken = "sse-background:" + UUID.randomUUID();
 
     public SSEController(TaskScheduler taskScheduler,
-                         SetupService setupService,
+                         RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                          AppMessages messages,
                          PluginStreamRegistry pluginStreamRegistry) {
         this.taskScheduler = taskScheduler;
-        this.setupService = setupService;
+        this.requestOwnerIdentityResolver = requestOwnerIdentityResolver;
         this.messages = messages;
         this.pluginStreamRegistry = pluginStreamRegistry;
         this.secureRandom.nextBytes(closeTokenKey);
@@ -149,8 +149,9 @@ public class SSEController {
     public SseEmitter createSSEConnection(@PathVariable Long artworkId, HttpServletRequest request) {
         ensureBackgroundDrainRegistered();
         SseEmitter emitter = new SseEmitter(300_000L);
-        boolean admin = setupService.hasAdminScope(request);
-        String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
+        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
+        boolean admin = identity.admin();
+        String ownerUuid = identity.ownerUuid();
         String connectionId = UUID.randomUUID().toString();
         String subscriptionKey = artworkSubscriptionKey(artworkId, ownerUuid, admin) + "#" + connectionId;
         String streamToken = "artwork:" + connectionId;
@@ -202,8 +203,9 @@ public class SSEController {
         SseEmitter emitter = new SseEmitter(86_400_000L);
         String connectionId = UUID.randomUUID().toString();
         String streamToken = "aggregated:" + connectionId;
-        boolean admin = setupService.hasAdminScope(request);
-        String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
+        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
+        boolean admin = identity.admin();
+        String ownerUuid = identity.ownerUuid();
         AggregatedSubscription subscription = new AggregatedSubscription(
                 emitter, ownerUuid, admin, currentRequestLocale(), streamToken);
         aggregatedEmitters.put(connectionId, subscription);
@@ -257,8 +259,9 @@ public class SSEController {
     @PostMapping("/close/{artworkId}")
     public ResponseEntity<DownloadResponse> closeSSEConnection(@PathVariable Long artworkId,
                                                                HttpServletRequest request) {
-        boolean admin = setupService.hasAdminScope(request);
-        String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
+        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
+        boolean admin = identity.admin();
+        String ownerUuid = identity.ownerUuid();
         completeArtworkEmitters(artworkId, ownerUuid, admin);
         log.info(logMessage("sse.log.connection.closed", id(artworkId)));
         return ResponseEntity.ok(DownloadResponse.builder()
@@ -721,13 +724,14 @@ public class SSEController {
                 || System.currentTimeMillis() - payload.issuedAtMillis() > CLOSE_TOKEN_MAX_AGE_MILLIS) {
             return false;
         }
-        if (setupService.isAdminLoggedIn(request)) {
+        if (requestOwnerIdentityResolver.isAdminAuthenticated(request)) {
             return true;
         }
         if (sub.admin()) {
             return false;
         }
-        return sub.ownerUuid() != null && sub.ownerUuid().equals(UuidUtils.extractOrGenerateUuid(request));
+        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
+        return sub.ownerUuid() != null && sub.ownerUuid().equals(identity.ownerUuid());
     }
 
     private String createAggregatedCloseToken(String connectionId, String ownerUuid, boolean admin, long issuedAtMillis) {

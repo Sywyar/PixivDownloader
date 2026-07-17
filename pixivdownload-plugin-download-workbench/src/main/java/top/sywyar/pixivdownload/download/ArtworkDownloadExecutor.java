@@ -16,15 +16,15 @@ import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueStatusRetention;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
@@ -60,7 +60,7 @@ import java.util.function.Consumer;
 @Service
 public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
-    private final DownloadConfig downloadConfig;
+    private final DownloadSettings downloadSettings;
     private final ApplicationEventPublisher eventPublisher;
     private final PixivDatabase pixivDatabase;
     private final UserQuotaService userQuotaService;
@@ -82,7 +82,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
     private final QueueTaskTracker taskTracker = new QueueTaskTracker("illust");
 
-    public ArtworkDownloadExecutor(DownloadConfig downloadConfig,
+    public ArtworkDownloadExecutor(DownloadSettings downloadSettings,
                                    ApplicationEventPublisher eventPublisher,
                                    PixivDatabase pixivDatabase,
                                    @Nullable UserQuotaService userQuotaService,
@@ -99,7 +99,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    DownloadStatisticsService downloadStatisticsService,
                                    DownloadedArtworkService downloadedArtworkService,
                                    AppMessages messages) {
-        this.downloadConfig = downloadConfig;
+        this.downloadSettings = downloadSettings;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
         this.userQuotaService = userQuotaService;
@@ -174,7 +174,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             validateUserDownloadFolder(other);
             Path downloadRoot = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
             Path downloadPath = downloadRoot;
-            if (other.isUserDownload() && other.getUsername() != null && !downloadConfig.isUserFlatFolder()) {
+            if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
                 downloadPath = downloadPath.resolve(SafePathSegment.requireSafeDirectoryName(other.getUsername()));
 
                 if (other.getXRestrict() == 2) {
@@ -351,7 +351,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     }
 
     private Path resolveEffectiveDownloadRoot(DownloadRequest.Other other) {
-        Path defaultRoot = Paths.get(downloadConfig.getRootFolder());
+        Path defaultRoot = Paths.get(downloadSettings.getRootFolder());
         if (other != null && other.getCollectionId() != null) {
             return collectionService.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
