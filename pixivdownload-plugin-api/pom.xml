@@ -18,7 +18,8 @@
 
     <dependencies>
         <!--
-          唯一编译期外部依赖：作品可见性服务接口 WorkVisibilityService 的入参用到 HttpServletRequest。
+          唯一编译期外部依赖：收取请求入参的稳定服务接口（WorkVisibilityService /
+          RequestOwnerIdentityResolver）用到 HttpServletRequest。
           provided 作用域——Servlet 容器（宿主嵌入式 Tomcat）在运行期提供，不打进本模块产物、也不向下游传递，
           主程序经 spring-boot-starter-web 自带同一规范 API。其余契约类型一律纯 JDK。
         -->
