@@ -24,6 +24,11 @@ class GalleryPluginModuleDependencyGuardTest {
     private static final Set<String> FORBIDDEN_FILE_READ_METHODS = Set.of(
             "readString", "readAllBytes", "readAllLines", "lines",
             "newBufferedReader", "newInputStream");
+    private static final Set<String> HOST_BOUNDARY_IMPLEMENTATIONS = Set.of(
+            "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
+            "top.sywyar.pixivdownload.setup.SetupService",
+            "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard",
+            "top.sywyar.pixivdownload.setup.guest.GuestInviteSession");
 
     private static final DescribedPredicate<JavaMethodCall> READS_LOCAL_FILES_DIRECTLY =
             new DescribedPredicate<>("调用 java.nio.file.Files 的本地文件读取 / 打开方法") {
@@ -31,6 +36,13 @@ class GalleryPluginModuleDependencyGuardTest {
                 public boolean test(JavaMethodCall call) {
                     return call.getTargetOwner().getFullName().equals("java.nio.file.Files")
                             && FORBIDDEN_FILE_READ_METHODS.contains(call.getName());
+                }
+            };
+    private static final DescribedPredicate<JavaClass> HOST_BOUNDARY_IMPLEMENTATION =
+            new DescribedPredicate<>("宿主配置、setup 或访客可见性实现") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    return HOST_BOUNDARY_IMPLEMENTATIONS.contains(javaClass.getFullName());
                 }
             };
 
@@ -105,6 +117,16 @@ class GalleryPluginModuleDependencyGuardTest {
                         "top.sywyar.pixivdownload.stats..",
                         "top.sywyar.pixivdownload.novel..")
                 .because("gallery 只消费核心作品事实与插件契约，不应依赖其它功能插件实现")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("gallery 宿主配置、请求身份与访客可见性只通过稳定契约读取")
+    void galleryUsesStableHostSettingsAndIdentityContracts() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .should().dependOnClassesThat(HOST_BOUNDARY_IMPLEMENTATION)
+                .because("外置插件应使用 MultiModeSettings、RequestOwnerIdentityResolver 与 WorkVisibilityService")
                 .check(CLASSES);
     }
 

@@ -4,15 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 
 /**
  * gallery 插件的 Bean 装配收敛点：业务 Bean（含 {@code @RestController}）均经
@@ -69,8 +70,8 @@ public class GalleryPluginConfiguration {
             top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry registry,
             top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker projectionBroker,
             top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker workBroker,
-            top.sywyar.pixivdownload.setup.SetupService setupService) {
-        return new UnifiedGalleryController(registry, projectionBroker, workBroker, setupService);
+            RequestOwnerIdentityResolver ownerIdentityResolver) {
+        return new UnifiedGalleryController(registry, projectionBroker, workBroker, ownerIdentityResolver);
     }
 
     @Bean
@@ -80,17 +81,17 @@ public class GalleryPluginConfiguration {
                                                    WorkAssetService workAssetService,
                                                    CollectionService collectionService,
                                                    UserQuotaService userQuotaService,
-                                                   MultiModeConfig multiModeConfig,
+                                                   MultiModeSettings multiModeSettings,
                                                    ObjectMapper objectMapper) {
         return new GalleryBatchService(galleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeConfig, objectMapper);
+                collectionService, userQuotaService, multiModeSettings, objectMapper);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("gallery")
     public GalleryController galleryController(GalleryService galleryService,
                                                GalleryBatchService galleryBatchService,
-                                               GuestAccessGuard guestAccessGuard) {
-        return new GalleryController(galleryService, galleryBatchService, guestAccessGuard);
+                                               WorkVisibilityService workVisibilityService) {
+        return new GalleryController(galleryService, galleryBatchService, workVisibilityService);
     }
 }

@@ -10,7 +10,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
@@ -18,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
@@ -115,14 +115,14 @@ class GalleryServiceTest {
         }
 
         @Test
-        @DisplayName("query 携带访客限制时投影为 WorkRestriction 传入核心接口")
-        void shouldProjectGuestRestriction() {
+        @DisplayName("query 将 WorkRestriction 纯值传入核心接口")
+        void shouldPassWorkRestriction() {
             GalleryQuery query = GalleryQuery.builder().page(0).size(24).build();
-            query.setGuestRestriction(new GuestRestriction(
-                    Set.of(0), false, List.of(7L), true, List.of()));
+            WorkRestriction restriction = new WorkRestriction(
+                    Set.of(0), false, List.of(7L), true, List.of());
             when(workQueryService.search(any())).thenReturn(new PagedResult<>(List.of(), 0, 0, 24, 0));
 
-            galleryService.query(query);
+            galleryService.query(query, restriction);
 
             ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
             verify(workQueryService).search(captor.capture());

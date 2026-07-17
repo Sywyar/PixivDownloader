@@ -28,7 +28,7 @@ import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCountResult;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -54,16 +54,16 @@ public class UnifiedGalleryController {
     private final GalleryCapabilityRegistry registry;
     private final GalleryProjectionBroker projectionBroker;
     private final GalleryWorkBroker workBroker;
-    private final SetupService setupService;
+    private final RequestOwnerIdentityResolver ownerIdentityResolver;
 
     public UnifiedGalleryController(GalleryCapabilityRegistry registry,
                                     GalleryProjectionBroker projectionBroker,
                                     GalleryWorkBroker workBroker,
-                                    SetupService setupService) {
+                                    RequestOwnerIdentityResolver ownerIdentityResolver) {
         this.registry = registry;
         this.projectionBroker = projectionBroker;
         this.workBroker = workBroker;
-        this.setupService = setupService;
+        this.ownerIdentityResolver = ownerIdentityResolver;
     }
 
     @ModelAttribute
@@ -147,7 +147,7 @@ public class UnifiedGalleryController {
     }
 
     private Set<GalleryDataAccess> access(HttpServletRequest request) {
-        return setupService.hasAdminScope(request)
+        return ownerIdentityResolver.resolve(request).admin()
                 ? Set.of(GalleryDataAccess.SHARED, GalleryDataAccess.ADMIN_ONLY)
                 : Set.of(GalleryDataAccess.SHARED);
     }

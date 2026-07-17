@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
@@ -39,19 +38,23 @@ public class GalleryService {
     private final WorkDeletionService workDeletionService;
 
     public PagedHistoryResponse query(GalleryQuery query) {
-        PagedResult<WorkSummary> result = workQueryService.search(toWorkQuery(query));
+        return query(query, null);
+    }
+
+    public PagedHistoryResponse query(GalleryQuery query, WorkRestriction restriction) {
+        PagedResult<WorkSummary> result = workQueryService.search(toWorkQuery(query, restriction));
         List<DownloadedResponse> content = toResponses(toIds(result.content()));
         return new PagedHistoryResponse(content, result.totalElements(),
                 result.page(), result.size(), result.totalPages());
     }
 
     public List<Long> findArtworkIds(GalleryQuery query) {
-        return toIds(workQueryService.searchAll(toWorkQuery(query)));
+        return toIds(workQueryService.searchAll(toWorkQuery(query, null)));
     }
 
-    public List<GalleryRepository.TagOption> listTags(String search, int limit, GuestRestriction restriction) {
+    public List<GalleryRepository.TagOption> listTags(String search, int limit, WorkRestriction restriction) {
         List<TagOption> tags = workQueryService.tags(
-                new TagQuery(WorkType.ARTWORK, search, limit, toWorkRestriction(restriction)));
+                new TagQuery(WorkType.ARTWORK, search, limit, restriction));
         List<GalleryRepository.TagOption> out = new ArrayList<>(tags.size());
         for (TagOption tag : tags) {
             out.add(toRepositoryTag(tag));
@@ -143,7 +146,7 @@ public class GalleryService {
         return out;
     }
 
-    private WorkQuery toWorkQuery(GalleryQuery query) {
+    private WorkQuery toWorkQuery(GalleryQuery query, WorkRestriction restriction) {
         return WorkQuery.builder(WorkType.ARTWORK)
                 .page(query.getPage())
                 .size(query.getSize())
@@ -163,20 +166,8 @@ public class GalleryService {
                 .optionalAuthorIds(query.getOptionalAuthorIds())
                 .seriesIds(query.getSeriesIds())
                 .excludedSeriesIds(query.getExcludedSeriesIds())
-                .restriction(toWorkRestriction(query.getGuestRestriction()))
+                .restriction(restriction)
                 .build();
-    }
-
-    private static WorkRestriction toWorkRestriction(GuestRestriction restriction) {
-        if (restriction == null) {
-            return null;
-        }
-        return new WorkRestriction(
-                restriction.allowedXRestricts(),
-                restriction.tagUnrestricted(),
-                restriction.tagIds(),
-                restriction.authorUnrestricted(),
-                restriction.authorIds());
     }
 
     private static GalleryRepository.TagOption toRepositoryTag(TagOption tag) {

@@ -25,7 +25,8 @@ import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCountResult;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkResult;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.util.List;
 import java.util.Map;
@@ -74,7 +75,7 @@ class UnifiedGalleryControllerTest {
         when(workBroker.find(any(), anySet()))
                 .thenReturn(new GalleryWorkResult(Optional.empty(), List.of()));
         UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                projectionBroker, workBroker, mock(SetupService.class));
+                projectionBroker, workBroker, ownerIdentityResolver(false));
         MockMvc mockMvc = standaloneSetup(controller).build();
 
         for (String path : List.of(
@@ -107,11 +108,10 @@ class UnifiedGalleryControllerTest {
     void sharedDescriptorsExcludeAdministrativeData() {
         GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
         when(registry.snapshot()).thenReturn(snapshot());
-        SetupService setup = mock(SetupService.class);
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(setup.hasAdminScope(request)).thenReturn(false);
         UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                mock(GalleryProjectionBroker.class), mock(GalleryWorkBroker.class), setup);
+                mock(GalleryProjectionBroker.class), mock(GalleryWorkBroker.class),
+                ownerIdentityResolver(false));
 
         var response = controller.descriptors(request);
 
@@ -143,11 +143,10 @@ class UnifiedGalleryControllerTest {
     void administrativeDescriptorsIncludeAllAuthorizedFrontends() {
         GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
         when(registry.snapshot()).thenReturn(snapshot());
-        SetupService setup = mock(SetupService.class);
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(setup.hasAdminScope(request)).thenReturn(true);
         UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                mock(GalleryProjectionBroker.class), mock(GalleryWorkBroker.class), setup);
+                mock(GalleryProjectionBroker.class), mock(GalleryWorkBroker.class),
+                ownerIdentityResolver(true));
 
         var response = controller.descriptors(request);
 
@@ -174,10 +173,9 @@ class UnifiedGalleryControllerTest {
                 List.of(), null, false, List.of(new GalleryDiagnostic(
                         "shared-projection", "shared", GalleryKind.IMAGE,
                         "gallery-provider-page-failed", "SQLException: password=secret"))));
-        SetupService setup = mock(SetupService.class);
         MockHttpServletRequest request = new MockHttpServletRequest();
         UnifiedGalleryController controller = new UnifiedGalleryController(registry,
-                projectionBroker, mock(GalleryWorkBroker.class), setup);
+                projectionBroker, mock(GalleryWorkBroker.class), ownerIdentityResolver(false));
 
         GalleryProjectionPage response = controller.projections(
                 GalleryKind.IMAGE, "shared", null, null, null, null, null,
@@ -246,5 +244,13 @@ class UnifiedGalleryControllerTest {
     private static GalleryProjectionDescriptor descriptor(String source, GalleryDataAccess access) {
         return new GalleryProjectionDescriptor(source, GalleryKind.IMAGE,
                 "gallery", "source.test", 1, access, Map.of());
+    }
+
+    private static RequestOwnerIdentityResolver ownerIdentityResolver(boolean admin) {
+        RequestOwnerIdentityResolver resolver = mock(RequestOwnerIdentityResolver.class);
+        when(resolver.resolve(any())).thenReturn(admin
+                ? RequestOwnerIdentity.adminScope()
+                : RequestOwnerIdentity.owner("gallery-test-owner"));
+        return resolver;
     }
 }

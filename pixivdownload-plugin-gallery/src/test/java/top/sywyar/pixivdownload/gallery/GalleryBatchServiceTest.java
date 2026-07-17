@@ -10,6 +10,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.collection.CollectionService;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
@@ -18,7 +19,6 @@ import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.nio.file.Files;
@@ -54,15 +54,15 @@ class GalleryBatchServiceTest {
     private CollectionService collectionService;
     @Mock
     private UserQuotaService userQuotaService;
+    @Mock
+    private MultiModeSettings multiModeSettings;
 
     private GalleryBatchService service;
 
     @BeforeEach
     void setUp() {
-        MultiModeConfig multiModeConfig = new MultiModeConfig();
-        multiModeConfig.getQuota().setArchiveExpireMinutes(60);
         service = new GalleryBatchService(galleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeConfig, new ObjectMapper());
+                collectionService, userQuotaService, multiModeSettings, new ObjectMapper());
     }
 
     @Test
@@ -144,6 +144,7 @@ class GalleryBatchServiceTest {
                         List.of(new WorkAssetFile(0, image, "jpg")))));
         when(userQuotaService.triggerAdminFileArchive(anyList(), anyString(), anyInt(), any()))
                 .thenReturn("token-1");
+        when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(60);
 
         ArchiveExportSupport.ExportResult result =
                 service.exportArtworks(List.of(10L), groupBy, "zip", deleteAfter);

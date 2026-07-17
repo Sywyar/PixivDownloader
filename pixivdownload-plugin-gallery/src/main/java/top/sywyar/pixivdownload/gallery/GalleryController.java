@@ -4,16 +4,16 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
+import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.*;
 
@@ -29,7 +29,7 @@ public class GalleryController {
 
     private final GalleryService galleryService;
     private final GalleryBatchService galleryBatchService;
-    private final GuestAccessGuard guestAccessGuard;
+    private final WorkVisibilityService workVisibilityService;
 
     @GetMapping("/artworks")
     public PagedHistoryResponse listArtworks(
@@ -78,8 +78,8 @@ public class GalleryController {
                 requiredSeriesIds,
                 parseLongList(notSeriesIds));
         query.setSearchType(GalleryQuery.normalizeSearchType(searchType));
-        query.setGuestRestriction(GuestRestriction.from(GuestAccessGuard.extractSession(httpRequest)));
-        return galleryService.query(query);
+        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK);
+        return galleryService.query(query, restriction);
     }
 
     @GetMapping("/tags")
@@ -87,7 +87,7 @@ public class GalleryController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "500") int limit,
             HttpServletRequest httpRequest) {
-        GuestRestriction restriction = GuestRestriction.from(GuestAccessGuard.extractSession(httpRequest));
+        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK);
         List<GalleryRepository.TagOption> tags = galleryService.listTags(search, limit, restriction);
         return Map.of("tags", tags);
     }
@@ -103,7 +103,7 @@ public class GalleryController {
     @GetMapping("/artwork/{artworkId}")
     public ResponseEntity<DownloadedResponse> artwork(@PathVariable long artworkId,
                                                       HttpServletRequest httpRequest) {
-        guestAccessGuard.requireVisible(httpRequest, artworkId);
+        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
         DownloadedResponse resp = galleryService.findArtwork(artworkId);
         return resp == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(resp);
     }
@@ -113,10 +113,9 @@ public class GalleryController {
             @PathVariable long artworkId,
             @RequestParam(defaultValue = "12") int limit,
             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireVisible(httpRequest, artworkId);
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
+        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
         List<DownloadedResponse> all = galleryService.related(artworkId, limit);
-        return ResponseEntity.ok(filterForGuest(all, session));
+        return ResponseEntity.ok(filterForGuest(all, httpRequest));
     }
 
     @GetMapping("/artwork/{artworkId}/by-author")
@@ -124,10 +123,9 @@ public class GalleryController {
             @PathVariable long artworkId,
             @RequestParam(defaultValue = "12") int limit,
             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireVisible(httpRequest, artworkId);
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
+        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
         List<DownloadedResponse> all = galleryService.byAuthor(artworkId, limit);
-        return ResponseEntity.ok(filterForGuest(all, session));
+        return ResponseEntity.ok(filterForGuest(all, httpRequest));
     }
 
     @GetMapping("/artwork/{artworkId}/by-series")
@@ -135,25 +133,25 @@ public class GalleryController {
             @PathVariable long artworkId,
             @RequestParam(defaultValue = "30") int limit,
             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireVisible(httpRequest, artworkId);
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
+        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
         List<DownloadedResponse> all = galleryService.bySeries(artworkId, limit);
-        return ResponseEntity.ok(filterForGuest(all, session));
+        return ResponseEntity.ok(filterForGuest(all, httpRequest));
     }
 
     @GetMapping("/artwork/{artworkId}/series")
     public ResponseEntity<SeriesNavResponse> seriesNav(
             @PathVariable long artworkId,
             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireVisible(httpRequest, artworkId);
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
+        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
+        boolean restricted = workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK) != null;
         SeriesNeighbors neighbors = galleryService.seriesNeighbors(artworkId);
         if (neighbors == null) {
             return ResponseEntity.ok(new SeriesNavResponse(null, null, null, null, null));
         }
         SeriesNavResponse.NeighborView prev = neighbors.prev() == null
                 ? null
-                : (session != null && !guestAccessGuard.isVisibleToGuest(neighbors.prev().workId(), session)
+                : (restricted && !workVisibilityService.isVisibleToGuest(
+                        httpRequest, WorkType.ARTWORK, neighbors.prev().workId())
                     ? null
                     : new SeriesNavResponse.NeighborView(
                         neighbors.prev().workId(),
@@ -161,7 +159,8 @@ public class GalleryController {
                         neighbors.prev().seriesOrder()));
         SeriesNavResponse.NeighborView next = neighbors.next() == null
                 ? null
-                : (session != null && !guestAccessGuard.isVisibleToGuest(neighbors.next().workId(), session)
+                : (restricted && !workVisibilityService.isVisibleToGuest(
+                        httpRequest, WorkType.ARTWORK, neighbors.next().workId())
                     ? null
                     : new SeriesNavResponse.NeighborView(
                         neighbors.next().workId(),
@@ -232,12 +231,17 @@ public class GalleryController {
 
     public record BatchExportResponse(String archiveToken, long archiveExpireSeconds, int count, int fileCount) {}
 
-    private List<DownloadedResponse> filterForGuest(List<DownloadedResponse> items, GuestInviteSession session) {
-        if (session == null || items == null || items.isEmpty()) return items;
+    private List<DownloadedResponse> filterForGuest(List<DownloadedResponse> items,
+                                                    HttpServletRequest httpRequest) {
+        if (items == null || items.isEmpty()
+                || workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK) == null) {
+            return items;
+        }
         List<DownloadedResponse> out = new ArrayList<>(items.size());
         for (DownloadedResponse item : items) {
             if (item == null) continue;
-            if (guestAccessGuard.isVisibleToGuest(item.getArtworkId(), session)) {
+            if (workVisibilityService.isVisibleToGuest(
+                    httpRequest, WorkType.ARTWORK, item.getArtworkId())) {
                 out.add(item);
             }
         }

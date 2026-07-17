@@ -11,18 +11,26 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("GalleryController tests")
+@DisplayName("GalleryController 单元测试")
 class GalleryControllerTest {
 
     private MockMvc mockMvc;
@@ -32,19 +40,24 @@ class GalleryControllerTest {
     @Mock
     private GalleryBatchService galleryBatchService;
     @Mock
-    private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
+    private WorkVisibilityService workVisibilityService;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(
-                new GalleryController(galleryService, galleryBatchService, guestAccessGuard)
+                new GalleryController(galleryService, galleryBatchService, workVisibilityService)
         ).build();
     }
 
     @Test
-    @DisplayName("should map positive and negative filter params into GalleryQuery")
+    @DisplayName("正向与排除筛选参数映射到 GalleryQuery，并透传访客限制纯值")
     void shouldMapPositiveAndNegativeFilterParams() throws Exception {
-        when(galleryService.query(any())).thenReturn(new PagedHistoryResponse(List.of(), 0, 0, 24, 0));
+        WorkRestriction restriction = new WorkRestriction(
+                Set.of(0), false, List.of(11L), true, List.of());
+        when(workVisibilityService.restrictionFrom(any(HttpServletRequest.class), eq(WorkType.ARTWORK)))
+                .thenReturn(restriction);
+        when(galleryService.query(any(), same(restriction)))
+                .thenReturn(new PagedHistoryResponse(List.of(), 0, 0, 24, 0));
 
         mockMvc.perform(get("/api/gallery/artworks")
                         .param("tagIds", "11,12")
@@ -57,7 +70,8 @@ class GalleryControllerTest {
                 .andExpect(status().isOk());
 
         ArgumentCaptor<GalleryQuery> captor = ArgumentCaptor.forClass(GalleryQuery.class);
-        verify(galleryService).query(captor.capture());
+        verify(galleryService).query(captor.capture(), same(restriction));
+        verify(workVisibilityService).restrictionFrom(any(HttpServletRequest.class), eq(WorkType.ARTWORK));
 
         GalleryQuery query = captor.getValue();
         assertThat(query.getTagIds()).containsExactly(11L, 12L);
