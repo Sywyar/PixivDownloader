@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
 import top.sywyar.pixivdownload.i18n.AppMessages;
