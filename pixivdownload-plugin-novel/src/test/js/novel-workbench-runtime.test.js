@@ -215,6 +215,12 @@ async function waitUntil(predicate) {
     assert.deepStrictEqual(Array.from(
         descriptor.queueTags(Object.assign({id: 'n42'}, novelQueueMeta)), tag => tag.id),
     ['media.novel', 'origin.collection', 'attribute.ai']);
+    assert.strictEqual(typeof descriptor.canonicalUrl, 'function');
+    assert.strictEqual(descriptor.canonicalUrl({id: 'n42', novelId: '42'}),
+        'https://www.pixiv.net/novel/show.php?id=42');
+    assert.strictEqual(descriptor.canonicalUrl({id: 'n43'}),
+        'https://www.pixiv.net/novel/show.php?id=43');
+    assert.strictEqual(descriptor.canonicalUrl({id: 'invalid'}), '');
 
     const item = {id: 'n42', novelId: '42', kind: 'novel', status: 'downloading'};
     const processing = descriptor.process(item, context);
@@ -247,6 +253,8 @@ async function waitUntil(predicate) {
         id: 'n42', kind: 'novel', isAi: true,
         typeData: {sourceType: 'my-bookmarks'}
     }), tag => tag.id), ['media.novel', 'origin.bookmark', 'attribute.ai']);
+    assert.strictEqual(h.qt.get('novel').canonicalUrl({id: 'n42', novelId: '42'}),
+        'https://www.pixiv.net/novel/show.php?id=42');
 
     let runtimeSignal = null;
     h.sandbox.fetch = function (url, init) {
@@ -268,7 +276,7 @@ async function waitUntil(predicate) {
     `Novel 在途历史请求在 publication 撤回后应由真实 workbench runtime 暂停且不误记失败：`
         + `aborted=${runtimeSignal.aborted}, status=${runtimeItem.status}, message=${runtimeItem.lastMessage}`);
 
-    console.log('novel-workbench-runtime.test.js: 17 assertions passed ✓');
+    console.log('novel-workbench-runtime.test.js: 22 assertions passed ✓');
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

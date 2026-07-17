@@ -1144,10 +1144,21 @@ function novelQueueTags(item) {
     return tags;
 }
 
+function novelCanonicalQueueItemUrl(item) {
+    let novelId = item && item.novelId != null ? String(item.novelId).trim() : '';
+    if (!novelId && item && item.id != null) {
+        novelId = String(item.id).trim().replace(/^n/, '');
+    }
+    return /^\d+$/.test(novelId)
+        ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelId)}`
+        : '';
+}
+
 const NOVEL_DESCRIPTOR = {
     slots: NOVEL_SLOTS,
     process: processNovelItem,
     queueTags: novelQueueTags,
+    canonicalUrl: novelCanonicalQueueItemUrl,
     // 批量导入单作品：小说链接 / `novel:` 区段头 / 裸 id 的解析与入队项构造。
     import: {
         dataSource: {

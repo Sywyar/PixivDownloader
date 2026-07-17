@@ -260,23 +260,32 @@ function relationMergeBehavior(reasons) {
     const {sandbox, queue} = load();
     sandbox.window.PixivBatch.queueTypes = {
         get(type) {
-            return type === 'demo' ? {
+            if (type === 'demo') return {
                 canonicalUrl(item) { return item.typeData.input || item.typeData.url; }
-            } : null;
+            };
+            if (type === 'novel') return {
+                canonicalUrl(item) {
+                    return `https://www.pixiv.net/novel/show.php?id=${item.novelId}`;
+                }
+            };
+            return null;
         }
     };
     const lines = queue.buildQueueExportLines([
         {id: 'demo-input', kind: 'demo', title: 'Input', typeData: {input: 'https://example.test/input'}},
         {id: 'demo-url', kind: 'demo', title: 'URL', typeData: {url: 'https://example.test/url'}},
+        {id: 'n2468', novelId: '2468', kind: 'novel', title: 'Novel'},
         {id: '12345', kind: 'illust', title: 'Pixiv'},
         {id: 'inactive', kind: 'inactive-plugin', title: 'Unavailable'}
     ]);
     ok('10: 类型 hook 的 input/url 进入实际导出行', lines[0] === 'https://example.test/input | Input'
         && lines[1] === 'https://example.test/url | URL');
+    ok('10: 小说类型 hook 生成可重新导入的 Pixiv 小说链接',
+        lines[2] === 'https://www.pixiv.net/novel/show.php?id=2468 | Novel');
     ok('10: 未贡献 hook 的 Pixiv 导出 URL 逐字保持旧格式',
-        lines[2] === 'https://www.pixiv.net/artworks/12345 | Pixiv');
+        lines[3] === 'https://www.pixiv.net/artworks/12345 | Pixiv');
     ok('10: 未启用的非 Pixiv 类型不会伪装成 Pixiv URL',
-        lines[3] === ' | Unavailable' && !lines[3].includes('pixiv.net'));
+        lines[4] === ' | Unavailable' && !lines[4].includes('pixiv.net'));
 }
 
 // ===== 11) 队列标签固定按数据来源、模式、年龄、插件贡献顺序渲染并转义 =====
