@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.config;
 
-import org.apache.hc.core5.http.HttpHost;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 @DisplayName("OutboundProxyOverride 线程级出站代理覆盖")
 class OutboundProxyOverrideTest {
@@ -20,11 +20,10 @@ class OutboundProxyOverrideTest {
     @Test
     @DisplayName("parse：合法 host:port 解析为 HTTP 代理")
     void parsesValidHostPort() {
-        HttpHost host = OutboundProxyOverride.parse("127.0.0.1:7890");
+        OutboundProxyEndpoint host = OutboundProxyOverride.parse("127.0.0.1:7890");
         assertThat(host).isNotNull();
         assertThat(host.getHostName()).isEqualTo("127.0.0.1");
         assertThat(host.getPort()).isEqualTo(7890);
-        assertThat(host.getSchemeName()).isEqualTo("http");
     }
 
     @Test
@@ -62,10 +61,26 @@ class OutboundProxyOverrideTest {
     @Test
     @DisplayName("parse：合法主机名 host:port（非 IP）也接受")
     void acceptsHostnameHostPort() {
-        HttpHost host = OutboundProxyOverride.parse("proxy.example.com:8080");
+        OutboundProxyEndpoint host = OutboundProxyOverride.parse("proxy.example.com:8080");
         assertThat(host).isNotNull();
         assertThat(host.getHostName()).isEqualTo("proxy.example.com");
         assertThat(host.getPort()).isEqualTo(8080);
+    }
+
+    @Test
+    @DisplayName("代理端点规范化主机名并拒绝空主机或越界端口")
+    void endpointValidatesParameters() {
+        assertThat(new OutboundProxyEndpoint(" proxy.example.com ", 8080))
+                .isEqualTo(new OutboundProxyEndpoint("proxy.example.com", 8080));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new OutboundProxyEndpoint(null, 8080));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new OutboundProxyEndpoint(" ", 8080));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new OutboundProxyEndpoint("proxy.example.com", 0));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new OutboundProxyEndpoint("proxy.example.com", 65_536));
     }
 
     @Test
@@ -74,7 +89,7 @@ class OutboundProxyOverrideTest {
         OutboundProxyOverride.set("10.0.0.1:8080");
         assertThat(OutboundProxyOverride.current()).isNotNull();
 
-        AtomicReference<HttpHost> seenByOtherThread = new AtomicReference<>();
+        AtomicReference<OutboundProxyEndpoint> seenByOtherThread = new AtomicReference<>();
         Thread other = new Thread(() -> seenByOtherThread.set(OutboundProxyOverride.current()));
         other.start();
         other.join();

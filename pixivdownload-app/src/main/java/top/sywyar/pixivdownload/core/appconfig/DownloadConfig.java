@@ -3,11 +3,12 @@ package top.sywyar.pixivdownload.core.appconfig;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 
 @Data
 @Configuration
 @ConfigurationProperties(prefix = "download")
-public class DownloadConfig {
+public class DownloadConfig implements DownloadSettings {
     private volatile String rootFolder = "pixiv-download";
 
     public String getRootFolder() {

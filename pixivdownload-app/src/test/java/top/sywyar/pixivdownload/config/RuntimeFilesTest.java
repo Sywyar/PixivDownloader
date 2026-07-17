@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 @DisplayName("RuntimeFiles path migration tests")
 class RuntimeFilesTest {
@@ -238,6 +239,37 @@ class RuntimeFilesTest {
 
         assertThat(resolved).isEqualTo(configDir.resolve("plugins").resolve("douyin.properties"));
         assertThat(resolved.getParent()).isDirectory();
+    }
+
+    @Test
+    @DisplayName("插件数据目录应按 owner 落在 data 下并拒绝路径穿越")
+    void shouldResolveOwnerScopedPluginDataDirectorySafely() {
+        Path resolved = RuntimeFiles.resolvePluginDataDirectory("douyin");
+
+        assertThat(resolved).isEqualTo(dataDir.resolve("douyin"));
+        assertThat(resolved).isDirectory();
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.resolvePluginDataDirectory("../escape"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.resolvePluginDataDirectory("nested/path"));
+        assertThat(tempDir.resolve("escape")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("参考音文件应留在花名册目录并拒绝不安全扩展名")
+    void shouldResolveNarrationVoiceFileSafely() {
+        Path castDirectory = RuntimeFiles.narrationVoiceCastDirectory(7L).normalize();
+
+        assertThat(RuntimeFiles.narrationVoiceFile(7L, 3, " WAV "))
+                .isEqualTo(castDirectory.resolve("3.wav"));
+        assertThat(RuntimeFiles.narrationVoiceFile(7L, 3, null))
+                .isEqualTo(castDirectory.resolve("3.wav"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.narrationVoiceFile(7L, 3, "../../../escape"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.narrationVoiceFile(7L, 3, "mp3.tmp"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.narrationVoiceFile(7L, 3, "wav/child"));
     }
 
     @Test

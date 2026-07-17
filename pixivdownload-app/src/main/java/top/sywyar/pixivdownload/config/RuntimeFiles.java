@@ -13,6 +13,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -102,6 +103,21 @@ public final class RuntimeFiles {
 
     public static Path dataDirectory() {
         return resolveDirectory(DATA_DIR_PROPERTY, DEFAULT_DATA_DIR);
+    }
+
+    public static Path resolvePluginDataDirectory(String pluginId) {
+        String safePluginId = safePathToken(pluginId, "pluginId");
+        Path dataRoot = dataDirectory().normalize();
+        Path target = dataRoot.resolve(safePluginId).normalize();
+        if (!target.toAbsolutePath().normalize().startsWith(dataRoot.toAbsolutePath().normalize())) {
+            throw new IllegalArgumentException("pluginId resolves outside the data directory");
+        }
+        try {
+            Files.createDirectories(target);
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
+        }
+        return target;
     }
 
     /**
@@ -218,11 +234,19 @@ public final class RuntimeFiles {
 
     /** 某角色的参考音文件：{@code data/narration-voice/{castId}/{characterId}.{ext}}（不自动创建文件）。 */
     public static Path narrationVoiceFile(long castId, int characterId, String ext) {
-        String normalizedExt = ext == null ? "wav" : ext.trim().toLowerCase();
+        String normalizedExt = ext == null ? "wav" : ext.trim().toLowerCase(Locale.ROOT);
         if (normalizedExt.isEmpty()) {
             normalizedExt = "wav";
         }
-        return narrationVoiceCastDirectory(castId).resolve(characterId + "." + normalizedExt).normalize();
+        if (!normalizedExt.matches("[a-z0-9]{1,16}")) {
+            throw new IllegalArgumentException("narration voice extension must be an alphanumeric token");
+        }
+        Path directory = narrationVoiceCastDirectory(castId).normalize();
+        Path target = directory.resolve(characterId + "." + normalizedExt).normalize();
+        if (!target.toAbsolutePath().normalize().startsWith(directory.toAbsolutePath().normalize())) {
+            throw new IllegalArgumentException("narration voice file resolves outside the cast directory");
+        }
+        return target;
     }
 
     public static Path singleInstanceDirectory() {

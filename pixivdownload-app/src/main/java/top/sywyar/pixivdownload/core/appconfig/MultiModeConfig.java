@@ -3,11 +3,12 @@ package top.sywyar.pixivdownload.core.appconfig;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 
 @Data
 @Configuration
 @ConfigurationProperties(prefix = "multi-mode")
-public class MultiModeConfig {
+public class MultiModeConfig implements MultiModeSettings {
 
     private volatile Quota quota = new Quota();
 
@@ -32,6 +33,31 @@ public class MultiModeConfig {
 
     /** 搜索模式自动向后补页上限（0 表示不限制，仅多人模式生效） */
     private volatile int limitPage = 3;
+
+    @Override
+    public boolean isQuotaEnabled() {
+        return quotaSettings().isEnabled();
+    }
+
+    @Override
+    public int getArchiveExpireMinutes() {
+        return quotaSettings().getArchiveExpireMinutes();
+    }
+
+    @Override
+    public int getMaxProxyRequests() {
+        return quotaSettings().getMaxProxyRequests();
+    }
+
+    @Override
+    public int getResetPeriodHours() {
+        return quotaSettings().getResetPeriodHours();
+    }
+
+    private Quota quotaSettings() {
+        Quota current = quota;
+        return current == null ? new Quota() : current;
+    }
 
     @Data
     public static class Quota {

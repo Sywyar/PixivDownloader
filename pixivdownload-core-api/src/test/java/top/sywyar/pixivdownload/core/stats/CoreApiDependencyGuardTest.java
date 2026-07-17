@@ -5,20 +5,31 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.config.DebugSettings;
+import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
+import top.sywyar.pixivdownload.config.OutboundProxyOverride;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.gallery.GalleryDataProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendProvider;
 import top.sywyar.pixivdownload.core.gallery.model.GallerySourceDescriptor;
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * core-api 边界守卫：证明本模块保持轻量——核心 owned 的语义查询端口（{@link StatsQueryStore}）+ 纯 JDK 结果
- * DTO（{@link StatsAggregates}），Spring-free 纯 JDK（镜像 {@code plugin.api} 的框架洁净）。
+ * core-api 边界守卫：证明本模块只承载核心 owned 的中性语义端口与纯 JDK 值类型，保持 Spring-free，
+ * 并与 {@code plugin.api} 的框架洁净守卫正交。
  *
  * <p>本守卫在 {@code pixivdownload-core-api} 模块内自包含运行：{@link ClassFileImporter} 只扫描本模块 main
  * classpath 上的 {@code top.sywyar.pixivdownload..} 类（app / 插件类不在本模块 classpath 上），与主程序的
@@ -39,8 +50,10 @@ class CoreApiDependencyGuardTest {
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.ai..",
                         "top.sywyar.pixivdownload.config..",
+                        "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.stats..",
+                        "top.sywyar.pixivdownload.core.web..",
                         "top.sywyar.pixivdownload.i18n..",
                         "top.sywyar.pixivdownload.notification..",
                         "top.sywyar.pixivdownload.push..",
@@ -56,20 +69,21 @@ class CoreApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("core-api 不得依赖 Spring / SLF4J / JDBC / MyBatis 或 core.stats.db 实现层")
+    @DisplayName("core-api 不得依赖 Spring / Apache / SLF4J / JDBC / MyBatis 或实现层")
     void coreApiHasNoFrameworkOrImplDependency() {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload..")
                 .should().dependOnClassesThat()
                 .resideInAnyPackage(
                         "org.springframework..",
+                        "org.apache..",
                         "org.slf4j..", "ch.qos.logback..",
                         "java.sql..", "javax.sql..",
                         "org.apache.ibatis..",
                         "top.sywyar.pixivdownload.core.stats.db..")
-                .because("core-api 只承载核心 owned 的语义查询端口（StatsQueryStore）与纯 JDK 结果 DTO"
-                        + "（StatsAggregates）：Spring / 日志门面 / JDBC / MyBatis 与 mapper/repository 实现"
-                        + "（core.stats.db.StatsQueryStoreImpl）全部留在 app 实现层，core-api 不得反向依赖它们")
+                .because("core-api 只承载核心 owned 的中性语义端口与纯 JDK 值类型：Spring、Apache HTTP、"
+                        + "日志门面、JDBC、MyBatis 与 mapper/repository 实现全部留在 app 实现层，"
+                        + "core-api 不得反向依赖它们")
                 .check(CLASSES);
     }
 
@@ -105,5 +119,33 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(GallerySourceDescriptor.class.getName())).isTrue();
         assertThat(CLASSES.contain(GalleryFrontendContribution.class.getName())).isTrue();
         assertThat(CLASSES.contain(GalleryFrontendProvider.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含宿主配置、路径、代理与请求解析契约")
+    void coreApiContainsHostRuntimeContracts() {
+        assertThat(CLASSES.contain(DownloadSettings.class.getName())).isTrue();
+        assertThat(CLASSES.contain(MultiModeSettings.class.getName())).isTrue();
+        assertThat(CLASSES.contain(DebugSettings.class.getName())).isTrue();
+        assertThat(CLASSES.contain(RuntimePathProvider.class.getName())).isTrue();
+        assertThat(CLASSES.contain(StoredPathCodec.class.getName())).isTrue();
+        assertThat(CLASSES.contain(OutboundProxySettings.class.getName())).isTrue();
+        assertThat(CLASSES.contain(OutboundProxyEndpoint.class.getName())).isTrue();
+        assertThat(CLASSES.contain(OutboundProxyOverride.class.getName())).isTrue();
+        assertThat(CLASSES.contain(AcquisitionCredentialResolver.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ApplicationModeProvider.class.getName())).isTrue();
+        assertThat(CLASSES.contain(LocalRequestTrust.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("运行模式端口只暴露只读的 getMode 契约")
+    void applicationModeProviderIsMinimalAndReadOnly() {
+        assertThat(ApplicationModeProvider.class.getDeclaredMethods())
+                .singleElement()
+                .satisfies(method -> {
+                    assertThat(method.getName()).isEqualTo("getMode");
+                    assertThat(method.getReturnType()).isEqualTo(String.class);
+                    assertThat(method.getParameterCount()).isZero();
+                });
     }
 }

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 @Data
 @Component
 @ConfigurationProperties(prefix = "debug")
-public class DebugConfig {
+public class DebugConfig implements DebugSettings {
 
     /** 是否开启调试模式。 */
     private volatile boolean enabled = false;

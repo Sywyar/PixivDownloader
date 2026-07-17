@@ -16,12 +16,20 @@ public final class LocalRequestTrust {
                                                 String realIp,
                                                 String forwarded,
                                                 String origin) {
+        return isLocalRequest(remoteAddr, host, forwardedFor, realIp, forwarded)
+                && originIsLocalOrAbsent(origin);
+    }
+
+    public static boolean isLocalRequest(String remoteAddr,
+                                         String host,
+                                         String forwardedFor,
+                                         String realIp,
+                                         String forwarded) {
         return isLocalAddress(remoteAddr)
                 && hostHeaderIsLocal(host)
                 && forwardedHeaderIsLocal(forwardedFor)
                 && forwardedHeaderIsLocal(realIp)
-                && standardForwardedHeaderIsLocal(forwarded)
-                && originIsLocalOrAbsent(origin);
+                && standardForwardedHeaderIsLocal(forwarded);
     }
 
     public static boolean isLocalAddress(String remoteAddr) {
@@ -32,7 +40,7 @@ public final class LocalRequestTrust {
                 || "::ffff:127.0.0.1".equals(remoteAddr);
     }
 
-    private static boolean originIsLocalOrAbsent(String origin) {
+    public static boolean originIsLocalOrAbsent(String origin) {
         if (origin == null || origin.isBlank()) {
             return true;
         }

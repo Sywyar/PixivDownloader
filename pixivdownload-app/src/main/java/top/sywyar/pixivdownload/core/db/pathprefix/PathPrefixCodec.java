@@ -38,7 +38,7 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class PathPrefixCodec {
+public class PathPrefixCodec implements StoredPathCodec {
 
     /** 符号根的固定 id：{@code {0}}，不入 {@code path_prefixes}。 */
     public static final long SYMBOLIC_ROOT_ID = 0L;

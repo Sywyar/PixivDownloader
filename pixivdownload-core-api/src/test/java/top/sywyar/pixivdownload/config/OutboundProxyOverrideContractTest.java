@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.config;
 
-import org.apache.hc.core5.http.HttpHost;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 任务级出站代理覆盖 ThreadLocal 的<b>清理契约</b>测试：覆盖 set/clear 往返、{@link OutboundProxyOverride#runScoped}
- * 结束（含异常）后必定清除、跨任务不串用，以及覆盖只承载传输级 {@link HttpHost}（不持插件类型引用）。
+ * 结束（含异常）后必定清除、跨任务不串用，以及覆盖只承载纯 JDK 代理端点（不持插件类型引用）。
  *
  * <p>钉死「{@code OutboundProxyOverride} 等任务级 ThreadLocal 不持有插件类型引用、任务结束后清理」这一不变量：
  * 调度 / 下载池线程是共享池，覆盖必须在任务结束后清除，避免跨插件 / 跨任务上下文污染。
@@ -30,12 +29,12 @@ class OutboundProxyOverrideContractTest {
     @DisplayName("set 设置覆盖、clear 清除：clear 后 current() 为 null")
     void setThenClearLeavesNoOverride() {
         OutboundProxyOverride.set("10.0.0.1:8080");
-        HttpHost host = OutboundProxyOverride.current();
+        OutboundProxyEndpoint host = OutboundProxyOverride.current();
         assertThat(host).isNotNull();
         assertThat(host.getHostName()).isEqualTo("10.0.0.1");
         assertThat(host.getPort()).isEqualTo(8080);
-        // 覆盖只承载传输级 HttpHost（apache http），不持有任何插件类型引用
-        assertThat(host).isInstanceOf(HttpHost.class);
+        // 覆盖只承载 core-api 的纯 JDK 值类型，不持有任何插件或 HTTP 客户端类型引用
+        assertThat(host).isInstanceOf(OutboundProxyEndpoint.class);
 
         OutboundProxyOverride.clear();
         assertThat(OutboundProxyOverride.current()).isNull();
@@ -44,7 +43,7 @@ class OutboundProxyOverrideContractTest {
     @Test
     @DisplayName("runScoped：任务期间设置覆盖、结束后必定清除")
     void runScopedSetsDuringAndClearsAfter() {
-        AtomicReference<HttpHost> during = new AtomicReference<>();
+        AtomicReference<OutboundProxyEndpoint> during = new AtomicReference<>();
 
         OutboundProxyOverride.runScoped("10.0.0.2:1080", () -> during.set(OutboundProxyOverride.current()));
 
@@ -73,7 +72,8 @@ class OutboundProxyOverrideContractTest {
         // 预置一个覆盖，模拟同线程上一任务遗留（若未清理）的残留
         OutboundProxyOverride.set("10.0.0.9:9999");
 
-        AtomicReference<HttpHost> during = new AtomicReference<>(new HttpHost("placeholder"));
+        AtomicReference<OutboundProxyEndpoint> during = new AtomicReference<>(
+                new OutboundProxyEndpoint("placeholder", 80));
         OutboundProxyOverride.runScoped(null, () -> during.set(OutboundProxyOverride.current()));
 
         // null 代理：作用域内无覆盖（不串用上一任务的残留）
@@ -85,8 +85,8 @@ class OutboundProxyOverrideContractTest {
     @Test
     @DisplayName("跨任务不串用：连续两个 runScoped 各自独立、互不污染")
     void sequentialScopesDoNotBleed() {
-        AtomicReference<HttpHost> first = new AtomicReference<>();
-        AtomicReference<HttpHost> second = new AtomicReference<>();
+        AtomicReference<OutboundProxyEndpoint> first = new AtomicReference<>();
+        AtomicReference<OutboundProxyEndpoint> second = new AtomicReference<>();
 
         OutboundProxyOverride.runScoped("10.0.0.4:8000", () -> first.set(OutboundProxyOverride.current()));
         OutboundProxyOverride.runScoped("10.0.0.5:8001", () -> second.set(OutboundProxyOverride.current()));
