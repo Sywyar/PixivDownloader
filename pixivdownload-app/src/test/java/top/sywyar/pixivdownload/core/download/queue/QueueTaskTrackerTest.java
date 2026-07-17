@@ -270,8 +270,10 @@ class QueueTaskTrackerTest {
         AtomicBoolean newRan = new AtomicBoolean();
         newTask.bind(() -> newRan.set(true));
         newTask.run();
+        QueueGenerationDrain newDrain = newTracker.prepareQuiesce();
 
-        assertThat(oldDrain.generation()).isNotEqualTo(newTracker.prepareQuiesce().generation());
+        assertThat(oldDrain.generation()).isPositive();
+        assertThat(newDrain.generation()).isPositive().isNotEqualTo(oldDrain.generation());
         assertThat(oldDrain.isDrained()).isFalse();
         assertThat(newRan).isTrue();
         oldTask.completeRunning();

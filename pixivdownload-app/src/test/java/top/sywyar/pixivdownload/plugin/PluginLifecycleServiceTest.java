@@ -11,8 +11,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry.OwnedQueueOperations;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
@@ -694,7 +694,7 @@ class PluginLifecycleServiceTest {
             when(drain.isDrained()).thenReturn(true);
             when(queueRegistry.operationsForOwner("ext-demo"))
                     .thenReturn(List.of(new OwnedQueueOperations("ext-illust", queueOperations)));
-            when(queueOperations.prepareQuiesce()).thenReturn(queueDrain);
+            when(queueOperations.prepareQuiesce("ext-illust")).thenReturn(queueDrain);
             when(queueDrain.queueType()).thenReturn("ext-illust");
             when(queueDrain.generation()).thenReturn(1L);
             when(queueDrain.awaitDrained(anyLong())).thenReturn(true);
@@ -715,10 +715,10 @@ class PluginLifecycleServiceTest {
             ord.verify(webRegistrar).withdrawRequests(same(bootWebHandle)); // ① 先拒绝新 HTTP 请求
             ord.verify(scheduleRegistrar).withdraw(any(), eq(publication)); // ② 再拒绝新 schedule lease 并取消旧代
             ord.verify(queueRegistry).operationsForOwner("ext-demo"); // ③ 先捕获并保存队列 generation drain
-            ord.verify(queueOperations).prepareQuiesce();
+            ord.verify(queueOperations).prepareQuiesce("ext-illust");
             ord.verify(streamRegistry).closeForPlugin("ext-demo"); // ④ 再关闭 SSE 推流
             ord.verify(queueRegistry).operationsForOwner("ext-demo");
-            ord.verify(queueOperations).prepareQuiesce();
+            ord.verify(queueOperations).prepareQuiesce("ext-illust");
             ord.verify(queueOperations).cancelQuiescedTasks(); // ⑤ drain 已保存后才发 callback
             ArgumentCaptor<Long> requestDeadline = ArgumentCaptor.forClass(Long.class);
             ArgumentCaptor<Long> scheduleDeadline = ArgumentCaptor.forClass(Long.class);
@@ -2116,7 +2116,8 @@ class PluginLifecycleServiceTest {
         }
 
         @Override
-        public top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain prepareQuiesce() {
+        public top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain prepareQuiesce(
+                String registeredQueueType) {
             return tracker.prepareQuiesce();
         }
 

@@ -17,7 +17,8 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
@@ -246,9 +247,11 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public DownloadQueueController downloadQueueController(QueueOperationRegistry queueOperationRegistry,
-                                                           SetupService setupService,
+                                                           DownloadExtensionRegistry downloadExtensionRegistry,
+                                                           RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                            AppMessages messages) {
-        return new DownloadQueueController(queueOperationRegistry, setupService, messages);
+        return new DownloadQueueController(
+                queueOperationRegistry, downloadExtensionRegistry, requestOwnerIdentityResolver, messages);
     }
 
     @Bean

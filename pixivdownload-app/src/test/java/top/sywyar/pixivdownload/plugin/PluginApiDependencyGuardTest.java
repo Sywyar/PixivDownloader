@@ -75,9 +75,12 @@ class PluginApiDependencyGuardTest {
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api..")
                 .and().doNotHaveFullyQualifiedName(
                         top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService.class.getName())
+                .and().doNotHaveFullyQualifiedName(
+                        top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver.class.getName())
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
-                .because("jakarta.servlet 的放行仅限收请求入参的服务接口（当前唯 WorkVisibilityService），"
+                .because("jakarta.servlet 的放行仅限收请求入参的服务接口"
+                        + "（WorkVisibilityService / RequestOwnerIdentityResolver），"
                         + "纯数据的 contribution / record / 事件类型必须保持零依赖")
                 .check(CLASSES);
     }
@@ -537,11 +540,17 @@ class PluginApiDependencyGuardTest {
                 .that().haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
                 .should().dependOnClassesThat()
-                .resideInAnyPackage(
-                        "top.sywyar.pixivdownload.download..",
-                        "top.sywyar.pixivdownload.novel.download..")
+                .haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
                 .because("下载队列控制器的跨类型取消 / 清空经核心队列宿主注册中心 QueueOperationRegistry "
-                        + "+ 中性契约 QueueOperations 多态派发，不得直接 import 插画 / 小说等具体下载实现")
+                        + "+ 中性契约 QueueOperations 多态派发，不得直接依赖插画下载执行器")
+                .check(importDownloadWorkbenchClasses());
+        noClasses()
+                .that().haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("top.sywyar.pixivdownload.novel.download..")
+                .because("下载队列控制器不得反向依赖小说下载实现；小说只经 QueueOperations 贡献能力")
                 .check(importDownloadWorkbenchClasses());
     }
 
@@ -554,7 +563,7 @@ class PluginApiDependencyGuardTest {
         // 参与跨类型清空」语义（与作品类型执行器 ScheduledWorkRunner 同构）。接口本身不在约束面。
         classes()
                 .that().areAssignableTo(
-                        top.sywyar.pixivdownload.core.download.queue.QueueOperations.class)
+                        top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations.class)
                 .and().areNotInterfaces()
                 .should().beAnnotatedWith(
                         top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)

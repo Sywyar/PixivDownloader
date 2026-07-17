@@ -355,7 +355,7 @@ class DouyinDownloadServiceTest {
         var second = service.start(new DouyinDownloadRequest("https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-b");
 
-        queue.cancel(10001L, "owner-b", false);
+        queue.cancel("10001", "owner-b", false);
 
         assertThat(service.active("owner-b", false)).isEmpty();
         assertThat(service.active("owner-a", false)).extracting(DouyinDownloadSnapshot::id).containsExactly(first.id());
@@ -380,7 +380,7 @@ class DouyinDownloadServiceTest {
                 "https://www.douyin.com/video/10001", "", VALID_COOKIE),
                 "owner-b");
 
-        initiatorQueue.cancel(10001L, "owner-a", false);
+        initiatorQueue.cancel("10001", "owner-a", false);
         initiatorExecutor.runAll();
 
         assertThat(initiatorClient.downloader.calls).isEqualTo(1);
@@ -396,7 +396,7 @@ class DouyinDownloadServiceTest {
         var adminResponse = adminService.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/10002", "", VALID_COOKIE), "owner-a");
 
-        adminQueue.cancel(10002L, null, true);
+        adminQueue.cancel("10002", null, true);
         adminExecutor.runAll();
 
         assertThat(adminClient.downloader.calls).isZero();
@@ -607,7 +607,7 @@ class DouyinDownloadServiceTest {
         var second = service.start(new DouyinDownloadRequest(
                 "https://www.douyin.com/video/10002", "second", VALID_COOKIE), "owner-b");
 
-        queue.cancel(10001L, "owner-a", false);
+        queue.cancel("10001", "owner-a", false);
         executor.runAll();
         assertThat(service.status(first.id(), "owner-a", false).orElseThrow().phase())
                 .isEqualTo(DouyinDownloadPhase.CANCELLED);

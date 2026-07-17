@@ -6,7 +6,7 @@ import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
@@ -102,7 +102,7 @@ public class DuplicateScanService implements QueueOperations {
     }
 
     @Override
-    public QueueGenerationDrain prepareQuiesce() {
+    public QueueGenerationDrain prepareQuiesce(String registeredQueueType) {
         return taskTracker.prepareQuiesce();
     }
 
@@ -173,7 +173,7 @@ public class DuplicateScanService implements QueueOperations {
 
     @PreDestroy
     void destroy() {
-        QueueGenerationDrain drain = prepareQuiesce();
+        QueueGenerationDrain drain = prepareQuiesce(SCAN_QUEUE_TYPE);
         Throwable cancellationFailure = null;
         try {
             cancelQuiescedTasks();

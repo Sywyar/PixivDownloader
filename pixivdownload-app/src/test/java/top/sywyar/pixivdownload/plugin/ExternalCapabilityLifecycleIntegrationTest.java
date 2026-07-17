@@ -8,7 +8,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
@@ -104,12 +104,12 @@ class ExternalCapabilityLifecycleIntegrationTest {
             PushChannelCapabilityAdapter pushAdapter =
                     new PushChannelCapabilityAdapter(pushRegistry, invocationRegistry);
             QueueOperationsCapabilityAdapter queueAdapter =
-                    new QueueOperationsCapabilityAdapter(queueRegistry);
+                    new QueueOperationsCapabilityAdapter(queueRegistry, invocationRegistry);
             PluginCapabilityContributionRegistrar realCapabilityRegistrar =
                     new PluginCapabilityContributionRegistrar(
                             List.<PluginCapabilityContributionAdapter<?>>of(pushAdapter, queueAdapter),
                             List.of(),
-                            List.<ExternalRuntimeCapabilityAdapter>of(pushAdapter),
+                            List.<ExternalRuntimeCapabilityAdapter>of(pushAdapter, queueAdapter),
                             invocationRegistry);
             PluginCapabilityContributionRegistrar capabilityRegistrar = spy(realCapabilityRegistrar);
             CountDownLatch capabilityWithdrawn = new CountDownLatch(1);
@@ -241,7 +241,8 @@ class ExternalCapabilityLifecycleIntegrationTest {
                 }
 
                 @Override
-                public top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain prepareQuiesce() {
+                public top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain prepareQuiesce(
+                        String registeredQueueType) {
                     return tracker.prepareQuiesce();
                 }
 

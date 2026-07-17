@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.novel.download;
 
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 /**
@@ -27,7 +27,7 @@ public class NovelQueueOperations implements QueueOperations {
     }
 
     @Override
-    public QueueGenerationDrain prepareQuiesce() {
+    public QueueGenerationDrain prepareQuiesce(String registeredQueueType) {
         return novelDownloadService.prepareQuiesceDownloads();
     }
 

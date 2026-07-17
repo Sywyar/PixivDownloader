@@ -5,7 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
@@ -88,7 +88,7 @@ import java.util.function.Consumer;
  *       {@code ScheduleCapabilityRegistry} 撤回 owner bundle；旧 generation 的 planning / execution lease 同时收到协作式
  *       取消，新 planning lease 不再获取来源、执行器、凭据策略或 guard。残留任务数据保留，待能力恢复后可重新解析。</li>
  *   <li><b>清退在途资源</b>——① 从核心队列宿主注册中心取得 owner 精确操作快照，先保存各操作实例的
- *       {@link QueueGenerationDrain}，再发送协作式取消；② 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件
+ *       {@link QueueDrain}，再发送协作式取消；② 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件
  *       全部活动 SSE 推流并向客户端发「插件不可用」事件。生命周期不在 teardown 时重读插件 getter，也不直依赖任一
  *       具体下载实现。</li>
  * </ol>
@@ -751,7 +751,7 @@ public class PluginLifecycleService {
         if (drain != null && !drain.awaitDrained(deadlineNanos)) {
             return "schedule lease(s)=" + drain.activeLeaseCount();
         }
-        for (QueueGenerationDrain queueDrain : record.queueDrains) {
+        for (QueueDrain queueDrain : record.queueDrains) {
             if (!queueDrain.awaitDrained(deadlineNanos)) {
                 return "queue task(s) " + queueDrain.queueType() + "=" + queueDrain.activeCount();
             }
@@ -780,7 +780,7 @@ public class PluginLifecycleService {
                 interrupted |= Thread.interrupted();
             }
         }
-        for (QueueGenerationDrain queueDrain : record.queueDrains) {
+        for (QueueDrain queueDrain : record.queueDrains) {
             while (!queueDrain.isDrained()) {
                 if (!queueDrain.awaitDrained()) {
                     interrupted |= Thread.interrupted();
@@ -1514,7 +1514,7 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("refusing to close child context with active schedule leases: "
                     + record.pluginId + " (active=" + record.scheduleDrain.activeLeaseCount() + ")");
         }
-        for (QueueGenerationDrain queueDrain : record.queueDrains) {
+        for (QueueDrain queueDrain : record.queueDrains) {
             if (!queueDrain.isDrained()) {
                 throw new PluginLifecycleException("refusing to close child context with active queue tasks: "
                         + record.pluginId + "/" + queueDrain.queueType()
@@ -1600,7 +1600,7 @@ public class PluginLifecycleService {
         ScheduleGenerationDrain scheduleDrain;
         boolean scheduleWithdrawalComplete;
         boolean scheduleRetirementAcknowledged = true;
-        final List<QueueGenerationDrain> queueDrains = new ArrayList<>();
+        final List<QueueDrain> queueDrains = new ArrayList<>();
         boolean queuePreparationComplete;
         boolean runtimeTasksQuiesced;
         boolean controllerCleanupComplete = true;

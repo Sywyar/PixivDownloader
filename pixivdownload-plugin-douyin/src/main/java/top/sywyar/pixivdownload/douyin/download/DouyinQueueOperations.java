@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.douyin.download;
 
 import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 @PluginManagedBean
@@ -19,7 +19,7 @@ public class DouyinQueueOperations implements QueueOperations {
     }
 
     @Override
-    public QueueGenerationDrain prepareQuiesce() {
+    public QueueGenerationDrain prepareQuiesce(String registeredQueueType) {
         return downloadService.prepareQuiesceDownloads();
     }
 
@@ -29,8 +29,8 @@ public class DouyinQueueOperations implements QueueOperations {
     }
 
     @Override
-    public void cancel(long workId, String ownerUuid, boolean admin) {
-        downloadService.cancel(workId, ownerUuid, admin);
+    public void cancel(String workKey, String ownerUuid, boolean admin) {
+        downloadService.cancel(workKey, ownerUuid, admin);
     }
 
     @Override

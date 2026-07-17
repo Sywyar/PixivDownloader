@@ -5,12 +5,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -48,7 +48,7 @@ class DuplicateScanServiceTest {
 
         assertThat(service.startScan(false).state()).isEqualTo("RUNNING");
         assertThat(operations.queueType()).isEqualTo("duplicate-scan");
-        QueueGenerationDrain drain = operations.prepareQuiesce();
+        QueueDrain drain = operations.prepareQuiesce("duplicate-scan");
         operations.cancelQuiescedTasks();
 
         assertThat(drain.queueType()).isEqualTo("duplicate-scan");

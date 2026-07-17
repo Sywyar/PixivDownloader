@@ -199,6 +199,17 @@ public final class DownloadExtensionRegistry {
         return snapshot;
     }
 
+    /** 从同一个当前快照按稳定 type 解析队列 descriptor；未知或空白 type 返回空。 */
+    public Optional<RegisteredQueueType> resolveQueueType(String type) {
+        if (type == null || type.isBlank()) {
+            return Optional.empty();
+        }
+        Snapshot current = snapshot;
+        return current.queueTypes().stream()
+                .filter(registered -> type.equals(registered.queueType().type()))
+                .findFirst();
+    }
+
     /**
      * 全量发布一个当前活动插件的下载扩展。所有 getter 与 owner-local 校验均在 registry 锁外完成；
      * 全局冲突失败时既有快照与 revision 保持不变。

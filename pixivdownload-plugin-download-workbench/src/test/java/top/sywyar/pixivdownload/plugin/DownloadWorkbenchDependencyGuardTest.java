@@ -129,7 +129,7 @@ class DownloadWorkbenchDependencyGuardTest {
     void queueOperationsMustBePluginManaged() {
         classes()
                 .that().areAssignableTo(
-                        top.sywyar.pixivdownload.core.download.queue.QueueOperations.class)
+                        top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations.class)
                 .and().areNotInterfaces()
                 .should().beAnnotatedWith(
                         top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)

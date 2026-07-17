@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.download.queue;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -31,7 +32,7 @@ class QueueOperationRegistryTest {
             }
 
             @Override
-            public QueueGenerationDrain prepareQuiesce() {
+            public QueueGenerationDrain prepareQuiesce(String registeredQueueType) {
                 return tracker.prepareQuiesce();
             }
 
@@ -59,8 +60,8 @@ class QueueOperationRegistryTest {
         QueueOperations novel = ops("novel");
         QueueOperationRegistry registry = new QueueOperationRegistry(List.of(illust, novel));
 
-        assertThat(registry.resolve("illust")).containsSame(illust);
-        assertThat(registry.resolve("novel")).containsSame(novel);
+        assertThat(registry.resolve("illust")).isPresent();
+        assertThat(registry.resolve("novel")).isPresent();
         assertThat(registry.resolve("manga")).isEmpty();
         assertThat(registry.resolve(null)).isEmpty();
         assertThat(registry.resolve("  ")).isEmpty();
@@ -117,9 +118,9 @@ class QueueOperationRegistryTest {
     @DisplayName("all() 快照不可变：返回的列表不可修改")
     void allSnapshotImmutable() {
         QueueOperationRegistry registry = new QueueOperationRegistry(List.of(ops("illust")));
-        List<QueueOperations> snapshot = registry.all();
+        List<QueueOperationCommands> snapshot = registry.all();
         assertThat(snapshot).hasSize(1);
-        assertThatThrownBy(() -> snapshot.add(ops("novel")))
+        assertThatThrownBy(() -> snapshot.add(registry.resolve("illust").orElseThrow()))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
@@ -131,20 +132,20 @@ class QueueOperationRegistryTest {
 
         QueueOperations novel = ops("novel");
         registry.register(List.of(novel));
-        assertThat(registry.resolve("novel")).containsSame(novel);
+        assertThat(registry.resolve("novel")).isPresent();
 
         registry.unregister("novel");
         assertThat(registry.resolve("novel")).isEmpty();
         // 注销 novel 不影响 illust
-        assertThat(registry.resolve("illust")).containsSame(illust);
+        assertThat(registry.resolve("illust")).isPresent();
         // 注销未注册的 queueType 静默返回
         registry.unregister("manga");
-        assertThat(registry.all()).containsExactly(illust);
+        assertThat(registry.all()).hasSize(1);
 
         // 再注册：快照恢复到与首次注册等价
         registry.register(List.of(novel));
-        assertThat(registry.resolve("novel")).containsSame(novel);
-        assertThat(registry.all()).containsExactly(illust, novel);
+        assertThat(registry.resolve("novel")).isPresent();
+        assertThat(registry.all()).hasSize(2);
     }
 
     @Test
@@ -156,8 +157,8 @@ class QueueOperationRegistryTest {
         assertThatThrownBy(() -> registry.register(List.of(ops("illust"))))
                 .isInstanceOf(IllegalStateException.class);
         // 失败注册不污染既有快照
-        assertThat(registry.resolve("illust")).containsSame(illust);
-        assertThat(registry.all()).containsExactly(illust);
+        assertThat(registry.resolve("illust")).isPresent();
+        assertThat(registry.all()).hasSize(1);
     }
 
     @Test
@@ -192,8 +193,8 @@ class QueueOperationRegistryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("without queueType");
 
-        assertThat(registry.resolve("stable")).containsSame(stable);
-        assertThat(registry.all()).containsExactly(stable);
+        assertThat(registry.resolve("stable")).isPresent();
+        assertThat(registry.all()).hasSize(1);
     }
 
     @Test
@@ -227,7 +228,7 @@ class QueueOperationRegistryTest {
         register.start();
         assertThat(getterEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
-        assertThat(registry.resolve("existing")).containsSame(existing);
+        assertThat(registry.resolve("existing")).isPresent();
         Thread unregister = new Thread(() -> registry.unregisterOwner("owner-existing"),
                 "concurrent-queue-unregister");
         unregister.start();
@@ -239,14 +240,65 @@ class QueueOperationRegistryTest {
         register.join(5000);
         assertThat(register.isAlive()).isFalse();
         assertThat(registerFailure.get()).isNull();
-        assertThat(registry.resolve("blocking")).containsSame(blocking);
+        assertThat(registry.resolve("blocking")).isPresent();
+    }
+
+    @Test
+    @DisplayName("resolveHost 只接受父 context 内置操作，legacy external 不能冒充 generation=0 host")
+    void resolvesOnlyOwnerlessParentAsHost() {
+        QueueOperationRegistry registry = new QueueOperationRegistry(List.of(ops("host")));
+        registry.register("legacy-plugin", List.of(ops("legacy")));
+
+        assertThat(registry.resolveHost("host")).isPresent();
+        assertThat(registry.resolveHost("legacy")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("runtime operation 按 package/generation 解析，旧 publication 与泛 owner 注销都不删除新代")
+    void staleWithdrawCannotDeleteReplacementPublication() {
+        QueueOperationRegistry registry = new QueueOperationRegistry(List.of());
+        QueueOperationOwner oldOwner = new QueueOperationOwner("plugin", "package", 1L, 10L);
+        QueueOperationOwner currentOwner = new QueueOperationOwner("plugin", "package", 2L, 11L);
+        QueueOperations oldRaw = ops("external");
+        QueueOperations currentRaw = ops("external");
+
+        registry.registerPrepared(oldOwner, List.of(prepared("external", oldRaw)));
+        assertThat(registry.resolveOwned("external", "plugin", "package", 1L)).isPresent();
+        registry.unregisterPrepared(oldOwner);
+        registry.registerPrepared(currentOwner, List.of(prepared("external", currentRaw)));
+
+        registry.unregisterPrepared(oldOwner);
+        registry.unregisterOwner("plugin");
+
+        assertThat(registry.resolveOwned("external", "plugin", "package", 1L)).isEmpty();
+        assertThat(registry.resolveOwned("external", "plugin", "package", 2L)).isPresent();
+        assertThat(registry.operationsForOwner("plugin")).singleElement().satisfies(owned -> {
+            assertThat(owned.owner()).isEqualTo(currentOwner);
+            assertThat(owned.operations()).isSameAs(currentRaw);
+        });
+    }
+
+    private static QueueOperationRegistry.PreparedQueueOperations prepared(
+            String queueType,
+            QueueOperations raw) {
+        QueueOperationCommands commands = new QueueOperationCommands() {
+            @Override public void cancel(String workKey, String ownerUuid, boolean admin) {
+                raw.cancel(workKey, ownerUuid, admin);
+            }
+            @Override public int clearAll() { return raw.clearAll(); }
+            @Override public int clearForOwner(String ownerUuid) { return raw.clearForOwner(ownerUuid); }
+        };
+        return new QueueOperationRegistry.PreparedQueueOperations(
+                queueType, raw, commands, raw.getClass().getName());
     }
 
     private static QueueOperations forwardingOperations(java.util.function.Supplier<String> queueType) {
         QueueTaskTracker tracker = new QueueTaskTracker("test-forwarding");
         return new QueueOperations() {
             @Override public String queueType() { return queueType.get(); }
-            @Override public QueueGenerationDrain prepareQuiesce() { return tracker.prepareQuiesce(); }
+            @Override public QueueGenerationDrain prepareQuiesce(String registeredQueueType) {
+                return tracker.prepareQuiesce();
+            }
             @Override public void cancelQuiescedTasks() { tracker.cancelQuiescedTasks(); }
             @Override public int clearAll() { return 0; }
             @Override public int clearForOwner(String ownerUuid) { return 0; }

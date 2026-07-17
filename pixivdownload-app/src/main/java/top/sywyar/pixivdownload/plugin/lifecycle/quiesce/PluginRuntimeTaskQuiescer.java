@@ -3,13 +3,13 @@ package top.sywyar.pixivdownload.plugin.lifecycle.quiesce;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry.OwnedQueueOperations;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthority;
 
@@ -88,14 +88,14 @@ public class PluginRuntimeTaskQuiescer {
     /**
      * 原子停止当前 owner 的每个队列操作实例接收新任务，并在每次返回后立刻交给生命周期保存。
      * {@code persistedDrains} 支持 fatal 后重试：已保存类型必须仍解析到同一 generation，且不会重复交给 recorder。
-     * 此准备操作只调用声明为无插件 callback 的 {@link QueueOperations#prepareQuiesce()}。
+     * 此准备操作只调用声明为无取消 callback 的 {@link QueueOperations#prepareQuiesce(String)}。
      */
     public void prepareQueueDrains(
             String pluginId,
-            List<QueueGenerationDrain> persistedDrains,
-            Consumer<QueueGenerationDrain> recorder) {
+            List<QueueDrain> persistedDrains,
+            Consumer<QueueDrain> recorder) {
         Objects.requireNonNull(recorder, "recorder");
-        Map<String, QueueGenerationDrain> persisted = indexDrains(persistedDrains);
+        Map<String, QueueDrain> persisted = indexDrains(persistedDrains);
         Set<String> observed = new LinkedHashSet<>();
         for (OwnedQueueOperations owned : queueOperationRegistry.operationsForOwner(pluginId)) {
             String queueType = owned.queueType();
@@ -104,14 +104,10 @@ public class PluginRuntimeTaskQuiescer {
                 throw new IllegalStateException("duplicate queue operations for plugin '"
                         + pluginId + "': " + queueType);
             }
-            QueueGenerationDrain drain = Objects.requireNonNull(
-                    operations.prepareQuiesce(),
-                    "queue prepareQuiesce returned null drain: " + queueType);
-            if (!queueType.equals(drain.queueType())) {
-                throw new IllegalStateException("queue drain type mismatch for plugin '" + pluginId
-                        + "': expected " + queueType + ", got " + drain.queueType());
-            }
-            QueueGenerationDrain saved = persisted.get(queueType);
+            QueueDrain drain = requireValidDrain(pluginId, queueType, Objects.requireNonNull(
+                    operations.prepareQuiesce(queueType),
+                    "queue prepareQuiesce returned null drain: " + queueType));
+            QueueDrain saved = persisted.get(queueType);
             if (saved == null) {
                 recorder.accept(drain);
             } else {
@@ -128,7 +124,7 @@ public class PluginRuntimeTaskQuiescer {
 
     /** schedule 与 queue drains 已由生命周期持久化后，继续关闭 SSE 并发送队列取消。 */
     public void quiesceAfterScheduleWithdrawal(
-            String pluginId, List<QueueGenerationDrain> queueDrains) {
+            String pluginId, List<QueueDrain> queueDrains) {
         Throwable failure = closeStreams(pluginId);
         failure = cancelQueueTasks(pluginId, queueDrains, failure);
         rethrow(failure);
@@ -149,7 +145,7 @@ public class PluginRuntimeTaskQuiescer {
     }
 
     private Throwable cancelQueueTasks(
-            String pluginId, List<QueueGenerationDrain> queueDrains, Throwable failure) {
+            String pluginId, List<QueueDrain> queueDrains, Throwable failure) {
         Map<String, QueueOperations> current = new LinkedHashMap<>();
         for (OwnedQueueOperations owned : queueOperationRegistry.operationsForOwner(pluginId)) {
             String queueType = owned.queueType();
@@ -159,7 +155,7 @@ public class PluginRuntimeTaskQuiescer {
                         "duplicate queue operations for plugin '" + pluginId + "': " + queueType));
             }
         }
-        for (QueueGenerationDrain expected : queueDrains == null ? List.<QueueGenerationDrain>of() : queueDrains) {
+        for (QueueDrain expected : queueDrains == null ? List.<QueueDrain>of() : queueDrains) {
             QueueOperations operations = current.remove(expected.queueType());
             if (operations == null) {
                 failure = mergeFailure(failure, new IllegalStateException(
@@ -168,9 +164,9 @@ public class PluginRuntimeTaskQuiescer {
                 continue;
             }
             try {
-                QueueGenerationDrain actual = Objects.requireNonNull(
-                        operations.prepareQuiesce(),
-                        "queue prepareQuiesce returned null drain: " + expected.queueType());
+                QueueDrain actual = requireValidDrain(pluginId, expected.queueType(), Objects.requireNonNull(
+                        operations.prepareQuiesce(expected.queueType()),
+                        "queue prepareQuiesce returned null drain: " + expected.queueType()));
                 requireSameGeneration(pluginId, expected, actual);
                 operations.cancelQuiescedTasks();
             } catch (Throwable queueFailure) {
@@ -187,14 +183,14 @@ public class PluginRuntimeTaskQuiescer {
         return failure;
     }
 
-    private static Map<String, QueueGenerationDrain> indexDrains(List<QueueGenerationDrain> drains) {
-        Map<String, QueueGenerationDrain> indexed = new LinkedHashMap<>();
+    private static Map<String, QueueDrain> indexDrains(List<QueueDrain> drains) {
+        Map<String, QueueDrain> indexed = new LinkedHashMap<>();
         if (drains == null) {
             return indexed;
         }
-        for (QueueGenerationDrain drain : drains) {
+        for (QueueDrain drain : drains) {
             Objects.requireNonNull(drain, "saved queue drain");
-            QueueGenerationDrain clash = indexed.putIfAbsent(drain.queueType(), drain);
+            QueueDrain clash = indexed.putIfAbsent(drain.queueType(), drain);
             if (clash != null) {
                 throw new IllegalStateException("duplicate saved queue drain: " + drain.queueType());
             }
@@ -203,13 +199,37 @@ public class PluginRuntimeTaskQuiescer {
     }
 
     private static void requireSameGeneration(
-            String pluginId, QueueGenerationDrain expected, QueueGenerationDrain actual) {
+            String pluginId, QueueDrain expected, QueueDrain actual) {
         if (!expected.queueType().equals(actual.queueType())
                 || expected.generation() != actual.generation()) {
             throw new IllegalStateException("queue generation changed while quiescing plugin '"
                     + pluginId + "': expected " + expected.queueType() + "#" + expected.generation()
                     + ", got " + actual.queueType() + "#" + actual.generation());
         }
+    }
+
+    private static QueueDrain requireValidDrain(String pluginId, String queueType, QueueDrain drain) {
+        String drainType = drain.queueType();
+        long generation = drain.generation();
+        int activeCount = drain.activeCount();
+        if (!queueType.equals(drainType)) {
+            throw new IllegalStateException("queue drain type mismatch for plugin '" + pluginId
+                    + "': expected " + queueType + ", got " + drainType);
+        }
+        if (generation < QueueDrain.COMPLETED_GENERATION) {
+            throw new IllegalStateException("queue drain generation must not be negative for plugin '"
+                    + pluginId + "': " + queueType);
+        }
+        if (activeCount < 0) {
+            throw new IllegalStateException("queue drain active count must not be negative for plugin '"
+                    + pluginId + "': " + queueType);
+        }
+        if (generation == QueueDrain.COMPLETED_GENERATION
+                && (!drain.isDrained() || activeCount != 0)) {
+            throw new IllegalStateException("queue drain generation 0 must be an already drained sentinel for plugin '"
+                    + pluginId + "': " + queueType);
+        }
+        return drain;
     }
 
     private static Throwable mergeFailure(Throwable current, Throwable failure) {

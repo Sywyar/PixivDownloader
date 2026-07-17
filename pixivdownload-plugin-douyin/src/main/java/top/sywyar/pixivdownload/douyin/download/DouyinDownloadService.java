@@ -170,8 +170,7 @@ public class DouyinDownloadService {
                     runningStatusIds.remove(identity, runningStatusId);
                 }
                 String statusId = UUID.randomUUID().toString();
-                status = new MutableStatus(statusId, identity, canonical.kind(),
-                        canonical.stableId(), numericId(canonical.stableId()));
+                status = new MutableStatus(statusId, identity, canonical.kind(), canonical.stableId());
                 status.title = safeTitle(request == null ? null : request.title(), canonical.stableId());
                 status.originalInput = input;
                 status.canonicalUrl = canonical.canonicalUrl();
@@ -568,10 +567,14 @@ public class DouyinDownloadService {
         rethrow(failure);
     }
 
-    public void cancel(long numericWorkId, String ownerUuid, boolean admin) {
+    public void cancel(String workKey, String ownerUuid, boolean admin) {
+        String normalizedWorkKey = workKey == null ? "" : workKey.trim();
+        if (normalizedWorkKey.isEmpty()) {
+            return;
+        }
         String ownerScope = normalizeOwnerScope(ownerUuid);
         statuses.values().stream()
-                .filter(status -> status.numericId == numericWorkId)
+                .filter(status -> status.workId.equals(normalizedWorkKey))
                 .forEach(status -> {
                     if (admin || status.ownedBy(ownerScope)) {
                         status.cancel();
@@ -803,14 +806,6 @@ public class DouyinDownloadService {
         return limit > 0 ? Math.min(limit, 100) : DEFAULT_PAGE_SIZE;
     }
 
-    private static long numericId(String workId) {
-        String value = workId == null ? "" : workId.trim();
-        if (value.matches("\\d{1,18}")) {
-            return Long.parseLong(value);
-        }
-        return Integer.toUnsignedLong(value.hashCode());
-    }
-
     private static String safeTitle(String title, String fallbackId) {
         if (title == null || title.isBlank()) {
             return fallbackId;
@@ -940,7 +935,6 @@ public class DouyinDownloadService {
         private final TaskIdentity identity;
         private final DouyinCanonicalKind kind;
         private final String workId;
-        private final long numericId;
         private volatile String originalInput;
         private volatile String canonicalUrl;
         private volatile String cookie;
@@ -962,13 +956,11 @@ public class DouyinDownloadService {
         private MutableStatus(String id,
                               TaskIdentity identity,
                               DouyinCanonicalKind kind,
-                              String workId,
-                              long numericId) {
+                              String workId) {
             this.id = id;
             this.identity = identity;
             this.kind = kind;
             this.workId = workId;
-            this.numericId = numericId;
         }
 
         private synchronized void addSources(List<SourceContext> sourceContexts) {

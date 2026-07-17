@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.download;
 
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 /**
@@ -26,7 +26,7 @@ public class IllustQueueOperations implements QueueOperations {
     }
 
     @Override
-    public QueueGenerationDrain prepareQuiesce() {
+    public QueueGenerationDrain prepareQuiesce(String registeredQueueType) {
         return artworkDownloadExecutor.prepareQuiesceDownloads();
     }
 
@@ -36,7 +36,11 @@ public class IllustQueueOperations implements QueueOperations {
     }
 
     @Override
-    public void cancel(long workId, String ownerUuid, boolean admin) {
+    public void cancel(String workKey, String ownerUuid, boolean admin) {
+        Long workId = numericWorkId(workKey);
+        if (workId == null) {
+            return;
+        }
         // 执行器三参重载内部据 admin 分流：admin 取消该作品在所有 owner 的下载、否则仅取消归属 owner 的。
         artworkDownloadExecutor.cancelDownload(workId, ownerUuid, admin);
     }
@@ -49,5 +53,16 @@ public class IllustQueueOperations implements QueueOperations {
     @Override
     public int clearForOwner(String ownerUuid) {
         return artworkDownloadExecutor.forceClearDownloadsForOwner(ownerUuid);
+    }
+
+    private static Long numericWorkId(String workKey) {
+        if (workKey == null || !workKey.matches("[0-9]{1,18}")) {
+            return null;
+        }
+        try {
+            return Long.parseLong(workKey);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }
