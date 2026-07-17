@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /** 基于宿主模式 / 管理员会话与 UUID 规则的可信请求 owner 解析器。 */
 @Component
@@ -23,5 +24,17 @@ public class HostRequestOwnerIdentityResolver implements RequestOwnerIdentityRes
             return RequestOwnerIdentity.adminScope();
         }
         return RequestOwnerIdentity.owner(UuidUtils.extractOrGenerateUuid(request));
+    }
+
+    @Override
+    public Optional<String> resolveExistingOwnerUuid(HttpServletRequest request) {
+        Objects.requireNonNull(request, "request");
+        return Optional.ofNullable(UuidUtils.extractExistingUuid(request));
+    }
+
+    @Override
+    public boolean isAdminAuthenticated(HttpServletRequest request) {
+        Objects.requireNonNull(request, "request");
+        return setupService.isAdminLoggedIn(request);
     }
 }
