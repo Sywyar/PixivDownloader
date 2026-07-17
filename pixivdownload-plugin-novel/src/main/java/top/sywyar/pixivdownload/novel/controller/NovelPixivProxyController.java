@@ -28,7 +28,8 @@ import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
 import top.sywyar.pixivdownload.novel.response.UserNovelsResponse;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 
 import java.io.IOException;
 import java.net.URI;
@@ -54,7 +55,7 @@ public class NovelPixivProxyController {
     private final ObjectMapper objectMapper;
     private final PixivAjaxProxyClient pixivAjaxProxyClient;
     private final PixivProxyAccessGuard pixivProxyAccessGuard;
-    private final GuestAccessGuard guestAccessGuard;
+    private final WorkVisibilityService workVisibilityService;
     private final AppMessages messages;
 
     private String proxyGet(String url, String cookie) {
@@ -86,7 +87,7 @@ public class NovelPixivProxyController {
         if (novelId == null || novelId.isBlank()) return;
         try {
             long id = Long.parseLong(novelId.trim());
-            guestAccessGuard.requireNovelVisible(request, id);
+            workVisibilityService.requireVisible(request, WorkType.NOVEL, id);
         } catch (NumberFormatException ignored) {
         }
     }

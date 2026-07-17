@@ -23,10 +23,10 @@ import top.sywyar.pixivdownload.novelgallery.NovelBatchRequest;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -56,7 +56,7 @@ public class NovelGalleryController {
     private final NovelDatabase novelDatabase;
     private final NovelGalleryRepository novelGalleryRepository;
     private final WorkAssetService workAssetService;
-    private final GuestAccessGuard guestAccessGuard;
+    private final WorkVisibilityService workVisibilityService;
 
     @GetMapping("/novels")
     public NovelGalleryService.PagedNovels listNovels(
@@ -97,7 +97,7 @@ public class NovelGalleryController {
                 parseLongCsv(tagIds), parseLongCsv(notTagIds), parseLongCsv(orTagIds),
                 mustAuthors, parseLongCsv(notAuthorIds), parseLongCsv(orAuthorIds),
                 mustSeries, parseLongCsv(notSeriesIds),
-                GuestAccessGuard.extractSession(httpRequest)));
+                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL)));
     }
 
     private static java.util.Set<Long> parseLongCsv(String csv) {
@@ -117,7 +117,7 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "name") String sort,
             HttpServletRequest httpRequest) {
         return novelGalleryService.getPagedAuthorsWithNovels(page, size, search, sort,
-                GuestAccessGuard.extractSession(httpRequest));
+                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL));
     }
 
     @GetMapping("/novels/series")
@@ -128,7 +128,7 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "title") String sort,
             HttpServletRequest httpRequest) {
         return novelGalleryService.getPagedSeriesWithNovels(page, size, search, sort,
-                GuestAccessGuard.extractSession(httpRequest));
+                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL));
     }
 
     @GetMapping("/novels/tags")
@@ -137,13 +137,13 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "500") int limit,
             HttpServletRequest httpRequest) {
         return java.util.Map.of("tags", novelGalleryService.listTags(search, limit,
-                GuestAccessGuard.extractSession(httpRequest)));
+                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL)));
     }
 
     @GetMapping("/novel/{novelId}")
     public ResponseEntity<NovelGalleryService.NovelView> findNovel(@PathVariable long novelId,
                                                                     HttpServletRequest httpRequest) {
-        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
         NovelGalleryService.NovelView view = novelGalleryService.find(novelId);
         return view == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(view);
     }
@@ -204,14 +204,14 @@ public class NovelGalleryController {
             @PathVariable long novelId,
             @RequestParam(defaultValue = "30") int limit,
             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
         NovelGalleryService.NovelView current = novelGalleryService.find(novelId);
         if (current == null || current.seriesId() == null || current.seriesId() <= 0) {
             return ResponseEntity.ok(List.of());
         }
         return ResponseEntity.ok(filterForGuest(
                 novelGalleryService.bySeries(current.seriesId(), limit),
-                GuestAccessGuard.extractSession(httpRequest)));
+                httpRequest));
     }
 
     @GetMapping("/novel/{novelId}/series")
@@ -219,7 +219,7 @@ public class NovelGalleryController {
             @PathVariable long novelId,
             @RequestParam(required = false) String lang,
             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
         SeriesNeighbors n = novelGalleryService.seriesNeighbors(novelId);
         if (n == null) {
             return ResponseEntity.ok(new NovelSeriesNavResponse(null, null, null, null, null));
@@ -233,20 +233,19 @@ public class NovelGalleryController {
                 seriesTitle = translatedSeries;
             }
         }
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         return ResponseEntity.ok(new NovelSeriesNavResponse(
                 n.seriesId(), seriesTitle, n.currentOrder(),
-                visibleNeighbor(n.prev(), session, langCode),
-                visibleNeighbor(n.next(), session, langCode)
+                visibleNeighbor(n.prev(), httpRequest, langCode),
+                visibleNeighbor(n.next(), httpRequest, langCode)
         ));
     }
 
     private NeighborView visibleNeighbor(SeriesNeighbors.Neighbor neighbor,
-                                         GuestInviteSession session, String langCode) {
+                                         HttpServletRequest httpRequest, String langCode) {
         if (neighbor == null) {
             return null;
         }
-        if (session != null && !guestAccessGuard.isNovelVisibleToGuest(neighbor.workId(), session)) {
+        if (!workVisibilityService.isVisibleToGuest(httpRequest, WorkType.NOVEL, neighbor.workId())) {
             return null;
         }
         String title = neighbor.title();
@@ -261,19 +260,20 @@ public class NovelGalleryController {
 
     private List<NovelGalleryService.NovelView> filterForGuest(
             List<NovelGalleryService.NovelView> items,
-            GuestInviteSession session) {
-        if (session == null || items == null || items.isEmpty()) {
+            HttpServletRequest httpRequest) {
+        if (items == null || items.isEmpty()) {
             return items;
         }
         return items.stream()
-                .filter(item -> guestAccessGuard.isNovelVisibleToGuest(item.novelId(), session))
+                .filter(item -> workVisibilityService.isVisibleToGuest(
+                        httpRequest, WorkType.NOVEL, item.novelId()))
                 .toList();
     }
 
     @GetMapping("/novel/{novelId}/cover")
     public ResponseEntity<byte[]> getNovelCover(@PathVariable long novelId,
                                                 HttpServletRequest httpRequest) throws IOException {
-        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
         WorkAssetFile cover = workAssetService.thumbnail(WorkType.NOVEL, novelId, 0).orElse(null);
         if (cover == null) {
             return ResponseEntity.notFound().build();
@@ -294,7 +294,7 @@ public class NovelGalleryController {
             @PathVariable long novelId,
             @RequestParam(required = false) String lang,
             HttpServletRequest httpRequest) {
-        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
         NovelRecord rec = novelDatabase.getNovel(novelId);
         if (rec == null) {
             return ResponseEntity.notFound().build();
@@ -331,7 +331,6 @@ public class NovelGalleryController {
         if (lang == null || lang.isBlank() || ids == null || ids.isBlank()) {
             return ResponseEntity.ok(new TranslatedTitlesResponse(Map.of()));
         }
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         Map<Long, String> out = new java.util.LinkedHashMap<>();
         String langCode = lang.trim();
         for (String token : ids.split(",")) {
@@ -339,7 +338,7 @@ public class NovelGalleryController {
             if (t.isEmpty()) continue;
             long novelId;
             try { novelId = Long.parseLong(t); } catch (NumberFormatException ignored) { continue; }
-            if (session != null && !guestAccessGuard.isNovelVisibleToGuest(novelId, session)) continue;
+            if (!workVisibilityService.isVisibleToGuest(httpRequest, WorkType.NOVEL, novelId)) continue;
             String translated = novelDatabase.getTranslationTitle(novelId, langCode);
             if (translated != null && !translated.isBlank()) {
                 out.put(novelId, translated);
@@ -356,7 +355,7 @@ public class NovelGalleryController {
     public ResponseEntity<byte[]> getNovelEmbeddedImage(@PathVariable long novelId,
                                                         @PathVariable String imageId,
                                                         HttpServletRequest httpRequest) throws IOException {
-        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
         if (imageId == null || imageId.isBlank() || !imageId.matches("[0-9A-Za-z_-]{1,40}")) {
             return ResponseEntity.notFound().build();
         }
@@ -432,14 +431,23 @@ public class NovelGalleryController {
     }
 
     private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
-        if (session == null) return null;
+        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL);
+        if (restriction == null) return null;
         Set<Long> ids = new HashSet<>();
         for (NovelSeriesSummary summary : novelGalleryRepository
-                .findVisibleNovelSeriesCounts(GuestRestriction.forNovel(session))) {
+                .findVisibleNovelSeriesCounts(toGuestRestriction(restriction))) {
             ids.add(summary.seriesId());
         }
         return ids;
+    }
+
+    private static GuestRestriction toGuestRestriction(WorkRestriction restriction) {
+        return new GuestRestriction(
+                restriction.allowedXRestricts(),
+                restriction.tagUnrestricted(),
+                restriction.tagIds(),
+                restriction.authorUnrestricted(),
+                restriction.authorIds());
     }
 
     @PostMapping("/novels/downloaded-batch")
@@ -449,7 +457,7 @@ public class NovelGalleryController {
         List<Long> ids = request == null || request.novelIds() == null ? List.of() : request.novelIds();
         boolean includeDeleted = request != null
                 && request.includeDeleted()
-                && GuestAccessGuard.extractSession(httpRequest) == null;
+                && workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL) == null;
         List<Long> downloadedIds = new ArrayList<>();
         List<Long> deletedIds = new ArrayList<>();
         for (NovelDownloadedStatusRow status : novelDatabase.getDownloadedStatuses(ids)) {

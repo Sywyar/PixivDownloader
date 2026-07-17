@@ -14,8 +14,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
@@ -47,6 +47,7 @@ public class NarrationReferenceVoiceController {
     private final NovelNarrationCastService castService;
     private final NarrationReferenceVoiceService referenceVoiceService;
     private final AppMessages messages;
+    private final RuntimePathProvider runtimePathProvider;
 
     public record GenerateRequest(Long castId, Integer characterId, String text) {}
 
@@ -139,7 +140,7 @@ public class NarrationReferenceVoiceController {
         if (ref == null) {
             return ResponseEntity.notFound().build();
         }
-        Path file = RuntimeFiles.narrationVoiceFile(castId, characterId, ref.ext());
+        Path file = runtimePathProvider.narrationVoiceFile(castId, characterId, ref.ext());
         if (!Files.isRegularFile(file)) {
             return ResponseEntity.notFound().build();
         }

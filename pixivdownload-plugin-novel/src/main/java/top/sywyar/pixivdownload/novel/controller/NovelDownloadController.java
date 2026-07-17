@@ -9,7 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.common.UuidUtils;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
@@ -25,12 +25,14 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.SetupService;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -62,9 +64,11 @@ public class NovelDownloadController {
     private final NovelGalleryRepository novelGalleryRepository;
     private final NovelMergeService novelMergeService;
     private final NovelTranslationService novelTranslationService;
-    private final SetupService setupService;
+    private final ApplicationModeProvider applicationModeProvider;
+    private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
+    private final WorkVisibilityService workVisibilityService;
     private final UserQuotaService userQuotaService;
-    private final MultiModeConfig multiModeConfig;
+    private final MultiModeSettings multiModeSettings;
     private final AppMessages messages;
 
     @PostMapping("/novel/download")
@@ -81,9 +85,9 @@ public class NovelDownloadController {
             request.setOther(new NovelDownloadRequest.Other());
         }
         NovelDownloadService.validateUserDownloadFolder(request.getOther());
-        String mode = setupService.getMode();
+        String mode = applicationModeProvider.getMode();
         if ("multi".equals(mode)) {
-            String pdMode = multiModeConfig.getPostDownloadMode();
+            String pdMode = multiModeSettings.getPostDownloadMode();
             // 软删除的小说文件已不在磁盘，视为未下载放行（是否真正重下由客户端的下载设置决定）
             if (("never-delete".equals(pdMode) || "timed-delete".equals(pdMode))
                     && novelDatabase.hasActiveNovel(request.getNovelId())) {
@@ -92,15 +96,16 @@ public class NovelDownloadController {
             }
         }
 
-        boolean isAdmin = setupService.isAdminLoggedIn(httpRequest);
+        RequestOwnerIdentity ownerIdentity = requestOwnerIdentityResolver.resolve(httpRequest);
+        boolean isAdmin = requestOwnerIdentityResolver.isAdminAuthenticated(httpRequest);
         stripUnauthorizedCollectionSelection(request, mode, isAdmin);
         stripUnauthorizedAutoTranslate(request, mode, isAdmin);
 
         String userUuid = null;
         if (!isAdmin && "multi".equals(mode)) {
-            userUuid = UuidUtils.extractOrGenerateUuid(httpRequest);
+            userUuid = ownerIdentity.ownerUuid();
         }
-        if (userUuid != null && multiModeConfig.getQuota().isEnabled()) {
+        if (userUuid != null && multiModeSettings.isQuotaEnabled()) {
             UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid, 1);
             if (!check.allowed()) {
                 String archiveToken = userQuotaService.triggerArchive(userUuid);
@@ -108,7 +113,7 @@ public class NovelDownloadController {
                         true,
                         messages.get("download.quota.exceeded"),
                         archiveToken,
-                        (long) multiModeConfig.getQuota().getArchiveExpireMinutes() * 60,
+                        (long) multiModeSettings.getArchiveExpireMinutes() * 60,
                         check.artworksUsed(),
                         check.maxArtworks(),
                         check.resetSeconds()
@@ -130,10 +135,10 @@ public class NovelDownloadController {
     @GetMapping("/novel/status/{novelId}")
     public ResponseEntity<NovelDownloadStatusResponse> getStatus(@PathVariable Long novelId,
                                                                  HttpServletRequest httpRequest) {
-        boolean adminScope = !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(httpRequest);
-        NovelDownloadStatus status = adminScope
+        RequestOwnerIdentity ownerIdentity = requestOwnerIdentityResolver.resolve(httpRequest);
+        NovelDownloadStatus status = ownerIdentity.admin()
                 ? novelDownloadService.getStatus(novelId)
-                : novelDownloadService.getStatus(novelId, UuidUtils.extractOrGenerateUuid(httpRequest), false);
+                : novelDownloadService.getStatus(novelId, ownerIdentity.ownerUuid(), false);
         if (status == null) {
             return ResponseEntity.ok(new NovelDownloadStatusResponse(
                     false, messages.get("download.status.not-found"),
@@ -166,8 +171,7 @@ public class NovelDownloadController {
     @GetMapping("/novel/translate-status/{novelId}")
     public ResponseEntity<NovelAutoTranslateService.StatusView> getTranslateStatus(
             @PathVariable Long novelId, HttpServletRequest httpRequest) {
-        boolean adminScope = !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(httpRequest);
-        if (!adminScope) {
+        if (!requestOwnerIdentityResolver.resolve(httpRequest).admin()) {
             return ResponseEntity.status(403).build();
         }
         NovelAutoTranslateService.StatusView view = novelAutoTranslateService.getStatus(novelId);
@@ -329,14 +333,23 @@ public class NovelDownloadController {
     }
 
     private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
-        if (session == null) return null;
+        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL);
+        if (restriction == null) return null;
         Set<Long> ids = new HashSet<>();
         for (NovelSeriesSummary summary : novelGalleryRepository
-                .findVisibleNovelSeriesCounts(GuestRestriction.forNovel(session))) {
+                .findVisibleNovelSeriesCounts(toGuestRestriction(restriction))) {
             ids.add(summary.seriesId());
         }
         return ids;
+    }
+
+    private static GuestRestriction toGuestRestriction(WorkRestriction restriction) {
+        return new GuestRestriction(
+                restriction.allowedXRestricts(),
+                restriction.tagUnrestricted(),
+                restriction.tagIds(),
+                restriction.authorUnrestricted(),
+                restriction.authorIds());
     }
 
     private static String mergedMimeFor(NovelDownloadService.NovelFormat fmt) {

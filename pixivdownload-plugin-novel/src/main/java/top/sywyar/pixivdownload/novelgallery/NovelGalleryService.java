@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.novelgallery;
 
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
@@ -23,7 +22,6 @@ import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -94,12 +92,12 @@ public class NovelGalleryService {
     }
 
     public PagedAuthors getPagedAuthorsWithNovels(int page, int size, String search, String sort,
-                                                  GuestInviteSession session) {
+                                                  WorkRestriction restriction) {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         List<NovelAuthorSummary> rows = workQueryService
-                .authors(new AuthorQuery(WorkType.NOVEL, toWorkRestriction(session)))
+                .authors(new AuthorQuery(WorkType.NOVEL, restriction))
                 .stream()
                 .map(item -> new NovelAuthorSummary(item.authorId(), item.name(), item.workCount()))
                 .filter(item -> term.isEmpty()
@@ -115,12 +113,12 @@ public class NovelGalleryService {
     }
 
     public PagedSeries getPagedSeriesWithNovels(int page, int size, String search, String sort,
-                                                GuestInviteSession session) {
+                                                WorkRestriction restriction) {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         List<NovelSeriesSummary> rows = workQueryService
-                .series(new SeriesQuery(WorkType.NOVEL, toWorkRestriction(session)))
+                .series(new SeriesQuery(WorkType.NOVEL, restriction))
                 .stream()
                 .map(item -> new NovelSeriesSummary(item.seriesId(), item.title(), item.authorId(),
                         item.authorName(), item.workCount(), item.coverExt(), toTagDtos(item.tags())))
@@ -137,9 +135,9 @@ public class NovelGalleryService {
         return listTags(search, limit, null);
     }
 
-    public List<NovelTagOption> listTags(String search, int limit, GuestInviteSession session) {
+    public List<NovelTagOption> listTags(String search, int limit, WorkRestriction restriction) {
         List<TagOption> tags = workQueryService.tags(
-                new TagQuery(WorkType.NOVEL, search, limit, toWorkRestriction(session)));
+                new TagQuery(WorkType.NOVEL, search, limit, restriction));
         List<NovelTagOption> out = new ArrayList<>(tags.size());
         for (TagOption tag : tags) {
             out.add(new NovelTagOption(tag.tagId(), tag.name(), tag.translatedName(), tag.workCount()));
@@ -225,25 +223,12 @@ public class NovelGalleryService {
                 .optionalAuthorIds(toList(q.orAuthorIds()))
                 .seriesIds(toList(q.seriesIds()))
                 .excludedSeriesIds(toList(q.notSeriesIds()))
-                .restriction(toWorkRestriction(q.guestSession()))
+                .restriction(q.restriction())
                 .build();
     }
 
     private static List<Long> toList(Set<Long> ids) {
         return ids == null ? null : new ArrayList<>(ids);
-    }
-
-    private static WorkRestriction toWorkRestriction(GuestInviteSession session) {
-        GuestRestriction restriction = GuestRestriction.forNovel(session);
-        if (restriction == null) {
-            return null;
-        }
-        return new WorkRestriction(
-                restriction.allowedXRestricts(),
-                restriction.tagUnrestricted(),
-                restriction.tagIds(),
-                restriction.authorUnrestricted(),
-                restriction.authorIds());
     }
 
     private Comparator<NovelAuthorSummary> authorSummaryComparator(String sort) {
@@ -304,7 +289,7 @@ public class NovelGalleryService {
                                     Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
                                     Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
                                     Set<Long> seriesIds, Set<Long> notSeriesIds,
-                                    GuestInviteSession guestSession) {
+                                    WorkRestriction restriction) {
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String searchType, String r18, String ai,
                                  Set<Long> collectionIds,

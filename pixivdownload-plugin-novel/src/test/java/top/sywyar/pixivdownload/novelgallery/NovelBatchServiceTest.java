@@ -10,7 +10,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
@@ -35,6 +35,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,15 +56,16 @@ class NovelBatchServiceTest {
     private CollectionService collectionService;
     @Mock
     private UserQuotaService userQuotaService;
+    @Mock
+    private MultiModeSettings multiModeSettings;
 
     private NovelBatchService service;
 
     @BeforeEach
     void setUp() {
-        MultiModeConfig multiModeConfig = new MultiModeConfig();
-        multiModeConfig.getQuota().setArchiveExpireMinutes(60);
+        lenient().when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(60);
         service = new NovelBatchService(novelGalleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeConfig, new ObjectMapper());
+                collectionService, userQuotaService, multiModeSettings, new ObjectMapper());
     }
 
     @Test

@@ -4,8 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -37,7 +37,7 @@ import top.sywyar.pixivdownload.novel.download.NovelMarkupParser;
 @RequiredArgsConstructor
 public class NovelMergeService {
 
-    private final DownloadConfig downloadConfig;
+    private final DownloadSettings downloadConfig;
     private final NovelDatabase novelDatabase;
     private final AuthorService authorService;
     private final AppMessages messages;

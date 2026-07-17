@@ -11,9 +11,10 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 
 import java.util.List;
 import java.util.Set;
@@ -23,23 +24,39 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@DisplayName("小说批量下载状态")
+@DisplayName("小说画廊可见性与批量下载状态")
 class NovelGalleryControllerDownloadedBatchTest {
 
     private NovelDatabase novelDatabase;
+    private NovelGalleryService novelGalleryService;
+    private WorkVisibilityService workVisibilityService;
     private NovelGalleryController controller;
 
     @BeforeEach
     void setUp() {
         novelDatabase = mock(NovelDatabase.class);
+        novelGalleryService = mock(NovelGalleryService.class);
+        workVisibilityService = mock(WorkVisibilityService.class);
         controller = new NovelGalleryController(
-                mock(NovelGalleryService.class),
+                novelGalleryService,
                 mock(NovelBatchService.class),
                 mock(NovelSeriesService.class),
                 novelDatabase,
                 mock(NovelGalleryRepository.class),
                 mock(WorkAssetService.class),
-                mock(GuestAccessGuard.class));
+                workVisibilityService);
+    }
+
+    @Test
+    @DisplayName("读取单本小说前应通过中性可见性端口校验")
+    void findNovelRequiresVisibility() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        var response = controller.findNovel(77L, request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        verify(workVisibilityService).requireVisible(request, WorkType.NOVEL, 77L);
+        verify(novelGalleryService).find(77L);
     }
 
     @Test
@@ -67,7 +84,8 @@ class NovelGalleryControllerDownloadedBatchTest {
                 new NovelDownloadedStatusRow(1L, false),
                 new NovelDownloadedStatusRow(2L, true)));
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession());
+        when(workVisibilityService.restrictionFrom(request, WorkType.NOVEL))
+                .thenReturn(guestRestriction());
 
         var response = controller.downloadedBatch(
                 new NovelGalleryController.NovelDownloadedBatchRequest(ids, true), request);
@@ -109,10 +127,7 @@ class NovelGalleryControllerDownloadedBatchTest {
         verify(novelDatabase).getDownloadedStatuses(List.of());
     }
 
-    private static GuestInviteSession guestSession() {
-        return new GuestInviteSession(
-                1L, "guest", true, false, false,
-                true, Set.of(), true, Set.of(),
-                true, Set.of(), true, Set.of());
+    private static WorkRestriction guestRestriction() {
+        return new WorkRestriction(Set.of(0), true, List.of(), true, List.of());
     }
 }

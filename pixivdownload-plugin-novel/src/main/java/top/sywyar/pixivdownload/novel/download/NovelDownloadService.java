@@ -14,15 +14,15 @@ import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueStatusRetention;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -84,7 +84,7 @@ public class NovelDownloadService implements NovelDownloader {
     /** 单本小说最多下载多少张内嵌图，避免极端情况吃满磁盘。 */
     private static final int MAX_EMBEDDED_IMAGES_PER_NOVEL = 200;
 
-    private final DownloadConfig downloadConfig;
+    private final DownloadSettings downloadConfig;
     private final PixivDatabase pixivDatabase;
     private final NovelDatabase novelDatabase;
     private final NovelSeriesService novelSeriesService;
@@ -102,7 +102,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
     private final QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
 
-    public NovelDownloadService(DownloadConfig downloadConfig,
+    public NovelDownloadService(DownloadSettings downloadConfig,
                                 PixivDatabase pixivDatabase,
                                 NovelDatabase novelDatabase,
                                 NovelSeriesService novelSeriesService,

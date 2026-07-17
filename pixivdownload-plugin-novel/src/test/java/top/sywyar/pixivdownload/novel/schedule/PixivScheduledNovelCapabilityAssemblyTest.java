@@ -3,8 +3,8 @@ package top.sywyar.pixivdownload.novel.schedule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
@@ -47,8 +47,8 @@ class PixivScheduledNovelCapabilityAssemblyTest {
     @DisplayName("生产工厂贡献的小说执行器可被珍藏集来源以跨 owner 复合租约解析")
     void productionNovelExecutorExpandsWithCollectionSourceOwner() {
         NovelPluginConfiguration configuration = new NovelPluginConfiguration();
-        DownloadConfig downloadConfig = new DownloadConfig();
-        downloadConfig.setNovelMaxConcurrent(3);
+        DownloadSettings downloadSettings = mock(DownloadSettings.class);
+        when(downloadSettings.getNovelMaxConcurrent()).thenReturn(3, 2);
         PixivScheduledNovelWorkExecutor novelExecutor =
                 configuration.pixivScheduledNovelWorkExecutor(
                         new ObjectMapper(),
@@ -58,10 +58,9 @@ class PixivScheduledNovelCapabilityAssemblyTest {
                         mock(NovelDownloader.class),
                         mock(NovelMergeService.class),
                         mock(NovelAutoTranslateService.class),
-                        downloadConfig);
+                        downloadSettings);
         assertThat(novelExecutor.workType()).isEqualTo("novel");
         assertThat(novelExecutor.maxConcurrency()).isEqualTo(3);
-        downloadConfig.setNovelMaxConcurrent(2);
         assertThat(novelExecutor.maxConcurrency()).isEqualTo(2);
 
         ScheduledSourceExecutor collectionExecutor = mock(ScheduledSourceExecutor.class);

@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorSummary;
 import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesSummary;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
@@ -29,6 +30,7 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -122,6 +124,23 @@ class NovelGalleryServiceTest {
             assertThat(workQuery.page()).isZero();
             assertThat(workQuery.size()).isEqualTo(2);
             assertThat(workQuery.restriction()).isNull();
+        }
+
+        @Test
+        @DisplayName("NovelGalleryQuery 携带的访客限制应作为纯值原样传给核心查询")
+        void shouldPassWorkRestrictionToCoreQuery() {
+            WorkRestriction restriction = new WorkRestriction(
+                    Set.of(0, 1), false, List.of(21L), true, List.of());
+            NovelGalleryService.NovelGalleryQuery query = new NovelGalleryService.NovelGalleryQuery(
+                    0, 24, "date", "desc", null, "all", "any", "any", null,
+                    null, null, null, null, null, null, null, null, restriction);
+            when(workQueryService.search(any())).thenReturn(new PagedResult<>(List.of(), 0, 0, 24, 0));
+
+            novelGalleryService.query(query);
+
+            ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
+            verify(workQueryService).search(captor.capture());
+            assertThat(captor.getValue().restriction()).isSameAs(restriction);
         }
 
         @Test

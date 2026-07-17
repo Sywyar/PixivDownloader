@@ -11,8 +11,8 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
@@ -62,7 +62,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     private final NovelDownloader novelDownloader;
     private final NovelMergeService novelMergeService;
     private final NovelAutoTranslateService novelAutoTranslateService;
-    private final DownloadConfig downloadConfig;
+    private final DownloadSettings downloadConfig;
     private final ConcurrentHashMap<SeriesCacheKey, Optional<PixivScheduledNovelMetadata.SeriesMetadata>>
             seriesMetadataCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, ScheduledTaskDefinition> seriesCacheRuns = new ConcurrentHashMap<>();
@@ -75,7 +75,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
-            DownloadConfig downloadConfig) {
+            DownloadSettings downloadConfig) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.pixivAjaxProxyClient = Objects.requireNonNull(pixivAjaxProxyClient, "pixivAjaxProxyClient");
         this.novelMetadataRepository = Objects.requireNonNull(novelMetadataRepository, "novelMetadataRepository");

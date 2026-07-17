@@ -15,12 +15,13 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
-import top.sywyar.pixivdownload.config.DebugConfig;
+import top.sywyar.pixivdownload.config.DebugSettings;
+import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.ai.AiService;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
@@ -68,9 +69,10 @@ import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.SetupService;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 /**
  * novel 插件的 Bean 装配收敛点。插件 descriptor 始终注册；下载、Pixiv 小说代理、
@@ -98,7 +100,7 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NovelDatabase novelDatabase(NovelMapper novelMapper,
                                        PixivDatabase pixivDatabase,
-                                       PathPrefixCodec pathPrefixCodec,
+                                       StoredPathCodec pathPrefixCodec,
                                        DatabaseInitializer databaseInitializer,
                                        NovelMetadataRepository novelMetadataRepository) {
         return new NovelDatabase(novelMapper, pixivDatabase, pathPrefixCodec,
@@ -108,7 +110,7 @@ public class NovelPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public NovelSeriesService novelSeriesService(NovelDatabase novelDatabase,
-                                                 DownloadConfig downloadConfig,
+                                                 DownloadSettings downloadConfig,
                                                  PixivCoverDownloader coverDownloader,
                                                  AppMessages messages) {
         return new NovelSeriesService(novelDatabase, downloadConfig, coverDownloader, messages);
@@ -116,7 +118,7 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NovelMergeService novelMergeService(DownloadConfig downloadConfig,
+    public NovelMergeService novelMergeService(DownloadSettings downloadConfig,
                                                NovelDatabase novelDatabase,
                                                AuthorService authorService,
                                                AppMessages messages) {
@@ -156,7 +158,7 @@ public class NovelPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public NovelDownloadService novelDownloadService(
-            DownloadConfig downloadConfig,
+            DownloadSettings downloadConfig,
             PixivDatabase pixivDatabase,
             NovelDatabase novelDatabase,
             NovelSeriesService novelSeriesService,
@@ -201,7 +203,7 @@ public class NovelPluginConfiguration {
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
-            DownloadConfig downloadConfig) {
+            DownloadSettings downloadConfig) {
         return new PixivScheduledNovelWorkExecutor(
                 objectMapper, pixivAjaxProxyClient, novelMetadataRepository,
                 workMetaCaptureService, novelDownloader, novelMergeService,
@@ -216,8 +218,8 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NarrationReferenceVoiceStore narrationReferenceVoiceStore() {
-        return new NarrationReferenceVoiceStore();
+    public NarrationReferenceVoiceStore narrationReferenceVoiceStore(RuntimePathProvider runtimePathProvider) {
+        return new NarrationReferenceVoiceStore(runtimePathProvider);
     }
 
     @Bean
@@ -233,8 +235,10 @@ public class NovelPluginConfiguration {
     public NarrationReferenceVoiceService narrationReferenceVoiceService(
             NovelMapper novelMapper,
             NarrationAudioService narrationAudioService,
-            NarrationReferenceVoiceStore fileStore) {
-        return new NarrationReferenceVoiceService(novelMapper, narrationAudioService, fileStore);
+            NarrationReferenceVoiceStore fileStore,
+            RuntimePathProvider runtimePathProvider) {
+        return new NarrationReferenceVoiceService(
+                novelMapper, narrationAudioService, fileStore, runtimePathProvider);
     }
 
     @Bean
@@ -270,10 +274,10 @@ public class NovelPluginConfiguration {
                                                    NarrationAudioService narrationAudioService,
                                                    NovelDatabase novelDatabase,
                                                    AppMessages messages,
-                                                   DebugConfig debugConfig,
+                                                   DebugSettings debugSettings,
                                                    AiService aiService) {
         return new NarrationController(scriptService, castService, referenceVoiceService, narrationAudioService,
-                novelDatabase, messages, debugConfig, aiService);
+                novelDatabase, messages, debugSettings, aiService);
     }
 
     @Bean
@@ -289,8 +293,10 @@ public class NovelPluginConfiguration {
     public NarrationReferenceVoiceController narrationReferenceVoiceController(
             NovelNarrationCastService castService,
             NarrationReferenceVoiceService referenceVoiceService,
-            AppMessages messages) {
-        return new NarrationReferenceVoiceController(castService, referenceVoiceService, messages);
+            AppMessages messages,
+            RuntimePathProvider runtimePathProvider) {
+        return new NarrationReferenceVoiceController(
+                castService, referenceVoiceService, messages, runtimePathProvider);
     }
 
     @Bean
@@ -301,24 +307,26 @@ public class NovelPluginConfiguration {
                                                           NovelGalleryRepository novelGalleryRepository,
                                                           NovelMergeService novelMergeService,
                                                           NovelTranslationService novelTranslationService,
-                                                          SetupService setupService,
+                                                          ApplicationModeProvider applicationModeProvider,
+                                                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
+                                                          WorkVisibilityService workVisibilityService,
                                                           UserQuotaService userQuotaService,
-                                                          MultiModeConfig multiModeConfig,
+                                                          MultiModeSettings multiModeSettings,
                                                           AppMessages messages) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
-                novelGalleryRepository, novelMergeService, novelTranslationService, setupService,
-                userQuotaService, multiModeConfig, messages);
+                novelGalleryRepository, novelMergeService, novelTranslationService, applicationModeProvider,
+                requestOwnerIdentityResolver, workVisibilityService, userQuotaService, multiModeSettings, messages);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public NovelPixivProxyController novelPixivProxyController(ObjectMapper objectMapper,
-                                                              PixivAjaxProxyClient pixivAjaxProxyClient,
-                                                              PixivProxyAccessGuard pixivProxyAccessGuard,
-                                                              GuestAccessGuard guestAccessGuard,
-                                                              AppMessages messages) {
+                                                               PixivAjaxProxyClient pixivAjaxProxyClient,
+                                                               PixivProxyAccessGuard pixivProxyAccessGuard,
+                                                               WorkVisibilityService workVisibilityService,
+                                                               AppMessages messages) {
         return new NovelPixivProxyController(objectMapper, pixivAjaxProxyClient, pixivProxyAccessGuard,
-                guestAccessGuard, messages);
+                workVisibilityService, messages);
     }
 
     @Bean
@@ -370,10 +378,10 @@ public class NovelPluginConfiguration {
                                                WorkAssetService workAssetService,
                                                CollectionService collectionService,
                                                UserQuotaService userQuotaService,
-                                               MultiModeConfig multiModeConfig,
+                                               MultiModeSettings multiModeSettings,
                                                ObjectMapper objectMapper) {
         return new NovelBatchService(novelGalleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeConfig, objectMapper);
+                collectionService, userQuotaService, multiModeSettings, objectMapper);
     }
 
     @Bean
@@ -384,8 +392,8 @@ public class NovelPluginConfiguration {
                                                          NovelDatabase novelDatabase,
                                                          NovelGalleryRepository novelGalleryRepository,
                                                          WorkAssetService workAssetService,
-                                                         GuestAccessGuard guestAccessGuard) {
+                                                         WorkVisibilityService workVisibilityService) {
         return new NovelGalleryController(novelGalleryService, novelBatchService, novelSeriesService,
-                novelDatabase, novelGalleryRepository, workAssetService, guestAccessGuard);
+                novelDatabase, novelGalleryRepository, workAssetService, workVisibilityService);
     }
 }

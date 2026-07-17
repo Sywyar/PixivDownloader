@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
@@ -41,7 +41,7 @@ public class NovelBatchService {
     private final WorkAssetService workAssetService;
     private final CollectionService collectionService;
     private final UserQuotaService userQuotaService;
-    private final MultiModeConfig multiModeConfig;
+    private final MultiModeSettings multiModeSettings;
     private final ObjectMapper objectMapper;
 
     public List<Long> resolveNovelIds(NovelBatchRequest request) {
@@ -169,6 +169,6 @@ public class NovelBatchService {
     }
 
     private long archiveExpireSeconds() {
-        return (long) multiModeConfig.getQuota().getArchiveExpireMinutes() * 60;
+        return (long) multiModeSettings.getArchiveExpireMinutes() * 60;
     }
 }

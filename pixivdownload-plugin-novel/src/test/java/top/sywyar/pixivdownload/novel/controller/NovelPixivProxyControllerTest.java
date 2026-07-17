@@ -15,14 +15,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 
 import java.net.URI;
 
@@ -30,7 +29,6 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -50,20 +48,15 @@ class NovelPixivProxyControllerTest {
     @Mock
     private RestTemplate restTemplate;
     @Mock
-    private SetupService setupService;
+    private PixivProxyAccessGuard accessGuard;
     @Mock
-    private UserQuotaService userQuotaService;
-    @Mock
-    private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
+    private WorkVisibilityService workVisibilityService;
 
     @BeforeEach
     void setUp() {
-        MultiModeConfig multiModeConfig = new MultiModeConfig();
-        PixivProxyAccessGuard accessGuard = new PixivProxyAccessGuard(
-                setupService, userQuotaService, multiModeConfig, APP_MESSAGES);
         NovelPixivProxyController controller = new NovelPixivProxyController(
                 objectMapper, new PixivAjaxProxyClient(restTemplate), accessGuard,
-                guestAccessGuard, APP_MESSAGES);
+                workVisibilityService, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -72,11 +65,6 @@ class NovelPixivProxyControllerTest {
     @Nested
     @DisplayName("GET /api/pixiv/novel-search")
     class NovelSearchTests {
-
-        @BeforeEach
-        void setUpSoloMode() {
-            lenient().when(setupService.getMode()).thenReturn("solo");
-        }
 
         private static final String PIXIV_NOVEL_SEARCH_RESPONSE = """
                 {
@@ -177,11 +165,6 @@ class NovelPixivProxyControllerTest {
     @DisplayName("GET /api/pixiv/novel/{id}/meta")
     class NovelMetaTests {
 
-        @BeforeEach
-        void setUpSoloMode() {
-            when(setupService.getMode()).thenReturn("solo");
-        }
-
         @Test
         @DisplayName("小说详情应透传并规范输出年龄分级")
         void shouldReturnCanonicalNovelAgeRating() throws Exception {
@@ -208,17 +191,14 @@ class NovelPixivProxyControllerTest {
                     .andExpect(jsonPath("$.ai").doesNotExist())
                     .andExpect(jsonPath("$.isOriginal").value(true))
                     .andExpect(jsonPath("$.original").doesNotExist());
+
+            verify(workVisibilityService).requireVisible(any(), eq(WorkType.NOVEL), eq(789012L));
         }
     }
 
     @Nested
     @DisplayName("GET /api/pixiv/novel/{id}/bookmark-count")
     class NovelBookmarkCountTests {
-
-        @BeforeEach
-        void setUpSoloMode() {
-            when(setupService.getMode()).thenReturn("solo");
-        }
 
         @Test
         @DisplayName("应只返回小说收藏数")

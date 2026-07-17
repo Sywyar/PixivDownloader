@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -37,7 +37,12 @@ public class NarrationReferenceVoiceStore {
     /** 受支持的参考音扩展名（清理时逐一尝试删除）。 */
     private static final List<String> REF_EXTENSIONS = List.of("wav", "mp3", "pcm");
 
+    private final RuntimePathProvider runtimePathProvider;
     private final ConcurrentMap<String, Object> locks = new ConcurrentHashMap<>();
+
+    public NarrationReferenceVoiceStore(RuntimePathProvider runtimePathProvider) {
+        this.runtimePathProvider = runtimePathProvider;
+    }
 
     /** 取某角色文件操作的串行锁（稳定的每键监视器）；调用方在其上 {@code synchronized} 串起文件 + DB 变更。 */
     public Object lockFor(long castId, int characterId) {
@@ -49,7 +54,7 @@ public class NarrationReferenceVoiceStore {
      * {@link UncheckedIOException}（不会留下半截目标文件）。
      */
     public void write(long castId, int characterId, byte[] data, String ext) {
-        Path target = RuntimeFiles.narrationVoiceFile(castId, characterId, ext);
+        Path target = runtimePathProvider.narrationVoiceFile(castId, characterId, ext);
         Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
         try {
             Files.write(tmp, data);
@@ -64,13 +69,13 @@ public class NarrationReferenceVoiceStore {
     /** 删除某角色的全部扩展名参考音文件（最大努力，绝不抛出）。 */
     public void deleteCharacterFiles(long castId, int characterId) {
         for (String e : REF_EXTENSIONS) {
-            deleteQuietly(RuntimeFiles.narrationVoiceFile(castId, characterId, e));
+            deleteQuietly(runtimePathProvider.narrationVoiceFile(castId, characterId, e));
         }
     }
 
     /** 删除整册参考音目录 {@code data/narration-voice/{castId}/}（删除花名册时；最大努力，绝不抛出）。 */
     public void deleteCastDirectory(long castId) {
-        Path dir = RuntimeFiles.narrationVoiceDirectory().resolve(Long.toString(castId)).normalize();
+        Path dir = runtimePathProvider.narrationVoiceDirectory(castId);
         if (!Files.isDirectory(dir)) {
             return;
         }
@@ -87,7 +92,7 @@ public class NarrationReferenceVoiceStore {
             if (e.equals(keep)) {
                 continue;
             }
-            deleteQuietly(RuntimeFiles.narrationVoiceFile(castId, characterId, e));
+            deleteQuietly(runtimePathProvider.narrationVoiceFile(castId, characterId, e));
         }
     }
 

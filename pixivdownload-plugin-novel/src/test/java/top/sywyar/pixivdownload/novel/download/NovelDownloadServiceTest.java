@@ -14,10 +14,10 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -56,7 +56,7 @@ class NovelDownloadServiceTest {
     Path tempDir;
 
     @Mock
-    private DownloadConfig downloadConfig;
+    private DownloadSettings downloadConfig;
     @Mock
     private PixivDatabase pixivDatabase;
     @Mock
@@ -174,8 +174,8 @@ class NovelDownloadServiceTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> queued.download(txtRequest(105L, null), "owner-a"))
                 .isInstanceOf(QueueNotAcceptingException.class)
-                .satisfies(error -> assertThat(((QueueNotAcceptingException) error).getStatus().value())
-                        .isEqualTo(503));
+                .satisfies(error -> assertThat(((QueueNotAcceptingException) error).queueType())
+                        .isEqualTo("novel"));
     }
 
     @Test

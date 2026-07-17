@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
 
+import java.util.Set;
+
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,11 +58,39 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                         top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
                         top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,
                         top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
-                        top.sywyar.pixivdownload.author.AuthorService.class,
-                        top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class))
+                        top.sywyar.pixivdownload.author.AuthorService.class))
                 .because("novel-gallery 的列表 / 批量服务已接口化：查询走 WorkQueryService/WorkMetadataRepository，"
                         + "删除走 WorkDeletionService，普通文件枚举走 WorkAssetService")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("novel 生产代码只能依赖宿主稳定端口，不得依赖配置、模式、路径、身份与可见性实现")
+    void novelModuleDoesNotDependOnHostImplementations() {
+        Set<String> forbiddenTypes = Set.of(
+                hostType("top.sywyar.pixivdownload.core.appconfig", "DownloadConfig"),
+                hostType("top.sywyar.pixivdownload.core.appconfig", "MultiModeConfig"),
+                hostType("top.sywyar.pixivdownload.config", "DebugConfig"),
+                hostType("top.sywyar.pixivdownload.config", "RuntimeFiles"),
+                hostType("top.sywyar.pixivdownload.core.db.pathprefix", "PathPrefixCodec"),
+                hostType("top.sywyar.pixivdownload.setup", "SetupService"),
+                hostType("top.sywyar.pixivdownload.setup.guest", "GuestAccessGuard"),
+                hostType("top.sywyar.pixivdownload.setup.guest", "GuestInviteSession"),
+                hostType("top.sywyar.pixivdownload.common", "UuidUtils"));
+        noClasses()
+                .that().resideInAnyPackage(
+                        "top.sywyar.pixivdownload.novel..",
+                        "top.sywyar.pixivdownload.novelgallery..")
+                .should().dependOnClassesThat(com.tngtech.archunit.base.DescribedPredicate.describe(
+                        "宿主实现类型",
+                        javaClass -> forbiddenTypes.contains(javaClass.getName())))
+                .because("外置 novel 插件应依赖 core-api/plugin-api 稳定端口，"
+                        + "宿主配置绑定、运行期路径、setup、访客会话与 UUID 解析实现必须留在 app")
+                .check(CLASSES);
+    }
+
+    private static String hostType(String packageName, String simpleName) {
+        return packageName + "." + simpleName;
     }
 
     @Test

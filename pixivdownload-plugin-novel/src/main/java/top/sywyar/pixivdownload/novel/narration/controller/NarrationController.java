@@ -12,10 +12,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.core.ai.AiService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
-import top.sywyar.pixivdownload.config.DebugConfig;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
@@ -54,7 +54,7 @@ public class NarrationController {
     private final NarrationAudioService narrationAudioService;
     private final NovelDatabase novelDatabase;
     private final AppMessages messages;
-    private final DebugConfig debugConfig;
+    private final DebugSettings debugSettings;
     private final AiService aiService;
 
     // ── DTO ──────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ public class NarrationController {
     @GetMapping("/availability")
     public ResponseEntity<?> availability() {
         return ResponseEntity.ok(new AvailabilityResponse(
-                narrationAudioService.isEngineAvailable(), debugConfig.isEnabled(),
+                narrationAudioService.isEngineAvailable(), debugSettings.isEnabled(),
                 aiService.isConfigured()));
     }
 
@@ -176,7 +176,7 @@ public class NarrationController {
 
         // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要朗读引擎可用：引擎不可用且非调试模式时
         // 直接拒绝，避免「服务不可用仍跑 LLM 分析」产生无法播放的脚本与额外 AI 成本。缓存命中 / 上面的探测仍照常返回。
-        if (willAnalyze && !narrationAudioService.isEngineAvailable() && !debugConfig.isEnabled()) {
+        if (willAnalyze && !narrationAudioService.isEngineAvailable() && !debugSettings.isEnabled()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(new ErrorResponse(messages.get("narration.error.engine-unavailable")));
         }

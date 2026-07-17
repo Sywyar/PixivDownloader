@@ -8,7 +8,7 @@ import top.sywyar.pixivdownload.core.ai.AiService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
 import top.sywyar.pixivdownload.common.ErrorResponse;
-import top.sywyar.pixivdownload.config.DebugConfig;
+import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
 
@@ -45,12 +46,13 @@ class NarrationControllerTest {
     private final NarrationReferenceVoiceService referenceVoiceService = mock(NarrationReferenceVoiceService.class);
     private final NovelDatabase novelDatabase = mock(NovelDatabase.class);
     private final NarrationAudioService audioService = mock(NarrationAudioService.class);
-    private final DebugConfig debugConfig = new DebugConfig();
+    private final AtomicBoolean debugEnabled = new AtomicBoolean();
+    private final DebugSettings debugSettings = debugEnabled::get;
     private final AiService aiService = mock(AiService.class);
 
     private final NarrationController controller =
             new NarrationController(scriptService, castService, referenceVoiceService, audioService, novelDatabase,
-                    appMessages(), debugConfig, aiService);
+                    appMessages(), debugSettings, aiService);
     private final NarrationTtsController ttsController =
             new NarrationTtsController(audioService, scriptService, appMessages());
 
@@ -204,7 +206,7 @@ class NarrationControllerTest {
     @DisplayName("/script：调试模式不能绕过 AI 未配置的新分析门禁")
     void scriptRejectsAiUnavailableEvenInDebugMode() {
         when(aiService.isConfigured()).thenReturn(false);
-        debugConfig.setEnabled(true);
+        debugEnabled.set(true);
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
 
         ResponseEntity<?> resp = controller.script(
@@ -273,7 +275,7 @@ class NarrationControllerTest {
     @DisplayName("/script：调试模式开启时即便引擎不可用也允许分析（仅运行 LLM 查看说话人 / 冲突）")
     void scriptAllowsAnalysisInDebugModeWhenUnavailable() {
         when(audioService.isEngineAvailable()).thenReturn(false);
-        debugConfig.setEnabled(true);
+        debugEnabled.set(true);
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
         List<NovelNarrationScriptService.ScriptLine> lines = List.of(
                 new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
@@ -335,7 +337,7 @@ class NarrationControllerTest {
         assertTrue(!((NarrationController.AvailabilityResponse) off.getBody()).textModelConfigured());
 
         // 调试模式开启时透出 debug=true（即便引擎不可用）
-        debugConfig.setEnabled(true);
+        debugEnabled.set(true);
         ResponseEntity<?> dbg = controller.availability();
         assertEquals(200, dbg.getStatusCode().value());
         NarrationController.AvailabilityResponse body = (NarrationController.AvailabilityResponse) dbg.getBody();

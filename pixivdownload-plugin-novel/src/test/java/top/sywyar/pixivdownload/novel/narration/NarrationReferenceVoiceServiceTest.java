@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
@@ -60,7 +61,7 @@ class NarrationReferenceVoiceServiceTest {
         when(mapper.findNarrationVoiceRef(3L, 5)).thenReturn(null);
 
         NarrationReferenceVoiceService svc = new NarrationReferenceVoiceService(
-                mapper, mock(NarrationAudioService.class), store);
+                mapper, mock(NarrationAudioService.class), store, mock(RuntimePathProvider.class));
 
         NovelNarrationVoiceRef ref = svc.saveUpload(3L, 5, new byte[]{1, 2, 3}, "wav", null);
 
@@ -83,7 +84,7 @@ class NarrationReferenceVoiceServiceTest {
                 .thenReturn(1);
 
         NarrationReferenceVoiceService svc = new NarrationReferenceVoiceService(
-                mapper, mock(NarrationAudioService.class), store);
+                mapper, mock(NarrationAudioService.class), store, mock(RuntimePathProvider.class));
 
         byte[] data = {1, 2, 3};
         NovelNarrationVoiceRef ref = svc.saveUpload(3L, 1, data, "wav", " hi ");

@@ -5,8 +5,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
@@ -27,7 +27,7 @@ public class NovelDatabase {
 
     private final NovelMapper novelMapper;
     private final PixivDatabase pixivDatabase;
-    private final PathPrefixCodec pathPrefixCodec;
+    private final StoredPathCodec pathPrefixCodec;
     /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
     private final DatabaseInitializer databaseInitializer;
     /**

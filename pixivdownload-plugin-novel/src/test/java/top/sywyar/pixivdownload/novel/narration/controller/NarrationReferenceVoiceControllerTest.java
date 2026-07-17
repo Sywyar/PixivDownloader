@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.novel.narration.controller;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,8 +12,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.common.ErrorResponse;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
@@ -42,23 +41,14 @@ class NarrationReferenceVoiceControllerTest {
     @TempDir
     private Path tempDir;
 
-    private String previousDataDir;
+    private TestRuntimePathProvider runtimePaths;
     private NarrationReferenceVoiceController controller;
 
     @BeforeEach
     void setUp() {
-        previousDataDir = System.getProperty(RuntimeFiles.DATA_DIR_PROPERTY);
-        System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, tempDir.toString());
-        controller = new NarrationReferenceVoiceController(castService, referenceVoiceService, appMessages());
-    }
-
-    @AfterEach
-    void tearDown() {
-        if (previousDataDir == null) {
-            System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
-        } else {
-            System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, previousDataDir);
-        }
+        runtimePaths = new TestRuntimePathProvider(tempDir);
+        controller = new NarrationReferenceVoiceController(
+                castService, referenceVoiceService, appMessages(), runtimePaths);
     }
 
     @Test
@@ -117,7 +107,7 @@ class NarrationReferenceVoiceControllerTest {
     @DisplayName("预览：参考音响应带 nosniff")
     void previewAddsNosniffHeader() throws Exception {
         byte[] data = UploadedAudioValidatorTest.pcmWav(48_000, 1, 16, 96_000);
-        Files.write(RuntimeFiles.narrationVoiceFile(3L, 1, "wav"), data);
+        Files.write(runtimePaths.narrationVoiceFile(3L, 1, "wav"), data);
         when(referenceVoiceService.reference(3L, 1))
                 .thenReturn(new NovelNarrationVoiceRef(3L, 1, "wav", null, "upload", 1L));
 

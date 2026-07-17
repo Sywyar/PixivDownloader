@@ -5,7 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -25,12 +25,12 @@ import java.util.List;
 public class NovelSeriesService {
 
     private final NovelDatabase novelDatabase;
-    private final DownloadConfig downloadConfig;
+    private final DownloadSettings downloadConfig;
     private final PixivCoverDownloader coverDownloader;
     private final AppMessages messages;
 
     public NovelSeriesService(NovelDatabase novelDatabase,
-                              DownloadConfig downloadConfig,
+                              DownloadSettings downloadConfig,
                               PixivCoverDownloader coverDownloader,
                               AppMessages messages) {
         this.novelDatabase = novelDatabase;
