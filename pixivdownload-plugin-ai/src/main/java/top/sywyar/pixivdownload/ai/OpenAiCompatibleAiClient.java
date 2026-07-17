@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
  *       {@link AiConfig}，也不检查总开关），失败抛 {@link AiClientException}</li>
  * </ul>
  * 是否走 HTTP 代理由 {@link AiClientSettings#useProxy()} 决定：为 {@code true} 时使用注入的
- * {@code aiProxyRestTemplate}（路由经 {@link top.sywyar.pixivdownload.config.ProxyConfig} 的 host:port），
+ * {@code aiProxyRestTemplate}（路由经 {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 的 host:port），
  * 否则直连。全程 UTF-8；API Key 绝不写入日志 / 失败摘要 / 响应。
  */
 @Service

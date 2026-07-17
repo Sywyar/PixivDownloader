@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.push.channel.bark.BarkConfig;
  * {@link BarkConfig}）承载，与本类解耦——本类只决定"推送功能是否启用"。
  * {@code enabled=false} 时 {@link PushService} 直接跳过全部通道。
  * <p>
- * 字段使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.config.ProxyConfig} /
+ * 字段使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.config.OutboundProxySettings} /
  * {@link top.sywyar.pixivdownload.mail.MailConfig} 风格一致，便于热重载时安全地被多线程读取。
  */
 @Data

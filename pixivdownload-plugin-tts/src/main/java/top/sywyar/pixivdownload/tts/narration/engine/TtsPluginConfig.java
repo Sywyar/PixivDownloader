@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * {@code proxy.enabled}。
  * <p>
  * 字段全部 {@code volatile}，与 {@link top.sywyar.pixivdownload.ai.AiConfig} /
- * {@link top.sywyar.pixivdownload.config.ProxyConfig} 风格一致，便于热重载时安全地被多线程读取。本类只承载
+ * {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 风格一致，便于热重载时安全地被多线程读取。本类只承载
  * 配置数据，请求 / 解析逻辑见各 {@link NarrationVoiceEngine} 实现。
  */
 @Data
@@ -114,7 +114,7 @@ public class TtsPluginConfig {
 
         /**
          * 本引擎的对外请求是否走已配置的 HTTP 代理（地址取
-         * {@link top.sywyar.pixivdownload.config.ProxyConfig} 的 host:port）。VoxCPM 通常是本机 / 内网服务，
+         * {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 的 host:port）。VoxCPM 通常是本机 / 内网服务，
          * 默认 {@code false} 直连；独立于全局 {@code proxy.enabled}。
          */
         private volatile Boolean useProxy = false;

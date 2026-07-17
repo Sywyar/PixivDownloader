@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * 都以各自的 OpenAI 兼容端点接入，由 {@link top.sywyar.pixivdownload.ai.preset.AiPresetRegistry} 提供预设。
  * <p>
  * 字段全部使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.mail.MailConfig} /
- * {@link top.sywyar.pixivdownload.config.ProxyConfig} 风格一致，以便热重载时安全地被多线程读取。本类只承载
+ * {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 风格一致，以便热重载时安全地被多线程读取。本类只承载
  * 配置数据，请求 / 解析逻辑见 {@link AiService}。
  */
 @Data
@@ -43,7 +43,7 @@ public class AiConfig {
     private volatile String model = "";
 
     /**
-     * 是否让本配置的对外请求走已配置的 HTTP 代理（地址取 {@link top.sywyar.pixivdownload.config.ProxyConfig}
+     * 是否让本配置的对外请求走已配置的 HTTP 代理（地址取 {@link top.sywyar.pixivdownload.config.OutboundProxySettings}
      * 的 host:port）。海外厂商通常需要开启、国内厂商无需开启——按预设给出合理默认值，独立于全局 {@code proxy.enabled}。
      */
     private volatile boolean useProxy = false;

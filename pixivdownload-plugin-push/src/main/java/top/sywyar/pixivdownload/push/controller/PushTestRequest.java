@@ -16,7 +16,7 @@ import java.util.List;
 /**
  * GUI 配置页"测试推送"按钮的请求 DTO。每个通道一个嵌套表单（对应 GUI 推送分组当前表单值），含各通道密钥
  * （用户尚未保存配置，需通过本地端点传给后端），仅在
- * {@link top.sywyar.pixivdownload.common.NetworkUtils#isTrustedLocalRequest} + GUI token 双校验后经同进程
+ * {@link top.sywyar.pixivdownload.web.LocalRequestTrust#isTrustedLocalRequest} + GUI token 双校验后经同进程
  * localhost 流转。
  * <p>
  * {@link #toEnabledSettings()} 只收集 {@code enabled=true} 的通道，转成各通道的不可变设置快照交给

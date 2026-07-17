@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 /**
  * SMTP 邮件发送配置。映射 {@code config.yaml} 中的 {@code mail.*} 前缀。
  * <p>
- * 字段全部使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.config.ProxyConfig} 风格一致，
+ * 字段全部使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 风格一致，
  * 以便热重载时安全地被多线程读取。本类只承载配置数据，发信逻辑见 {@link MailService}。
  */
 @Data

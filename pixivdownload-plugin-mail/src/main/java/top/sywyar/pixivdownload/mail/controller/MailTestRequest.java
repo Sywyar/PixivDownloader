@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.mail.MailSenderSettings;
  * <p>
  * 由 {@link top.sywyar.pixivdownload.mail.controller.MailTestController#test} 接收；
  * 字段对应 GUI 邮件分组的当前表单值。包含密码（用户尚未保存配置，需通过本地端点传给后端），仅在
- * {@link top.sywyar.pixivdownload.common.NetworkUtils#isTrustedLocalRequest} + GUI token 双校验后通过同进程 localhost
+ * {@link top.sywyar.pixivdownload.web.LocalRequestTrust#isTrustedLocalRequest} + GUI token 双校验后通过同进程 localhost
  * 流转。
  */
 public record MailTestRequest(

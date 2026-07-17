@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.ai.AiClientSettings;
  * <p>
  * 由 {@link AiTestController#test} 接收；字段对应 GUI AI 分组的当前表单值。包含 API Key（用户尚未保存配置，
  * 需通过本地端点传给后端），仅在
- * {@link top.sywyar.pixivdownload.common.NetworkUtils#isTrustedLocalRequest} + GUI token 双校验后通过同进程
+ * {@link top.sywyar.pixivdownload.web.LocalRequestTrust#isTrustedLocalRequest} + GUI token 双校验后通过同进程
  * localhost 流转。
  */
 public record AiTestRequest(
