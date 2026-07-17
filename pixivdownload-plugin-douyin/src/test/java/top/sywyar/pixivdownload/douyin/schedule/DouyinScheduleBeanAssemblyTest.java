@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.douyin.DouyinPluginConfiguration;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
@@ -35,6 +33,8 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static top.sywyar.pixivdownload.douyin.HostSettingsFixtures.downloadSettings;
+import static top.sywyar.pixivdownload.douyin.HostSettingsFixtures.proxySettings;
 
 @DisplayName("抖音计划 Spring Bean 装配")
 class DouyinScheduleBeanAssemblyTest {
@@ -60,7 +60,7 @@ class DouyinScheduleBeanAssemblyTest {
                 DouyinPluginSettingsService.fixed(
                         Path.of("target", "schedule-source-bean-test"),
                         DouyinProxyMode.INHERIT),
-                new ProxyConfig());
+                proxySettings(false, "", 0));
         List<DouyinScheduledSourceExecutor> executors = List.of(
                 configuration.douyinUserScheduledSourceExecutor(support),
                 configuration.douyinSearchScheduledSourceExecutor(support),
@@ -127,8 +127,6 @@ class DouyinScheduleBeanAssemblyTest {
         DouyinHistoryService history = mock(DouyinHistoryService.class);
         DouyinWorkDownloadExecutor sharedWorkExecutor =
                 configuration.douyinWorkDownloadExecutor(history);
-        DownloadConfig downloadConfig = new DownloadConfig();
-        downloadConfig.setMaxConcurrent(4);
         DouyinScheduledWorkExecutor work = configuration.douyinScheduledWorkExecutor(
                 client,
                 mock(DouyinMediaDownloader.class),
@@ -136,7 +134,7 @@ class DouyinScheduleBeanAssemblyTest {
                 DouyinPluginSettingsService.fixed(Path.of("target", "schedule-bean-test"),
                         DouyinProxyMode.INHERIT),
                 configuration.douyinScheduleCodec(new ObjectMapper()),
-                downloadConfig);
+                downloadSettings("target", 4));
 
         assertThat(credential.policyId()).isEqualTo("douyin.cookie");
         assertThat(guard.guardId()).isEqualTo("douyin.risk");

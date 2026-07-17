@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.douyin.schedule.work;
 
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.client.DouyinCookieValidator;
@@ -42,7 +42,7 @@ public final class DouyinScheduledWorkExecutor implements ScheduledWorkExecutor 
     private final DouyinWorkDownloadExecutor workDownloadExecutor;
     private final DouyinPluginSettingsService settingsService;
     private final DouyinScheduleCodec codec;
-    private final DownloadConfig downloadConfig;
+    private final DownloadSettings downloadSettings;
 
     public DouyinScheduledWorkExecutor(
             DouyinClient client,
@@ -50,14 +50,14 @@ public final class DouyinScheduledWorkExecutor implements ScheduledWorkExecutor 
             DouyinWorkDownloadExecutor workDownloadExecutor,
             DouyinPluginSettingsService settingsService,
             DouyinScheduleCodec codec,
-            DownloadConfig downloadConfig) {
+            DownloadSettings downloadSettings) {
         this.client = Objects.requireNonNull(client, "client");
         this.mediaDownloader = Objects.requireNonNull(mediaDownloader, "mediaDownloader");
         this.workDownloadExecutor = Objects.requireNonNull(
                 workDownloadExecutor, "workDownloadExecutor");
         this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
         this.codec = Objects.requireNonNull(codec, "codec");
-        this.downloadConfig = Objects.requireNonNull(downloadConfig, "downloadConfig");
+        this.downloadSettings = Objects.requireNonNull(downloadSettings, "downloadSettings");
     }
 
     @Override
@@ -67,7 +67,7 @@ public final class DouyinScheduledWorkExecutor implements ScheduledWorkExecutor 
 
     @Override
     public int maxConcurrency() {
-        return Math.max(1, downloadConfig.getMaxConcurrent());
+        return Math.max(1, downloadSettings.getMaxConcurrent());
     }
 
     @Override

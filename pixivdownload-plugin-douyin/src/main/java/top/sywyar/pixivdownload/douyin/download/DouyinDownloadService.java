@@ -3,10 +3,10 @@ package top.sywyar.pixivdownload.douyin.download;
 import org.springframework.core.task.TaskExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException;
-import top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinCookieValidator;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
@@ -71,9 +71,13 @@ public class DouyinDownloadService {
     public DouyinDownloadService(DouyinUrlParser parser,
                                  DouyinClient client,
                                  DouyinMediaDownloader mediaDownloader,
-                                 TaskExecutor downloadTaskExecutor) {
+                                 TaskExecutor downloadTaskExecutor,
+                                 RuntimePathProvider runtimePathProvider) {
         this(parser, client, mediaDownloader, downloadTaskExecutor,
-                RuntimeFiles.dataDirectory().resolve("douyin").resolve("downloads").normalize());
+                requireRuntimePathProvider(runtimePathProvider)
+                        .resolvePluginDataDirectory("douyin")
+                        .resolve("downloads")
+                        .normalize());
     }
 
     public DouyinDownloadService(DouyinUrlParser parser,
@@ -804,6 +808,13 @@ public class DouyinDownloadService {
 
     private static int positiveLimit(int limit) {
         return limit > 0 ? Math.min(limit, 100) : DEFAULT_PAGE_SIZE;
+    }
+
+    private static RuntimePathProvider requireRuntimePathProvider(RuntimePathProvider runtimePathProvider) {
+        if (runtimePathProvider == null) {
+            throw new IllegalArgumentException("Runtime path provider must not be null");
+        }
+        return runtimePathProvider;
     }
 
     private static String safeTitle(String title, String fallbackId) {

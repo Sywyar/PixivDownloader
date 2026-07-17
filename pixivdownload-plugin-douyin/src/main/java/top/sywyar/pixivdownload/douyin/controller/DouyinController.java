@@ -13,9 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import top.sywyar.pixivdownload.common.UuidUtils;
-import top.sywyar.pixivdownload.common.NetworkUtils;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
@@ -33,7 +31,9 @@ import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
 import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderSummary;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,15 +51,15 @@ public class DouyinController {
     static final int MAX_CARD_IDS = 100;
 
     private final DouyinDownloadService downloadService;
-    private final SetupService setupService;
-    private final MultiModeConfig multiModeConfig;
+    private final RequestOwnerIdentityResolver ownerIdentityResolver;
+    private final MultiModeSettings multiModeSettings;
 
     public DouyinController(DouyinDownloadService downloadService,
-                            SetupService setupService,
-                            MultiModeConfig multiModeConfig) {
+                            RequestOwnerIdentityResolver ownerIdentityResolver,
+                            MultiModeSettings multiModeSettings) {
         this.downloadService = downloadService;
-        this.setupService = setupService;
-        this.multiModeConfig = multiModeConfig;
+        this.ownerIdentityResolver = ownerIdentityResolver;
+        this.multiModeSettings = multiModeSettings;
     }
 
     @GetMapping("/resolve")
@@ -76,10 +76,9 @@ public class DouyinController {
         try {
             String cookie = acquisitionCredential(httpRequest, request == null ? null : request.cookie());
             requireSecureCredentialTransport(httpRequest, cookie);
-            String ownerUuid = setupService.hasAdminScope(httpRequest)
-                    ? null : UuidUtils.extractOrGenerateUuid(httpRequest);
+            RequestOwnerIdentity identity = ownerIdentityResolver.resolve(httpRequest);
             DouyinStartResponse response = downloadService.start(
-                    request == null ? null : request.withCookie(cookie), ownerUuid);
+                    request == null ? null : request.withCookie(cookie), identity.ownerUuid());
             return ResponseEntity.accepted().body(response);
         } catch (DouyinClientException e) {
             return clientError(e);
@@ -89,18 +88,16 @@ public class DouyinController {
     @GetMapping("/status/{id}")
     public ResponseEntity<DouyinDownloadSnapshot> status(@PathVariable String id,
                                                          HttpServletRequest request) {
-        boolean admin = setupService.hasAdminScope(request);
-        String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
-        return downloadService.status(id, ownerUuid, admin)
+        RequestOwnerIdentity identity = ownerIdentityResolver.resolve(request);
+        return downloadService.status(id, identity.ownerUuid(), identity.admin())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
     @GetMapping("/download/active")
     public ResponseEntity<List<DouyinDownloadSnapshot>> active(HttpServletRequest httpRequest) {
-        boolean admin = setupService.hasAdminScope(httpRequest);
-        String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(httpRequest);
-        return ResponseEntity.ok(downloadService.active(ownerUuid, admin));
+        RequestOwnerIdentity identity = ownerIdentityResolver.resolve(httpRequest);
+        return ResponseEntity.ok(downloadService.active(identity.ownerUuid(), identity.admin()));
     }
 
     @GetMapping("/user/{userId}/works/ids")
@@ -507,8 +504,8 @@ public class DouyinController {
     }
 
     private int searchRangeLimit(HttpServletRequest request) {
-        if ("multi".equals(setupService.getMode()) && !setupService.isAdminLoggedIn(request)) {
-            int configured = Math.max(0, multiModeConfig.getLimitPage());
+        if (!ownerIdentityResolver.resolve(request).admin()) {
+            int configured = Math.max(0, multiModeSettings.getLimitPage());
             if (configured > 0) {
                 return Math.min(configured, ABSOLUTE_MAX_SEARCH_RANGE_PAGES);
             }
@@ -519,7 +516,12 @@ public class DouyinController {
     private static void requireSecureCredentialTransport(HttpServletRequest request, String cookie)
             throws DouyinClientException {
         if (cookie != null && !cookie.isBlank() && request != null && !request.isSecure()
-                && !NetworkUtils.isLocalRequest(request)) {
+                && !LocalRequestTrust.isLocalRequest(
+                request.getRemoteAddr(),
+                request.getHeader("Host"),
+                request.getHeader("X-Forwarded-For"),
+                request.getHeader("X-Real-IP"),
+                request.getHeader("Forwarded"))) {
             throw new DouyinClientException(DouyinClientErrorCode.HTTP_FORBIDDEN,
                     "Douyin credentials require HTTPS for non-loopback clients");
         }

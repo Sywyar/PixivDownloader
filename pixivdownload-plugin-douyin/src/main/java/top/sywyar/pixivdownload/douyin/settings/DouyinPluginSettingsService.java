@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.douyin.settings;
 
-import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -25,8 +25,12 @@ public class DouyinPluginSettingsService {
     private final Path inheritedDownloadDirectory;
     private final DouyinRuntimeSettings fixedSettings;
 
-    public DouyinPluginSettingsService(Path inheritedDownloadDirectory) {
-        this(RuntimeFiles.resolvePluginConfigPath(PLUGIN_ID, "properties"), inheritedDownloadDirectory, null);
+    public DouyinPluginSettingsService(RuntimePathProvider runtimePathProvider,
+                                       Path inheritedDownloadDirectory) {
+        this(requireRuntimePathProvider(runtimePathProvider)
+                        .resolvePluginConfigPath(PLUGIN_ID, "properties"),
+                inheritedDownloadDirectory,
+                null);
     }
 
     DouyinPluginSettingsService(Path configFile, Path inheritedDownloadDirectory) {
@@ -133,6 +137,13 @@ public class DouyinPluginSettingsService {
             throw new IllegalArgumentException("Path must not be null");
         }
         return path.normalize();
+    }
+
+    private static RuntimePathProvider requireRuntimePathProvider(RuntimePathProvider runtimePathProvider) {
+        if (runtimePathProvider == null) {
+            throw new IllegalArgumentException("Runtime path provider must not be null");
+        }
+        return runtimePathProvider;
     }
 
     private static Properties loadProperties(Path configFile) throws IOException {

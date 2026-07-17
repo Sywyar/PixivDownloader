@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.douyin.schedule.network;
 
-import org.apache.hc.core5.http.HttpHost;
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettings;
@@ -47,12 +47,12 @@ public final class DouyinScheduledSourceRouteResolver {
         if (host == null || host.isBlank()) {
             return invalidProxyRoute();
         }
-        HttpHost parsed = OutboundProxyOverride.parse(host.trim() + ":" + port);
+        OutboundProxyEndpoint parsed = OutboundProxyOverride.parse(host.trim() + ":" + port);
         if (parsed == null) {
             return invalidProxyRoute();
         }
         return ScheduledNetworkRoute.proxy(
-                parsed.getHostName(), parsed.getPort(), null);
+                parsed.hostName(), parsed.port(), null);
     }
 
     private static int parsePort(String value) {

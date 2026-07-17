@@ -5,8 +5,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 
@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static top.sywyar.pixivdownload.douyin.HostSettingsFixtures.proxySettings;
 
 @DisplayName("Douyin 重定向客户端代理路由")
 class RestTemplateDouyinRedirectClientTest {
@@ -65,7 +66,7 @@ class RestTemplateDouyinRedirectClientTest {
         OutboundProxyOverride.set(
                 "127.0.0.1:" + proxyServer.getAddress().getPort());
 
-        assertResponse(new RestTemplateDouyinRedirectClient((ProxyConfig) null)
+        assertResponse(new RestTemplateDouyinRedirectClient((OutboundProxySettings) null)
                 .get(targetUri()), "proxy");
 
         assertThat(proxyHits).hasValue(1);
@@ -85,9 +86,7 @@ class RestTemplateDouyinRedirectClientTest {
     @Test
     @DisplayName("短链显式代理配置无效时禁止静默直连")
     void invalidRedirectProxyDoesNotFallBackToDirect() {
-        ProxyConfig invalidGlobalProxy = new ProxyConfig();
-        invalidGlobalProxy.setHost("");
-        invalidGlobalProxy.setPort(0);
+        var invalidGlobalProxy = proxySettings(false, "", 0);
         DouyinPluginSettingsService invalidCustomProxy = DouyinPluginSettingsService.fixed(
                 Path.of("."), DouyinProxyMode.CUSTOM, "http://127.0.0.1", 1080);
 
@@ -101,11 +100,8 @@ class RestTemplateDouyinRedirectClientTest {
     }
 
     private RestTemplateDouyinRedirectClient globalProxyClient() {
-        ProxyConfig proxyConfig = new ProxyConfig();
-        proxyConfig.setEnabled(true);
-        proxyConfig.setHost("127.0.0.1");
-        proxyConfig.setPort(proxyServer.getAddress().getPort());
-        return new RestTemplateDouyinRedirectClient(proxyConfig);
+        return new RestTemplateDouyinRedirectClient(proxySettings(
+                true, "127.0.0.1", proxyServer.getAddress().getPort()));
     }
 
     private RestTemplateDouyinRedirectClient customProxyClient() {

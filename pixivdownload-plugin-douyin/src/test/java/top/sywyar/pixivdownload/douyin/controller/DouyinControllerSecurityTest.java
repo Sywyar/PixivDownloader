@@ -10,7 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
@@ -24,7 +24,8 @@ import top.sywyar.pixivdownload.douyin.model.DouyinStartResponse;
 import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderListing;
 import top.sywyar.pixivdownload.douyin.model.favorite.DouyinFavoriteFolderSummary;
-import top.sywyar.pixivdownload.setup.SetupService;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.net.URI;
 import java.util.List;
@@ -34,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -47,16 +49,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 class DouyinControllerSecurityTest {
 
     private DouyinDownloadService service;
-    private SetupService setupService;
-    private MultiModeConfig multiModeConfig;
+    private RequestOwnerIdentityResolver ownerIdentityResolver;
+    private MultiModeSettings multiModeSettings;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         service = mock(DouyinDownloadService.class);
-        setupService = mock(SetupService.class);
-        multiModeConfig = new MultiModeConfig();
-        DouyinController controller = new DouyinController(service, setupService, multiModeConfig);
+        ownerIdentityResolver = mock(RequestOwnerIdentityResolver.class);
+        when(ownerIdentityResolver.resolve(any()))
+                .thenReturn(RequestOwnerIdentity.owner("owner-a"));
+        multiModeSettings = mock(MultiModeSettings.class);
+        DouyinController controller = new DouyinController(
+                service, ownerIdentityResolver, multiModeSettings);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new IllegalArgumentAdvice())
                 .build();
@@ -67,13 +72,61 @@ class DouyinControllerSecurityTest {
     void rejectsCredentialSubmissionOverRemoteHttp() {
         DouyinDownloadService directService = mock(DouyinDownloadService.class);
         DouyinController controller = new DouyinController(
-                directService, mock(SetupService.class), new MultiModeConfig());
+                directService, ownerIdentityResolver, multiModeSettings);
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.isSecure()).thenReturn(false);
         when(request.getRemoteAddr()).thenReturn("203.0.113.10");
 
         var response = controller.download(
                 new DouyinDownloadRequest("https://www.douyin.com/video/1", "title", "fixture-credential-7f4c2a91"),
+                request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        verifyNoInteractions(directService);
+    }
+
+    @Test
+    @DisplayName("纯 loopback HTTP 请求仍可提交凭证")
+    void acceptsCredentialSubmissionOverLoopbackHttp() throws Exception {
+        DouyinDownloadService directService = mock(DouyinDownloadService.class);
+        when(directService.start(any(), anyString()))
+                .thenReturn(new DouyinStartResponse(
+                        true, "status-1", "work-1", "douyin.status.queued"));
+        DouyinController controller = new DouyinController(
+                directService, ownerIdentityResolver, multiModeSettings);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.isSecure()).thenReturn(false);
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+
+        var response = controller.download(
+                new DouyinDownloadRequest(
+                        "https://www.douyin.com/video/1",
+                        "title",
+                        "fixture-credential-7f4c2a91"),
+                request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(202);
+        verify(directService).start(
+                argThat(download -> "fixture-credential-7f4c2a91".equals(download.cookie())),
+                eq("owner-a"));
+    }
+
+    @Test
+    @DisplayName("loopback 地址携带远端转发链时仍拒绝 HTTP 凭证")
+    void rejectsCredentialSubmissionWithRemoteForwardedAddress() {
+        DouyinDownloadService directService = mock(DouyinDownloadService.class);
+        DouyinController controller = new DouyinController(
+                directService, ownerIdentityResolver, multiModeSettings);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.isSecure()).thenReturn(false);
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(request.getHeader("X-Forwarded-For")).thenReturn("203.0.113.10");
+
+        var response = controller.download(
+                new DouyinDownloadRequest(
+                        "https://www.douyin.com/video/1",
+                        "title",
+                        "fixture-credential-7f4c2a91"),
                 request);
 
         assertThat(response.getStatusCode().value()).isEqualTo(403);
@@ -208,9 +261,7 @@ class DouyinControllerSecurityTest {
     @Test
     @DisplayName("多人模式非管理员搜索范围遵循配置页数限制")
     void appliesConfiguredMultiModeSearchRangeLimit() throws Exception {
-        when(setupService.getMode()).thenReturn("multi");
-        when(setupService.isAdminLoggedIn(any())).thenReturn(false);
-        multiModeConfig.setLimitPage(3);
+        when(multiModeSettings.getLimitPage()).thenReturn(3);
         DouyinWork work = work("work-2");
         when(service.searchPublic(anyString(), anyInt(), anyInt(), any()))
                 .thenAnswer(invocation -> new DouyinListing(
@@ -364,7 +415,8 @@ class DouyinControllerSecurityTest {
     @Test
     @DisplayName("非法预览参数直接调用控制器也返回稳定的 400 错误结构")
     void returnsStructuredBadRequestFromDirectControllerCall() {
-        DouyinController controller = new DouyinController(service, setupService, multiModeConfig);
+        DouyinController controller = new DouyinController(
+                service, ownerIdentityResolver, multiModeSettings);
 
         ResponseEntity<?> response = controller.userIds("sec-user", -1, 24, null, null, null);
 
@@ -379,7 +431,8 @@ class DouyinControllerSecurityTest {
     @Test
     @DisplayName("卡片兼容端点拒绝过多 ID 防止逐项查询放大")
     void rejectsTooManyCardIds() {
-        DouyinController controller = new DouyinController(service, setupService, multiModeConfig);
+        DouyinController controller = new DouyinController(
+                service, ownerIdentityResolver, multiModeSettings);
         List<String> ids = java.util.stream.IntStream.range(0, DouyinController.MAX_CARD_IDS + 1)
                 .mapToObj(Integer::toString)
                 .toList();
@@ -539,7 +592,8 @@ class DouyinControllerSecurityTest {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.isSecure()).thenReturn(false);
         when(request.getRemoteAddr()).thenReturn("203.0.113.10");
-        DouyinController controller = new DouyinController(service, setupService, multiModeConfig);
+        DouyinController controller = new DouyinController(
+                service, ownerIdentityResolver, multiModeSettings);
 
         ResponseEntity<?> response = controller.favoriteFolders(
                 "0", 24, "sessionid=test", request);

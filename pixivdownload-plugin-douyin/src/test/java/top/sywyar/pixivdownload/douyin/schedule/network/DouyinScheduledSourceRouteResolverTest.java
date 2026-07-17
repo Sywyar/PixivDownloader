@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
 import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceSupport;
@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static top.sywyar.pixivdownload.douyin.HostSettingsFixtures.proxySettings;
 
 @DisplayName("抖音计划来源默认路由")
 class DouyinScheduledSourceRouteResolverTest {
@@ -31,7 +32,7 @@ class DouyinScheduledSourceRouteResolverTest {
     @Test
     @DisplayName("四种插件代理模式映射为来源默认路由且强制代理忽略宿主启用开关")
     void mapsAllPluginProxyModesToSourceDefaultRoutes() throws Exception {
-        ProxyConfig hostProxy = hostProxy(false, "127.0.0.8", 7897);
+        OutboundProxySettings hostProxy = proxySettings(false, "127.0.0.8", 7897);
 
         assertThat(resolve(DouyinProxyMode.INHERIT, "", 0, hostProxy))
                 .isEqualTo(ScheduledNetworkRoute.inherit());
@@ -48,10 +49,10 @@ class DouyinScheduledSourceRouteResolverTest {
     void mapsInvalidProxyEndpointsToFailClosedMarker() {
         DouyinScheduledSourceRouteResolver invalidHostProxy = resolver(
                 DouyinProxyMode.PROXY, "", 0,
-                hostProxy(false, "https://127.0.0.1", 7890));
+                proxySettings(false, "https://127.0.0.1", 7890));
         DouyinScheduledSourceRouteResolver invalidCustomProxy = resolver(
                 DouyinProxyMode.CUSTOM, "127.0.0.1", 0,
-                hostProxy(true, "127.0.0.2", 7891));
+                proxySettings(true, "127.0.0.2", 7891));
 
         assertInvalidMarker(invalidHostProxy.resolve());
         assertInvalidMarker(invalidCustomProxy.resolve());
@@ -66,7 +67,7 @@ class DouyinScheduledSourceRouteResolverTest {
                 client,
                 codec,
                 resolver(DouyinProxyMode.CUSTOM, "", 0,
-                        hostProxy(true, "127.0.0.1", 7890)));
+                        proxySettings(true, "127.0.0.1", 7890)));
         var task = support.prepare(new ScheduledTaskDraft(
                 1L,
                 DouyinSourceTypes.USER,
@@ -84,7 +85,7 @@ class DouyinScheduledSourceRouteResolverTest {
             DouyinProxyMode mode,
             String customHost,
             int customPort,
-            ProxyConfig hostProxy) {
+            OutboundProxySettings hostProxy) {
         return resolver(mode, customHost, customPort, hostProxy).resolve();
     }
 
@@ -92,19 +93,11 @@ class DouyinScheduledSourceRouteResolverTest {
             DouyinProxyMode mode,
             String customHost,
             int customPort,
-            ProxyConfig hostProxy) {
+            OutboundProxySettings hostProxy) {
         return new DouyinScheduledSourceRouteResolver(
                 DouyinPluginSettingsService.fixed(
                         tempDir, mode, customHost, customPort),
                 hostProxy);
-    }
-
-    private static ProxyConfig hostProxy(boolean enabled, String host, int port) {
-        ProxyConfig config = new ProxyConfig();
-        config.setEnabled(enabled);
-        config.setHost(host);
-        config.setPort(port);
-        return config;
     }
 
     private static void assertInvalidMarker(ScheduledNetworkRoute route) {

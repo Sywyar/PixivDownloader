@@ -14,8 +14,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinRuntimeSettings;
 
@@ -27,12 +28,12 @@ public class RestTemplateDouyinRedirectClient implements DouyinRedirectClient {
 
     private final RestTemplate restTemplate;
 
-    public RestTemplateDouyinRedirectClient(ProxyConfig proxyConfig) {
-        this(proxyConfig, false);
+    public RestTemplateDouyinRedirectClient(OutboundProxySettings proxySettings) {
+        this(proxySettings, false);
     }
 
-    public RestTemplateDouyinRedirectClient(ProxyConfig proxyConfig, boolean forceProxy) {
-        this.restTemplate = buildNoRedirectRestTemplate(new DouyinProxyRoutePlanner(proxyConfig, forceProxy));
+    public RestTemplateDouyinRedirectClient(OutboundProxySettings proxySettings, boolean forceProxy) {
+        this.restTemplate = buildNoRedirectRestTemplate(new DouyinProxyRoutePlanner(proxySettings, forceProxy));
     }
 
     public RestTemplateDouyinRedirectClient(DouyinPluginSettingsService settingsService) {
@@ -85,28 +86,28 @@ public class RestTemplateDouyinRedirectClient implements DouyinRedirectClient {
 
     private static final class DouyinProxyRoutePlanner extends DefaultRoutePlanner {
 
-        private final ProxyConfig proxyConfig;
+        private final OutboundProxySettings proxySettings;
         private final boolean forceProxy;
 
-        private DouyinProxyRoutePlanner(ProxyConfig proxyConfig, boolean forceProxy) {
+        private DouyinProxyRoutePlanner(OutboundProxySettings proxySettings, boolean forceProxy) {
             super(null);
-            this.proxyConfig = proxyConfig;
+            this.proxySettings = proxySettings;
             this.forceProxy = forceProxy;
         }
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
             if (OutboundProxyOverride.isActive()) {
-                return OutboundProxyOverride.current();
+                return toHttpHost(OutboundProxyOverride.current());
             }
-            if (!forceProxy && (proxyConfig == null || !proxyConfig.isEnabled())) {
+            if (!forceProxy && (proxySettings == null || !proxySettings.isEnabled())) {
                 return null;
             }
-            if (proxyConfig == null) {
+            if (proxySettings == null) {
                 throw new HttpException("Douyin proxy mode requires a configured proxy");
             }
-            String host = proxyConfig.getHost();
-            int port = proxyConfig.getPort();
+            String host = proxySettings.getHost();
+            int port = proxySettings.getPort();
             if (host == null || host.isBlank() || port <= 0) {
                 if (forceProxy) {
                     throw new HttpException("Douyin proxy mode requires a valid proxy endpoint");
@@ -129,7 +130,7 @@ public class RestTemplateDouyinRedirectClient implements DouyinRedirectClient {
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
             if (OutboundProxyOverride.isActive()) {
-                return OutboundProxyOverride.current();
+                return toHttpHost(OutboundProxyOverride.current());
             }
             if (settingsService == null) {
                 throw new HttpException("Douyin custom proxy mode requires plugin settings");
@@ -138,11 +139,16 @@ public class RestTemplateDouyinRedirectClient implements DouyinRedirectClient {
             if (!settings.hasCustomProxyEndpoint()) {
                 throw new HttpException("Douyin custom proxy mode requires a valid proxy endpoint");
             }
-            HttpHost proxy = OutboundProxyOverride.parse(settings.proxyHost() + ":" + settings.proxyPort());
+            OutboundProxyEndpoint proxy = OutboundProxyOverride.parse(
+                    settings.proxyHost() + ":" + settings.proxyPort());
             if (proxy == null) {
                 throw new HttpException("Douyin custom proxy mode requires a valid proxy endpoint");
             }
-            return proxy;
+            return toHttpHost(proxy);
         }
+    }
+
+    private static HttpHost toHttpHost(OutboundProxyEndpoint endpoint) {
+        return endpoint == null ? null : new HttpHost("http", endpoint.hostName(), endpoint.port());
     }
 }

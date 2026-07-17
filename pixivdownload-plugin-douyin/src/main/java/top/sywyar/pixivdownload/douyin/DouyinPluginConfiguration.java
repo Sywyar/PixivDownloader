@@ -8,12 +8,14 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.web.client.RestTemplate;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.mapper.MapperFactoryBean;
-import top.sywyar.pixivdownload.config.ProxyConfig;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.douyin.client.DefaultDouyinShortLinkResolver;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.douyin.client.DefaultDouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinRedirectClient;
@@ -43,7 +45,6 @@ import top.sywyar.pixivdownload.douyin.schedule.work.DouyinScheduledWorkExecutor
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
-import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.nio.file.Path;
 
@@ -66,8 +67,8 @@ public class DouyinPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("douyin")
     public DouyinHistoryRepository douyinHistoryRepository(DouyinHistoryMapper mapper,
-                                                           PathPrefixCodec pathPrefixCodec) {
-        return new DouyinHistoryRepository(mapper, pathPrefixCodec);
+                                                           StoredPathCodec storedPathCodec) {
+        return new DouyinHistoryRepository(mapper, storedPathCodec);
     }
 
     @Bean
@@ -105,20 +106,20 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinRedirectClient douyinRedirectClient(ProxyConfig proxyConfig) {
-        return new RestTemplateDouyinRedirectClient(proxyConfig);
+    public DouyinRedirectClient douyinRedirectClient(OutboundProxySettings proxySettings) {
+        return new RestTemplateDouyinRedirectClient(proxySettings);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
     public DouyinRedirectClient douyinDirectRedirectClient() {
-        return new RestTemplateDouyinRedirectClient((ProxyConfig) null);
+        return new RestTemplateDouyinRedirectClient((OutboundProxySettings) null);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinRedirectClient douyinProxyRedirectClient(ProxyConfig proxyConfig) {
-        return new RestTemplateDouyinRedirectClient(proxyConfig, true);
+    public DouyinRedirectClient douyinProxyRedirectClient(OutboundProxySettings proxySettings) {
+        return new RestTemplateDouyinRedirectClient(proxySettings, true);
     }
 
     @Bean
@@ -161,8 +162,8 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public RestTemplate douyinRestTemplate(ProxyConfig proxyConfig) {
-        return DouyinRestTemplateFactory.inheritedDownloadTemplate(proxyConfig);
+    public RestTemplate douyinRestTemplate(OutboundProxySettings proxySettings) {
+        return DouyinRestTemplateFactory.inheritedDownloadTemplate(proxySettings);
     }
 
     @Bean
@@ -173,8 +174,8 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public RestTemplate douyinProxyRestTemplate(ProxyConfig proxyConfig) {
-        return DouyinRestTemplateFactory.forcedProxyDownloadTemplate(proxyConfig);
+    public RestTemplate douyinProxyRestTemplate(OutboundProxySettings proxySettings) {
+        return DouyinRestTemplateFactory.forcedProxyDownloadTemplate(proxySettings);
     }
 
     @Bean
@@ -249,9 +250,10 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinPluginSettingsService douyinPluginSettingsService(DownloadConfig downloadConfig) {
-        Path inherited = Path.of(downloadConfig.getRootFolder()).resolve("douyin").normalize();
-        return new DouyinPluginSettingsService(inherited);
+    public DouyinPluginSettingsService douyinPluginSettingsService(DownloadSettings downloadSettings,
+                                                                   RuntimePathProvider runtimePathProvider) {
+        Path inherited = Path.of(downloadSettings.getRootFolder()).resolve("douyin").normalize();
+        return new DouyinPluginSettingsService(runtimePathProvider, inherited);
     }
 
     @Bean
@@ -290,10 +292,10 @@ public class DouyinPluginConfiguration {
             @Qualifier("douyinClient") DouyinClient client,
             DouyinScheduleCodec codec,
             DouyinPluginSettingsService settingsService,
-            ProxyConfig proxyConfig) {
+            OutboundProxySettings proxySettings) {
         return new DouyinScheduledSourceSupport(
                 client, codec,
-                new DouyinScheduledSourceRouteResolver(settingsService, proxyConfig));
+                new DouyinScheduledSourceRouteResolver(settingsService, proxySettings));
     }
 
     @Bean
@@ -389,10 +391,10 @@ public class DouyinPluginConfiguration {
             DouyinWorkDownloadExecutor workDownloadExecutor,
             DouyinPluginSettingsService settingsService,
             DouyinScheduleCodec codec,
-            DownloadConfig downloadConfig) {
+            DownloadSettings downloadSettings) {
         return new DouyinScheduledWorkExecutor(
                 client, mediaDownloader, workDownloadExecutor, settingsService,
-                codec, downloadConfig);
+                codec, downloadSettings);
     }
 
     @Bean
@@ -404,9 +406,9 @@ public class DouyinPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("douyin")
     public DouyinController douyinController(DouyinDownloadService downloadService,
-                                             SetupService setupService,
-                                             MultiModeConfig multiModeConfig) {
-        return new DouyinController(downloadService, setupService, multiModeConfig);
+                                             RequestOwnerIdentityResolver ownerIdentityResolver,
+                                             MultiModeSettings multiModeSettings) {
+        return new DouyinController(downloadService, ownerIdentityResolver, multiModeSettings);
     }
 
     @Bean

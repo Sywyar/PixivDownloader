@@ -9,7 +9,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.client.ResourceAccessException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 
@@ -24,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static top.sywyar.pixivdownload.douyin.HostSettingsFixtures.proxySettings;
 
 @DisplayName("Douyin HTTP 客户端重定向边界")
 class DouyinRestTemplateFactoryTest {
@@ -72,9 +72,7 @@ class DouyinRestTemplateFactoryTest {
     void invalidExplicitProxyDoesNotFallBackToDirect() throws IOException {
         AtomicInteger targetHits = new AtomicInteger();
         URI target = startTarget(targetHits);
-        ProxyConfig invalidGlobalProxy = new ProxyConfig();
-        invalidGlobalProxy.setHost("");
-        invalidGlobalProxy.setPort(0);
+        var invalidGlobalProxy = proxySettings(false, "", 0);
         DouyinPluginSettingsService invalidCustomProxy = DouyinPluginSettingsService.fixed(
                 Path.of("."), DouyinProxyMode.CUSTOM, "http://127.0.0.1", 1080);
 

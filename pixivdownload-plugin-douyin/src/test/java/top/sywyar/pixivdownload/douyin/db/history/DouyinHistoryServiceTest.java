@@ -9,7 +9,6 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.context.support.StaticMessageSource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -18,11 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.douyin.DouyinPlugin;
+import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.douyin.client.DefaultDouyinClient;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadedFile;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
@@ -31,10 +26,6 @@ import top.sywyar.pixivdownload.douyin.model.DouyinWork;
 import top.sywyar.pixivdownload.douyin.model.DouyinWorkKind;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.CorePlugin;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -406,27 +397,17 @@ class DouyinHistoryServiceTest {
 
         private TestDb(Path root) {
             dataSource = newDataSource();
-            DatabaseSchemaRegistry registry = new DatabaseSchemaRegistry(
-                    new PluginRegistry(List.of(new CorePlugin(), new DouyinPlugin())));
-            new DatabaseInitializer(new JdbcTemplate(dataSource),
-                    registry.contributions(), registry.mergedSchema(), messages(), event -> {}).initialize();
+            createSchema(new JdbcTemplate(dataSource));
 
             Configuration config = new Configuration();
             config.setEnvironment(new Environment("test", new JdbcTransactionFactory(), dataSource));
-            config.addMapper(PathPrefixMapper.class);
             config.addMapper(DouyinHistoryMapper.class);
             SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
             session = factory.openSession(true);
             mapper = session.getMapper(DouyinHistoryMapper.class);
 
-            DownloadConfig downloadConfig = new DownloadConfig();
-            downloadConfig.setRootFolder(root.toAbsolutePath().normalize().toString());
-            PathPrefixCodec codec = new PathPrefixCodec(
-                    session.getMapper(PathPrefixMapper.class), downloadConfig, messages());
-            codec.init();
-            codec.getOrCreatePrefixId(root.toAbsolutePath().normalize().toString());
-
-            DouyinHistoryRepository repository = new DouyinHistoryRepository(mapper, codec);
+            DouyinHistoryRepository repository = new DouyinHistoryRepository(
+                    mapper, new RootStoredPathCodec(root));
             service = new DouyinHistoryService(repository);
         }
 
@@ -443,9 +424,99 @@ class DouyinHistoryServiceTest {
             ds.setSuppressClose(true);
             return ds;
         }
+
+        private static void createSchema(JdbcTemplate jdbc) {
+            jdbc.execute("""
+                    CREATE TABLE douyin_works (
+                        work_id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        folder TEXT NOT NULL,
+                        count INTEGER NOT NULL,
+                        extensions TEXT NOT NULL,
+                        time INTEGER NOT NULL UNIQUE,
+                        deleted INTEGER NOT NULL DEFAULT 0,
+                        kind TEXT NOT NULL,
+                        source_url TEXT,
+                        canonical_url TEXT,
+                        thumbnail_url TEXT,
+                        author_id TEXT,
+                        author_name TEXT,
+                        description TEXT,
+                        item_title TEXT,
+                        caption TEXT,
+                        publish_time INTEGER,
+                        collection_id TEXT,
+                        collection_title TEXT,
+                        collection_order INTEGER
+                    )
+                    """);
+            jdbc.execute("""
+                    CREATE TABLE douyin_work_files (
+                        work_id TEXT NOT NULL,
+                        file_index INTEGER NOT NULL,
+                        media_id TEXT,
+                        media_type TEXT NOT NULL,
+                        file_name TEXT NOT NULL,
+                        extension TEXT NOT NULL,
+                        bytes INTEGER,
+                        content_type TEXT,
+                        created_time INTEGER NOT NULL,
+                        PRIMARY KEY (work_id, file_index)
+                    )
+                    """);
+            jdbc.execute("""
+                    CREATE TABLE douyin_work_relations (
+                        work_id TEXT NOT NULL,
+                        source_type TEXT NOT NULL,
+                        source_id TEXT NOT NULL,
+                        source_title TEXT,
+                        source_url TEXT,
+                        source_order INTEGER,
+                        discovered_time INTEGER NOT NULL,
+                        PRIMARY KEY (work_id, source_type, source_id)
+                    )
+                    """);
+        }
     }
 
-    private static AppMessages messages() {
-        return new AppMessages(new StaticMessageSource());
+    private static final class RootStoredPathCodec implements StoredPathCodec {
+
+        private static final String ROOT_TOKEN = "{0}";
+        private final Path root;
+
+        private RootStoredPathCodec(Path root) {
+            this.root = root.toAbsolutePath().normalize();
+        }
+
+        @Override
+        public String encode(String absolutePath) {
+            if (absolutePath == null) {
+                return null;
+            }
+            Path path = Path.of(absolutePath).toAbsolutePath().normalize();
+            if (!path.startsWith(root)) {
+                return absolutePath;
+            }
+            Path relative = root.relativize(path);
+            return relative.toString().isEmpty()
+                    ? ROOT_TOKEN
+                    : ROOT_TOKEN + "/" + relative.toString().replace('\\', '/');
+        }
+
+        @Override
+        public String resolve(String storedValue) {
+            if (storedValue == null || !storedValue.startsWith(ROOT_TOKEN)) {
+                return storedValue;
+            }
+            if (storedValue.equals(ROOT_TOKEN)) {
+                return root.toString();
+            }
+            if (storedValue.startsWith(ROOT_TOKEN + "/")) {
+                return root.resolve(storedValue.substring((ROOT_TOKEN + "/").length()))
+                        .normalize()
+                        .toString();
+            }
+            return storedValue;
+        }
     }
 }

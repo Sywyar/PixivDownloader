@@ -3,11 +3,15 @@ package top.sywyar.pixivdownload.douyin.settings;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.config.RuntimePathProvider;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @DisplayName("DouyinPluginSettingsService 抖音插件设置")
 class DouyinPluginSettingsServiceTest {
@@ -33,6 +37,24 @@ class DouyinPluginSettingsServiceTest {
         assertThat(service.runtimeSettings().proxyMode()).isEqualTo(DouyinProxyMode.INHERIT);
         assertThat(service.runtimeSettings().proxyHost()).isEmpty();
         assertThat(service.runtimeSettings().proxyPort()).isZero();
+    }
+
+    @Test
+    @DisplayName("公开构造器通过运行路径契约定位插件配置")
+    void resolvesPluginConfigurationThroughRuntimePathProvider() throws Exception {
+        Path configFile = tempDir.resolve("config").resolve("plugins").resolve("douyin.properties");
+        Files.createDirectories(configFile.getParent());
+        Files.writeString(configFile, "douyin.proxy.mode=direct\n");
+        RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
+        when(runtimePathProvider.resolvePluginConfigPath("douyin", "properties"))
+                .thenReturn(configFile);
+
+        DouyinPluginSettingsService service = new DouyinPluginSettingsService(
+                runtimePathProvider,
+                tempDir.resolve("downloads").resolve("douyin"));
+
+        assertThat(service.load().proxyMode()).isEqualTo(DouyinProxyMode.DIRECT);
+        verify(runtimePathProvider).resolvePluginConfigPath("douyin", "properties");
     }
 
     @Test

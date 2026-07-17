@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.douyin.db.history;
 
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 
 import java.util.List;
 import java.util.Objects;
@@ -9,11 +9,11 @@ import java.util.Optional;
 public class DouyinHistoryRepository {
 
     private final DouyinHistoryMapper mapper;
-    private final PathPrefixCodec pathPrefixCodec;
+    private final StoredPathCodec storedPathCodec;
 
-    public DouyinHistoryRepository(DouyinHistoryMapper mapper, PathPrefixCodec pathPrefixCodec) {
+    public DouyinHistoryRepository(DouyinHistoryMapper mapper, StoredPathCodec storedPathCodec) {
         this.mapper = mapper;
-        this.pathPrefixCodec = pathPrefixCodec;
+        this.storedPathCodec = storedPathCodec;
     }
 
     public Optional<DouyinWorkRecord> findById(String workId) {
@@ -117,7 +117,7 @@ public class DouyinHistoryRepository {
         if (record == null) {
             return null;
         }
-        String resolved = pathPrefixCodec.resolve(record.folder());
+        String resolved = storedPathCodec.resolve(record.folder());
         return Objects.equals(resolved, record.folder()) ? record : record.withFolder(resolved);
     }
 
@@ -125,7 +125,7 @@ public class DouyinHistoryRepository {
         if (folder == null) {
             return null;
         }
-        return pathPrefixCodec.encode(stripTrailingSlash(folder));
+        return storedPathCodec.encode(stripTrailingSlash(folder));
     }
 
     private static String stripTrailingSlash(String path) {

@@ -12,8 +12,9 @@ import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.protocol.HttpContext;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinRuntimeSettings;
 
@@ -24,16 +25,16 @@ public final class DouyinRestTemplateFactory {
     private DouyinRestTemplateFactory() {
     }
 
-    public static RestTemplate inheritedDownloadTemplate(ProxyConfig proxyConfig) {
-        return build(30_000, 60_000, new InheritedProxyRoutePlanner(proxyConfig));
+    public static RestTemplate inheritedDownloadTemplate(OutboundProxySettings proxySettings) {
+        return build(30_000, 60_000, new InheritedProxyRoutePlanner(proxySettings));
     }
 
     public static RestTemplate directDownloadTemplate() {
         return build(30_000, 60_000, new DirectProxyRoutePlanner());
     }
 
-    public static RestTemplate forcedProxyDownloadTemplate(ProxyConfig proxyConfig) {
-        return build(30_000, 60_000, new ForcedProxyRoutePlanner(proxyConfig));
+    public static RestTemplate forcedProxyDownloadTemplate(OutboundProxySettings proxySettings) {
+        return build(30_000, 60_000, new ForcedProxyRoutePlanner(proxySettings));
     }
 
     public static RestTemplate customProxyDownloadTemplate(DouyinPluginSettingsService settingsService) {
@@ -80,30 +81,30 @@ public final class DouyinRestTemplateFactory {
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
             return OutboundProxyOverride.isActive()
-                    ? OutboundProxyOverride.current()
+                    ? toHttpHost(OutboundProxyOverride.current())
                     : null;
         }
     }
 
     private static final class InheritedProxyRoutePlanner extends DefaultRoutePlanner {
 
-        private final ProxyConfig proxyConfig;
+        private final OutboundProxySettings proxySettings;
 
-        private InheritedProxyRoutePlanner(ProxyConfig proxyConfig) {
+        private InheritedProxyRoutePlanner(OutboundProxySettings proxySettings) {
             super(null);
-            this.proxyConfig = proxyConfig;
+            this.proxySettings = proxySettings;
         }
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
             if (OutboundProxyOverride.isActive()) {
-                return OutboundProxyOverride.current();
+                return toHttpHost(OutboundProxyOverride.current());
             }
-            if (proxyConfig == null || !proxyConfig.isEnabled()) {
+            if (proxySettings == null || !proxySettings.isEnabled()) {
                 return null;
             }
-            String host = proxyConfig.getHost();
-            int port = proxyConfig.getPort();
+            String host = proxySettings.getHost();
+            int port = proxySettings.getPort();
             if (host == null || host.isBlank() || port <= 0) {
                 return null;
             }
@@ -113,23 +114,23 @@ public final class DouyinRestTemplateFactory {
 
     private static final class ForcedProxyRoutePlanner extends DefaultRoutePlanner {
 
-        private final ProxyConfig proxyConfig;
+        private final OutboundProxySettings proxySettings;
 
-        private ForcedProxyRoutePlanner(ProxyConfig proxyConfig) {
+        private ForcedProxyRoutePlanner(OutboundProxySettings proxySettings) {
             super(null);
-            this.proxyConfig = proxyConfig;
+            this.proxySettings = proxySettings;
         }
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
             if (OutboundProxyOverride.isActive()) {
-                return OutboundProxyOverride.current();
+                return toHttpHost(OutboundProxyOverride.current());
             }
-            if (proxyConfig == null) {
+            if (proxySettings == null) {
                 throw new HttpException("Douyin proxy mode requires a configured proxy");
             }
-            String host = proxyConfig.getHost();
-            int port = proxyConfig.getPort();
+            String host = proxySettings.getHost();
+            int port = proxySettings.getPort();
             if (host == null || host.isBlank() || port <= 0) {
                 throw new HttpException("Douyin proxy mode requires a valid proxy endpoint");
             }
@@ -149,7 +150,7 @@ public final class DouyinRestTemplateFactory {
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
             if (OutboundProxyOverride.isActive()) {
-                return OutboundProxyOverride.current();
+                return toHttpHost(OutboundProxyOverride.current());
             }
             if (settingsService == null) {
                 throw new HttpException("Douyin custom proxy mode requires plugin settings");
@@ -158,11 +159,16 @@ public final class DouyinRestTemplateFactory {
             if (!settings.hasCustomProxyEndpoint()) {
                 throw new HttpException("Douyin custom proxy mode requires a valid proxy endpoint");
             }
-            HttpHost proxy = OutboundProxyOverride.parse(settings.proxyHost() + ":" + settings.proxyPort());
+            OutboundProxyEndpoint proxy = OutboundProxyOverride.parse(
+                    settings.proxyHost() + ":" + settings.proxyPort());
             if (proxy == null) {
                 throw new HttpException("Douyin custom proxy mode requires a valid proxy endpoint");
             }
-            return proxy;
+            return toHttpHost(proxy);
         }
+    }
+
+    private static HttpHost toHttpHost(OutboundProxyEndpoint endpoint) {
+        return endpoint == null ? null : new HttpHost("http", endpoint.hostName(), endpoint.port());
     }
 }

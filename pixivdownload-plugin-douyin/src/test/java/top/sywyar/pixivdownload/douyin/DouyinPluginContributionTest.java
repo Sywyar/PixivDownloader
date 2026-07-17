@@ -10,18 +10,10 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
-import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
-import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
-import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 import java.util.List;
 import java.util.Set;
@@ -174,15 +166,9 @@ class DouyinPluginContributionTest {
     }
 
     @Test
-    @DisplayName("注册后可发现，注销后 route/static/navigation/i18n/uiSlot/queueType 均撤销")
-    void registriesRegisterAndUnregisterDouyinContributions() {
-        PluginRegistry pluginRegistry = new PluginRegistry(List.of(new DouyinPlugin()));
-        RouteAccessRegistry routes = new RouteAccessRegistry(pluginRegistry);
-        StaticResourceRegistry statics = new StaticResourceRegistry(pluginRegistry);
-        NavigationRegistry navigation = new NavigationRegistry(pluginRegistry);
-        WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(pluginRegistry);
-        WebUiSlotRegistry slots = new WebUiSlotRegistry(pluginRegistry);
-        QueueTypeRegistry queueTypes = new QueueTypeRegistry(pluginRegistry);
+    @DisplayName("插件入口直接声明 route/static/navigation/i18n/uiSlot/queueType 契约")
+    void pluginDeclaresAllWebContributionsWithoutHostRegistryDependency() {
+        DouyinPlugin plugin = new DouyinPlugin();
         List<String> adminGalleryPaths = List.of(
                 "/pixiv-douyin-gallery.html",
                 "/pixiv-douyin-gallery/pixiv-douyin-gallery.css",
@@ -195,74 +181,59 @@ class DouyinPluginContributionTest {
                 "/api/douyin/me/favorite-folders",
                 "/api/douyin/me/favorite-folders/folder-a/works");
 
-        assertThat(routes.isDeclared("/api/douyin/resolve", HttpMethod.GET)).isTrue();
-        assertThat(routes.resolve("/api/douyin/resolve", HttpMethod.GET))
-                .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
-        assertThat(routes.resolve("/api/douyin/user/sec-user/liked/ids", HttpMethod.GET))
-                .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
-        assertThat(routes.resolve("/api/douyin/me/favorite-collections", HttpMethod.GET))
-                .hasValueSatisfying(route -> assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+        assertThat(routePolicy(plugin, "/api/douyin/resolve")).isEqualTo(AccessPolicy.VISITOR);
+        assertThat(routePolicy(plugin, "/api/douyin/user/sec-user/liked/ids"))
+                .isEqualTo(AccessPolicy.VISITOR);
+        assertThat(routePolicy(plugin, "/api/douyin/me/favorite-collections"))
+                .isEqualTo(AccessPolicy.VISITOR);
         for (String path : visitorAcquisitionPaths) {
-            assertThat(routes.resolve(path, HttpMethod.GET))
+            assertThat(routePolicy(plugin, path))
                     .as("%s 使用 VISITOR 访问策略", path)
-                    .hasValueSatisfying(route ->
-                            assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR));
+                    .isEqualTo(AccessPolicy.VISITOR);
         }
         for (String path : adminGalleryPaths) {
-            assertThat(routes.resolve(path, HttpMethod.GET))
+            assertThat(routePolicy(plugin, path))
                     .as("%s 使用 ADMIN 访问策略", path)
-                    .hasValueSatisfying(route ->
-                            assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
+                    .isEqualTo(AccessPolicy.ADMIN);
         }
-        var douyinStatics = statics.resources().stream()
-                .filter(resource -> resource.pluginId().equals("douyin"))
-                .toList();
+        var douyinStatics = plugin.staticResources();
         assertThat(douyinStatics).hasSize(5);
-        assertThat(douyinStatics).extracting(resource -> resource.contribution().publicPathPrefix())
+        assertThat(douyinStatics).extracting(resource -> resource.publicPathPrefix())
                 .containsExactlyInAnyOrder(
                         "/pixiv-douyin-gallery.html",
                         "/pixiv-douyin.html",
                         "/pixiv-douyin-gallery/",
                         "/pixiv-douyin/",
                         "/pixiv-douyin-download/");
-        assertThat(douyinStatics).filteredOn(resource -> resource.contribution().exactFile())
-                .extracting(resource -> resource.contribution().publicPathPrefix())
+        assertThat(douyinStatics).filteredOn(resource -> resource.exactFile())
+                .extracting(resource -> resource.publicPathPrefix())
                 .containsExactlyInAnyOrder(
                         "/pixiv-douyin-gallery.html",
                         "/pixiv-douyin.html");
-        assertThat(navigation.navigation())
-                .filteredOn(registered -> registered.pluginId().equals("douyin"))
+        assertThat(plugin.navigation())
                 .singleElement()
-                .satisfies(registered -> {
-                    assertThat(registered.navigation().id()).isEqualTo("douyin-gallery-type-switch");
-                    assertThat(registered.navigation().placements())
+                .satisfies(navigation -> {
+                    assertThat(navigation.id()).isEqualTo("douyin-gallery-type-switch");
+                    assertThat(navigation.placements())
                             .containsExactly(NavigationPlacements.GALLERY_TYPE_SWITCH);
-                    assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.ADMIN);
-                    assertThat(registered.navigation().href())
+                    assertThat(navigation.visibleTo()).isEqualTo(AccessPolicy.ADMIN);
+                    assertThat(navigation.href())
                             .isEqualTo("/pixiv-douyin-gallery.html?view=all");
                 });
-        assertThat(i18n.resolve("douyin")).isNotNull();
-        assertThat(slots.slots()).filteredOn(slot -> slot.pluginId().equals("douyin")).hasSize(6);
-        assertThat(queueTypes.queueTypes()).singleElement()
-                .satisfies(registered -> assertThat(registered.queueType().type()).isEqualTo("douyin"));
+        assertThat(plugin.i18n()).singleElement().satisfies(i18n -> {
+            assertThat(i18n.namespace()).isEqualTo("douyin");
+            assertThat(i18n.baseName()).isEqualTo("i18n.web.douyin");
+        });
+        assertThat(plugin.uiSlots()).hasSize(6);
+        assertThat(plugin.queueTypes()).singleElement()
+                .satisfies(queueType -> assertThat(queueType.type()).isEqualTo("douyin"));
+    }
 
-        routes.unregister("douyin");
-        statics.unregister("douyin");
-        navigation.unregister("douyin");
-        i18n.unregister("douyin");
-        slots.unregister("douyin");
-        queueTypes.unregister("douyin");
-
-        assertThat(routes.isDeclared("/api/douyin/resolve", HttpMethod.GET)).isFalse();
-        for (String path : adminGalleryPaths) {
-            assertThat(routes.isDeclared(path, HttpMethod.GET))
-                    .as("注销后 %s 不再声明", path)
-                    .isFalse();
-        }
-        assertThat(statics.resources()).noneMatch(resource -> resource.pluginId().equals("douyin"));
-        assertThat(navigation.navigation()).noneMatch(registered -> registered.pluginId().equals("douyin"));
-        assertThat(i18n.resolve("douyin")).isNull();
-        assertThat(slots.slots()).noneMatch(slot -> slot.pluginId().equals("douyin"));
-        assertThat(queueTypes.queueTypes()).isEmpty();
+    private static AccessPolicy routePolicy(DouyinPlugin plugin, String path) {
+        return plugin.routes().stream()
+                .filter(route -> route.matches(path))
+                .findFirst()
+                .map(route -> route.accessPolicy())
+                .orElseThrow();
     }
 }

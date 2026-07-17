@@ -5,7 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinHistoryService;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinSourceRelation;
@@ -49,6 +48,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static top.sywyar.pixivdownload.douyin.HostSettingsFixtures.downloadSettings;
 
 @DisplayName("抖音计划作品同步执行")
 class DouyinScheduledWorkExecutorTest {
@@ -229,8 +229,6 @@ class DouyinScheduledWorkExecutorTest {
             DouyinHistoryService history,
             DouyinScheduleCodec codec,
             boolean includeCover) {
-        DownloadConfig downloadConfig = new DownloadConfig();
-        downloadConfig.setMaxConcurrent(3);
         return new DouyinScheduledWorkExecutor(
                 client,
                 mediaDownloader,
@@ -238,7 +236,7 @@ class DouyinScheduledWorkExecutorTest {
                 DouyinPluginSettingsService.fixed(
                         tempDir, DouyinProxyMode.INHERIT, "", 0, includeCover),
                 codec,
-                downloadConfig);
+                downloadSettings(tempDir.toString(), 3));
     }
 
     private DouyinMediaDownloader downloaderWriting(String fileName) throws Exception {
