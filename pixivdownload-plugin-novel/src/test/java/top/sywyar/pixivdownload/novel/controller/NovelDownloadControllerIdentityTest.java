@@ -8,7 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
@@ -42,7 +42,7 @@ class NovelDownloadControllerIdentityTest {
     @Mock private WorkVisibilityService workVisibilityService;
     @Mock private UserQuotaService userQuotaService;
     @Mock private MultiModeSettings multiModeSettings;
-    @Mock private AppMessages messages;
+    @Mock private MessageResolver messages;
     @Mock private HttpServletRequest httpRequest;
 
     @Test

@@ -9,7 +9,8 @@ import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.config.DebugSettings;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
@@ -52,9 +53,9 @@ class NarrationControllerTest {
 
     private final NarrationController controller =
             new NarrationController(scriptService, castService, referenceVoiceService, audioService, novelDatabase,
-                    appMessages(), debugSettings, aiService);
+                    messageResolver(), debugSettings, aiService);
     private final NarrationTtsController ttsController =
-            new NarrationTtsController(audioService, scriptService, appMessages());
+            new NarrationTtsController(audioService, scriptService, messageResolver());
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
@@ -68,7 +69,7 @@ class NarrationControllerTest {
                 1L, null, null, null, null, null, null, null, null, null, "正文。", null);
     }
 
-    private static AppMessages appMessages() {
+    private static MessageResolver messageResolver() {
         ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
         source.setBasenames(
                 "classpath:i18n/messages",
@@ -77,7 +78,7 @@ class NarrationControllerTest {
                 "classpath:i18n/web/tts");
         source.setDefaultEncoding("UTF-8");
         source.setUseCodeAsDefaultMessage(true);
-        return new AppMessages(source);
+        return TestI18nBeans.messageResolver(source);
     }
 
     @Test

@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.core.ai.AiService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
 import top.sywyar.pixivdownload.common.ErrorResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
@@ -53,7 +53,7 @@ public class NarrationController {
     private final NarrationReferenceVoiceService referenceVoiceService;
     private final NarrationAudioService narrationAudioService;
     private final NovelDatabase novelDatabase;
-    private final AppMessages messages;
+    private final MessageResolver messages;
     private final DebugSettings debugSettings;
     private final AiService aiService;
 

@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.narration.audio;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence;
@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("多角色朗读音频合成服务（集中调用 + 显式模式 + 归一 + 能力降级）")
 class NarrationAudioServiceTest {
 
-    private static final AppMessages MESSAGES = TestI18nBeans.appMessages();
+    private static final MessageResolver MESSAGES = TestI18nBeans.messageResolver();
 
     @Test
     @DisplayName("synthesizeVoiceDesign：按 narration-tts.engine 选中引擎并以 VOICE_DESIGN 合成")

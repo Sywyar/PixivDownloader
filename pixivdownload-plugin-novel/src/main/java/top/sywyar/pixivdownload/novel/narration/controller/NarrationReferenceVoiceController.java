@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidator;
@@ -46,7 +46,7 @@ public class NarrationReferenceVoiceController {
 
     private final NovelNarrationCastService castService;
     private final NarrationReferenceVoiceService referenceVoiceService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
     private final RuntimePathProvider runtimePathProvider;
 
     public record GenerateRequest(Long castId, Integer characterId, String text) {}

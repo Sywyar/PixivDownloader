@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
 import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
@@ -69,7 +69,7 @@ public class NovelDownloadController {
     private final WorkVisibilityService workVisibilityService;
     private final UserQuotaService userQuotaService;
     private final MultiModeSettings multiModeSettings;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     @PostMapping("/novel/download")
     public ResponseEntity<?> downloadNovel(

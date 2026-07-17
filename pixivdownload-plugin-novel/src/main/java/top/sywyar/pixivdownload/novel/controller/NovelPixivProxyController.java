@@ -21,7 +21,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
 import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
@@ -56,7 +56,7 @@ public class NovelPixivProxyController {
     private final PixivAjaxProxyClient pixivAjaxProxyClient;
     private final PixivProxyAccessGuard pixivProxyAccessGuard;
     private final WorkVisibilityService workVisibilityService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     private String proxyGet(String url, String cookie) {
         return pixivAjaxProxyClient.proxyGet(url, cookie);

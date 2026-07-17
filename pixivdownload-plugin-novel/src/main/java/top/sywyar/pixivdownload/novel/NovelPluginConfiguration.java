@@ -33,7 +33,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardController;
 import top.sywyar.pixivdownload.novel.controller.NovelGlossaryController;
@@ -112,7 +112,7 @@ public class NovelPluginConfiguration {
     public NovelSeriesService novelSeriesService(NovelDatabase novelDatabase,
                                                  DownloadSettings downloadConfig,
                                                  PixivCoverDownloader coverDownloader,
-                                                 AppMessages messages) {
+                                                 MessageResolver messages) {
         return new NovelSeriesService(novelDatabase, downloadConfig, coverDownloader, messages);
     }
 
@@ -121,7 +121,7 @@ public class NovelPluginConfiguration {
     public NovelMergeService novelMergeService(DownloadSettings downloadConfig,
                                                NovelDatabase novelDatabase,
                                                AuthorService authorService,
-                                               AppMessages messages) {
+                                               MessageResolver messages) {
         return new NovelMergeService(downloadConfig, novelDatabase, authorService, messages);
     }
 
@@ -137,7 +137,7 @@ public class NovelPluginConfiguration {
     public NovelTranslationService novelTranslationService(AiService aiService,
                                                            NovelDatabase novelDatabase,
                                                            NovelGlossaryService glossaryService,
-                                                           AppMessages messages) {
+                                                           MessageResolver messages) {
         return new NovelTranslationService(aiService, novelDatabase, glossaryService, messages);
     }
 
@@ -169,7 +169,7 @@ public class NovelPluginConfiguration {
             @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
             @Qualifier("taskScheduler") TaskScheduler taskScheduler,
             @Qualifier("novelDownloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-            AppMessages messages,
+            MessageResolver messages,
             NovelAutoTranslateService novelAutoTranslateService,
             WorkMetaCaptureService workMetaCaptureService) {
         return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase, novelSeriesService,
@@ -226,7 +226,7 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NarrationAudioService narrationAudioService(NarrationEngineRegistry registry,
                                                        NarrationTtsConfig config,
-                                                       AppMessages messages) {
+                                                       MessageResolver messages) {
         return new NarrationAudioService(registry, config, messages);
     }
 
@@ -273,7 +273,7 @@ public class NovelPluginConfiguration {
                                                    NarrationReferenceVoiceService referenceVoiceService,
                                                    NarrationAudioService narrationAudioService,
                                                    NovelDatabase novelDatabase,
-                                                   AppMessages messages,
+                                                   MessageResolver messages,
                                                    DebugSettings debugSettings,
                                                    AiService aiService) {
         return new NarrationController(scriptService, castService, referenceVoiceService, narrationAudioService,
@@ -284,7 +284,7 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NarrationTtsController narrationTtsController(NarrationAudioService narrationAudioService,
                                                          NovelNarrationScriptService narrationScriptService,
-                                                         AppMessages messages) {
+                                                         MessageResolver messages) {
         return new NarrationTtsController(narrationAudioService, narrationScriptService, messages);
     }
 
@@ -293,7 +293,7 @@ public class NovelPluginConfiguration {
     public NarrationReferenceVoiceController narrationReferenceVoiceController(
             NovelNarrationCastService castService,
             NarrationReferenceVoiceService referenceVoiceService,
-            AppMessages messages,
+            MessageResolver messages,
             RuntimePathProvider runtimePathProvider) {
         return new NarrationReferenceVoiceController(
                 castService, referenceVoiceService, messages, runtimePathProvider);
@@ -312,7 +312,7 @@ public class NovelPluginConfiguration {
                                                           WorkVisibilityService workVisibilityService,
                                                           UserQuotaService userQuotaService,
                                                           MultiModeSettings multiModeSettings,
-                                                          AppMessages messages) {
+                                                          MessageResolver messages) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
                 novelGalleryRepository, novelMergeService, novelTranslationService, applicationModeProvider,
                 requestOwnerIdentityResolver, workVisibilityService, userQuotaService, multiModeSettings, messages);
@@ -324,7 +324,7 @@ public class NovelPluginConfiguration {
                                                                PixivAjaxProxyClient pixivAjaxProxyClient,
                                                                PixivProxyAccessGuard pixivProxyAccessGuard,
                                                                WorkVisibilityService workVisibilityService,
-                                                               AppMessages messages) {
+                                                               MessageResolver messages) {
         return new NovelPixivProxyController(objectMapper, pixivAjaxProxyClient, pixivProxyAccessGuard,
                 workVisibilityService, messages);
     }

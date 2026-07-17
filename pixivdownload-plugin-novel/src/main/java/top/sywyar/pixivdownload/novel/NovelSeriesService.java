@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
 
@@ -27,12 +27,12 @@ public class NovelSeriesService {
     private final NovelDatabase novelDatabase;
     private final DownloadSettings downloadConfig;
     private final PixivCoverDownloader coverDownloader;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     public NovelSeriesService(NovelDatabase novelDatabase,
                               DownloadSettings downloadConfig,
                               PixivCoverDownloader coverDownloader,
-                              AppMessages messages) {
+                              MessageResolver messages) {
         this.novelDatabase = novelDatabase;
         this.downloadConfig = downloadConfig;
         this.coverDownloader = coverDownloader;

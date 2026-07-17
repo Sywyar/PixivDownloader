@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
@@ -58,7 +58,7 @@ class NovelDownloadControllerMergeDownloadTest {
     @Mock private WorkVisibilityService workVisibilityService;
     @Mock private UserQuotaService userQuotaService;
     @Mock private MultiModeSettings multiModeSettings;
-    @Mock private AppMessages messages;
+    @Mock private MessageResolver messages;
 
     private NovelDownloadController controller() {
         return new NovelDownloadController(

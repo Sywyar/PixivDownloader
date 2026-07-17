@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
@@ -40,14 +40,14 @@ public class NarrationAudioService {
 
     private final NarrationEngineRegistry registry;
     private final NarrationTtsConfig config;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     /** 进程内仅记一次的「beta 功能」提示守卫：首次真正发起合成时告知该功能可用但尚不稳定。 */
     private final AtomicBoolean betaNoticeLogged = new AtomicBoolean(false);
 
     public NarrationAudioService(NarrationEngineRegistry registry,
                                  NarrationTtsConfig config,
-                                 AppMessages messages) {
+                                 MessageResolver messages) {
         this.registry = registry;
         this.config = config;
         this.messages = messages;

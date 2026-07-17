@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.ErrorResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
@@ -35,7 +35,7 @@ public class NarrationTtsController {
 
     private final NarrationAudioService narrationAudioService;
     private final NovelNarrationScriptService narrationScriptService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     /**
      * 合成持久化整章脚本的<b>某一行</b>音频。服务端按该行 speaker 从<b>活花名册</b>取基底画像、合并该行

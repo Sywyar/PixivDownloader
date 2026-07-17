@@ -12,7 +12,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.common.ErrorResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
@@ -48,7 +49,7 @@ class NarrationReferenceVoiceControllerTest {
     void setUp() {
         runtimePaths = new TestRuntimePathProvider(tempDir);
         controller = new NarrationReferenceVoiceController(
-                castService, referenceVoiceService, appMessages(), runtimePaths);
+                castService, referenceVoiceService, messageResolver(), runtimePaths);
     }
 
     @Test
@@ -118,7 +119,7 @@ class NarrationReferenceVoiceControllerTest {
         assertThat(response.getHeaders().getContentType().toString()).isEqualTo("audio/wav");
     }
 
-    private static AppMessages appMessages() {
+    private static MessageResolver messageResolver() {
         ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
         source.setBasenames(
                 "classpath:i18n/messages",
@@ -128,6 +129,6 @@ class NarrationReferenceVoiceControllerTest {
         );
         source.setDefaultEncoding("UTF-8");
         source.setUseCodeAsDefaultMessage(true);
-        return new AppMessages(source);
+        return TestI18nBeans.messageResolver(source);
     }
 }

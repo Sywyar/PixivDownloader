@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.novel.translation.ai.TitleTranslationRequest;
 import top.sywyar.pixivdownload.novel.translation.ai.TitleTranslationResponse;
 import top.sywyar.pixivdownload.novel.translation.ai.TranslationRequest;
 import top.sywyar.pixivdownload.novel.translation.ai.TranslationResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelGlossaryEntry;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
@@ -48,7 +48,7 @@ public class NovelTranslationService {
     private final AiService aiService;
     private final NovelDatabase novelDatabase;
     private final NovelGlossaryService glossaryService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     public enum Status { OK, SKIPPED, SAME_LANGUAGE, INVALID_LANGUAGE, EMPTY, NOT_FOUND, ERROR }
 

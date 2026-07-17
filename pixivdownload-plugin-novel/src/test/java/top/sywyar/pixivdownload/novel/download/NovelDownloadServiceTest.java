@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -49,7 +49,7 @@ import static org.mockito.Mockito.verify;
 @DisplayName("NovelDownloadService 交互式下载转发捕获")
 class NovelDownloadServiceTest {
 
-    private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
+    private static final MessageResolver APP_MESSAGES = TestI18nBeans.messageResolver();
     private static final String RAW_META = "{\"uploadDate\":\"2026-06-06T21:27:00+00:00\"}";
 
     @TempDir

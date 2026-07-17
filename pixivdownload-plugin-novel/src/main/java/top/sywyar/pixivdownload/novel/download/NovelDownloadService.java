@@ -25,7 +25,7 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
@@ -95,7 +95,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final TaskExecutor downloadTaskExecutor;
-    private final AppMessages messages;
+    private final MessageResolver messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final WorkMetaCaptureService workMetaCaptureService;
 
@@ -113,7 +113,7 @@ public class NovelDownloadService implements NovelDownloader {
                                 @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                 @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                 @Qualifier("novelDownloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-                                AppMessages messages,
+                                MessageResolver messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
                                 WorkMetaCaptureService workMetaCaptureService) {
         this.downloadConfig = downloadConfig;

@@ -18,7 +18,7 @@ import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
@@ -40,7 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("NovelPixivProxyController 单元测试")
 class NovelPixivProxyControllerTest {
 
-    private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
+    private static final MessageResolver APP_MESSAGES = TestI18nBeans.messageResolver();
 
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -58,7 +58,7 @@ class NovelPixivProxyControllerTest {
                 objectMapper, new PixivAjaxProxyClient(restTemplate), accessGuard,
                 workVisibilityService, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
+                .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages()))
                 .build();
     }
 
