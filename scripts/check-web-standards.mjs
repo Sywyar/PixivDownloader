@@ -60,6 +60,15 @@ export function collectSnapshot(repositoryRoot = REPOSITORY_ROOT) {
         const staticRoot = path.join(repositoryRoot, entry.name, 'src', 'main', 'resources', 'static');
         if (fs.existsSync(staticRoot)) walk(staticRoot, files);
     }
+    const templatesRoot = path.join(repositoryRoot, 'plugin-templates');
+    if (fs.existsSync(templatesRoot)) {
+        for (const entry of fs.readdirSync(templatesRoot, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const staticRoot = path.join(
+                templatesRoot, entry.name, 'src', 'main', 'resources', 'static');
+            if (fs.existsSync(staticRoot)) walk(staticRoot, files);
+        }
+    }
 
     const snapshot = {};
     for (const absolutePath of files.sort()) {

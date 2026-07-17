@@ -1,0 +1,111 @@
+:root {
+    color-scheme: light;
+    --bg: Canvas;
+    --surface: Field;
+    --line: ButtonBorder;
+    --text: CanvasText;
+    --muted: GrayText;
+    --brand: LinkText;
+    --control-bg: Field;
+    --hover-bg: ButtonFace;
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, sans-serif;
+}
+
+.gallery-header,
+main {
+    width: min(72rem, calc(100% - 2rem));
+    margin-inline: auto;
+}
+
+.gallery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-block: 2rem 1rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.gallery-header h1,
+.gallery-header p,
+.gallery-toolbar p {
+    margin: 0;
+}
+
+.gallery-header p,
+.gallery-card p {
+    color: var(--muted);
+}
+
+.gallery-switchers,
+.gallery-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.gallery-toolbar {
+    justify-content: space-between;
+    padding-block: 1rem;
+}
+
+button {
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+    padding: 0.55rem 0.9rem;
+    background: var(--control-bg);
+    color: var(--text);
+    cursor: pointer;
+}
+
+button:hover {
+    background: var(--hover-bg);
+}
+
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1rem;
+    padding-bottom: 2rem;
+}
+
+.gallery-card {
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    background: var(--surface);
+}
+
+.gallery-card h2 {
+    margin-block: 0 0.75rem;
+    overflow-wrap: anywhere;
+}
+
+.gallery-card p {
+    margin-block: 0.35rem 0;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+    .gallery-header,
+    .gallery-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}

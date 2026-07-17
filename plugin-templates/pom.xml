@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example.pixivdownload.templates</groupId>
+    <artifactId>pixivdownload-plugin-templates</artifactId>
+    <version>0.1.0</version>
+    <packaging>pom</packaging>
+    <name>PixivDownload plugin template validation reactor</name>
+
+    <!-- This reactor validates repository templates only. It is intentionally not a module of the product reactor. -->
+    <modules>
+        <module>../pixivdownload-plugin-api</module>
+        <module>minimal-feature-plugin</module>
+        <module>download-type-plugin</module>
+    </modules>
+</project>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="page.title">最小插件示例</title>
+    <link rel="stylesheet" href="/example-minimal/example-minimal.css">
+    <script src="/js/pixiv-theme.js"></script>
+    <script src="/js/pixiv-i18n.js" defer></script>
+    <script src="/example-minimal/example-minimal-core.js" defer></script>
+    <script src="/example-minimal/example-minimal-init.js" defer></script>
+</head>
+<body>
+<main class="example-shell">
+    <article class="example-card">
+        <p class="example-kicker" data-i18n="page.kicker">外置插件模板</p>
+        <h1 data-i18n="page.heading">最小功能插件</h1>
+        <p class="example-summary" data-i18n="page.summary">
+            此页面、接口与本地化资源均由插件自身贡献。
+        </p>
+
+        <section class="example-status" aria-live="polite">
+            <h2 data-i18n="status.heading">插件状态</h2>
+            <p id="example-status-message" data-state="loading" data-i18n="status.loading">正在读取状态…</p>
+            <button id="example-refresh" type="button" data-i18n="button.refresh">重新读取</button>
+        </section>
+    </article>
+</main>
+</body>
+</html>

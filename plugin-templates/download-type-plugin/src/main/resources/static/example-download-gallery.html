@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="example-download:gallery.title">Example download independent gallery</title>
+    <link rel="stylesheet" href="/example-download-gallery/example-download-gallery.css">
+</head>
+<body>
+<header class="gallery-header">
+    <div>
+        <h1 data-i18n="example-download:gallery.title">Example download independent gallery</h1>
+        <p data-i18n="example-download:gallery.summary">This page reads only plugin-owned data.</p>
+    </div>
+    <div id="exampleDownloadGallerySwitchers" class="gallery-switchers"></div>
+</header>
+<main>
+    <div class="gallery-toolbar">
+        <button id="exampleDownloadGalleryRefresh" type="button"
+                data-i18n="example-download:gallery.refresh">Refresh</button>
+        <p id="exampleDownloadGalleryStatus" role="status" aria-live="polite"></p>
+    </div>
+    <section id="exampleDownloadGalleryItems" class="gallery-grid"
+             aria-labelledby="exampleDownloadGalleryStatus"></section>
+</main>
+<script src="/js/pixiv-i18n.js"></script>
+<script src="/js/pixiv-lang-switcher.js"></script>
+<script src="/js/pixiv-theme.js"></script>
+<script src="/example-download-gallery/example-download-gallery-core.js"></script>
+<script src="/example-download-gallery/example-download-gallery-view.js"></script>
+<script src="/example-download-gallery/example-download-gallery-init.js"></script>
+</body>
+</html>
