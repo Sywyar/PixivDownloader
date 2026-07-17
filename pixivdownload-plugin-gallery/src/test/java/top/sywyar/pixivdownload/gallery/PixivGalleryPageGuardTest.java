@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PixivGalleryPageGuardTest {
 
     @Test
-    @DisplayName("旧画廊保留侧栏、搜索、筛选、收藏夹、批量管理和结果区域")
+    @DisplayName("正式主画廊保留侧栏、搜索、筛选、收藏夹、批量管理和结果区域")
     void matureGalleryStructureRemainsAvailable() throws IOException {
         String html = read("static/pixiv-gallery.html");
 
@@ -39,7 +39,7 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
-    @DisplayName("旧画廊职责脚本按依赖顺序加载且 init 最后执行")
+    @DisplayName("正式主画廊职责脚本按依赖顺序加载且 init 最后执行")
     void matureGalleryScriptsKeepResponsibilityOrder() throws IOException {
         String html = read("static/pixiv-gallery.html");
         List<String> scripts = List.of(
@@ -90,7 +90,7 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
-    @DisplayName("旧画廊只允许最新筛选请求更新结果")
+    @DisplayName("正式主画廊只允许最新筛选请求更新结果")
     void staleGalleryResponsesCannotOverwriteNewerFilters() throws IOException {
         String views = read("static/pixiv-gallery/gallery-views.js");
 
@@ -110,7 +110,7 @@ class PixivGalleryPageGuardTest {
     }
 
     @Test
-    @DisplayName("旧画廊壳提供中性前端契约且不硬编码来源模块")
+    @DisplayName("正式主画廊提供中性前端契约且不硬编码来源模块")
     void genericFrontendRuntimeKeepsPluginNeutralBoundary() throws IOException {
         String runtime = read("static/pixiv-gallery/gallery-frontend-runtime.js");
         String genericView = read("static/pixiv-gallery/gallery-generic-view.js");

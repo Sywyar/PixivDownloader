@@ -1,6 +1,6 @@
 'use strict';
 /*
- * 旧画廊壳中性前端运行时的真实 Node/vm 行为测试。
+ * 正式 Pixiv 主画廊中性前端运行时的真实 Node/vm 行为测试。
  *
  * 运行：node src/test/js/gallery-frontend-runtime.test.js
  */
@@ -262,7 +262,7 @@ function cardContext(env, item) {
 }
 
 async function main() {
-    // 1. 默认 URL 只装配 descriptors，仍调用旧数据流，不触碰 neutral broker。
+    // 1. 默认 URL 只装配 descriptors，仍调用正式 Pixiv 主路径，不触碰 neutral broker。
     {
         const descriptor = snapshot(1, [projectionDescriptor('alpha', 'IMAGE')], []);
         descriptor.diagnostics = [{
@@ -274,12 +274,12 @@ async function main() {
             descriptor
         });
         await env.api.bootstrap();
-        let legacyCalls = 0;
+        let primaryCalls = 0;
         await env.api.startDataFlow({
             search: '?view=all',
-            loadLegacy: () => { legacyCalls++; }
+            loadPrimary: () => { primaryCalls++; }
         });
-        ok('默认 URL 调用既有 loadGallery 路径', legacyCalls === 1);
+        ok('默认 URL 调用正式 Pixiv 主路径', primaryCalls === 1);
         ok('默认 URL 仅请求 descriptors，不请求 projections/works',
             env.calls.length === 1 && env.calls[0].includes('/descriptors'));
         ok('前端运行时不再暴露 VIEW_ENTRY 侧栏导航 API',
@@ -289,7 +289,7 @@ async function main() {
             && !Object.prototype.hasOwnProperty.call(env.api.diagnostics()[0], 'payload'));
     }
 
-    // 2. neutral URL 走 projection broker，不调用旧路径，详情未打开前不请求 works。
+    // 2. generic URL 走 projection broker，不调用默认 Pixiv 主路径，详情未打开前不请求 works。
     {
         const item = projection('alpha', 'IMAGE', 'Neutral title');
         const env = makeEnvironment({
@@ -305,16 +305,16 @@ async function main() {
             filters: env.document.createElement('section')
         };
         await env.api.bootstrap();
-        let legacyCalls = 0;
+        let primaryCalls = 0;
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha',
-            loadLegacy: () => { legacyCalls++; },
+            loadPrimary: () => { primaryCalls++; },
             generic: hosts
         });
-        ok('neutral URL 不调用旧 loadGallery', legacyCalls === 0);
+        ok('generic URL 不调用默认 Pixiv 主路径', primaryCalls === 0);
         ok('neutral URL 请求 projection broker', env.calls.some(url => url.includes('/projections?')));
         ok('未打开详情前不请求 works', !env.calls.some(url => url.includes('/works/')));
-        ok('中性卡片安全渲染到旧网格', hosts.grid.children.length === 1);
+        ok('中性卡片安全渲染到主画廊网格', hosts.grid.children.length === 1);
     }
 
     // 3. filter extension 得到只读 filters 与受控 setFilter，并驱动 broker 查询参数。
@@ -349,7 +349,7 @@ async function main() {
         await env.api.bootstrap();
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha',
-            loadLegacy() {},
+            loadPrimary() {},
             generic: hosts
         });
         ok('filter context 同时提供 filters 与 setFilter',
@@ -397,7 +397,7 @@ async function main() {
         await env.api.bootstrap();
         await env.api.startDataFlow({
             search: '?galleryKind=IMAGE&sourceId=alpha',
-            loadLegacy() {},
+            loadPrimary() {},
             generic: hosts
         });
         const resolved = await env.api.openDetail(item);
@@ -635,7 +635,7 @@ async function main() {
         };
         await env.api.bootstrap();
         await env.api.startDataFlow({
-            search: '?galleryKind=IMAGE&sourceId=alpha', loadLegacy() {}, generic: hosts
+            search: '?galleryKind=IMAGE&sourceId=alpha', loadPrimary() {}, generic: hosts
         });
         ok('projection 活动时中性卡片可见', hosts.grid.children.length === 1);
 
@@ -678,7 +678,7 @@ async function main() {
         };
         await env.api.bootstrap();
         await env.api.startDataFlow({
-            search: '?galleryKind=IMAGE&sourceId=alpha', loadLegacy() {}, generic: hosts
+            search: '?galleryKind=IMAGE&sourceId=alpha', loadPrimary() {}, generic: hosts
         });
         const detailPromise = env.api.openDetail(item);
         env.state.descriptor = snapshot(13, [], []);

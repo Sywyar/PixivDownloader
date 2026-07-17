@@ -107,7 +107,7 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("novel 缺失时统一画廊不注册小说投影与详情能力")
+    @DisplayName("novel 缺失时主画廊内部不注册小说投影与详情能力")
     void galleryCapabilitiesExcludeNovelWhenProviderMissing() {
         assertThat(galleryCapabilityRegistry.snapshot().projectionProviders())
                 .noneSatisfy(provider -> assertThat(provider.providerId()).contains("novel"));

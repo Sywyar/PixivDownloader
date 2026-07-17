@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.gallery;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,11 +36,18 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+/**
+ * {@code /pixiv-gallery.html} 使用的只读兼容接口。
+ *
+ * @deprecated 自 2026-07-17 起停止扩展；新代码不得依赖此路径，现有行为保留到主画廊内部调用完成迁移。
+ */
 @RestController
 @RequestMapping("/api/gallery/unified")
 @PluginManagedBean
+@Deprecated(since = "1.0.0", forRemoval = false)
 public class UnifiedGalleryController {
 
+    static final String DEPRECATION_HEADER_VALUE = "@1784246400";
     private static final Pattern PUBLIC_ID = Pattern.compile("[a-z][a-z0-9-]{0,79}");
     private static final Pattern PUBLIC_CODE = Pattern.compile("[a-z][a-z0-9-]{0,95}");
 
@@ -55,6 +64,11 @@ public class UnifiedGalleryController {
         this.projectionBroker = projectionBroker;
         this.workBroker = workBroker;
         this.setupService = setupService;
+    }
+
+    @ModelAttribute
+    void addDeprecationHeader(HttpServletResponse response) {
+        response.setHeader("Deprecation", DEPRECATION_HEADER_VALUE);
     }
 
     @GetMapping("/descriptors")

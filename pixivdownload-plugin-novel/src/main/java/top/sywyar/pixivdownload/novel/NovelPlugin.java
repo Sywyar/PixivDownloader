@@ -144,7 +144,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
                         List.of("novel-settings-card"),
                         NOVEL_UI_SLOT_TARGETS,
                         "novel",
-                        new DownloadGalleryCapabilities(true, true, null, null))));
+                        DownloadGalleryCapabilities.independentPageOnly())));
     }
 
     /** 下载页 novel 队列类型行为模块的 serving URL（同时渲染下面声明的各 UI 槽位）。 */

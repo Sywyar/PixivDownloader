@@ -47,12 +47,12 @@ public class PixivImageGalleryCapabilityProvider implements GalleryProjectionPro
     static final String SOURCE_ID = "pixiv";
     static final String WORK_NAMESPACE = "artwork";
 
-    private final PixivImageGalleryDataProvider legacyProvider;
+    private final PixivImageGalleryDataProvider pixivProvider;
     private final WorkMetadataRepository metadataRepository;
 
-    public PixivImageGalleryCapabilityProvider(PixivImageGalleryDataProvider legacyProvider,
+    public PixivImageGalleryCapabilityProvider(PixivImageGalleryDataProvider pixivProvider,
                                                WorkMetadataRepository metadataRepository) {
-        this.legacyProvider = legacyProvider;
+        this.pixivProvider = pixivProvider;
         this.metadataRepository = metadataRepository;
     }
 
@@ -82,7 +82,7 @@ public class PixivImageGalleryCapabilityProvider implements GalleryProjectionPro
     public GalleryProjectionPage page(GalleryProjectionQuery query) {
         AdaptedQuery adapted = adapt(query);
         if (!adapted.matches()) return GalleryProjectionPage.empty();
-        GalleryPage page = legacyProvider.query(adapted.query());
+        GalleryPage page = pixivProvider.query(adapted.query());
         List<Long> ids = page.items().stream().map(item -> Long.parseLong(item.ref().workId())).toList();
         Map<Long, WorkMetadata> metadata = new LinkedHashMap<>();
         metadataRepository.findAll(WorkType.ARTWORK, ids).forEach(meta -> metadata.put(meta.workId(), meta));
@@ -96,14 +96,14 @@ public class PixivImageGalleryCapabilityProvider implements GalleryProjectionPro
     @Override
     public long count(GalleryProjectionQuery query) {
         AdaptedQuery adapted = adapt(query);
-        return adapted.matches() ? legacyProvider.query(new GalleryQuery(
+        return adapted.matches() ? pixivProvider.query(new GalleryQuery(
                 GalleryKind.IMAGE, SOURCE_ID, List.of(), adapted.query().filters(), 0, 1)).total() : 0;
     }
 
     @Override
     public GalleryFacetPage facets(GalleryProjectionQuery query) {
         AdaptedQuery adapted = adapt(query);
-        return adapted.matches() ? legacyProvider.facets(adapted.query()) : GalleryFacetPage.empty();
+        return adapted.matches() ? pixivProvider.facets(adapted.query()) : GalleryFacetPage.empty();
     }
 
     @Override

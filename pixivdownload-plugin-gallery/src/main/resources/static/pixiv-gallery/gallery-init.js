@@ -437,7 +437,7 @@
             scheduleGalleryFrontendRefresh(frontend);
             await frontend.startDataFlow({
                 search: location.search,
-                loadLegacy: () => null,
+                loadPrimary: () => null,
                 generic: {
                     grid: document.getElementById('galleryGrid'),
                     status: document.getElementById('galleryStatus'),
@@ -500,7 +500,7 @@
         syncViewNavigationHrefs();
         setupGalleryCrossPageHandoff();
 
-        const loadLegacy = () => {
+        const loadPrimary = () => {
             if (targetView === 'authors') {
                 return loadAuthorsView();
             }
@@ -510,9 +510,9 @@
             return loadGallery();
         };
         if (frontend && typeof frontend.startDataFlow === 'function') {
-            frontend.startDataFlow({search: location.search, loadLegacy});
+            frontend.startDataFlow({search: location.search, loadPrimary});
         } else {
-            loadLegacy();
+            loadPrimary();
         }
     })();
 

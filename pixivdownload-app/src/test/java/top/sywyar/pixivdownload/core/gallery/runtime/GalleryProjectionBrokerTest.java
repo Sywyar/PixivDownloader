@@ -27,7 +27,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DisplayName("统一画廊跨来源游标合并")
+@DisplayName("主画廊内部跨来源游标合并")
 class GalleryProjectionBrokerTest {
 
     @Test

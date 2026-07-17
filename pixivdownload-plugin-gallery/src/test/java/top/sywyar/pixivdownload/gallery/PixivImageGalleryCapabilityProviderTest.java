@@ -28,17 +28,17 @@ import static org.mockito.Mockito.when;
 class PixivImageGalleryCapabilityProviderTest {
 
     @Test
-    @DisplayName("旧列表结果映射为 artwork 作品身份并保留游标")
-    void mapsLegacyPageToNeutralProjection() {
-        PixivImageGalleryDataProvider legacy = mock(PixivImageGalleryDataProvider.class);
+    @DisplayName("正式 Pixiv 列表结果映射为 artwork 作品身份并保留游标")
+    void mapsPrimaryPageToNeutralProjection() {
+        PixivImageGalleryDataProvider pixivProvider = mock(PixivImageGalleryDataProvider.class);
         WorkMetadataRepository metadata = mock(WorkMetadataRepository.class);
-        when(legacy.query(any())).thenReturn(new GalleryPage(List.of(new GalleryItem(
+        when(pixivProvider.query(any())).thenReturn(new GalleryPage(List.of(new GalleryItem(
                 new GalleryWorkRef("pixiv-image", "pixiv", GalleryKind.IMAGE, "123"),
-                "标题", "/thumb", "/legacy", Map.of("downloadedAt", "1000"))),
+                "标题", "/thumb", "/artwork", Map.of("downloadedAt", "1000"))),
                 2, true, 0, 1, List.of()));
         when(metadata.findAll(WorkType.ARTWORK, List.of(123L))).thenReturn(List.of(meta()));
         PixivImageGalleryCapabilityProvider provider =
-                new PixivImageGalleryCapabilityProvider(legacy, metadata);
+                new PixivImageGalleryCapabilityProvider(pixivProvider, metadata);
 
         var page = provider.page(query());
 
@@ -53,11 +53,11 @@ class PixivImageGalleryCapabilityProviderTest {
     @Test
     @DisplayName("作品详情返回全部本地页并与投影共享身份")
     void returnsCompleteArtworkMedia() {
-        PixivImageGalleryDataProvider legacy = mock(PixivImageGalleryDataProvider.class);
+        PixivImageGalleryDataProvider pixivProvider = mock(PixivImageGalleryDataProvider.class);
         WorkMetadataRepository metadata = mock(WorkMetadataRepository.class);
         when(metadata.find(WorkType.ARTWORK, 123L)).thenReturn(Optional.of(meta()));
         PixivImageGalleryCapabilityProvider provider =
-                new PixivImageGalleryCapabilityProvider(legacy, metadata);
+                new PixivImageGalleryCapabilityProvider(pixivProvider, metadata);
 
         var work = provider.find(new GalleryWorkKey("pixiv", "artwork", "123")).orElseThrow();
 

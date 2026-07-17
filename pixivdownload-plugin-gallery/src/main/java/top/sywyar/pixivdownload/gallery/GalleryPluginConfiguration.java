@@ -51,9 +51,9 @@ public class GalleryPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("gallery")
     public PixivImageGalleryCapabilityProvider pixivImageGalleryCapabilityProvider(
-            PixivImageGalleryDataProvider legacyProvider,
+            PixivImageGalleryDataProvider pixivProvider,
             WorkMetadataRepository workMetadataRepository) {
-        return new PixivImageGalleryCapabilityProvider(legacyProvider, workMetadataRepository);
+        return new PixivImageGalleryCapabilityProvider(pixivProvider, workMetadataRepository);
     }
 
     @Bean
@@ -64,6 +64,7 @@ public class GalleryPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("gallery")
+    @SuppressWarnings("deprecation")
     public UnifiedGalleryController unifiedGalleryController(
             top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry registry,
             top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker projectionBroker,

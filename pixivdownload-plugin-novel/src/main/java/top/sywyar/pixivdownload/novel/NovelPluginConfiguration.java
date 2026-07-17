@@ -351,10 +351,10 @@ public class NovelPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public PixivNovelGalleryCapabilityProvider pixivNovelGalleryCapabilityProvider(
-            PixivNovelGalleryDataProvider legacyProvider,
+            PixivNovelGalleryDataProvider novelProvider,
             WorkMetadataRepository workMetadataRepository,
             NovelDatabase novelDatabase) {
-        return new PixivNovelGalleryCapabilityProvider(legacyProvider, workMetadataRepository, novelDatabase);
+        return new PixivNovelGalleryCapabilityProvider(novelProvider, workMetadataRepository, novelDatabase);
     }
 
     @Bean

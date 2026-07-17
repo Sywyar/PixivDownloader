@@ -194,7 +194,7 @@ public class DownloadExtensionController {
                                           String reasonI18nKey) {
         static GalleryCapabilitiesView from(DownloadGalleryCapabilities capabilities) {
             return new GalleryCapabilitiesView(
-                    capabilities.unifiedGallery(),
+                    false, // wire 字段保留兼容；已废弃的统一画廊路线不再作为 SDK 能力发布
                     capabilities.independentPage(),
                     capabilities.reasonNamespace(),
                     capabilities.reasonI18nKey());

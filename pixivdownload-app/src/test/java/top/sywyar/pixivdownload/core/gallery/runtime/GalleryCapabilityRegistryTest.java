@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
-@DisplayName("统一画廊 capability 注册中心")
+@DisplayName("主画廊内部 capability 注册中心")
 class GalleryCapabilityRegistryTest {
 
     @Test

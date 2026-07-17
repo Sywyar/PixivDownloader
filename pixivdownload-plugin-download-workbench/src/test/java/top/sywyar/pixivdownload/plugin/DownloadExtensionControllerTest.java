@@ -82,6 +82,8 @@ class DownloadExtensionControllerTest {
                     assertThat(type.acquisitionModes()).containsExactly("single-import");
                     assertThat(type.queue().clearAll()).isTrue();
                     assertThat(type.schedule().suspendWhenExecutorMissing()).isTrue();
+                    assertThat(type.gallery().unifiedGallery()).isFalse();
+                    assertThat(type.gallery().independentPage()).isTrue();
                     assertThat(type.legacyContract()).isFalse();
                     assertThat(type.owner().pluginId()).isEqualTo("demo");
                     assertThat(type.owner().publicationId()).isPositive();
@@ -152,7 +154,7 @@ class DownloadExtensionControllerTest {
                             DownloadQueueCapabilities.full(),
                             DownloadScheduleCapabilities.notSaveable(),
                             List.of(), List.of(), List.of(), "demo",
-                            DownloadGalleryCapabilities.none())));
+                            new DownloadGalleryCapabilities(true, true, null, null))));
         }
 
         @Override

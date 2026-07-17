@@ -3,11 +3,14 @@ package top.sywyar.pixivdownload.gallery;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.test.web.servlet.MockMvc;
 import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
 import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendHook;
+import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendScope;
+import top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetPage;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
@@ -18,12 +21,15 @@ import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
 import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCountResult;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryProjectionBroker;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkBroker;
+import top.sywyar.pixivdownload.core.gallery.runtime.GalleryWorkResult;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,9 +37,70 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
-@DisplayName("统一画廊只读 API")
+@DisplayName("已过时的画廊只读兼容 API")
+@SuppressWarnings("deprecation")
 class UnifiedGalleryControllerTest {
+
+    @Test
+    @DisplayName("过时范围只覆盖 unified HTTP 控制器，不覆盖长期维护的主画廊能力")
+    void deprecationScopeDoesNotIncludeMaintainedGallerySeries() {
+        assertThat(UnifiedGalleryController.class.isAnnotationPresent(Deprecated.class)).isTrue();
+
+        assertThat(GalleryController.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryService.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryBatchService.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryFrontendContribution.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryFrontendProvider.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryCapabilityRegistry.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryProjectionBroker.class.isAnnotationPresent(Deprecated.class)).isFalse();
+        assertThat(GalleryWorkBroker.class.isAnnotationPresent(Deprecated.class)).isFalse();
+    }
+
+    @Test
+    @DisplayName("全部兼容端点通过标准响应头声明弃用日期且不承诺移除")
+    void compatibilityApiPublishesDeprecationHeader() throws Exception {
+        GalleryCapabilityRegistry registry = mock(GalleryCapabilityRegistry.class);
+        when(registry.snapshot()).thenReturn(snapshot());
+        GalleryProjectionBroker projectionBroker = mock(GalleryProjectionBroker.class);
+        when(projectionBroker.page(any(), anySet()))
+                .thenReturn(new GalleryProjectionPage(List.of(), null, false, List.of()));
+        when(projectionBroker.count(any(), anySet()))
+                .thenReturn(new GalleryCountResult(0, List.of()));
+        when(projectionBroker.facets(any(), anySet())).thenReturn(GalleryFacetPage.empty());
+        GalleryWorkBroker workBroker = mock(GalleryWorkBroker.class);
+        when(workBroker.find(any(), anySet()))
+                .thenReturn(new GalleryWorkResult(Optional.empty(), List.of()));
+        UnifiedGalleryController controller = new UnifiedGalleryController(registry,
+                projectionBroker, workBroker, mock(SetupService.class));
+        MockMvc mockMvc = standaloneSetup(controller).build();
+
+        for (String path : List.of(
+                "/api/gallery/unified/descriptors",
+                "/api/gallery/unified/projections?kind=IMAGE",
+                "/api/gallery/unified/count?kind=IMAGE",
+                "/api/gallery/unified/facets?kind=IMAGE")) {
+            var response = mockMvc.perform(get(path)).andReturn().getResponse();
+            assertThat(response.getStatus()).as(path).isEqualTo(200);
+            assertThat(response.getHeader("Deprecation")).as(path)
+                    .isEqualTo(UnifiedGalleryController.DEPRECATION_HEADER_VALUE);
+            assertThat(response.getHeader("Sunset")).as(path).isNull();
+        }
+        var missingWork = mockMvc.perform(get("/api/gallery/unified/works/source/work/404"))
+                .andReturn()
+                .getResponse();
+        assertThat(missingWork.getStatus()).isEqualTo(404);
+        assertThat(missingWork.getHeader("Deprecation"))
+                .isEqualTo(UnifiedGalleryController.DEPRECATION_HEADER_VALUE);
+        assertThat(missingWork.getHeader("Sunset")).isNull();
+
+        Deprecated annotation = UnifiedGalleryController.class.getAnnotation(Deprecated.class);
+        assertThat(annotation).isNotNull();
+        assertThat(annotation.since()).isEqualTo("1.0.0");
+        assertThat(annotation.forRemoval()).isFalse();
+    }
 
     @Test
     @DisplayName("游客与受邀访客不暴露同 owner 的管理员专属前端贡献")

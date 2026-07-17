@@ -49,14 +49,14 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
     static final String SOURCE_ID = "pixiv";
     static final String WORK_NAMESPACE = "novel";
 
-    private final PixivNovelGalleryDataProvider legacyProvider;
+    private final PixivNovelGalleryDataProvider novelProvider;
     private final WorkMetadataRepository metadataRepository;
     private final NovelDatabase novelDatabase;
 
-    public PixivNovelGalleryCapabilityProvider(PixivNovelGalleryDataProvider legacyProvider,
+    public PixivNovelGalleryCapabilityProvider(PixivNovelGalleryDataProvider novelProvider,
                                                WorkMetadataRepository metadataRepository,
                                                NovelDatabase novelDatabase) {
-        this.legacyProvider = legacyProvider;
+        this.novelProvider = novelProvider;
         this.metadataRepository = metadataRepository;
         this.novelDatabase = novelDatabase;
     }
@@ -83,7 +83,7 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
     public GalleryProjectionPage page(GalleryProjectionQuery query) {
         AdaptedQuery adapted = adapt(query);
         if (!adapted.matches()) return GalleryProjectionPage.empty();
-        GalleryPage page = legacyProvider.query(adapted.query());
+        GalleryPage page = novelProvider.query(adapted.query());
         List<Long> ids = page.items().stream().map(item -> Long.parseLong(item.ref().workId())).toList();
         Map<Long, WorkMetadata> metadata = new LinkedHashMap<>();
         metadataRepository.findAll(WorkType.NOVEL, ids).forEach(meta -> metadata.put(meta.workId(), meta));
@@ -96,13 +96,13 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
 
     @Override public long count(GalleryProjectionQuery query) {
         AdaptedQuery adapted = adapt(query);
-        return adapted.matches() ? legacyProvider.query(new GalleryQuery(
+        return adapted.matches() ? novelProvider.query(new GalleryQuery(
                 GalleryKind.NOVEL, SOURCE_ID, List.of(), adapted.query().filters(), 0, 1)).total() : 0;
     }
 
     @Override public GalleryFacetPage facets(GalleryProjectionQuery query) {
         AdaptedQuery adapted = adapt(query);
-        return adapted.matches() ? legacyProvider.facets(adapted.query()) : GalleryFacetPage.empty();
+        return adapted.matches() ? novelProvider.facets(adapted.query()) : GalleryFacetPage.empty();
     }
 
     @Override

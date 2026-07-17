@@ -74,6 +74,7 @@ class DouyinPluginContributionTest {
 
     @Test
     @DisplayName("下载类型 descriptor 声明完整能力与画廊边界")
+    @SuppressWarnings("deprecation")
     void descriptorDeclaresCapabilitiesAndGalleryBoundary() {
         DouyinPlugin plugin = new DouyinPlugin();
         QueueTypeContribution queueType = plugin.queueTypes().get(0);
@@ -102,7 +103,6 @@ class DouyinPluginContributionTest {
                 "quick-actions-mine",
                 "import-hint",
                 "cookie-tools");
-        assertThat(queueType.descriptor().gallery().unifiedGallery()).isTrue();
         assertThat(queueType.descriptor().gallery().independentPage()).isTrue();
         assertThat(queueType.descriptor().gallery().reasonI18nKey()).isNull();
     }

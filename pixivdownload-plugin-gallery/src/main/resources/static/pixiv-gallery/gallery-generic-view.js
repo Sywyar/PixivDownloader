@@ -547,7 +547,7 @@ async function galleryGenericRefreshSnapshot() {
 async function galleryGenericStartDataFlow(options) {
     const config = options || {};
     if (!galleryGenericIsRequest(config.search)) {
-        return typeof config.loadLegacy === 'function' ? config.loadLegacy() : null;
+        return typeof config.loadPrimary === 'function' ? config.loadPrimary() : null;
     }
     return galleryGenericStart(Object.assign({}, config.generic || {}, {search: config.search}));
 }

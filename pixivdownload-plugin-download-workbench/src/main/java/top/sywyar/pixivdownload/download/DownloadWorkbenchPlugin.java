@@ -199,7 +199,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                         List.of(),
                         List.of(),
                         "batch",
-                        new DownloadGalleryCapabilities(true, true, null, null))));
+                        DownloadGalleryCapabilities.independentPageOnly())));
     }
 
     @Override

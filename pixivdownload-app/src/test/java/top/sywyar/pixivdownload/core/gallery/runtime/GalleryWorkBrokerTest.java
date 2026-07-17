@@ -15,7 +15,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("统一画廊作品详情访问隔离")
+@DisplayName("主画廊内部作品详情访问隔离")
 class GalleryWorkBrokerTest {
 
     @Test

@@ -19,7 +19,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DisplayName("统一画廊纯 Java 契约")
+@DisplayName("主画廊内部中性纯 Java 契约")
 class GalleryContractTest {
 
     @Test

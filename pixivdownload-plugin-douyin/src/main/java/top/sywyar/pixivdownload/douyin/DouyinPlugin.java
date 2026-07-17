@@ -139,7 +139,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
                         List.of(),
                         UI_SLOT_TARGETS,
                         "douyin",
-                        new DownloadGalleryCapabilities(true, true, null, null))));
+                        DownloadGalleryCapabilities.independentPageOnly())));
     }
 
     @Override

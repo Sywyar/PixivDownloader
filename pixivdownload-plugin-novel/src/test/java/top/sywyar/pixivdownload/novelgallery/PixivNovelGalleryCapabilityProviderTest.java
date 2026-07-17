@@ -29,7 +29,7 @@ class PixivNovelGalleryCapabilityProviderTest {
     @Test
     @DisplayName("小说详情返回正文封面和内嵌图片的完整媒体集合")
     void returnsTextCoverAndEmbeddedImages() {
-        PixivNovelGalleryDataProvider legacy = mock(PixivNovelGalleryDataProvider.class);
+        PixivNovelGalleryDataProvider novelProvider = mock(PixivNovelGalleryDataProvider.class);
         WorkMetadataRepository metadata = mock(WorkMetadataRepository.class);
         NovelDatabase database = mock(NovelDatabase.class);
         NovelRecord record = mock(NovelRecord.class);
@@ -37,7 +37,7 @@ class PixivNovelGalleryCapabilityProviderTest {
         when(database.getNovel(123L)).thenReturn(record);
         when(metadata.find(WorkType.NOVEL, 123L)).thenReturn(Optional.of(meta()));
         PixivNovelGalleryCapabilityProvider provider =
-                new PixivNovelGalleryCapabilityProvider(legacy, metadata, database);
+                new PixivNovelGalleryCapabilityProvider(novelProvider, metadata, database);
 
         var work = provider.find(new GalleryWorkKey("pixiv", "novel", "123")).orElseThrow();
 
@@ -49,17 +49,17 @@ class PixivNovelGalleryCapabilityProviderTest {
     }
 
     @Test
-    @DisplayName("旧小说列表映射到共享 novel 作品身份")
-    void mapsLegacyNovelProjection() {
-        PixivNovelGalleryDataProvider legacy = mock(PixivNovelGalleryDataProvider.class);
+    @DisplayName("正式小说列表映射到共享 novel 作品身份")
+    void mapsPrimaryNovelProjection() {
+        PixivNovelGalleryDataProvider novelProvider = mock(PixivNovelGalleryDataProvider.class);
         WorkMetadataRepository metadata = mock(WorkMetadataRepository.class);
         NovelDatabase database = mock(NovelDatabase.class);
-        when(legacy.query(org.mockito.ArgumentMatchers.any())).thenReturn(new GalleryPage(List.of(
+        when(novelProvider.query(org.mockito.ArgumentMatchers.any())).thenReturn(new GalleryPage(List.of(
                 new GalleryItem(new GalleryWorkRef("pixiv-novel", "pixiv", GalleryKind.NOVEL, "123"),
-                        "小说", "/cover", "/legacy", Map.of())), 1, false, 0, 1, List.of()));
+                        "小说", "/cover", "/novel", Map.of())), 1, false, 0, 1, List.of()));
         when(metadata.findAll(WorkType.NOVEL, List.of(123L))).thenReturn(List.of(meta()));
         PixivNovelGalleryCapabilityProvider provider =
-                new PixivNovelGalleryCapabilityProvider(legacy, metadata, database);
+                new PixivNovelGalleryCapabilityProvider(novelProvider, metadata, database);
 
         var page = provider.page(new top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery(
                 GalleryKind.NOVEL, "pixiv", List.of(), null, null, null, 1));
