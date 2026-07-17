@@ -34,10 +34,14 @@ import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
+import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
@@ -73,13 +77,16 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
                         "top.sywyar.pixivdownload.core.metadata.novel..",
+                        "top.sywyar.pixivdownload.core.pixiv..",
                         "top.sywyar.pixivdownload.core.stats..",
                         "top.sywyar.pixivdownload.core.web..",
+                        "top.sywyar.pixivdownload.core.work..",
                         "top.sywyar.pixivdownload.i18n..",
                         "top.sywyar.pixivdownload.notification..",
                         "top.sywyar.pixivdownload.push..",
                         "top.sywyar.pixivdownload.setup..",
                         "top.sywyar.pixivdownload.tts.narration.engine..",
+                        "top.sywyar.pixivdownload.util..",
                         "top.sywyar.pixivdownload.web..",
                         "java..")
                 .because("core-api 是 Spring-free 纯 JDK 的核心 owned 语义端口与可选能力契约模块："
@@ -160,6 +167,15 @@ class CoreApiDependencyGuardTest {
     void coreApiContainsNovelMetadataValues() {
         assertThat(CLASSES.contain(NovelRecord.class.getName())).isTrue();
         assertThat(CLASSES.contain(NovelSeries.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含作品动作、Pixiv 解析与时间归一纯值能力")
+    void coreApiContainsSharedPureValuesAndResolvers() {
+        assertThat(CLASSES.contain(WorkActionResult.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivCookieUserResolver.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivCoverUrlResolver.class.getName())).isTrue();
+        assertThat(CLASSES.contain(TimestampUtils.class.getName())).isTrue();
     }
 
     @Test

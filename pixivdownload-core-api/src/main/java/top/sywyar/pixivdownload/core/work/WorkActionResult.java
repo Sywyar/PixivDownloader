@@ -1,9 +1,6 @@
 package top.sywyar.pixivdownload.core.work;
 
-import lombok.Getter;
-
-@Getter
-public class WorkActionResult {
+public final class WorkActionResult {
     public static final String SUCCESS = "success";
     public static final String FAILED = "failed";
     public static final String SKIPPED = "skipped";
@@ -31,5 +28,13 @@ public class WorkActionResult {
 
     public static WorkActionResult exists(String message) {
         return new WorkActionResult(EXISTS, message);
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public String getMessage() {
+        return message;
     }
 }
