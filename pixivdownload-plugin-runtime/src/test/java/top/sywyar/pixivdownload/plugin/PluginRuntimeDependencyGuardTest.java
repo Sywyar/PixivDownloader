@@ -63,6 +63,25 @@ class PluginRuntimeDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("plugin-runtime 队列状态保留设施只在 Spring 调度边界之内")
+    void pluginRuntimeQueueStatusRetentionStaysAtSchedulingBoundary() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.download.queue..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin.runtime.download.queue..",
+                        "top.sywyar.pixivdownload.plugin.api.download.queue..",
+                        "java..", "org.springframework.scheduling..")
+                .because("TaskScheduler 相关状态保留属于 plugin-runtime；它只能依赖纯 JDK 队列契约与 Spring 调度 API，"
+                        + "不得回指 app 或具体插件")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention.class.getName()))
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("plugin-runtime 只能依赖签名模块公开接口，不得依赖 internal 实现包")
     void pluginRuntimeDoesNotDependOnSignatureInternals() {
         noClasses()
