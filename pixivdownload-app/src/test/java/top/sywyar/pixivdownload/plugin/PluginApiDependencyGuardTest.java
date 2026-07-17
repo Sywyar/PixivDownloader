@@ -87,6 +87,25 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("plugin.api 队列运行时只能依赖纯 JDK 与队列契约自身")
+    void pluginApiQueueRuntimeIsPureJdk() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api.download.queue..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api.download.queue..", "java..")
+                .because("队列 tracker / generation drain / 拒绝异常跨宿主与外置插件共享，"
+                        + "不得耦合 Spring、HTTP 或 app 的本地化异常层")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException.class.getName())).isTrue();
+    }
+
+    @Test
     @DisplayName("plugin.api.gui 契约只能依赖 JDK 与 plugin-api 自身")
     void pluginApiGuiThemeContractIsPureJdk() {
         classes()
