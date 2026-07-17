@@ -12,11 +12,38 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("MaintenanceCoordinator 调度配置测试")
 class MaintenanceCoordinatorTest {
+
+    @Test
+    @DisplayName("维护上下文进度回调更新当前任务快照并在窗口结束后清理")
+    void maintenanceContextReportsProgressToCurrentSnapshot() {
+        AtomicReference<MaintenanceStatusHolder.Snapshot> reported = new AtomicReference<>();
+        MaintenanceTask task = new MaintenanceTask() {
+            @Override
+            public String name() {
+                return "progress";
+            }
+
+            @Override
+            public void execute(MaintenanceContext context) {
+                context.updateProgress(2, 5);
+                reported.set(MaintenanceStatusHolder.snapshot());
+            }
+        };
+        MaintenanceCoordinator coordinator = new MaintenanceCoordinator(
+                List.of(task), new MaintenanceProperties());
+
+        assertThat(coordinator.runScheduledIfDue(LocalDateTime.of(2026, 5, 25, 10, 0))).isTrue();
+
+        assertThat(reported.get().unitsDone()).isEqualTo(2);
+        assertThat(reported.get().unitsTotal()).isEqualTo(5);
+        assertThat(MaintenanceStatusHolder.snapshot().active()).isFalse();
+    }
 
     @Test
     @DisplayName("默认仅在周一 10:00 触发且同一分钟不重复触发")

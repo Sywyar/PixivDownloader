@@ -17,6 +17,10 @@ import top.sywyar.pixivdownload.core.gallery.GalleryDataProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendProvider;
 import top.sywyar.pixivdownload.core.gallery.model.GallerySourceDescriptor;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashEntry;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashFingerprint;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
@@ -52,6 +56,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.config..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.gallery..",
+                        "top.sywyar.pixivdownload.core.hash..",
                         "top.sywyar.pixivdownload.core.stats..",
                         "top.sywyar.pixivdownload.core.web..",
                         "top.sywyar.pixivdownload.i18n..",
@@ -119,6 +124,15 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(GallerySourceDescriptor.class.getName())).isTrue();
         assertThat(CLASSES.contain(GalleryFrontendContribution.class.getName())).isTrue();
         assertThat(CLASSES.contain(GalleryFrontendProvider.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含核心图片哈希索引端口与纯值投影")
+    void coreApiContainsArtworkHashIndexContracts() {
+        assertThat(CLASSES.contain(ArtworkHashIndexQuery.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkHashIndexMaintenance.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkHashEntry.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkHashFingerprint.class.getName())).isTrue();
     }
 
     @Test

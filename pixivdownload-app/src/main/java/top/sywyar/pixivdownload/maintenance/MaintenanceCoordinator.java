@@ -166,7 +166,8 @@ public class MaintenanceCoordinator {
         MaintenanceStatusHolder.begin(trigger, tasks.size());
         log.info(MessageBundles.get("maintenance.log.window.opened", trigger, tasks.size()));
         try {
-            MaintenanceContext ctx = new MaintenanceContext(trigger, started);
+            MaintenanceContext ctx = new MaintenanceContext(
+                    trigger, started, MaintenanceStatusHolder::updateProgress);
             int index = 0;
             for (MaintenanceTask task : tasks) {
                 index++;
