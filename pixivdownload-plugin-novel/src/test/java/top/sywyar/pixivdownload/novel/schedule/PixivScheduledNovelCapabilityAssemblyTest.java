@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.schedule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.config.DownloadSettings;
+import org.springframework.core.task.SyncTaskExecutor;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
@@ -44,11 +45,9 @@ class PixivScheduledNovelCapabilityAssemblyTest {
             new ScheduleCapabilityOwner("novel", "novel", 7L);
 
     @Test
-    @DisplayName("生产工厂贡献的小说执行器可被珍藏集来源以跨 owner 复合租约解析")
+    @DisplayName("生产工厂贡献的小说执行器按真实下载池上限参与跨 owner 复合租约")
     void productionNovelExecutorExpandsWithCollectionSourceOwner() {
         NovelPluginConfiguration configuration = new NovelPluginConfiguration();
-        DownloadSettings downloadSettings = mock(DownloadSettings.class);
-        when(downloadSettings.getNovelMaxConcurrent()).thenReturn(3, 2);
         PixivScheduledNovelWorkExecutor novelExecutor =
                 configuration.pixivScheduledNovelWorkExecutor(
                         new ObjectMapper(),
@@ -58,10 +57,9 @@ class PixivScheduledNovelCapabilityAssemblyTest {
                         mock(NovelDownloader.class),
                         mock(NovelMergeService.class),
                         mock(NovelAutoTranslateService.class),
-                        downloadSettings);
+                        new NovelDownloadExecutionLane(new SyncTaskExecutor(), 3));
         assertThat(novelExecutor.workType()).isEqualTo("novel");
         assertThat(novelExecutor.maxConcurrency()).isEqualTo(3);
-        assertThat(novelExecutor.maxConcurrency()).isEqualTo(2);
 
         ScheduledSourceExecutor collectionExecutor = mock(ScheduledSourceExecutor.class);
         when(collectionExecutor.sourceType()).thenReturn("collection");

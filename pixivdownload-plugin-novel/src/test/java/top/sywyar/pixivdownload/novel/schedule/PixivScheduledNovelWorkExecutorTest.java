@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.novel.schedule;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,14 +12,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
@@ -45,7 +47,10 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -81,9 +86,23 @@ class PixivScheduledNovelWorkExecutorTest {
     @Mock
     private NovelAutoTranslateService novelAutoTranslateService;
 
+    private ThreadPoolTaskExecutor laneTaskExecutor;
+    private NovelDownloadExecutionLane downloadExecutionLane;
+
+    @BeforeEach
+    void startDownloadExecutionLane() {
+        laneTaskExecutor = new ThreadPoolTaskExecutor();
+        laneTaskExecutor.setCorePoolSize(1);
+        laneTaskExecutor.setMaxPoolSize(1);
+        laneTaskExecutor.setThreadNamePrefix("scheduled-novel-test-");
+        laneTaskExecutor.initialize();
+        downloadExecutionLane = new NovelDownloadExecutionLane(laneTaskExecutor, 1);
+    }
+
     @AfterEach
     void clearRouteOverride() {
         OutboundProxyOverride.clear();
+        laneTaskExecutor.shutdown();
     }
 
     @Test
@@ -284,6 +303,44 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
         assertThat(OutboundProxyOverride.isActive()).isFalse();
         verify(fixture.credential(), never()).copySecret();
+    }
+
+    @Test
+    @DisplayName("复用下载通道线程时代理与直连作用域互不串用")
+    void reusedLaneWorkerDoesNotLeakProxyOrDirectRoute() throws Exception {
+        AtomicInteger fetches = new AtomicInteger();
+        AtomicReference<Thread> workerThread = new AtomicReference<>();
+        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenAnswer(invocation -> {
+            Thread currentThread = Thread.currentThread();
+            if (!workerThread.compareAndSet(null, currentThread)) {
+                assertThat(currentThread).isSameAs(workerThread.get());
+            }
+            assertThat(OutboundProxyOverride.isActive()).isTrue();
+            if (fetches.getAndIncrement() == 0) {
+                assertThat(OutboundProxyOverride.current().getHostName()).isEqualTo("proxy.local");
+                assertThat(OutboundProxyOverride.current().getPort()).isEqualTo(7890);
+            } else {
+                assertThat(OutboundProxyOverride.current()).isNull();
+            }
+            return minimalNovelResponse();
+        });
+        when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
+        PixivScheduledNovelWorkExecutor executor = executor();
+
+        executor.execute(
+                work("123"),
+                context(
+                        definition(false, false),
+                        ScheduledNetworkRoute.proxy("proxy.local", 7890, null),
+                        null).context());
+        assertThat(workerRouteOverrideActive()).isFalse();
+
+        executor.execute(
+                work("124"),
+                context(definition(false, false), ScheduledNetworkRoute.direct(), null).context());
+        assertThat(workerRouteOverrideActive()).isFalse();
+        assertThat(fetches).hasValue(2);
+        assertThat(OutboundProxyOverride.isActive()).isFalse();
     }
 
     @Test
@@ -518,7 +575,13 @@ class PixivScheduledNovelWorkExecutorTest {
                 novelDownloader,
                 novelMergeService,
                 novelAutoTranslateService,
-                mock(DownloadSettings.class));
+                downloadExecutionLane);
+    }
+
+    private boolean workerRouteOverrideActive() throws Exception {
+        FutureTask<Boolean> probe = new FutureTask<>(OutboundProxyOverride::isActive);
+        laneTaskExecutor.execute(probe);
+        return probe.get(2, TimeUnit.SECONDS);
     }
 
     private ContextFixture context(String definitionJson, ScheduledNetworkRoute route, char[] secret) {

@@ -11,11 +11,11 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
@@ -63,7 +63,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     private final NovelDownloader novelDownloader;
     private final NovelMergeService novelMergeService;
     private final NovelAutoTranslateService novelAutoTranslateService;
-    private final DownloadSettings downloadConfig;
+    private final NovelDownloadExecutionLane downloadExecutionLane;
     private final ConcurrentHashMap<SeriesCacheKey, Optional<PixivScheduledNovelMetadata.SeriesMetadata>>
             seriesMetadataCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, ScheduledTaskDefinition> seriesCacheRuns = new ConcurrentHashMap<>();
@@ -76,7 +76,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
-            DownloadSettings downloadConfig) {
+            NovelDownloadExecutionLane downloadExecutionLane) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.pixivAjaxProxyClient = Objects.requireNonNull(pixivAjaxProxyClient, "pixivAjaxProxyClient");
         this.workQueryService = Objects.requireNonNull(workQueryService, "workQueryService");
@@ -85,7 +85,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         this.novelMergeService = Objects.requireNonNull(novelMergeService, "novelMergeService");
         this.novelAutoTranslateService = Objects.requireNonNull(
                 novelAutoTranslateService, "novelAutoTranslateService");
-        this.downloadConfig = Objects.requireNonNull(downloadConfig, "downloadConfig");
+        this.downloadExecutionLane = Objects.requireNonNull(
+                downloadExecutionLane, "downloadExecutionLane");
     }
 
     @Override
@@ -95,11 +96,26 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
 
     @Override
     public int maxConcurrency() {
-        return downloadConfig.getNovelMaxConcurrent();
+        return downloadExecutionLane.capacity();
     }
 
     @Override
     public ScheduledWorkResult execute(ScheduledWork work, ScheduledWorkContext context)
+            throws ScheduledExecutionException {
+        try {
+            return downloadExecutionLane.executeAndWait(() -> executeInLane(work, context));
+        } catch (ScheduledExecutionException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            throw ScheduledExecutionException.cancelled();
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            throw failure(ScheduledFailure.Category.INTERNAL, "pixiv.novel.execution-lane-failed");
+        }
+    }
+
+    private ScheduledWorkResult executeInLane(ScheduledWork work, ScheduledWorkContext context)
             throws ScheduledExecutionException {
         Objects.requireNonNull(context, "context");
         ScheduledTaskDefinition task = context.task();
@@ -150,19 +166,18 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         if (!route.isResolved()) {
             throw failure(ScheduledFailure.Category.INVALID_DEFINITION, "pixiv.schedule.route-unresolved");
         }
+        ScopedWorkExecution execution = new ScopedWorkExecution(
+                () -> executeScoped(novelId, cookie, definition, context));
         if (route.mode() == ScheduledNetworkRoute.Mode.DIRECT) {
-            OutboundProxyOverride.setDirect();
+            OutboundProxyOverride.runDirectScoped(execution);
         } else {
-            OutboundProxyOverride.set(route.proxyHost() + ":" + route.proxyPort());
-            if (!OutboundProxyOverride.isActive()) {
+            String proxy = route.proxyHost() + ":" + route.proxyPort();
+            if (OutboundProxyOverride.parse(proxy) == null) {
                 throw failure(ScheduledFailure.Category.INVALID_DEFINITION, "pixiv.schedule.proxy-unsupported");
             }
+            OutboundProxyOverride.runScoped(proxy, execution);
         }
-        try {
-            return executeScoped(novelId, cookie, definition, context);
-        } finally {
-            OutboundProxyOverride.clear();
-        }
+        return execution.result();
     }
 
     private ScheduledWorkResult executeScoped(
@@ -550,6 +565,39 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                 "title", metadata.title(),
                 "xRestrict", Integer.toString(metadata.xRestrict()),
                 "ai", Boolean.toString(metadata.ai()));
+    }
+
+    @FunctionalInterface
+    private interface ScheduledWorkCall {
+
+        ScheduledWorkResult call() throws ScheduledExecutionException;
+    }
+
+    private static final class ScopedWorkExecution implements Runnable {
+
+        private final ScheduledWorkCall call;
+        private ScheduledWorkResult result;
+        private ScheduledExecutionException failure;
+
+        private ScopedWorkExecution(ScheduledWorkCall call) {
+            this.call = call;
+        }
+
+        @Override
+        public void run() {
+            try {
+                result = Objects.requireNonNull(call.call(), "scheduled work result");
+            } catch (ScheduledExecutionException e) {
+                failure = e;
+            }
+        }
+
+        private ScheduledWorkResult result() throws ScheduledExecutionException {
+            if (failure != null) {
+                throw failure;
+            }
+            return Objects.requireNonNull(result, "scheduled work result");
+        }
     }
 
     private record SeriesCacheKey(long taskId, long seriesId) {

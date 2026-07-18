@@ -211,11 +211,11 @@ public class NovelPluginConfiguration {
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
-            DownloadSettings downloadConfig) {
+            NovelDownloadExecutionLane downloadExecutionLane) {
         return new PixivScheduledNovelWorkExecutor(
                 objectMapper, pixivAjaxProxyClient, workQueryService,
                 workMetaCaptureService, novelDownloader, novelMergeService,
-                novelAutoTranslateService, downloadConfig);
+                novelAutoTranslateService, downloadExecutionLane);
     }
 
     @Bean
