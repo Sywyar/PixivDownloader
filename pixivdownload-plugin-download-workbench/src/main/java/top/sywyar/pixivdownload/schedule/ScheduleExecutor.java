@@ -9,7 +9,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
@@ -135,7 +134,6 @@ public class ScheduleExecutor {
     private final AppMessages messages;
     private final WebI18nBundleRegistry webI18nBundleRegistry;
     private final UserDisplayNameProvider userDisplayNameProvider;
-    private final DownloadSettings downloadSettings;
     // 字段名与 bean 名一致，借此按名解析到对应下载池（避免 @Primary 的 applicationTaskExecutor）。
     private final TaskExecutor downloadTaskExecutor;
     private final TaskExecutor novelDispatchTaskExecutor;
@@ -159,14 +157,13 @@ public class ScheduleExecutor {
             NotificationService notificationService,
             AppMessages messages,
             UserDisplayNameProvider userDisplayNameProvider,
-            DownloadSettings downloadSettings,
             TaskExecutor downloadTaskExecutor,
             TaskExecutor novelDispatchTaskExecutor) {
         this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
                 overuseWarningService, notificationService, messages, userDisplayNameProvider,
-                downloadSettings, downloadTaskExecutor, novelDispatchTaskExecutor, null);
+                downloadTaskExecutor, novelDispatchTaskExecutor, null);
     }
 
     /** 保留既有显式构造调用；descriptor i18n registry 仅由正式插件装配注入。 */
@@ -187,7 +184,6 @@ public class ScheduleExecutor {
             NotificationService notificationService,
             AppMessages messages,
             UserDisplayNameProvider userDisplayNameProvider,
-            DownloadSettings downloadSettings,
             TaskExecutor downloadTaskExecutor,
             TaskExecutor novelDispatchTaskExecutor,
             ScheduleExecutionEngine scheduleExecutionEngine) {
@@ -195,7 +191,7 @@ public class ScheduleExecutor {
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
                 overuseWarningService, notificationService, messages, null, userDisplayNameProvider,
-                downloadSettings, downloadTaskExecutor, novelDispatchTaskExecutor,
+                downloadTaskExecutor, novelDispatchTaskExecutor,
                 scheduleExecutionEngine);
     }
 

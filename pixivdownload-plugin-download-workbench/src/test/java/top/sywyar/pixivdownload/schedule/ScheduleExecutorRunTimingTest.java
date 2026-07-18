@@ -10,7 +10,6 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
@@ -107,9 +106,6 @@ class ScheduleExecutorRunTimingTest {
     private WebI18nBundleRegistry webI18nBundleRegistry;
     @Mock
     private UserDisplayNameProvider userDisplayNameProvider;
-    @Mock
-    private DownloadSettings downloadSettings;
-
     private ObjectMapper objectMapper;
     private PixivSchedulePersistenceCodec codec;
     private ScheduleRunState localRunState;
@@ -120,8 +116,6 @@ class ScheduleExecutorRunTimingTest {
         objectMapper = new ObjectMapper();
         codec = new PixivSchedulePersistenceCodec(objectMapper);
         localRunState = new ScheduleRunState();
-        lenient().when(downloadSettings.getMaxConcurrent()).thenReturn(10);
-        lenient().when(downloadSettings.getNovelMaxConcurrent()).thenReturn(10);
         executor = newExecutor(SYNC_EXECUTOR, SYNC_EXECUTOR);
 
         lenient().when(store.tryQueueNow(anyLong(), anyLong(), anyString()))
@@ -1077,7 +1071,6 @@ class ScheduleExecutorRunTimingTest {
                 artworkDownloader, workQueryService, new ScheduleConfig(), localRunState,
                 new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
                 notificationService, appMessages, userDisplayNameProvider,
-                downloadSettings,
                 downloadExecutor, novelExecutor);
     }
 
@@ -1117,7 +1110,6 @@ class ScheduleExecutorRunTimingTest {
                 artworkDownloader, workQueryService, new ScheduleConfig(), localRunState,
                 new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
                 notificationService, appMessages, webI18nBundleRegistry, userDisplayNameProvider,
-                downloadSettings,
                 SYNC_EXECUTOR, SYNC_EXECUTOR, engine);
     }
 

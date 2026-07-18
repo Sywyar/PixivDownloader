@@ -10,7 +10,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -163,14 +162,13 @@ public class ScheduleHostPluginConfiguration {
                                              AppMessages messages,
                                              WebI18nBundleRegistry webI18nBundleRegistry,
                                              UserDisplayNameProvider userDisplayNameProvider,
-                                             DownloadSettings downloadSettings,
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                              @Qualifier("scheduleWorkTaskExecutor") TaskExecutor novelDispatchTaskExecutor,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
-                notificationService, messages, webI18nBundleRegistry, userDisplayNameProvider, downloadSettings,
+                notificationService, messages, webI18nBundleRegistry, userDisplayNameProvider,
                 downloadTaskExecutor, novelDispatchTaskExecutor, scheduleExecutionEngine);
     }
 
@@ -191,13 +189,12 @@ public class ScheduleHostPluginConfiguration {
                                              NotificationService notificationService,
                                              AppMessages messages,
                                              UserDisplayNameProvider userDisplayNameProvider,
-                                             DownloadSettings downloadSettings,
                                              TaskExecutor downloadTaskExecutor,
                                              TaskExecutor novelDispatchTaskExecutor) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
-                notificationService, messages, userDisplayNameProvider, downloadSettings,
+                notificationService, messages, userDisplayNameProvider,
                 downloadTaskExecutor, novelDispatchTaskExecutor);
     }
 

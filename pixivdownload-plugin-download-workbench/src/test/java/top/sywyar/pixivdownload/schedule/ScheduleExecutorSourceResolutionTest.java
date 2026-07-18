@@ -12,7 +12,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
@@ -96,8 +95,6 @@ class ScheduleExecutorSourceResolutionTest {
     @Mock
     private UserDisplayNameProvider userDisplayNameProvider;
     @Mock
-    private DownloadSettings downloadSettings;
-    @Mock
     private WorkMetaCaptureService workMetaCaptureService;
 
     private ScheduleRunState runState;
@@ -108,8 +105,6 @@ class ScheduleExecutorSourceResolutionTest {
     @BeforeEach
     void setUp() {
         runState = new ScheduleRunState();
-        lenient().when(downloadSettings.getMaxConcurrent()).thenReturn(10);
-        lenient().when(downloadSettings.getNovelMaxConcurrent()).thenReturn(10);
     }
 
     @AfterEach
@@ -126,7 +121,7 @@ class ScheduleExecutorSourceResolutionTest {
                 new ScheduleConfig(), runState, new ScheduleRunQueue(),
                 objectMapper, new PixivSchedulePersistenceCodec(objectMapper),
                 overuseWarningService, notificationService, appMessages, userDisplayNameProvider,
-                downloadSettings, SYNC_EXECUTOR, SYNC_EXECUTOR);
+                SYNC_EXECUTOR, SYNC_EXECUTOR);
     }
 
     private ScheduleCapabilityRegistry downloadWorkbenchCapabilities() {

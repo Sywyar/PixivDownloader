@@ -258,7 +258,7 @@ class ScheduleRunnerLeaseTest {
         ScheduleExecutor executor = new ScheduleExecutor(
                 store, registry, null, null, null, null, null,
                 new ScheduleConfig(), runState, null, null, null, null, null, null, null,
-                null, null, null) {
+                null, null) {
             @Override
             void runTaskAndRecord(
                     top.sywyar.pixivdownload.core.schedule.ScheduledTask task,

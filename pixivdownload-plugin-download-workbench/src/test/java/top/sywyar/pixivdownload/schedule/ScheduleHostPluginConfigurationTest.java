@@ -7,7 +7,6 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
@@ -80,7 +79,6 @@ class ScheduleHostPluginConfigurationTest {
                 mock(NotificationService.class),
                 mock(AppMessages.class),
                 mock(UserDisplayNameProvider.class),
-                mock(DownloadSettings.class),
                 direct,
                 direct);
         ScheduleService service = configuration.scheduleService(
