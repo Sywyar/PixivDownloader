@@ -6,7 +6,8 @@ import java.nio.file.Path;
  * 作品 meta sidecar 文件命名规则（纯 JDK，无框架依赖）。
  * <p>
  * sidecar 文件名为 {@code {workId}.meta.json}（per-work 命名，避免 ImageClassifier 摊平单图作品时跨作品撞名）。
- * 本类只负责文件名规则，JSON 解析、存储、校验等逻辑由 {@link WorkSidecarStore} 承担。
+ * 本类只负责文件名规则；JSON curation 由 {@link WorkMetaCurator} 承担，原子写入由
+ * {@link WorkSidecarStore} 承担。当前不发布 sidecar 读取契约。
  */
 public final class WorkSidecarFiles {
 

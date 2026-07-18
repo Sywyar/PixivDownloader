@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.core.download;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,7 +15,6 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkDeletionService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
@@ -45,7 +43,6 @@ class WorkDeletionFileRollbackTest {
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
     private DownloadConfig downloadConfig;
-    private WorkSidecarStore sidecarStore;
 
     @BeforeEach
     void setUp() {
@@ -54,7 +51,6 @@ class WorkDeletionFileRollbackTest {
         pixivDatabase = mock(PixivDatabase.class);
         novelMetadataRepository = mock(NovelMetadataRepository.class);
         downloadConfig = mock(DownloadConfig.class);
-        sidecarStore = new WorkSidecarStore(new ObjectMapper());
         when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
     }
 
@@ -69,7 +65,7 @@ class WorkDeletionFileRollbackTest {
                 pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), failingHelper);
         LocalWorkAssetService assetService = new LocalWorkAssetService(
                 mock(ArtworkFileService.class), locator, pixivDatabase, novelMetadataRepository,
-                downloadConfig, sidecarStore, TestI18nBeans.appMessages(), failingHelper);
+                downloadConfig, TestI18nBeans.appMessages(), failingHelper);
         return new CoreWorkDeletionService(workQueryService, assetService, pixivDatabase,
                 novelMetadataRepository, TestI18nBeans.appMessages());
     }

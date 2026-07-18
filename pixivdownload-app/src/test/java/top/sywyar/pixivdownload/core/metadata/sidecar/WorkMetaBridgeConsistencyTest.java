@@ -27,14 +27,10 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.download.ArtworkFileService;
-import top.sywyar.pixivdownload.core.download.LocalWorkAssetService;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
@@ -48,14 +44,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * meta 桥端到端一致性守卫：钉住「捕获真写一遍后，<b>列投影读</b>（{@link WorkMetadataRepository}）与
- * <b>sidecar 读</b>（{@link WorkAssetService#findSidecarMeta}）落到同一份值」的持久化 round-trip，
- * 以及软删除下两条读取路径各自的语义（查询层按 {@code deleted=1} 过滤、文件层不参与软删除三态）。
+ * meta 捕获端到端一致性守卫：钉住「捕获真写一遍后，<b>列投影读</b>（{@link WorkMetadataRepository}）与
+ * <b>sidecar 落盘文档</b>来自同一份值」的持久化 round-trip，以及软删除下列投影过滤、文件保留的语义。
  *
  * <p>这是 sidecar↔列投影一致性的<b>持久化端到端</b>那一截（curator 内存级一致性已由
  * {@code WorkMetaCuratorTest} 钉），用真 in-memory SQLite + 真文件系统跑通两类媒体。
  */
-@DisplayName("meta 桥一致性：sidecar↔列投影持久化 round-trip + 软删除语义")
+@DisplayName("meta 捕获一致性：sidecar 落盘、列投影与软删除")
 class WorkMetaBridgeConsistencyTest {
 
     private static final String UPLOAD_ISO = "2026-06-06T21:27:00+00:00";
@@ -73,9 +68,8 @@ class WorkMetaBridgeConsistencyTest {
 
     // 写入侧（捕获 → 列投影 + sidecar）
     private WorkMetaCaptureService captureService;
-    // 读取侧两条桥
+    // 读取侧列投影
     private WorkMetadataRepository metadataRepository;
-    private WorkAssetService assetService;
 
     @BeforeEach
     void setUp() {
@@ -127,10 +121,6 @@ class WorkMetaBridgeConsistencyTest {
 
         metadataRepository = new CoreWorkMetadataRepository(
                 pixivDatabase, novelMetadataRepository, authorService, mangaSeriesService);
-        // findSidecarMeta 不经 ArtworkFileService（仅插画字节服务用它），可放心 mock
-        assetService = new LocalWorkAssetService(
-                mock(ArtworkFileService.class), artworkFileLocator, pixivDatabase, novelMetadataRepository,
-                downloadConfig, sidecarStore, TestI18nBeans.appMessages(), stagedFileDeletion);
     }
 
     @AfterEach
@@ -142,6 +132,14 @@ class WorkMetaBridgeConsistencyTest {
     private JsonNode json(String text) {
         try {
             return mapper.readTree(text);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private JsonNode readSidecar(Path dir, long id) {
+        try {
+            return mapper.readTree(dir.resolve(WorkSidecarFiles.fileName(id)).toFile());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -182,7 +180,7 @@ class WorkMetaBridgeConsistencyTest {
     }
 
     @Nested
-    @DisplayName("持久化 round-trip：从列读 == 从 sidecar 读 == 捕获值")
+    @DisplayName("持久化 round-trip：列投影与落盘 sidecar 同源")
     class RoundTrip {
 
         @Test
@@ -196,15 +194,15 @@ class WorkMetaBridgeConsistencyTest {
                     + "\"description\":\"d\"}"), null, "schedule");
 
             WorkMetadata fromColumn = metadataRepository.find(WorkType.ARTWORK, id).orElseThrow();
-            WorkSidecarMeta fromSidecar = assetService.findSidecarMeta(WorkType.ARTWORK, id).orElseThrow();
+            JsonNode fromSidecar = readSidecar(artworkDir(id), id);
 
             assertThat(fromColumn.uploadTime())
-                    .isEqualTo(fromSidecar.normalized().uploadTime())
+                    .isEqualTo(fromSidecar.path("normalized").path("uploadTime").longValue())
                     .isEqualTo(UPLOAD_MILLIS);
             assertThat(fromColumn.isOriginal())
-                    .isEqualTo(fromSidecar.normalized().isOriginal())
+                    .isEqualTo(fromSidecar.path("normalized").path("isOriginal").booleanValue())
                     .isEqualTo(true);
-            assertThat(fromSidecar.source()).isEqualTo("schedule");
+            assertThat(fromSidecar.path("source").asText()).isEqualTo("schedule");
         }
 
         @Test
@@ -217,25 +215,25 @@ class WorkMetaBridgeConsistencyTest {
                     + "\"content\":\"很长的正文……\",\"description\":\"d\"}"), "schedule");
 
             WorkMetadata fromColumn = metadataRepository.find(WorkType.NOVEL, id).orElseThrow();
-            WorkSidecarMeta fromSidecar = assetService.findSidecarMeta(WorkType.NOVEL, id).orElseThrow();
+            JsonNode fromSidecar = readSidecar(novelDir(id), id);
 
             assertThat(fromColumn.uploadTime())
-                    .isEqualTo(fromSidecar.normalized().uploadTime())
+                    .isEqualTo(fromSidecar.path("normalized").path("uploadTime").longValue())
                     .isEqualTo(UPLOAD_MILLIS);
             // 列 is_original 来自 insert（捕获不写小说 is_original 列），sidecar 来自捕获 body，两者同值
             assertThat(fromColumn.isOriginal())
-                    .isEqualTo(fromSidecar.normalized().isOriginal())
+                    .isEqualTo(fromSidecar.path("normalized").path("isOriginal").booleanValue())
                     .isEqualTo(true);
-            assertThat(fromSidecar.source()).isEqualTo("schedule");
+            assertThat(fromSidecar.path("source").asText()).isEqualTo("schedule");
         }
     }
 
     @Nested
-    @DisplayName("软删除语义：sidecar 文件保留 + 查询层过滤 / 文件层不受软删影响")
+    @DisplayName("软删除语义：sidecar 文件保留 + 查询层过滤")
     class SoftDelete {
 
         @Test
-        @DisplayName("插画软删后：sidecar 文件保留；列投影 find 返回 empty；findSidecarMeta 文件层仍可读")
+        @DisplayName("插画软删后：sidecar 文件保留，列投影 find 返回 empty")
         void artworkSoftDeleteKeepsSidecarButFiltersColumnRead() {
             long id = 8L;
             Path dir = artworkDir(id);
@@ -250,12 +248,10 @@ class WorkMetaBridgeConsistencyTest {
             assertThat(Files.exists(dir.resolve(id + ".meta.json"))).as("软删后 sidecar 文件保留").isTrue();
             // 查询层（列投影桥）按 deleted=1 过滤，软删行视为不存在
             assertThat(metadataRepository.find(WorkType.ARTWORK, id)).as("列投影读过滤软删").isEmpty();
-            // 文件层（sidecar 桥）不参与软删除三态，文件仍在即可读出
-            assertThat(assetService.findSidecarMeta(WorkType.ARTWORK, id)).as("文件层不受软删影响").isPresent();
         }
 
         @Test
-        @DisplayName("小说软删后：sidecar 文件保留；列投影 find 返回 empty；findSidecarMeta 文件层仍可读")
+        @DisplayName("小说软删后：sidecar 文件保留，列投影 find 返回 empty")
         void novelSoftDeleteKeepsSidecarButFiltersColumnRead() {
             long id = 43L;
             Path dir = novelDir(id);
@@ -268,7 +264,6 @@ class WorkMetaBridgeConsistencyTest {
 
             assertThat(Files.exists(dir.resolve(id + ".meta.json"))).as("软删后 sidecar 文件保留").isTrue();
             assertThat(metadataRepository.find(WorkType.NOVEL, id)).as("列投影读过滤软删").isEmpty();
-            assertThat(assetService.findSidecarMeta(WorkType.NOVEL, id)).as("文件层不受软删影响").isPresent();
         }
     }
 }

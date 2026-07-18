@@ -49,8 +49,8 @@ class GalleryPluginSourceBoundaryTest {
         }
 
         assertThat(violations)
-                .as("gallery 不得硬编码 sidecar 文件名实现细节：sidecar 只能经 WorkAssetService.findSidecarMeta 读，"
-                        + "普通作品文件枚举 / 读取也应经 WorkAssetService。\n命中清单：\n%s",
+                .as("gallery 不得硬编码 sidecar 文件名实现细节：sidecar 没有对插件发布读取面，"
+                        + "普通作品文件枚举 / 读取应经 WorkAssetService。\n命中清单：\n%s",
                         String.join("\n", violations))
                 .isEmpty();
     }

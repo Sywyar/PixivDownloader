@@ -5,7 +5,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
@@ -13,13 +12,11 @@ import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
 import java.io.File;
@@ -45,7 +42,6 @@ class LocalWorkAssetServiceTest {
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
     private DownloadConfig downloadConfig;
-    private WorkSidecarStore sidecarStore;
     private LocalWorkAssetService service;
 
     @BeforeEach
@@ -57,9 +53,8 @@ class LocalWorkAssetServiceTest {
         pixivDatabase = mock(PixivDatabase.class);
         novelMetadataRepository = mock(NovelMetadataRepository.class);
         downloadConfig = mock(DownloadConfig.class);
-        sidecarStore = new WorkSidecarStore(new ObjectMapper());
         service = new LocalWorkAssetService(artworkFileService, artworkFileLocator, pixivDatabase,
-                novelMetadataRepository, downloadConfig, sidecarStore, TestI18nBeans.appMessages(),
+                novelMetadataRepository, downloadConfig, TestI18nBeans.appMessages(),
                 new StagedFileDeletion(TestI18nBeans.appMessages()));
     }
 
@@ -185,51 +180,6 @@ class LocalWorkAssetServiceTest {
         assertTrue(asset.get().files().isEmpty());
     }
 
-    @Test
-    @DisplayName("findSidecarMeta 读取并解析作品目录下的 {id}.meta.json")
-    void findSidecarMetaReadsArtworkSidecar() throws Exception {
-        Path dir = Files.createDirectories(tempDir.resolve("42"));
-        Files.writeString(dir.resolve("42.meta.json"),
-                "{\"schemaVersion\":1,\"workType\":\"ARTWORK\",\"workId\":42,\"source\":\"schedule\","
-                        + "\"normalized\":{\"isOriginal\":true},\"raw\":{}}");
-        ArtworkRecord record = artwork(42L, 1);
-        when(pixivDatabase.getArtwork(42L)).thenReturn(record);
-        when(artworkFileLocator.resolveArtworkDirectory(record)).thenReturn(dir.toString());
-
-        Optional<WorkSidecarMeta> meta = service.findSidecarMeta(WorkType.ARTWORK, 42L);
-
-        assertTrue(meta.isPresent());
-        assertEquals(42L, meta.get().workId());
-        assertEquals(Boolean.TRUE, meta.get().normalized().isOriginal());
-    }
-
-    @Test
-    @DisplayName("findSidecarMeta 损坏 / 非法 sidecar 时返回 empty（不上抛给插件）")
-    void findSidecarMetaEmptyWhenSidecarInvalid() throws Exception {
-        Path dir = Files.createDirectories(tempDir.resolve("42"));
-        ArtworkRecord record = artwork(42L, 1);
-        when(pixivDatabase.getArtwork(42L)).thenReturn(record);
-        when(artworkFileLocator.resolveArtworkDirectory(record)).thenReturn(dir.toString());
-
-        // 损坏 JSON
-        Files.writeString(dir.resolve("42.meta.json"), "{not json");
-        assertTrue(service.findSidecarMeta(WorkType.ARTWORK, 42L).isEmpty());
-
-        // workType 张冠李戴（文件声明 NOVEL，请求 ARTWORK）
-        Files.writeString(dir.resolve("42.meta.json"),
-                "{\"schemaVersion\":1,\"workType\":\"NOVEL\",\"workId\":42,\"source\":\"schedule\","
-                        + "\"normalized\":{},\"raw\":{}}");
-        assertTrue(service.findSidecarMeta(WorkType.ARTWORK, 42L).isEmpty());
-    }
-
-    @Test
-    @DisplayName("findSidecarMeta 无下载记录时返回 empty")
-    void findSidecarMetaEmptyWhenRecordMissing() {
-        when(pixivDatabase.getArtwork(404L)).thenReturn(null);
-
-        assertTrue(service.findSidecarMeta(WorkType.ARTWORK, 404L).isEmpty());
-    }
-
     @Nested
     @DisplayName("小说侧（novel-{id} 独占目录语义）")
     class NovelAssetTests {
@@ -288,23 +238,6 @@ class LocalWorkAssetServiceTest {
             assertEquals(1, asset.get().pageCount());
             assertEquals(List.of(new WorkAssetFile(0, txt.toAbsolutePath().normalize(), "txt")),
                     asset.get().files());
-        }
-
-        @Test
-        @DisplayName("findSidecarMeta 读取并解析 novel-{id} 目录下的 {id}.meta.json")
-        void findSidecarMetaReadsNovelSidecar() throws Exception {
-            Path dir = novelDir(7L);
-            Files.writeString(dir.resolve("7.meta.json"),
-                    "{\"schemaVersion\":1,\"workType\":\"NOVEL\",\"workId\":7,\"source\":\"schedule\","
-                            + "\"normalized\":{\"uploadTime\":123},\"raw\":{\"restrict\":0}}");
-            when(novelMetadataRepository.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
-            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-
-            Optional<WorkSidecarMeta> meta = service.findSidecarMeta(WorkType.NOVEL, 7L);
-
-            assertTrue(meta.isPresent());
-            assertEquals(7L, meta.get().workId());
-            assertEquals(123L, meta.get().normalized().uploadTime());
         }
 
         @Test
@@ -429,7 +362,7 @@ class LocalWorkAssetServiceTest {
 
             LocalWorkAssetService failingService = new LocalWorkAssetService(
                     artworkFileService, artworkFileLocator, pixivDatabase, novelMetadataRepository,
-                    downloadConfig, sidecarStore, TestI18nBeans.appMessages(),
+                    downloadConfig, TestI18nBeans.appMessages(),
                     failOn(dir.resolve("7.meta.json")));
 
             assertFalse(failingService.deleteLocalFiles(WorkType.NOVEL, 7L), "删除失败应返回 false");
