@@ -9,6 +9,8 @@ public interface RuntimePathProvider {
 
     Path resolvePluginConfigPath(String pluginId, String extension);
 
+    Path resolvePluginStateDirectory(String pluginId);
+
     Path resolvePluginDataDirectory(String pluginId);
 
     Path resolveBatchStatePath();

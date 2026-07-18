@@ -273,6 +273,20 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("插件状态目录应按 owner 落在 state 下并拒绝路径穿越")
+    void shouldResolveOwnerScopedPluginStateDirectorySafely() {
+        Path resolved = RuntimeFiles.resolvePluginStateDirectory("download-workbench");
+
+        assertThat(resolved).isEqualTo(stateDir.resolve("download-workbench"));
+        assertThat(resolved).isDirectory();
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.resolvePluginStateDirectory("../escape"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> RuntimeFiles.resolvePluginStateDirectory("nested/state"));
+        assertThat(tempDir.resolve("escape")).doesNotExist();
+    }
+
+    @Test
     @DisplayName("插件凭证路径应按 owner 落在独立 credentials 目录")
     void shouldResolveOwnerScopedPluginCredentialPath() {
         Path resolved = RuntimeFiles.resolvePluginCredentialPath("fixture");

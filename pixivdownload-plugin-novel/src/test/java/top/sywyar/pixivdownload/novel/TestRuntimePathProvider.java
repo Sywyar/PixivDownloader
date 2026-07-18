@@ -28,6 +28,11 @@ public final class TestRuntimePathProvider implements RuntimePathProvider {
     }
 
     @Override
+    public Path resolvePluginStateDirectory(String pluginId) {
+        return directory(root.resolve("state").resolve(pluginId));
+    }
+
+    @Override
     public Path resolveBatchStatePath() {
         return directory(root.resolve("state")).resolve("batch_state.json");
     }

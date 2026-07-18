@@ -101,23 +101,16 @@ public final class RuntimeFiles {
         return resolveDirectory(STATE_DIR_PROPERTY, DEFAULT_STATE_DIR);
     }
 
+    public static Path resolvePluginStateDirectory(String pluginId) {
+        return resolvePluginDirectory(stateDirectory(), pluginId);
+    }
+
     public static Path dataDirectory() {
         return resolveDirectory(DATA_DIR_PROPERTY, DEFAULT_DATA_DIR);
     }
 
     public static Path resolvePluginDataDirectory(String pluginId) {
-        String safePluginId = safePathToken(pluginId, "pluginId");
-        Path dataRoot = dataDirectory().normalize();
-        Path target = dataRoot.resolve(safePluginId).normalize();
-        if (!target.toAbsolutePath().normalize().startsWith(dataRoot.toAbsolutePath().normalize())) {
-            throw new IllegalArgumentException("pluginId resolves outside the data directory");
-        }
-        try {
-            Files.createDirectories(target);
-        } catch (IOException e) {
-            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
-        }
-        return target;
+        return resolvePluginDirectory(dataDirectory(), pluginId);
     }
 
     /**
@@ -388,6 +381,16 @@ public final class RuntimeFiles {
         } catch (IOException e) {
             throw new UncheckedIOException(message("runtime.error.resolve-file.failed", target), e);
         }
+    }
+
+    private static Path resolvePluginDirectory(Path root, String pluginId) {
+        String safePluginId = safePathToken(pluginId, "pluginId");
+        Path normalizedRoot = root.normalize();
+        Path target = normalizedRoot.resolve(safePluginId).normalize();
+        if (!target.toAbsolutePath().normalize().startsWith(normalizedRoot.toAbsolutePath().normalize())) {
+            throw new IllegalArgumentException("pluginId resolves outside the runtime directory");
+        }
+        return resolveManagedDirectory(target, List.of());
     }
 
     private static String safePathToken(String value, String label) {

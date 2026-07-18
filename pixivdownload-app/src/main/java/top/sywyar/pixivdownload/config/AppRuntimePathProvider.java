@@ -19,6 +19,11 @@ public class AppRuntimePathProvider implements RuntimePathProvider {
     }
 
     @Override
+    public Path resolvePluginStateDirectory(String pluginId) {
+        return RuntimeFiles.resolvePluginStateDirectory(pluginId);
+    }
+
+    @Override
     public Path resolvePluginDataDirectory(String pluginId) {
         return RuntimeFiles.resolvePluginDataDirectory(pluginId);
     }
