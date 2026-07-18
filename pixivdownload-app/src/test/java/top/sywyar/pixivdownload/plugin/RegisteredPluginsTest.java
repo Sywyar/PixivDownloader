@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.market.PluginMarketPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.push.PushFormatConverter;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -127,6 +128,12 @@ class RegisteredPluginsTest {
                     .containsExactlyInAnyOrder(
                             "core", "plugin-market");
         });
+    }
+
+    @Test
+    @DisplayName("core 组合根只装配一个中性推送格式转换器")
+    void coreProvidesSinglePushFormatConverter() {
+        runner.run(context -> assertThat(context.getBeansOfType(PushFormatConverter.class)).hasSize(1));
     }
 
     @Test

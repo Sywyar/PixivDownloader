@@ -3,14 +3,39 @@ package top.sywyar.pixivdownload.push;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("PushMessageFactory 单元测试")
 class PushMessageFactoryTest {
+
+    private static final List<String> RUNTIME_LOG_KEYS = List.of(
+            "push.log.value.unknown",
+            "push.log.send.success",
+            "push.log.send.failed",
+            "push.log.notification.delivery-failed",
+            "push.log.notification.render-failed");
+
+    private static final List<String> CONTROLLED_DETAIL_KEYS = List.of(
+            PushResult.DETAIL_CHANNEL_UNAVAILABLE,
+            PushResult.DETAIL_CHANNEL_NOT_CONFIGURED,
+            PushResult.DETAIL_SETTINGS_INCOMPLETE,
+            PushResult.DETAIL_SETTINGS_TYPE_MISMATCH,
+            PushResult.DETAIL_UNEXPECTED_ERROR,
+            PushResult.DETAIL_SERIALIZATION_FAILED,
+            PushResult.DETAIL_SIGNING_FAILED,
+            PushResult.DETAIL_INVALID_CONTENT_TYPE,
+            PushResult.DETAIL_INVALID_URL);
 
     private final PushMessageFactory factory = new PushMessageFactory(TestMessageResolver.INSTANCE);
 
@@ -95,5 +120,36 @@ class PushMessageFactoryTest {
 
         assertThat(msg.content()).doesNotContain("{{").doesNotContain("}}");
         assertThat(msg.title()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("插件中英文资源键完全一致并包含运行日志与受控详情")
+    void pluginBundlesOwnAllRuntimeMessageKeys() throws IOException {
+        Properties chinese = loadProperties("i18n/push/messages.properties");
+        Properties english = loadProperties("i18n/push/messages_en.properties");
+
+        assertThat(english.stringPropertyNames())
+                .containsExactlyInAnyOrderElementsOf(chinese.stringPropertyNames());
+        for (Properties bundle : List.of(chinese, english)) {
+            assertThat(bundle.stringPropertyNames())
+                    .containsAll(RUNTIME_LOG_KEYS)
+                    .containsAll(CONTROLLED_DETAIL_KEYS);
+            for (String key : RUNTIME_LOG_KEYS) {
+                assertThat(bundle.getProperty(key)).as("push 插件资源缺少 %s", key).isNotBlank();
+            }
+            for (String key : CONTROLLED_DETAIL_KEYS) {
+                assertThat(bundle.getProperty(key)).as("push 插件资源缺少 %s", key).isNotBlank();
+            }
+        }
+    }
+
+    private static Properties loadProperties(String resource) throws IOException {
+        Properties properties = new Properties();
+        try (InputStream input = Objects.requireNonNull(
+                PushMessageFactoryTest.class.getClassLoader().getResourceAsStream(resource), resource);
+             InputStreamReader reader = new InputStreamReader(input, StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        return properties;
     }
 }

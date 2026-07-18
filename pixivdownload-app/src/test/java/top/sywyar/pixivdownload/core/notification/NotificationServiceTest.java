@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.core.notification;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.support.StaticMessageSource;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
@@ -83,7 +85,7 @@ class NotificationServiceTest {
     void enabledByDefaultDeliversToAllSinks() {
         RecordingSink sink = new RecordingSink();
         NotificationService service = new NotificationService(new NotificationSinkRegistry(List.of(sink)),
-                new NotificationConfig());
+                new NotificationConfig(), testMessages());
 
         service.notify(NotificationScenario.RUN_SUMMARY, Locale.SIMPLIFIED_CHINESE, Map.of());
 
@@ -96,7 +98,8 @@ class NotificationServiceTest {
         RecordingSink sink = new RecordingSink();
         NotificationConfig config = new NotificationConfig();
         config.setScenarioEnabled(NotificationScenario.RUN_SUMMARY.id(), false);
-        NotificationService service = new NotificationService(new NotificationSinkRegistry(List.of(sink)), config);
+        NotificationService service = new NotificationService(
+                new NotificationSinkRegistry(List.of(sink)), config, testMessages());
 
         service.notify(NotificationScenario.RUN_SUMMARY, Locale.SIMPLIFIED_CHINESE, Map.of());
         service.notify(NotificationScenario.RUN_FAILED, Locale.SIMPLIFIED_CHINESE, Map.of());
@@ -109,13 +112,26 @@ class NotificationServiceTest {
     void withdrawnSinkFailsSoftWithoutMetadataCallback() {
         RecordingSink sink = new RecordingSink();
         NotificationService service = new NotificationService(
-                new NotificationSinkRegistry(List.of(sink)), new NotificationConfig());
+                new NotificationSinkRegistry(List.of(sink)), new NotificationConfig(), throwingMessages());
         sink.deliveryFailure = new ExternalCapabilityUnavailableException("withdrawn");
         sink.failMediumLookup = true;
 
         service.notify(NotificationScenario.RUN_SUMMARY, Locale.SIMPLIFIED_CHINESE, Map.of());
 
         assertThat(sink.delivered).isEmpty();
+    }
+
+    private static AppMessages testMessages() {
+        return new AppMessages(new StaticMessageSource());
+    }
+
+    private static AppMessages throwingMessages() {
+        return new AppMessages(new StaticMessageSource()) {
+            @Override
+            public String getForLog(String code, Object... args) {
+                throw new IllegalStateException("test resolver failure");
+            }
+        };
     }
 
     private static List<Throwable> failures(String action) {

@@ -17,8 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 即「不发送这个通知类型的通知」。未在配置中出现的场景<b>默认视为启用</b>，因此新增场景或旧配置缺项时
  * 默认全部勾选 / 全部发送。
  * <p>
- * 字段使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.push.PushConfig} /
- * {@link top.sywyar.pixivdownload.mail.MailConfig} 风格一致，便于热重载时安全地被多线程读取。
+ * 字段使用 {@code volatile}，便于热重载时安全地被多线程读取。
  */
 @Data
 @Component

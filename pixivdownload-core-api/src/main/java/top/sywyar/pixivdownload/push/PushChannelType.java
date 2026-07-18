@@ -1,11 +1,10 @@
 package top.sywyar.pixivdownload.push;
 
 /**
- * 推送通道类型的稳定枚举。{@link #id()} 是该通道在 {@code config.yaml}（{@code push.<id>.*}）、日志与未来
- * GUI 中使用的稳定字符串标识，不随枚举常量改名而变化。
+ * 推送通道类型的稳定枚举。{@link #id()} 是配置键、协议投影与诊断中使用的稳定字符串标识，
+ * 不随枚举常量改名而变化；具体配置存储由通道 owner 管理。
  * <p>
- * 新增通道时在此追加一个常量，并实现对应的 {@link PushChannel}（一个 {@code @Component}）即可——
- * {@link PushService} 通过 {@code List<PushChannel>} 自动发现，无需改动派发器。
+ * 新增通道时在此追加一个常量并实现对应的 {@link PushChannel}；中性派发器无需按通道添加分支。
  */
 public enum PushChannelType {
 

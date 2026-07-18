@@ -2,21 +2,18 @@ package top.sywyar.pixivdownload.core.push;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.MessageSource;
-import org.springframework.context.MessageSourceResolvable;
-import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;
+import top.sywyar.pixivdownload.push.PushFormatConverter;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,24 +21,6 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 
 @DisplayName("PushService 派发器单元测试")
 class PushServiceTest {
-
-    /** 不依赖 Spring 容器：用最简 MessageSource 回落 code，仅供日志取文案。 */
-    private static final AppMessages MESSAGES = new AppMessages(new MessageSource() {
-        @Override
-        public String getMessage(String code, Object[] args, String defaultMessage, Locale locale) {
-            return defaultMessage != null ? defaultMessage : code;
-        }
-
-        @Override
-        public String getMessage(String code, Object[] args, Locale locale) {
-            return code;
-        }
-
-        @Override
-        public String getMessage(MessageSourceResolvable resolvable, Locale locale) {
-            return "";
-        }
-    });
 
     /** 无状态，全测试共用一个实例。 */
     private static final PushFormatConverter CONVERTER = new PushFormatConverter();
@@ -160,6 +139,16 @@ class PushServiceTest {
     }
 
     @Test
+    @DisplayName("定向发送空通道类型时收敛为通道不可用")
+    void targetedSendWithNullTypeFailsSoft() {
+        PushResult result = service().push(null, PushMessage.of("标题", "正文"));
+
+        assertThat(result.channel()).isNull();
+        assertThat(result.status()).isEqualTo(PushResult.Status.SKIPPED);
+        assertThat(result.detail()).isEqualTo(PushResult.DETAIL_CHANNEL_UNAVAILABLE);
+    }
+
+    @Test
     @DisplayName("测试路径仅向传入设置对应的通道发送")
     void testPathRoutesBySettingsType() {
         FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
@@ -192,8 +181,74 @@ class PushServiceTest {
         assertThat(bark.testReceived).isEmpty();
     }
 
+    @Test
+    @DisplayName("测试设置回调异常按单项收敛且不影响后续通道")
+    void testSettingsCallbackFailureIsContained() {
+        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
+        PushService service = service(bark);
+        PushChannelSettings throwing = new PushChannelSettings() {
+            @Override
+            public PushChannelType type() {
+                throw new IllegalStateException("broken settings");
+            }
+
+            @Override
+            public boolean isComplete() {
+                return true;
+            }
+        };
+
+        List<PushResult> results = service.test(
+                List.of(throwing, new FakeSettings(PushChannelType.BARK, true)),
+                PushMessage.of("标题", "正文"));
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0).status()).isEqualTo(PushResult.Status.FAILED);
+        assertThat(results.get(0).detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
+        assertThat(results.get(1).isOk()).isTrue();
+    }
+
+    @Test
+    @DisplayName("测试设置含空元素时保持结果与输入一一对应")
+    void nullTestSettingsPreserveResultCardinality() {
+        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
+        PushService service = service(bark);
+        List<PushChannelSettings> settings = new ArrayList<>();
+        settings.add(null);
+        settings.add(new FakeSettings(PushChannelType.BARK, true));
+
+        List<PushResult> results = service.test(settings, PushMessage.of("标题", "正文"));
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0).channel()).isNull();
+        assertThat(results.get(0).status()).isEqualTo(PushResult.Status.FAILED);
+        assertThat(results.get(0).detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
+        assertThat(results.get(1).isOk()).isTrue();
+    }
+
+    @Test
+    @DisplayName("通道返回空值或非法结果时使用注册快照归一为受控失败")
+    void malformedChannelResultsAreNormalized() {
+        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
+        PushService service = service(bark);
+
+        bark.sendResult = null;
+        PushResult broadcast = service.push(PushMessage.of("标题", "正文")).get(0);
+        PushResult targeted = service.push(PushChannelType.BARK, PushMessage.of("标题", "正文"));
+        bark.testResult = new PushResult(null, null, null);
+        PushResult tested = service.test(
+                List.of(new FakeSettings(PushChannelType.BARK, true)),
+                PushMessage.of("标题", "正文")).get(0);
+
+        assertThat(List.of(broadcast, targeted, tested)).allSatisfy(result -> {
+            assertThat(result.channel()).isEqualTo(PushChannelType.BARK);
+            assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
+            assertThat(result.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
+        });
+    }
+
     private static PushService service(PushChannel... channels) {
-        return new PushService(new PushChannelRegistry(List.of(channels)), CONVERTER, MESSAGES);
+        return new PushService(new PushChannelRegistry(List.of(channels)), CONVERTER);
     }
 
     private static List<Throwable> failures(String action) {
@@ -228,12 +283,16 @@ class PushServiceTest {
         private RuntimeException toThrow;
         private RuntimeException configuredFailure;
         private boolean failTypeLookup;
+        private PushResult sendResult;
+        private PushResult testResult;
         private final List<RenderedMessage> received = new ArrayList<>();
         private final List<RenderedMessage> testReceived = new ArrayList<>();
 
         FakeChannel(PushChannelType type, boolean configured) {
             this.type = type;
             this.configured = configured;
+            this.sendResult = PushResult.ok(type);
+            this.testResult = PushResult.ok(type);
         }
 
         @Override
@@ -263,7 +322,7 @@ class PushServiceTest {
                 throw toThrow;
             }
             received.add(message);
-            return PushResult.ok(type);
+            return sendResult;
         }
 
         @Override
@@ -272,7 +331,7 @@ class PushServiceTest {
                 throw toThrow;
             }
             testReceived.add(message);
-            return PushResult.ok(type);
+            return testResult;
         }
     }
 }

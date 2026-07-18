@@ -49,21 +49,36 @@ public class PushHttpSender {
      * 发送一次调用。HTTP 2xx 且业务响应未报错记为成功；非 2xx / 业务失败 / 网络异常归为失败并返回脱敏详情。<b>不抛异常。</b>
      */
     public PushResult send(PushChannelType type, OutboundRequest request) {
+        long startedAtNs = System.nanoTime();
+        try {
+            return sendInternal(type, request, startedAtNs);
+        } catch (RuntimeException e) {
+            PushResult result = PushResult.failed(type, PushResult.DETAIL_UNEXPECTED_ERROR);
+            log.warn(PushPluginMessages.forLog(messages, "push.log.send.failed",
+                    channelId(type), elapsedMs(startedAtNs),
+                    PushPluginMessages.detailForLog(messages, result)));
+            return result;
+        }
+    }
+
+    private PushResult sendInternal(PushChannelType type, OutboundRequest request, long startedAtNs) {
         // 以 URI 直发，绝不让 RestTemplate 把 URL 当作模板再编码一次——通道（如钉钉「加签」）可能已经把
         // 签名等参数做过唯一一次 URL 编码（%2B / %2F / %3D），再编码会把 % 变成 %25 而破坏请求。
         URI uri;
         try {
             uri = URI.create(request.url());
         } catch (IllegalArgumentException e) {
-            log.warn(messages.getForLog("push.log.send.failed", type.id(), 0L, "invalid url"));
-            return PushResult.failed(type, "invalid url");
+            PushResult result = PushResult.failed(type, PushResult.DETAIL_INVALID_URL);
+            log.warn(PushPluginMessages.forLog(messages, "push.log.send.failed",
+                    channelId(type), elapsedMs(startedAtNs),
+                    PushPluginMessages.detailForLog(messages, result)));
+            return result;
         }
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(request.contentType());
         HttpEntity<byte[]> entity = new HttpEntity<>(request.body(), headers);
         RestTemplate restTemplate = request.useProxy() ? proxyRestTemplate : directRestTemplate;
 
-        long startedAtNs = System.nanoTime();
         try {
             ResponseEntity<byte[]> response =
                     restTemplate.exchange(uri, HttpMethod.POST, entity, byte[].class);
@@ -72,10 +87,11 @@ public class PushHttpSender {
                     inspectBusinessStatus(type, response.getBody(), request.secrets());
             if (!businessStatus.ok()) {
                 String detail = businessStatus.detail();
-                log.warn(messages.getForLog("push.log.send.failed", type.id(), elapsedMs, detail));
+                log.warn(PushPluginMessages.forLog(
+                        messages, "push.log.send.failed", channelId(type), elapsedMs, detail));
                 return PushResult.failed(type, detail);
             }
-            log.info(messages.getForLog("push.log.send.success", type.id(),
+            log.info(PushPluginMessages.forLog(messages, "push.log.send.success", channelId(type),
                     response.getStatusCode().value(), elapsedMs));
             return PushResult.ok(type);
         } catch (RestClientResponseException e) {
@@ -84,14 +100,22 @@ public class PushHttpSender {
             String body = e.getResponseBodyAsString(StandardCharsets.UTF_8);
             String detail = truncate("HTTP " + e.getRawStatusCode()
                     + (body == null || body.isBlank() ? "" : ": " + redact(body, request.secrets())));
-            log.warn(messages.getForLog("push.log.send.failed", type.id(), elapsedMs, detail));
+            log.warn(PushPluginMessages.forLog(
+                    messages, "push.log.send.failed", channelId(type), elapsedMs, detail));
             return PushResult.failed(type, detail);
         } catch (RestClientException e) {
             long elapsedMs = elapsedMs(startedAtNs);
             String detail = truncate(redact(safeMessage(e), request.secrets()));
-            log.warn(messages.getForLog("push.log.send.failed", type.id(), elapsedMs, detail));
+            log.warn(PushPluginMessages.forLog(
+                    messages, "push.log.send.failed", channelId(type), elapsedMs, detail));
             return PushResult.failed(type, detail);
         }
+    }
+
+    private String channelId(PushChannelType type) {
+        return type == null
+                ? PushPluginMessages.forLog(messages, "push.log.value.unknown")
+                : type.id();
     }
 
     private static BusinessStatus inspectBusinessStatus(PushChannelType type, byte[] body, List<String> secrets) {

@@ -8,8 +8,6 @@ public final class NotificationConfigKeys {
     private NotificationConfigKeys() {
     }
 
-    /** 拥有通知场景 GUI 配置字段的中性插件 id。 */
-    public static final String OWNER_PLUGIN_ID = "notification";
     /** 通知场景开关的 key 前缀。 */
     public static final String SCENARIO_PREFIX = "notification.scenario.";
     /** 场景开关 key 的后缀。 */

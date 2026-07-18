@@ -62,12 +62,15 @@ public class BarkPushChannel implements PushChannel {
         if (settings instanceof BarkSettings barkSettings) {
             return deliver(barkSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(BarkSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         String url = stripTrailingSlash(settings.server()) + "/push";
         String sound = settings.sound().isBlank() ? null : settings.sound();
@@ -78,7 +81,7 @@ public class BarkPushChannel implements PushChannel {
         try {
             body = MAPPER.writeValueAsBytes(payload);
         } catch (Exception e) {
-            return PushResult.failed(type(), "serialize error");
+            return PushResult.failed(type(), PushResult.DETAIL_SERIALIZATION_FAILED);
         }
         OutboundRequest request = OutboundRequest.json(
                 url, body, List.of(settings.deviceKey()), settings.useProxy());

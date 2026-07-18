@@ -64,12 +64,15 @@ public class ServerChanPushChannel implements PushChannel {
         if (settings instanceof ServerChanSettings serverChanSettings) {
             return deliver(serverChanSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(ServerChanSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         String key = settings.sendKey();
         String url = endpoint(key);

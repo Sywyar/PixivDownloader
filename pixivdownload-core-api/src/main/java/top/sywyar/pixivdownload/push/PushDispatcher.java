@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.push;
 import java.util.List;
 
 /**
- * Core push dispatch facade used by the optional push plugin UI and sinks.
+ * 不拥有通道实现的窄派发端口。
  */
 public interface PushDispatcher {
 

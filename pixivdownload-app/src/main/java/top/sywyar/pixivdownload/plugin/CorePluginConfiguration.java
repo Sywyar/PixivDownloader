@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.core.schedule.db.migration.LegacyScheduledTaskMi
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.push.PushFormatConverter;
 
 @Configuration
 public class CorePluginConfiguration {
@@ -19,6 +20,11 @@ public class CorePluginConfiguration {
     @Bean
     public CorePlugin corePlugin() {
         return new CorePlugin();
+    }
+
+    @Bean
+    public PushFormatConverter pushFormatConverter() {
+        return new PushFormatConverter();
     }
 
     @Bean

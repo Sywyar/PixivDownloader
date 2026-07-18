@@ -16,9 +16,11 @@ import javax.swing.UIDefaults;
 import javax.swing.UIManager;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +29,7 @@ import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Properties;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
@@ -226,6 +229,12 @@ class DistributionPackagingBoundaryTest {
                 .as("mail i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/push/messages.properties"))
                 .as("push i18n 资源不应在 boot jar 内").isNull();
+        for (String bundle : List.of("i18n/messages.properties", "i18n/messages_en.properties")) {
+            assertThat(loadUtf8Properties(host, bundle).stringPropertyNames())
+                    .as("宿主全局 i18n 不应复制 push 插件专属键：%s", bundle)
+                    .noneMatch(key -> key.startsWith("push.")
+                            || key.equals("config.template.section.push"));
+        }
         assertThat(host.getResource("mail/templates/run-summary.html"))
                 .as("mail 模板资源不应在 boot jar 内").isNull();
     }
@@ -552,6 +561,19 @@ class DistributionPackagingBoundaryTest {
             return true;
         } catch (ClassNotFoundException | LinkageError e) {
             return false;
+        }
+    }
+
+    private static Properties loadUtf8Properties(ClassLoader loader, String resource) {
+        try (InputStream input = loader.getResourceAsStream(resource)) {
+            if (input == null) {
+                throw new IllegalStateException("缺少 i18n 资源: " + resource);
+            }
+            Properties properties = new Properties();
+            properties.load(new InputStreamReader(input, StandardCharsets.UTF_8));
+            return properties;
+        } catch (IOException e) {
+            throw new IllegalStateException("读取 i18n 资源失败: " + resource, e);
         }
     }
 

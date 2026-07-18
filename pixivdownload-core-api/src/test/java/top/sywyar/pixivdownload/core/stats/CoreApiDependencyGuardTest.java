@@ -41,6 +41,7 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
+import top.sywyar.pixivdownload.push.PushFormatConverter;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
@@ -171,6 +172,7 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(PixivCoverUrlResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivDescriptionHtml.class.getName())).isTrue();
         assertThat(CLASSES.contain(EpochMillisNormalizer.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PushFormatConverter.class.getName())).isTrue();
     }
 
     @Test

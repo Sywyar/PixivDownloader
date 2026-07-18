@@ -10,6 +10,36 @@ import java.util.ResourceBundle;
 public final class TestMessageResolver implements MessageResolver {
 
     public static final TestMessageResolver INSTANCE = new TestMessageResolver();
+    public static final MessageResolver THROWING = new MessageResolver() {
+        @Override
+        public String get(String code, Object... args) {
+            throw failure();
+        }
+
+        @Override
+        public String get(Locale locale, String code, Object... args) {
+            throw failure();
+        }
+
+        @Override
+        public String getOrDefault(String code, String defaultMessage, Object... args) {
+            throw failure();
+        }
+
+        @Override
+        public String getOrDefault(Locale locale, String code, String defaultMessage, Object... args) {
+            throw failure();
+        }
+
+        @Override
+        public String getForLog(String code, Object... args) {
+            throw failure();
+        }
+
+        private IllegalStateException failure() {
+            return new IllegalStateException("test resolver failure");
+        }
+    };
 
     private static final String BASE_NAME = "i18n.push.messages";
     private static final ResourceBundle.Control CONTROL =

@@ -3,11 +3,14 @@ package top.sywyar.pixivdownload.notification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.push.PushConfig;
 import top.sywyar.pixivdownload.push.PushDispatcher;
 import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
+import top.sywyar.pixivdownload.push.PushPluginMessages;
+import top.sywyar.pixivdownload.push.PushResult;
 
 import java.util.List;
 import java.util.Locale;
@@ -33,6 +36,7 @@ public class PushNotificationSink implements NotificationSink {
     private final PushConfig pushConfig;
     private final PushMessageFactory messageFactory;
     private final PushDispatcher pushService;
+    private final MessageResolver messages;
 
     @Override
     public String medium() {
@@ -41,16 +45,39 @@ public class PushNotificationSink implements NotificationSink {
 
     @Override
     public void deliver(NotificationScenario scenario, Locale locale, Map<String, String> placeholders) {
-        if (!pushConfig.isEnabled()) {
-            return;
-        }
         try {
+            if (!pushConfig.isEnabled()) {
+                return;
+            }
             PushMessage message = messageFactory.render(
                     scenario.id(), PushLevel.from(scenario.level()), locale, placeholders);
-            pushService.push(message);
+            logDeliveryFailures(scenario, pushService.push(message));
         } catch (RuntimeException e) {
-            // PushService.push 已 best-effort 不抛；这里兜住渲染期的意外异常。
-            log.error("Push notification [{}] failed: {}", scenario.id(), e.getClass().getSimpleName());
+            // PushDispatcher.push 已 best-effort 不抛；这里兜住渲染期的意外异常。
+            String scenarioId = scenario == null
+                    ? PushPluginMessages.forLog(messages, "push.log.value.unknown")
+                    : scenario.id();
+            log.error(PushPluginMessages.forLog(messages,
+                    "push.log.notification.render-failed", scenarioId, e.getClass().getSimpleName()));
+        }
+    }
+
+    private void logDeliveryFailures(NotificationScenario scenario, List<PushResult> results) {
+        if (results == null) {
+            return;
+        }
+        for (PushResult result : results) {
+            if (result == null || result.status() != PushResult.Status.FAILED) {
+                continue;
+            }
+            String unknown = PushPluginMessages.forLog(messages, "push.log.value.unknown");
+            String channel = result.channel() == null ? unknown : result.channel().id();
+            String detail = PushPluginMessages.detailForLog(messages, result);
+            detail = detail == null || detail.isBlank()
+                    ? unknown
+                    : detail;
+            log.warn(PushPluginMessages.forLog(messages,
+                    "push.log.notification.delivery-failed", scenario.id(), channel, detail));
         }
     }
 

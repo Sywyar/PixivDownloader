@@ -1,10 +1,4 @@
-package top.sywyar.pixivdownload.core.push;
-
-import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.push.PushChannel;
-import top.sywyar.pixivdownload.push.PushFormat;
-import top.sywyar.pixivdownload.push.PushMessage;
-import top.sywyar.pixivdownload.push.RenderedMessage;
+package top.sywyar.pixivdownload.push;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,15 +6,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 推送格式化系统的<b>框架层</b>：协商目标格式 + 在格式间转换。无状态，被 {@link PushService} 复用。
+ * 推送格式化系统的纯算法：协商目标格式并在格式间转换。
  * <p>
- * 职责对应用户诉求里的「发送框架检测发送驱动和发送类型是否支持」：给定某通道
- * {@link PushChannel#supportedFormats() 支持的格式}与消息 {@link PushMessage#sourceFormat() 源格式}，
+ * 给定通道 {@link PushChannel#supportedFormats() 支持的格式}与消息 {@link PushMessage#sourceFormat() 源格式}，
  * {@link #negotiate} 选出该通道最合适的目标格式，{@link #render} 把正文转换到该格式并产出
  * {@link RenderedMessage}。任意源恒可达 {@link PushFormat#PLAIN_TEXT}，因此协商恒有解、并据此实现
  * 「不可转换时尽力降级为纯文本仍发送」的 best-effort 语义。
  *
- * <h2>转换矩阵（best-effort、最小可测）</h2>
+ * <h2>转换矩阵</h2>
  * <ul>
  *   <li>identity：X → X</li>
  *   <li>{@code MARKDOWN → PLAIN_TEXT}：剥离标记</li>
@@ -32,12 +25,11 @@ import java.util.regex.Pattern;
  *   <li>{@code * → CARD}：CARD 正文以 Markdown 内联承载，故 {@code CARD} 可达 ⟺ {@code MARKDOWN} 可达</li>
  * </ul>
  */
-@Component
 public class PushFormatConverter {
 
     private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]*)\\]\\(([^)]*)\\)");
     private static final Pattern INLINE_CODE = Pattern.compile("`([^`]+)`");
-    /** 反斜杠转义的内联元字符 {@code \ ` * _ [ ]}（与 {@link MarkdownEscape} 同一集合）。 */
+    /** 反斜杠转义的内联元字符 {@code \ ` * _ [ ]}。 */
     private static final Pattern MD_ESCAPE = Pattern.compile("\\\\([\\\\`*_\\[\\]])");
     // 强调正则按 CommonMark 的 flanking 规则收紧：定界符紧邻处不得是空白，否则不构成强调。
     // 这样空格分隔的裸星号（如 Cron 的 `* * *`）不会被误配对吞掉，仅真正的 **粗** / *斜* 才转换。
@@ -196,7 +188,7 @@ public class PushFormatConverter {
         // 反向（高索引 → 低索引）还原：外层 token（code / link，注入较晚、索引较大）先展开，露出其内部
         // 嵌套的转义 token（protectEscapes 最先注入、索引最小），再由后续更低索引的迭代还原。任何嵌套
         // token 的索引必然小于其容器，故按索引降序处理可逐层向内展开，避免内层 token 在外层展开后残留为
-        // 哨兵占位符（如 `a\*b` / [a\_b](x) 转 HTML 时泄漏  PUSHHTML… ）。
+        // 哨兵占位符（如 `a\*b` / [a\_b](x) 转 HTML 时泄漏 U+0000 PUSHHTML token）。
         String restored = text;
         for (int i = protectedHtml.size() - 1; i >= 0; i--) {
             restored = restored.replace(htmlToken(i), protectedHtml.get(i));
@@ -206,7 +198,7 @@ public class PushFormatConverter {
 
     private static String htmlToken(int index) {
         // token 不得含 `_` / `*`：否则后续的粗体 / 斜体正则（如 `_HTML_` → `<i>HTML</i>`）会误伤占位符，
-        // 导致 restoreProtectedHtml 无法还原、token 泄漏到输出。两端的   哨兵保证不与正文冲突。
+        // 导致 restoreProtectedHtml 无法还原、token 泄漏到输出。两端的 U+0000 哨兵保证不与正文冲突。
         return "\u0000PUSHHTML" + index + "\u0000";
     }
 

@@ -145,7 +145,7 @@ public class PushPlugin implements PixivFeaturePlugin {
                 useProxy("push.serverchan.use-proxy", "false", 172, enabled, on("push.serverchan.enabled")),
 
                 bool("push.webhook.enabled", "false", 180, enabled),
-                string("push.webhook.url", "", 181, enabled, on("push.webhook.enabled")),
+                password("push.webhook.url", "", 181, enabled, on("push.webhook.enabled")),
                 string("push.webhook.content-type", "application/json", 182, enabled, on("push.webhook.enabled")),
                 string("push.webhook.body-template", "", 183, enabled, on("push.webhook.enabled")),
                 useProxy("push.webhook.use-proxy", "false", 184, enabled, on("push.webhook.enabled"))
@@ -368,7 +368,7 @@ public class PushPlugin implements PixivFeaturePlugin {
                                                     String defaultValue, int order,
                                                     GuiConfigCondition... enabledWhen) {
         return new GuiConfigFieldContribution(key, GuiConfigGroups.NOTIFICATION, keyPrefix(key) + ".label", helpKey,
-                ID, type, defaultValue, order, false, false, List.of(),
+                ID, type, defaultValue, order, type == GuiConfigFieldType.PASSWORD, false, List.of(),
                 List.of(enabledWhen), List.of(), null, null);
     }
 

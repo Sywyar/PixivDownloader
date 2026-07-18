@@ -66,18 +66,21 @@ public class WebhookPushChannel implements PushChannel {
         if (settings instanceof WebhookSettings webhookSettings) {
             return deliver(webhookSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(WebhookSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         MediaType mediaType;
         try {
             mediaType = MediaType.parseMediaType(settings.contentType());
         } catch (Exception e) {
-            return PushResult.failed(type(), "invalid content-type");
+            return PushResult.failed(type(), PushResult.DETAIL_INVALID_CONTENT_TYPE);
         }
         boolean json = isJson(mediaType);
         String template = settings.bodyTemplate().isBlank() ? DEFAULT_TEMPLATE : settings.bodyTemplate();
@@ -89,7 +92,7 @@ public class WebhookPushChannel implements PushChannel {
 
         byte[] body = rendered.getBytes(StandardCharsets.UTF_8);
         OutboundRequest request = new OutboundRequest(
-                settings.url(), mediaType, body, List.of(), settings.useProxy());
+                settings.url(), mediaType, body, List.of(settings.url()), settings.useProxy());
         return sender.send(type(), request);
     }
 

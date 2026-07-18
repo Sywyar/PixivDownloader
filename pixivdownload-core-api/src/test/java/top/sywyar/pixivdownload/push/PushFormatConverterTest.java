@@ -1,12 +1,7 @@
-package top.sywyar.pixivdownload.core.push;
+package top.sywyar.pixivdownload.push;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.push.PushFormat;
-import top.sywyar.pixivdownload.push.PushLevel;
-import top.sywyar.pixivdownload.push.PushMessage;
-import top.sywyar.pixivdownload.push.RenderedMessage;
-
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;

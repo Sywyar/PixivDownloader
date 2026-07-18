@@ -60,12 +60,15 @@ public class WecomPushChannel implements PushChannel {
         if (settings instanceof WecomSettings wecomSettings) {
             return deliver(wecomSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(WecomSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         String url = WEBHOOK_BASE + settings.key();
         Object payload = message.format() == PushFormat.MARKDOWN
@@ -76,7 +79,7 @@ public class WecomPushChannel implements PushChannel {
         try {
             body = MAPPER.writeValueAsBytes(payload);
         } catch (Exception e) {
-            return PushResult.failed(type(), "serialize error");
+            return PushResult.failed(type(), PushResult.DETAIL_SERIALIZATION_FAILED);
         }
         OutboundRequest request = OutboundRequest.json(url, body, List.of(settings.key()), settings.useProxy());
         return sender.send(type(), request);

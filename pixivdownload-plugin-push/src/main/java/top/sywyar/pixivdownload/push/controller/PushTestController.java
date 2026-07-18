@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,7 +43,8 @@ public class PushTestController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         if (body == null) {
-            return ResponseEntity.ok(PushTestResponse.from(List.of()));
+            return ResponseEntity.ok(PushTestResponse.from(
+                    List.of(), messages, LocaleContextHolder.getLocale()));
         }
         List<PushChannelSettings> settings = body.toEnabledSettings();
         PushMessage message = PushMessage.of(
@@ -50,7 +52,8 @@ public class PushTestController {
                 messages.get("push.test.message.body"),
                 PushLevel.INFO);
         List<PushResult> results = pushService.test(settings, message);
-        return ResponseEntity.ok(PushTestResponse.from(results));
+        return ResponseEntity.ok(PushTestResponse.from(
+                results, messages, LocaleContextHolder.getLocale()));
     }
 
     private static boolean trustedLocalRequest(HttpServletRequest request) {

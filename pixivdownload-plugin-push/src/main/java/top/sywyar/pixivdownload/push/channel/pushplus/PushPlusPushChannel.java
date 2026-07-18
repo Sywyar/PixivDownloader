@@ -60,12 +60,15 @@ public class PushPlusPushChannel implements PushChannel {
         if (settings instanceof PushPlusSettings pushPlusSettings) {
             return deliver(pushPlusSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(PushPlusSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         String template = message.format() == PushFormat.MARKDOWN ? "markdown" : "txt";
         Payload payload = new Payload(settings.token(), message.title(), message.body(), template);
@@ -74,7 +77,7 @@ public class PushPlusPushChannel implements PushChannel {
         try {
             body = MAPPER.writeValueAsBytes(payload);
         } catch (Exception e) {
-            return PushResult.failed(type(), "serialize error");
+            return PushResult.failed(type(), PushResult.DETAIL_SERIALIZATION_FAILED);
         }
         OutboundRequest request = OutboundRequest.json(
                 SEND_URL, body, List.of(settings.token()), settings.useProxy());

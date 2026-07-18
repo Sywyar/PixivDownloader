@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.core.notification;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.support.StaticMessageSource;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 
@@ -23,7 +25,8 @@ class NotificationSinkCoverageTest {
     @DisplayName("默认无外置插件时通知协调器没有介质也不抛错")
     void noSinksWithoutPluginsIsAllowed() {
         NotificationSinkRegistry registry = new NotificationSinkRegistry(List.of());
-        NotificationService service = new NotificationService(registry, new NotificationConfig());
+        NotificationService service = new NotificationService(
+                registry, new NotificationConfig(), new AppMessages(new StaticMessageSource()));
 
         assertThat(registry.sinks()).isEmpty();
         assertThatCode(() -> service.notify(NotificationScenario.RUN_SUMMARY,

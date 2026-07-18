@@ -99,6 +99,38 @@ class PushHttpSenderTest {
         assertThat(result.isOk()).isTrue();
     }
 
+    @Test
+    @DisplayName("非 RestClientException 的运行时异常收敛为受控失败原因")
+    void unexpectedRuntimeFailureIsContained() {
+        direct.failWith(new IllegalStateException("unexpected transport failure"));
+        PushHttpSender brokenMessagesSender = new PushHttpSender(
+                direct, proxy, TestMessageResolver.THROWING);
+
+        PushResult result = brokenMessagesSender.send(PushChannelType.BARK, request(List.of()));
+        PushResult nullRequest = brokenMessagesSender.send(PushChannelType.BARK, null);
+
+        assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
+        assertThat(result.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
+        assertThat(nullRequest.status()).isEqualTo(PushResult.Status.FAILED);
+        assertThat(nullRequest.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
+    }
+
+    @Test
+    @DisplayName("日志文案解析异常不会穿透发送器故障安全边界")
+    void logMessageResolutionFailureIsContained() {
+        direct.respond("{\"code\":200}");
+        PushHttpSender brokenMessagesSender = new PushHttpSender(
+                direct, proxy, TestMessageResolver.THROWING);
+
+        PushResult success = brokenMessagesSender.send(PushChannelType.BARK, request(List.of()));
+        PushResult invalidUrl = brokenMessagesSender.send(
+                PushChannelType.BARK,
+                OutboundRequest.json("://invalid", new byte[0], List.of(), false));
+
+        assertThat(success.isOk()).isTrue();
+        assertThat(invalidUrl.detail()).isEqualTo(PushResult.DETAIL_INVALID_URL);
+    }
+
     private static OutboundRequest request(List<String> secrets) {
         return OutboundRequest.json("https://example.test/send",
                 "{}".getBytes(StandardCharsets.UTF_8), secrets, false);
@@ -106,14 +138,23 @@ class PushHttpSenderTest {
 
     private static final class StubRestTemplate extends RestTemplate {
         private ResponseEntity<byte[]> response;
+        private RuntimeException failure;
 
         void respond(String json) {
+            failure = null;
             response = ResponseEntity.ok(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        void failWith(RuntimeException failure) {
+            this.failure = failure;
         }
 
         @Override
         public <T> ResponseEntity<T> exchange(URI url, HttpMethod method,
                                               HttpEntity<?> requestEntity, Class<T> responseType) {
+            if (failure != null) {
+                throw failure;
+            }
             @SuppressWarnings("unchecked")
             ResponseEntity<T> cast = (ResponseEntity<T>) response;
             return cast;

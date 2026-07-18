@@ -167,8 +167,9 @@ public class PushPluginConfiguration {
     @ConditionalOnPluginEnabled(PushPlugin.ID)
     public PushNotificationSink pushNotificationSink(PushConfig config,
                                                      PushMessageFactory messageFactory,
-                                                     PushDispatcher pushDispatcher) {
-        return new PushNotificationSink(config, messageFactory, pushDispatcher);
+                                                     PushDispatcher pushDispatcher,
+                                                     @Qualifier("pushPluginMessages") MessageResolver messages) {
+        return new PushNotificationSink(config, messageFactory, pushDispatcher, messages);
     }
 
     @Bean

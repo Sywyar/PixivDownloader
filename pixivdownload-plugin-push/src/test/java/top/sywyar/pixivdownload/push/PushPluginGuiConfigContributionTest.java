@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
@@ -31,6 +32,17 @@ class PushPluginGuiConfigContributionTest {
             "pushplus",
             "serverchan",
             "webhook");
+    private static final Set<String> SECRET_FIELDS = Set.of(
+            "push.bark.device-key",
+            "push.dingtalk.access-token",
+            "push.dingtalk.secret",
+            "push.telegram.bot-token",
+            "push.feishu.webhook-key",
+            "push.feishu.secret",
+            "push.wecom.key",
+            "push.pushplus.token",
+            "push.serverchan.send-key",
+            "push.webhook.url");
 
     private final PushPlugin plugin = new PushPlugin();
 
@@ -52,6 +64,23 @@ class PushPluginGuiConfigContributionTest {
                 .contains("push.enabled")
                 .doesNotContain("mail.enabled")
                 .noneMatch(key -> key.startsWith("notification.scenario."));
+    }
+
+    @Test
+    @DisplayName("推送凭证字段统一声明为敏感密码字段")
+    void credentialFieldsAreSensitivePasswords() {
+        List<GuiConfigFieldContribution> fields = contributions().stream()
+                .flatMap(contribution -> contribution.fields().stream())
+                .filter(field -> SECRET_FIELDS.contains(field.key()))
+                .toList();
+
+        assertThat(fields).hasSize(SECRET_FIELDS.size());
+        assertThat(fields).extracting(GuiConfigFieldContribution::key)
+                .containsExactlyInAnyOrderElementsOf(SECRET_FIELDS);
+        assertThat(fields).allSatisfy(field -> {
+            assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD);
+            assertThat(field.sensitive()).isTrue();
+        });
     }
 
     @Test

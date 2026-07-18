@@ -1,20 +1,17 @@
 package top.sywyar.pixivdownload.notification;
 
 /**
- * 对外通知<b>业务场景</b>的单一事实源。每个常量是一个会同时通过多个介质（邮件 / 推送）对外发出的通知，
+ * 对外通知<b>业务场景</b>的单一事实源。每个常量可同时通过多个通知介质对外发送，
  * 携带两份与介质无关的元数据：
  * <ul>
- *   <li>{@link #id() canonical id} —— 必须与 {@code MailTemplateRegistry} 的模板 id 以及
- *       推送侧 {@code push.message.{id}.title} / {@code .body} 的 i18n key 段完全一致；介质各自据此查渲染资源。</li>
+ *   <li>{@link #id() canonical id} —— 各介质据此定位自己的渲染资源。</li>
  *   <li>{@link #level() 默认通知严重程度} —— 发送介质用于映射自身的配色 / 优先级。</li>
  * </ul>
  *
  * <p><b>成对 / 齐全维护铁律</b>：新增 / 修改 / 删除任何常量时，所有介质 {@link NotificationSink} 的渲染资源
- * 必须同步维护（邮件模板 + subject i18n；推送 {@code title} / {@code body} i18n），由
- * {@code NotificationSinkCoverageTest} 遍历「场景 × 介质」守护，缺一即 loud-failure。
+ * 必须同步维护，并由每个介质的契约测试遍历「场景 × 介质」守护，缺一即失败。
  *
- * <p>当前 7 个场景均由 {@code schedule/ScheduleExecutor} 在一轮运行结束（自动挂起 / 自动重试达上限 /
- * 自动降级 / 运行失败 / 成功有新下载）时触发。
+ * <p>当前场景描述计划运行结束时的自动挂起、重试耗尽、降级、失败与成功摘要语义；触发实现不属于本契约。
  */
 public enum NotificationScenario {
 
@@ -41,7 +38,7 @@ public enum NotificationScenario {
         this.level = level;
     }
 
-    /** canonical id：邮件模板 id 与推送 i18n key 段共用。 */
+    /** 各通知介质共享的 canonical id。 */
     public String id() {
         return id;
     }

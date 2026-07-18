@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.notification;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 
@@ -16,8 +17,7 @@ import java.util.Map;
  * 任何具体介质——<b>绝不</b>出现 {@code if mail} / {@code if push} 之类分支。
  *
  * <p>整体 best-effort：各介质 {@link NotificationSink#deliver} 已承诺不抛，这里仍对每个介质再兜一层
- * {@link RuntimeException}（双保险，参照 {@code PushService.dispatch}），确保单介质的意外异常绝不中断扇出，
- * 也绝不向业务调用方抛出。
+ * {@link RuntimeException}，确保单介质的意外异常绝不中断扇出，也绝不向业务调用方抛出。
  *
  * <p>场景级开关：{@link NotificationConfig} 关闭某场景后，本类直接跳过该场景的<b>全部</b>介质
  * （邮件与推送都不发）。未配置的场景默认启用。
@@ -26,15 +26,20 @@ import java.util.Map;
 @Slf4j
 public class NotificationService {
 
-    /** 介质注册中心：活动插件贡献的全部 sink。可能为空（未安装通知插件），属正常情况。 */
+    /** 介质注册中心：活动插件贡献的全部 sink。当前没有活动介质实现时可为空。 */
     private final NotificationSinkRegistry sinkRegistry;
 
     /** 通知类型开关：决定某场景是否对外发送（关闭则跳过全部介质）。 */
     private final NotificationConfig notificationConfig;
 
-    public NotificationService(NotificationSinkRegistry sinkRegistry, NotificationConfig notificationConfig) {
+    /** 宿主协调日志的本地化入口。 */
+    private final AppMessages messages;
+
+    public NotificationService(NotificationSinkRegistry sinkRegistry, NotificationConfig notificationConfig,
+                               AppMessages messages) {
         this.sinkRegistry = sinkRegistry;
         this.notificationConfig = notificationConfig;
+        this.messages = messages;
     }
 
     /**
@@ -50,7 +55,7 @@ public class NotificationService {
             return;
         }
         if (notificationConfig != null && !notificationConfig.isScenarioEnabled(scenario.id())) {
-            log.debug("Notification scenario [{}] disabled by config; skipping all sinks.", scenario.id());
+            log.debug(logMessage("notification.log.scenario-disabled", scenario.id()));
             return;
         }
         for (NotificationSinkRegistry.PreparedSink prepared : sinkRegistry.preparedSinks()) {
@@ -59,9 +64,20 @@ public class NotificationService {
                 sink.deliver(scenario, locale, placeholders);
             } catch (RuntimeException e) {
                 // deliver 已是 best-effort，这里是双保险：单介质意外异常不影响其它介质。
-                log.warn("Notification sink [{}] failed for scenario [{}]: {}",
-                        prepared.medium(), scenario.id(), e.getClass().getSimpleName());
+                log.warn(logMessage("notification.log.sink-failed",
+                        prepared.medium(), scenario.id(), e.getClass().getSimpleName()));
             }
+        }
+    }
+
+    private String logMessage(String code, Object... args) {
+        if (messages == null) {
+            return code;
+        }
+        try {
+            return messages.getForLog(code, args);
+        } catch (RuntimeException ignored) {
+            return code;
         }
     }
 }

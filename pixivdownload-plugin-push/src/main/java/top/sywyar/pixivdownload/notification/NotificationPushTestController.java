@@ -59,11 +59,13 @@ public class NotificationPushTestController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         if (body == null) {
-            return ResponseEntity.ok(PushTestResponse.from(List.of()));
+            return ResponseEntity.ok(PushTestResponse.from(
+                    List.of(), messages, LocaleContextHolder.getLocale()));
         }
         List<PushChannelSettings> settings = body.toEnabledSettings();
         if (settings.isEmpty()) {
-            return ResponseEntity.ok(PushTestResponse.from(List.of()));
+            return ResponseEntity.ok(PushTestResponse.from(
+                    List.of(), messages, LocaleContextHolder.getLocale()));
         }
 
         Locale locale = LocaleContextHolder.getLocale();
@@ -76,7 +78,7 @@ public class NotificationPushTestController {
                     scenario.id(), PushLevel.from(scenario.level()), locale, sample);
             all.addAll(pushService.test(settings, message));
         }
-        return ResponseEntity.ok(PushTestResponse.from(all));
+        return ResponseEntity.ok(PushTestResponse.from(all, messages, locale));
     }
 
     /**

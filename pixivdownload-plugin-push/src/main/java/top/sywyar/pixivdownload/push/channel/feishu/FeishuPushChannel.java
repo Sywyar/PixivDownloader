@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.push.RenderedMessage;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -66,12 +67,15 @@ public class FeishuPushChannel implements PushChannel {
         if (settings instanceof FeishuSettings feishuSettings) {
             return deliver(feishuSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(FeishuSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         String url = HOOK_BASE + settings.webhookKey();
 
@@ -82,7 +86,7 @@ public class FeishuPushChannel implements PushChannel {
             try {
                 sign = sign(settings.secret(), timestamp);
             } catch (Exception e) {
-                return PushResult.failed(type(), "sign error");
+                return PushResult.failed(type(), PushResult.DETAIL_SIGNING_FAILED);
             }
         }
 
@@ -94,10 +98,13 @@ public class FeishuPushChannel implements PushChannel {
         try {
             body = MAPPER.writeValueAsBytes(payload);
         } catch (Exception e) {
-            return PushResult.failed(type(), "serialize error");
+            return PushResult.failed(type(), PushResult.DETAIL_SERIALIZATION_FAILED);
         }
-        OutboundRequest request = OutboundRequest.json(
-                url, body, List.of(settings.webhookKey(), settings.secret()), settings.useProxy());
+        List<String> secrets = new ArrayList<>();
+        secrets.add(settings.webhookKey());
+        secrets.add(settings.secret());
+        secrets.add(sign);
+        OutboundRequest request = OutboundRequest.json(url, body, secrets, settings.useProxy());
         return sender.send(type(), request);
     }
 

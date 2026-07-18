@@ -4,9 +4,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 通知<b>介质</b>的 SPI（邮件 / 推送 / 未来新增）。每种介质实现一个 Spring bean，由
- * {@code NotificationService} 通过 {@code List<NotificationSink>} 自动发现并扇出——对齐
- * {@code List<PushChannel>} 的注册惯例：加一种介质 = 加一个 bean，派发器零改动（开闭原则）。
+ * 通知<b>介质</b>的 SPI。宿主注册并遍历活动实现；新增介质不改变通知编排契约。
  *
  * <p>实现需满足两条不变量：
  * <ul>

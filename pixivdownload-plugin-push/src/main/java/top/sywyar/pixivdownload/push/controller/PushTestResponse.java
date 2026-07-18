@@ -1,8 +1,11 @@
 package top.sywyar.pixivdownload.push.controller;
 
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.push.PushPluginMessages;
 import top.sywyar.pixivdownload.push.PushResult;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * GUI "测试推送" 端点的响应：整体汇总 + 每通道明细。
@@ -22,12 +25,22 @@ public record PushTestResponse(boolean success, int total, int succeeded, List<I
     public record Item(String channel, String status, String detail) {
     }
 
-    public static PushTestResponse from(List<PushResult> results) {
-        List<Item> items = results.stream()
-                .map(r -> new Item(r.channel().id(), r.status().name(), r.detail()))
+    public static PushTestResponse from(List<PushResult> results, MessageResolver messages, Locale locale) {
+        List<PushResult> normalized = results == null
+                ? List.of()
+                : results.stream()
+                .map(result -> result == null
+                        ? PushResult.failed(null, PushResult.DETAIL_UNEXPECTED_ERROR)
+                        : result)
+                .toList();
+        List<Item> items = normalized.stream()
+                .map(r -> new Item(
+                        r.channel() == null ? "unknown" : r.channel().id(),
+                        r.status() == null ? PushResult.Status.FAILED.name() : r.status().name(),
+                        PushPluginMessages.detail(messages, locale, r)))
                 .toList();
         int total = items.size();
-        int succeeded = (int) results.stream().filter(PushResult::isOk).count();
+        int succeeded = (int) normalized.stream().filter(PushResult::isOk).count();
         boolean success = total > 0 && succeeded == total;
         return new PushTestResponse(success, total, succeeded, items);
     }

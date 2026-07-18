@@ -62,12 +62,15 @@ public class TelegramPushChannel implements PushChannel {
         if (settings instanceof TelegramSettings telegramSettings) {
             return deliver(telegramSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(TelegramSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         String token = settings.botToken();
         String url = "https://api.telegram.org/bot" + token + "/sendMessage";
@@ -84,7 +87,7 @@ public class TelegramPushChannel implements PushChannel {
         try {
             body = MAPPER.writeValueAsBytes(payload);
         } catch (Exception e) {
-            return PushResult.failed(type(), "serialize error");
+            return PushResult.failed(type(), PushResult.DETAIL_SERIALIZATION_FAILED);
         }
         OutboundRequest request = OutboundRequest.json(url, body, List.of(token), settings.useProxy());
         return sender.send(type(), request);

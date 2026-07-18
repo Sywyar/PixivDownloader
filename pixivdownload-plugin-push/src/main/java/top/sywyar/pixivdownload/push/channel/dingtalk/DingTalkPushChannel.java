@@ -66,12 +66,15 @@ public class DingTalkPushChannel implements PushChannel {
         if (settings instanceof DingTalkSettings dingTalkSettings) {
             return deliver(dingTalkSettings, message);
         }
-        return PushResult.failed(type(), "settings type mismatch");
+        return PushResult.failed(type(), PushResult.DETAIL_SETTINGS_TYPE_MISMATCH);
     }
 
     private PushResult deliver(DingTalkSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
-            return PushResult.skipped(type(), "incomplete settings");
+            return PushResult.skipped(type(), PushResult.DETAIL_SETTINGS_INCOMPLETE);
+        }
+        if (message == null) {
+            return PushResult.failed(type(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
         String token = settings.accessToken();
         String secret = settings.secret();
@@ -87,10 +90,11 @@ public class DingTalkPushChannel implements PushChannel {
             try {
                 sign = sign(secret, timestamp);
             } catch (Exception e) {
-                return PushResult.failed(type(), "sign error");
+                return PushResult.failed(type(), PushResult.DETAIL_SIGNING_FAILED);
             }
             url = url + "&timestamp=" + timestamp + "&sign=" + sign;
             secrets.add(secret);
+            secrets.add(sign);
         }
 
         Object payload = message.format() == PushFormat.MARKDOWN
@@ -101,7 +105,7 @@ public class DingTalkPushChannel implements PushChannel {
         try {
             body = MAPPER.writeValueAsBytes(payload);
         } catch (Exception e) {
-            return PushResult.failed(type(), "serialize error");
+            return PushResult.failed(type(), PushResult.DETAIL_SERIALIZATION_FAILED);
         }
         OutboundRequest request = OutboundRequest.json(url, body, secrets, settings.useProxy());
         return sender.send(type(), request);
