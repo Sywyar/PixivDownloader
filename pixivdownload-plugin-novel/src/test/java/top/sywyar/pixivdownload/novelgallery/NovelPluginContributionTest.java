@@ -4,6 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
+import top.sywyar.pixivdownload.novel.config.NovelExecutionSettings;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
@@ -87,6 +90,37 @@ class NovelPluginContributionTest {
     }
 
     @Test
+    @DisplayName("小说并发设置由 novel 向下载分组贡献并使用插件 i18n")
+    void executionSettingsAreOwnedByPlugin() throws Exception {
+        var contribution = plugin.guiConfigContributions().get(0);
+
+        assertThat(contribution.groups()).isEmpty();
+        assertThat(contribution.sections()).isEmpty();
+        assertThat(contribution.fields())
+                .extracting(field -> field.key())
+                .containsExactly(
+                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
+                        NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY);
+        assertThat(contribution.fields()).allSatisfy(field -> {
+            assertThat(field.groupId()).isEqualTo(GuiConfigGroups.DOWNLOAD);
+            assertThat(field.i18nNamespace()).isEqualTo(NovelPlugin.ID);
+            assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
+            assertThat(field.defaultValue()).isEqualTo("10");
+            assertThat(field.minValue()).isEqualTo(1);
+            assertThat(field.maxValue()).isNull();
+            assertThat(field.sensitive()).isFalse();
+            assertThat(field.requiresRestart()).isTrue();
+        });
+
+        Properties chinese = loadProperties("/i18n/web/novel.properties");
+        Properties english = loadProperties("/i18n/web/novel_en.properties");
+        assertThat(contribution.fields()).allSatisfy(field -> {
+            assertThat(chinese).containsKeys(field.labelKey(), field.helpKey());
+            assertThat(english).containsKeys(field.labelKey(), field.helpKey());
+        });
+    }
+
+    @Test
     @DisplayName("novel 声明小说队列类型与下载页 UI 槽位")
     void queueTypeAndUiSlotsAreOwnedByPlugin() {
         assertThat(plugin.queueTypes())
@@ -157,5 +191,14 @@ class NovelPluginContributionTest {
                 top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution contribution) {
             return new StaticResourceSummary(contribution.publicPathPrefix(), contribution.exactFile());
         }
+    }
+
+    private Properties loadProperties(String resource) throws Exception {
+        Properties properties = new Properties();
+        try (InputStream input = getClass().getResourceAsStream(resource)) {
+            assertThat(input).isNotNull();
+            properties.load(input);
+        }
+        return properties;
     }
 }

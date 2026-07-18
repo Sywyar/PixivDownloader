@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.config;
 
 /**
- * Read-only host download settings exposed across the plugin boundary.
+ * Read-only host download settings shared across plugin boundaries.
+ * Business-specific execution settings remain owned by their plugins.
  */
 public interface DownloadSettings {
 
@@ -10,8 +11,4 @@ public interface DownloadSettings {
     boolean isUserFlatFolder();
 
     int getMaxConcurrent();
-
-    int getNovelMaxConcurrent();
-
-    int getNovelTranslateMaxConcurrent();
 }

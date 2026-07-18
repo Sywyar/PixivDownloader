@@ -25,6 +25,8 @@ class GuiConfigPluginOwnedFieldGuardTest {
             Pattern.compile("\\bpush\\."),
             Pattern.compile("\\bai\\."),
             Pattern.compile("\\bnarration-tts\\."),
+            Pattern.compile("download\\.novel-max-concurrent"),
+            Pattern.compile("download\\.novel-translate-max-concurrent"),
             Pattern.compile("mail-test"),
             Pattern.compile("push-test"),
             Pattern.compile("ai-test"),

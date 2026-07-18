@@ -6,6 +6,7 @@ import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
@@ -38,6 +39,7 @@ import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardController;
 import top.sywyar.pixivdownload.novel.controller.NovelGlossaryController;
 import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
+import top.sywyar.pixivdownload.novel.config.NovelExecutionConfiguration;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
@@ -83,6 +85,7 @@ import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
  */
 @Configuration
 @EnableAsync(proxyTargetClass = true)
+@Import(NovelExecutionConfiguration.class)
 public class NovelPluginConfiguration {
 
     @Bean

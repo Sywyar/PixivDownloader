@@ -42,7 +42,7 @@ public class AsyncConfig {
      *   <li>无限定符 {@code @Async}（移动记录 / JSON 迁移 / 配额清理 / 邀请）按 {@code @Primary} 解析到它，
      *       而不是退化成每次新建的 {@code SimpleAsyncTaskExecutor}。</li>
      * </ul>
-     * 下面三个带名字的专用重任务池通过显式 {@code @Async("...")} 限定符使用，不受 {@code @Primary} 影响。
+     * 下面两个带名字的专用重任务池通过显式 {@code @Async("...")} 限定符使用，不受 {@code @Primary} 影响。
      */
     @Bean("applicationTaskExecutor")
     @Primary
@@ -52,28 +52,13 @@ public class AsyncConfig {
 
     /**
      * 图片 / 作品下载专用线程池，并发上限由 {@code download.max-concurrent} 控制。
-     * 与小说下载、归档打包等其它重任务各自隔离，互不抢线程；轻量 {@code @Async}
+     * 与归档打包等其它重任务各自隔离，互不抢线程；轻量 {@code @Async}
      * （移动记录 / JSON 迁移 / 配额清理 / 邀请）仍走默认 {@code applicationTaskExecutor}。
      * 线程数在启动时确定，修改配置后需重启。
      */
     @Bean("downloadTaskExecutor")
     public TaskExecutor downloadTaskExecutor(DownloadConfig downloadConfig) {
         return fixedPool(downloadConfig.getMaxConcurrent(), "pixiv-download-");
-    }
-
-    /** 小说下载专用线程池，并发上限由 {@code download.novel-max-concurrent} 控制。 */
-    @Bean("novelDownloadTaskExecutor")
-    public ThreadPoolTaskExecutor novelDownloadTaskExecutor(DownloadConfig downloadConfig) {
-        return fixedPool(downloadConfig.getNovelMaxConcurrent(), "pixiv-novel-");
-    }
-
-    /**
-     * 「新下载小说自动翻译」专用线程池，并发上限由 {@code download.novel-translate-max-concurrent} 控制。
-     * 与下载池隔离，避免分钟级的 AI 翻译挤占按 I/O 调优的下载线程。
-     */
-    @Bean("novelTranslateTaskExecutor")
-    public TaskExecutor novelTranslateTaskExecutor(DownloadConfig downloadConfig) {
-        return fixedPool(downloadConfig.getNovelTranslateMaxConcurrent(), "pixiv-novel-tr-");
     }
 
     /** 配额归档打包专用线程池，并发上限由 {@code multi-mode.quota.archive-max-concurrent} 控制。 */

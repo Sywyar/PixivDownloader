@@ -33,6 +33,13 @@ class OfficialPluginHostBoundaryGuardTest {
             "pixivdownload-plugin-[a-z0-9-]+");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*import[\\t ]+(?:static[\\t ]+)?([A-Za-z0-9_$.*]+)[\\t ]*;");
+    private static final List<String> NOVEL_EXECUTION_OWNER_TOKENS = List.of(
+            "download.novel-max-concurrent",
+            "download.novel-translate-max-concurrent",
+            "getNovelMaxConcurrent",
+            "getNovelTranslateMaxConcurrent",
+            "novelDownloadTaskExecutor",
+            "novelTranslateTaskExecutor");
 
     private static final List<String> CONCRETE_HOST_RUNTIME_TYPES = List.of(
             "top.sywyar.pixivdownload.common.NetworkUtils",
@@ -105,6 +112,33 @@ class OfficialPluginHostBoundaryGuardTest {
         assertThat(appConsumers)
                 .doesNotContain("pixivdownload-plugin-douyin", "pixivdownload-plugin-duplicate",
                         "pixivdownload-plugin-tts");
+    }
+
+    @Test
+    @DisplayName("宿主生产代码与资源不拥有小说执行设置或线程池")
+    void hostDoesNotOwnNovelExecutionConfiguration() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        Path appMain = repositoryRoot.resolve("pixivdownload-app/src/main");
+        List<String> violations = new ArrayList<>();
+
+        try (Stream<Path> paths = Files.walk(appMain)) {
+            for (Path path : paths.filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".java")
+                            || path.toString().endsWith(".properties"))
+                    .sorted()
+                    .toList()) {
+                String content = read(path);
+                for (String token : NOVEL_EXECUTION_OWNER_TOKENS) {
+                    if (content.contains(token)) {
+                        violations.add(repositoryRoot.relativize(path) + " contains " + token);
+                    }
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("novel execution settings and executors must remain inside the novel plugin")
+                .isEmpty();
     }
 
     private static void collectConcreteRuntimeViolations(Path repositoryRoot,

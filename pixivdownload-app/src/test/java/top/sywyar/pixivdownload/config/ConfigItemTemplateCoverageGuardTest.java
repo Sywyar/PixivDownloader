@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>前缀覆盖</b>：扫描到的每个 {@code @ConfigurationProperties} 前缀，模板里至少要出现一个对应键
  *       —— 漏掉整段前缀（如曾经的 {@code plugin-catalog.*}）会被这条挡下。</li>
  *   <li><b>GUI → 模板</b>：每个 GUI 配置字段都必须对应模板里的真实可写键 —— GUI 有字段、模板却没有
- *       （如曾经的 {@code download.novel-translate-max-concurrent} / {@code plugins.plugin-market.enabled}）
+ *       （如曾经的 {@code plugins.plugin-market.enabled}）
  *       会被挡下。</li>
  *   <li><b>模板 → GUI</b>：每个模板键都要有 GUI 字段，除非登记在 {@link #TEMPLATE_KEYS_WITHOUT_GUI_FIELD}。</li>
  * </ul>

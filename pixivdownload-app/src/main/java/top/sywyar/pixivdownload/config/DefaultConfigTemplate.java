@@ -48,8 +48,9 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "download.root-folder: pixiv-download", "config.template.download.root-folder.comment");
         appendSetting(config, messages, "download.user-flat-folder: false", "config.template.download.user-flat-folder.comment");
         appendSetting(config, messages, "download.max-concurrent: 10", "config.template.download.max-concurrent.comment");
-        appendSetting(config, messages, "download.novel-max-concurrent: 10", "config.template.download.novel-max-concurrent.comment");
-        appendSetting(config, messages, "download.novel-translate-max-concurrent: 10", "config.template.download.novel-translate-max-concurrent.comment");
+        appendBlankLine(config);
+
+        appendSetting(config, messages, "database.maximum-pool-size: 28", "config.template.database.maximum-pool-size.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.plugins");

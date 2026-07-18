@@ -45,17 +45,19 @@ class PixivDownloadApplicationTests {
     }
 
     /**
-     * 自定义的三个专用 {@code TaskExecutor} bean 会触发 Spring Boot 的
+     * 自定义的宿主专用 {@code TaskExecutor} bean 会触发 Spring Boot 的
      * {@code applicationTaskExecutor}（{@code @ConditionalOnMissingBean(Executor.class)}）不再自动创建，
      * 而 Spring MVC 异步（SseEmitter 进度推送）依赖名为 {@code applicationTaskExecutor} 的执行器。
-     * 这里锁定：默认执行器与三个专用执行器必须同时存在，防止再次顶掉默认池导致状态同步/流式进度失效。
+     * 这里锁定：默认执行器与宿主专用执行器同时存在，外置插件执行器不进入父上下文，
+     * 防止再次顶掉默认池或让插件业务生命周期泄漏到宿主。
      */
     @Test
     void asyncExecutorsAreRegistered() {
         assertThat(applicationContext.containsBean("applicationTaskExecutor")).isTrue();
         assertThat(applicationContext.containsBean("downloadTaskExecutor")).isTrue();
-        assertThat(applicationContext.containsBean("novelDownloadTaskExecutor")).isTrue();
         assertThat(applicationContext.containsBean("archiveTaskExecutor")).isTrue();
+        assertThat(applicationContext.containsBean("novelDownloadTaskExecutor")).isFalse();
+        assertThat(applicationContext.containsBean("novelTranslateTaskExecutor")).isFalse();
     }
 
     /**

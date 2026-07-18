@@ -26,16 +26,6 @@ public final class HostSettingsFixtures {
             public int getMaxConcurrent() {
                 return maxConcurrent;
             }
-
-            @Override
-            public int getNovelMaxConcurrent() {
-                return 1;
-            }
-
-            @Override
-            public int getNovelTranslateMaxConcurrent() {
-                return 1;
-            }
         };
     }
 

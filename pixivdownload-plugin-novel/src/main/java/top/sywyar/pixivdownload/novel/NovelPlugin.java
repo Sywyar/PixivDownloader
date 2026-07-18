@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.novel;
 
+import top.sywyar.pixivdownload.novel.config.NovelExecutionSettings;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -176,6 +181,39 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 new I18nContribution("novel", "i18n.web.novel", 12),
                 new I18nContribution("novel-gallery", "i18n.web.novel-gallery", 12),
                 new I18nContribution("narration", "i18n.web.narration", 14));
+    }
+
+    @Override
+    public List<GuiConfigContribution> guiConfigContributions() {
+        return List.of(new GuiConfigContribution(List.of(
+                executionConcurrencyField(
+                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
+                        "gui.config.field.download.novel-max-concurrent",
+                        100),
+                executionConcurrencyField(
+                        NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY,
+                        "gui.config.field.download.novel-translate-max-concurrent",
+                        110))));
+    }
+
+    private static GuiConfigFieldContribution executionConcurrencyField(
+            String key, String messagePrefix, int order) {
+        return new GuiConfigFieldContribution(
+                key,
+                GuiConfigGroups.DOWNLOAD,
+                messagePrefix + ".label",
+                messagePrefix + ".help",
+                ID,
+                GuiConfigFieldType.INT,
+                Integer.toString(NovelExecutionSettings.DEFAULT_CONCURRENCY),
+                order,
+                false,
+                true,
+                List.of(),
+                List.of(),
+                List.of(),
+                1,
+                null);
     }
 
     @Override

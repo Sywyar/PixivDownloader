@@ -22,6 +22,7 @@ import java.nio.file.Path;
 public class DatabaseConfig {
 
     private final DownloadConfig downloadConfig;
+    private final DatabasePoolProperties databasePoolProperties;
     private final AppMessages messages;
 
     @Bean
@@ -44,14 +45,12 @@ public class DatabaseConfig {
         hikari.setDriverClassName("org.sqlite.JDBC");
         hikari.setJdbcUrl(url);
         hikari.setDataSourceProperties(sqliteConfig.toProperties());
-        // 池容量必须能覆盖最坏并发持锁场景：插画 + 小说两个下载池的 worker 在收尾写入元数据 / tags
-        // 时各占一条连接，再加 web 请求（页面轮询 / 画廊 / 维护 / 异步补全）的头空间。否则下载并发
-        // 一旦把所有连接占满，HTTP 请求拿不到连接 → 等到 connectionTimeout（默认 30s）→ 页面观感"卡死"。
+        // 池容量由宿主数据库基础设施自己的设置控制。外置插件共享数据源，但插件业务并发数不参与
+        // 宿主池容量推导，避免核心基础设施反向依赖任一可选插件的配置。
+        // 否则宿主任务一旦把所有连接占满，HTTP 请求拿不到连接 → 等到 connectionTimeout（默认 30s）→ 页面观感"卡死"。
         // 注意：SQLite 单写者由 PRAGMA busy_timeout 在 SQLite 层保证（一次只有一个 writer），与池大小
         // 无关；增大池只是让读者和等写锁的线程有更多排队空间，不会出现多 writer 同时写。
-        int poolSize = Math.max(8,
-                downloadConfig.getMaxConcurrent() + downloadConfig.getNovelMaxConcurrent() + 8);
-        hikari.setMaximumPoolSize(poolSize);
+        hikari.setMaximumPoolSize(databasePoolProperties.getMaximumPoolSize());
         hikari.setMinimumIdle(1);
         // 兜底：万一某条连接没套到 PRAGMA，连接初始化时再设一次 busy_timeout（仅支持单条语句）
         hikari.setConnectionInitSql("PRAGMA busy_timeout=5000");

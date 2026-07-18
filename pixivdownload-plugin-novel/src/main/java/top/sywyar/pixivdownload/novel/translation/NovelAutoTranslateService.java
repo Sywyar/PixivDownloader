@@ -28,7 +28,7 @@ import top.sywyar.pixivdownload.novel.NovelPlugin;
  *
  * <p><b>同系列串行、跨系列并发</b>：同一 {@code seriesId} 的章节用一条 {@link CompletableFuture} 链按提交序串接，
  * 一次只译一本以保术语一致（对齐详情页系列批量翻译）；不同系列 / 独立单章并发提交到专用线程池
- * {@code novelTranslateTaskExecutor}（上限 {@code download.novel-translate-max-concurrent}）。
+ * {@code novelTranslateTaskExecutor}（并发上限由 novel 插件执行设置控制）。
  *
  * <p><b>语言代码缓存</b>：每种目标语言文本只探一次（{@link NovelTranslationService#resolveLangCode}），结果缓存复用，
  * 既供 DB 跳过（langHint），也供合订选择语言变体。

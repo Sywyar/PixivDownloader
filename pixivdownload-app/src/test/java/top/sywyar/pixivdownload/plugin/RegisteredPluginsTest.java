@@ -87,8 +87,6 @@ class RegisteredPluginsTest {
                     top.sywyar.pixivdownload.core.appconfig.DownloadConfig::new)
             .withBean("downloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
-            .withBean("novelDownloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
-                    org.springframework.core.task.SyncTaskExecutor::new)
             // 插件市场托管 Bean（PluginMarketService / PluginMarketController）随 PluginMarketPluginConfiguration 装配，
             // 其依赖的 catalog 引擎（仓库注册中心 / 清单读取 / 受信安装编排，核心基础设施、根包扫描）与安装响应映射 /
             // locale 解析在本切片里一律 mock 兜底。

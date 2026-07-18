@@ -235,6 +235,19 @@ public final class ConfigFieldRegistry {
                         })
                         .build(),
 
+                ConfigFieldSpec.builder("database.maximum-pool-size", message("gui.config.field.database.maximum-pool-size.label"), INT, groupServer)
+                        .defaultValue("28")
+                        .help(message("gui.config.field.database.maximum-pool-size.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 8 ? null : message("gui.config.validation.min-eight-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .build(),
+
                 // 调试模式：默认隐藏，仅在 GUI 中触发彩蛋后（DebugUnlockState 解锁）才显示。
                 ConfigFieldSpec.builder("debug.enabled", message("gui.config.field.debug.enabled.label"), BOOL, groupServer)
                         .defaultValue("false")
@@ -257,32 +270,6 @@ public final class ConfigFieldRegistry {
                 ConfigFieldSpec.builder("download.max-concurrent", message("gui.config.field.download.max-concurrent.label"), INT, groupDownload)
                         .defaultValue("10")
                         .help(message("gui.config.field.download.max-concurrent.help"))
-                        .validator(v -> {
-                            try {
-                                int n = Integer.parseInt(v);
-                                return n >= 1 ? null : message("gui.config.validation.positive-int");
-                            } catch (NumberFormatException e) {
-                                return message("gui.config.validation.valid-int");
-                            }
-                        })
-                        .build(),
-
-                ConfigFieldSpec.builder("download.novel-max-concurrent", message("gui.config.field.download.novel-max-concurrent.label"), INT, groupDownload)
-                        .defaultValue("10")
-                        .help(message("gui.config.field.download.novel-max-concurrent.help"))
-                        .validator(v -> {
-                            try {
-                                int n = Integer.parseInt(v);
-                                return n >= 1 ? null : message("gui.config.validation.positive-int");
-                            } catch (NumberFormatException e) {
-                                return message("gui.config.validation.valid-int");
-                            }
-                        })
-                        .build(),
-
-                ConfigFieldSpec.builder("download.novel-translate-max-concurrent", message("gui.config.field.download.novel-translate-max-concurrent.label"), INT, groupDownload)
-                        .defaultValue("10")
-                        .help(message("gui.config.field.download.novel-translate-max-concurrent.help"))
                         .validator(v -> {
                             try {
                                 int n = Integer.parseInt(v);
