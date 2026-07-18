@@ -13,11 +13,11 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
@@ -770,16 +770,16 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     }
 
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
-        String template = ArtworkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
+        String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
         long templateId = pixivDatabase.getOrCreateFileNameTemplateId(template);
         if (templateId <= 0) {
-            templateId = ArtworkFileNameFormatter.DEFAULT_TEMPLATE_ID;
+            templateId = PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID;
         }
         long preferredTime = TimestampUtils.toMillis(other.getFileNameTimestamp());
         long recordTime = preferredTime > 0 ? pixivDatabase.getUniqueTime(preferredTime) : pixivDatabase.getUniqueTime();
-        String sanitizedAuthorName = ArtworkFileNameFormatter.sanitize(other.getAuthorName());
+        String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
         long fileAuthorNameId = sanitizedAuthorName.isEmpty() ? 0L : pixivDatabase.getOrCreateFileAuthorNameId(sanitizedAuthorName);
-        List<String> computed = ArtworkFileNameFormatter.formatAll(
+        List<String> computed = PixivWorkFileNameFormatter.formatAll(
                 template,
                 artworkId,
                 title,
@@ -790,7 +790,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                 other.isAi(),
                 other.getXRestrict()
         );
-        List<String> provided = ArtworkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);
+        List<String> provided = PixivWorkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);
         if (!provided.isEmpty() && !provided.equals(computed)) {
             log.debug(logMessage("download.log.filename-mismatch", artworkId));
         }

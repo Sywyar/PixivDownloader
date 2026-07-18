@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.work;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class ArtworkFileNameFormatter {
+public final class PixivWorkFileNameFormatter {
 
     public static final String DEFAULT_TEMPLATE = "{artwork_id}_p{page}";
     public static final long DEFAULT_TEMPLATE_ID = 1L;
@@ -26,7 +26,7 @@ public final class ArtworkFileNameFormatter {
             "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     );
 
-    private ArtworkFileNameFormatter() {}
+    private PixivWorkFileNameFormatter() {}
 
     public static String normalizeTemplate(String template) {
         return template == null || template.isBlank() ? DEFAULT_TEMPLATE : template;

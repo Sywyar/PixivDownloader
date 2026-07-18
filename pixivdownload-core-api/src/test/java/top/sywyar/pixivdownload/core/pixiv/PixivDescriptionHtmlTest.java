@@ -1,15 +1,15 @@
-package top.sywyar.pixivdownload.common;
+package top.sywyar.pixivdownload.core.pixiv;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("PixivDescriptionHtml tests")
+@DisplayName("Pixiv 描述 HTML 归一化")
 class PixivDescriptionHtmlTest {
 
     @Test
-    @DisplayName("Pixiv jump links in description are unwrapped to their external targets")
+    @DisplayName("Pixiv 跳转链接应解包为外部目标")
     void unwrapsPixivJumpLinks() {
         String html = """
                 Amazon <a href="/jump.php?https%3A%2F%2Fwww.amazon.co.jp%2Fdp%2F4866998911" target="_blank">link</a>
@@ -23,7 +23,7 @@ class PixivDescriptionHtmlTest {
     }
 
     @Test
-    @DisplayName("ordinary relative Pixiv links are still resolved against pixiv.net")
+    @DisplayName("普通相对链接应按 Pixiv 站点解析")
     void normalizesRelativePixivLinks() {
         String html = "<a href=\"/novel/show.php?id=123\">novel</a>";
 
@@ -33,7 +33,7 @@ class PixivDescriptionHtmlTest {
     }
 
     @Test
-    @DisplayName("protocol-relative Pixiv jump links are also unwrapped")
+    @DisplayName("协议相对的 Pixiv 跳转链接也应解包")
     void unwrapsProtocolRelativePixivJumpLinks() {
         String html = "<a href=\"//www.pixiv.net/jump.php?https%3A%2F%2Fexample.com%2Fbook\">book</a>";
 
@@ -44,7 +44,7 @@ class PixivDescriptionHtmlTest {
     }
 
     @Test
-    @DisplayName("absolute and fragment links are preserved")
+    @DisplayName("绝对链接与片段链接应保留")
     void preservesAbsoluteAndFragmentLinks() {
         String html = """
                 <a href="https://example.com/path?q=1">abs</a>
@@ -58,7 +58,7 @@ class PixivDescriptionHtmlTest {
     }
 
     @Test
-    @DisplayName("script-like href protocols are neutralized")
+    @DisplayName("脚本类 href 协议应被中和")
     void neutralizesUnsafeProtocols() {
         String html = "<a href=\"javascript:alert(1)\">bad</a>";
 
@@ -66,7 +66,7 @@ class PixivDescriptionHtmlTest {
     }
 
     @Test
-    @DisplayName("unsafe tags and event attributes are removed")
+    @DisplayName("不安全标签与事件属性应被移除")
     void removesUnsafeTagsAndAttributes() {
         String html = """
                 <img src=x onerror=alert(1)><a href="/users/1" onclick="alert(1)">safe</a><script>alert(2)</script>
@@ -82,7 +82,7 @@ class PixivDescriptionHtmlTest {
     }
 
     @Test
-    @DisplayName("plain text angle brackets are escaped")
+    @DisplayName("纯文本尖括号应被转义")
     void escapesPlainTextAngleBrackets() {
         String html = "1 < 2 & <b>not bold</b>";
 
@@ -93,7 +93,7 @@ class PixivDescriptionHtmlTest {
     }
 
     @Test
-    @DisplayName("data-href and other custom attributes are not mistaken for href")
+    @DisplayName("data-href 等自定义属性不得被误判为 href")
     void doesNotMatchHrefSubstringsInOtherAttributes() {
         String html = "<a data-href=\"https://evil.com\" href=\"/users/1\">ok</a>";
 

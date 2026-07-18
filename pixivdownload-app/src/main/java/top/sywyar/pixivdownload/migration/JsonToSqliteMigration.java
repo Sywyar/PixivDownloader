@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.sqlite.SQLiteConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.util.TimestampUtils;
@@ -293,7 +293,7 @@ public class JsonToSqliteMigration {
         }
         try (PreparedStatement defaultFileNameTemplate = conn.prepareStatement(
                 "INSERT OR IGNORE INTO file_name_templates(id, template) VALUES(1, ?)")) {
-            defaultFileNameTemplate.setString(1, ArtworkFileNameFormatter.DEFAULT_TEMPLATE);
+            defaultFileNameTemplate.setString(1, PixivWorkFileNameFormatter.DEFAULT_TEMPLATE);
             defaultFileNameTemplate.executeUpdate();
         }
         try (PreparedStatement createFileAuthorNames = conn.prepareStatement(

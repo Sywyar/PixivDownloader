@@ -5,7 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -115,9 +115,9 @@ public class NovelMergeService {
         // 长标题必须用 normalizeBaseNameWithSuffix 保留后缀，否则后缀会被 180 字符上限截掉、
         // 变体路径退化为原文合订本路径并互相覆盖 / 误删。
         String safeTitle = variant
-                ? ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(
+                ? PixivWorkFileNameFormatter.normalizeBaseNameWithSuffix(
                 seriesTitle, "_" + langCode, seriesId + "_" + langCode)
-                : ArtworkFileNameFormatter.normalizeBaseName(seriesTitle, String.valueOf(seriesId));
+                : PixivWorkFileNameFormatter.normalizeBaseName(seriesTitle, String.valueOf(seriesId));
         Path outDir = Paths.get(downloadConfig.getRootFolder())
                 .resolve("novel-series-" + seriesId);
         Files.createDirectories(outDir);
@@ -125,7 +125,7 @@ public class NovelMergeService {
         // 原文基准合订本的路径：用于在清理变体遗留时识别"看起来是变体名、其实长标题截断后等于原文合订本"
         // 的退化情况，避免误删原文合订本。
         Path originalBaseFile = outDir.resolve(
-                ArtworkFileNameFormatter.normalizeBaseName(originalSeriesTitle, String.valueOf(seriesId))
+                PixivWorkFileNameFormatter.normalizeBaseName(originalSeriesTitle, String.valueOf(seriesId))
                         + "." + format.ext());
 
         switch (format) {
@@ -189,14 +189,14 @@ public class NovelMergeService {
      * 现在变体合订本使用「译后系列名 + 语言代码后缀」（{@code {translatedTitle}_{lang}.{ext}}）；当译名与原名
      * 不同时旧文件不会被新写出覆盖，本方法在写出新文件后将其删除以避免遗留两份。
      *
-     * <p>语言后缀通过 {@link ArtworkFileNameFormatter#normalizeBaseNameWithSuffix} 强制保留，避免长标题
+     * <p>语言后缀通过 {@link PixivWorkFileNameFormatter#normalizeBaseNameWithSuffix} 强制保留，避免长标题
      * 把后缀截掉后退化为原文合订本路径；同时显式排除 {@code newFile} 与 {@code originalBaseFile}，作为
      * 兜底防护。
      */
     private void cleanupLegacyVariantMerge(Path outDir, String originalSeriesTitle, long seriesId,
                                            String langCode, String ext, Path newFile,
                                            Path originalBaseFile) {
-        String legacyName = ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(
+        String legacyName = PixivWorkFileNameFormatter.normalizeBaseNameWithSuffix(
                 originalSeriesTitle, "_" + langCode, seriesId + "_" + langCode);
         Path legacy = outDir.resolve(legacyName + "." + ext);
         if (legacy.equals(newFile) || legacy.equals(originalBaseFile)) return;
@@ -213,14 +213,14 @@ public class NovelMergeService {
      * 兼容旧版命名：早期原文基准合订本带「合订 / merged」后缀（{@code {title}_合订.{ext}}）。
      * 新版去掉该后缀（{@code {title}.{ext}}），写出新文件后删除遗留的旧后缀文件，避免重复留存。
      *
-     * <p>同样通过 {@link ArtworkFileNameFormatter#normalizeBaseNameWithSuffix} 保留后缀，避免长标题
+     * <p>同样通过 {@link PixivWorkFileNameFormatter#normalizeBaseNameWithSuffix} 保留后缀，避免长标题
      * 把后缀截掉后路径退化为新版合订本路径并被误删。
      */
     private void cleanupLegacyMerge(Path outDir, String seriesTitle, long seriesId,
                                     String ext, Path newFile) {
         for (String suffix : List.of(messages.get("novel.merge.suffix"), "合订", "merged")) {
             if (suffix == null || suffix.isBlank()) continue;
-            String legacyName = ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(
+            String legacyName = PixivWorkFileNameFormatter.normalizeBaseNameWithSuffix(
                     seriesTitle, "_" + suffix, String.valueOf(seriesId));
             Path legacy = outDir.resolve(legacyName + "." + ext);
             if (legacy.equals(newFile)) continue;

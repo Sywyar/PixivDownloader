@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
@@ -41,7 +42,7 @@ public class PixivDatabase {
      */
     @PostConstruct
     public void init() {
-        pixivMapper.ensureDefaultFileNameTemplate(ArtworkFileNameFormatter.DEFAULT_TEMPLATE);
+        pixivMapper.ensureDefaultFileNameTemplate(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE);
         pixivMapper.initStatistics();
         pixivMapper.migrateArtworkTimestampsToMillis();
         pixivMapper.migrateArtworkMoveTimestampsToMillis();
@@ -109,7 +110,7 @@ public class PixivDatabase {
                               String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
                               String description) {
         insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, isAi,
-                authorId, description, ArtworkFileNameFormatter.DEFAULT_TEMPLATE_ID);
+                authorId, description, PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID);
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
@@ -130,15 +131,15 @@ public class PixivDatabase {
 
     @Transactional
     public long getOrCreateFileNameTemplateId(String template) {
-        String normalized = ArtworkFileNameFormatter.normalizeTemplate(template);
+        String normalized = PixivWorkFileNameFormatter.normalizeTemplate(template);
         pixivMapper.insertFileNameTemplateIfAbsent(normalized);
         Long id = pixivMapper.findFileNameTemplateId(normalized);
-        return id == null ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE_ID : id;
+        return id == null ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID : id;
     }
 
     public String getFileNameTemplate(long id) {
         String template = pixivMapper.findFileNameTemplateById(id);
-        return ArtworkFileNameFormatter.normalizeTemplate(template);
+        return PixivWorkFileNameFormatter.normalizeTemplate(template);
     }
 
     public Map<Long, String> getFileNameTemplates(Collection<Long> ids) {
@@ -148,7 +149,7 @@ public class PixivDatabase {
         Map<Long, String> result = new HashMap<>();
         for (FileNameTemplateRow row : pixivMapper.findFileNameTemplatesByIds(ids)) {
             if (row.getId() != null) {
-                result.put(row.getId(), ArtworkFileNameFormatter.normalizeTemplate(row.getTemplate()));
+                result.put(row.getId(), PixivWorkFileNameFormatter.normalizeTemplate(row.getTemplate()));
             }
         }
         return result;
@@ -156,7 +157,7 @@ public class PixivDatabase {
 
     /**
      * 驻留下载时的合规化作者名，返回 ID。优先复用已有记录，不存在时新建。
-     * {@code name} 必须已是 {@link ArtworkFileNameFormatter#sanitize sanitize} 后的值。
+     * {@code name} 必须已是 {@link PixivWorkFileNameFormatter#sanitize sanitize} 后的值。
      */
     @Transactional
     public long getOrCreateFileAuthorNameId(String name) {

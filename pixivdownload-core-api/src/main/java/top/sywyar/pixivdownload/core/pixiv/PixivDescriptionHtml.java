@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.common;
+package top.sywyar.pixivdownload.core.pixiv;
 
 import java.net.URI;
 import java.net.URLDecoder;

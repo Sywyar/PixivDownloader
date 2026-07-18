@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.work;
 
-public final class WorkActionResult {
+public class WorkActionResult {
     public static final String SUCCESS = "success";
     public static final String FAILED = "failed";
     public static final String SKIPPED = "skipped";

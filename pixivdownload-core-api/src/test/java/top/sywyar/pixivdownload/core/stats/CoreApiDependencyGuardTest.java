@@ -36,7 +36,9 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
+import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
@@ -173,8 +175,10 @@ class CoreApiDependencyGuardTest {
     @DisplayName("core-api 模块应包含作品动作、Pixiv 解析与时间归一纯值能力")
     void coreApiContainsSharedPureValuesAndResolvers() {
         assertThat(CLASSES.contain(WorkActionResult.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivWorkFileNameFormatter.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivCookieUserResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivCoverUrlResolver.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivDescriptionHtml.class.getName())).isTrue();
         assertThat(CLASSES.contain(TimestampUtils.class.getName())).isTrue();
     }
 

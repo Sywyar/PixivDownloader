@@ -8,7 +8,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
@@ -88,7 +88,7 @@ public class ArtworkFileLocator {
 
     public String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
         long fileNameId = artwork.fileName() == null
-                ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE_ID
+                ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID
                 : artwork.fileName();
         String template = pixivDatabase.getFileNameTemplate(fileNameId);
         int count = Math.max(artwork.count(), page + 1);
@@ -96,7 +96,7 @@ public class ArtworkFileLocator {
         if (authorName == null && template != null && template.contains("{author_name}")) {
             log.warn(logMessage("download.file.log.author-name-missing", artwork.artworkId()));
         }
-        List<String> baseNames = ArtworkFileNameFormatter.formatAll(
+        List<String> baseNames = PixivWorkFileNameFormatter.formatAll(
                 template,
                 artwork.artworkId(),
                 artwork.title(),

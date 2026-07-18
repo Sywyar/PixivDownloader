@@ -7,7 +7,7 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -218,13 +218,13 @@ public class LocalWorkAssetService implements WorkAssetService {
      */
     private String resolveStoredNovelBaseName(NovelRecord novel) {
         String template = novel.fileName() == null
-                ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE
+                ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE
                 : pixivDatabase.getFileNameTemplate(novel.fileName());
         String authorName = novel.fileAuthorNameId() == null
                 ? ""
                 : pixivDatabase.getFileAuthorName(novel.fileAuthorNameId());
         if (authorName == null) authorName = "";
-        List<String> names = ArtworkFileNameFormatter.formatAll(
+        List<String> names = PixivWorkFileNameFormatter.formatAll(
                 template, novel.novelId(), novel.title(), novel.authorId(), authorName,
                 novel.time(), 1, novel.isAi(), novel.xRestrict());
         return names.isEmpty() ? String.valueOf(novel.novelId()) : names.get(0);

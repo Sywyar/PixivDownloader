@@ -11,7 +11,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.DownloadSettings;
@@ -22,7 +22,7 @@ import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetenti
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
-import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -199,13 +199,13 @@ public class NovelDownloadService implements NovelDownloader {
             long timestamp = other.getFileNameTimestamp() != null
                     ? TimestampUtils.toMillis(other.getFileNameTimestamp())
                     : TimestampUtils.nowMillis();
-            String template = ArtworkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
+            String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
             long templateId = pixivDatabase.getOrCreateFileNameTemplateId(template);
-            String safeAuthorName = ArtworkFileNameFormatter.normalizeBaseName(
+            String safeAuthorName = PixivWorkFileNameFormatter.normalizeBaseName(
                     other.getAuthorName(), other.getAuthorId() == null ? "" : String.valueOf(other.getAuthorId()));
             Long fileAuthorNameId = safeAuthorName.isEmpty()
                     ? null : pixivDatabase.getOrCreateFileAuthorNameId(safeAuthorName);
-            List<String> names = ArtworkFileNameFormatter.formatAll(
+            List<String> names = PixivWorkFileNameFormatter.formatAll(
                     template, novelId, title, other.getAuthorId(), other.getAuthorName(),
                     timestamp, 1, other.isAi(), other.getXRestrict());
             String baseName = names.isEmpty() ? String.valueOf(novelId) : names.get(0);
