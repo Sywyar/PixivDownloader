@@ -7,6 +7,9 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRow;
+import top.sywyar.pixivdownload.novel.db.series.NovelSeriesTagRow;
+
 import java.util.Collection;
 import java.util.List;
 
@@ -569,6 +572,15 @@ public interface NovelMapper {
             + " FROM novel_series WHERE series_id = #{id}")
     NovelSeries findSeriesById(@Param("id") long id);
 
+    @Select("SELECT n.series_id AS seriesId,"
+            + " CASE WHEN s.series_id IS NULL THEN CAST(n.series_id AS TEXT) ELSE s.title END AS title,"
+            + " s.author_id AS authorId, COUNT(*) AS novelCount, s.cover_ext AS coverExt"
+            + " FROM novels n LEFT JOIN novel_series s ON s.series_id = n.series_id"
+            + " WHERE n.deleted = 0 AND n.series_id IS NOT NULL AND n.series_id > 0"
+            + " GROUP BY n.series_id, s.title, s.author_id, s.cover_ext"
+            + " ORDER BY n.series_id")
+    List<NovelSeriesCatalogRow> findNovelSeriesCatalog();
+
     // ── Tags ────────────────────────────────────────────────────────────────────
 
     @Insert("INSERT OR IGNORE INTO novel_tags(novel_id, tag_id) VALUES(#{novelId}, #{tagId})")
@@ -592,6 +604,19 @@ public interface NovelMapper {
             + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
             + " WHERE nst.series_id = #{seriesId} ORDER BY t.tag_id")
     List<NovelTagRow> findNovelSeriesTags(@Param("seriesId") long seriesId);
+
+    @Select({
+            "<script>",
+            "SELECT nst.series_id AS seriesId, t.tag_id AS tagId, t.name,",
+            "t.translated_name AS translatedName",
+            "FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id",
+            "WHERE nst.series_id IN",
+            "<foreach item='id' collection='seriesIds' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY nst.series_id, t.tag_id",
+            "</script>"
+    })
+    List<NovelSeriesTagRow> findNovelSeriesTagsBySeriesIds(
+            @Param("seriesIds") Collection<Long> seriesIds);
 
     // ── Collections ─────────────────────────────────────────────────────────────
 

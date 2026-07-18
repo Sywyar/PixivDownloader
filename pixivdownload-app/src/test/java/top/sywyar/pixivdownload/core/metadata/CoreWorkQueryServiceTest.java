@@ -31,17 +31,12 @@ import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorSummary;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesQuery;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesSummary;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.series.MangaSeries;
-import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -66,7 +61,6 @@ class CoreWorkQueryServiceTest {
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
     private AuthorService authorService;
-    private MangaSeriesService mangaSeriesService;
     private CoreWorkQueryService service;
 
     @BeforeEach
@@ -103,14 +97,12 @@ class CoreWorkQueryServiceTest {
         novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
 
         authorService = mock(AuthorService.class);
-        mangaSeriesService = mock(MangaSeriesService.class);
         service = new CoreWorkQueryService(
                 new GalleryRepository(dataSource),
                 new NovelGalleryRepository(dataSource),
                 pixivDatabase,
                 novelMetadataRepository,
-                authorService,
-                mangaSeriesService);
+                authorService);
     }
 
     @AfterEach
@@ -141,13 +133,6 @@ class CoreWorkQueryServiceTest {
         for (TagDto tag : tags) {
             Long tagId = pixivDatabase.upsertTagAndGetId(tag.getName(), tag.getTranslatedName());
             jdbc.update("INSERT INTO novel_tags(novel_id, tag_id) VALUES (?, ?)", novelId, tagId);
-        }
-    }
-
-    private void saveNovelSeriesTags(long seriesId, List<TagDto> tags) {
-        for (TagDto tag : tags) {
-            Long tagId = pixivDatabase.upsertTagAndGetId(tag.getName(), tag.getTranslatedName());
-            jdbc.update("INSERT INTO novel_series_tags(series_id, tag_id) VALUES (?, ?)", seriesId, tagId);
         }
     }
 
@@ -420,44 +405,6 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
-        @DisplayName("插画系列目录补全系列标题与作者，缺行以 id 字符串兜底")
-        void shouldListArtworkSeriesCountsWithTitles() {
-            insertArtwork(1L, 100L, 801L);
-            insertArtwork(2L, 200L, 801L);
-            insertArtwork(3L, 300L, 802L);
-            pixivDatabase.updateSeriesInfo(1L, 700L, 1L);
-            pixivDatabase.updateSeriesInfo(2L, 700L, 2L);
-            pixivDatabase.updateSeriesInfo(3L, 701L, 1L);
-            when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(List.of(
-                    new MangaSeries(700L, "系列甲", 801L, 1L, null, null, null)));
-            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
-
-            List<SeriesSummary> series = service.series(new SeriesQuery(WorkType.ARTWORK, null));
-
-            assertThat(series).containsExactlyInAnyOrder(
-                    new SeriesSummary(700L, "系列甲", 801L, "作者甲", 2L),
-                    new SeriesSummary(701L, "701", null, null, 1L));
-        }
-
-        @Test
-        @DisplayName("插画系列目录带访客限制：仅统计对该访客可见的作品")
-        void shouldListArtworkSeriesCountsWithRestriction() {
-            insertArtwork(1L, 100L, null);
-            insertArtwork(2L, 200L, null);
-            pixivDatabase.updateSeriesInfo(1L, 700L, 1L);
-            pixivDatabase.updateSeriesInfo(2L, 700L, 2L);
-            pixivDatabase.saveArtworkTags(1L, List.of(new TagDto("魔法", null)));
-            pixivDatabase.saveArtworkTags(2L, List.of(new TagDto("魔法", null), new TagDto("禁止", null)));
-            when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(List.of());
-            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
-
-            List<SeriesSummary> series = service.series(new SeriesQuery(
-                    WorkType.ARTWORK, tagWhitelist(List.of(tagId("魔法")))));
-
-            assertThat(series).containsExactly(new SeriesSummary(700L, "700", null, null, 1L));
-        }
-
-        @Test
         @DisplayName("小说作者目录补全作者名，缺名以 id 字符串兜底")
         void shouldListNovelAuthorCountsWithNames() {
             insertNovel(11L, 100L, 801L, null);
@@ -473,21 +420,45 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
-        @DisplayName("小说系列目录补全系列标题与作者，缺行以 id 字符串兜底")
-        void shouldListNovelSeriesCountsWithTitles() {
-            insertNovel(11L, 100L, 801L, 700L);
-            insertNovel(12L, 200L, 801L, 700L);
-            insertNovel(13L, 300L, 802L, 701L);
-            jdbc.update("INSERT INTO novel_series(series_id, title, author_id, updated_time) VALUES (?, ?, ?, ?)",
-                    700L, "系列甲", 801L, 1L);
+        @DisplayName("作者名精确读取不为作者池缺行添加数字 id 兜底")
+        void shouldResolveExactAuthorNamesWithoutFallback() {
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
 
-            List<SeriesSummary> series = service.series(new SeriesQuery(WorkType.NOVEL, FULLY_OPEN));
-
-            assertThat(series).containsExactlyInAnyOrder(
-                    new SeriesSummary(700L, "系列甲", 801L, "作者甲", 2L),
-                    new SeriesSummary(701L, "701", null, null, 1L));
+            assertThat(service.authorNames(List.of(801L, 802L)))
+                    .containsExactly(Map.entry(801L, "作者甲"));
         }
+
+        @Test
+        @DisplayName("小说系列计数用单次核心聚合保留访客分级与标签作者限制")
+        void shouldCountVisibleNovelSeriesInCoreAggregation() {
+            insertNovel(11L, 100L, 801L, 700L);
+            insertNovel(12L, 200L, 999L, 700L);
+            insertNovel(13L, 300L, 801L, 701L);
+            insertNovel(14L, 400L, 801L, 701L);
+            insertNovel(15L, 500L, 801L, 702L);
+            insertNovel(16L, 600L, 801L, 700L);
+            saveNovelTags(11L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(12L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(14L, List.of(new TagDto("禁止", null)));
+            saveNovelTags(15L, List.of(new TagDto("魔法", null)));
+            saveNovelTags(16L, List.of(new TagDto("魔法", null)));
+            jdbc.update("UPDATE novels SET R18 = 1 WHERE novel_id = 15");
+            novelMetadataRepository.markNovelDeleted(16L);
+
+            WorkRestriction restriction = new WorkRestriction(
+                    Set.of(0), false, List.of(tagId("魔法")), false, List.of(801L));
+
+            assertThat(service.countBySeries(WorkType.NOVEL, restriction))
+                    .containsExactly(
+                            Map.entry(700L, 1L),
+                            Map.entry(701L, 1L));
+            assertThat(service.countBySeries(WorkType.NOVEL, null))
+                    .containsExactly(
+                            Map.entry(700L, 2L),
+                            Map.entry(701L, 2L),
+                            Map.entry(702L, 1L));
+        }
+
     }
 
     @Nested
@@ -557,12 +528,12 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
-        @DisplayName("宿主查询对小说插件私有正文搜索 fail-closed")
-        void shouldNotInterpretPluginOwnedContentSearchAsMetadataSearch() {
+        @DisplayName("宿主查询对未知或来源私有搜索类型 fail-closed")
+        void shouldNotInterpretPrivateSearchTypeAsMetadataSearch() {
             insertNovel(11L, 100L, null, null);
 
             assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
-                    .searchType("content")
+                    .searchType("private-field")
                     .search("小说11")
                     .build())))
                     .isEmpty();
@@ -648,7 +619,7 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
-        @DisplayName("小说无限制目录（restriction 为 null）统计全部未删除行：tags / authors / series")
+        @DisplayName("小说无限制目录（restriction 为 null）统计全部未删除行：tags / authors")
         void shouldListNovelCatalogsWithoutRestriction() {
             insertNovel(11L, 100L, 801L, 700L);
             insertNovel(12L, 200L, 801L, 700L);
@@ -667,29 +638,6 @@ class CoreWorkQueryServiceTest {
                     .containsExactlyInAnyOrder(
                             new AuthorSummary(801L, "作者甲", 2L),
                             new AuthorSummary(802L, "802", 1L));
-
-            assertThat(service.series(new SeriesQuery(WorkType.NOVEL, null)))
-                    .containsExactlyInAnyOrder(
-                            new SeriesSummary(700L, "700", null, null, 2L),
-                            new SeriesSummary(701L, "701", null, null, 1L));
-        }
-
-        @Test
-        @DisplayName("小说系列目录批量补全封面扩展名与系列标签（装饰列）")
-        void shouldDecorateNovelSeriesCatalog() {
-            insertNovel(11L, 100L, 801L, 700L);
-            jdbc.update("INSERT INTO novel_series(series_id, title, author_id, updated_time, cover_ext)"
-                    + " VALUES (?, ?, ?, ?, ?)", 700L, "系列甲", 801L, 1L, "png");
-            saveNovelSeriesTags(700L, List.of(new TagDto("魔法", "magic")));
-            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
-
-            List<SeriesSummary> series = service.series(new SeriesQuery(WorkType.NOVEL, FULLY_OPEN));
-
-            assertThat(series).hasSize(1);
-            assertThat(series.get(0).title()).isEqualTo("系列甲");
-            assertThat(series.get(0).authorName()).isEqualTo("作者甲");
-            assertThat(series.get(0).coverExt()).isEqualTo("png");
-            assertThat(series.get(0).tags()).extracting(WorkTag::name).containsExactly("魔法");
         }
     }
 }

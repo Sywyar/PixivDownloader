@@ -26,7 +26,6 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
@@ -42,6 +41,7 @@ import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
 import top.sywyar.pixivdownload.novel.config.NovelExecutionConfiguration;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
+import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRepository;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
@@ -100,6 +100,12 @@ public class NovelPluginConfiguration {
         MapperFactoryBean<NovelMapper> factory = new MapperFactoryBean<>(NovelMapper.class);
         factory.setSqlSessionFactory(sqlSessionFactory);
         return factory;
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
+    public NovelSeriesCatalogRepository novelSeriesCatalogRepository(NovelMapper novelMapper) {
+        return new NovelSeriesCatalogRepository(novelMapper);
     }
 
     @Bean
@@ -328,7 +334,7 @@ public class NovelPluginConfiguration {
     public NovelDownloadController novelDownloadController(NovelDownloadService novelDownloadService,
                                                           NovelAutoTranslateService novelAutoTranslateService,
                                                           NovelDatabase novelDatabase,
-                                                          NovelGalleryRepository novelGalleryRepository,
+                                                          NovelGalleryService novelGalleryService,
                                                           NovelMergeService novelMergeService,
                                                           NovelTranslationService novelTranslationService,
                                                           ApplicationModeProvider applicationModeProvider,
@@ -338,7 +344,7 @@ public class NovelPluginConfiguration {
                                                           MultiModeSettings multiModeSettings,
                                                           MessageResolver messages) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
-                novelGalleryRepository, novelMergeService, novelTranslationService, applicationModeProvider,
+                novelGalleryService, novelMergeService, novelTranslationService, applicationModeProvider,
                 requestOwnerIdentityResolver, workVisibilityService, userQuotaService, multiModeSettings, messages);
     }
 
@@ -378,10 +384,11 @@ public class NovelPluginConfiguration {
                                                    NovelOwnedWorkSearch novelOwnedWorkSearch,
                                                    WorkMetadataRepository workMetadataRepository,
                                                    NovelWorkDetailsRepository novelWorkDetailsRepository,
+                                                   NovelSeriesCatalogRepository novelSeriesCatalogRepository,
                                                    WorkDeletionService workDeletionService) {
         return new NovelGalleryService(
                 workQueryService, novelOwnedWorkSearch, workMetadataRepository,
-                novelWorkDetailsRepository, workDeletionService);
+                novelWorkDetailsRepository, novelSeriesCatalogRepository, workDeletionService);
     }
 
     @Bean
@@ -422,10 +429,9 @@ public class NovelPluginConfiguration {
                                                          NovelBatchService novelBatchService,
                                                          NovelSeriesService novelSeriesService,
                                                          NovelDatabase novelDatabase,
-                                                         NovelGalleryRepository novelGalleryRepository,
                                                          WorkAssetService workAssetService,
                                                          WorkVisibilityService workVisibilityService) {
         return new NovelGalleryController(novelGalleryService, novelBatchService, novelSeriesService,
-                novelDatabase, novelGalleryRepository, workAssetService, workVisibilityService);
+                novelDatabase, workAssetService, workVisibilityService);
     }
 }

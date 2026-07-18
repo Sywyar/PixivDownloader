@@ -6,33 +6,28 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesMetadataRow;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesTitleRow;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelWorkSearch;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorSummary;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesQuery;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesSummary;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.series.MangaSeries;
-import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,12 +37,11 @@ import java.util.Set;
 
 /**
  * {@link WorkQueryService} 的核心实现：插画侧代理 {@link GalleryRepository}（id 查询 /
- * 标签 / 作者 / 系列目录 / 关联查询）、{@link PixivDatabase}（三态判重）与
- * {@link MangaSeriesService}（系列池补全）；小说侧代理 {@link NovelGalleryRepository}
+ * 标签 / 作者目录 / 关联查询）与 {@link PixivDatabase}（三态判重）；小说侧代理
+ * {@link NovelGalleryRepository}
  * （目录计数 / 关联查询）、{@link NovelMetadataRepository}（三态判重 / 行 / 系列池）与
- * {@link NovelWorkSearch}（只基于宿主窄投影做元数据过滤）。小说正文与 FTS 归小说插件，
- * 宿主对 {@code searchType=content} fail-closed；小说插件在 owner-private 适配层组合正文命中
- * 与本服务的通用元数据结果。
+ * {@link NovelWorkSearch}（只基于宿主窄投影做元数据过滤）。小说正文、FTS 与系列目录归小说
+ * 插件；宿主查询只接受中性元数据条件。
  *
  * <p>插画侧与小说侧 SQL 仓库均已收编进核心数据层，不再反向 import gallery / novel.db。
  */
@@ -59,21 +53,18 @@ public class CoreWorkQueryService implements WorkQueryService {
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
     private final AuthorService authorService;
-    private final MangaSeriesService mangaSeriesService;
     private final NovelWorkSearch novelWorkSearch;
 
     public CoreWorkQueryService(GalleryRepository galleryRepository,
                                 NovelGalleryRepository novelGalleryRepository,
                                 PixivDatabase pixivDatabase,
                                 NovelMetadataRepository novelMetadataRepository,
-                                AuthorService authorService,
-                                MangaSeriesService mangaSeriesService) {
+                                AuthorService authorService) {
         this.galleryRepository = galleryRepository;
         this.novelGalleryRepository = novelGalleryRepository;
         this.pixivDatabase = pixivDatabase;
         this.novelMetadataRepository = novelMetadataRepository;
         this.authorService = authorService;
-        this.mangaSeriesService = mangaSeriesService;
         this.novelWorkSearch = new NovelWorkSearch(novelMetadataRepository, novelGalleryRepository, authorService);
     }
 
@@ -184,11 +175,23 @@ public class CoreWorkQueryService implements WorkQueryService {
     }
 
     @Override
-    public List<SeriesSummary> series(SeriesQuery query) {
-        return switch (query.workType()) {
-            case ARTWORK -> artworkSeries(query);
-            case NOVEL -> novelSeries(query);
-        };
+    public Map<Long, String> authorNames(Collection<Long> authorIds) {
+        if (authorIds == null || authorIds.isEmpty()) {
+            return Map.of();
+        }
+        return Collections.unmodifiableMap(new LinkedHashMap<>(authorService.getAuthorNames(authorIds)));
+    }
+
+    @Override
+    public Map<Long, Long> countBySeries(WorkType workType, WorkRestriction restriction) {
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        switch (workType) {
+            case ARTWORK -> galleryRepository.findSeriesCounts(toGuestRestriction(restriction))
+                    .forEach(row -> counts.put(row.seriesId(), row.artworkCount()));
+            case NOVEL -> counts.putAll(novelGalleryRepository
+                    .countVisibleNovelsBySeries(toGuestRestriction(restriction)));
+        }
+        return Collections.unmodifiableMap(counts);
     }
 
     private PagedResult<WorkSummary> artworkSearch(WorkQuery query) {
@@ -255,7 +258,7 @@ public class CoreWorkQueryService implements WorkQueryService {
                 next = r;
             }
         }
-        NovelSeriesMetadataRow series = novelMetadataRepository.getSeries(current.seriesId());
+        NovelSeriesTitleRow series = novelMetadataRepository.getSeries(current.seriesId());
         return Optional.of(new SeriesNeighbors(
                 current.seriesId(),
                 series == null ? null : series.title(),
@@ -283,34 +286,6 @@ public class CoreWorkQueryService implements WorkQueryService {
         return out;
     }
 
-    /** 插画系列目录：可见作品计数 + 系列池补标题 / 作者，缺行以 id 字符串兜底。 */
-    private List<SeriesSummary> artworkSeries(SeriesQuery query) {
-        List<GalleryRepository.SeriesCount> counts =
-                galleryRepository.findSeriesCounts(toGuestRestriction(query.restriction()));
-        Set<Long> seriesIds = new LinkedHashSet<>();
-        for (GalleryRepository.SeriesCount item : counts) {
-            seriesIds.add(item.seriesId());
-        }
-        Map<Long, MangaSeries> seriesById = new LinkedHashMap<>();
-        Set<Long> authorIds = new LinkedHashSet<>();
-        for (MangaSeries seriesRow : mangaSeriesService.getSeriesByIds(seriesIds)) {
-            seriesById.put(seriesRow.seriesId(), seriesRow);
-            if (seriesRow.authorId() != null && seriesRow.authorId() > 0) {
-                authorIds.add(seriesRow.authorId());
-            }
-        }
-        Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
-        List<SeriesSummary> out = new ArrayList<>(counts.size());
-        for (GalleryRepository.SeriesCount item : counts) {
-            MangaSeries seriesRow = seriesById.get(item.seriesId());
-            String title = seriesRow == null ? String.valueOf(item.seriesId()) : seriesRow.title();
-            Long authorId = seriesRow == null ? null : seriesRow.authorId();
-            String authorName = authorId == null ? null : authorNames.get(authorId);
-            out.add(new SeriesSummary(item.seriesId(), title, authorId, authorName, item.artworkCount()));
-        }
-        return out;
-    }
-
     /** 小说作者目录：可见作品计数（restriction 为 null 时统计全部未删行）+ 作者池补名。 */
     private List<AuthorSummary> novelAuthors(AuthorQuery query) {
         List<NovelAuthorSummary> counts = novelGalleryRepository
@@ -326,40 +301,6 @@ public class CoreWorkQueryService implements WorkQueryService {
                     item.authorId(),
                     names.getOrDefault(item.authorId(), String.valueOf(item.authorId())),
                     item.novelCount()));
-        }
-        return out;
-    }
-
-    /**
-     * 小说系列目录：可见作品计数（restriction 为 null 时统计全部未删行）+ 系列池补标题 / 作者
-     * + 批量补封面扩展名与系列标签（系列卡片装饰列，自小说画廊服务下沉，禁 N+1）。
-     */
-    private List<SeriesSummary> novelSeries(SeriesQuery query) {
-        List<NovelSeriesSummary> counts = novelGalleryRepository
-                .findVisibleNovelSeriesCounts(toGuestRestriction(query.restriction()));
-        Set<Long> seriesIds = new LinkedHashSet<>();
-        for (NovelSeriesSummary item : counts) {
-            seriesIds.add(item.seriesId());
-        }
-        Map<Long, NovelSeriesMetadataRow> seriesById = new LinkedHashMap<>();
-        Set<Long> authorIds = new LinkedHashSet<>();
-        for (NovelSeriesMetadataRow seriesRow : novelMetadataRepository.getSeriesByIds(seriesIds)) {
-            seriesById.put(seriesRow.seriesId(), seriesRow);
-            if (seriesRow.authorId() != null && seriesRow.authorId() > 0) {
-                authorIds.add(seriesRow.authorId());
-            }
-        }
-        Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
-        Map<Long, List<TagDto>> tagsBySeries = novelMetadataRepository.getNovelSeriesTagsBatch(seriesIds);
-        List<SeriesSummary> out = new ArrayList<>(counts.size());
-        for (NovelSeriesSummary item : counts) {
-            NovelSeriesMetadataRow seriesRow = seriesById.get(item.seriesId());
-            String title = seriesRow == null ? String.valueOf(item.seriesId()) : seriesRow.title();
-            Long authorId = seriesRow == null ? null : seriesRow.authorId();
-            String authorName = authorId == null ? null : authorNames.get(authorId);
-            out.add(new SeriesSummary(item.seriesId(), title, authorId, authorName, item.novelCount(),
-                    seriesRow == null ? null : seriesRow.coverExt(),
-                    toWorkTags(tagsBySeries.getOrDefault(item.seriesId(), List.of()))));
         }
         return out;
     }
@@ -412,20 +353,6 @@ public class CoreWorkQueryService implements WorkQueryService {
         }
         return new SeriesNeighbors.Neighbor(record.novelId(), record.title(),
                 record.seriesOrder() == null ? 0 : record.seriesOrder());
-    }
-
-    private static List<WorkTag> toWorkTags(List<TagDto> tags) {
-        if (tags == null || tags.isEmpty()) {
-            return List.of();
-        }
-        List<WorkTag> out = new ArrayList<>(tags.size());
-        for (TagDto tag : tags) {
-            if (tag == null) {
-                continue;
-            }
-            out.add(new WorkTag(tag.getTagId(), tag.getName(), tag.getTranslatedName()));
-        }
-        return out;
     }
 
     private GalleryQuery toGalleryQuery(WorkQuery query) {

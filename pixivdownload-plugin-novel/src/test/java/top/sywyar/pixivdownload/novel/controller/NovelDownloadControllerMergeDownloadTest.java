@@ -4,22 +4,19 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
+import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
@@ -34,7 +31,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -50,7 +46,7 @@ class NovelDownloadControllerMergeDownloadTest {
     @Mock private NovelDownloadService novelDownloadService;
     @Mock private NovelAutoTranslateService novelAutoTranslateService;
     @Mock private NovelDatabase novelDatabase;
-    @Mock private NovelGalleryRepository novelGalleryRepository;
+    @Mock private NovelGalleryService novelGalleryService;
     @Mock private NovelMergeService novelMergeService;
     @Mock private NovelTranslationService novelTranslationService;
     @Mock private ApplicationModeProvider applicationModeProvider;
@@ -65,7 +61,7 @@ class NovelDownloadControllerMergeDownloadTest {
                 novelDownloadService,
                 novelAutoTranslateService,
                 novelDatabase,
-                novelGalleryRepository,
+                novelGalleryService,
                 novelMergeService,
                 novelTranslationService,
                 applicationModeProvider,
@@ -160,25 +156,18 @@ class NovelDownloadControllerMergeDownloadTest {
     }
 
     @Test
-    @DisplayName("受邀访客的系列可见性限制应按纯值适配后再查询宿主仓库")
-    void adaptsWorkRestrictionForSeriesVisibility() throws Exception {
+    @DisplayName("受邀访客的系列可见性限制应交给小说插件目录服务")
+    void delegatesSeriesVisibilityToOwnedCatalog() throws Exception {
         HttpServletRequest req = mock(HttpServletRequest.class);
         WorkRestriction restriction = new WorkRestriction(
                 Set.of(0, 1), false, List.of(21L), true, List.of());
         when(workVisibilityService.restrictionFrom(req, WorkType.NOVEL)).thenReturn(restriction);
-        when(novelGalleryRepository.findVisibleNovelSeriesCounts(any()))
-                .thenReturn(List.of(new NovelSeriesSummary(8L, "可见系列", null, null, 1)));
+        when(novelGalleryService.visibleSeriesIds(restriction)).thenReturn(Set.of(8L));
 
         ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, null, null, req);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
-        ArgumentCaptor<GuestRestriction> captor = ArgumentCaptor.forClass(GuestRestriction.class);
-        verify(novelGalleryRepository).findVisibleNovelSeriesCounts(captor.capture());
-        assertThat(captor.getValue().allowedXRestricts()).isEqualTo(restriction.allowedXRestricts());
-        assertThat(captor.getValue().tagUnrestricted()).isEqualTo(restriction.tagUnrestricted());
-        assertThat(captor.getValue().tagIds()).isEqualTo(restriction.tagIds());
-        assertThat(captor.getValue().authorUnrestricted()).isEqualTo(restriction.authorUnrestricted());
-        assertThat(captor.getValue().authorIds()).isEqualTo(restriction.authorIds());
+        verify(novelGalleryService).visibleSeriesIds(restriction);
         verifyNoInteractions(novelMergeService);
     }
 }

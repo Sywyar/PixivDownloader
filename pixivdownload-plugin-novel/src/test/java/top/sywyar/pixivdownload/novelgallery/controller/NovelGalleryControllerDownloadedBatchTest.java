@@ -5,7 +5,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
@@ -42,7 +41,6 @@ class NovelGalleryControllerDownloadedBatchTest {
                 mock(NovelBatchService.class),
                 mock(NovelSeriesService.class),
                 novelDatabase,
-                mock(NovelGalleryRepository.class),
                 mock(WorkAssetService.class),
                 workVisibilityService);
     }

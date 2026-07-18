@@ -32,8 +32,7 @@ class NovelMetadataRepositoryTest {
             "NovelGalleryRepository.java",
             "NovelMetadataRepository.java",
             "NovelMetadataRow.java",
-            "NovelSeriesMetadataRow.java",
-            "NovelSeriesSummary.java",
+            "NovelSeriesTitleRow.java",
             "NovelTagOption.java",
             "NovelWorkSearch.java");
 
@@ -42,8 +41,7 @@ class NovelMetadataRepositoryTest {
             NovelGalleryRepository.class,
             NovelMetadataRepository.class,
             NovelMetadataRow.class,
-            NovelSeriesMetadataRow.class,
-            NovelSeriesSummary.class,
+            NovelSeriesTitleRow.class,
             NovelTagOption.class,
             NovelWorkSearch.class);
 
@@ -148,19 +146,19 @@ class NovelMetadataRepositoryTest {
     }
 
     @Test
-    @DisplayName("宿主系列行只保留四个画廊与聚合所需字段")
+    @DisplayName("宿主系列行只保留跨作品装配所需的 id 与标题")
     void shouldKeepSeriesProjectionNarrow() throws ReflectiveOperationException {
         jdbc.update(
                 "INSERT INTO novel_series(series_id, title, author_id, cover_ext) VALUES (?, ?, ?, ?)",
                 9L, "系列标题", 88L, "jpg");
 
-        NovelSeriesMetadataRow row = repository.getSeries(9L);
+        NovelSeriesTitleRow row = repository.getSeries(9L);
 
-        assertThat(row).isEqualTo(new NovelSeriesMetadataRow(9L, "系列标题", 88L, "jpg"));
-        assertThat(componentNames(NovelSeriesMetadataRow.class))
-                .containsExactly("seriesId", "title", "authorId", "coverExt");
-        assertThat(sqlConstant("SELECT_SERIES_METADATA"))
-                .doesNotContainIgnoringCase("updated_time", "description", "cover_folder");
+        assertThat(row).isEqualTo(new NovelSeriesTitleRow(9L, "系列标题"));
+        assertThat(componentNames(NovelSeriesTitleRow.class))
+                .containsExactly("seriesId", "title");
+        assertThat(sqlConstant("SELECT_SERIES_TITLE"))
+                .doesNotContainIgnoringCase("author_id", "cover_ext", "updated_time", "description", "cover_folder");
     }
 
     @Test

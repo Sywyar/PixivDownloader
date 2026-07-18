@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.core.metadata;
 
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesMetadataRow;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesTitleRow;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -233,7 +233,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
             return Collections.emptyMap();
         }
         Map<Long, String> out = new HashMap<>(seriesIds.size());
-        for (NovelSeriesMetadataRow series : novelMetadataRepository.getSeriesByIds(seriesIds)) {
+        for (NovelSeriesTitleRow series : novelMetadataRepository.getSeriesByIds(seriesIds)) {
             out.put(series.seriesId(), series.title());
         }
         return out;

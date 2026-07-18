@@ -98,7 +98,7 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                 hostType("top.sywyar.pixivdownload.core.db.pathprefix", "PathPrefixCodec"),
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelMetadataRepository"),
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelMetadataRow"),
-                hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelSeriesMetadataRow"),
+                hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelSeriesTitleRow"),
                 hostType("top.sywyar.pixivdownload.setup", "SetupService"),
                 hostType("top.sywyar.pixivdownload.setup.guest", "GuestAccessGuard"),
                 hostType("top.sywyar.pixivdownload.setup.guest", "GuestInviteSession"),

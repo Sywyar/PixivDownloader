@@ -42,9 +42,8 @@ public class NovelMetadataRepository {
                     + " deleted, upload_time AS uploadTime"
                     + " FROM novels";
 
-    private static final String SELECT_SERIES_METADATA =
-            "SELECT series_id AS seriesId, title, author_id AS authorId, cover_ext AS coverExt"
-                    + " FROM novel_series";
+    private static final String SELECT_SERIES_TITLE =
+            "SELECT series_id AS seriesId, title FROM novel_series";
 
     private final NamedParameterJdbcTemplate jdbc;
     private final PathPrefixCodec pathPrefixCodec;
@@ -158,49 +157,22 @@ public class NovelMetadataRepository {
                 (ResultSetExtractor<Map<Long, List<TagDto>>>) rs -> groupTagsByKey(rs, "novelId"));
     }
 
-    /** 单个系列的系列标签（{@code tag_id} 升序）；与批量版 {@link #getNovelSeriesTagsBatch} 同源 SQL。 */
-    public List<TagDto> getNovelSeriesTags(long seriesId) {
-        return jdbc.query(
-                "SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
-                        + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
-                        + " WHERE nst.series_id = :seriesId"
-                        + " ORDER BY t.tag_id",
-                new MapSqlParameterSource("seriesId", seriesId), NovelMetadataRepository::mapTag);
-    }
-
-    /** 批量取多个系列的系列标签，按 seriesId 分组；无标签的系列不出现在结果中。 */
-    public Map<Long, List<TagDto>> getNovelSeriesTagsBatch(Collection<Long> seriesIds) {
-        if (seriesIds == null || seriesIds.isEmpty()) return Collections.emptyMap();
-        return jdbc.query(
-                "SELECT nst.series_id AS seriesId, t.tag_id AS tagId, t.name AS name,"
-                        + " t.translated_name AS translatedName"
-                        + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
-                        + " WHERE nst.series_id IN (:ids)"
-                        + " ORDER BY nst.series_id, t.tag_id",
-                new MapSqlParameterSource("ids", seriesIds),
-                (ResultSetExtractor<Map<Long, List<TagDto>>>) rs -> groupTagsByKey(rs, "seriesId"));
-    }
-
     // ── Series ─────────────────────────────────────────────────────────────────────
 
-    public NovelSeriesMetadataRow getSeries(long seriesId) {
-        List<NovelSeriesMetadataRow> rows = jdbc.query(SELECT_SERIES_METADATA + " WHERE series_id = :id",
-                new MapSqlParameterSource("id", seriesId), this::mapSeriesMetadata);
+    public NovelSeriesTitleRow getSeries(long seriesId) {
+        List<NovelSeriesTitleRow> rows = jdbc.query(SELECT_SERIES_TITLE + " WHERE series_id = :id",
+                new MapSqlParameterSource("id", seriesId), this::mapSeriesTitle);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    public List<NovelSeriesMetadataRow> getSeriesByIds(Collection<Long> ids) {
+    public List<NovelSeriesTitleRow> getSeriesByIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) return Collections.emptyList();
-        return jdbc.query(SELECT_SERIES_METADATA + " WHERE series_id IN (:ids)",
-                new MapSqlParameterSource("ids", ids), this::mapSeriesMetadata);
+        return jdbc.query(SELECT_SERIES_TITLE + " WHERE series_id IN (:ids)",
+                new MapSqlParameterSource("ids", ids), this::mapSeriesTitle);
     }
 
-    private NovelSeriesMetadataRow mapSeriesMetadata(ResultSet rs, int rowNum) throws SQLException {
-        return new NovelSeriesMetadataRow(
-                rs.getLong("seriesId"),
-                rs.getString("title"),
-                getLongObj(rs, "authorId"),
-                rs.getString("coverExt"));
+    private NovelSeriesTitleRow mapSeriesTitle(ResultSet rs, int rowNum) throws SQLException {
+        return new NovelSeriesTitleRow(rs.getLong("seriesId"), rs.getString("title"));
     }
 
     // ── Collections ─────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.core.metadata;
 
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesMetadataRow;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesTitleRow;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -215,7 +215,7 @@ class CoreWorkMetadataRepositoryTest {
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of(
                     42L, List.of(new TagDto(21L, "ファンタジー", "奇幻"))));
             when(novelMetadataRepository.getSeriesByIds(anyCollection())).thenReturn(List.of(
-                    new NovelSeriesMetadataRow(700L, "小说系列", 88L, null)));
+                    new NovelSeriesTitleRow(700L, "小说系列")));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(88L, "作者乙"));
             when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of(
                     5L, "{novel_title}"));

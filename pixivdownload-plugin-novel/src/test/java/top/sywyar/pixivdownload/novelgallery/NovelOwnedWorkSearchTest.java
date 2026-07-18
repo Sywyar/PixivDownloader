@@ -45,15 +45,13 @@ class NovelOwnedWorkSearchTest {
         WorkQuery query = WorkQuery.builder(WorkType.NOVEL)
                 .page(1)
                 .size(1)
-                .searchType("content")
-                .search("冒险旅程")
                 .authorIds(List.of(88L))
                 .build();
         when(novelDatabase.searchNovelContentIds("冒险旅程")).thenReturn(Set.of(2L, 4L));
         when(workQueryService.searchAll(any())).thenReturn(List.of(
                 summary(4L), summary(3L), summary(2L), summary(1L)));
 
-        PagedResult<WorkSummary> result = search.search(query);
+        PagedResult<WorkSummary> result = search.search(query, "冒险旅程");
 
         assertThat(result.content()).extracting(WorkSummary::workId).containsExactly(2L);
         assertThat(result.totalElements()).isEqualTo(2);
@@ -61,8 +59,7 @@ class NovelOwnedWorkSearchTest {
         assertThat(result.totalPages()).isEqualTo(2);
         ArgumentCaptor<WorkQuery> hostQuery = ArgumentCaptor.forClass(WorkQuery.class);
         verify(workQueryService).searchAll(hostQuery.capture());
-        assertThat(hostQuery.getValue().search()).isNull();
-        assertThat(hostQuery.getValue().searchType()).isEqualTo("all");
+        assertThat(hostQuery.getValue()).isSameAs(query);
         assertThat(hostQuery.getValue().authorIds()).containsExactly(88L);
     }
 
@@ -76,7 +73,7 @@ class NovelOwnedWorkSearchTest {
         PagedResult<WorkSummary> expected = new PagedResult<>(List.of(summary(7L)), 1, 0, 24, 1);
         when(workQueryService.search(query)).thenReturn(expected);
 
-        assertThat(search.search(query)).isSameAs(expected);
+        assertThat(search.search(query, null)).isSameAs(expected);
 
         verifyNoInteractions(novelDatabase);
     }

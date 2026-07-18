@@ -3,15 +3,15 @@ package top.sywyar.pixivdownload.novelgallery;
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
+import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRepository;
+import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRow;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
@@ -27,15 +27,19 @@ import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
  * 小说画廊页面服务：列表经 {@link NovelOwnedWorkSearch} 组合插件私有正文命中与宿主通用元数据
- * 过滤；详情、系列和目录继续经 {@link WorkQueryService} 取窄投影，{@link WorkMetadataRepository}
- * 批量补全行数据（search → hydrate 两步）；
+ * 过滤；详情与通用目录经 {@link WorkQueryService} 取窄投影，系列目录由小说插件自己的
+ * {@link NovelSeriesCatalogRepository} 读取，{@link WorkMetadataRepository} 批量补全作品行
+ *（search → hydrate 两步）；
  * 删除链路委托核心统一删除入口 {@link WorkDeletionService#delete} / {@link WorkDeletionService#deleteAll}
  *（判存 → 删文件 → 软删 DB 的编排封装在核心实现；小说普通关系由插件数据库触发器原子清理，
  * FTS 查询过滤软删除行并由插件启动时 best-effort 回收），不再让宿主读取正文或维护 FTS。
@@ -48,17 +52,19 @@ public class NovelGalleryService {
     private final NovelOwnedWorkSearch novelOwnedWorkSearch;
     private final WorkMetadataRepository workMetadataRepository;
     private final NovelWorkDetailsRepository novelWorkDetailsRepository;
+    private final NovelSeriesCatalogRepository novelSeriesCatalogRepository;
     private final WorkDeletionService workDeletionService;
 
     public PagedNovels query(NovelGalleryQuery q) {
-        PagedResult<WorkSummary> result = novelOwnedWorkSearch.search(toWorkQuery(q));
+        PagedResult<WorkSummary> result = novelOwnedWorkSearch.search(
+                toWorkQuery(q), privateContentQuery(q));
         List<NovelView> content = toViews(toIds(result.content()));
         return new PagedNovels(content, (int) result.totalElements(),
                 result.page(), result.size(), result.totalPages());
     }
 
     public List<Long> findNovelIds(NovelGalleryQuery q) {
-        return toIds(novelOwnedWorkSearch.searchAll(toWorkQuery(q)));
+        return toIds(novelOwnedWorkSearch.searchAll(toWorkQuery(q), privateContentQuery(q)));
     }
 
     public NovelView find(long novelId) {
@@ -129,11 +135,29 @@ public class NovelGalleryService {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
-        List<NovelSeriesSummary> rows = workQueryService
-                .series(new SeriesQuery(WorkType.NOVEL, restriction))
-                .stream()
-                .map(item -> new NovelSeriesSummary(item.seriesId(), item.title(), item.authorId(),
-                        item.authorName(), item.workCount(), item.coverExt(), toTagDtos(item.tags())))
+        List<NovelSeriesCatalogRow> catalog = novelSeriesCatalogRepository.findAll();
+        Map<Long, Long> visibleCounts = restriction == null
+                ? catalogSeriesCounts(catalog)
+                : workQueryService.countBySeries(WorkType.NOVEL, restriction);
+        Set<Long> authorIds = new LinkedHashSet<>();
+        catalog.stream()
+                .filter(item -> visibleCounts.containsKey(item.seriesId()))
+                .map(NovelSeriesCatalogRow::authorId)
+                .filter(Objects::nonNull)
+                .filter(authorId -> authorId > 0)
+                .forEach(authorIds::add);
+        Map<Long, String> authorNames = workQueryService.authorNames(authorIds);
+        Map<Long, List<WorkTag>> tagsBySeries = novelSeriesCatalogRepository.findTags(visibleCounts.keySet());
+        List<NovelSeriesSummary> rows = catalog.stream()
+                .filter(item -> visibleCounts.containsKey(item.seriesId()))
+                .map(item -> new NovelSeriesSummary(
+                        item.seriesId(),
+                        item.title(),
+                        item.authorId(),
+                        item.authorId() == null ? null : authorNames.get(item.authorId()),
+                        visibleCounts.get(item.seriesId()),
+                        item.coverExt(),
+                        tagsBySeries.getOrDefault(item.seriesId(), List.of())))
                 .filter(item -> term.isEmpty()
                         || String.valueOf(item.seriesId()).contains(term)
                         || (item.title() != null && item.title().toLowerCase(Locale.ROOT).contains(term))
@@ -141,6 +165,16 @@ public class NovelGalleryService {
                 .sorted(seriesSummaryComparator(sort))
                 .toList();
         return pageSeries(rows, safePage, safeSize);
+    }
+
+    /** 返回当前可见的小说系列 id；无访客限制时返回全部未删除小说所属系列。 */
+    public Set<Long> visibleSeriesIds(WorkRestriction restriction) {
+        if (restriction == null) {
+            return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(
+                    catalogSeriesCounts(novelSeriesCatalogRepository.findAll()).keySet()));
+        }
+        return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(
+                workQueryService.countBySeries(WorkType.NOVEL, restriction).keySet()));
     }
 
     public List<NovelTagOption> listTags(String search, int limit) {
@@ -221,13 +255,14 @@ public class NovelGalleryService {
     }
 
     private static WorkQuery toWorkQuery(NovelGalleryQuery q) {
+        boolean privateContentSearch = "content".equals(q.searchType());
         return WorkQuery.builder(WorkType.NOVEL)
                 .page(q.page())
                 .size(q.size())
                 .sort(q.sort())
                 .order(q.order())
-                .search(q.search())
-                .searchType(q.searchType())
+                .search(privateContentSearch ? null : q.search())
+                .searchType(privateContentSearch ? "all" : q.searchType())
                 .r18(q.r18())
                 .ai(q.ai())
                 .collectionIds(toList(q.collectionIds()))
@@ -241,6 +276,23 @@ public class NovelGalleryService {
                 .excludedSeriesIds(toList(q.notSeriesIds()))
                 .restriction(q.restriction())
                 .build();
+    }
+
+    private static String privateContentQuery(NovelGalleryQuery query) {
+        if (!"content".equals(query.searchType())
+                || query.search() == null
+                || query.search().isBlank()) {
+            return null;
+        }
+        return query.search();
+    }
+
+    private static Map<Long, Long> catalogSeriesCounts(List<NovelSeriesCatalogRow> catalog) {
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        for (NovelSeriesCatalogRow row : catalog) {
+            counts.put(row.seriesId(), row.novelCount());
+        }
+        return counts;
     }
 
     private static List<Long> toList(Set<Long> ids) {
@@ -289,7 +341,7 @@ public class NovelGalleryService {
     public record PagedSeries(List<NovelSeriesSummary> content, long totalElements,
                               int page, int size, int totalPages) {}
 
-    /** 合法搜索范围，与插画画廊一致。 */
+    /** 小说画廊接受的搜索范围；正文检索属于本插件私有扩展。 */
     public static final Set<String> ALLOWED_SEARCH_TYPES = Set.of(
             "all", "title", "author", "id", "authorId", "desc", "tag", "tagExact", "content");
 

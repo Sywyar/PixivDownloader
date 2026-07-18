@@ -21,8 +21,8 @@ import java.util.Set;
 
 /**
  * 宿主小说窄投影的内存过滤实现：只处理标题、作者、描述、标签、分级、AI、系列等跨作品
- * 元数据，不读取正文或 FTS；{@code searchType=content} 必须 fail-closed，由小说插件自己的
- * 查询适配层处理。非 Spring Bean，由 {@link CoreWorkQueryService} 自行组装。
+ * 元数据，不读取正文或 FTS；未知或来源私有搜索类型 fail-closed。非 Spring Bean，由
+ * {@link CoreWorkQueryService} 自行组装。
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -156,8 +156,8 @@ public class NovelWorkSearch {
     private boolean matchNovelSearch(NovelMetadataRow r, String searchType, String searchLower,
                                      Long searchId, Map<Long, String> authorNameCache) {
         return switch (searchType) {
-            // 正文与 FTS 归小说插件；宿主不得把 owner-private 查询误降级成标题 / 作者搜索。
-            case "content" -> false;
+            case "all" -> (r.title() != null && r.title().toLowerCase(Locale.ROOT).contains(searchLower))
+                    || resolveAuthorNameLower(r.authorId(), authorNameCache).contains(searchLower);
             case "title" -> r.title() != null && r.title().toLowerCase(Locale.ROOT).contains(searchLower);
             case "author" -> resolveAuthorNameLower(r.authorId(), authorNameCache).contains(searchLower);
             case "desc" -> r.description() != null
@@ -167,8 +167,7 @@ public class NovelWorkSearch {
                     && searchId.equals(r.authorId());
             case "tag" -> matchNovelTag(r.novelId(), searchLower, false);
             case "tagExact" -> matchNovelTag(r.novelId(), searchLower, true);
-            default -> (r.title() != null && r.title().toLowerCase(Locale.ROOT).contains(searchLower))
-                    || resolveAuthorNameLower(r.authorId(), authorNameCache).contains(searchLower);
+            default -> false;
         };
     }
 

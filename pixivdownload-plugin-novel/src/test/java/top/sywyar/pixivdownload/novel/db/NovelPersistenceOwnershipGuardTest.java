@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.novel.db;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRow;
+import top.sywyar.pixivdownload.novel.db.series.NovelSeriesTagRow;
 
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
@@ -31,6 +33,8 @@ class NovelPersistenceOwnershipGuardTest {
                         NovelRecord.class,
                         NovelSeries.class,
                         NovelTagRow.class,
+                        NovelSeriesCatalogRow.class,
+                        NovelSeriesTagRow.class,
                         NovelMapper.NovelWorkDetailsRow.class,
                         NovelMapper.NovelWorkDetailValueRow.class);
         assertThat(projectResultTypes)

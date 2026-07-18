@@ -7,7 +7,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
@@ -15,6 +14,7 @@ import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
+import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
@@ -34,7 +34,7 @@ class NovelDownloadControllerIdentityTest {
     @Mock private NovelDownloadService novelDownloadService;
     @Mock private NovelAutoTranslateService novelAutoTranslateService;
     @Mock private NovelDatabase novelDatabase;
-    @Mock private NovelGalleryRepository novelGalleryRepository;
+    @Mock private NovelGalleryService novelGalleryService;
     @Mock private NovelMergeService novelMergeService;
     @Mock private NovelTranslationService novelTranslationService;
     @Mock private ApplicationModeProvider applicationModeProvider;
@@ -122,7 +122,7 @@ class NovelDownloadControllerIdentityTest {
                 novelDownloadService,
                 novelAutoTranslateService,
                 novelDatabase,
-                novelGalleryRepository,
+                novelGalleryService,
                 novelMergeService,
                 novelTranslationService,
                 applicationModeProvider,

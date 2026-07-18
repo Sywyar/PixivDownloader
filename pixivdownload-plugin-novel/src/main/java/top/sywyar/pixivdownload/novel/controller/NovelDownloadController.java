@@ -11,9 +11,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
@@ -25,6 +22,7 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
+import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
@@ -38,7 +36,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -61,7 +58,7 @@ public class NovelDownloadController {
     private final NovelDownloadService novelDownloadService;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final NovelDatabase novelDatabase;
-    private final NovelGalleryRepository novelGalleryRepository;
+    private final NovelGalleryService novelGalleryService;
     private final NovelMergeService novelMergeService;
     private final NovelTranslationService novelTranslationService;
     private final ApplicationModeProvider applicationModeProvider;
@@ -335,21 +332,7 @@ public class NovelDownloadController {
     private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
         WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL);
         if (restriction == null) return null;
-        Set<Long> ids = new HashSet<>();
-        for (NovelSeriesSummary summary : novelGalleryRepository
-                .findVisibleNovelSeriesCounts(toGuestRestriction(restriction))) {
-            ids.add(summary.seriesId());
-        }
-        return ids;
-    }
-
-    private static GuestRestriction toGuestRestriction(WorkRestriction restriction) {
-        return new GuestRestriction(
-                restriction.allowedXRestricts(),
-                restriction.tagUnrestricted(),
-                restriction.tagIds(),
-                restriction.authorUnrestricted(),
-                restriction.authorIds());
+        return novelGalleryService.visibleSeriesIds(restriction);
     }
 
     private static String mergedMimeFor(NovelDownloadService.NovelFormat fmt) {

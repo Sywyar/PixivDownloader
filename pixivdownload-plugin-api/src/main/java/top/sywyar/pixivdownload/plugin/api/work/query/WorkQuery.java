@@ -14,7 +14,7 @@ import java.util.List;
  *       小说 {@code date / novelId / wordCount / series}</li>
  *   <li>{@code order}：{@code asc / desc}</li>
  *   <li>{@code searchType}：{@code all / title / author / id / authorId / desc / tag / tagExact}；
- *       小说另支持 {@code content}（正文全文检索）</li>
+ *       来源私有字段与正文检索词不得进入本查询模型</li>
  *   <li>{@code r18}：{@code any / yes / no / r18 / r18g / r18plus}</li>
  *   <li>{@code ai}：{@code any / yes / no}</li>
  *   <li>{@code formats}：仅插画侧使用（按扩展名过滤），小说侧忽略</li>

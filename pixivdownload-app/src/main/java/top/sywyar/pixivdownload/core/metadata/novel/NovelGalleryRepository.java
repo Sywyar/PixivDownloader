@@ -10,8 +10,10 @@ import org.springframework.stereotype.Repository;
 import javax.sql.DataSource;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -21,8 +23,7 @@ import java.util.Set;
  * <p>所有 SQL 都在 {@code novels} 表别名 {@code n} 上拼装，并使用 {@code novel_tags} 子表。
  * <p>
  * 已收编进核心数据层（卸载投影：小说画廊插件未装时核心查询仍要读 {@code novels}），
- * 作为根包扫描的核心 Bean；被核心查询服务与小说画廊 controller 注入使用，
- * 小说画廊插件侧经 plugin.api 核心接口间接消费。
+ * 作为根包扫描的核心 Bean；由核心查询服务注入，小说画廊插件侧经稳定核心接口间接消费。
  */
 @Slf4j
 @Repository
@@ -71,20 +72,21 @@ public class NovelGalleryRepository {
                 rs.getLong("cnt")));
     }
 
-    /** 系列 ID 与对应可见小说数；{@code r == null} 语义同 {@link #findVisibleNovelAuthorCounts}。 */
-    public List<NovelSeriesSummary> findVisibleNovelSeriesCounts(GuestRestriction r) {
+    /**
+     * 正数系列 ID 与对应可见小说数；{@code r == null} 只跳过访客裁剪，仍排除软删除行。
+     */
+    public Map<Long, Long> countVisibleNovelsBySeries(GuestRestriction r) {
         StringBuilder sql = new StringBuilder(
                 "SELECT n.series_id AS series_id, COUNT(*) AS cnt FROM novels n"
                         + " WHERE n.series_id IS NOT NULL AND n.series_id > 0 AND n.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Series");
-        sql.append(" GROUP BY n.series_id");
-        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new NovelSeriesSummary(
-                rs.getLong("series_id"),
-                null,
-                null,
-                null,
-                rs.getLong("cnt")));
+        sql.append(" GROUP BY n.series_id ORDER BY n.series_id");
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        jdbc.query(sql.toString(), params, rs -> {
+            counts.put(rs.getLong("series_id"), rs.getLong("cnt"));
+        });
+        return Collections.unmodifiableMap(counts);
     }
 
     /** 标签 ID 与对应可见小说数；{@code r == null} 语义同 {@link #findVisibleNovelAuthorCounts}。 */

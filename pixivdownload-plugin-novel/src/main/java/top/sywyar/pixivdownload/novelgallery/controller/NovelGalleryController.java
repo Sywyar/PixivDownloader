@@ -8,17 +8,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchRequest;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
@@ -33,7 +30,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -54,7 +50,6 @@ public class NovelGalleryController {
     private final NovelBatchService novelBatchService;
     private final NovelSeriesService novelSeriesService;
     private final NovelDatabase novelDatabase;
-    private final NovelGalleryRepository novelGalleryRepository;
     private final WorkAssetService workAssetService;
     private final WorkVisibilityService workVisibilityService;
 
@@ -433,21 +428,7 @@ public class NovelGalleryController {
     private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
         WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL);
         if (restriction == null) return null;
-        Set<Long> ids = new HashSet<>();
-        for (NovelSeriesSummary summary : novelGalleryRepository
-                .findVisibleNovelSeriesCounts(toGuestRestriction(restriction))) {
-            ids.add(summary.seriesId());
-        }
-        return ids;
-    }
-
-    private static GuestRestriction toGuestRestriction(WorkRestriction restriction) {
-        return new GuestRestriction(
-                restriction.allowedXRestricts(),
-                restriction.tagUnrestricted(),
-                restriction.tagIds(),
-                restriction.authorUnrestricted(),
-                restriction.authorIds());
+        return novelGalleryService.visibleSeriesIds(restriction);
     }
 
     @PostMapping("/novels/downloaded-batch")
