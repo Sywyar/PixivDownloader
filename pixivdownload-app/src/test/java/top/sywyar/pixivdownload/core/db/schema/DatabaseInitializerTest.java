@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
-import top.sywyar.pixivdownload.plugin.api.event.DatabaseReadyEvent;
 
 import java.sql.Connection;
 import java.sql.ResultSet;

@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.IndexOrigin;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
-import top.sywyar.pixivdownload.plugin.api.event.DatabaseReadyEvent;
 
 import java.util.ArrayList;
 import java.util.Comparator;

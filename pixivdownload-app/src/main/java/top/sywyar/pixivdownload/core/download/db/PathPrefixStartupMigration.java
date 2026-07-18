@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixColumns;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.api.event.DatabaseReadyEvent;
+import top.sywyar.pixivdownload.core.db.schema.DatabaseReadyEvent;
 
 import javax.sql.DataSource;
 import java.io.IOException;
