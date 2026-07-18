@@ -165,7 +165,7 @@ public class ScheduleHostPluginConfiguration {
                                              UserDisplayNameProvider userDisplayNameProvider,
                                              DownloadSettings downloadSettings,
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-                                             @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor,
+                                             @Qualifier("scheduleWorkTaskExecutor") TaskExecutor novelDownloadTaskExecutor,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,

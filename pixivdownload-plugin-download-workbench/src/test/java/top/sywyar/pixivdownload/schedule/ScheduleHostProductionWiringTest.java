@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.schedule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -56,7 +57,14 @@ class ScheduleHostProductionWiringTest {
                 .filteredOn(method -> Arrays.asList(method.getParameterTypes())
                         .contains(ScheduleExecutionEngine.class))
                 .singleElement()
-                .satisfies(method -> assertThat(method.getAnnotation(Bean.class)).isNotNull());
+                .satisfies(method -> {
+                    assertThat(method.getAnnotation(Bean.class)).isNotNull();
+                    assertThat(Arrays.stream(method.getParameters())
+                            .filter(parameter -> parameter.getType() == TaskExecutor.class)
+                            .map(parameter -> parameter.getAnnotation(Qualifier.class))
+                            .map(Qualifier::value))
+                            .containsExactly("downloadTaskExecutor", "scheduleWorkTaskExecutor");
+                });
         assertThat(factories)
                 .filteredOn(method -> !Arrays.asList(method.getParameterTypes())
                         .contains(ScheduleExecutionEngine.class))
