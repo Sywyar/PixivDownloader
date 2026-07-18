@@ -5,9 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.download.request.BatchStateRequest;
 import top.sywyar.pixivdownload.download.response.BatchStateResponse;
+import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.io.IOException;
@@ -24,10 +24,10 @@ public class BatchStateController {
     private volatile String cachedState = "{}";
     private final ApplicationModeProvider applicationModeProvider;
 
-    public BatchStateController(RuntimePathProvider runtimePathProvider,
+    public BatchStateController(BatchStateFiles batchStateFiles,
                                 ApplicationModeProvider applicationModeProvider) {
         this.applicationModeProvider = applicationModeProvider;
-        this.stateFile = runtimePathProvider.resolveBatchStatePath();
+        this.stateFile = batchStateFiles.stateFile();
     }
 
     @PostConstruct

@@ -44,6 +44,7 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSearchSch
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSeriesScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
+import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
@@ -231,9 +232,15 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public BatchStateController batchStateController(RuntimePathProvider runtimePathProvider,
+    public BatchStateFiles batchStateFiles(RuntimePathProvider runtimePathProvider,
+                                           DownloadSettings downloadSettings) {
+        return new BatchStateFiles(runtimePathProvider, downloadSettings);
+    }
+
+    @Bean
+    public BatchStateController batchStateController(BatchStateFiles batchStateFiles,
                                                      ApplicationModeProvider applicationModeProvider) {
-        return new BatchStateController(runtimePathProvider, applicationModeProvider);
+        return new BatchStateController(batchStateFiles, applicationModeProvider);
     }
 
     @Bean
