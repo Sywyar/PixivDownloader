@@ -13,7 +13,6 @@ import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -44,21 +43,16 @@ public final class RuntimeFiles {
     public static final String CONFIG_YAML = "config.yaml";
     public static final String IMAGE_CLASSIFIER_PROPERTIES = "image_classifier.properties";
     public static final String SETUP_CONFIG_JSON = "setup_config.json";
-    public static final String BATCH_STATE_JSON = "batch_state.json";
     public static final String PIXIV_DOWNLOAD_DB = "pixiv_download.db";
     public static final String COLLECTION_ICONS_DIR = "collection_icons";
     public static final String GALLERY_THUMBNAILS_DIR = "gallery_thumbs";
     public static final String GUI_STATE_DIR = "gui";
-    public static final String TTS_DIR = "tts";
-    public static final String EDGE_TTS_CHROMIUM_VERSION = "chromium-version.txt";
     public static final String BACKFILL_DIR = "backfill";
     public static final String BACKFILL_UNREACHABLE_FILE = "unreachable.json";
     public static final String DELETE_STAGING_DIR = "delete-staging";
     public static final String DOWNLOAD_ROOT_MARKER = "download_root_marker.txt";
-    public static final String NARRATION_VOICE_DIR = "narration-voice";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
     private static final String LEGACY_GUI_STATE_DIR = "_gui";
-    private static final String LEGACY_TTS_DIR = "_tts";
     private static final List<String> SQLITE_COMPANION_SUFFIXES = List.of("-wal", "-shm");
 
     private RuntimeFiles() {
@@ -142,16 +136,6 @@ public final class RuntimeFiles {
         return resolveManagedDirectory(target, List.of(siblingOf(stateDir, LEGACY_GUI_STATE_DIR)));
     }
 
-    public static Path ttsDataDirectory() {
-        Path dataDir = dataDirectory();
-        Path target = dataDir.resolve(TTS_DIR);
-        return resolveManagedDirectory(target, List.of(siblingOf(dataDir, LEGACY_TTS_DIR)));
-    }
-
-    public static Path resolveEdgeTtsVersionPath() {
-        return ttsDataDirectory().resolve(EDGE_TTS_CHROMIUM_VERSION).normalize();
-    }
-
     public static Path backfillDirectory() {
         Path target = dataDirectory().resolve(BACKFILL_DIR);
         try {
@@ -200,48 +184,6 @@ public final class RuntimeFiles {
         return stateDirectory().resolve(DOWNLOAD_ROOT_MARKER).normalize();
     }
 
-    /**
-     * 多角色朗读「参考音 / 标准音」存放目录：{@code data/narration-voice/}。参考 wav / mp3 是二进制资产，
-     * 必须放在 {@code data/} 下（不进 {@code rootFolder}、不新增前导下划线目录），元数据留 DB。
-     */
-    public static Path narrationVoiceDirectory() {
-        Path target = dataDirectory().resolve(NARRATION_VOICE_DIR);
-        try {
-            Files.createDirectories(target);
-        } catch (IOException e) {
-            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
-        }
-        return target.normalize();
-    }
-
-    /** 某花名册的参考音子目录：{@code data/narration-voice/{castId}/}。 */
-    public static Path narrationVoiceCastDirectory(long castId) {
-        Path target = narrationVoiceDirectory().resolve(Long.toString(castId));
-        try {
-            Files.createDirectories(target);
-        } catch (IOException e) {
-            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
-        }
-        return target.normalize();
-    }
-
-    /** 某角色的参考音文件：{@code data/narration-voice/{castId}/{characterId}.{ext}}（不自动创建文件）。 */
-    public static Path narrationVoiceFile(long castId, int characterId, String ext) {
-        String normalizedExt = ext == null ? "wav" : ext.trim().toLowerCase(Locale.ROOT);
-        if (normalizedExt.isEmpty()) {
-            normalizedExt = "wav";
-        }
-        if (!normalizedExt.matches("[a-z0-9]{1,16}")) {
-            throw new IllegalArgumentException("narration voice extension must be an alphanumeric token");
-        }
-        Path directory = narrationVoiceCastDirectory(castId).normalize();
-        Path target = directory.resolve(characterId + "." + normalizedExt).normalize();
-        if (!target.toAbsolutePath().normalize().startsWith(directory.toAbsolutePath().normalize())) {
-            throw new IllegalArgumentException("narration voice file resolves outside the cast directory");
-        }
-        return target;
-    }
-
     public static Path singleInstanceDirectory() {
         String configured = System.getProperty(INSTANCE_DIR_PROPERTY);
         if (configured != null && !configured.isBlank()) {
@@ -270,11 +212,6 @@ public final class RuntimeFiles {
         return resolveManagedFile(target, rootAndDownloadLegacyCandidates(target.getParent(), rootFolder, SETUP_CONFIG_JSON));
     }
 
-    public static Path resolveBatchStatePath(String rootFolder) {
-        Path target = stateDirectory().resolve(BATCH_STATE_JSON);
-        return resolveManagedFile(target, rootAndDownloadLegacyCandidates(target.getParent(), rootFolder, BATCH_STATE_JSON));
-    }
-
     public static Path resolveDatabasePath(String rootFolder) {
         Path target = dataDirectory().resolve(PIXIV_DOWNLOAD_DB);
         return resolveManagedFile(target, rootAndDownloadLegacyCandidates(target.getParent(), rootFolder, PIXIV_DOWNLOAD_DB), SQLITE_COMPANION_SUFFIXES);
@@ -284,11 +221,9 @@ public final class RuntimeFiles {
         resolveConfigYamlPath();
         resolveImageClassifierPath(rootFolder);
         resolveSetupConfigPath(rootFolder);
-        resolveBatchStatePath(rootFolder);
         resolveDatabasePath(rootFolder);
         collectionIconsDirectory();
         guiStateDirectory();
-        ttsDataDirectory();
         recoverDeleteStagingLeftovers();
     }
 

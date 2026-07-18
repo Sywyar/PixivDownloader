@@ -67,31 +67,25 @@ class RuntimeFilesTest {
     }
 
     @Test
-    @DisplayName("should migrate legacy download files into state and data directories")
-    void shouldMigrateLegacyDownloadFiles() throws IOException {
+    @DisplayName("应迁移宿主旧状态与数据库文件")
+    void shouldMigrateLegacyHostFiles() throws IOException {
         Path legacySetup = downloadRoot.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
-        Path legacyBatch = downloadRoot.resolve(RuntimeFiles.BATCH_STATE_JSON);
         Path legacyDb = downloadRoot.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB);
         Path legacyDbWal = Path.of(legacyDb + "-wal");
         Path legacyDbShm = Path.of(legacyDb + "-shm");
         Files.writeString(legacySetup, "{\"mode\":\"solo\"}", StandardCharsets.UTF_8);
-        Files.writeString(legacyBatch, "{\"page\":1}", StandardCharsets.UTF_8);
         Files.writeString(legacyDb, "sqlite-placeholder", StandardCharsets.UTF_8);
         Files.writeString(legacyDbWal, "wal", StandardCharsets.UTF_8);
         Files.writeString(legacyDbShm, "shm", StandardCharsets.UTF_8);
 
         Path setup = RuntimeFiles.resolveSetupConfigPath(downloadRoot.toString());
-        Path batch = RuntimeFiles.resolveBatchStatePath(downloadRoot.toString());
         Path db = RuntimeFiles.resolveDatabasePath(downloadRoot.toString());
 
         assertThat(setup).isEqualTo(stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON));
-        assertThat(batch).isEqualTo(stateDir.resolve(RuntimeFiles.BATCH_STATE_JSON));
         assertThat(db).isEqualTo(dataDir.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB));
         assertThat(setup).exists();
-        assertThat(batch).exists();
         assertThat(db).exists();
         assertThat(legacySetup).doesNotExist();
-        assertThat(legacyBatch).doesNotExist();
         assertThat(legacyDb).doesNotExist();
         assertThat(Path.of(db + "-wal")).exists();
         assertThat(Path.of(db + "-shm")).exists();
@@ -137,35 +131,46 @@ class RuntimeFilesTest {
         Path legacyCollectionIcons = tempDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR);
         Path legacyUnderscoreCollectionIcons = tempDir.resolve("_collection_icons");
         Path legacyGui = tempDir.resolve("_gui");
-        Path legacyTts = tempDir.resolve("_tts");
         Files.createDirectories(legacyCollectionIcons);
         Files.createDirectories(legacyUnderscoreCollectionIcons);
         Files.createDirectories(legacyGui);
-        Files.createDirectories(legacyTts);
         Files.writeString(legacyCollectionIcons.resolve("1.png"), "root-icon", StandardCharsets.UTF_8);
         Files.writeString(legacyUnderscoreCollectionIcons.resolve("2.webp"), "old-icon", StandardCharsets.UTF_8);
         Files.writeString(legacyGui.resolve("onboarding-seen"), "1", StandardCharsets.UTF_8);
-        Files.writeString(
-                legacyTts.resolve(RuntimeFiles.EDGE_TTS_CHROMIUM_VERSION),
-                "148.0.3967.70",
-                StandardCharsets.UTF_8);
 
         Path collectionIcons = RuntimeFiles.collectionIconsDirectory();
         Path guiState = RuntimeFiles.guiStateDirectory();
-        Path ttsVersion = RuntimeFiles.resolveEdgeTtsVersionPath();
 
         assertThat(collectionIcons).isEqualTo(dataDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR));
         assertThat(guiState).isEqualTo(stateDir.resolve(RuntimeFiles.GUI_STATE_DIR));
-        assertThat(ttsVersion)
-                .isEqualTo(dataDir.resolve(RuntimeFiles.TTS_DIR).resolve(RuntimeFiles.EDGE_TTS_CHROMIUM_VERSION));
         assertThat(collectionIcons.resolve("1.png")).exists();
         assertThat(collectionIcons.resolve("2.webp")).exists();
         assertThat(guiState.resolve("onboarding-seen")).exists();
-        assertThat(ttsVersion).exists();
         assertThat(legacyCollectionIcons).doesNotExist();
         assertThat(legacyUnderscoreCollectionIcons).doesNotExist();
         assertThat(legacyGui).doesNotExist();
-        assertThat(legacyTts).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("宿主启动准备不得迁移插件自有旧文件")
+    void shouldNotMigratePluginOwnedLegacyFilesDuringHostPreparation() throws IOException {
+        Path legacyBatch = downloadRoot.resolve("batch_state.json");
+        Path legacyTts = tempDir.resolve("_tts").resolve("chromium-version.txt");
+        Path legacyNarration = dataDir.resolve("narration-voice").resolve("7").resolve("1.wav");
+        Files.writeString(legacyBatch, "{\"page\":1}", StandardCharsets.UTF_8);
+        Files.createDirectories(legacyTts.getParent());
+        Files.writeString(legacyTts, "148.0.3967.70", StandardCharsets.UTF_8);
+        Files.createDirectories(legacyNarration.getParent());
+        Files.write(legacyNarration, new byte[]{1, 2, 3});
+
+        RuntimeFiles.prepareRuntimeFiles(downloadRoot.toString());
+
+        assertThat(legacyBatch).exists();
+        assertThat(legacyTts).exists();
+        assertThat(legacyNarration).exists();
+        assertThat(stateDir.resolve("batch_state.json")).doesNotExist();
+        assertThat(dataDir.resolve("tts")).doesNotExist();
+        assertThat(dataDir.resolve("novel")).doesNotExist();
     }
 
     @Test
@@ -253,23 +258,6 @@ class RuntimeFilesTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> RuntimeFiles.resolvePluginDataDirectory("nested/path"));
         assertThat(tempDir.resolve("escape")).doesNotExist();
-    }
-
-    @Test
-    @DisplayName("参考音文件应留在花名册目录并拒绝不安全扩展名")
-    void shouldResolveNarrationVoiceFileSafely() {
-        Path castDirectory = RuntimeFiles.narrationVoiceCastDirectory(7L).normalize();
-
-        assertThat(RuntimeFiles.narrationVoiceFile(7L, 3, " WAV "))
-                .isEqualTo(castDirectory.resolve("3.wav"));
-        assertThat(RuntimeFiles.narrationVoiceFile(7L, 3, null))
-                .isEqualTo(castDirectory.resolve("3.wav"));
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> RuntimeFiles.narrationVoiceFile(7L, 3, "../../../escape"));
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> RuntimeFiles.narrationVoiceFile(7L, 3, "mp3.tmp"));
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> RuntimeFiles.narrationVoiceFile(7L, 3, "wav/child"));
     }
 
     @Test

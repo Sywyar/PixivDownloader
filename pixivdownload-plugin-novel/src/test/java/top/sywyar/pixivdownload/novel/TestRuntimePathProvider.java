@@ -32,26 +32,6 @@ public final class TestRuntimePathProvider implements RuntimePathProvider {
         return directory(root.resolve("state").resolve(pluginId));
     }
 
-    @Override
-    public Path resolveBatchStatePath() {
-        return directory(root.resolve("state")).resolve("batch_state.json");
-    }
-
-    @Override
-    public Path narrationVoiceDirectory(long castId) {
-        return directory(narrationVoicePath(castId));
-    }
-
-    @Override
-    public Path narrationVoiceFile(long castId, int characterId, String extension) {
-        return narrationVoiceDirectory(castId).resolve(characterId + "." + extension);
-    }
-
-    @Override
-    public Path resolveEdgeTtsVersionPath() {
-        return directory(root.resolve("data").resolve("tts")).resolve("chromium-version.txt");
-    }
-
     /** 返回花名册参考音目录但不创建，便于断言删除结果。 */
     public Path narrationVoicePath(long castId) {
         return root.resolve("data").resolve("novel").resolve("narration-voice").resolve(Long.toString(castId));
