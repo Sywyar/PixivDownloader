@@ -8,7 +8,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.nio.charset.StandardCharsets;
@@ -42,17 +41,17 @@ public class EdgeTtsVersionService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final MessageResolver messages;
-    private final RuntimePathProvider runtimePathProvider;
+    private final TtsRuntimeFiles runtimeFiles;
 
     private volatile String fullVersion = DEFAULT_FULL_VERSION;
 
     public EdgeTtsVersionService(RestTemplate restTemplate, ObjectMapper objectMapper,
                                  MessageResolver messages,
-                                 RuntimePathProvider runtimePathProvider) {
+                                 TtsRuntimeFiles runtimeFiles) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.messages = messages;
-        this.runtimePathProvider = runtimePathProvider;
+        this.runtimeFiles = runtimeFiles;
         loadFromDisk();
     }
 
@@ -137,7 +136,7 @@ public class EdgeTtsVersionService {
     }
 
     private Path versionFile() {
-        return runtimePathProvider.resolveEdgeTtsVersionPath();
+        return runtimeFiles.chromiumVersionFile();
     }
 
     private static boolean isValidVersion(String v) {

@@ -57,11 +57,17 @@ public class TtsPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
+    public TtsRuntimeFiles ttsRuntimeFiles(RuntimePathProvider runtimePathProvider) {
+        return new TtsRuntimeFiles(runtimePathProvider);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(TtsPlugin.ID)
     public EdgeTtsVersionService edgeTtsVersionService(@Qualifier("restTemplate") RestTemplate restTemplate,
                                                        ObjectMapper objectMapper,
                                                        @Qualifier("ttsPluginMessages") MessageResolver messages,
-                                                       RuntimePathProvider runtimePathProvider) {
-        return new EdgeTtsVersionService(restTemplate, objectMapper, messages, runtimePathProvider);
+                                                       TtsRuntimeFiles runtimeFiles) {
+        return new EdgeTtsVersionService(restTemplate, objectMapper, messages, runtimeFiles);
     }
 
     @Bean
