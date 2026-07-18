@@ -23,8 +23,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
-
 @DisplayName("小说正文全文检索（FTS5 trigram）")
 class NovelFtsSearchTest {
 
@@ -105,6 +103,21 @@ class NovelFtsSearchTest {
         List<Long> hits = mapper.findNovelIdsByContentLike("%猫%");
 
         assertThat(hits).containsExactly(20L);
+    }
+
+    @Test
+    @DisplayName("插件数据库正文搜索把 LIKE 通配符按字面量处理")
+    void shouldEscapeLikeWildcardsInPluginOwnedSearch() {
+        insertNovel(30L, "100% literal");
+        insertNovel(31L, "100 percent");
+        insertNovel(32L, "A_B literal");
+        insertNovel(33L, "ACB literal");
+        NovelDatabase database = new NovelDatabase(
+                mapper, mock(PixivDatabase.class), mock(StoredPathCodec.class),
+                mock(DatabaseInitializer.class));
+
+        assertThat(database.searchNovelContentIds("%")).containsExactly(30L);
+        assertThat(database.searchNovelContentIds("_")).containsExactly(32L);
     }
 
     @Test

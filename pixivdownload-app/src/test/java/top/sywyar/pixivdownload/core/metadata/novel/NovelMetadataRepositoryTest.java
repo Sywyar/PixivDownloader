@@ -8,8 +8,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -18,6 +26,26 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("宿主小说元数据窄投影")
 class NovelMetadataRepositoryTest {
+
+    private static final Set<String> EXPECTED_HOST_NOVEL_SOURCE_FILES = Set.of(
+            "NovelAuthorSummary.java",
+            "NovelGalleryRepository.java",
+            "NovelMetadataRepository.java",
+            "NovelMetadataRow.java",
+            "NovelSeriesMetadataRow.java",
+            "NovelSeriesSummary.java",
+            "NovelTagOption.java",
+            "NovelWorkSearch.java");
+
+    private static final List<Class<?>> HOST_NOVEL_TYPES = List.of(
+            NovelAuthorSummary.class,
+            NovelGalleryRepository.class,
+            NovelMetadataRepository.class,
+            NovelMetadataRow.class,
+            NovelSeriesMetadataRow.class,
+            NovelSeriesSummary.class,
+            NovelTagOption.class,
+            NovelWorkSearch.class);
 
     private SingleConnectionDataSource dataSource;
     private JdbcTemplate jdbc;
@@ -134,20 +162,23 @@ class NovelMetadataRepositoryTest {
     }
 
     @Test
-    @DisplayName("短关键词 LIKE 回退按字面量匹配通配符")
-    void shouldEscapeLikeWildcardsForShortTerms() {
-        jdbc.execute("ALTER TABLE novels ADD COLUMN raw_content TEXT");
-        insertNovel(30L, "/novel/30", 30L, 0L, false);
-        insertNovel(31L, "/novel/31", 31L, 0L, false);
-        insertNovel(32L, "/novel/32", 32L, 0L, false);
-        insertNovel(33L, "/novel/33", 33L, 0L, false);
-        jdbc.update("UPDATE novels SET raw_content = ? WHERE novel_id = ?", "100% literal", 30L);
-        jdbc.update("UPDATE novels SET raw_content = ? WHERE novel_id = ?", "100 percent", 31L);
-        jdbc.update("UPDATE novels SET raw_content = ? WHERE novel_id = ?", "A_B literal", 32L);
-        jdbc.update("UPDATE novels SET raw_content = ? WHERE novel_id = ?", "ACB literal", 33L);
+    @DisplayName("宿主小说包只保留显式窄投影且不得持有正文或全文索引 SQL")
+    void shouldKeepPluginOwnedPersistenceAndFtsOutOfHostPackage() throws IOException {
+        try (Stream<Path> sources = Files.list(hostNovelSourceRoot())) {
+            assertThat(sources
+                    .filter(path -> path.getFileName().toString().endsWith(".java"))
+                    .map(path -> path.getFileName().toString())
+                    .collect(java.util.stream.Collectors.toSet()))
+                    .as("新增宿主小说类型必须先证明是跨作品核心窄投影；完整持久化行留在小说插件")
+                    .containsExactlyInAnyOrderElementsOf(EXPECTED_HOST_NOVEL_SOURCE_FILES);
+        }
 
-        assertThat(repository.searchNovelContentIds("%")).containsExactly(30L);
-        assertThat(repository.searchNovelContentIds("_")).containsExactly(32L);
+        for (Class<?> type : HOST_NOVEL_TYPES) {
+            String bytecode = new String(classBytes(type), StandardCharsets.ISO_8859_1);
+            assertThat(bytecode)
+                    .as(type.getName() + " 不得读取正文列或维护小说 FTS")
+                    .doesNotContain("raw_content", "novels_fts");
+        }
     }
 
     private void insertNovel(long novelId, String folder, long time, long seriesOrder, boolean deleted) {
@@ -174,5 +205,27 @@ class NovelMetadataRepositoryTest {
         Field field = NovelMetadataRepository.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         return (String) field.get(null);
+    }
+
+    private static Path hostNovelSourceRoot() {
+        Path relative = Path.of("top", "sywyar", "pixivdownload", "core", "metadata", "novel");
+        for (Path candidate : List.of(
+                Path.of("src", "main", "java").resolve(relative),
+                Path.of("pixivdownload-app", "src", "main", "java").resolve(relative))) {
+            if (Files.isDirectory(candidate)) {
+                return candidate.toAbsolutePath().normalize();
+            }
+        }
+        throw new IllegalStateException("cannot locate app host novel source package");
+    }
+
+    private static byte[] classBytes(Class<?> type) throws IOException {
+        String resourceName = "/" + type.getName().replace('.', '/') + ".class";
+        try (InputStream input = type.getResourceAsStream(resourceName)) {
+            if (input == null) {
+                throw new IllegalStateException("cannot locate class bytes: " + type.getName());
+            }
+            return input.readAllBytes();
+        }
     }
 }

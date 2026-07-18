@@ -21,7 +21,9 @@ import java.util.LinkedHashSet;
  * {@link WorkDeletionService} 的核心实现：统一删除编排收敛在这里——判存
  * （{@link WorkQueryService#hasActiveWork}）→ 删磁盘文件（{@link WorkAssetService#deleteLocalFiles}）→
  * 文件全删成功后软删 DB 主行（插画代理 {@link PixivDatabase#markArtworkDeleted}、小说代理
- * {@link NovelMetadataRepository#markNovelDeleted}）。磁盘文件未能全部删除时抛 409、数据库不触碰，
+ * {@link NovelMetadataRepository#markNovelDeleted}；小说普通关系由插件数据库触发器清理，可再生 FTS
+ * 由查询过滤软删除行并在小说插件启动时 best-effort 回收）。
+ * 磁盘文件未能全部删除时抛 409、数据库不触碰，
  * 故 {@code delete()} 对调用方是「要么文件全删 + DB 软删、要么 DB 完全未变」。被注入的查询 / 资产服务
  * 实现均不反向依赖本服务，无 Bean 环。
  */

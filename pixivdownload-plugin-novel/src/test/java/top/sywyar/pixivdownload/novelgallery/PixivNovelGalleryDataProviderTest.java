@@ -46,13 +46,16 @@ class PixivNovelGalleryDataProviderTest {
     @Mock
     private WorkQueryService workQueryService;
     @Mock
+    private NovelOwnedWorkSearch novelOwnedWorkSearch;
+    @Mock
     private WorkMetadataRepository workMetadataRepository;
 
     private PixivNovelGalleryDataProvider provider;
 
     @BeforeEach
     void setUp() {
-        provider = new PixivNovelGalleryDataProvider(workQueryService, workMetadataRepository);
+        provider = new PixivNovelGalleryDataProvider(
+                workQueryService, novelOwnedWorkSearch, workMetadataRepository);
     }
 
     @Test
@@ -82,7 +85,7 @@ class PixivNovelGalleryDataProviderTest {
     @Test
     @DisplayName("NOVEL 查询返回真实小说映射后的 GalleryItem")
     void queryMapsNovelMetadataToGalleryItem() {
-        when(workQueryService.search(any())).thenReturn(new PagedResult<>(
+        when(novelOwnedWorkSearch.search(any())).thenReturn(new PagedResult<>(
                 summaries(123L), 1, 0, 2, 1));
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(123L)))
                 .thenReturn(List.of(meta(123L, 88L, "作者88", 700L, 1, false,
@@ -116,7 +119,7 @@ class PixivNovelGalleryDataProviderTest {
         });
 
         ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
-        verify(workQueryService).search(captor.capture());
+        verify(novelOwnedWorkSearch).search(captor.capture());
         assertThat(captor.getValue().workType()).isEqualTo(WorkType.NOVEL);
         assertThat(captor.getValue().page()).isZero();
         assertThat(captor.getValue().size()).isEqualTo(2);
@@ -133,7 +136,7 @@ class PixivNovelGalleryDataProviderTest {
 
         assertThat(foreignSource.items()).isEmpty();
         assertThat(foreignKind.items()).isEmpty();
-        verifyNoInteractions(workQueryService, workMetadataRepository);
+        verifyNoInteractions(workQueryService, novelOwnedWorkSearch, workMetadataRepository);
     }
 
     @Test
@@ -157,7 +160,7 @@ class PixivNovelGalleryDataProviderTest {
     @Test
     @DisplayName("AI 非真筛选不把 unknown 当作 false")
     void aiFalseFilterDoesNotIncludeUnknown() {
-        when(workQueryService.search(any()))
+        when(novelOwnedWorkSearch.search(any()))
                 .thenReturn(new PagedResult<>(summaries(1L, 2L, 3L), 3, 0, 50, 1));
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(1L, 2L, 3L)))
                 .thenReturn(List.of(
@@ -171,8 +174,8 @@ class PixivNovelGalleryDataProviderTest {
         assertThat(page.total()).isEqualTo(1);
         assertThat(page.items()).extracting(item -> item.ref().workId()).containsExactly("2");
         ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
-        verify(workQueryService).search(captor.capture());
-        verify(workQueryService, never()).searchAll(any());
+        verify(novelOwnedWorkSearch).search(captor.capture());
+        verify(novelOwnedWorkSearch, never()).searchAll(any());
         assertThat(captor.getValue().size()).isEqualTo(50);
         assertThat(captor.getValue().r18()).isEqualTo("any");
         assertThat(captor.getValue().ai()).isEqualTo("any");

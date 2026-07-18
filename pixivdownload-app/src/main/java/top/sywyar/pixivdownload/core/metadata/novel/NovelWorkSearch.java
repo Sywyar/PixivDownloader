@@ -20,9 +20,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 小说列表查询的内存过滤实现：自小说画廊服务下沉，过滤 / 排序 / 搜索语义与原实现逐条一致
- * （内存实现，规模按本地下载量计算可接受；后续可下沉到 SQL）。非 Spring Bean，
- * 由 {@link CoreWorkQueryService} 自行组装。
+ * 宿主小说窄投影的内存过滤实现：只处理标题、作者、描述、标签、分级、AI、系列等跨作品
+ * 元数据，不读取正文或 FTS；{@code searchType=content} 必须 fail-closed，由小说插件自己的
+ * 查询适配层处理。非 Spring Bean，由 {@link CoreWorkQueryService} 自行组装。
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -69,10 +69,6 @@ public class NovelWorkSearch {
         String searchRaw = q.search() == null ? "" : q.search().trim();
         String search = searchRaw.toLowerCase(Locale.ROOT);
         Long searchId = parseLongOrNull(searchRaw);
-        // 正文全文检索一次性命中 id 集合（FTS5），避免逐行扫描 raw_content
-        Set<Long> contentMatchIds = ("content".equals(searchType) && !searchRaw.isEmpty())
-                ? novelMetadataRepository.searchNovelContentIds(searchRaw)
-                : null;
         boolean searchUsesAuthorNames = !searchRaw.isEmpty() && usesAuthorNameSearch(searchType);
         Set<Long> searchAuthorIds = searchUsesAuthorNames ? new LinkedHashSet<>() : Set.of();
         List<Long> allIds = novelMetadataRepository.getAllNovelIdsSortedByTimeDesc();
@@ -101,12 +97,9 @@ public class NovelWorkSearch {
         for (NovelMetadataRow r : candidateRecords) {
             if (!matchAgeFilter(r.xRestrict(), q.r18())) continue;
             if (!matchAiFilter(r.isAi(), q.ai())) continue;
-            if (!searchRaw.isEmpty()) {
-                if ("content".equals(searchType)) {
-                    if (contentMatchIds == null || !contentMatchIds.contains(r.novelId())) continue;
-                } else if (!matchNovelSearch(r, searchType, search, searchId, authorNameCache)) {
-                    continue;
-                }
+            if (!searchRaw.isEmpty()
+                    && !matchNovelSearch(r, searchType, search, searchId, authorNameCache)) {
+                continue;
             }
             if (!matchAuthorFilter(r.authorId(), mustAuthors, notAuthors, orAuthors)) continue;
             if (!matchSeriesFilter(r.seriesId(), mustSeries, notSeries)) continue;
@@ -163,6 +156,8 @@ public class NovelWorkSearch {
     private boolean matchNovelSearch(NovelMetadataRow r, String searchType, String searchLower,
                                      Long searchId, Map<Long, String> authorNameCache) {
         return switch (searchType) {
+            // 正文与 FTS 归小说插件；宿主不得把 owner-private 查询误降级成标题 / 作者搜索。
+            case "content" -> false;
             case "title" -> r.title() != null && r.title().toLowerCase(Locale.ROOT).contains(searchLower);
             case "author" -> resolveAuthorNameLower(r.authorId(), authorNameCache).contains(searchLower);
             case "desc" -> r.description() != null

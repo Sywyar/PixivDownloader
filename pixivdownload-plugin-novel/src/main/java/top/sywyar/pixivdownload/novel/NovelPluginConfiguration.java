@@ -62,6 +62,7 @@ import top.sywyar.pixivdownload.novel.translation.NovelGlossaryService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
+import top.sywyar.pixivdownload.novelgallery.NovelOwnedWorkSearch;
 import top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryDataProvider;
 import top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryCapabilityProvider;
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
@@ -357,17 +358,28 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
+    public NovelOwnedWorkSearch novelOwnedWorkSearch(WorkQueryService workQueryService,
+                                                     NovelDatabase novelDatabase) {
+        return new NovelOwnedWorkSearch(workQueryService, novelDatabase);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelGalleryService novelGalleryService(WorkQueryService workQueryService,
+                                                   NovelOwnedWorkSearch novelOwnedWorkSearch,
                                                    WorkMetadataRepository workMetadataRepository,
                                                    WorkDeletionService workDeletionService) {
-        return new NovelGalleryService(workQueryService, workMetadataRepository, workDeletionService);
+        return new NovelGalleryService(
+                workQueryService, novelOwnedWorkSearch, workMetadataRepository, workDeletionService);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public PixivNovelGalleryDataProvider pixivNovelGalleryDataProvider(WorkQueryService workQueryService,
+                                                                       NovelOwnedWorkSearch novelOwnedWorkSearch,
                                                                        WorkMetadataRepository workMetadataRepository) {
-        return new PixivNovelGalleryDataProvider(workQueryService, workMetadataRepository);
+        return new PixivNovelGalleryDataProvider(
+                workQueryService, novelOwnedWorkSearch, workMetadataRepository);
     }
 
     @Bean

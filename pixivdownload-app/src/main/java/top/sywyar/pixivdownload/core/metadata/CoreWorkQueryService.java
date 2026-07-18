@@ -45,8 +45,9 @@ import java.util.Set;
  * 标签 / 作者 / 系列目录 / 关联查询）、{@link PixivDatabase}（三态判重）与
  * {@link MangaSeriesService}（系列池补全）；小说侧代理 {@link NovelGalleryRepository}
  * （目录计数 / 关联查询）、{@link NovelMetadataRepository}（三态判重 / 行 / 系列池）与
- * {@link NovelWorkSearch}（列表内存过滤，自小说画廊服务下沉），查询语义与直接调用
- * 被代理类逐条一致。
+ * {@link NovelWorkSearch}（只基于宿主窄投影做元数据过滤）。小说正文与 FTS 归小说插件，
+ * 宿主对 {@code searchType=content} fail-closed；小说插件在 owner-private 适配层组合正文命中
+ * 与本服务的通用元数据结果。
  *
  * <p>插画侧与小说侧 SQL 仓库均已收编进核心数据层，不再反向 import gallery / novel.db。
  */

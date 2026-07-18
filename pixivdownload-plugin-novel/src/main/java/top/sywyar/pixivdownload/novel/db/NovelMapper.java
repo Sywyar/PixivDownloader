@@ -472,9 +472,6 @@ public interface NovelMapper {
     @Update("UPDATE novels SET upload_time = #{uploadTime} WHERE novel_id = #{novelId}")
     void updateUploadTime(@Param("novelId") long novelId, @Param("uploadTime") Long uploadTime);
 
-    @Delete("DELETE FROM novels WHERE novel_id = #{novelId}")
-    void deleteById(@Param("novelId") long novelId);
-
     @Update("UPDATE novels SET extensions = #{extensions} WHERE novel_id = #{novelId}")
     void updateExtensions(@Param("novelId") long novelId, @Param("extensions") String extensions);
 

@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.core.metadata.novel;
 
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -16,26 +15,22 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * 核心侧的小说数据访问仓库：把 {@code novels} 系核心表的行 / 标签 / 内嵌图 / 译文语言 /
- * 系列 / 收藏夹链接的读取、全文检索读、软删除标记从 {@code novel.db.NovelDatabase} 沿
+ * 核心侧的小说数据访问仓库：把 {@code novels} 系核心表的窄行投影、标签 / 内嵌图 / 译文语言 /
+ * 系列 / 收藏夹链接的读取与软删除主行标记从 {@code novel.db.NovelDatabase} 沿
  * 「查询 vs 持久化」边界拆出，使核心查询 / 资产 / 收藏 / 计划 / 访客可见性链路无需反向
  * import 小说插件包。宿主行投影不读取正文 {@code raw_content}；完整持久化行与正文读取由
  * 小说插件自己的 {@code NovelMapper} 负责。
  *
  * <p>卸载投影：{@code novels} 系表为核心所有（小说插件未安装时仍存在），故该读取面随核心
  * 永驻、作为根包扫描的核心 Bean；下载 / 正文 / 翻译 / TTS 的完整行读取、写入与 FTS
- * 索引<b>维护</b>仍留小说插件。
- * 软删除级联里的 {@code novels_fts} 行清理随软删一并执行（与旧 {@code markNovelDeleted} 一致，
- * 失败仅记日志）。
+ * 索引维护均留小说插件。宿主软删除只更新主行；小说插件拥有的数据库触发器原子清理普通关系，
+ * FTS 查询过滤软删除行并由小说插件启动时 best-effort 回收陈旧索引。
  */
-@Slf4j
 @Repository
 public class NovelMetadataRepository {
 
@@ -287,59 +282,18 @@ public class NovelMetadataRepository {
                 (rs, rowNum) -> rs.getLong("novel_id"));
     }
 
-    // ── Full-text search (read) ──────────────────────────────────────────────────────
-
-    /**
-     * 正文全文检索，返回命中的 novel_id 集合。trigram 索引要求查询串至少 3 个字符，
-     * 更短的关键词回退到 {@code raw_content} 的 LIKE 子串扫描。逻辑与原 {@code NovelDatabase} 一致。
-     */
-    public Set<Long> searchNovelContentIds(String term) {
-        if (term == null) return Collections.emptySet();
-        String trimmed = term.trim();
-        if (trimmed.isEmpty()) return Collections.emptySet();
-        try {
-            List<Long> ids;
-            if (trimmed.codePointCount(0, trimmed.length()) < 3) {
-                ids = jdbc.query(
-                        "SELECT novel_id FROM novels WHERE deleted = 0 AND raw_content LIKE :like ESCAPE '\\'",
-                        new MapSqlParameterSource("like", "%" + escapeLikePattern(trimmed) + "%"),
-                        (rs, rowNum) -> rs.getLong("novel_id"));
-            } else {
-                String phrase = "\"" + trimmed.replace("\"", "\"\"") + "\"";
-                ids = jdbc.query(
-                        "SELECT rowid FROM novels_fts WHERE novels_fts MATCH :query",
-                        new MapSqlParameterSource("query", phrase),
-                        (rs, rowNum) -> rs.getLong("rowid"));
-            }
-            return new HashSet<>(ids);
-        } catch (Exception e) {
-            // 全文检索是辅助能力，查询异常时退化为"无匹配"，不让画廊列表请求 500
-            log.warn("Novel full-text search failed for term '{}': {}", trimmed, e.getMessage());
-            return Collections.emptySet();
-        }
-    }
-
     // ── Soft delete ──────────────────────────────────────────────────────────────────
 
     /**
-     * 软删除：派生 / 关联数据（标签关联、收藏夹关联、内嵌插图、译文、朗读脚本、全文索引行）清理，
-     * 主行保留并置 {@code deleted = 1}，使下载判重能识别「已下载过，但被删除」。语义与原
-     * {@code NovelDatabase.markNovelDeleted} 逐字一致。
+     * 软删除主行：主行保留并置 {@code deleted = 1}，使下载判重能识别「已下载过，但被删除」。
+     * 小说插件拥有的软删除触发器在同一 SQLite 语句内清理标签 / 收藏 / 内嵌图 / 译文 / 朗读脚本；
+     * FTS 作为可再生辅助数据过滤软删除行并由小说插件启动时 best-effort 回收。宿主不得读取或维护
+     * 这些私有正文及派生状态。
      */
     @Transactional
     public void markNovelDeleted(long novelId) {
-        MapSqlParameterSource params = new MapSqlParameterSource("novelId", novelId);
-        jdbc.update("DELETE FROM novel_tags WHERE novel_id = :novelId", params);
-        jdbc.update("DELETE FROM novel_collections WHERE novel_id = :novelId", params);
-        jdbc.update("DELETE FROM novel_images WHERE novel_id = :novelId", params);
-        jdbc.update("DELETE FROM novel_translations WHERE novel_id = :novelId", params);
-        jdbc.update("DELETE FROM novel_narration_scripts WHERE novel_id = :novelId", params);
-        jdbc.update("UPDATE novels SET deleted = 1 WHERE novel_id = :novelId", params);
-        try {
-            jdbc.update("DELETE FROM novels_fts WHERE rowid = :novelId", params);
-        } catch (Exception e) {
-            log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
-        }
+        jdbc.update("UPDATE novels SET deleted = 1 WHERE novel_id = :novelId",
+                new MapSqlParameterSource("novelId", novelId));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────
@@ -372,18 +326,6 @@ public class NovelMetadataRepository {
             out.computeIfAbsent(novelId, k -> new ArrayList<>()).add(rs.getString(valueColumn));
         }
         return out;
-    }
-
-    private static String escapeLikePattern(String value) {
-        StringBuilder out = new StringBuilder(value.length());
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            if (ch == '\\' || ch == '%' || ch == '_') {
-                out.append('\\');
-            }
-            out.append(ch);
-        }
-        return out.toString();
     }
 
     private static Integer getInteger(ResultSet rs, String col) throws SQLException {

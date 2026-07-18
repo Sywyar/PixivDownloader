@@ -100,7 +100,6 @@ class CoreWorkQueryServiceTest {
         pixivDatabase = new PixivDatabase(
                 sqlSession.getMapper(PixivMapper.class), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
-        jdbc.execute("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')");
         novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
 
         authorService = mock(AuthorService.class);
@@ -125,19 +124,17 @@ class CoreWorkQueryServiceTest {
     }
 
     private void insertNovel(long id, long time, Long authorId, Long seriesId) {
-        String raw = "正文" + id;
         jdbc.update("""
                         INSERT INTO novels(novel_id, title, folder, count, extensions, time, R18, is_ai,
                                            author_id, description, file_name, file_author_name_id,
                                            series_id, series_order, word_count, text_length,
                                            reading_time_seconds, page_count, is_original, x_language,
-                                           raw_content, cover_ext, deleted)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                                           cover_ext, deleted)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                         """,
                 id, "小说" + id, "/n/" + id, 1, "", time, 0, null,
                 authorId, null, 1L, null, seriesId, null, null, null,
-                null, null, null, null, raw, null);
-        jdbc.update("INSERT INTO novels_fts(rowid, content) VALUES (?, ?)", id, raw);
+                null, null, null, null, null);
     }
 
     private void saveNovelTags(long novelId, List<TagDto> tags) {
@@ -548,8 +545,8 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
-        @DisplayName("小说 searchAll 返回命中条件的全部 id 不分页；正文检索经 FTS 命中")
-        void shouldReturnAllNovelIdsAndSearchContent() {
+        @DisplayName("小说 searchAll 返回命中条件的全部 id 不分页")
+        void shouldReturnAllNovelIds() {
             insertNovel(11L, 100L, 88L, null);
             insertNovel(12L, 200L, 88L, null);
             insertNovel(13L, 300L, 99L, null);
@@ -557,10 +554,18 @@ class CoreWorkQueryServiceTest {
             assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
                     .size(1).authorIds(List.of(88L)).build())))
                     .containsExactly(12L, 11L);
+        }
+
+        @Test
+        @DisplayName("宿主查询对小说插件私有正文搜索 fail-closed")
+        void shouldNotInterpretPluginOwnedContentSearchAsMetadataSearch() {
+            insertNovel(11L, 100L, null, null);
 
             assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
-                    .searchType("content").search("正文12").build())))
-                    .containsExactly(12L);
+                    .searchType("content")
+                    .search("小说11")
+                    .build())))
+                    .isEmpty();
         }
 
         @Test

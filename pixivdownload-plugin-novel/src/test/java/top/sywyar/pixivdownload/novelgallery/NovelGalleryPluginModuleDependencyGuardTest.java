@@ -4,13 +4,18 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import org.apache.ibatis.annotations.Delete;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.novel.NovelPf4jPlugin;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
 
+import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Set;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -48,20 +53,39 @@ class NovelGalleryPluginModuleDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("novel-gallery 查询与批量服务只能走中性作品接口")
-    void novelGalleryServicesDependOnlyOnNeutralCoreServices() {
+    @DisplayName("novel-gallery 通用查询走中性接口且仅正文适配层可读插件数据库")
+    void novelGalleryServicesKeepPrivateContentAccessInOwnedAdapter() {
         noClasses()
                 .that(JavaClass.Predicates.belongToAnyOf(
                         NovelGalleryService.class,
-                        NovelBatchService.class))
+                        NovelBatchService.class,
+                        PixivNovelGalleryDataProvider.class))
                 .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
                         top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
                         top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,
                         top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
                         top.sywyar.pixivdownload.author.AuthorService.class))
-                .because("novel-gallery 的列表 / 批量服务已接口化：查询走 WorkQueryService/WorkMetadataRepository，"
+                .because("novel-gallery 的通用元数据查询走 WorkQueryService/WorkMetadataRepository，"
                         + "删除走 WorkDeletionService，普通文件枚举走 WorkAssetService")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("小说删除只能走宿主统一作品删除入口")
+    void novelPersistenceDoesNotExposeDeletionBypass() {
+        assertThat(Arrays.stream(NovelDatabase.class.getDeclaredMethods())
+                .map(Method::getName))
+                .doesNotContain("deleteNovel", "markNovelDeleted");
+
+        for (Method method : NovelMapper.class.getDeclaredMethods()) {
+            Delete delete = method.getAnnotation(Delete.class);
+            if (delete == null) {
+                continue;
+            }
+            assertThat(delete.value())
+                    .as(method.getName() + " 不得直接删除 novels 主行")
+                    .noneMatch(sql -> sql.matches("(?is).*\\bDELETE\\s+FROM\\s+novels\\b.*"));
+        }
     }
 
     @Test
@@ -122,6 +146,7 @@ class NovelGalleryPluginModuleDependencyGuardTest {
         assertThat(CLASSES.contain(NovelPluginConfiguration.class.getName())).isTrue();
         assertThat(CLASSES.contain(NovelGalleryController.class.getName())).isTrue();
         assertThat(CLASSES.contain(NovelGalleryService.class.getName())).isTrue();
+        assertThat(CLASSES.contain(NovelOwnedWorkSearch.class.getName())).isTrue();
         assertThat(CLASSES.contain(NovelBatchService.class.getName())).isTrue();
     }
 }

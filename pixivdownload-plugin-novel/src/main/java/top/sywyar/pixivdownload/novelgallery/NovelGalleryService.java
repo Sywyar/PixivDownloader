@@ -31,28 +31,31 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 小说画廊页面服务：列表 / 详情 / 系列 / 目录查询统一走核心接口——{@link WorkQueryService}
- * 取 id 分页与目录聚合、{@link WorkMetadataRepository} 批量补全行数据（search → hydrate 两步）；
+ * 小说画廊页面服务：列表经 {@link NovelOwnedWorkSearch} 组合插件私有正文命中与宿主通用元数据
+ * 过滤；详情、系列和目录继续经 {@link WorkQueryService} 取窄投影，{@link WorkMetadataRepository}
+ * 批量补全行数据（search → hydrate 两步）；
  * 删除链路委托核心统一删除入口 {@link WorkDeletionService#delete} / {@link WorkDeletionService#deleteAll}
- *（判存 → 删文件 → 软删 DB 的编排封装在核心实现），不再直接依赖底层数据库与作者池实现。
+ *（判存 → 删文件 → 软删 DB 的编排封装在核心实现；小说普通关系由插件数据库触发器原子清理，
+ * FTS 查询过滤软删除行并由插件启动时 best-effort 回收），不再让宿主读取正文或维护 FTS。
  */
 @PluginManagedBean
 @RequiredArgsConstructor
 public class NovelGalleryService {
 
     private final WorkQueryService workQueryService;
+    private final NovelOwnedWorkSearch novelOwnedWorkSearch;
     private final WorkMetadataRepository workMetadataRepository;
     private final WorkDeletionService workDeletionService;
 
     public PagedNovels query(NovelGalleryQuery q) {
-        PagedResult<WorkSummary> result = workQueryService.search(toWorkQuery(q));
+        PagedResult<WorkSummary> result = novelOwnedWorkSearch.search(toWorkQuery(q));
         List<NovelView> content = toViews(toIds(result.content()));
         return new PagedNovels(content, (int) result.totalElements(),
                 result.page(), result.size(), result.totalPages());
     }
 
     public List<Long> findNovelIds(NovelGalleryQuery q) {
-        return toIds(workQueryService.searchAll(toWorkQuery(q)));
+        return toIds(novelOwnedWorkSearch.searchAll(toWorkQuery(q)));
     }
 
     public NovelView find(long novelId) {
@@ -63,7 +66,9 @@ public class NovelGalleryService {
 
     /**
      * 删除单本小说：委托核心统一删除入口 {@link WorkDeletionService#delete}——判存 → 删磁盘文件
-     *（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录）→ 清理 DB 派生数据并软删主行的编排封装在核心实现，
+     *（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录）→ 软删主行的编排封装在核心实现；主行更新触发
+     * 小说插件拥有的数据库触发器，在同一 SQLite 语句内清理普通关系；FTS 查询过滤软删除行并由
+     * 小说插件启动时 best-effort 回收陈旧索引，
      * 使下载判重能识别「已下载过，但被删除」、避免被当作未下载重新下载。系列封面与合订文件属于系列、
      * 不在此删除。小说不存在或已被标记删除时返回 {@code false}；磁盘文件删除失败（被锁定 / 权限不足等）
      * 抛出 409、不触碰数据库。

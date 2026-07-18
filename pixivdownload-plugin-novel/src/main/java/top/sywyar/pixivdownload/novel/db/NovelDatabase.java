@@ -13,8 +13,10 @@ import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
@@ -127,16 +129,26 @@ public class NovelDatabase {
         return resolveRecord(novelMapper.findById(novelId));
     }
 
-    @Transactional
-    public void deleteNovel(long novelId) {
-        novelMapper.deleteNovelTags(novelId);
-        novelMapper.deleteAllNovelCollections(novelId);
-        novelMapper.deleteNovelImages(novelId);
-        novelMapper.deleteTranslations(novelId);
-        novelMapper.deleteNarrationScripts(novelId);
-        novelMapper.deleteById(novelId);
-        try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
-            log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
+    /**
+     * 正文全文检索，返回命中的小说 ID。trigram 索引要求查询串至少 3 个字符；更短关键词回退到
+     * {@code raw_content} 的 LIKE 子串扫描。正文读取与 FTS 查询均保持在小说插件持久化层。
+     */
+    public Set<Long> searchNovelContentIds(String term) {
+        if (term == null) return Collections.emptySet();
+        String trimmed = term.trim();
+        if (trimmed.isEmpty()) return Collections.emptySet();
+        try {
+            List<Long> ids;
+            if (trimmed.codePointCount(0, trimmed.length()) < 3) {
+                ids = novelMapper.findNovelIdsByContentLike("%" + escapeLikePattern(trimmed) + "%");
+            } else {
+                String phrase = "\"" + trimmed.replace("\"", "\"\"") + "\"";
+                ids = novelMapper.searchNovelFtsIds(phrase);
+            }
+            return new HashSet<>(ids);
+        } catch (Exception e) {
+            log.warn("Novel full-text search failed for term '{}': {}", trimmed, e.getMessage());
+            return Collections.emptySet();
         }
     }
 
@@ -458,5 +470,17 @@ public class NovelDatabase {
 
     private static String stripTrailingSlash(String path) {
         return path == null ? null : path.replaceAll("[/\\\\]+$", "");
+    }
+
+    private static String escapeLikePattern(String value) {
+        StringBuilder out = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch == '\\' || ch == '%' || ch == '_') {
+                out.append('\\');
+            }
+            out.append(ch);
+        }
+        return out.toString();
     }
 }

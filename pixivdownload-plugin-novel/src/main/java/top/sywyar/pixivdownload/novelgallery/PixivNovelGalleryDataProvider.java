@@ -47,11 +47,14 @@ public class PixivNovelGalleryDataProvider implements GalleryDataProvider {
     private static final int METADATA_FILTER_MAX_BATCH_SIZE = 200;
 
     private final WorkQueryService workQueryService;
+    private final NovelOwnedWorkSearch novelOwnedWorkSearch;
     private final WorkMetadataRepository workMetadataRepository;
 
     public PixivNovelGalleryDataProvider(WorkQueryService workQueryService,
+                                         NovelOwnedWorkSearch novelOwnedWorkSearch,
                                          WorkMetadataRepository workMetadataRepository) {
         this.workQueryService = workQueryService;
+        this.novelOwnedWorkSearch = novelOwnedWorkSearch;
         this.workMetadataRepository = workMetadataRepository;
     }
 
@@ -117,11 +120,11 @@ public class PixivNovelGalleryDataProvider implements GalleryDataProvider {
         int limit = Math.max(1, query.limit());
         int firstPage = query.offset() / limit;
         int skipInPage = query.offset() % limit;
-        PagedResult<WorkSummary> first = workQueryService.search(toWorkQuery(filter, firstPage, limit));
+        PagedResult<WorkSummary> first = novelOwnedWorkSearch.search(toWorkQuery(filter, firstPage, limit));
         List<Long> ids = new ArrayList<>(limit);
         appendPageIds(ids, first.content(), skipInPage, limit);
         if (skipInPage > 0 && ids.size() < limit) {
-            PagedResult<WorkSummary> next = workQueryService.search(toWorkQuery(filter, firstPage + 1, limit));
+            PagedResult<WorkSummary> next = novelOwnedWorkSearch.search(toWorkQuery(filter, firstPage + 1, limit));
             appendPageIds(ids, next.content(), 0, limit);
         }
         List<GalleryItem> items = toItems(ids);
@@ -137,7 +140,7 @@ public class PixivNovelGalleryDataProvider implements GalleryDataProvider {
         long matched = 0;
         int page = 0;
         while (true) {
-            PagedResult<WorkSummary> batch = workQueryService.search(toWorkQuery(baseFilter, page, batchSize));
+            PagedResult<WorkSummary> batch = novelOwnedWorkSearch.search(toWorkQuery(baseFilter, page, batchSize));
             if (batch.content().isEmpty()) {
                 break;
             }

@@ -46,6 +46,8 @@ class NovelGalleryServiceTest {
     @Mock
     private WorkQueryService workQueryService;
     @Mock
+    private NovelOwnedWorkSearch novelOwnedWorkSearch;
+    @Mock
     private WorkMetadataRepository workMetadataRepository;
     @Mock
     private WorkDeletionService workDeletionService;
@@ -54,7 +56,8 @@ class NovelGalleryServiceTest {
 
     @BeforeEach
     void setUp() {
-        novelGalleryService = new NovelGalleryService(workQueryService, workMetadataRepository, workDeletionService);
+        novelGalleryService = new NovelGalleryService(
+                workQueryService, novelOwnedWorkSearch, workMetadataRepository, workDeletionService);
     }
 
     private static WorkMetadata meta(long id, Long authorId, Long seriesId) {
@@ -96,7 +99,7 @@ class NovelGalleryServiceTest {
         void shouldSearchThenHydrateInOrder() {
             NovelGalleryService.NovelGalleryQuery query = new NovelGalleryService.NovelGalleryQuery(
                     0, 2, "date", "desc", null, "any", "any");
-            when(workQueryService.search(any())).thenReturn(new PagedResult<>(
+            when(novelOwnedWorkSearch.search(any())).thenReturn(new PagedResult<>(
                     List.of(new WorkSummary(WorkType.NOVEL, 2L), new WorkSummary(WorkType.NOVEL, 1L)),
                     5, 0, 2, 3));
             when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(2L, 1L)))
@@ -118,7 +121,7 @@ class NovelGalleryServiceTest {
             assertThat(first.tags().get(0).getName()).isEqualTo("魔法");
 
             ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
-            verify(workQueryService).search(captor.capture());
+            verify(novelOwnedWorkSearch).search(captor.capture());
             WorkQuery workQuery = captor.getValue();
             assertThat(workQuery.workType()).isEqualTo(WorkType.NOVEL);
             assertThat(workQuery.page()).isZero();
@@ -134,12 +137,13 @@ class NovelGalleryServiceTest {
             NovelGalleryService.NovelGalleryQuery query = new NovelGalleryService.NovelGalleryQuery(
                     0, 24, "date", "desc", null, "all", "any", "any", null,
                     null, null, null, null, null, null, null, null, restriction);
-            when(workQueryService.search(any())).thenReturn(new PagedResult<>(List.of(), 0, 0, 24, 0));
+            when(novelOwnedWorkSearch.search(any())).thenReturn(
+                    new PagedResult<>(List.of(), 0, 0, 24, 0));
 
             novelGalleryService.query(query);
 
             ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
-            verify(workQueryService).search(captor.capture());
+            verify(novelOwnedWorkSearch).search(captor.capture());
             assertThat(captor.getValue().restriction()).isSameAs(restriction);
         }
 
