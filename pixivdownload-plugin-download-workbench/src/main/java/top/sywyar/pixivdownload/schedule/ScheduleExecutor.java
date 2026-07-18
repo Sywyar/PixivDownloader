@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.DownloadSettings;
@@ -2452,10 +2453,20 @@ public class ScheduleExecutor {
         return () -> sleepMs(ms);
     }
 
-    /** 有效作品级并发数：clamp 到对应下载池大小，避免在池外堆积过多在途任务。 */
+    /** 有效作品级并发数：clamp 到对应派发池大小，避免在池外堆积过多在途任务。 */
     private int effectiveConcurrency(boolean novel, int taskConcurrent) {
-        int poolSize = novel ? downloadSettings.getNovelMaxConcurrent() : downloadSettings.getMaxConcurrent();
-        return Math.max(1, Math.min(Math.max(1, taskConcurrent), poolSize));
+        return effectiveConcurrency(
+                novel ? novelDispatchTaskExecutor : downloadTaskExecutor,
+                taskConcurrent);
+    }
+
+    /** 生产固定池按真实容量收紧；无容量元数据的同步测试适配器仍由任务声明约束。 */
+    static int effectiveConcurrency(TaskExecutor executor, int taskConcurrent) {
+        int requested = Math.max(1, taskConcurrent);
+        int poolSize = executor instanceof ThreadPoolTaskExecutor threadPool
+                ? Math.max(1, threadPool.getMaxPoolSize())
+                : requested;
+        return Math.min(requested, poolSize);
     }
 
     private static void sleepMs(long ms) {
