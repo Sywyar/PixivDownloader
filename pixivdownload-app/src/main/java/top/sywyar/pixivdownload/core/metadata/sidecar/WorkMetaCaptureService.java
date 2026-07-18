@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -123,7 +123,7 @@ public class WorkMetaCaptureService {
             log.warn("Skip novel sidecar {}: curated meta exceeds size cap, column projection kept", novelId);
             return;
         }
-        NovelRecord rec = novelMetadataRepository.getNovel(novelId);
+        NovelMetadataRow rec = novelMetadataRepository.getNovel(novelId);
         if (rec == null) {
             return;
         }

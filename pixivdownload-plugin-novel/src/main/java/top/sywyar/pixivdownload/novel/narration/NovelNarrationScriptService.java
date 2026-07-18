@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationScriptRow;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScriptService;

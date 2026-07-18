@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 
 import java.util.List;
 
@@ -79,13 +79,13 @@ public class GuestAccessGuard {
      * {@code novel_tags} 表（标签 id 与插画共享 {@code tags} 池，所以 OR 语义与白名单可直接复用）。
      */
     public boolean isNovelVisibleToGuest(long novelId, GuestInviteSession session) {
-        NovelRecord rec = novelMetadataRepository.getNovel(novelId);
+        NovelMetadataRow rec = novelMetadataRepository.getNovel(novelId);
         if (rec == null) return false;
         if (!matchesAgeRating(rec.xRestrict(), session)) return false;
         return matchesNovelWhitelist(rec, session);
     }
 
-    private boolean matchesNovelWhitelist(NovelRecord rec, GuestInviteSession session) {
+    private boolean matchesNovelWhitelist(NovelMetadataRow rec, GuestInviteSession session) {
         List<TagDto> tags = novelMetadataRepository.getNovelTags(rec.novelId());
 
         if (!session.novelTagUnrestricted()) {

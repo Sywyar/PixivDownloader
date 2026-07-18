@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
@@ -27,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescri
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 
 import java.util.List;
 import java.util.Set;
@@ -53,7 +53,7 @@ class PixivScheduledNovelCapabilityAssemblyTest {
                 configuration.pixivScheduledNovelWorkExecutor(
                         new ObjectMapper(),
                         mock(PixivAjaxProxyClient.class),
-                        mock(NovelMetadataRepository.class),
+                        mock(WorkQueryService.class),
                         mock(WorkMetaCaptureService.class),
                         mock(NovelDownloader.class),
                         mock(NovelMergeService.class),

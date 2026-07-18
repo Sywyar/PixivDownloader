@@ -51,6 +51,7 @@ class OfficialPluginHostBoundaryGuardTest {
             "top.sywyar.pixivdownload.setup.HostRequestOwnerIdentityResolver",
             "top.sywyar.pixivdownload.setup.SetupService",
             "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard",
+            "top.sywyar.pixivdownload.setup.guest.GuestInviteSession",
             "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService");
 
     /**
@@ -163,6 +164,7 @@ class OfficialPluginHostBoundaryGuardTest {
                 "top.sywyar.pixivdownload.config.RuntimeFiles",
                 "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
                 "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard",
+                "top.sywyar.pixivdownload.setup.guest.GuestInviteSession",
                 "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService");
     }
 

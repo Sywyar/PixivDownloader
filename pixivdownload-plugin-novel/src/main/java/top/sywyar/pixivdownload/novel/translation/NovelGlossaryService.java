@@ -9,8 +9,8 @@ import top.sywyar.pixivdownload.novel.db.NovelGlossary;
 import top.sywyar.pixivdownload.novel.db.NovelGlossaryEntry;
 import top.sywyar.pixivdownload.novel.db.NovelGlossaryInsert;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.ArrayList;

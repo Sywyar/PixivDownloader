@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.novel.db.NovelSeries;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;

@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
-import top.sywyar.pixivdownload.tts.narration.engine.NarrationSilence;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;

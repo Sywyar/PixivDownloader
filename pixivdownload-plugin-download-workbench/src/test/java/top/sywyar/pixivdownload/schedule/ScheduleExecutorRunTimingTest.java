@@ -11,7 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -96,7 +96,7 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private ArtworkDownloader artworkDownloader;
     @Mock
-    private NovelMetadataRepository novelMetadataRepository;
+    private WorkQueryService workQueryService;
     @Mock
     private OveruseWarningService overuseWarningService;
     @Mock
@@ -1074,7 +1074,7 @@ class ScheduleExecutorRunTimingTest {
                 store, registry, pixivFetchService, pixivDatabase,
                 org.mockito.Mockito.mock(
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
-                artworkDownloader, novelMetadataRepository, new ScheduleConfig(), localRunState,
+                artworkDownloader, workQueryService, new ScheduleConfig(), localRunState,
                 new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
                 notificationService, appMessages, userDisplayNameProvider,
                 downloadSettings,
@@ -1114,7 +1114,7 @@ class ScheduleExecutorRunTimingTest {
                 store, registry, pixivFetchService, pixivDatabase,
                 org.mockito.Mockito.mock(
                         top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class),
-                artworkDownloader, novelMetadataRepository, new ScheduleConfig(), localRunState,
+                artworkDownloader, workQueryService, new ScheduleConfig(), localRunState,
                 new ScheduleRunQueue(), objectMapper, codec, overuseWarningService,
                 notificationService, appMessages, webI18nBundleRegistry, userDisplayNameProvider,
                 downloadSettings,

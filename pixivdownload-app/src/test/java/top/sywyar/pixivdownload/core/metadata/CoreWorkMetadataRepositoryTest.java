@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.core.metadata;
 
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesMetadataRow;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -203,9 +203,9 @@ class CoreWorkMetadataRepositoryTest {
     @DisplayName("小说侧")
     class NovelTests {
 
-        private NovelRecord novel(long id, boolean deleted) {
-            return new NovelRecord(id, "小说标题" + id, "/novels/" + id, 2, "", 1900L + id, 1, false, 88L,
-                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, 2000, 300, 4, true, "ja", "正文", "jpg", deleted, null);
+        private NovelMetadataRow novel(long id, boolean deleted) {
+            return new NovelMetadataRow(id, "小说标题" + id, "/novels/" + id, 2, "", 1900L + id, 1, false, 88L,
+                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, 2000, 300, 4, true, "ja", "jpg", deleted, null);
         }
 
         @Test
@@ -215,7 +215,7 @@ class CoreWorkMetadataRepositoryTest {
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of(
                     42L, List.of(new TagDto(21L, "ファンタジー", "奇幻"))));
             when(novelMetadataRepository.getSeriesByIds(anyCollection())).thenReturn(List.of(
-                    new NovelSeries(700L, "小说系列", 88L, 0L, null, null, null)));
+                    new NovelSeriesMetadataRow(700L, "小说系列", 88L, null)));
             when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of(
                     42L, List.of("img-a", "img-b")));
             when(novelMetadataRepository.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of(
@@ -264,8 +264,8 @@ class CoreWorkMetadataRepositoryTest {
         @Test
         @DisplayName("hydrate novel upload_time 列投影到 WorkMetadata；is_original 顶层与小说块同源")
         void shouldHydrateNovelUploadMeta() {
-            NovelRecord rec = new NovelRecord(42L, "n", "/n/42", 1, "txt", 1900L, 0, false, null,
-                    null, null, null, null, null, null, null, null, null, true, null, "正文", null,
+            NovelMetadataRow rec = new NovelMetadataRow(42L, "n", "/n/42", 1, "txt", 1900L, 0, false, null,
+                    null, null, null, null, null, null, null, null, null, true, null, null,
                     false, 1717000000000L);
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(rec));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
@@ -335,9 +335,9 @@ class CoreWorkMetadataRepositoryTest {
         @Test
         @DisplayName("模板 id 为空时不查模板池（小说侧无「缺省取默认模板 1」规则）")
         void shouldSkipTemplateLookupWhenTemplateIdMissing() {
-            NovelRecord noTemplate = new NovelRecord(9L, "无模板", "/novels/9", 1, "", 1900L, 0, false,
+            NovelMetadataRow noTemplate = new NovelMetadataRow(9L, "无模板", "/novels/9", 1, "", 1900L, 0, false,
                     null, null, null, null, null, null, null, null, null, null, null, null,
-                    "正文", null, false, null);
+                    null, false, null);
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(noTemplate));
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
             when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());

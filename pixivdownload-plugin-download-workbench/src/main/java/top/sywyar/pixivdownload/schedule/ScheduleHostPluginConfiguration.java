@@ -12,7 +12,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -31,6 +30,7 @@ import top.sywyar.pixivdownload.schedule.execution.ScheduleWorkConcurrencyLimite
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 
 /**
  * 计划任务宿主插件的 Bean 装配收敛点。承载调度安全壳的全部托管 Bean：执行器 / 服务 / tick runner / 控制器 /
@@ -51,7 +51,7 @@ import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
  * novel 包类型。下载派发统一经核心契约 {@code core.schedule.work.ScheduledWorkRunner} +
  * {@link ScheduleCapabilityRegistry} generation lease 按作品类型解析：插画执行器由下载工作台贡献、小说执行器由
  * 小说插件贡献；来源和作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
- * {@link NovelMetadataRepository} 是核心去重接口（{@code core.metadata.novel}）、本就属核心，保留。
+ * 小说判重只经稳定 {@link WorkQueryService}，宿主不接触小说插件或宿主内部数据库行。
  */
 @Configuration
 @EnableScheduling
@@ -152,7 +152,7 @@ public class ScheduleHostPluginConfiguration {
                                              PixivDatabase pixivDatabase,
                                              WorkMetaCaptureService workMetaCaptureService,
                                              ArtworkDownloader artworkDownloader,
-                                             NovelMetadataRepository novelMetadataRepository,
+                                             WorkQueryService workQueryService,
                                              ScheduleConfig scheduleConfig,
                                              ScheduleRunState runState,
                                              ScheduleRunQueue runQueue,
@@ -168,7 +168,7 @@ public class ScheduleHostPluginConfiguration {
                                              @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
                 notificationService, messages, webI18nBundleRegistry, userDisplayNameProvider, downloadSettings,
                 downloadTaskExecutor, novelDownloadTaskExecutor, scheduleExecutionEngine);
@@ -181,7 +181,7 @@ public class ScheduleHostPluginConfiguration {
                                              PixivDatabase pixivDatabase,
                                              WorkMetaCaptureService workMetaCaptureService,
                                              ArtworkDownloader artworkDownloader,
-                                             NovelMetadataRepository novelMetadataRepository,
+                                             WorkQueryService workQueryService,
                                              ScheduleConfig scheduleConfig,
                                              ScheduleRunState runState,
                                              ScheduleRunQueue runQueue,
@@ -195,7 +195,7 @@ public class ScheduleHostPluginConfiguration {
                                              TaskExecutor downloadTaskExecutor,
                                              TaskExecutor novelDownloadTaskExecutor) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
                 notificationService, messages, userDisplayNameProvider, downloadSettings,
                 downloadTaskExecutor, novelDownloadTaskExecutor);

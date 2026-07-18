@@ -13,7 +13,6 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
@@ -33,6 +32,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 
 import java.net.URI;
 import java.util.Arrays;
@@ -57,7 +58,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
 
     private final ObjectMapper objectMapper;
     private final PixivAjaxProxyClient pixivAjaxProxyClient;
-    private final NovelMetadataRepository novelMetadataRepository;
+    private final WorkQueryService workQueryService;
     private final WorkMetaCaptureService workMetaCaptureService;
     private final NovelDownloader novelDownloader;
     private final NovelMergeService novelMergeService;
@@ -70,7 +71,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     public PixivScheduledNovelWorkExecutor(
             ObjectMapper objectMapper,
             PixivAjaxProxyClient pixivAjaxProxyClient,
-            NovelMetadataRepository novelMetadataRepository,
+            WorkQueryService workQueryService,
             WorkMetaCaptureService workMetaCaptureService,
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
@@ -78,7 +79,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             DownloadSettings downloadConfig) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.pixivAjaxProxyClient = Objects.requireNonNull(pixivAjaxProxyClient, "pixivAjaxProxyClient");
-        this.novelMetadataRepository = Objects.requireNonNull(novelMetadataRepository, "novelMetadataRepository");
+        this.workQueryService = Objects.requireNonNull(workQueryService, "workQueryService");
         this.workMetaCaptureService = Objects.requireNonNull(workMetaCaptureService, "workMetaCaptureService");
         this.novelDownloader = Objects.requireNonNull(novelDownloader, "novelDownloader");
         this.novelMergeService = Objects.requireNonNull(novelMergeService, "novelMergeService");
@@ -124,8 +125,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         PixivScheduledNovelDefinition definition = parseDefinition(context);
         context.cancellation().throwIfCancellationRequested();
         boolean alreadyDownloaded = definition.download().redownloadDeleted()
-                ? novelMetadataRepository.hasActiveNovel(novelId)
-                : novelMetadataRepository.hasNovel(novelId);
+                ? workQueryService.hasActiveWork(WorkType.NOVEL, novelId)
+                : workQueryService.hasWork(WorkType.NOVEL, novelId);
         if (alreadyDownloaded) {
             return ScheduledWorkResult.alreadyCompleted();
         }

@@ -32,8 +32,6 @@ import top.sywyar.pixivdownload.core.hash.ArtworkHashEntry;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashFingerprint;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
@@ -162,13 +160,6 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(ArtworkHashIndexMaintenance.class.getName())).isTrue();
         assertThat(CLASSES.contain(ArtworkHashEntry.class.getName())).isTrue();
         assertThat(CLASSES.contain(ArtworkHashFingerprint.class.getName())).isTrue();
-    }
-
-    @Test
-    @DisplayName("core-api 模块应包含小说元数据纯值模型")
-    void coreApiContainsNovelMetadataValues() {
-        assertThat(CLASSES.contain(NovelRecord.class.getName())).isTrue();
-        assertThat(CLASSES.contain(NovelSeries.class.getName())).isTrue();
     }
 
     @Test

@@ -9,8 +9,8 @@ import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.novel.db.NovelSeries;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

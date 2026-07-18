@@ -8,7 +8,7 @@ import top.sywyar.pixivdownload.core.gallery.model.GalleryPage;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryWorkRef;
 import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
 import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;

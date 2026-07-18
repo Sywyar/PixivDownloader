@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -86,7 +86,7 @@ class ScheduleExecutorSourceResolutionTest {
     @Mock
     private ArtworkDownloader artworkDownloader;
     @Mock
-    private NovelMetadataRepository novelMetadataRepository;
+    private WorkQueryService workQueryService;
     @Mock
     private OveruseWarningService overuseWarningService;
     @Mock
@@ -122,7 +122,7 @@ class ScheduleExecutorSourceResolutionTest {
     private ScheduleExecutor newExecutor(ScheduleCapabilityRegistry registry) {
         ObjectMapper objectMapper = new ObjectMapper();
         return new ScheduleExecutor(store, registry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                workMetaCaptureService, artworkDownloader, workQueryService,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(),
                 objectMapper, new PixivSchedulePersistenceCodec(objectMapper),
                 overuseWarningService, notificationService, appMessages, userDisplayNameProvider,

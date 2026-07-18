@@ -20,9 +20,12 @@ class RequestOwnerIdentityResolverTest {
 
         assertThat(resolver.resolve(request)).isEqualTo(RequestOwnerIdentity.owner("owner-a"));
         assertThat(resolver.resolveExistingOwnerUuid(request)).isEmpty();
+        assertThat(resolver.resolveInvitedGuestRateLimitSubject(request)).isEmpty();
         assertThat(resolver.isAdminAuthenticated(request)).isFalse();
         assertThatNullPointerException()
                 .isThrownBy(() -> resolver.resolveExistingOwnerUuid(null));
+        assertThatNullPointerException()
+                .isThrownBy(() -> resolver.resolveInvitedGuestRateLimitSubject(null));
         assertThatNullPointerException()
                 .isThrownBy(() -> resolver.isAdminAuthenticated(null));
     }

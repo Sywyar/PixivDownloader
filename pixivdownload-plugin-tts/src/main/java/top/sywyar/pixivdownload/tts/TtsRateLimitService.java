@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteRateLimitSettings;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,12 +24,12 @@ public class TtsRateLimitService {
 
     static final int MAX_TRACKED_KEYS = 50_000;
 
-    private final GuestInviteRateLimitSettings guestInviteConfig;
+    private final TtsGuestRateLimitConfig config;
 
     private final ConcurrentHashMap<String, WindowCounter> counters = new ConcurrentHashMap<>();
 
     public int getLimitPerMinute() {
-        return guestInviteConfig.getTtsRequestLimitMinute();
+        return config.getTtsRequestLimitMinute();
     }
 
     public boolean isAllowed(String key) {
@@ -50,7 +49,7 @@ public class TtsRateLimitService {
             return existing;
         });
         if (counter == null) {
-            log.warn("TTS rate limit tracker at capacity ({} keys), denying new key {}", MAX_TRACKED_KEYS, key);
+            log.warn("TTS rate limit tracker at capacity ({} keys), denying new subject", MAX_TRACKED_KEYS);
             return false;
         }
         return counter.count.incrementAndGet() <= limit;

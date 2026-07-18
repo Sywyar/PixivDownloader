@@ -26,11 +26,12 @@ import java.util.Set;
  * 核心侧的小说数据访问仓库：把 {@code novels} 系核心表的行 / 标签 / 内嵌图 / 译文语言 /
  * 系列 / 收藏夹链接的读取、全文检索读、软删除标记从 {@code novel.db.NovelDatabase} 沿
  * 「查询 vs 持久化」边界拆出，使核心查询 / 资产 / 收藏 / 计划 / 访客可见性链路无需反向
- * import 小说插件包。SQL 与被替换的 {@code NovelDatabase} / {@code NovelMapper} 逐字一致。
+ * import 小说插件包。宿主行投影不读取正文 {@code raw_content}；完整持久化行与正文读取由
+ * 小说插件自己的 {@code NovelMapper} 负责。
  *
  * <p>卸载投影：{@code novels} 系表为核心所有（小说插件未安装时仍存在），故该读取面随核心
- * 永驻、作为根包扫描的核心 Bean；下载 / 正文 / 翻译 / TTS 的写入与 FTS 索引<b>维护</b>仍留
- * {@code NovelDatabase}（其被 novel-core 调用的同名读方法委托本类，保证查询 SQL 单源）。
+ * 永驻、作为根包扫描的核心 Bean；下载 / 正文 / 翻译 / TTS 的完整行读取、写入与 FTS
+ * 索引<b>维护</b>仍留小说插件。
  * 软删除级联里的 {@code novels_fts} 行清理随软删一并执行（与旧 {@code markNovelDeleted} 一致，
  * 失败仅记日志）。
  */
@@ -38,22 +39,19 @@ import java.util.Set;
 @Repository
 public class NovelMetadataRepository {
 
-    /** 与 {@code NovelMapper.SELECT_NOVEL} 逐字一致。 */
-    private static final String SELECT_NOVEL =
+    private static final String SELECT_NOVEL_METADATA =
             "SELECT novel_id AS novelId, title, folder, count, extensions, time,"
                     + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
                     + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
                     + " series_id AS seriesId, series_order AS seriesOrder,"
                     + " word_count AS wordCount, text_length AS textLength,"
                     + " reading_time_seconds AS readingTimeSeconds, page_count AS pageCount,"
-                    + " is_original AS isOriginal, x_language AS xLanguage, raw_content AS rawContent,"
-                    + " cover_ext AS coverExt, deleted, upload_time AS uploadTime"
+                    + " is_original AS isOriginal, x_language AS xLanguage, cover_ext AS coverExt,"
+                    + " deleted, upload_time AS uploadTime"
                     + " FROM novels";
 
-    private static final String SELECT_SERIES =
-            "SELECT series_id AS seriesId, title, author_id AS authorId,"
-                    + " updated_time AS updatedTime, description, cover_ext AS coverExt,"
-                    + " cover_folder AS coverFolder"
+    private static final String SELECT_SERIES_METADATA =
+            "SELECT series_id AS seriesId, title, author_id AS authorId, cover_ext AS coverExt"
                     + " FROM novel_series";
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -81,27 +79,27 @@ public class NovelMetadataRepository {
         return count != null && count > 0;
     }
 
-    public NovelRecord getNovel(long novelId) {
-        List<NovelRecord> rows = jdbc.query(SELECT_NOVEL + " WHERE novel_id = :novelId",
-                new MapSqlParameterSource("novelId", novelId), this::mapNovel);
+    public NovelMetadataRow getNovel(long novelId) {
+        List<NovelMetadataRow> rows = jdbc.query(SELECT_NOVEL_METADATA + " WHERE novel_id = :novelId",
+                new MapSqlParameterSource("novelId", novelId), this::mapNovelMetadata);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
     /** 批量取小说行（含软删除行，路径前缀已解析）；返回顺序不保证，由调用方按需重排。 */
-    public List<NovelRecord> getNovels(Collection<Long> novelIds) {
+    public List<NovelMetadataRow> getNovels(Collection<Long> novelIds) {
         if (novelIds == null || novelIds.isEmpty()) {
             return List.of();
         }
-        return jdbc.query(SELECT_NOVEL + " WHERE novel_id IN (:ids)",
-                new MapSqlParameterSource("ids", novelIds), this::mapNovel);
+        return jdbc.query(SELECT_NOVEL_METADATA + " WHERE novel_id IN (:ids)",
+                new MapSqlParameterSource("ids", novelIds), this::mapNovelMetadata);
     }
 
     /** 同系列其他小说（{@code series_order ASC, time ASC}），软删除行过滤。 */
-    public List<NovelRecord> getNovelsBySeriesId(long seriesId) {
-        return jdbc.query(SELECT_NOVEL
+    public List<NovelMetadataRow> getNovelsBySeriesId(long seriesId) {
+        return jdbc.query(SELECT_NOVEL_METADATA
                         + " WHERE series_id = :seriesId AND series_id > 0 AND deleted = 0"
                         + " ORDER BY series_order ASC, time ASC",
-                new MapSqlParameterSource("seriesId", seriesId), this::mapNovel);
+                new MapSqlParameterSource("seriesId", seriesId), this::mapNovelMetadata);
     }
 
     public List<Long> getAllNovelIdsSortedByTimeDesc() {
@@ -109,8 +107,8 @@ public class NovelMetadataRepository {
                 new MapSqlParameterSource(), (rs, rowNum) -> rs.getLong("novel_id"));
     }
 
-    private NovelRecord mapNovel(ResultSet rs, int rowNum) throws SQLException {
-        return new NovelRecord(
+    private NovelMetadataRow mapNovelMetadata(ResultSet rs, int rowNum) throws SQLException {
+        return new NovelMetadataRow(
                 rs.getLong("novelId"),
                 rs.getString("title"),
                 pathPrefixCodec.resolve(rs.getString("folder")),
@@ -131,7 +129,6 @@ public class NovelMetadataRepository {
                 getInteger(rs, "pageCount"),
                 getBoolean(rs, "isOriginal"),
                 rs.getString("xLanguage"),
-                rs.getString("rawContent"),
                 rs.getString("coverExt"),
                 rs.getBoolean("deleted"),
                 getLongObj(rs, "uploadTime"));
@@ -222,27 +219,24 @@ public class NovelMetadataRepository {
 
     // ── Series ─────────────────────────────────────────────────────────────────────
 
-    public NovelSeries getSeries(long seriesId) {
-        List<NovelSeries> rows = jdbc.query(SELECT_SERIES + " WHERE series_id = :id",
-                new MapSqlParameterSource("id", seriesId), this::mapSeries);
+    public NovelSeriesMetadataRow getSeries(long seriesId) {
+        List<NovelSeriesMetadataRow> rows = jdbc.query(SELECT_SERIES_METADATA + " WHERE series_id = :id",
+                new MapSqlParameterSource("id", seriesId), this::mapSeriesMetadata);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    public List<NovelSeries> getSeriesByIds(Collection<Long> ids) {
+    public List<NovelSeriesMetadataRow> getSeriesByIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) return Collections.emptyList();
-        return jdbc.query(SELECT_SERIES + " WHERE series_id IN (:ids)",
-                new MapSqlParameterSource("ids", ids), this::mapSeries);
+        return jdbc.query(SELECT_SERIES_METADATA + " WHERE series_id IN (:ids)",
+                new MapSqlParameterSource("ids", ids), this::mapSeriesMetadata);
     }
 
-    private NovelSeries mapSeries(ResultSet rs, int rowNum) throws SQLException {
-        return new NovelSeries(
+    private NovelSeriesMetadataRow mapSeriesMetadata(ResultSet rs, int rowNum) throws SQLException {
+        return new NovelSeriesMetadataRow(
                 rs.getLong("seriesId"),
                 rs.getString("title"),
                 getLongObj(rs, "authorId"),
-                rs.getLong("updatedTime"),
-                rs.getString("description"),
-                rs.getString("coverExt"),
-                pathPrefixCodec.resolve(rs.getString("coverFolder")));
+                rs.getString("coverExt"));
     }
 
     // ── Collections ─────────────────────────────────────────────────────────────────

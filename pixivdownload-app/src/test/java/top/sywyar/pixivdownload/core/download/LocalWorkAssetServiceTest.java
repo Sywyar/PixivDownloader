@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
@@ -234,10 +234,10 @@ class LocalWorkAssetServiceTest {
     @DisplayName("小说侧（novel-{id} 独占目录语义）")
     class NovelAssetTests {
 
-        private NovelRecord novel(long novelId, String folder, Long fileName, String coverExt) {
-            return new NovelRecord(novelId, "小说标题", folder, 1, "txt", 1000L, 0, false, 88L,
+        private NovelMetadataRow novel(long novelId, String folder, Long fileName, String coverExt) {
+            return new NovelMetadataRow(novelId, "小说标题", folder, 1, "txt", 1000L, 0, false, 88L,
                     null, fileName, null, null, null, null, null, null, null, null, null,
-                    "正文", coverExt, false, null);
+                    coverExt, false, null);
         }
 
         private Path novelDir(long novelId) throws Exception {

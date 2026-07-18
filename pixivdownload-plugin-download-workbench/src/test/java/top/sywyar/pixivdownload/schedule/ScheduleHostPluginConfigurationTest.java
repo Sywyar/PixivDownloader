@@ -9,7 +9,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -70,7 +70,7 @@ class ScheduleHostPluginConfigurationTest {
                 mock(PixivDatabase.class),
                 mock(WorkMetaCaptureService.class),
                 mock(ArtworkDownloader.class),
-                mock(NovelMetadataRepository.class),
+                mock(WorkQueryService.class),
                 config,
                 runState,
                 runQueue,

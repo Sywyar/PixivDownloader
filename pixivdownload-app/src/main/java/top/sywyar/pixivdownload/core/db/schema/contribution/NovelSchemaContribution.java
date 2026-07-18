@@ -12,10 +12,11 @@ import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.explicitIndex;
 import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.uniqueConstraint;
 
 /**
- * 小说域 schema 的 contribution 声明（小说主表、系列、标签/收藏夹关联、内嵌插图、
- * 译文、名词映射表、AI 朗读花名册与脚本——DDL 均随 NovelDatabase）。
- * 小说正文 {@code raw_content} 是权威数据，属核心长期事实数据，ownerPluginId 为 core
- * （卸载投影测试：小说画廊插件未安装时正文与 meta 仍须完整保存）。
+ * 小说域受管 schema 的 contribution 声明（小说主表、系列、标签/收藏夹关联、内嵌插图、
+ * 译文、名词映射表、AI 朗读花名册与脚本）。小说正文 {@code raw_content} 是需要在插件
+ * 停用或卸载后继续保留的长期事实数据，因此 schema 生命周期 ownerPluginId 为 core。
+ * 这不改变业务持久化模型的归属：完整小说行、正文读取与完整系列行由小说插件自己的
+ * {@code NovelMapper}/{@code NovelDatabase} 拥有；宿主只保留跨作品查询所需的窄投影。
  * FTS 虚拟表 {@code novels_fts} 及其影子表不入受管 schema。
  */
 public final class NovelSchemaContribution {

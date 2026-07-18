@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.tts.EdgeTtsClient;
 import top.sywyar.pixivdownload.tts.EdgeTtsException;
 import top.sywyar.pixivdownload.tts.EdgeTtsVoiceService;
@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.tts.dto.EdgeTtsVoice;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -46,6 +47,7 @@ public class TtsController {
     private final EdgeTtsVoiceService voiceService;
     private final TtsRateLimitService ttsRateLimitService;
     private final MessageResolver messages;
+    private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
 
     @GetMapping("/voices")
     public ResponseEntity<List<EdgeTtsVoice>> voices() {
@@ -92,11 +94,11 @@ public class TtsController {
      * 管理员 / solo 拥有者没有邀请会话，直接放行。返回非 null 即为应直接返回的 429。
      */
     private ResponseEntity<?> checkGuestRateLimit(HttpServletRequest request) {
-        Object attr = request.getAttribute(GuestInviteSession.REQUEST_ATTR);
-        if (!(attr instanceof GuestInviteSession session)) {
+        Optional<String> subject = requestOwnerIdentityResolver.resolveInvitedGuestRateLimitSubject(request);
+        if (subject.isEmpty()) {
             return null;
         }
-        if (!ttsRateLimitService.isAllowed("invite:" + session.id())) {
+        if (!ttsRateLimitService.isAllowed(subject.orElseThrow())) {
             return ResponseEntity.status(429).body(error(
                     messages.get("tts.rate-limit.exceeded", ttsRateLimitService.getLimitPerMinute())));
         }

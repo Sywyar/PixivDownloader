@@ -76,10 +76,10 @@ public class NovelWorkSearch {
         boolean searchUsesAuthorNames = !searchRaw.isEmpty() && usesAuthorNameSearch(searchType);
         Set<Long> searchAuthorIds = searchUsesAuthorNames ? new LinkedHashSet<>() : Set.of();
         List<Long> allIds = novelMetadataRepository.getAllNovelIdsSortedByTimeDesc();
-        List<NovelRecord> candidateRecords = new ArrayList<>();
+        List<NovelMetadataRow> candidateRecords = new ArrayList<>();
         for (Long id : allIds) {
             if (idCandidates != null && !idCandidates.contains(id)) continue;
-            NovelRecord r = novelMetadataRepository.getNovel(id);
+            NovelMetadataRow r = novelMetadataRepository.getNovel(id);
             if (r == null) continue;
             candidateRecords.add(r);
             if (searchUsesAuthorNames && r.authorId() != null && r.authorId() > 0) {
@@ -89,7 +89,7 @@ public class NovelWorkSearch {
         Map<Long, String> authorNameCache = searchUsesAuthorNames
                 ? resolveAuthorNameCache(searchAuthorIds)
                 : Map.of();
-        List<NovelRecord> filtered = new ArrayList<>();
+        List<NovelMetadataRow> filtered = new ArrayList<>();
         Set<Long> mustTags = nullSafe(q.tagIds());
         Set<Long> notTags = nullSafe(q.excludedTagIds());
         Set<Long> orTags = nullSafe(q.optionalTagIds());
@@ -98,7 +98,7 @@ public class NovelWorkSearch {
         Set<Long> orAuthors = nullSafe(q.optionalAuthorIds());
         Set<Long> mustSeries = nullSafe(q.seriesIds());
         Set<Long> notSeries = nullSafe(q.excludedSeriesIds());
-        for (NovelRecord r : candidateRecords) {
+        for (NovelMetadataRow r : candidateRecords) {
             if (!matchAgeFilter(r.xRestrict(), q.r18())) continue;
             if (!matchAiFilter(r.isAi(), q.ai())) continue;
             if (!searchRaw.isEmpty()) {
@@ -114,20 +114,20 @@ public class NovelWorkSearch {
             filtered.add(r);
         }
         // 排序
-        Comparator<NovelRecord> cmp = switch (q.sort() == null ? "date" : q.sort()) {
-            case "novelId" -> Comparator.comparingLong(NovelRecord::novelId);
+        Comparator<NovelMetadataRow> cmp = switch (q.sort() == null ? "date" : q.sort()) {
+            case "novelId" -> Comparator.comparingLong(NovelMetadataRow::novelId);
             case "wordCount" -> Comparator.comparingInt(r -> r.wordCount() == null ? 0 : r.wordCount());
             case "series" -> Comparator
-                    .comparingLong((NovelRecord r) -> r.seriesId() == null ? Long.MAX_VALUE : r.seriesId())
+                    .comparingLong((NovelMetadataRow r) -> r.seriesId() == null ? Long.MAX_VALUE : r.seriesId())
                     .thenComparingLong(r -> r.seriesOrder() == null ? 0 : r.seriesOrder());
-            default -> Comparator.comparingLong(NovelRecord::time);
+            default -> Comparator.comparingLong(NovelMetadataRow::time);
         };
         if (!"asc".equalsIgnoreCase(q.order())) {
             cmp = cmp.reversed();
         }
         filtered.sort(cmp);
         List<Long> out = new ArrayList<>(filtered.size());
-        for (NovelRecord r : filtered) {
+        for (NovelMetadataRow r : filtered) {
             out.add(r.novelId());
         }
         return out;
@@ -160,7 +160,7 @@ public class NovelWorkSearch {
         }
     }
 
-    private boolean matchNovelSearch(NovelRecord r, String searchType, String searchLower,
+    private boolean matchNovelSearch(NovelMetadataRow r, String searchType, String searchLower,
                                      Long searchId, Map<Long, String> authorNameCache) {
         return switch (searchType) {
             case "title" -> r.title() != null && r.title().toLowerCase(Locale.ROOT).contains(searchLower);

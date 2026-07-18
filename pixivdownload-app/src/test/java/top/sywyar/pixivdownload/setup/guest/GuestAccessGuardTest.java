@@ -5,7 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 
 import java.util.List;
 import java.util.Set;
@@ -45,11 +45,11 @@ class GuestAccessGuardTest {
         assertThat(guard.isNovelVisibleToGuest(42L, session)).isEqualTo(expected);
     }
 
-    private static NovelRecord novelRecord(int xRestrict) {
-        return new NovelRecord(
+    private static NovelMetadataRow novelRecord(int xRestrict) {
+        return new NovelMetadataRow(
                 42L, "title", "folder", 1, "txt", 1L,
                 xRestrict, false, 7L, "", 1L, null,
                 null, null, 10, 10, 10, 1,
-                true, "ja", "content", null);
+                true, "ja", null);
     }
 }

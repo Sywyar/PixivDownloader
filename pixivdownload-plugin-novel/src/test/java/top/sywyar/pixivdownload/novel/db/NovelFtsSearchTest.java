@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
 import java.util.List;
 
@@ -98,16 +97,4 @@ class NovelFtsSearchTest {
         assertThat(hits).containsExactly(20L);
     }
 
-    @Test
-    @DisplayName("短关键词 LIKE 回退按字面量匹配通配符")
-    void shouldEscapeLikeWildcardsForShortTerms() {
-        insertNovel(30L, "100% literal");
-        insertNovel(31L, "100 percent");
-        insertNovel(32L, "A_B literal");
-        insertNovel(33L, "ACB literal");
-        NovelMetadataRepository database = new NovelMetadataRepository(dataSource, null);
-
-        assertThat(database.searchNovelContentIds("%")).containsExactly(30L);
-        assertThat(database.searchNovelContentIds("_")).containsExactly(32L);
-    }
 }

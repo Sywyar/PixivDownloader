@@ -1,5 +1,6 @@
-package top.sywyar.pixivdownload.core.metadata.novel;
+package top.sywyar.pixivdownload.novel.db;
 
+/** 小说插件持久化层的完整 {@code novels} 行。 */
 public record NovelRecord(
         long novelId,
         String title,

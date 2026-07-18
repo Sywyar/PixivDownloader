@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.core.metadata;
 
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesMetadataRow;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -131,16 +131,16 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
     }
 
     private List<WorkMetadata> findAllNovels(List<Long> workIds) {
-        List<NovelRecord> fetched = novelMetadataRepository.getNovels(workIds);
-        Map<Long, NovelRecord> byId = new HashMap<>(fetched.size());
-        for (NovelRecord rec : fetched) {
+        List<NovelMetadataRow> fetched = novelMetadataRepository.getNovels(workIds);
+        Map<Long, NovelMetadataRow> byId = new HashMap<>(fetched.size());
+        for (NovelMetadataRow rec : fetched) {
             if (!rec.deleted()) {
                 byId.put(rec.novelId(), rec);
             }
         }
-        List<NovelRecord> records = new ArrayList<>(workIds.size());
+        List<NovelMetadataRow> records = new ArrayList<>(workIds.size());
         for (Long id : workIds) {
-            NovelRecord rec = byId.get(id);
+            NovelMetadataRow rec = byId.get(id);
             if (rec != null) {
                 records.add(rec);
             }
@@ -152,7 +152,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         Set<Long> authorIds = new LinkedHashSet<>();
         Set<Long> seriesIds = new LinkedHashSet<>();
         Set<Long> templateIds = new HashSet<>();
-        for (NovelRecord rec : records) {
+        for (NovelMetadataRow rec : records) {
             if (rec.authorId() != null) {
                 authorIds.add(rec.authorId());
             }
@@ -165,7 +165,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         }
         Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
         Map<Long, String> seriesTitles = resolveNovelSeriesTitles(seriesIds);
-        List<Long> novelIds = records.stream().map(NovelRecord::novelId).toList();
+        List<Long> novelIds = records.stream().map(NovelMetadataRow::novelId).toList();
         Map<Long, List<TagDto>> tagsByNovel = novelMetadataRepository.getNovelTagsBatch(novelIds);
         Map<Long, List<String>> imagesByNovel = novelMetadataRepository.getNovelImageIdsBatch(novelIds);
         Map<Long, List<String>> langsByNovel = novelMetadataRepository.getTranslationLangsBatch(novelIds);
@@ -175,7 +175,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                 : pixivDatabase.getFileNameTemplates(templateIds);
 
         List<WorkMetadata> out = new ArrayList<>(records.size());
-        for (NovelRecord rec : records) {
+        for (NovelMetadataRow rec : records) {
             out.add(new WorkMetadata(
                     WorkType.NOVEL,
                     rec.novelId(),
@@ -247,7 +247,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
             return Collections.emptyMap();
         }
         Map<Long, String> out = new HashMap<>(seriesIds.size());
-        for (NovelSeries series : novelMetadataRepository.getSeriesByIds(seriesIds)) {
+        for (NovelSeriesMetadataRow series : novelMetadataRepository.getSeriesByIds(seriesIds)) {
             out.put(series.seriesId(), series.title());
         }
         return out;

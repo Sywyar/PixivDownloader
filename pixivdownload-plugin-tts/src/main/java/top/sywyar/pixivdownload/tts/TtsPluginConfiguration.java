@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteRateLimitSettings;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.tts.controller.TtsController;
 import top.sywyar.pixivdownload.tts.narration.engine.CosyVoiceNarrationEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.DoubaoNarrationEngine;
@@ -39,6 +39,13 @@ public class TtsPluginConfiguration {
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
     public TtsPluginConfig ttsPluginConfig(Environment environment) {
         return bind(environment, "narration-tts", TtsPluginConfig::new, TtsPluginConfig.class);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled(TtsPlugin.ID)
+    public TtsGuestRateLimitConfig ttsGuestRateLimitConfig(Environment environment) {
+        return bind(environment, "guest-invite", TtsGuestRateLimitConfig::new,
+                TtsGuestRateLimitConfig.class);
     }
 
     @Bean
@@ -84,8 +91,8 @@ public class TtsPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
-    public TtsRateLimitService ttsRateLimitService(GuestInviteRateLimitSettings settings) {
-        return new TtsRateLimitService(settings);
+    public TtsRateLimitService ttsRateLimitService(TtsGuestRateLimitConfig config) {
+        return new TtsRateLimitService(config);
     }
 
     @Bean
@@ -93,8 +100,10 @@ public class TtsPluginConfiguration {
     public TtsController ttsController(EdgeTtsClient edgeTtsClient,
                                        EdgeTtsVoiceService voiceService,
                                        TtsRateLimitService rateLimitService,
-                                       @Qualifier("ttsPluginMessages") MessageResolver messages) {
-        return new TtsController(edgeTtsClient, voiceService, rateLimitService, messages);
+                                       @Qualifier("ttsPluginMessages") MessageResolver messages,
+                                       RequestOwnerIdentityResolver requestOwnerIdentityResolver) {
+        return new TtsController(edgeTtsClient, voiceService, rateLimitService, messages,
+                requestOwnerIdentityResolver);
     }
 
     @Bean

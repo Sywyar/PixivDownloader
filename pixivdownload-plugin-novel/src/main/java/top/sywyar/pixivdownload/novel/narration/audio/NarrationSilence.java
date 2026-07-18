@@ -1,7 +1,10 @@
-package top.sywyar.pixivdownload.tts.narration.engine;
+package top.sywyar.pixivdownload.novel.narration.audio;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
 /**
  * 朗读引擎<b>无关</b>的「短静音」音频工具（纯静态）：为<b>纯标点 / 无可发音内容</b>的脚本行（如小说里独立成段的
@@ -12,7 +15,7 @@ import java.nio.ByteOrder;
  * 极短播放结束后自动续到下一句——既保留了原文里那处停顿的语义，又不打断连续朗读。预览 / 种子音等<b>非脚本行</b>
  * 路径仍按空文本报错，不走此路。
  */
-public final class NarrationSilence {
+final class NarrationSilence {
 
     /** 静音采样率（Hz）：16kHz 单声道足够承载一段无声停顿，字节量极小。 */
     private static final int SAMPLE_RATE = 16_000;

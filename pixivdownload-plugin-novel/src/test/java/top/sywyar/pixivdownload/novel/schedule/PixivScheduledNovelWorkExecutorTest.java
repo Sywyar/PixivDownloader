@@ -16,7 +16,6 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
@@ -38,6 +37,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentati
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunStatistics;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 
 import java.io.IOException;
 import java.net.URI;
@@ -70,7 +71,7 @@ class PixivScheduledNovelWorkExecutorTest {
     @Mock
     private PixivAjaxProxyClient pixivAjaxProxyClient;
     @Mock
-    private NovelMetadataRepository novelMetadataRepository;
+    private WorkQueryService workQueryService;
     @Mock
     private WorkMetaCaptureService workMetaCaptureService;
     @Mock
@@ -118,25 +119,25 @@ class PixivScheduledNovelWorkExecutorTest {
     void localDeduplicationHonorsRedownloadDeleted() throws Exception {
         char[] firstSecret = "first-cookie".toCharArray();
         ContextFixture normal = context(definition(false, false), ScheduledNetworkRoute.direct(), firstSecret);
-        when(novelMetadataRepository.hasNovel(123L)).thenReturn(true);
+        when(workQueryService.hasWork(WorkType.NOVEL, 123L)).thenReturn(true);
 
         ScheduledWorkResult normalResult = executor().execute(work("123"), normal.context());
 
         assertThat(normalResult.outcome()).isEqualTo(ScheduledWorkResult.Outcome.ALREADY_COMPLETED);
-        verify(novelMetadataRepository).hasNovel(123L);
-        verify(novelMetadataRepository, never()).hasActiveNovel(123L);
+        verify(workQueryService).hasWork(WorkType.NOVEL, 123L);
+        verify(workQueryService, never()).hasActiveWork(WorkType.NOVEL, 123L);
         verify(normal.credential(), never()).copySecret();
 
-        reset(novelMetadataRepository);
+        reset(workQueryService);
         char[] redownloadSecret = "second-cookie".toCharArray();
         ContextFixture redownload = context(definition(true, false), ScheduledNetworkRoute.direct(), redownloadSecret);
-        when(novelMetadataRepository.hasActiveNovel(123L)).thenReturn(true);
+        when(workQueryService.hasActiveWork(WorkType.NOVEL, 123L)).thenReturn(true);
 
         ScheduledWorkResult redownloadResult = executor().execute(work("123"), redownload.context());
 
         assertThat(redownloadResult.outcome()).isEqualTo(ScheduledWorkResult.Outcome.ALREADY_COMPLETED);
-        verify(novelMetadataRepository).hasActiveNovel(123L);
-        verify(novelMetadataRepository, never()).hasNovel(123L);
+        verify(workQueryService).hasActiveWork(WorkType.NOVEL, 123L);
+        verify(workQueryService, never()).hasWork(WorkType.NOVEL, 123L);
         verify(redownload.credential(), never()).copySecret();
         verifyNoInteractions(pixivAjaxProxyClient, novelDownloader);
     }
@@ -512,7 +513,7 @@ class PixivScheduledNovelWorkExecutorTest {
         return new PixivScheduledNovelWorkExecutor(
                 objectMapper,
                 pixivAjaxProxyClient,
-                novelMetadataRepository,
+                workQueryService,
                 workMetaCaptureService,
                 novelDownloader,
                 novelMergeService,

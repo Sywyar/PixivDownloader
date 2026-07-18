@@ -96,7 +96,9 @@ public class RuntimeConfigReloadService {
         applyUpdateConfig(nextUpdate, applied);
         applyNarrationTtsConfig(nextNarrationTts, applied);
         applyNotificationConfig(nextNotification, applied);
-        rebindPluginConfig(requestedChangedKeys, applied);
+        Set<String> pluginRebindKeys = new LinkedHashSet<>(requestedChangedKeys);
+        pluginRebindKeys.addAll(applied);
+        rebindPluginConfig(List.copyOf(pluginRebindKeys), applied);
 
         if (!applied.isEmpty()) {
             log.info(message("gui.config.log.hot-reloaded", applied));
@@ -372,6 +374,7 @@ public class RuntimeConfigReloadService {
         Set<String> reboundKeys = new LinkedHashSet<>();
         for (String pluginId : lifecycleService.servingPluginIds()) {
             lifecycleService.withServingContext(pluginId, context -> {
+                refreshParentRuntimeConfigSource(context.getEnvironment());
                 refreshPluginConfigSource(context.getEnvironment());
                 PluginApplicationContextFactory.replaceScopedPropertySource(
                         context.getEnvironment(), pluginId, credentialStoreValues(pluginId));
@@ -384,6 +387,22 @@ public class RuntimeConfigReloadService {
             if (reboundKeys.contains(key)) {
                 addAppliedKey(applied, key);
             }
+        }
+    }
+
+    private void refreshParentRuntimeConfigSource(ConfigurableEnvironment childEnvironment) {
+        MutablePropertySources childSources = childEnvironment.getPropertySources();
+        PropertySource<?> current = environment.getPropertySources().get(RUNTIME_CONFIG_PROPERTY_SOURCE);
+        if (current == null) {
+            childSources.remove(RUNTIME_CONFIG_PROPERTY_SOURCE);
+        } else if (childSources.contains(RUNTIME_CONFIG_PROPERTY_SOURCE)) {
+            childSources.replace(RUNTIME_CONFIG_PROPERTY_SOURCE, current);
+        } else if (childSources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
+            childSources.addAfter(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, current);
+        } else if (childSources.contains(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME)) {
+            childSources.addAfter(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, current);
+        } else {
+            childSources.addFirst(current);
         }
     }
 

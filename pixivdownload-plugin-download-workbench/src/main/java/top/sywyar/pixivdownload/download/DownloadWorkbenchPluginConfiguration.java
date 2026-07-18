@@ -20,6 +20,8 @@ import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
@@ -56,7 +58,6 @@ import top.sywyar.pixivdownload.schedule.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
 /**
  * 下载工作台外置插件的 Bean 装配收敛点。子上下文只注册本配置类，不扫描应用根包；因此下载执行器、
@@ -149,13 +150,13 @@ public class DownloadWorkbenchPluginConfiguration {
     public PixivScheduledLocalWorkLookup pixivScheduledLocalWorkLookup(
             PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
-            NovelMetadataRepository novelMetadataRepository) {
+            WorkQueryService workQueryService) {
         return (key, download) -> {
             long id = Long.parseLong(key.id());
             if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(key.workType())) {
                 return download.redownloadDeleted()
-                        ? novelMetadataRepository.hasActiveNovel(id)
-                        : novelMetadataRepository.hasNovel(id);
+                        ? workQueryService.hasActiveWork(WorkType.NOVEL, id)
+                        : workQueryService.hasWork(WorkType.NOVEL, id);
             }
             if (download.redownloadDeleted()) {
                 return download.verifyFiles()

@@ -5,8 +5,8 @@ import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesMetadataRow;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelWorkSearch;
@@ -235,15 +235,15 @@ public class CoreWorkQueryService implements WorkQueryService {
      * （不要求严格相邻），自小说画廊服务下沉。按接口契约，基准行软删除或无序号时返回 empty。
      */
     private Optional<SeriesNeighbors> novelSeriesNeighbors(long workId) {
-        NovelRecord current = novelMetadataRepository.getNovel(workId);
+        NovelMetadataRow current = novelMetadataRepository.getNovel(workId);
         if (current == null || current.deleted() || current.seriesId() == null || current.seriesId() <= 0
                 || current.seriesOrder() == null) {
             return Optional.empty();
         }
         long currentOrder = current.seriesOrder();
-        NovelRecord prev = null;
-        NovelRecord next = null;
-        for (NovelRecord r : novelMetadataRepository.getNovelsBySeriesId(current.seriesId())) {
+        NovelMetadataRow prev = null;
+        NovelMetadataRow next = null;
+        for (NovelMetadataRow r : novelMetadataRepository.getNovelsBySeriesId(current.seriesId())) {
             long ord = r.seriesOrder() == null ? -1 : r.seriesOrder();
             if (ord < currentOrder && (prev == null
                     || (prev.seriesOrder() != null && ord > prev.seriesOrder()))) {
@@ -254,7 +254,7 @@ public class CoreWorkQueryService implements WorkQueryService {
                 next = r;
             }
         }
-        NovelSeries series = novelMetadataRepository.getSeries(current.seriesId());
+        NovelSeriesMetadataRow series = novelMetadataRepository.getSeries(current.seriesId());
         return Optional.of(new SeriesNeighbors(
                 current.seriesId(),
                 series == null ? null : series.title(),
@@ -340,9 +340,9 @@ public class CoreWorkQueryService implements WorkQueryService {
         for (NovelSeriesSummary item : counts) {
             seriesIds.add(item.seriesId());
         }
-        Map<Long, NovelSeries> seriesById = new LinkedHashMap<>();
+        Map<Long, NovelSeriesMetadataRow> seriesById = new LinkedHashMap<>();
         Set<Long> authorIds = new LinkedHashSet<>();
-        for (NovelSeries seriesRow : novelMetadataRepository.getSeriesByIds(seriesIds)) {
+        for (NovelSeriesMetadataRow seriesRow : novelMetadataRepository.getSeriesByIds(seriesIds)) {
             seriesById.put(seriesRow.seriesId(), seriesRow);
             if (seriesRow.authorId() != null && seriesRow.authorId() > 0) {
                 authorIds.add(seriesRow.authorId());
@@ -352,7 +352,7 @@ public class CoreWorkQueryService implements WorkQueryService {
         Map<Long, List<TagDto>> tagsBySeries = novelMetadataRepository.getNovelSeriesTagsBatch(seriesIds);
         List<SeriesSummary> out = new ArrayList<>(counts.size());
         for (NovelSeriesSummary item : counts) {
-            NovelSeries seriesRow = seriesById.get(item.seriesId());
+            NovelSeriesMetadataRow seriesRow = seriesById.get(item.seriesId());
             String title = seriesRow == null ? String.valueOf(item.seriesId()) : seriesRow.title();
             Long authorId = seriesRow == null ? null : seriesRow.authorId();
             String authorName = authorId == null ? null : authorNames.get(authorId);
@@ -405,7 +405,7 @@ public class CoreWorkQueryService implements WorkQueryService {
         return new SeriesNeighbors.Neighbor(neighbor.artworkId(), neighbor.title(), neighbor.seriesOrder());
     }
 
-    private static SeriesNeighbors.Neighbor toNovelNeighbor(NovelRecord record) {
+    private static SeriesNeighbors.Neighbor toNovelNeighbor(NovelMetadataRow record) {
         if (record == null) {
             return null;
         }

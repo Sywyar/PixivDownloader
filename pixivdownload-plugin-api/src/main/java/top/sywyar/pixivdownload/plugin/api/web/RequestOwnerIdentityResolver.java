@@ -27,6 +27,17 @@ public interface RequestOwnerIdentityResolver {
     }
 
     /**
+     * 返回宿主已验证的邀请访客限流 subject；非邀请请求返回空。
+     *
+     * <p>subject 是只可用于相等性与计数的不透明字符串，不是授权结论，也不得被解析或展示。
+     * 默认返回空，使旧宿主与测试 lambda 保持保守行为。
+     */
+    default Optional<String> resolveInvitedGuestRateLimitSubject(HttpServletRequest request) {
+        Objects.requireNonNull(request, "request");
+        return Optional.empty();
+    }
+
+    /**
      * 判断当前请求是否携带宿主认可的真实管理员认证会话。
      *
      * <p>该结果与 {@link RequestOwnerIdentity#admin()} 表达的管理员作用域不同：例如宿主可在

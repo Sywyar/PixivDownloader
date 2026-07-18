@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -64,9 +64,9 @@ class WorkMetaCaptureServiceTest {
         return new ArtworkRecord(id, "t", tempDir.toString(), 1, "jpg", 1000L, false, null, null, 0, false, 1L, null);
     }
 
-    private NovelRecord novel(long id) {
-        return new NovelRecord(id, "n", tempDir.toString(), 1, "txt", 1000L, 0, false, null, null,
-                null, null, null, null, null, null, null, null, true, null, "正文", null);
+    private NovelMetadataRow novel(long id) {
+        return new NovelMetadataRow(id, "n", tempDir.toString(), 1, "txt", 1000L, 0, false, null, null,
+                null, null, null, null, null, null, null, null, true, null, null);
     }
 
     @Test

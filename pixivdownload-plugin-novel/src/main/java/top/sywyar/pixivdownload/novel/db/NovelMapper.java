@@ -7,9 +7,6 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
-
 import java.util.Collection;
 import java.util.List;
 
@@ -393,6 +390,14 @@ public interface NovelMapper {
     @Select(SELECT_NOVEL + " WHERE novel_id = #{novelId}")
     NovelRecord findById(@Param("novelId") long novelId);
 
+    @Select(SELECT_NOVEL
+            + " WHERE series_id = #{seriesId} AND series_id > 0 AND deleted = 0"
+            + " ORDER BY series_order ASC, time ASC")
+    List<NovelRecord> findBySeriesId(@Param("seriesId") long seriesId);
+
+    @Select("SELECT COUNT(*) FROM novels WHERE novel_id = #{novelId} AND deleted = 0")
+    int countActiveById(@Param("novelId") long novelId);
+
     @Select("SELECT COUNT(*) FROM novels WHERE time = #{time}")
     int countByTime(@Param("time") long time);
 
@@ -509,6 +514,11 @@ public interface NovelMapper {
 
     @Delete("DELETE FROM novel_series_tags WHERE series_id = #{seriesId}")
     void deleteNovelSeriesTags(@Param("seriesId") long seriesId);
+
+    @Select("SELECT t.tag_id AS tagId, t.name, t.translated_name AS translatedName"
+            + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
+            + " WHERE nst.series_id = #{seriesId} ORDER BY t.tag_id")
+    List<NovelTagRow> findNovelSeriesTags(@Param("seriesId") long seriesId);
 
     // ── Collections ─────────────────────────────────────────────────────────────
 

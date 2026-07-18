@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -30,6 +31,18 @@ public class HostRequestOwnerIdentityResolver implements RequestOwnerIdentityRes
     public Optional<String> resolveExistingOwnerUuid(HttpServletRequest request) {
         Objects.requireNonNull(request, "request");
         return Optional.ofNullable(UuidUtils.extractExistingUuid(request));
+    }
+
+    @Override
+    public Optional<String> resolveInvitedGuestRateLimitSubject(HttpServletRequest request) {
+        Objects.requireNonNull(request, "request");
+        if (setupService.isAdminLoggedIn(request)) {
+            return Optional.empty();
+        }
+        Object attribute = request.getAttribute(GuestInviteSession.REQUEST_ATTR);
+        return attribute instanceof GuestInviteSession session
+                ? Optional.of("invite:" + session.id())
+                : Optional.empty();
     }
 
     @Override

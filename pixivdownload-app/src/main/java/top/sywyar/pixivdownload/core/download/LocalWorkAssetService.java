@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarStore;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
@@ -100,7 +100,7 @@ public class LocalWorkAssetService implements WorkAssetService {
                         : Optional.empty();
             }
             case NOVEL -> {
-                NovelRecord novel = novelMetadataRepository.getNovel(workId);
+                NovelMetadataRow novel = novelMetadataRepository.getNovel(workId);
                 if (novel == null) {
                     yield Optional.empty();
                 }
@@ -154,7 +154,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     // ── 小说侧 ─────────────────────────────────────────────────────────────────
 
     private Optional<LocalWorkAsset> findNovelAsset(long workId) {
-        NovelRecord novel = novelMetadataRepository.getNovel(workId);
+        NovelMetadataRow novel = novelMetadataRepository.getNovel(workId);
         if (novel == null) {
             return Optional.empty();
         }
@@ -167,7 +167,7 @@ public class LocalWorkAssetService implements WorkAssetService {
      * 枚举小说独占目录下的全部常规文件，按路径字典序排序保证跨 OS 可复现；
      * 页号是本次枚举快照内的临时序号（见接口 javadoc）。目录不可读时记日志并视为无文件。
      */
-    private List<WorkAssetFile> enumerateNovelFiles(NovelRecord novel, Path dir) {
+    private List<WorkAssetFile> enumerateNovelFiles(NovelMetadataRow novel, Path dir) {
         try (var stream = Files.walk(dir)) {
             List<Path> paths = stream
                     .filter(Files::isRegularFile)
@@ -189,7 +189,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     /** 小说缩略图 = 封面文件 {@code {存储基名}_thumb.{coverExt}}；page 参数无意义，返回页号恒为 0。 */
     private Optional<WorkAssetFile> novelCover(long workId) {
-        NovelRecord novel = novelMetadataRepository.getNovel(workId);
+        NovelMetadataRow novel = novelMetadataRepository.getNovel(workId);
         if (novel == null || !StringUtils.hasText(novel.coverExt()) || !StringUtils.hasText(novel.folder())) {
             return Optional.empty();
         }
@@ -216,7 +216,7 @@ public class LocalWorkAssetService implements WorkAssetService {
      * 小说落盘文件的存储基名：按下载时使用的文件名模板与文件名作者名重放格式化
      * （{@code fileName} 为空回退默认模板），与小说下载链路的命名规则一致。
      */
-    private String resolveStoredNovelBaseName(NovelRecord novel) {
+    private String resolveStoredNovelBaseName(NovelMetadataRow novel) {
         String template = novel.fileName() == null
                 ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE
                 : pixivDatabase.getFileNameTemplate(novel.fileName());
@@ -242,7 +242,7 @@ public class LocalWorkAssetService implements WorkAssetService {
      *         调用方必须中止 DB 清理。
      */
     private boolean deleteNovelFiles(long workId) {
-        NovelRecord record = novelMetadataRepository.getNovel(workId);
+        NovelMetadataRow record = novelMetadataRepository.getNovel(workId);
         if (record == null) {
             return true;
         }
@@ -265,7 +265,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     }
 
     /** 移除已清空的小说独占目录壳（子目录 + 目录本身）；可再生，删失败仅记日志、不影响删除成败。 */
-    private void removeEmptyDirectoryTree(Path dir, NovelRecord record) {
+    private void removeEmptyDirectoryTree(Path dir, NovelMetadataRow record) {
         try (var stream = Files.walk(dir)) {
             stream.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
@@ -288,7 +288,7 @@ public class LocalWorkAssetService implements WorkAssetService {
      * @param logRefusals 删除链路传 {@code true}（守卫拒绝时记日志，polluted folder 行可由管理员
      *                    据此排查）；枚举链路传 {@code false}（与原导出路径的静默跳过一致）
      */
-    private Path exclusiveNovelDirectory(NovelRecord record, boolean logRefusals) {
+    private Path exclusiveNovelDirectory(NovelMetadataRow record, boolean logRefusals) {
         String folder = record.folder();
         if (folder == null || folder.isBlank()) {
             return null;

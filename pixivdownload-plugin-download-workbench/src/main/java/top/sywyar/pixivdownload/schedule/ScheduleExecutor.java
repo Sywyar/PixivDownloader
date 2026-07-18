@@ -19,7 +19,6 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustSettings;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelSettings;
@@ -32,6 +31,8 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
@@ -121,7 +122,7 @@ public class ScheduleExecutor {
     private final PixivDatabase pixivDatabase;
     private final WorkMetaCaptureService workMetaCaptureService;
     private final ArtworkDownloader artworkDownloader;
-    private final NovelMetadataRepository novelMetadataRepository;
+    private final WorkQueryService workQueryService;
     private final ScheduleConfig scheduleConfig;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
@@ -146,7 +147,7 @@ public class ScheduleExecutor {
             PixivDatabase pixivDatabase,
             WorkMetaCaptureService workMetaCaptureService,
             ArtworkDownloader artworkDownloader,
-            NovelMetadataRepository novelMetadataRepository,
+            WorkQueryService workQueryService,
             ScheduleConfig scheduleConfig,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
@@ -160,7 +161,7 @@ public class ScheduleExecutor {
             TaskExecutor downloadTaskExecutor,
             TaskExecutor novelDownloadTaskExecutor) {
         this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
                 overuseWarningService, notificationService, messages, userDisplayNameProvider,
                 downloadSettings, downloadTaskExecutor, novelDownloadTaskExecutor, null);
@@ -174,7 +175,7 @@ public class ScheduleExecutor {
             PixivDatabase pixivDatabase,
             WorkMetaCaptureService workMetaCaptureService,
             ArtworkDownloader artworkDownloader,
-            NovelMetadataRepository novelMetadataRepository,
+            WorkQueryService workQueryService,
             ScheduleConfig scheduleConfig,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
@@ -189,7 +190,7 @@ public class ScheduleExecutor {
             TaskExecutor novelDownloadTaskExecutor,
             ScheduleExecutionEngine scheduleExecutionEngine) {
         this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, novelMetadataRepository,
+                workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
                 overuseWarningService, notificationService, messages, null, userDisplayNameProvider,
                 downloadSettings, downloadTaskExecutor, novelDownloadTaskExecutor,
@@ -2430,7 +2431,9 @@ public class ScheduleExecutor {
      */
     private LongPredicate alreadyDownloadedPredicate(boolean novel, Download download) {
         if (novel) {
-            return download.redownloadDeleted() ? novelMetadataRepository::hasActiveNovel : novelMetadataRepository::hasNovel;
+            return download.redownloadDeleted()
+                    ? id -> workQueryService.hasActiveWork(WorkType.NOVEL, id)
+                    : id -> workQueryService.hasWork(WorkType.NOVEL, id);
         }
         if (download.redownloadDeleted()) {
             return download.verifyFiles()

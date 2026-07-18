@@ -25,7 +25,6 @@ import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
@@ -101,10 +100,9 @@ public class NovelPluginConfiguration {
     public NovelDatabase novelDatabase(NovelMapper novelMapper,
                                        PixivDatabase pixivDatabase,
                                        StoredPathCodec pathPrefixCodec,
-                                       DatabaseInitializer databaseInitializer,
-                                       NovelMetadataRepository novelMetadataRepository) {
+                                       DatabaseInitializer databaseInitializer) {
         return new NovelDatabase(novelMapper, pixivDatabase, pathPrefixCodec,
-                databaseInitializer, novelMetadataRepository);
+                databaseInitializer);
     }
 
     @Bean
@@ -198,14 +196,14 @@ public class NovelPluginConfiguration {
     public PixivScheduledNovelWorkExecutor pixivScheduledNovelWorkExecutor(
             ObjectMapper objectMapper,
             PixivAjaxProxyClient pixivAjaxProxyClient,
-            NovelMetadataRepository novelMetadataRepository,
+            WorkQueryService workQueryService,
             WorkMetaCaptureService workMetaCaptureService,
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
             DownloadSettings downloadConfig) {
         return new PixivScheduledNovelWorkExecutor(
-                objectMapper, pixivAjaxProxyClient, novelMetadataRepository,
+                objectMapper, pixivAjaxProxyClient, workQueryService,
                 workMetaCaptureService, novelDownloader, novelMergeService,
                 novelAutoTranslateService, downloadConfig);
     }

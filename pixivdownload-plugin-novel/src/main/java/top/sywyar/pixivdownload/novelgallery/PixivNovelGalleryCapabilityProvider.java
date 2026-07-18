@@ -26,7 +26,7 @@ import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterCapability;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterField;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterMode;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.ConfigurableEnvironment;
@@ -92,6 +93,89 @@ class RuntimeConfigReloadServiceTest {
             assertThat(result.appliedKeys()).containsExactly("fixture.endpoint");
         } finally {
             child.close();
+        }
+    }
+
+    @Test
+    @DisplayName("首次热重载会把新宿主配置源置于子 context 的启动配置之前")
+    void firstReloadOverridesInheritedStartupConfigInActivePluginContext() throws IOException {
+        Path configDir = useTempConfigDir();
+        Files.createDirectories(configDir);
+        Path configPath = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Files.writeString(configPath,
+                "guest-invite.tts-request-limit-minute: 7\n", StandardCharsets.UTF_8);
+
+        PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
+        StandardEnvironment parentEnvironment = new StandardEnvironment();
+        parentEnvironment.getPropertySources().addLast(new MapPropertySource(
+                "fixtureStartupConfig", Map.of("guest-invite.tts-request-limit-minute", "30")));
+        RuntimeConfigReloadService service = newService(provider(lifecycleService), parentEnvironment);
+
+        try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            parent.setEnvironment(parentEnvironment);
+            parent.refresh();
+            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginContextModule module = new PluginContextModule(
+                    "fixture", getClass().getClassLoader(), List.of(FixtureGuestInviteConfiguration.class));
+            var child = factory.create(parent, module);
+            try {
+                FixtureGuestInviteConfig pluginConfig = child.getBean(FixtureGuestInviteConfig.class);
+                assertThat(pluginConfig.getTtsRequestLimitMinute()).isEqualTo(30);
+                serveContext(lifecycleService, "fixture", child);
+
+                RuntimeConfigReloadService.ReloadResult result = service.reloadHotConfig();
+
+                assertThat(pluginConfig.getTtsRequestLimitMinute()).isEqualTo(7);
+                assertThat(child.getEnvironment().getProperty(
+                        "guest-invite.tts-request-limit-minute")).isEqualTo("7");
+                assertThat(result.appliedKeys())
+                        .contains("guest-invite.tts-request-limit-minute");
+            } finally {
+                child.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("无参热重载会刷新活动子 context 的宿主配置源并重绑插件镜像")
+    void reloadsAppliedHostKeysIntoActivePluginContext() throws IOException {
+        Path configDir = useTempConfigDir();
+        Files.createDirectories(configDir);
+        Path configPath = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Files.writeString(configPath,
+                "guest-invite.tts-request-limit-minute: 30\n", StandardCharsets.UTF_8);
+
+        PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
+        when(lifecycleService.servingPluginIds()).thenReturn(Set.of());
+        StandardEnvironment parentEnvironment = new StandardEnvironment();
+        RuntimeConfigReloadService service = newService(provider(lifecycleService), parentEnvironment);
+        service.reloadHotConfig();
+
+        try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            parent.setEnvironment(parentEnvironment);
+            parent.refresh();
+            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginContextModule module = new PluginContextModule(
+                    "fixture", getClass().getClassLoader(), List.of(FixtureGuestInviteConfiguration.class));
+            var child = factory.create(parent, module);
+            try {
+                FixtureGuestInviteConfig pluginConfig = child.getBean(FixtureGuestInviteConfig.class);
+                assertThat(pluginConfig.getTtsRequestLimitMinute()).isEqualTo(30);
+                serveContext(lifecycleService, "fixture", child);
+                Files.writeString(configPath,
+                        "guest-invite.tts-request-limit-minute: 7\n", StandardCharsets.UTF_8);
+
+                RuntimeConfigReloadService.ReloadResult result = service.reloadHotConfig();
+
+                assertThat(child.getBean(FixtureGuestInviteConfig.class)).isSameAs(pluginConfig);
+                assertThat(pluginConfig.getTtsRequestLimitMinute()).isEqualTo(7);
+                assertThat(child.getEnvironment().getProperty(
+                        "guest-invite.tts-request-limit-minute")).isEqualTo("7");
+                assertThat(result.appliedKeys())
+                        .contains("guest-invite.tts-request-limit-minute");
+            } finally {
+                child.close();
+            }
         }
     }
 
@@ -227,11 +311,11 @@ class RuntimeConfigReloadServiceTest {
     private static void serveContext(
             PluginLifecycleService lifecycleService,
             String pluginId,
-            AnnotationConfigApplicationContext context) {
+            ConfigurableApplicationContext context) {
         when(lifecycleService.servingPluginIds()).thenReturn(Set.of(pluginId));
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            Consumer<AnnotationConfigApplicationContext> operation = invocation.getArgument(1);
+            Consumer<ConfigurableApplicationContext> operation = invocation.getArgument(1);
             operation.accept(context);
             return true;
         }).when(lifecycleService).withServingContext(eq(pluginId), any());
@@ -289,5 +373,23 @@ class RuntimeConfigReloadServiceTest {
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(FixturePluginConfig.class)
     static class FixturePluginConfiguration {
+    }
+
+    @ConfigurationProperties(prefix = "guest-invite")
+    public static class FixtureGuestInviteConfig {
+        private volatile int ttsRequestLimitMinute = 30;
+
+        public int getTtsRequestLimitMinute() {
+            return ttsRequestLimitMinute;
+        }
+
+        public void setTtsRequestLimitMinute(int ttsRequestLimitMinute) {
+            this.ttsRequestLimitMinute = ttsRequestLimitMinute;
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableConfigurationProperties(FixtureGuestInviteConfig.class)
+    static class FixtureGuestInviteConfiguration {
     }
 }

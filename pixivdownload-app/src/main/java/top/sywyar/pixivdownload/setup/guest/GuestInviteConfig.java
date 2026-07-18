@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Configuration;
 @Data
 @Configuration
 @ConfigurationProperties(prefix = "guest-invite")
-public class GuestInviteConfig implements GuestInviteRateLimitSettings {
+public class GuestInviteConfig {
 
     /** 邀请访客每邀请码每分钟最大 API 请求次数（0 = 不限制） */
     private volatile int requestLimitMinute = 300;
@@ -24,4 +24,5 @@ public class GuestInviteConfig implements GuestInviteRateLimitSettings {
 
     /** 邀请访客每邀请码每分钟最大在线 TTS（语音合成）请求次数（0 = 不限制） */
     private volatile int ttsRequestLimitMinute = 30;
+
 }

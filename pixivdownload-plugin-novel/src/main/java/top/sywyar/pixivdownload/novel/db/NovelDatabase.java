@@ -9,9 +9,6 @@ import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.Collection;
@@ -30,12 +27,6 @@ public class NovelDatabase {
     private final StoredPathCodec pathPrefixCodec;
     /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
     private final DatabaseInitializer databaseInitializer;
-    /**
-     * 小说行 / 标签 / 系列 / 收藏夹链接的查询面已收编进核心数据层；本类被 novel-core 调用的
-     * 同名读方法委托此核心仓库，使查询 SQL 单源、且持久化类无需自持读 SQL。
-     */
-    private final NovelMetadataRepository novelMetadataRepository;
-
     /**
      * 进程内已分配但可能尚未持久化的最大 novel time。
      * 与 {@link PixivDatabase#getUniqueTime} 同样的原因 —— 防止并发下载时多个 worker
@@ -119,14 +110,13 @@ public class NovelDatabase {
         novelMapper.updateCoverExt(novelId, coverExt);
     }
 
-    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。委托核心仓库。 */
+    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。 */
     public boolean hasActiveNovel(long novelId) {
-        return novelMetadataRepository.hasActiveNovel(novelId);
+        return novelMapper.countActiveById(novelId) > 0;
     }
 
-    /** 委托核心仓库（行读取已收编进核心数据层，查询 SQL 单源）。 */
     public NovelRecord getNovel(long novelId) {
-        return novelMetadataRepository.getNovel(novelId);
+        return resolveRecord(novelMapper.findById(novelId));
     }
 
     @Transactional
@@ -298,9 +288,12 @@ public class NovelDatabase {
         novelMapper.updateSeriesInfo(novelId, seriesId, seriesOrder);
     }
 
-    /** 委托核心仓库（{@code series_order ASC, time ASC}，软删除行过滤）。 */
     public List<NovelRecord> getNovelsBySeriesId(long seriesId) {
-        return novelMetadataRepository.getNovelsBySeriesId(seriesId);
+        List<NovelRecord> records = novelMapper.findBySeriesId(seriesId);
+        if (records == null || records.isEmpty()) {
+            return List.of();
+        }
+        return records.stream().map(this::resolveRecord).toList();
     }
 
     public List<Long> getNovelIdsMissingSeries() {
@@ -341,10 +334,15 @@ public class NovelDatabase {
         novelMapper.deleteNovelTags(novelId);
     }
 
-    /** 委托核心仓库（系列标签读取已收编进核心数据层，查询 SQL 单源）。 */
     public List<TagDto> getNovelSeriesTags(long seriesId) {
         if (seriesId <= 0) return Collections.emptyList();
-        return novelMetadataRepository.getNovelSeriesTags(seriesId);
+        List<NovelTagRow> rows = novelMapper.findNovelSeriesTags(seriesId);
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return rows.stream()
+                .map(row -> new TagDto(row.tagId(), row.name(), row.translatedName()))
+                .toList();
     }
 
     /**
@@ -371,9 +369,8 @@ public class NovelDatabase {
 
     // ── Series ─────────────────────────────────────────────────────────────────
 
-    /** 委托核心仓库（系列行读取已收编进核心数据层）。 */
     public NovelSeries getSeries(long seriesId) {
-        return novelMetadataRepository.getSeries(seriesId);
+        return resolveSeries(novelMapper.findSeriesById(seriesId));
     }
 
     public void updateSeriesMetadata(long seriesId, String description, String coverExt, String coverFolder) {
@@ -404,6 +401,51 @@ public class NovelDatabase {
 
     public long countNovelsInCollection(long collectionId) {
         return novelMapper.countNovelsByCollectionId(collectionId);
+    }
+
+    private NovelRecord resolveRecord(NovelRecord record) {
+        if (record == null) {
+            return null;
+        }
+        return new NovelRecord(
+                record.novelId(),
+                record.title(),
+                pathPrefixCodec.resolve(record.folder()),
+                record.count(),
+                record.extensions(),
+                record.time(),
+                record.xRestrict(),
+                record.isAi(),
+                record.authorId(),
+                record.description(),
+                record.fileName(),
+                record.fileAuthorNameId(),
+                record.seriesId(),
+                record.seriesOrder(),
+                record.wordCount(),
+                record.textLength(),
+                record.readingTimeSeconds(),
+                record.pageCount(),
+                record.isOriginal(),
+                record.xLanguage(),
+                record.rawContent(),
+                record.coverExt(),
+                record.deleted(),
+                record.uploadTime());
+    }
+
+    private NovelSeries resolveSeries(NovelSeries series) {
+        if (series == null) {
+            return null;
+        }
+        return new NovelSeries(
+                series.seriesId(),
+                series.title(),
+                series.authorId(),
+                series.updatedTime(),
+                series.description(),
+                series.coverExt(),
+                pathPrefixCodec.resolve(series.coverFolder()));
     }
 
     private static String stripTrailingSlash(String path) {
