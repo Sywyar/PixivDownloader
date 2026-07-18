@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.novel.download;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpMethod;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
@@ -94,7 +93,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final UserQuotaService userQuotaService;
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
-    private final TaskExecutor downloadTaskExecutor;
+    private final NovelDownloadExecutionLane downloadExecutionLane;
     private final MessageResolver messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final WorkMetaCaptureService workMetaCaptureService;
@@ -112,7 +111,7 @@ public class NovelDownloadService implements NovelDownloader {
                                 @Nullable UserQuotaService userQuotaService,
                                 @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                 @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                                @Qualifier("novelDownloadTaskExecutor") TaskExecutor downloadTaskExecutor,
+                                NovelDownloadExecutionLane downloadExecutionLane,
                                 MessageResolver messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
                                 WorkMetaCaptureService workMetaCaptureService) {
@@ -126,7 +125,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.userQuotaService = userQuotaService;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
-        this.downloadTaskExecutor = downloadTaskExecutor;
+        this.downloadExecutionLane = downloadExecutionLane;
         this.messages = messages;
         this.novelAutoTranslateService = novelAutoTranslateService;
         this.workMetaCaptureService = workMetaCaptureService;
@@ -137,7 +136,7 @@ public class NovelDownloadService implements NovelDownloader {
         QueueTaskTracker.Task task = taskTracker.prepareQueued(userUuid);
         task.bind(() -> downloadTracked(task, request, userUuid));
         try {
-            downloadTaskExecutor.execute(task);
+            downloadExecutionLane.execute(task);
         } catch (RuntimeException | Error failure) {
             task.rejectSubmission();
             throw failure;
@@ -146,6 +145,18 @@ public class NovelDownloadService implements NovelDownloader {
 
     @Override
     public boolean downloadBlocking(NovelDownloadRequest request, String userUuid) {
+        try {
+            return downloadExecutionLane.executeAndWait(() -> downloadBlockingInLane(request, userUuid));
+        } catch (InterruptedException e) {
+            throw new CancellationException("novel download interrupted");
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("novel download lane failed", e);
+        }
+    }
+
+    private boolean downloadBlockingInLane(NovelDownloadRequest request, String userUuid) {
         QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
         try {
             return downloadTracked(task, request, userUuid);

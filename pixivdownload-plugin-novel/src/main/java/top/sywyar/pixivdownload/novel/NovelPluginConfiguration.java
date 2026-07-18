@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.client.RestTemplate;
@@ -40,6 +41,7 @@ import top.sywyar.pixivdownload.novel.controller.NovelPixivProxyController;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.download.NovelQueueOperations;
 import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
@@ -156,6 +158,13 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
+    public NovelDownloadExecutionLane novelDownloadExecutionLane(
+            @Qualifier("novelDownloadTaskExecutor") ThreadPoolTaskExecutor taskExecutor) {
+        return new NovelDownloadExecutionLane(taskExecutor, taskExecutor.getMaxPoolSize());
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelDownloadService novelDownloadService(
             DownloadSettings downloadConfig,
             PixivDatabase pixivDatabase,
@@ -167,13 +176,13 @@ public class NovelPluginConfiguration {
             @Nullable UserQuotaService userQuotaService,
             @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
             @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-            @Qualifier("novelDownloadTaskExecutor") TaskExecutor downloadTaskExecutor,
+            NovelDownloadExecutionLane downloadExecutionLane,
             MessageResolver messages,
             NovelAutoTranslateService novelAutoTranslateService,
             WorkMetaCaptureService workMetaCaptureService) {
         return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase, novelSeriesService,
                 authorService, collectionService, pixivBookmarkService, userQuotaService, downloadRestTemplate,
-                taskScheduler, downloadTaskExecutor, messages, novelAutoTranslateService, workMetaCaptureService);
+                taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService, workMetaCaptureService);
     }
 
     @Bean

@@ -92,9 +92,10 @@ class NovelDownloadServiceTest {
     }
 
     private NovelDownloadService newService(TaskExecutor taskExecutor) {
+        NovelDownloadExecutionLane executionLane = new NovelDownloadExecutionLane(taskExecutor, 1);
         return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase,
                 novelSeriesService, authorService, collectionService, pixivBookmarkService,
-                userQuotaService, downloadRestTemplate, taskScheduler, taskExecutor, APP_MESSAGES,
+                userQuotaService, downloadRestTemplate, taskScheduler, executionLane, APP_MESSAGES,
                 novelAutoTranslateService, workMetaCaptureService);
     }
 
