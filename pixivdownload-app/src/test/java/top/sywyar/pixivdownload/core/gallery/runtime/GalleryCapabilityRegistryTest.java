@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendScope;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
 import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
 import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWork;
@@ -319,7 +320,8 @@ class GalleryCapabilityRegistryTest {
         @Override
         public List<GalleryProjectionDescriptor> projections() {
             return List.of(new GalleryProjectionDescriptor(
-                    sourceId, kind, "gallery", "source.test", 0, Map.of()));
+                    sourceId, kind, "gallery", "source.test", 0,
+                    GalleryDataAccess.SHARED, Map.of()));
         }
 
         @Override
@@ -334,7 +336,7 @@ class GalleryCapabilityRegistryTest {
 
         @Override
         public List<GalleryWorkDescriptor> works() {
-            return List.of(new GalleryWorkDescriptor(sourceId, namespace));
+            return List.of(new GalleryWorkDescriptor(sourceId, namespace, GalleryDataAccess.SHARED));
         }
 
         @Override

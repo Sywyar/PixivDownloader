@@ -207,7 +207,7 @@ class NovelExternalPluginBootContextTest {
 
     @Test
     @DisplayName("novel 子上下文原子贡献 pixiv NOVEL 投影与 novel 详情能力")
-    void novelDataProviderIsRegisteredFromExternalChildContext() {
+    void novelCapabilityProviderIsRegisteredFromExternalChildContext() {
         assertThat(galleryCapabilityRegistry.snapshot().projections())
                 .filteredOn(projection -> projection.sourceId().equals("pixiv"))
                 .singleElement()
@@ -247,7 +247,7 @@ class NovelExternalPluginBootContextTest {
         Class<?> controllerClass =
                 externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController");
         Class<?> providerClass =
-                externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryDataProvider");
+                externalCl.loadClass("top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryCapabilityProvider");
         Class<?> frontendProviderClass = externalCl.loadClass(
                 "top.sywyar.pixivdownload.novelgallery.frontend.NovelGalleryFrontendProvider");
 

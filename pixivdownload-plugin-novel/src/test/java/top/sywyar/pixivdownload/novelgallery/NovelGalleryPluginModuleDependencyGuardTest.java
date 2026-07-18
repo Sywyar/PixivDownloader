@@ -58,8 +58,7 @@ class NovelGalleryPluginModuleDependencyGuardTest {
         noClasses()
                 .that(JavaClass.Predicates.belongToAnyOf(
                         NovelGalleryService.class,
-                        NovelBatchService.class,
-                        PixivNovelGalleryDataProvider.class))
+                        NovelBatchService.class))
                 .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
                         top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
                         top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,

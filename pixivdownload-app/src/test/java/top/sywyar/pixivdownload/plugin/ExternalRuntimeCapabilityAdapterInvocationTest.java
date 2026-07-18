@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.core.ai.AiChatClientRegistry;
 import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
 import top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetPage;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
+import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
@@ -370,7 +371,8 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
         @Override
         public List<GalleryProjectionDescriptor> projections() {
             return List.of(new GalleryProjectionDescriptor(
-                    "pixiv", GalleryKind.IMAGE, "gallery", "gallery.image", 1, Map.of()));
+                    "pixiv", GalleryKind.IMAGE, "gallery", "gallery.image", 1,
+                    GalleryDataAccess.SHARED, Map.of()));
         }
 
         @Override

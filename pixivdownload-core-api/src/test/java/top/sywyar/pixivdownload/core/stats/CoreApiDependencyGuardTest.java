@@ -20,10 +20,10 @@ import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
 import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
-import top.sywyar.pixivdownload.core.gallery.GalleryDataProvider;
+import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
+import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendProvider;
-import top.sywyar.pixivdownload.core.gallery.model.GallerySourceDescriptor;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCountResult;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeQuery;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeSnapshot;
@@ -143,8 +143,8 @@ class CoreApiDependencyGuardTest {
     @Test
     @DisplayName("core-api 模块应包含中性画廊 provider、只读运行时门面与纯值结果")
     void coreApiContainsGalleryApiTypes() {
-        assertThat(CLASSES.contain(GalleryDataProvider.class.getName())).isTrue();
-        assertThat(CLASSES.contain(GallerySourceDescriptor.class.getName())).isTrue();
+        assertThat(CLASSES.contain(GalleryProjectionProvider.class.getName())).isTrue();
+        assertThat(CLASSES.contain(GalleryWorkProvider.class.getName())).isTrue();
         assertThat(CLASSES.contain(GalleryFrontendContribution.class.getName())).isTrue();
         assertThat(CLASSES.contain(GalleryFrontendProvider.class.getName())).isTrue();
         assertThat(CLASSES.contain(GalleryRuntimeQuery.class.getName())).isTrue();

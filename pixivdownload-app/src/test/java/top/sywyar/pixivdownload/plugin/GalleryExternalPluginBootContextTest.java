@@ -269,7 +269,7 @@ class GalleryExternalPluginBootContextTest {
 
     @Test
     @DisplayName("gallery 子上下文原子贡献 pixiv IMAGE 投影、详情与前端能力")
-    void galleryDataProviderIsRegisteredFromExternalChildContext() {
+    void galleryCapabilityProviderIsRegisteredFromExternalChildContext() {
         assertThat(galleryCapabilityRegistry.snapshot().projections())
                 .filteredOn(projection -> projection.sourceId().equals("pixiv"))
                 .singleElement()
@@ -305,7 +305,8 @@ class GalleryExternalPluginBootContextTest {
         Class<?> serviceClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryService");
         Class<?> batchServiceClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryBatchService");
         Class<?> controllerClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.GalleryController");
-        Class<?> providerClass = externalCl.loadClass("top.sywyar.pixivdownload.gallery.PixivImageGalleryDataProvider");
+        Class<?> providerClass = externalCl.loadClass(
+                "top.sywyar.pixivdownload.gallery.PixivImageGalleryCapabilityProvider");
         Class<?> frontendProviderClass = externalCl.loadClass(
                 "top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider");
 

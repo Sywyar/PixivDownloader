@@ -17,20 +17,12 @@ public record GalleryProjectionDescriptor(
         GalleryDataAccess dataAccess,
         Map<GalleryFilterField, GalleryFilterCapability> filterCapabilities
 ) {
-
-    public GalleryProjectionDescriptor(String sourceId, GalleryKind kind, String displayNamespace,
-                                       String displayI18nKey, int order,
-                                       Map<GalleryFilterField, GalleryFilterCapability> filterCapabilities) {
-        this(sourceId, kind, displayNamespace, displayI18nKey, order,
-                GalleryDataAccess.SHARED, filterCapabilities);
-    }
-
     public GalleryProjectionDescriptor {
         sourceId = requireText(sourceId, "sourceId");
         Objects.requireNonNull(kind, "kind");
         displayNamespace = blankToNull(displayNamespace);
         displayI18nKey = blankToNull(displayI18nKey);
-        dataAccess = dataAccess == null ? GalleryDataAccess.SHARED : dataAccess;
+        Objects.requireNonNull(dataAccess, "dataAccess");
         filterCapabilities = filterCapabilities == null ? Map.of() : Map.copyOf(filterCapabilities);
     }
 
