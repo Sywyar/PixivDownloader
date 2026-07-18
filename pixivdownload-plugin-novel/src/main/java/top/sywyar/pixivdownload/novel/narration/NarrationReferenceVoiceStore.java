@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -17,7 +16,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Stream;
 
 /**
- * 多角色朗读「参考音 / 标准音」的<b>磁盘存储</b>（{@code data/narration-voice/{castId}/{characterId}.{ext}}）。
+ * 多角色朗读「参考音 / 标准音」的<b>磁盘存储</b>（{@code data/novel/narration-voice/{castId}/{characterId}.{ext}}）。
  * 把所有落盘 / 清理 / 并发保护收敛于此，供 {@link NarrationReferenceVoiceService}（写入 / 删除单个角色）与
  * {@link NovelNarrationCastService}（整册替换删除被移除角色、删除整册目录）共用，避免文件操作散落、产生孤儿文件。
  *
@@ -37,11 +36,11 @@ public class NarrationReferenceVoiceStore {
     /** 受支持的参考音扩展名（清理时逐一尝试删除）。 */
     private static final List<String> REF_EXTENSIONS = List.of("wav", "mp3", "pcm");
 
-    private final RuntimePathProvider runtimePathProvider;
+    private final NarrationReferenceVoicePaths paths;
     private final ConcurrentMap<String, Object> locks = new ConcurrentHashMap<>();
 
-    public NarrationReferenceVoiceStore(RuntimePathProvider runtimePathProvider) {
-        this.runtimePathProvider = runtimePathProvider;
+    public NarrationReferenceVoiceStore(NarrationReferenceVoicePaths paths) {
+        this.paths = paths;
     }
 
     /** 取某角色文件操作的串行锁（稳定的每键监视器）；调用方在其上 {@code synchronized} 串起文件 + DB 变更。 */
@@ -54,7 +53,7 @@ public class NarrationReferenceVoiceStore {
      * {@link UncheckedIOException}（不会留下半截目标文件）。
      */
     public void write(long castId, int characterId, byte[] data, String ext) {
-        Path target = runtimePathProvider.narrationVoiceFile(castId, characterId, ext);
+        Path target = paths.file(castId, characterId, ext);
         Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
         try {
             Files.write(tmp, data);
@@ -69,13 +68,13 @@ public class NarrationReferenceVoiceStore {
     /** 删除某角色的全部扩展名参考音文件（最大努力，绝不抛出）。 */
     public void deleteCharacterFiles(long castId, int characterId) {
         for (String e : REF_EXTENSIONS) {
-            deleteQuietly(runtimePathProvider.narrationVoiceFile(castId, characterId, e));
+            deleteQuietly(paths.file(castId, characterId, e));
         }
     }
 
-    /** 删除整册参考音目录 {@code data/narration-voice/{castId}/}（删除花名册时；最大努力，绝不抛出）。 */
+    /** 删除整册参考音目录 {@code data/novel/narration-voice/{castId}/}（删除花名册时；最大努力，绝不抛出）。 */
     public void deleteCastDirectory(long castId) {
-        Path dir = runtimePathProvider.narrationVoiceDirectory(castId);
+        Path dir = paths.castDirectory(castId);
         if (!Files.isDirectory(dir)) {
             return;
         }
@@ -92,7 +91,7 @@ public class NarrationReferenceVoiceStore {
             if (e.equals(keep)) {
                 continue;
             }
-            deleteQuietly(runtimePathProvider.narrationVoiceFile(castId, characterId, e));
+            deleteQuietly(paths.file(castId, characterId, e));
         }
     }
 

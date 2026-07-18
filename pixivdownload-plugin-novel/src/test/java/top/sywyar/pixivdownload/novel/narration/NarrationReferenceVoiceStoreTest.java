@@ -20,16 +20,17 @@ class NarrationReferenceVoiceStoreTest {
     @DisplayName("write：原子落盘目标文件、清掉同角色旧扩展名文件，不残留临时文件")
     void writeReplacesOtherExtensions() throws Exception {
         TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tmp);
-        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(runtimePaths);
+        NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(runtimePaths);
+        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(paths);
         store.write(7L, 1, new byte[]{1, 2, 3}, "wav");
-        assertThat(Files.exists(runtimePaths.narrationVoiceFile(7L, 1, "wav"))).isTrue();
+        assertThat(Files.exists(paths.file(7L, 1, "wav"))).isTrue();
 
         // 切换为 mp3：写出 mp3、清掉旧 wav
         store.write(7L, 1, new byte[]{4, 5, 6, 7}, "mp3");
-        assertThat(Files.readAllBytes(runtimePaths.narrationVoiceFile(7L, 1, "mp3")))
+        assertThat(Files.readAllBytes(paths.file(7L, 1, "mp3")))
                 .isEqualTo(new byte[]{4, 5, 6, 7});
-        assertThat(Files.exists(runtimePaths.narrationVoiceFile(7L, 1, "wav"))).isFalse();
-        Path mp3 = runtimePaths.narrationVoiceFile(7L, 1, "mp3");
+        assertThat(Files.exists(paths.file(7L, 1, "wav"))).isFalse();
+        Path mp3 = paths.file(7L, 1, "mp3");
         assertThat(Files.exists(mp3.resolveSibling(mp3.getFileName() + ".tmp"))).isFalse();
     }
 
@@ -37,21 +38,23 @@ class NarrationReferenceVoiceStoreTest {
     @DisplayName("deleteCharacterFiles：删除某角色全部扩展名文件，不影响同册其它角色")
     void deleteCharacterFilesRemovesAllExtensions() {
         TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tmp);
-        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(runtimePaths);
+        NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(runtimePaths);
+        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(paths);
         store.write(7L, 1, new byte[]{1}, "wav");
         store.write(7L, 2, new byte[]{2}, "mp3");
 
         store.deleteCharacterFiles(7L, 1);
 
-        assertThat(Files.exists(runtimePaths.narrationVoiceFile(7L, 1, "wav"))).isFalse();
-        assertThat(Files.exists(runtimePaths.narrationVoiceFile(7L, 2, "mp3"))).isTrue();
+        assertThat(Files.exists(paths.file(7L, 1, "wav"))).isFalse();
+        assertThat(Files.exists(paths.file(7L, 2, "mp3"))).isTrue();
     }
 
     @Test
     @DisplayName("deleteCastDirectory：递归删除整册目录，不误删其它册")
     void deleteCastDirectoryRemovesOnlyThatCast() {
         TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tmp);
-        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(runtimePaths);
+        NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(runtimePaths);
+        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(paths);
         store.write(7L, 0, new byte[]{1}, "wav");
         store.write(7L, 1, new byte[]{2}, "mp3");
         store.write(8L, 0, new byte[]{3}, "wav");
@@ -59,6 +62,6 @@ class NarrationReferenceVoiceStoreTest {
         store.deleteCastDirectory(7L);
 
         assertThat(Files.exists(runtimePaths.narrationVoicePath(7L))).isFalse();
-        assertThat(Files.exists(runtimePaths.narrationVoiceFile(8L, 0, "wav"))).isTrue();
+        assertThat(Files.exists(paths.file(8L, 0, "wav"))).isTrue();
     }
 }

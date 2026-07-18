@@ -46,6 +46,7 @@ import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.novel.schedule.PixivScheduledNovelWorkExecutor;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
+import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoicePaths;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceStore;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
@@ -216,8 +217,14 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NarrationReferenceVoiceStore narrationReferenceVoiceStore(RuntimePathProvider runtimePathProvider) {
-        return new NarrationReferenceVoiceStore(runtimePathProvider);
+    public NarrationReferenceVoicePaths narrationReferenceVoicePaths(RuntimePathProvider runtimePathProvider) {
+        return new NarrationReferenceVoicePaths(runtimePathProvider);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
+    public NarrationReferenceVoiceStore narrationReferenceVoiceStore(NarrationReferenceVoicePaths paths) {
+        return new NarrationReferenceVoiceStore(paths);
     }
 
     @Bean
@@ -234,9 +241,9 @@ public class NovelPluginConfiguration {
             NovelMapper novelMapper,
             NarrationAudioService narrationAudioService,
             NarrationReferenceVoiceStore fileStore,
-            RuntimePathProvider runtimePathProvider) {
+            NarrationReferenceVoicePaths paths) {
         return new NarrationReferenceVoiceService(
-                novelMapper, narrationAudioService, fileStore, runtimePathProvider);
+                novelMapper, narrationAudioService, fileStore, paths);
     }
 
     @Bean
@@ -292,9 +299,9 @@ public class NovelPluginConfiguration {
             NovelNarrationCastService castService,
             NarrationReferenceVoiceService referenceVoiceService,
             MessageResolver messages,
-            RuntimePathProvider runtimePathProvider) {
+            NarrationReferenceVoicePaths paths) {
         return new NarrationReferenceVoiceController(
-                castService, referenceVoiceService, messages, runtimePathProvider);
+                castService, referenceVoiceService, messages, paths);
     }
 
     @Bean

@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
+import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoicePaths;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidatorTest;
 
@@ -43,13 +44,15 @@ class NarrationReferenceVoiceControllerTest {
     private Path tempDir;
 
     private TestRuntimePathProvider runtimePaths;
+    private NarrationReferenceVoicePaths paths;
     private NarrationReferenceVoiceController controller;
 
     @BeforeEach
     void setUp() {
         runtimePaths = new TestRuntimePathProvider(tempDir);
+        paths = new NarrationReferenceVoicePaths(runtimePaths);
         controller = new NarrationReferenceVoiceController(
-                castService, referenceVoiceService, messageResolver(), runtimePaths);
+                castService, referenceVoiceService, messageResolver(), paths);
     }
 
     @Test
@@ -108,7 +111,7 @@ class NarrationReferenceVoiceControllerTest {
     @DisplayName("预览：参考音响应带 nosniff")
     void previewAddsNosniffHeader() throws Exception {
         byte[] data = UploadedAudioValidatorTest.pcmWav(48_000, 1, 16, 96_000);
-        Files.write(runtimePaths.narrationVoiceFile(3L, 1, "wav"), data);
+        Files.write(paths.file(3L, 1, "wav"), data);
         when(referenceVoiceService.reference(3L, 1))
                 .thenReturn(new NovelNarrationVoiceRef(3L, 1, "wav", null, "upload", 1L));
 

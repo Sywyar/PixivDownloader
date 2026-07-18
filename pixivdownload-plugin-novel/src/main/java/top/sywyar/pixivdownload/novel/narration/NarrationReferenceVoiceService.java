@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
@@ -23,8 +22,8 @@ import java.util.Map;
  * {@link NarrationReferenceVoice}（原始音频字节 + MIME + 转录），供 {@link NovelNarrationScriptService} 在合成时塞进
  * {@link top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest}——参考音解析<b>不埋进引擎</b>，引擎只认值对象。
  *
- * <p>参考音字节存盘于 {@code data/narration-voice/{castId}/{characterId}.{ext}}（经
- * {@link RuntimePathProvider} 解析，不进
+ * <p>参考音字节存盘于 {@code data/novel/narration-voice/{castId}/{characterId}.{ext}}（经
+ * {@link NarrationReferenceVoicePaths} 解析，不进
  * {@code rootFolder}）；元数据（扩展名 / 转录 / 来源 / 时间）落 {@code novel_narration_voices} 的参考音列。
  *
  * <p>三种来源：
@@ -51,15 +50,15 @@ public class NarrationReferenceVoiceService {
     private final NovelMapper novelMapper;
     private final NarrationAudioService narrationAudioService;
     private final NarrationReferenceVoiceStore fileStore;
-    private final RuntimePathProvider runtimePathProvider;
+    private final NarrationReferenceVoicePaths paths;
 
     public NarrationReferenceVoiceService(NovelMapper novelMapper, NarrationAudioService narrationAudioService,
                                           NarrationReferenceVoiceStore fileStore,
-                                          RuntimePathProvider runtimePathProvider) {
+                                          NarrationReferenceVoicePaths paths) {
         this.novelMapper = novelMapper;
         this.narrationAudioService = narrationAudioService;
         this.fileStore = fileStore;
-        this.runtimePathProvider = runtimePathProvider;
+        this.paths = paths;
     }
 
     /** 自动种子音生成结果。 */
@@ -78,7 +77,7 @@ public class NarrationReferenceVoiceService {
         if (ref == null || !ref.present()) {
             return null;
         }
-        Path file = runtimePathProvider.narrationVoiceFile(castId, characterId, ref.ext());
+        Path file = paths.file(castId, characterId, ref.ext());
         if (!Files.isRegularFile(file)) {
             return null;
         }

@@ -15,9 +15,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.common.ErrorResponse;
-import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
+import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoicePaths;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidator;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
@@ -31,7 +31,7 @@ import java.nio.file.Path;
 /**
  * 多角色朗读「参考音 / 标准音」管理端点：生成自动标准音、上传真人参考音、删除、试听。全部挂在 {@code /api/narration/}
  * 前缀下，按 monitor 语义保护（admin-only）——<b>不</b>入 {@code isPublic()} / 访客邀请白名单，限流绝不作用于 solo /
- * 已登录管理员。参考音字节存盘于 {@code data/narration-voice/}，元数据落库；任何变更都会推进花名册 {@code updated_time}
+ * 已登录管理员。参考音字节存盘于 {@code data/novel/narration-voice/}，元数据落库；任何变更都会推进花名册 {@code updated_time}
  * 使前端音频缓存失效、逐句音频自动按新音色重算。
  */
 @RestController
@@ -47,7 +47,7 @@ public class NarrationReferenceVoiceController {
     private final NovelNarrationCastService castService;
     private final NarrationReferenceVoiceService referenceVoiceService;
     private final MessageResolver messages;
-    private final RuntimePathProvider runtimePathProvider;
+    private final NarrationReferenceVoicePaths paths;
 
     public record GenerateRequest(Long castId, Integer characterId, String text) {}
 
@@ -140,7 +140,7 @@ public class NarrationReferenceVoiceController {
         if (ref == null) {
             return ResponseEntity.notFound().build();
         }
-        Path file = runtimePathProvider.narrationVoiceFile(castId, characterId, ref.ext());
+        Path file = paths.file(castId, characterId, ref.ext());
         if (!Files.isRegularFile(file)) {
             return ResponseEntity.notFound().build();
         }
