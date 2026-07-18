@@ -165,13 +165,13 @@ public class ScheduleHostPluginConfiguration {
                                              UserDisplayNameProvider userDisplayNameProvider,
                                              DownloadSettings downloadSettings,
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-                                             @Qualifier("scheduleWorkTaskExecutor") TaskExecutor novelDownloadTaskExecutor,
+                                             @Qualifier("scheduleWorkTaskExecutor") TaskExecutor novelDispatchTaskExecutor,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
                 notificationService, messages, webI18nBundleRegistry, userDisplayNameProvider, downloadSettings,
-                downloadTaskExecutor, novelDownloadTaskExecutor, scheduleExecutionEngine);
+                downloadTaskExecutor, novelDispatchTaskExecutor, scheduleExecutionEngine);
     }
 
     /** 只供既有配置装配单测构造 legacy 执行壳；Spring 使用上面的完整 Bean 工厂。 */
@@ -193,12 +193,12 @@ public class ScheduleHostPluginConfiguration {
                                              UserDisplayNameProvider userDisplayNameProvider,
                                              DownloadSettings downloadSettings,
                                              TaskExecutor downloadTaskExecutor,
-                                             TaskExecutor novelDownloadTaskExecutor) {
+                                             TaskExecutor novelDispatchTaskExecutor) {
         return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
                 notificationService, messages, userDisplayNameProvider, downloadSettings,
-                downloadTaskExecutor, novelDownloadTaskExecutor);
+                downloadTaskExecutor, novelDispatchTaskExecutor);
     }
 
     @Bean

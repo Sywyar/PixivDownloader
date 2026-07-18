@@ -102,8 +102,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
  * 自动挂起均发通知（邮件 + 推送并行，经 {@link NotificationService}，best-effort）；手动 {@code MANUAL} 挂起不发。
  *
  * <p><b>作品级并发</b>：任务间本就串行（唯一 {@code @Scheduled} tick + 单飞），故一个任务内借用
- * 下载线程池（插画走 {@code downloadTaskExecutor}、小说走 {@code novelDownloadTaskExecutor}，与交互式
- * web 下载共享）做作品级并发。发现 / 翻页 / 水位线边界判定 / 去重 / 取元数据 / 服务端筛选 / 解析图片 URL /
+ * 执行池（插画走 {@code downloadTaskExecutor}；小说外层编排走 {@code novelDispatchTaskExecutor}，再由
+ * 小说插件自己的统一下载通道约束交互式与计划任务的硬并发）做作品级并发。发现 / 翻页 / 水位线边界判定 /
+ * 去重 / 取元数据 / 服务端筛选 / 解析图片 URL /
  * 作品间礼貌延迟 / 过度访问轮内 N 检查全在调度主线程<b>串行</b>执行（保证水位线按新→旧判边界、限速安全）；
  * <b>仅</b>把阻塞下载提交到线程池，用 {@link Semaphore}（有效并发数 = {@code min(任务并发数, 对应池大小)}）限流：
  * 主线程提交前 {@code acquire}、异步任务 {@code finally} 里 {@code release}。novel 合订与候选 checkpoint 都在
@@ -136,7 +137,7 @@ public class ScheduleExecutor {
     private final DownloadSettings downloadSettings;
     // 字段名与 bean 名一致，借此按名解析到对应下载池（避免 @Primary 的 applicationTaskExecutor）。
     private final TaskExecutor downloadTaskExecutor;
-    private final TaskExecutor novelDownloadTaskExecutor;
+    private final TaskExecutor novelDispatchTaskExecutor;
     private final ScheduleExecutionEngine scheduleExecutionEngine;
 
     /** 旧执行壳单测与兼容适配器使用的构造入口；只允许其发布 legacy capability。 */
@@ -159,12 +160,12 @@ public class ScheduleExecutor {
             UserDisplayNameProvider userDisplayNameProvider,
             DownloadSettings downloadSettings,
             TaskExecutor downloadTaskExecutor,
-            TaskExecutor novelDownloadTaskExecutor) {
+            TaskExecutor novelDispatchTaskExecutor) {
         this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
                 overuseWarningService, notificationService, messages, userDisplayNameProvider,
-                downloadSettings, downloadTaskExecutor, novelDownloadTaskExecutor, null);
+                downloadSettings, downloadTaskExecutor, novelDispatchTaskExecutor, null);
     }
 
     /** 保留既有显式构造调用；descriptor i18n registry 仅由正式插件装配注入。 */
@@ -187,13 +188,13 @@ public class ScheduleExecutor {
             UserDisplayNameProvider userDisplayNameProvider,
             DownloadSettings downloadSettings,
             TaskExecutor downloadTaskExecutor,
-            TaskExecutor novelDownloadTaskExecutor,
+            TaskExecutor novelDispatchTaskExecutor,
             ScheduleExecutionEngine scheduleExecutionEngine) {
         this(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, workQueryService,
                 scheduleConfig, runState, runQueue, objectMapper, persistenceCodec,
                 overuseWarningService, notificationService, messages, null, userDisplayNameProvider,
-                downloadSettings, downloadTaskExecutor, novelDownloadTaskExecutor,
+                downloadSettings, downloadTaskExecutor, novelDispatchTaskExecutor,
                 scheduleExecutionEngine);
     }
 
@@ -1149,7 +1150,7 @@ public class ScheduleExecutor {
         // 小说始终走 hasNovel（无 verify）。作品间礼貌延迟取任务级「作品间隔」。
         LongPredicate alreadyDownloaded = alreadyDownloadedPredicate(novel, download);
         Runnable politeDelay = politeDelayFor(download);
-        TaskExecutor pool = novel ? novelDownloadTaskExecutor : downloadTaskExecutor;
+        TaskExecutor pool = novel ? novelDispatchTaskExecutor : downloadTaskExecutor;
         int concurrency = effectiveConcurrency(novel, download.concurrent());
         WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool,
                 pendingNotifications, workRunners, cancellation);
@@ -1257,7 +1258,7 @@ public class ScheduleExecutor {
 
     /**
      * 珍藏集（插画+小说混合）专用：发现成员后分两遍各自走对应下载管线（插画用 {@code downloadTaskExecutor}、
-     * 小说用 {@code novelDownloadTaskExecutor}），完成数相加。两遍共用同一轮运行队列（按成员自身 kind 登记）。
+     * 小说用 {@code novelDispatchTaskExecutor}），完成数相加。两遍共用同一轮运行队列（按成员自身 kind 登记）。
      * 隔离表重试按「成员是否仍在珍藏集内」的成员关系判定：仍在则本轮以 retry 语义重派，已被移出的孤儿条目本轮跳过。
      */
     private int runCollectionTask(ScheduledTask task, JsonNode source, String cookie,
@@ -1311,7 +1312,7 @@ public class ScheduleExecutor {
                                   Map<String, ScheduledWorkRunner> workRunners,
                                   ScheduledCancellation cancellation) throws Exception {
         LongPredicate alreadyDownloaded = alreadyDownloadedPredicate(novel, download);
-        TaskExecutor pool = novel ? novelDownloadTaskExecutor : downloadTaskExecutor;
+        TaskExecutor pool = novel ? novelDispatchTaskExecutor : downloadTaskExecutor;
         int concurrency = effectiveConcurrency(novel, download.concurrent());
         WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool,
                 pendingNotifications, workRunners, cancellation);
