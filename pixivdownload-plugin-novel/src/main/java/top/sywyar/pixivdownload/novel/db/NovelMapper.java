@@ -346,6 +346,27 @@ public interface NovelMapper {
     @Update("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')")
     void createNovelFtsTable();
 
+    /**
+     * 小说私有普通关系表的软删除触发器。宿主只更新 {@code novels.deleted}；标签关系、收藏关系、
+     * 内嵌图、译文与朗读脚本由小说插件定义，并与主行标记在同一 SQLite 语句内提交。
+     * FTS 是可再生辅助数据，不能放进触发器，否则虚拟表缺失或损坏会回滚主行软删除。
+     */
+    @Update("CREATE TRIGGER IF NOT EXISTS novel_soft_delete_cleanup"
+            + " AFTER UPDATE OF deleted ON novels"
+            + " WHEN NEW.deleted = 1"
+            + " BEGIN"
+            + " DELETE FROM novel_tags WHERE novel_id = NEW.novel_id;"
+            + " DELETE FROM novel_collections WHERE novel_id = NEW.novel_id;"
+            + " DELETE FROM novel_images WHERE novel_id = NEW.novel_id;"
+            + " DELETE FROM novel_translations WHERE novel_id = NEW.novel_id;"
+            + " DELETE FROM novel_narration_scripts WHERE novel_id = NEW.novel_id;"
+            + " END")
+    void createNovelSoftDeleteCleanupTrigger();
+
+    /** 让触发器接管升级前已软删除行的遗留派生状态；重复执行幂等。 */
+    @Update("UPDATE novels SET deleted = 1 WHERE deleted = 1")
+    void cleanupExistingDeletedNovelState();
+
     /** 把尚未建立索引的小说正文补进 FTS（首次启用本功能或旧库升级时回填）；软删除的小说不回填。 */
     @Update("INSERT INTO novels_fts(rowid, content)"
             + " SELECT novel_id, COALESCE(raw_content, '') FROM novels"
@@ -358,8 +379,14 @@ public interface NovelMapper {
     @Delete("DELETE FROM novels_fts WHERE rowid = #{novelId}")
     void deleteNovelFts(@Param("novelId") long novelId);
 
+    /** 清理已软删除小说的陈旧全文索引行；调用方必须按辅助数据 best-effort 处理失败。 */
+    @Delete("DELETE FROM novels_fts WHERE rowid IN (SELECT novel_id FROM novels WHERE deleted = 1)")
+    void deleteDeletedNovelFts();
+
     /** 正文全文检索：{@code query} 为已转义的 FTS5 phrase，返回命中的 novel_id（= rowid）。 */
-    @Select("SELECT rowid FROM novels_fts WHERE novels_fts MATCH #{query}")
+    @Select("SELECT novels_fts.rowid FROM novels_fts"
+            + " JOIN novels ON novels.novel_id = novels_fts.rowid"
+            + " WHERE novels.deleted = 0 AND novels_fts MATCH #{query}")
     List<Long> searchNovelFtsIds(@Param("query") String query);
 
     /** 短关键词（trigram 无法索引）回退：直接对 raw_content 做 LIKE 子串扫描。 */

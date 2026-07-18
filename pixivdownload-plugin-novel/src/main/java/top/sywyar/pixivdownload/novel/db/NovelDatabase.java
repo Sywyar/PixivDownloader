@@ -41,7 +41,15 @@ public class NovelDatabase {
      */
     @PostConstruct
     public void init() {
-        novelMapper.createNovelFtsTable();
+        novelMapper.createNovelSoftDeleteCleanupTrigger();
+        novelMapper.cleanupExistingDeletedNovelState();
+        // FTS 是可再生辅助数据，其 DDL、陈旧行回收或回填失败都不能阻断插件启动或主表软删除。
+        try { novelMapper.createNovelFtsTable(); } catch (Exception e) {
+            log.warn("Failed to initialize novel full-text index: {}", e.getMessage());
+        }
+        try { novelMapper.deleteDeletedNovelFts(); } catch (Exception e) {
+            log.warn("Failed to remove deleted novels from full-text index: {}", e.getMessage());
+        }
         // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
         try { novelMapper.backfillNovelFts(); } catch (Exception e) {
             log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
