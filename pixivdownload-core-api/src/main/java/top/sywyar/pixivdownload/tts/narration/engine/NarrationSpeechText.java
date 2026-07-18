@@ -6,7 +6,7 @@ package top.sywyar.pixivdownload.tts.narration.engine;
  * <ul>
  *   <li>{@link #normalize(String)}：省略号 / 悬挂标点结尾 → 句号，纯标点 / 无可发音内容 → 空串（规避空音频 / 长噪音 / 呓语）；</li>
  *   <li>{@link #speakableCount(String)} / {@link #hasSpeakable(String)}：可发音字符统计（短输入收敛 / 跳过判定用）；</li>
- *   <li>{@link #blankToNull(String)}：空白 → {@code null}（供「空则不下发」的可选字段，如 voice / voice-id）；</li>
+ *   <li>{@link #blankToNull(String)}：空白 → {@code null}（供「空则不下发」的可选文本字段）；</li>
  *   <li>{@link #isShortInput(String, int)}：是否为「超短输入」（按可发音字数）。</li>
  * </ul>
  * 句子切分与跨句合并不属于本工具，由调用方在进入合成边界前完成。
@@ -76,7 +76,7 @@ public final class NarrationSpeechText {
         return s == null ? 0 : (int) s.codePoints().filter(Character::isLetterOrDigit).count();
     }
 
-    /** 空 / 空白 → {@code null}，否则返回 {@code trim()} 后的值。供「空则不下发」的可选字段（如 voice / voice-id）。 */
+    /** 空 / 空白 → {@code null}，否则返回 {@code trim()} 后的值。供「空则不下发」的可选文本字段。 */
     public static String blankToNull(String s) {
         if (s == null) {
             return null;

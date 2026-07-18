@@ -3,9 +3,8 @@ package top.sywyar.pixivdownload.core.stats;
 /**
  * {@link StatsQueryStore} 的核心 owned 聚合查询结果模型（纯 JDK record）。
  *
- * <p>与 stats 插件的 {@code StatsDto} 刻意分离：核心语义接口不反向依赖插件 DTO，
- * 由 {@code StatsService} 在插件侧把这些核心 record 映射为对外的 {@code StatsDto}
- * （并叠加作者名回退等展示逻辑）。
+ * <p>与消费者的对外 DTO 刻意分离：核心语义接口不反向依赖调用方模型，
+ * 由调用方把这些 record 投影为自己的响应形态。
  */
 public final class StatsAggregates {
 

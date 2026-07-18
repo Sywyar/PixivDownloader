@@ -10,16 +10,16 @@
     </parent>
     <artifactId>pixivdownload-core-api</artifactId>
     <name>PixivDownloader Core API</name>
-    <description>核心 owned、面向插件的语义端口 + 结果 DTO（core.stats.*）：Spring-free 纯 JDK，供主程序与各功能插件共享。</description>
+    <description>核心 owned、面向插件的稳定语义端口、纯值模型与中性纯算法：Spring-free 纯 JDK，供主程序与各功能插件共享。</description>
 
     <properties>
         <java.version>17</java.version>
     </properties>
 
     <!--
-      依赖边界（由 CoreApiDependencyGuardTest 守护）：本模块只承载核心 owned 的语义查询端口与纯 JDK 结果 DTO，
-      编译期零内部依赖、零 Spring、零 SLF4J、零 JDBC/MyBatis——只允许 JDK。实现层（StatsQueryStoreImpl，
-      需 DataSource / JdbcTemplate）留在主程序 pixivdownload-app。将来若某端口确需共享类型，只能 +plugin-api 且须先在 PLAN 记录。
+      依赖边界（由 CoreApiDependencyGuardTest 守护）：本模块只承载核心 owned 的稳定语义端口、纯值模型与中性纯算法，
+      编译期零内部依赖、零 Spring、零 SLF4J、零 JDBC/MyBatis——只允许 JDK。框架装配、持久化和网络实现留在
+      主程序或对应插件；新增公开类型必须先确认 owner，并同步所有权守卫。
     -->
     <dependencies>
         <!-- 模块自测（边界守卫 + 契约不变量），test 作用域，不外泄到主程序运行期类路径 -->
@@ -38,7 +38,7 @@
             <artifactId>junit-platform-launcher</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- 字节码级边界守卫：core-api 只依赖 JDK[+plugin-api]、零框架/实现层 -->
+        <!-- 字节码级边界守卫：core-api 只依赖 JDK、零框架/实现层 -->
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit</artifactId>

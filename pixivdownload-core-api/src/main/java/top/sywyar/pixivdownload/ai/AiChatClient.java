@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import java.util.List;
 
 /**
- * OpenAI-compatible chat capability contributed by the optional AI plugin.
+ * OpenAI-compatible chat client capability. Transport, configuration and lifecycle remain implementation details.
  */
 public interface AiChatClient {
 

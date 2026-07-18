@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.stats;
+package top.sywyar.pixivdownload.core.ownership;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -35,6 +35,8 @@ import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.stats.StatsAggregates;
+import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
@@ -50,7 +52,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * core-api 边界守卫：证明本模块只承载核心 owned 的中性语义端口与纯 JDK 值类型，保持 Spring-free，
+ * core-api 边界守卫：证明本模块只承载核心 owned 的稳定语义端口、纯 JDK 值模型与中性纯算法，保持 Spring-free，
  * 并与 {@code plugin.api} 的框架洁净守卫正交。
  *
  * <p>本守卫在 {@code pixivdownload-core-api} 模块内自包含运行：{@link ClassFileImporter} 只扫描本模块 main
@@ -77,7 +79,6 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
-                        "top.sywyar.pixivdownload.core.metadata.novel..",
                         "top.sywyar.pixivdownload.core.pixiv..",
                         "top.sywyar.pixivdownload.core.stats..",
                         "top.sywyar.pixivdownload.core.web..",
@@ -90,10 +91,10 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.time..",
                         "top.sywyar.pixivdownload.web..",
                         "java..")
-                .because("core-api 是 Spring-free 纯 JDK 的核心 owned 语义端口与可选能力契约模块："
+                .because("core-api 是 Spring-free 纯 JDK 的核心 owned 稳定语义端口、纯值模型与中性纯算法模块："
                         + "只能依赖 JDK 与本模块纯契约包，不得依赖 Spring / SLF4J / JDBC / MyBatis、"
-                        + "core.stats.db 实现层或任何 app 业务实现包；将来若某端口确需共享类型，"
-                        + "只能 +plugin-api 且须先在 PLAN 记录、不在功能任务中主动引入")
+                        + "core.stats.db 实现层或任何 app / 插件业务实现包；新增公开类型还必须先确认"
+                        + "长期核心 owner，并登记到 CoreApiOwnershipGuardTest 的显式白名单")
                 .check(CLASSES);
     }
 
@@ -110,7 +111,7 @@ class CoreApiDependencyGuardTest {
                         "java.sql..", "javax.sql..",
                         "org.apache.ibatis..",
                         "top.sywyar.pixivdownload.core.stats.db..")
-                .because("core-api 只承载核心 owned 的中性语义端口与纯 JDK 值类型：Spring、Apache HTTP、"
+                .because("core-api 只承载核心 owned 的稳定语义端口、纯 JDK 值模型与中性纯算法：Spring、Apache HTTP、"
                         + "日志门面、JDBC、MyBatis 与 mapper/repository 实现全部留在 app 实现层，"
                         + "core-api 不得反向依赖它们")
                 .check(CLASSES);

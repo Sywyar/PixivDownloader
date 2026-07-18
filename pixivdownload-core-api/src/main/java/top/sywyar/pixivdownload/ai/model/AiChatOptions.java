@@ -1,8 +1,7 @@
 package top.sywyar.pixivdownload.ai.model;
 
 /**
- * 单次对话的可选调参。与"发什么消息"（{@link AiChatMessage}）和"用哪个模型 / 端点"
- * （{@link top.sywyar.pixivdownload.ai.AiConfig}）解耦。
+ * 单次对话的可选调参。与"发什么消息"（{@link AiChatMessage}）和客户端连接设置解耦。
  * <p>
  * 字段均为可空：为 {@code null} 时对应参数不写入请求体，交由服务端默认值决定。
  *

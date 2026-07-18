@@ -17,7 +17,7 @@ import java.util.Map;
  */
 public interface NotificationSink {
 
-    /** 介质标识（日志用，如 {@code "mail"} / {@code "push"}）。 */
+    /** 稳定介质标识，用于日志与诊断关联。 */
     String medium();
 
     /**

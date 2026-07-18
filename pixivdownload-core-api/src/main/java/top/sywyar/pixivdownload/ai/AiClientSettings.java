@@ -3,8 +3,7 @@ package top.sywyar.pixivdownload.ai;
 /**
  * 不可变的 AI 调用参数快照。
  * <p>
- * {@link AiService} 在请求时使用此对象，从而既支持热重载（修改配置不必重启），又允许 GUI 在尚未保存配置时
- * 直接用表单值发起连通性测试（见 {@code /api/gui/ai-test}）。
+ * 调用方可从当前配置或一次性输入构造该快照；契约不规定配置存储、热重载或测试入口的实现方式。
  *
  * @param baseUrl  OpenAI 兼容端点基础地址（如 {@code https://api.openai.com/v1}）
  * @param apiKey   API Key；仅在请求过程中使用，绝不写日志 / 失败摘要 / 响应
@@ -17,4 +16,11 @@ public record AiClientSettings(
         String model,
         boolean useProxy
 ) {
+
+    @Override
+    public String toString() {
+        return "AiClientSettings[baseUrl=" + baseUrl
+                + ", apiKey=***, model=" + model
+                + ", useProxy=" + useProxy + "]";
+    }
 }
