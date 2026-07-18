@@ -236,8 +236,7 @@ class LocalWorkAssetServiceTest {
 
         private NovelMetadataRow novel(long novelId, String folder, Long fileName, String coverExt) {
             return new NovelMetadataRow(novelId, "小说标题", folder, 1, "txt", 1000L, 0, false, 88L,
-                    null, fileName, null, null, null, null, null, null, null, null, null,
-                    coverExt, false, null);
+                    null, fileName, null, null, null, null, null, coverExt, false, null);
         }
 
         private Path novelDir(long novelId) throws Exception {

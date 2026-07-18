@@ -46,6 +46,7 @@ import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.download.NovelQueueOperations;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.novel.schedule.PixivScheduledNovelWorkExecutor;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
@@ -109,6 +110,12 @@ public class NovelPluginConfiguration {
                                        DatabaseInitializer databaseInitializer) {
         return new NovelDatabase(novelMapper, pixivDatabase, pathPrefixCodec,
                 databaseInitializer);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
+    public NovelWorkDetailsRepository novelWorkDetailsRepository(NovelMapper novelMapper) {
+        return new NovelWorkDetailsRepository(novelMapper);
     }
 
     @Bean
@@ -370,9 +377,11 @@ public class NovelPluginConfiguration {
     public NovelGalleryService novelGalleryService(WorkQueryService workQueryService,
                                                    NovelOwnedWorkSearch novelOwnedWorkSearch,
                                                    WorkMetadataRepository workMetadataRepository,
+                                                   NovelWorkDetailsRepository novelWorkDetailsRepository,
                                                    WorkDeletionService workDeletionService) {
         return new NovelGalleryService(
-                workQueryService, novelOwnedWorkSearch, workMetadataRepository, workDeletionService);
+                workQueryService, novelOwnedWorkSearch, workMetadataRepository,
+                novelWorkDetailsRepository, workDeletionService);
     }
 
     @Bean
@@ -380,9 +389,10 @@ public class NovelPluginConfiguration {
     public PixivNovelGalleryCapabilityProvider pixivNovelGalleryCapabilityProvider(
             WorkQueryService workQueryService,
             WorkMetadataRepository workMetadataRepository,
-            NovelDatabase novelDatabase) {
+            NovelDatabase novelDatabase,
+            NovelWorkDetailsRepository novelWorkDetailsRepository) {
         return new PixivNovelGalleryCapabilityProvider(
-                workQueryService, workMetadataRepository, novelDatabase);
+                workQueryService, workMetadataRepository, novelDatabase, novelWorkDetailsRepository);
     }
 
     @Bean
@@ -395,13 +405,15 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NovelBatchService novelBatchService(NovelGalleryService novelGalleryService,
                                                WorkMetadataRepository workMetadataRepository,
+                                               NovelWorkDetailsRepository novelWorkDetailsRepository,
                                                WorkAssetService workAssetService,
                                                CollectionService collectionService,
                                                UserQuotaService userQuotaService,
                                                MultiModeSettings multiModeSettings,
                                                ObjectMapper objectMapper) {
-        return new NovelBatchService(novelGalleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeSettings, objectMapper);
+        return new NovelBatchService(novelGalleryService, workMetadataRepository,
+                novelWorkDetailsRepository, workAssetService, collectionService,
+                userQuotaService, multiModeSettings, objectMapper);
     }
 
     @Bean

@@ -313,6 +313,6 @@ class PixivImageGalleryCapabilityProviderTest {
                 xRestrict, isAi, authorId, authorName, null, null, null,
                 tags, 1000L + id, 2, extensions, "/p/" + id,
                 false, null, null, 1L, "{artwork_id}_p{page}", null,
-                2000L + id, null, null);
+                2000L + id, null);
     }
 }

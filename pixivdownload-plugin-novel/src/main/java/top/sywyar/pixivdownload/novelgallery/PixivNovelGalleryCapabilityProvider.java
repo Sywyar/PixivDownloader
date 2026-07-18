@@ -29,8 +29,9 @@ import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterMode;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
@@ -67,13 +68,16 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
     private final WorkQueryService workQueryService;
     private final WorkMetadataRepository metadataRepository;
     private final NovelDatabase novelDatabase;
+    private final NovelWorkDetailsRepository novelWorkDetailsRepository;
 
     public PixivNovelGalleryCapabilityProvider(WorkQueryService workQueryService,
                                                WorkMetadataRepository metadataRepository,
-                                               NovelDatabase novelDatabase) {
+                                               NovelDatabase novelDatabase,
+                                               NovelWorkDetailsRepository novelWorkDetailsRepository) {
         this.workQueryService = workQueryService;
         this.metadataRepository = metadataRepository;
         this.novelDatabase = novelDatabase;
+        this.novelWorkDetailsRepository = novelWorkDetailsRepository;
     }
 
     @Override
@@ -105,10 +109,18 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
             return GalleryProjectionPage.empty();
         }
         PageSlice slice = loadPage(spec);
-        List<GalleryProjection> projections = slice.metadata().stream()
-                .map(PixivNovelGalleryCapabilityProvider::projection)
-                .toList();
-        int next = spec.offset() + projections.size();
+        Map<Long, NovelWorkDetails> detailsById = novelWorkDetailsRepository.findAll(
+                slice.metadata().stream().map(WorkMetadata::workId).toList());
+        List<GalleryProjection> projections = new ArrayList<>(slice.metadata().size());
+        for (WorkMetadata metadata : slice.metadata()) {
+            NovelWorkDetails details = detailsById.get(metadata.workId());
+            if (details != null) {
+                projections.add(projection(metadata, details));
+            }
+        }
+        // 详情读取与中性元数据读取之间可能恰逢软删除；游标仍需越过本轮已经消费的
+        // 元数据候选，不能按最终投影数回退，否则下一页会重复读取同一候选。
+        int next = spec.offset() + slice.consumed();
         return new GalleryProjectionPage(projections, slice.hasMore() ? String.valueOf(next) : null,
                 slice.hasMore(), List.of());
     }
@@ -141,8 +153,17 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
             return Optional.empty();
         }
         Long id = parseId(key.sourceWorkId());
-        return id == null ? Optional.empty() : metadataRepository.find(WorkType.NOVEL, id)
-                .map(meta -> work(key, meta, novelDatabase.getNovel(id)));
+        if (id == null) {
+            return Optional.empty();
+        }
+        Optional<WorkMetadata> metadata = metadataRepository.find(WorkType.NOVEL, id);
+        if (metadata.isEmpty()) {
+            return Optional.empty();
+        }
+        Optional<NovelWorkDetails> details = novelWorkDetailsRepository.find(id);
+        return details.isEmpty()
+                ? Optional.empty()
+                : Optional.of(work(key, metadata.get(), details.get(), novelDatabase.getNovel(id)));
     }
 
     private PageSlice loadPage(QuerySpec spec) {
@@ -165,7 +186,7 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
                 ? List.of()
                 : metadataRepository.findAll(WorkType.NOVEL, ids);
         return new PageSlice(metadata, first.totalElements(),
-                (long) spec.offset() + metadata.size() < first.totalElements());
+                (long) spec.offset() + ids.size() < first.totalElements(), ids.size());
     }
 
     private PageSlice filteredPage(QuerySpec spec) {
@@ -194,7 +215,8 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
                 break;
             }
         }
-        return new PageSlice(selected, matched, (long) spec.offset() + selected.size() < matched);
+        return new PageSlice(selected, matched,
+                (long) spec.offset() + selected.size() < matched, selected.size());
     }
 
     private static WorkQuery toWorkQuery(QuerySpec spec, int page, int size) {
@@ -210,9 +232,8 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
                 .build();
     }
 
-    private static GalleryProjection projection(WorkMetadata meta) {
+    private static GalleryProjection projection(WorkMetadata meta, NovelWorkDetails details) {
         GalleryWorkKey key = new GalleryWorkKey(SOURCE_ID, WORK_NAMESPACE, String.valueOf(meta.workId()));
-        NovelWorkDetails details = meta.novel();
         String coverUrl = details.coverExt() == null ? null
                 : "/api/gallery/novel/" + meta.workId() + "/cover";
         Set<GalleryMediaKind> kinds = details.coverExt() == null
@@ -224,16 +245,17 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
                 "text", attributes(meta, details));
     }
 
-    private static GalleryWork work(GalleryWorkKey key, WorkMetadata meta, NovelRecord record) {
+    private static GalleryWork work(GalleryWorkKey key, WorkMetadata meta, NovelWorkDetails details,
+                                    NovelRecord record) {
         List<GalleryMediaAsset> media = new ArrayList<>();
         media.add(new GalleryMediaAsset(new GalleryMediaKey(key, "text"), GalleryMediaKind.TEXT,
                 null, null, "text/plain", record == null ? null : record.rawContent(), Map.of()));
-        if (meta.novel().coverExt() != null) {
+        if (details.coverExt() != null) {
             String url = "/api/gallery/novel/" + meta.workId() + "/cover";
             media.add(new GalleryMediaAsset(new GalleryMediaKey(key, "cover"), GalleryMediaKind.COVER,
                     url, url, null, null, Map.of()));
         }
-        for (String imageId : meta.novel().embeddedImageIds()) {
+        for (String imageId : details.embeddedImageIds()) {
             media.add(new GalleryMediaAsset(new GalleryMediaKey(key, "embedded-" + imageId),
                     GalleryMediaKind.IMAGE, "/api/gallery/novel/" + meta.workId() + "/image/" + imageId,
                     null, null, null, Map.of("sourceImageId", imageId)));
@@ -265,7 +287,7 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
         put(out, "textLength", details.textLength());
         put(out, "readingTimeSeconds", details.readingTimeSeconds());
         put(out, "pageCount", details.pageCount());
-        put(out, "isOriginal", details.isOriginal());
+        put(out, "isOriginal", meta.isOriginal());
         put(out, "language", details.xLanguage());
         put(out, "xLanguage", details.xLanguage());
         put(out, "coverExt", details.coverExt());
@@ -384,7 +406,7 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
         }
     }
 
-    private record PageSlice(List<WorkMetadata> metadata, long total, boolean hasMore) {
+    private record PageSlice(List<WorkMetadata> metadata, long total, boolean hasMore, int consumed) {
         private PageSlice {
             metadata = List.copyOf(metadata);
         }

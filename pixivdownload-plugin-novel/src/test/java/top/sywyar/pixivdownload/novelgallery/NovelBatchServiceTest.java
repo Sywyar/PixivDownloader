@@ -12,8 +12,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
-import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
@@ -26,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +39,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +54,8 @@ class NovelBatchServiceTest {
     @Mock
     private WorkMetadataRepository workMetadataRepository;
     @Mock
+    private NovelWorkDetailsRepository novelWorkDetailsRepository;
+    @Mock
     private WorkAssetService workAssetService;
     @Mock
     private CollectionService collectionService;
@@ -64,8 +69,9 @@ class NovelBatchServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(60);
-        service = new NovelBatchService(novelGalleryService, workMetadataRepository, workAssetService,
-                collectionService, userQuotaService, multiModeSettings, new ObjectMapper());
+        service = new NovelBatchService(novelGalleryService, workMetadataRepository,
+                novelWorkDetailsRepository, workAssetService, collectionService,
+                userQuotaService, multiModeSettings, new ObjectMapper());
     }
 
     @Test
@@ -120,6 +126,57 @@ class NovelBatchServiceTest {
         verify(novelGalleryService).deleteNovels(List.of(7L));
     }
 
+    @Test
+    @DisplayName("详情在并发软删除中缺席时跳过该小说且不读取或打包残留文件")
+    void shouldSkipNovelWhoseOwnedDetailsDisappear() {
+        WorkMetadata meta = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
+                88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", "/n/7",
+                false, null, null, null, null, null, null, true);
+        when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
+        when(novelWorkDetailsRepository.findAll(List.of(7L))).thenReturn(Map.of());
+
+        ArchiveExportSupport.ExportResult result =
+                service.exportNovels(List.of(7L), "author", "zip", false);
+
+        assertThat(result.emptyArchive()).isTrue();
+        assertThat(result.workCount()).isEqualTo(1);
+        verifyNoInteractions(workAssetService, userQuotaService);
+    }
+
+    @Test
+    @DisplayName("混合导出时删除回调只删除实际进入清单的小说")
+    void shouldDeleteOnlyNovelsIncludedInManifest() throws Exception {
+        Path folder = tempDir.resolve("novel-7");
+        Files.createDirectories(folder);
+        Path content = Files.writeString(folder.resolve("content.txt"), "text");
+        WorkMetadata included = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
+                88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", folder.toString(),
+                false, null, null, null, null, null, null, null);
+        WorkMetadata missingDetails = new WorkMetadata(WorkType.NOVEL, 8L, "Missing", null, 0, false,
+                89L, "Writer 2", null, null, null, List.of(), 0L, 1, "txt", "/n/8",
+                false, null, null, null, null, null, null, null);
+        when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L, 8L)))
+                .thenReturn(List.of(included, missingDetails));
+        when(novelWorkDetailsRepository.findAll(List.of(7L, 8L))).thenReturn(Map.of(
+                7L, new NovelWorkDetails(7L, 100, 200, 60, null, null, null,
+                        List.of(), List.of())));
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
+                        List.of(new WorkAssetFile(0, content, "txt")))));
+        when(userQuotaService.triggerAdminFileArchive(anyList(), anyString(), anyInt(), any()))
+                .thenReturn("token-2");
+        ArgumentCaptor<Runnable> afterReady = ArgumentCaptor.forClass(Runnable.class);
+
+        ArchiveExportSupport.ExportResult result =
+                service.exportNovels(List.of(7L, 8L), "author", "zip", true);
+
+        assertThat(result.archiveToken()).isEqualTo("token-2");
+        verify(userQuotaService).triggerAdminFileArchive(
+                anyList(), eq("novels"), eq(2), afterReady.capture());
+        afterReady.getValue().run();
+        verify(novelGalleryService).deleteNovels(List.of(7L));
+    }
+
     private List<UserQuotaService.ArchiveItem> exportSingleNovel(String groupBy, boolean deleteAfter)
             throws Exception {
         return exportSingleNovel(groupBy, deleteAfter, ArgumentCaptor.forClass(Runnable.class));
@@ -134,9 +191,11 @@ class NovelBatchServiceTest {
         Path content = Files.writeString(folder.resolve("content.txt"), "text");
         WorkMetadata meta = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
                 88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", folder.toString(),
-                false, null, null, null, null, null, null, null,
-                new NovelWorkDetails(100, 200, 60, null, null, null, null, List.of(), List.of()));
+                false, null, null, null, null, null, null, null);
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
+        when(novelWorkDetailsRepository.findAll(List.of(7L))).thenReturn(Map.of(
+                7L, new NovelWorkDetails(7L, 100, 200, 60, null, null, null,
+                        List.of(), List.of())));
         when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
                 new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
                         List.of(new WorkAssetFile(0, content, "txt")))));

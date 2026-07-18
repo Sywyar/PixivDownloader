@@ -226,7 +226,6 @@ class WorkMetaBridgeConsistencyTest {
             assertThat(fromColumn.isOriginal())
                     .isEqualTo(fromSidecar.normalized().isOriginal())
                     .isEqualTo(true);
-            assertThat(fromColumn.novel().isOriginal()).isEqualTo(fromColumn.isOriginal());
             assertThat(fromSidecar.source()).isEqualTo("schedule");
         }
     }

@@ -3,8 +3,8 @@ package top.sywyar.pixivdownload.plugin.api.work.model;
 import java.util.List;
 
 /**
- * 单个作品的完整元数据视图：规范化 meta + 本地文件记录 + 已补全的关联展示字段
- * （作者名 / 系列标题 / 标签）。字段值与底层下载记录逐字段一致，存储形态藏在
+ * 单个作品的跨来源中性元数据视图：规范化 meta + 本地文件记录 + 已补全的通用关联
+ * 展示字段（作者名 / 系列标题 / 标签）。来源插件私有详情不进入本类型；存储形态藏在
  * {@link WorkMetadataRepository} 接口后。
  *
  * <p>本类型只经默认过滤软删除的读取方法产出（软删行不可见），故不携带 deleted 标记；
@@ -34,10 +34,7 @@ import java.util.List;
  * @param fileAuthorNameId   文件名作者名 id，可为 {@code null}
  * @param uploadTime         Pixiv 真实上传时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
  *                           历史数据未捕获时为 {@code null}（源 illust {@code uploadDate} / novel {@code uploadTimestamp}）
- * @param isOriginal         原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）；
- *                           小说侧与 {@link NovelWorkDetails#isOriginal()} 同源（同一 {@code is_original} 列）
- * @param novel              小说专属元数据块；{@code workType == NOVEL} 时必填，插画行恒为 {@code null}
- *                           （不变量由紧凑构造器强制）
+ * @param isOriginal         原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）
  */
 public record WorkMetadata(
         WorkType workType,
@@ -63,15 +60,9 @@ public record WorkMetadata(
         String fileNameTemplate,
         Long fileAuthorNameId,
         Long uploadTime,
-        Boolean isOriginal,
-        NovelWorkDetails novel) {
+        Boolean isOriginal) {
 
     public WorkMetadata {
         tags = tags == null ? List.of() : List.copyOf(tags);
-        if ((workType == WorkType.NOVEL) != (novel != null)) {
-            throw new IllegalArgumentException(
-                    "WorkMetadata 小说块不变量被破坏：workType=" + workType
-                            + " 时 novel " + (novel == null ? "必填" : "必须为 null"));
-        }
     }
 }

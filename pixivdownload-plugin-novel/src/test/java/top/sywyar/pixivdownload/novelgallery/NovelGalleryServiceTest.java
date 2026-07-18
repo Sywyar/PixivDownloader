@@ -10,7 +10,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorSummary;
-import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesQuery;
@@ -29,12 +30,14 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +53,8 @@ class NovelGalleryServiceTest {
     @Mock
     private WorkMetadataRepository workMetadataRepository;
     @Mock
+    private NovelWorkDetailsRepository novelWorkDetailsRepository;
+    @Mock
     private WorkDeletionService workDeletionService;
 
     private NovelGalleryService novelGalleryService;
@@ -57,7 +62,8 @@ class NovelGalleryServiceTest {
     @BeforeEach
     void setUp() {
         novelGalleryService = new NovelGalleryService(
-                workQueryService, novelOwnedWorkSearch, workMetadataRepository, workDeletionService);
+                workQueryService, novelOwnedWorkSearch, workMetadataRepository,
+                novelWorkDetailsRepository, workDeletionService);
     }
 
     private static WorkMetadata meta(long id, Long authorId, Long seriesId) {
@@ -65,9 +71,12 @@ class NovelGalleryServiceTest {
                 authorId, authorId == null ? null : "作者" + authorId,
                 seriesId, null, null, List.of(new WorkTag(21L, "魔法", "magic")),
                 100L, 1, "txt", "/n/novel-" + id,
-                false, null, null, null, null, null, null, true,
-                new NovelWorkDetails(1000, 2000, 300, 4, true, "ja", "jpg",
-                        List.of("img-a"), List.of("zh-CN")));
+                false, null, null, null, null, null, null, true);
+    }
+
+    private static NovelWorkDetails details(long id) {
+        return new NovelWorkDetails(id, 1000, 2000, 300, 4, "ja", "jpg",
+                List.of("img-a"), List.of("zh-CN"));
     }
 
     @Test
@@ -104,6 +113,8 @@ class NovelGalleryServiceTest {
                     5, 0, 2, 3));
             when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(2L, 1L)))
                     .thenReturn(List.of(meta(2L, 88L, null), meta(1L, null, null)));
+            when(novelWorkDetailsRepository.findAll(List.of(2L, 1L)))
+                    .thenReturn(Map.of(2L, details(2L), 1L, details(1L)));
 
             NovelGalleryService.PagedNovels page = novelGalleryService.query(query);
 
@@ -153,6 +164,10 @@ class NovelGalleryServiceTest {
             when(workMetadataRepository.find(WorkType.NOVEL, 1L))
                     .thenReturn(Optional.of(meta(1L, 88L, 700L)));
             when(workMetadataRepository.find(WorkType.NOVEL, 404L)).thenReturn(Optional.empty());
+            when(novelWorkDetailsRepository.find(1L)).thenReturn(Optional.of(details(1L)));
+            when(workMetadataRepository.find(WorkType.NOVEL, 2L))
+                    .thenReturn(Optional.of(meta(2L, null, null)));
+            when(novelWorkDetailsRepository.find(2L)).thenReturn(Optional.empty());
 
             NovelGalleryService.NovelView found = novelGalleryService.find(1L);
             assertThat(found).isNotNull();
@@ -161,6 +176,8 @@ class NovelGalleryServiceTest {
             assertThat(found.seriesId()).isEqualTo(700L);
 
             assertThat(novelGalleryService.find(404L)).isNull();
+            assertThat(novelGalleryService.find(2L)).isNull();
+            verify(novelWorkDetailsRepository, never()).find(404L);
         }
 
         @Test
@@ -170,6 +187,8 @@ class NovelGalleryServiceTest {
                     .thenReturn(List.of(new WorkSummary(WorkType.NOVEL, 1L)));
             when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(1L)))
                     .thenReturn(List.of(meta(1L, null, 700L)));
+            when(novelWorkDetailsRepository.findAll(List.of(1L)))
+                    .thenReturn(Map.of(1L, details(1L)));
 
             assertThat(novelGalleryService.bySeries(700L, 30))
                     .extracting(NovelGalleryService.NovelView::novelId).containsExactly(1L);

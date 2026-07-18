@@ -20,7 +20,8 @@ import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
-import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
@@ -36,6 +37,7 @@ import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -57,13 +59,15 @@ class PixivNovelGalleryCapabilityProviderTest {
     private WorkMetadataRepository metadataRepository;
     @Mock
     private NovelDatabase novelDatabase;
+    @Mock
+    private NovelWorkDetailsRepository novelWorkDetailsRepository;
 
     private PixivNovelGalleryCapabilityProvider provider;
 
     @BeforeEach
     void setUp() {
         provider = new PixivNovelGalleryCapabilityProvider(
-                workQueryService, metadataRepository, novelDatabase);
+                workQueryService, metadataRepository, novelDatabase, novelWorkDetailsRepository);
     }
 
     @Test
@@ -90,9 +94,10 @@ class PixivNovelGalleryCapabilityProviderTest {
         when(workQueryService.search(any())).thenReturn(new PagedResult<>(
                 summaries(123L), 1, 0, 1, 1));
         when(metadataRepository.findAll(WorkType.NOVEL, List.of(123L)))
-                .thenReturn(List.of(meta(123L, 88L, "作者", 1, false,
-                        details("jpg", 1200, 8, "ja"),
+                .thenReturn(List.of(meta(123L, 88L, "作者", 1, false, true,
                         List.of(new WorkTag(5L, "猫", "cat")))));
+        when(novelWorkDetailsRepository.findAll(List.of(123L))).thenReturn(Map.of(
+                123L, details(123L, "jpg", 1200, 8, "ja")));
 
         var page = provider.page(query(null, 1, List.of()));
 
@@ -120,6 +125,27 @@ class PixivNovelGalleryCapabilityProviderTest {
     }
 
     @Test
+    @DisplayName("元数据或详情在并发软删除中缺席时游标仍越过已消费的来源候选")
+    void advancesCursorPastCandidatesWhoseMetadataOrDetailsDisappear() {
+        when(workQueryService.search(any())).thenReturn(new PagedResult<>(
+                summaries(1L, 2L, 3L), 4, 0, 3, 2));
+        WorkMetadata second = meta(2L, null, null, 0, false, true, List.of());
+        WorkMetadata third = meta(3L, null, null, 0, false, true, List.of());
+        when(metadataRepository.findAll(WorkType.NOVEL, List.of(1L, 2L, 3L)))
+                .thenReturn(List.of(second, third));
+        when(novelWorkDetailsRepository.findAll(List.of(2L, 3L))).thenReturn(Map.of(
+                3L, details(3L, null, 100, 1, null)));
+
+        var page = provider.page(query(null, 3, List.of()));
+
+        assertThat(page.projections())
+                .extracting(projection -> projection.key().workKey().sourceWorkId())
+                .containsExactly("3");
+        assertThat(page.nextCursor()).isEqualTo("3");
+        assertThat(page.hasMore()).isTrue();
+    }
+
+    @Test
     @DisplayName("指定其它来源或非文本媒体时不触发小说查询")
     void ignoresForeignSourceOrNonTextMedia() {
         GalleryProjectionQuery foreign = new GalleryProjectionQuery(
@@ -131,7 +157,8 @@ class PixivNovelGalleryCapabilityProviderTest {
 
         assertThat(provider.page(foreign).projections()).isEmpty();
         assertThat(provider.page(nonText).projections()).isEmpty();
-        verifyNoInteractions(workQueryService, metadataRepository, novelDatabase);
+        verifyNoInteractions(workQueryService, metadataRepository, novelDatabase,
+                novelWorkDetailsRepository);
     }
 
     @Test
@@ -158,9 +185,11 @@ class PixivNovelGalleryCapabilityProviderTest {
                 summaries(1L, 2L, 3L), 3, 0, 50, 1));
         when(metadataRepository.findAll(WorkType.NOVEL, List.of(1L, 2L, 3L)))
                 .thenReturn(List.of(
-                        meta(1L, null, null, 0, true, details(null, 100, 1, null), List.of()),
-                        meta(2L, null, null, 0, false, details(null, 100, 1, null), List.of()),
-                        meta(3L, null, null, 0, null, details(null, 100, 1, null), List.of())));
+                        meta(1L, null, null, 0, true, true, List.of()),
+                        meta(2L, null, null, 0, false, true, List.of()),
+                        meta(3L, null, null, 0, null, true, List.of())));
+        when(novelWorkDetailsRepository.findAll(List.of(2L))).thenReturn(Map.of(
+                2L, details(2L, null, 100, 1, null)));
         GalleryProjectionQuery query = query(null, 10, List.of(new GalleryFilter(
                 GalleryFilterField.AI_STATUS, GalleryFilterMode.ANY_OF, "pixiv", Set.of("NON_AI"))));
 
@@ -181,8 +210,9 @@ class PixivNovelGalleryCapabilityProviderTest {
         when(record.rawContent()).thenReturn("[chapter:正文]");
         when(novelDatabase.getNovel(123L)).thenReturn(record);
         when(metadataRepository.find(WorkType.NOVEL, 123L)).thenReturn(Optional.of(
-                meta(123L, 88L, "作者", 0, false,
-                        details("jpg", 1000, 4, "ja"), List.of())));
+                meta(123L, 88L, "作者", 0, false, true, List.of())));
+        when(novelWorkDetailsRepository.find(123L)).thenReturn(Optional.of(
+                details(123L, "jpg", 1000, 4, "ja")));
 
         var work = provider.find(new GalleryWorkKey("pixiv", "novel", "123")).orElseThrow();
 
@@ -225,18 +255,18 @@ class PixivNovelGalleryCapabilityProviderTest {
     }
 
     private static WorkMetadata meta(long id, Long authorId, String authorName,
-                                     Integer xRestrict, Boolean isAi, NovelWorkDetails details,
+                                     Integer xRestrict, Boolean isAi, Boolean isOriginal,
                                      List<WorkTag> tags) {
         return new WorkMetadata(WorkType.NOVEL, id, "小说" + id, "简介" + id,
                 xRestrict, isAi, authorId, authorName, null, null, null,
                 tags, 1000L + id, 1, "txt,epub", "/n/" + id,
                 false, null, null, null, null, null,
-                2000L + id, details.isOriginal(), details);
+                2000L + id, isOriginal);
     }
 
-    private static NovelWorkDetails details(String coverExt, Integer wordCount,
+    private static NovelWorkDetails details(long novelId, String coverExt, Integer wordCount,
                                             Integer pageCount, String language) {
-        return new NovelWorkDetails(wordCount, 2000, 300, pageCount, true, language, coverExt,
+        return new NovelWorkDetails(novelId, wordCount, 2000, 300, pageCount, language, coverExt,
                 List.of("img-a"), List.of("zh-CN"));
     }
 }

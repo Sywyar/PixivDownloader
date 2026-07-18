@@ -107,8 +107,8 @@ class NovelMetadataRepositoryTest {
     }
 
     @Test
-    @DisplayName("宿主行不暴露正文且查询能在无 raw_content 列的窄表上执行")
-    void shouldKeepRawContentOutOfHostProjection() throws ReflectiveOperationException {
+    @DisplayName("宿主行不暴露正文和小说展示详情，只保留跨作品核心所需窄列")
+    void shouldKeepPluginOwnedDetailsOutOfHostProjection() throws ReflectiveOperationException {
         insertNovel(42L, "{1}/chapter-42", 420L, 2L, false);
 
         NovelMetadataRow row = repository.getNovel(42L);
@@ -120,11 +120,13 @@ class NovelMetadataRepositoryTest {
                 .containsExactly(
                         "novelId", "title", "folder", "count", "extensions", "time",
                         "xRestrict", "isAi", "authorId", "description", "fileName",
-                        "fileAuthorNameId", "seriesId", "seriesOrder", "wordCount",
-                        "textLength", "readingTimeSeconds", "pageCount", "isOriginal",
-                        "xLanguage", "coverExt", "deleted", "uploadTime")
-                .doesNotContain("rawContent");
-        assertThat(sqlConstant("SELECT_NOVEL_METADATA")).doesNotContainIgnoringCase("raw_content");
+                        "fileAuthorNameId", "seriesId", "seriesOrder", "wordCount", "isOriginal",
+                        "coverExt", "deleted", "uploadTime")
+                .doesNotContain("textLength", "readingTimeSeconds", "pageCount",
+                        "xLanguage", "rawContent");
+        assertThat(sqlConstant("SELECT_NOVEL_METADATA")).doesNotContainIgnoringCase(
+                "text_length", "reading_time_seconds", "page_count",
+                "x_language", "raw_content");
     }
 
     @Test

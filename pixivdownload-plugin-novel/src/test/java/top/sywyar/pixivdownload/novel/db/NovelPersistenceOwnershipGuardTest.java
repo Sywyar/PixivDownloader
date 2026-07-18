@@ -27,7 +27,12 @@ class NovelPersistenceOwnershipGuardTest {
 
         assertThat(projectResultTypes)
                 .as("守卫必须实际覆盖小说 Mapper 的项目结果类型")
-                .contains(NovelRecord.class, NovelSeries.class, NovelTagRow.class);
+                .contains(
+                        NovelRecord.class,
+                        NovelSeries.class,
+                        NovelTagRow.class,
+                        NovelMapper.NovelWorkDetailsRow.class,
+                        NovelMapper.NovelWorkDetailValueRow.class);
         assertThat(projectResultTypes)
                 .allSatisfy(type -> assertThat(codeSourceOf(type))
                         .as(type.getName() + " 的构件 owner")

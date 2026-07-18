@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
@@ -31,7 +30,7 @@ import java.util.Set;
 /**
  * {@link WorkMetadataRepository} 的核心实现：插画侧代理 {@link PixivDatabase}（行 / 标签 /
  * 文件名模板）+ {@link AuthorService}（作者名）+ {@link MangaSeriesService}（系列标题），
- * 小说侧代理 {@link NovelMetadataRepository}（行 / 标签 / 系列标题 / 内嵌图片 / 译文语言）；
+ * 小说侧代理 {@link NovelMetadataRepository}（宿主窄行 / 标签 / 系列标题）；
  * 字段补全语义与画廊页既有装配逐字段一致。
  *
  * <p>批量契约：{@link #findAll} 对行读取与各关联补全各发一次批量查询（禁止 N+1），
@@ -124,8 +123,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     templates.get(templateId),
                     rec.fileAuthorNameId(),
                     rec.uploadTime(),
-                    rec.isOriginal(),
-                    null));
+                    rec.isOriginal()));
         }
         return out;
     }
@@ -167,8 +165,6 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         Map<Long, String> seriesTitles = resolveNovelSeriesTitles(seriesIds);
         List<Long> novelIds = records.stream().map(NovelMetadataRow::novelId).toList();
         Map<Long, List<TagDto>> tagsByNovel = novelMetadataRepository.getNovelTagsBatch(novelIds);
-        Map<Long, List<String>> imagesByNovel = novelMetadataRepository.getNovelImageIdsBatch(novelIds);
-        Map<Long, List<String>> langsByNovel = novelMetadataRepository.getTranslationLangsBatch(novelIds);
         // 小说侧没有「模板 id 缺省取 1」规则：仅 fileName 非空时补模板内容（与原画廊装配一致）
         Map<Long, String> templates = templateIds.isEmpty()
                 ? Map.of()
@@ -200,17 +196,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.fileName() == null ? null : templates.get(rec.fileName()),
                     rec.fileAuthorNameId(),
                     rec.uploadTime(),
-                    rec.isOriginal(),
-                    new NovelWorkDetails(
-                            rec.wordCount(),
-                            rec.textLength(),
-                            rec.readingTimeSeconds(),
-                            rec.pageCount(),
-                            rec.isOriginal(),
-                            rec.xLanguage(),
-                            rec.coverExt(),
-                            imagesByNovel.getOrDefault(rec.novelId(), List.of()),
-                            langsByNovel.getOrDefault(rec.novelId(), List.of()))));
+                    rec.isOriginal()));
         }
         return out;
     }

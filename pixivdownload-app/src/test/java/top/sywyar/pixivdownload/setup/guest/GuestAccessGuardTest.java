@@ -49,7 +49,6 @@ class GuestAccessGuardTest {
         return new NovelMetadataRow(
                 42L, "title", "folder", 1, "txt", 1L,
                 xRestrict, false, 7L, "", 1L, null,
-                null, null, 10, 10, 10, 1,
-                true, "ja", null);
+                null, null, 10, true, null);
     }
 }

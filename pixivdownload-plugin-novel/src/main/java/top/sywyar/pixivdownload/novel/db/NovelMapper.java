@@ -23,6 +23,24 @@ public interface NovelMapper {
             + " cover_ext AS coverExt, deleted, upload_time AS uploadTime"
             + " FROM novels";
 
+    String SELECT_WORK_DETAILS = "SELECT novel_id AS novelId, word_count AS wordCount,"
+            + " text_length AS textLength, reading_time_seconds AS readingTimeSeconds,"
+            + " page_count AS pageCount, x_language AS xLanguage, cover_ext AS coverExt"
+            + " FROM novels";
+
+    record NovelWorkDetailsRow(
+            long novelId,
+            Integer wordCount,
+            Integer textLength,
+            Integer readingTimeSeconds,
+            Integer pageCount,
+            String xLanguage,
+            String coverExt) {
+    }
+
+    record NovelWorkDetailValueRow(long novelId, String value) {
+    }
+
     // ── 幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──────
 
     @Update("UPDATE novels SET time = time * 1000"
@@ -409,6 +427,17 @@ public interface NovelMapper {
     @Select("SELECT image_id FROM novel_images WHERE novel_id = #{novelId}")
     List<String> findNovelImageIds(@Param("novelId") long novelId);
 
+    @Select({
+            "<script>",
+            "SELECT ni.novel_id AS novelId, ni.image_id AS value FROM novel_images ni",
+            "JOIN novels n ON n.novel_id = ni.novel_id",
+            "WHERE n.deleted = 0 AND ni.novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY ni.novel_id, ni.image_id",
+            "</script>"
+    })
+    List<NovelWorkDetailValueRow> findNovelImageIdsByIds(@Param("ids") Collection<Long> ids);
+
     @Delete("DELETE FROM novel_images WHERE novel_id = #{novelId}")
     void deleteNovelImages(@Param("novelId") long novelId);
 
@@ -416,6 +445,26 @@ public interface NovelMapper {
 
     @Select(SELECT_NOVEL + " WHERE novel_id = #{novelId}")
     NovelRecord findById(@Param("novelId") long novelId);
+
+    @Select({
+            "<script>",
+            SELECT_WORK_DETAILS,
+            "WHERE deleted = 0 AND novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</script>"
+    })
+    List<NovelWorkDetailsRow> findWorkDetailsByIds(@Param("ids") Collection<Long> ids);
+
+    @Select({
+            "<script>",
+            "SELECT t.novel_id AS novelId, t.lang_code AS value FROM novel_translations t",
+            "JOIN novels n ON n.novel_id = t.novel_id",
+            "WHERE n.deleted = 0 AND t.novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY t.novel_id, t.lang_code",
+            "</script>"
+    })
+    List<NovelWorkDetailValueRow> findTranslationLangsByIds(@Param("ids") Collection<Long> ids);
 
     @Select(SELECT_NOVEL
             + " WHERE series_id = #{seriesId} AND series_id > 0 AND deleted = 0"

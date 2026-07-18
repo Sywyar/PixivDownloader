@@ -19,8 +19,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 核心侧的小说数据访问仓库：把 {@code novels} 系核心表的窄行投影、标签 / 内嵌图 / 译文语言 /
- * 系列 / 收藏夹链接的读取与软删除主行标记从 {@code novel.db.NovelDatabase} 沿
+ * 核心侧的小说数据访问仓库：把 {@code novels} 系核心表的窄行投影、标签、系列、
+ * 收藏夹链接的读取与软删除主行标记从 {@code novel.db.NovelDatabase} 沿
  * 「查询 vs 持久化」边界拆出，使核心查询 / 资产 / 收藏 / 计划 / 访客可见性链路无需反向
  * import 小说插件包。宿主行投影不读取正文 {@code raw_content}；完整持久化行与正文读取由
  * 小说插件自己的 {@code NovelMapper} 负责。
@@ -38,9 +38,7 @@ public class NovelMetadataRepository {
                     + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
                     + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
                     + " series_id AS seriesId, series_order AS seriesOrder,"
-                    + " word_count AS wordCount, text_length AS textLength,"
-                    + " reading_time_seconds AS readingTimeSeconds, page_count AS pageCount,"
-                    + " is_original AS isOriginal, x_language AS xLanguage, cover_ext AS coverExt,"
+                    + " word_count AS wordCount, is_original AS isOriginal, cover_ext AS coverExt,"
                     + " deleted, upload_time AS uploadTime"
                     + " FROM novels";
 
@@ -118,11 +116,7 @@ public class NovelMetadataRepository {
                 getLongObj(rs, "seriesId"),
                 getLongObj(rs, "seriesOrder"),
                 getInteger(rs, "wordCount"),
-                getInteger(rs, "textLength"),
-                getInteger(rs, "readingTimeSeconds"),
-                getInteger(rs, "pageCount"),
                 getBoolean(rs, "isOriginal"),
-                rs.getString("xLanguage"),
                 rs.getString("coverExt"),
                 rs.getBoolean("deleted"),
                 getLongObj(rs, "uploadTime"));
@@ -185,30 +179,6 @@ public class NovelMetadataRepository {
                         + " ORDER BY nst.series_id, t.tag_id",
                 new MapSqlParameterSource("ids", seriesIds),
                 (ResultSetExtractor<Map<Long, List<TagDto>>>) rs -> groupTagsByKey(rs, "seriesId"));
-    }
-
-    // ── Embedded images / translation langs (batch) ───────────────────────────────
-
-    /** 批量取多本小说的内嵌图片 id，按 novelId 分组；无内嵌图的小说不出现在结果中。 */
-    public Map<Long, List<String>> getNovelImageIdsBatch(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
-        return jdbc.query(
-                "SELECT novel_id AS novelId, image_id AS imageId FROM novel_images"
-                        + " WHERE novel_id IN (:ids)"
-                        + " ORDER BY novel_id",
-                new MapSqlParameterSource("ids", novelIds),
-                (ResultSetExtractor<Map<Long, List<String>>>) rs -> groupStringsByNovelId(rs, "imageId"));
-    }
-
-    /** 批量取多本小说已存在译文的语言代码，按 novelId 分组；无译文的小说不出现在结果中。 */
-    public Map<Long, List<String>> getTranslationLangsBatch(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
-        return jdbc.query(
-                "SELECT novel_id AS novelId, lang_code AS langCode FROM novel_translations"
-                        + " WHERE novel_id IN (:ids)"
-                        + " ORDER BY novel_id, lang_code",
-                new MapSqlParameterSource("ids", novelIds),
-                (ResultSetExtractor<Map<Long, List<String>>>) rs -> groupStringsByNovelId(rs, "langCode"));
     }
 
     // ── Series ─────────────────────────────────────────────────────────────────────
@@ -313,16 +283,6 @@ public class NovelMetadataRepository {
             long tagId = rs.getLong("tagId");
             tag.setTagId(rs.wasNull() ? null : tagId);
             out.computeIfAbsent(key, k -> new ArrayList<>()).add(tag);
-        }
-        return out;
-    }
-
-    private static Map<Long, List<String>> groupStringsByNovelId(ResultSet rs, String valueColumn)
-            throws SQLException {
-        Map<Long, List<String>> out = new LinkedHashMap<>();
-        while (rs.next()) {
-            long novelId = rs.getLong("novelId");
-            out.computeIfAbsent(novelId, k -> new ArrayList<>()).add(rs.getString(valueColumn));
         }
         return out;
     }

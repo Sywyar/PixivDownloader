@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
@@ -38,6 +40,7 @@ public class NovelBatchService {
 
     private final NovelGalleryService novelGalleryService;
     private final WorkMetadataRepository workMetadataRepository;
+    private final NovelWorkDetailsRepository novelWorkDetailsRepository;
     private final WorkAssetService workAssetService;
     private final CollectionService collectionService;
     private final UserQuotaService userQuotaService;
@@ -73,11 +76,18 @@ public class NovelBatchService {
         }
 
         List<WorkMetadata> metas = workMetadataRepository.findAll(WorkType.NOVEL, ids);
+        Map<Long, NovelWorkDetails> detailsById = novelWorkDetailsRepository.findAll(
+                metas.stream().map(WorkMetadata::workId).toList());
         List<UserQuotaService.ArchiveItem> items = new ArrayList<>();
         List<Map<String, Object>> manifest = new ArrayList<>();
+        List<Long> exportedIds = new ArrayList<>();
         int fileCount = 0;
 
         for (WorkMetadata meta : metas) {
+            NovelWorkDetails details = detailsById.get(meta.workId());
+            if (details == null) {
+                continue;
+            }
             String baseDir = groupById
                     ? String.valueOf(meta.workId())
                     : "novels/" + ArchiveExportSupport.authorSegment(meta.authorId(), meta.authorName())
@@ -94,7 +104,8 @@ public class NovelBatchService {
                     fileCount++;
                 }
             }
-            manifest.add(novelManifest(meta, fileEntries));
+            manifest.add(novelManifest(meta, details, fileEntries));
+            exportedIds.add(meta.workId());
         }
 
         if (fileCount == 0) {
@@ -103,7 +114,8 @@ public class NovelBatchService {
 
         items.add(UserQuotaService.ArchiveItem.bytes("manifest.json",
                 ArchiveExportSupport.jsonBytes(objectMapper, manifest)));
-        Runnable afterReady = deleteAfter ? () -> novelGalleryService.deleteNovels(ids) : null;
+        List<Long> deletionIds = List.copyOf(exportedIds);
+        Runnable afterReady = deleteAfter ? () -> novelGalleryService.deleteNovels(deletionIds) : null;
         String token = userQuotaService.triggerAdminFileArchive(items, "novels", ids.size(), afterReady);
         return new ExportResult(token, archiveExpireSeconds(), ids.size(), fileCount);
     }
@@ -137,7 +149,8 @@ public class NovelBatchService {
                 ArchiveExportSupport.normalizeIdSet(filter.notSeriesIds()));
     }
 
-    private Map<String, Object> novelManifest(WorkMetadata meta, List<Map<String, Object>> files) {
+    private Map<String, Object> novelManifest(WorkMetadata meta, NovelWorkDetails details,
+                                               List<Map<String, Object>> files) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("type", "novel");
         out.put("id", meta.workId());
@@ -149,9 +162,9 @@ public class NovelBatchService {
         out.put("xRestrict", meta.xRestrict());
         out.put("isAi", meta.isAi());
         out.put("time", meta.downloadTime());
-        out.put("wordCount", meta.novel().wordCount());
-        out.put("textLength", meta.novel().textLength());
-        out.put("readingTimeSeconds", meta.novel().readingTimeSeconds());
+        out.put("wordCount", details.wordCount());
+        out.put("textLength", details.textLength());
+        out.put("readingTimeSeconds", details.readingTimeSeconds());
         out.put("tags", ArchiveExportSupport.tagNames(toTagDtos(meta.tags())));
         out.put("files", files);
         return out;

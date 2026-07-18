@@ -106,7 +106,7 @@ class WorkDeletionFileRollbackTest {
         Path sidecar = Files.writeString(dir.resolve("7.meta.json"), "{\"schemaVersion\":1}");
         when(novelMetadataRepository.getNovel(7L)).thenReturn(new NovelMetadataRow(
                 7L, "小说", dir.toString(), 1, "txt", 1000L, 0, false, 88L, null, null, null,
-                null, null, null, null, null, null, null, null, "jpg", false, null));
+                null, null, null, null, "jpg", false, null));
         when(workQueryService.hasActiveWork(WorkType.NOVEL, 7L)).thenReturn(true);
 
         WorkDeletionService deletionService = deletionServiceFailingOn(dir.resolve("7.meta.json"));

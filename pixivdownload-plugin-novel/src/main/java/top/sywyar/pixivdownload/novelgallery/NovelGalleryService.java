@@ -5,8 +5,9 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
+import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
-import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
@@ -28,6 +29,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -45,6 +47,7 @@ public class NovelGalleryService {
     private final WorkQueryService workQueryService;
     private final NovelOwnedWorkSearch novelOwnedWorkSearch;
     private final WorkMetadataRepository workMetadataRepository;
+    private final NovelWorkDetailsRepository novelWorkDetailsRepository;
     private final WorkDeletionService workDeletionService;
 
     public PagedNovels query(NovelGalleryQuery q) {
@@ -59,8 +62,12 @@ public class NovelGalleryService {
     }
 
     public NovelView find(long novelId) {
-        return workMetadataRepository.find(WorkType.NOVEL, novelId)
-                .map(NovelGalleryService::toView)
+        WorkMetadata metadata = workMetadataRepository.find(WorkType.NOVEL, novelId).orElse(null);
+        if (metadata == null) {
+            return null;
+        }
+        return novelWorkDetailsRepository.find(novelId)
+                .map(details -> toView(metadata, details))
                 .orElse(null);
     }
 
@@ -155,15 +162,19 @@ public class NovelGalleryService {
             return List.of();
         }
         List<WorkMetadata> metas = workMetadataRepository.findAll(WorkType.NOVEL, ids);
+        Map<Long, NovelWorkDetails> detailsById = novelWorkDetailsRepository.findAll(
+                metas.stream().map(WorkMetadata::workId).toList());
         List<NovelView> out = new ArrayList<>(metas.size());
         for (WorkMetadata meta : metas) {
-            out.add(toView(meta));
+            NovelWorkDetails details = detailsById.get(meta.workId());
+            if (details != null) {
+                out.add(toView(meta, details));
+            }
         }
         return out;
     }
 
-    private static NovelView toView(WorkMetadata meta) {
-        NovelWorkDetails details = meta.novel();
+    private static NovelView toView(WorkMetadata meta, NovelWorkDetails details) {
         return new NovelView(
                 meta.workId(),
                 meta.title(),
@@ -181,7 +192,7 @@ public class NovelGalleryService {
                 details.textLength(),
                 details.readingTimeSeconds(),
                 details.pageCount(),
-                details.isOriginal(),
+                meta.isOriginal(),
                 details.xLanguage(),
                 toTagDtos(meta.tags()),
                 details.coverExt(),

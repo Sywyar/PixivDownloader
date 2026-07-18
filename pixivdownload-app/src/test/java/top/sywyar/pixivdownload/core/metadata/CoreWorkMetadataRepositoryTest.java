@@ -205,21 +205,17 @@ class CoreWorkMetadataRepositoryTest {
 
         private NovelMetadataRow novel(long id, boolean deleted) {
             return new NovelMetadataRow(id, "小说标题" + id, "/novels/" + id, 2, "", 1900L + id, 1, false, 88L,
-                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, 2000, 300, 4, true, "ja", "jpg", deleted, null);
+                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, true, "jpg", deleted, null);
         }
 
         @Test
-        @DisplayName("find 应补全作者名、系列标题、标签、模板与小说专属块，小说无移动语义")
+        @DisplayName("find 应补全通用作者、系列、标签与模板字段，小说无移动语义")
         void shouldHydrateNovelMetadata() {
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(novel(42L, false)));
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of(
                     42L, List.of(new TagDto(21L, "ファンタジー", "奇幻"))));
             when(novelMetadataRepository.getSeriesByIds(anyCollection())).thenReturn(List.of(
                     new NovelSeriesMetadataRow(700L, "小说系列", 88L, null)));
-            when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of(
-                    42L, List.of("img-a", "img-b")));
-            when(novelMetadataRepository.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of(
-                    42L, List.of("zh-CN")));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(88L, "作者乙"));
             when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of(
                     5L, "{novel_title}"));
@@ -249,35 +245,21 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.fileNameTemplateId()).isEqualTo(5L);
             assertThat(meta.fileNameTemplate()).isEqualTo("{novel_title}");
             assertThat(meta.fileAuthorNameId()).isEqualTo(9L);
-            assertThat(meta.novel()).isNotNull();
-            assertThat(meta.novel().wordCount()).isEqualTo(1000);
-            assertThat(meta.novel().textLength()).isEqualTo(2000);
-            assertThat(meta.novel().readingTimeSeconds()).isEqualTo(300);
-            assertThat(meta.novel().pageCount()).isEqualTo(4);
-            assertThat(meta.novel().isOriginal()).isTrue();
-            assertThat(meta.novel().xLanguage()).isEqualTo("ja");
-            assertThat(meta.novel().coverExt()).isEqualTo("jpg");
-            assertThat(meta.novel().embeddedImageIds()).containsExactly("img-a", "img-b");
-            assertThat(meta.novel().translatedLanguages()).containsExactly("zh-CN");
         }
 
         @Test
-        @DisplayName("hydrate novel upload_time 列投影到 WorkMetadata；is_original 顶层与小说块同源")
+        @DisplayName("hydrate novel upload_time 与 is_original 列投影到通用 WorkMetadata")
         void shouldHydrateNovelUploadMeta() {
             NovelMetadataRow rec = new NovelMetadataRow(42L, "n", "/n/42", 1, "txt", 1900L, 0, false, null,
-                    null, null, null, null, null, null, null, null, null, true, null, null,
-                    false, 1717000000000L);
+                    null, null, null, null, null, null, true, null, false, 1717000000000L);
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(rec));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
-            when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
-            when(novelMetadataRepository.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
 
             WorkMetadata meta = repository.find(WorkType.NOVEL, 42L).orElseThrow();
 
             assertThat(meta.uploadTime()).isEqualTo(1717000000000L);
             assertThat(meta.isOriginal()).isTrue();
-            assertThat(meta.novel().isOriginal()).isTrue();
         }
 
         @Test
@@ -295,8 +277,6 @@ class CoreWorkMetadataRepositoryTest {
                     novel(1L, false), novel(2L, true), novel(3L, false)));
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
             when(novelMetadataRepository.getSeriesByIds(anyCollection())).thenReturn(List.of());
-            when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
-            when(novelMetadataRepository.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
             when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of());
 
@@ -312,8 +292,6 @@ class CoreWorkMetadataRepositoryTest {
                     novel(1L, false), novel(2L, false)));
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
             when(novelMetadataRepository.getSeriesByIds(anyCollection())).thenReturn(List.of());
-            when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
-            when(novelMetadataRepository.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
             when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of());
 
@@ -325,8 +303,6 @@ class CoreWorkMetadataRepositoryTest {
             verify(novelMetadataRepository, never()).getNovelTags(anyLong());
             verify(novelMetadataRepository, times(1)).getSeriesByIds(anyCollection());
             verify(novelMetadataRepository, never()).getSeries(anyLong());
-            verify(novelMetadataRepository, times(1)).getNovelImageIdsBatch(anyCollection());
-            verify(novelMetadataRepository, times(1)).getTranslationLangsBatch(anyCollection());
             verify(authorService, times(1)).getAuthorNames(anyCollection());
             verify(pixivDatabase, times(1)).getFileNameTemplates(anyCollection());
             verify(pixivDatabase, never()).getFileNameTemplate(anyLong());
@@ -336,12 +312,9 @@ class CoreWorkMetadataRepositoryTest {
         @DisplayName("模板 id 为空时不查模板池（小说侧无「缺省取默认模板 1」规则）")
         void shouldSkipTemplateLookupWhenTemplateIdMissing() {
             NovelMetadataRow noTemplate = new NovelMetadataRow(9L, "无模板", "/novels/9", 1, "", 1900L, 0, false,
-                    null, null, null, null, null, null, null, null, null, null, null, null,
-                    null, false, null);
+                    null, null, null, null, null, null, null, null, null, false, null);
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(noTemplate));
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
-            when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
-            when(novelMetadataRepository.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
 
             Optional<WorkMetadata> found = repository.find(WorkType.NOVEL, 9L);
