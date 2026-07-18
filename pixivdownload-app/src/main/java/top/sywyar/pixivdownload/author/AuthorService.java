@@ -16,7 +16,6 @@ import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -127,7 +126,7 @@ public class AuthorService {
 
         if (existing == null) {
             String initialName = StringUtils.hasText(normalizedHint) ? normalizedHint : String.valueOf(authorId);
-            authorMapper.insertIfAbsent(authorId, initialName, TimestampUtils.nowMillis());
+            authorMapper.insertIfAbsent(authorId, initialName, System.currentTimeMillis());
             log.info(message(
                     "author.log.observe.first-record",
                     authorId,
@@ -179,7 +178,7 @@ public class AuthorService {
                 return;
             }
 
-            authorMapper.updateName(authorId, actualName, TimestampUtils.nowMillis());
+            authorMapper.updateName(authorId, actualName, System.currentTimeMillis());
             log.info(message(
                     "author.log.rename.updated",
                     existing.name(),

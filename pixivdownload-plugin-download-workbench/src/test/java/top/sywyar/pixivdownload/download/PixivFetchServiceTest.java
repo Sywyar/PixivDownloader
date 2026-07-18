@@ -76,6 +76,7 @@ class PixivFetchServiceTest {
         assertThat(PixivFetchService.extractUploadTimestamp(json("{\"uploadTimestamp\":\"not-a-date\"}"))).isNull();
         assertThat(PixivFetchService.extractUploadTimestamp(json("{\"uploadTimestamp\":\"\"}"))).isNull();
         assertThat(PixivFetchService.extractUploadTimestamp(json("{\"uploadTimestamp\":0}"))).isNull();
+        assertThat(PixivFetchService.extractUploadTimestamp(json("{\"uploadTimestamp\":-1}"))).isNull();
     }
 
     @Test

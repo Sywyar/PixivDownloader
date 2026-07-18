@@ -11,7 +11,6 @@ import top.sywyar.pixivdownload.novel.db.NovelGlossaryInsert;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +65,7 @@ public class NovelGlossaryService {
             NovelGlossary existing = novelMapper.findGlossaryByNovelId(boundNovel);
             if (existing != null) return existing;
         }
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         NovelGlossaryInsert insert = new NovelGlossaryInsert();
         insert.setName(normalizeName(name, boundSeries, boundNovel));
         insert.setSeriesId(boundSeries);
@@ -81,7 +80,7 @@ public class NovelGlossaryService {
         if (name == null || name.isBlank()) {
             return novelMapper.findGlossaryById(id);
         }
-        novelMapper.updateGlossaryName(id, name.trim(), TimestampUtils.nowMillis());
+        novelMapper.updateGlossaryName(id, name.trim(), System.currentTimeMillis());
         return novelMapper.findGlossaryById(id);
     }
 
@@ -94,7 +93,7 @@ public class NovelGlossaryService {
     /** 手动整表替换条目：清空后写入给定条目（同 (原文,语言) 覆盖）。 */
     @Transactional
     public void replaceEntries(long glossaryId, List<NovelGlossaryEntry> entries) {
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         novelMapper.deleteGlossaryEntries(glossaryId);
         if (entries != null) {
             for (NovelGlossaryEntry e : entries) {
@@ -118,7 +117,7 @@ public class NovelGlossaryService {
         if (!exists(glossaryId)) {
             return;
         }
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         int merged = 0;
         for (NovelGlossaryEntry t : terms) {
             if (t == null) continue;

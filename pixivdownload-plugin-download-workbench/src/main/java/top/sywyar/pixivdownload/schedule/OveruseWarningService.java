@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.schedule;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
@@ -81,7 +82,8 @@ public class OveruseWarningService {
             if (!isActionableWarning(thread)) {
                 continue;
             }
-            long modifiedMs = toMillis(thread.path("modified_at").asLong(0));
+            long modifiedAt = thread.path("modified_at").asLong(0);
+            long modifiedMs = modifiedAt <= 0L ? 0L : EpochMillisNormalizer.normalize(modifiedAt);
             if (modifiedMs < now - WINDOW_MS) {
                 continue; // 超过 1 小时窗口
             }
@@ -126,12 +128,6 @@ public class OveruseWarningService {
         if (node.isNumber()) return node.asInt() != 0;
         String t = node.asText("");
         return "1".equals(t) || "true".equalsIgnoreCase(t);
-    }
-
-    /** Pixiv 站内信 modified_at 为秒级 epoch；统一转毫秒（已是毫秒的大值则原样保留）。 */
-    private static long toMillis(long modifiedAt) {
-        if (modifiedAt <= 0) return 0L;
-        return modifiedAt < 1_000_000_000_000L ? modifiedAt * 1000L : modifiedAt;
     }
 
     /**

@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -87,7 +86,7 @@ public class CollectionService {
         insert.setIconExt(null);
         insert.setDownloadRoot(pathPrefixCodec.encode(cleanDownloadRoot));
         insert.setSortOrder(0);
-        insert.setCreatedTime(TimestampUtils.nowMillis());
+        insert.setCreatedTime(System.currentTimeMillis());
         collectionMapper.insert(insert);
         Long newId = insert.getId();
         if (newId == null) {
@@ -157,7 +156,7 @@ public class CollectionService {
 
     public boolean addArtwork(long collectionId, long artworkId) {
         requireExists(collectionId);
-        int changed = collectionMapper.addArtwork(collectionId, artworkId, TimestampUtils.nowMillis());
+        int changed = collectionMapper.addArtwork(collectionId, artworkId, System.currentTimeMillis());
         return changed > 0;
     }
 

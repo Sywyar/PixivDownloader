@@ -60,6 +60,18 @@ class OveruseWarningServiceTest {
     }
 
     @Test
+    @DisplayName("非正 modifiedAt 保持无效时间语义并返回 CLEAN")
+    void nonPositiveModifiedAtIsClean() throws Exception {
+        when(pixivFetchService.fetchMessageThreads("ck-zero"))
+                .thenReturn(body(officialWarning(0L)));
+        when(pixivFetchService.fetchMessageThreads("ck-negative"))
+                .thenReturn(body(officialWarning(-1L)));
+
+        assertThat(service.check("ck-zero", null, NOW).isClean()).isTrue();
+        assertThat(service.check("ck-negative", null, NOW).isClean()).isTrue();
+    }
+
+    @Test
     @DisplayName("ackWarningTime >= 警告 modifiedAt（已显式放行）→ CLEAN")
     void ackedWarningIsClean() throws Exception {
         long modifiedSeconds = NOW_SECONDS - 60;

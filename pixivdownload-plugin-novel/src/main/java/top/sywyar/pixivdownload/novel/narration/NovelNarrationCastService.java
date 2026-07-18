@@ -20,7 +20,6 @@ import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScriptService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSegmentAnalysis;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -122,7 +121,7 @@ public class NovelNarrationCastService {
             NovelNarrationCast existing = novelMapper.findNarrationCastByNovelId(boundNovel);
             if (existing != null) return existing;
         }
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         NovelNarrationCastInsert insert = new NovelNarrationCastInsert();
         insert.setName(normalizeName(name, boundSeries, boundNovel));
         insert.setSeriesId(boundSeries);
@@ -137,7 +136,7 @@ public class NovelNarrationCastService {
         if (name == null || name.isBlank()) {
             return novelMapper.findNarrationCastById(id);
         }
-        novelMapper.updateNarrationCastName(id, name.trim(), TimestampUtils.nowMillis());
+        novelMapper.updateNarrationCastName(id, name.trim(), System.currentTimeMillis());
         return novelMapper.findNarrationCastById(id);
     }
 
@@ -160,7 +159,7 @@ public class NovelNarrationCastService {
      */
     @Transactional
     public void replaceVoices(long castId, List<NarrationCharacter> roster) {
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         Set<Integer> existingIds = new LinkedHashSet<>();
         for (NarrationCharacter c : novelMapper.findNarrationVoices(castId)) {
             existingIds.add(c.id());
@@ -342,7 +341,7 @@ public class NovelNarrationCastService {
         if (instr.isEmpty()) {
             return;
         }
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         int updated = novelMapper.updateNarrationVoiceInstruction(castId, characterId, instr, true);
         if (updated <= 0 && characterId == NarrationCharacter.NARRATOR_ID) {
             NarrationCharacter narrator = NarrationCharacter.defaultNarrator();
@@ -416,7 +415,7 @@ public class NovelNarrationCastService {
         transactionOperations.execute(status -> {
             novelMapper.insertNarrationVoiceIfAbsent(castId, NarrationCharacter.NARRATOR_ID, "Narrator",
                     "unknown", "unknown", NarrationCharacter.DEFAULT_NARRATOR_INSTRUCTION, false,
-                    TimestampUtils.nowMillis());
+                    System.currentTimeMillis());
             return null;
         });
     }
@@ -435,7 +434,7 @@ public class NovelNarrationCastService {
 
     private SegmentRosterResult processSegmentRosterInTransaction(long castId, List<NarrationCharacter> roster,
                                                                   NarrationSegmentAnalysis analysis) {
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         Map<String, Integer> nameToId = new LinkedHashMap<>();
         Map<Integer, NarrationCharacter> byId = new LinkedHashMap<>();
         int maxId = NarrationCharacter.NARRATOR_ID;

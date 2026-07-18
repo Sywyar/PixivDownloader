@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
 import java.time.Instant;
@@ -37,9 +38,6 @@ public class WorkMetaCurator {
 
     /** 高价值 typed 文本字段的单字段长度上限。 */
     private static final int MAX_TEXT_FIELD = 8192;
-
-    /** epoch 秒 ↔ 毫秒消歧阈值：{@code >=} 此值视为毫秒，否则视为秒（× 1000）。 */
-    private static final long EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L;
 
     /** C 类：两类作品共同剔除（计数族 / 会话私有 / 巨型噪声 / 推广 / 投票）。 */
     private static final Set<String> COMMON_STRIP = Set.of(
@@ -200,7 +198,7 @@ public class WorkMetaCurator {
 
     /**
      * 解析「可能是 epoch 毫秒 / epoch 秒数字，或 ISO 字符串」的时间值为 epoch 毫秒。
-     * 数字按 {@link #EPOCH_MILLIS_THRESHOLD} 在毫秒/秒间消歧；非法字符串（既非 ISO 又非数字）返回
+     * 数字经 {@link EpochMillisNormalizer} 在毫秒/秒间消歧；非法字符串（既非 ISO 又非数字）返回
      * {@code null}，<b>绝不</b>退化成 0。
      */
     private static Long parseFlexibleEpochMillis(JsonNode node) {
@@ -229,12 +227,12 @@ public class WorkMetaCurator {
         return null;
     }
 
-    /** epoch 秒 ↔ 毫秒消歧：{@code >= EPOCH_MILLIS_THRESHOLD} 视为毫秒，否则视为秒（× 1000）；{@code <= 0} 视为无效。 */
+    /** epoch 秒 ↔ 毫秒消歧；{@code <= 0} 视为无效。 */
     private static Long normalizeEpochMillis(long value) {
         if (value <= 0) {
             return null;
         }
-        return value >= EPOCH_MILLIS_THRESHOLD ? value : value * 1000L;
+        return EpochMillisNormalizer.normalize(value);
     }
 
     private static Boolean boolOrNull(JsonNode body, String field) {

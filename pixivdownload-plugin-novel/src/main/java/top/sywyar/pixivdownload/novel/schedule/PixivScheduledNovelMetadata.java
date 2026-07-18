@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.novel.schedule;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 
 import java.net.URI;
 import java.time.OffsetDateTime;
@@ -35,8 +36,6 @@ record PixivScheduledNovelMetadata(
         String coverUrl,
         Long uploadTimestamp,
         Map<String, String> embeddedImages) {
-
-    private static final long EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L;
 
     static PixivScheduledNovelMetadata parse(long novelId, JsonNode body) {
         Long seriesId = null;
@@ -309,7 +308,7 @@ record PixivScheduledNovelMetadata(
         if (value <= 0L) {
             return null;
         }
-        return value >= EPOCH_MILLIS_THRESHOLD ? value : value * 1000L;
+        return EpochMillisNormalizer.normalize(value);
     }
 
     private static Map<String, String> embeddedImages(JsonNode body) {

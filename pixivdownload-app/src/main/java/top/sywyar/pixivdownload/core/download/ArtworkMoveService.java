@@ -5,8 +5,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 /**
  * 把作品移动落库：图片分类器（{@code ImageClassifier} 桌面端经
@@ -42,7 +42,7 @@ public class ArtworkMoveService {
                 return;
             }
             pixivDatabase.updateArtworkMove(artworkId, movePath,
-                    TimestampUtils.toMillis(moveTime), classifierTargetFolder);
+                    EpochMillisNormalizer.normalize(moveTime), classifierTargetFolder);
             if (!existing.moved()) {
                 pixivDatabase.incrementMoved();
             }

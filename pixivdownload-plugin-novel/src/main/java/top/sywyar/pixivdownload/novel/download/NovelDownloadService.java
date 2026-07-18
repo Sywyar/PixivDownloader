@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
@@ -29,7 +30,6 @@ import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -208,8 +208,8 @@ public class NovelDownloadService implements NovelDownloader {
 
             // Resolve filename template
             long timestamp = other.getFileNameTimestamp() != null
-                    ? TimestampUtils.toMillis(other.getFileNameTimestamp())
-                    : TimestampUtils.nowMillis();
+                    ? EpochMillisNormalizer.normalize(other.getFileNameTimestamp())
+                    : System.currentTimeMillis();
             String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
             long templateId = pixivDatabase.getOrCreateFileNameTemplateId(template);
             String safeAuthorName = PixivWorkFileNameFormatter.normalizeBaseName(
@@ -251,8 +251,9 @@ public class NovelDownloadService implements NovelDownloader {
             // Persist DB
             status.setStage("saving");
             String description = PixivDescriptionHtml.normalizeLinks(other.getDescription());
-            long uniqueTime = novelDatabase.getUniqueTime(
-                    other.getUploadTimestamp() != null ? TimestampUtils.toMillis(other.getUploadTimestamp()) : timestamp);
+            long uniqueTime = novelDatabase.getUniqueTime(other.getUploadTimestamp() != null
+                    ? EpochMillisNormalizer.normalize(other.getUploadTimestamp())
+                    : timestamp);
             novelDatabase.insertNovel(novelId, title, downloadPath.toAbsolutePath().toString(), 1, ext, uniqueTime,
                     other.getXRestrict(), other.isAi(), other.getAuthorId(), description,
                     templateId, fileAuthorNameId, other.getSeriesId(), other.getSeriesOrder(),
@@ -857,7 +858,7 @@ public class NovelDownloadService implements NovelDownloader {
     private NovelEpubWriter.Metadata buildNovelMetadata(long novelId, NovelDownloadRequest.Other other) {
         String isoDate = null;
         if (other.getUploadTimestamp() != null) {
-            isoDate = Instant.ofEpochMilli(TimestampUtils.toMillis(other.getUploadTimestamp()))
+            isoDate = Instant.ofEpochMilli(EpochMillisNormalizer.normalize(other.getUploadTimestamp()))
                     .toString().replaceAll("\\.\\d+Z$", "Z");
         }
         List<String> subjects = other.getTags() == null ? List.of()

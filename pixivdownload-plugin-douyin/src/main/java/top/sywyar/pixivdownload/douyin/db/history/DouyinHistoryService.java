@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.douyin.db.history;
 
 import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.douyin.download.DouyinDownloadedFile;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
@@ -19,8 +20,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class DouyinHistoryService {
-
-    private static final long EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L;
 
     private final DouyinHistoryRepository repository;
     private final AtomicLong lastIssuedTime;
@@ -267,7 +266,9 @@ public class DouyinHistoryService {
     }
 
     private long nextUniqueTime(long preferredTime) {
-        long base = preferredTime > 0 ? toMillis(preferredTime) : System.currentTimeMillis();
+        long base = preferredTime > 0
+                ? EpochMillisNormalizer.normalize(preferredTime)
+                : System.currentTimeMillis();
         long candidate;
         while (true) {
             long last = lastIssuedTime.get();
@@ -369,11 +370,7 @@ public class DouyinHistoryService {
         if (value == null || value <= 0) {
             return null;
         }
-        return toMillis(value);
-    }
-
-    private static long toMillis(long value) {
-        return value > 0 && value < EPOCH_MILLIS_THRESHOLD ? value * 1000L : value;
+        return EpochMillisNormalizer.normalize(value);
     }
 
     private static String defaultText(String value, String fallback) {

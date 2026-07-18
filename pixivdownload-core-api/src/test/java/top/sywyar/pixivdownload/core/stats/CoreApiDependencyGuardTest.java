@@ -38,10 +38,10 @@ import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
@@ -86,7 +86,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.push..",
                         "top.sywyar.pixivdownload.setup..",
                         "top.sywyar.pixivdownload.tts.narration.engine..",
-                        "top.sywyar.pixivdownload.util..",
+                        "top.sywyar.pixivdownload.core.time..",
                         "top.sywyar.pixivdownload.web..",
                         "java..")
                 .because("core-api 是 Spring-free 纯 JDK 的核心 owned 语义端口与可选能力契约模块："
@@ -170,7 +170,7 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(PixivCookieUserResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivCoverUrlResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivDescriptionHtml.class.getName())).isTrue();
-        assertThat(CLASSES.contain(TimestampUtils.class.getName())).isTrue();
+        assertThat(CLASSES.contain(EpochMillisNormalizer.class.getName())).isTrue();
     }
 
     @Test
@@ -212,4 +212,5 @@ class CoreApiDependencyGuardTest {
                     assertThat(method.getParameterCount()).isZero();
                 });
     }
+
 }

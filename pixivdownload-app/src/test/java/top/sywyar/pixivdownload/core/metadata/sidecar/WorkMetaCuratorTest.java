@@ -172,6 +172,20 @@ class WorkMetaCuratorTest {
     }
 
     @Test
+    @DisplayName("小说：非正 uploadTimestamp 保持无效值语义")
+    void shouldRejectNonPositiveUploadTimestamp() {
+        CuratedWorkMeta zero = curator.curateNovel(
+                5L, json("{\"title\":\"n\",\"uploadTimestamp\":0}"), "schedule");
+        CuratedWorkMeta negative = curator.curateNovel(
+                5L, json("{\"title\":\"n\",\"uploadTimestamp\":-1}"), "schedule");
+
+        assertThat(zero.uploadTime()).isNull();
+        assertThat(negative.uploadTime()).isNull();
+        assertThat(zero.document().path("normalized").has("uploadTime")).isFalse();
+        assertThat(negative.document().path("normalized").has("uploadTime")).isFalse();
+    }
+
+    @Test
     @DisplayName("小说：uploadDate 优先，存在时不被 uploadTimestamp 覆盖")
     void shouldPreferUploadDateOverTimestamp() {
         JsonNode novel = json("{\"title\":\"n\",\"uploadDate\":\"2026-06-06T21:27:00+00:00\","

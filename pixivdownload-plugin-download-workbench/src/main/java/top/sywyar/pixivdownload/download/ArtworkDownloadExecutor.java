@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetenti
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -35,7 +36,6 @@ import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.io.*;
 import java.net.URI;
@@ -775,7 +775,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         if (templateId <= 0) {
             templateId = PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID;
         }
-        long preferredTime = TimestampUtils.toMillis(other.getFileNameTimestamp());
+        long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
         long recordTime = preferredTime > 0 ? pixivDatabase.getUniqueTime(preferredTime) : pixivDatabase.getUniqueTime();
         String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
         long fileAuthorNameId = sanitizedAuthorName.isEmpty() ? 0L : pixivDatabase.getOrCreateFileAuthorNameId(sanitizedAuthorName);

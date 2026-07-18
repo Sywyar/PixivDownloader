@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.util.TimestampUtils;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -66,12 +66,12 @@ public class NovelDatabase {
     }
 
     public long getUniqueTime() {
-        return getUniqueTime(TimestampUtils.nowMillis());
+        return getUniqueTime(System.currentTimeMillis());
     }
 
     public long getUniqueTime(long preferredTime) {
-        long normalizedPreferred = TimestampUtils.toMillis(preferredTime);
-        long base = normalizedPreferred > 0 ? normalizedPreferred : TimestampUtils.nowMillis();
+        long normalizedPreferred = EpochMillisNormalizer.normalize(preferredTime);
+        long base = normalizedPreferred > 0 ? normalizedPreferred : System.currentTimeMillis();
         long candidate;
         while (true) {
             long last = lastIssuedTime.get();
@@ -165,7 +165,7 @@ public class NovelDatabase {
         String lang = langCode.trim();
         String content = rawContent == null ? "" : rawContent;
         String previousContent = novelMapper.findTranslationContent(novelId, lang);
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         String titleToWrite = (translatedTitle != null && !translatedTitle.isBlank())
                 ? translatedTitle.trim()
                 : novelMapper.findTranslationTitle(novelId, lang);
@@ -252,7 +252,7 @@ public class NovelDatabase {
                 ? translatedDescription.trim()
                 : novelMapper.findSeriesDescriptionTranslation(seriesId, lang);
         novelMapper.insertOrReplaceSeriesTitleTranslation(
-                seriesId, lang, translatedTitle.trim(), descriptionToWrite, TimestampUtils.nowMillis());
+                seriesId, lang, translatedTitle.trim(), descriptionToWrite, System.currentTimeMillis());
     }
 
     /** 读取某系列某语言的系列名翻译；不存在返回 {@code null}。 */
@@ -402,7 +402,7 @@ public class NovelDatabase {
     @Transactional
     public void observeSeries(long seriesId, String title, Long authorId) {
         if (seriesId <= 0) return;
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         String safeTitle = (title == null || title.isBlank()) ? String.valueOf(seriesId) : title.trim();
         int inserted = novelMapper.insertSeriesIfAbsent(seriesId, safeTitle, authorId, now);
         if (inserted > 0) return;

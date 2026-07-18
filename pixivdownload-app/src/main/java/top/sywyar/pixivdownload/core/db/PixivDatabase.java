@@ -7,9 +7,9 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -57,12 +57,12 @@ public class PixivDatabase {
      * 获取一个不与现有记录冲突的唯一时间戳（毫秒级）
      */
     public long getUniqueTime() {
-        return getUniqueTime(TimestampUtils.nowMillis());
+        return getUniqueTime(System.currentTimeMillis());
     }
 
     public long getUniqueTime(long preferredTime) {
-        long normalizedPreferred = TimestampUtils.toMillis(preferredTime);
-        long base = normalizedPreferred > 0 ? normalizedPreferred : TimestampUtils.nowMillis();
+        long normalizedPreferred = EpochMillisNormalizer.normalize(preferredTime);
+        long base = normalizedPreferred > 0 ? normalizedPreferred : System.currentTimeMillis();
         long candidate;
         // CAS 推进进程内计数器：保证两个并发调用永远不会拿到相同时间。
         while (true) {

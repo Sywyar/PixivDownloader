@@ -13,6 +13,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 
 import java.io.IOException;
 import java.net.URI;
@@ -732,9 +733,6 @@ public class PixivFetchService {
         return "";
     }
 
-    /** epoch 秒 ↔ 毫秒消歧阈值：{@code >=} 此值视为毫秒，否则视为秒（× 1000）。 */
-    private static final long EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L;
-
     /**
      * 解析小说上传时间为 epoch 毫秒：先按 ISO 日期串候选 {@code uploadDate}/{@code createDate}/{@code updateDate}，
      * 再兼容 {@code uploadTimestamp}（可能是 epoch 毫秒 / 秒数字，或 ISO 字符串）。类型安全，非法值不退化成 0。
@@ -753,7 +751,7 @@ public class PixivFetchService {
 
     /**
      * 解析「可能是 epoch 毫秒 / epoch 秒数字，或 ISO 字符串」的时间值为 epoch 毫秒。
-     * 数字按 {@link #EPOCH_MILLIS_THRESHOLD} 在毫秒/秒间消歧；非法字符串（既非 ISO 又非数字）返回
+     * 数字经 {@link EpochMillisNormalizer} 在毫秒/秒间消歧；非法字符串（既非 ISO 又非数字）返回
      * {@code null}，<b>绝不</b>退化成 0。
      */
     static Long parseFlexibleEpochMillis(JsonNode node) {
@@ -782,12 +780,12 @@ public class PixivFetchService {
         return null;
     }
 
-    /** epoch 秒 ↔ 毫秒消歧：{@code >= EPOCH_MILLIS_THRESHOLD} 视为毫秒，否则视为秒（× 1000）；{@code <= 0} 视为无效。 */
+    /** epoch 秒 ↔ 毫秒消歧；{@code <= 0} 视为无效。 */
     private static Long normalizeEpochMillis(long value) {
         if (value <= 0) {
             return null;
         }
-        return value >= EPOCH_MILLIS_THRESHOLD ? value : value * 1000L;
+        return EpochMillisNormalizer.normalize(value);
     }
 
     private static Integer countPages(String content) {

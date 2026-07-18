@@ -7,7 +7,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import javax.sql.DataSource;
 import java.sql.ResultSet;
@@ -243,7 +242,7 @@ public class NovelMetadataRepository {
                 new MapSqlParameterSource()
                         .addValue("collectionId", collectionId)
                         .addValue("novelId", novelId)
-                        .addValue("addedTime", TimestampUtils.nowMillis()));
+                        .addValue("addedTime", System.currentTimeMillis()));
         return rows > 0;
     }
 

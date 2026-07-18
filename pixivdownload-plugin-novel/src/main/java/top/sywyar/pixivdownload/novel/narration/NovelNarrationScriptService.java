@@ -17,7 +17,6 @@ import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScriptService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentenceSplitter;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -182,7 +181,7 @@ public class NovelNarrationScriptService {
             conflicts = narration.conflicts();
         }
 
-        long now = TimestampUtils.nowMillis();
+        long now = System.currentTimeMillis();
         novelMapper.upsertNarrationScript(novelId, langKey, resolvedCastId, normalizedSegment, now, writeLines(lines));
         log.info("narration script persisted: novelId={}, lang='{}', castId={}, lines={}, conflicts={}",
                 novelId, langKey, resolvedCastId, lines.size(), conflicts.size());

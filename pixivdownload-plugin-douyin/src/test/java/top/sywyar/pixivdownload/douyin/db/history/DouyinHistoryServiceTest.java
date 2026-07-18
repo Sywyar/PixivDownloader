@@ -54,10 +54,11 @@ class DouyinHistoryServiceTest {
             assertThat(db.service.hasWork("7351")).isTrue();
             assertThat(db.service.hasActiveWork("7351")).isTrue();
             assertThat(db.mapper.findAnyById("7351").folder()).startsWith("{");
-            assertThat(db.service.findById("7351")).get()
-                    .extracting(DouyinWorkRecord::folder)
-                    .satisfies(value -> assertThat(Path.of((String) value).normalize())
-                            .isEqualTo(folder.toAbsolutePath().normalize()));
+            assertThat(db.service.findById("7351")).get().satisfies(row -> {
+                assertThat(Path.of(row.folder()).normalize())
+                        .isEqualTo(folder.toAbsolutePath().normalize());
+                assertThat(row.publishTime()).isEqualTo(1_710_000_000_000L);
+            });
             assertThat(db.service.findFilesByWorkId("7351")).singleElement()
                     .satisfies(row -> {
                         assertThat(row.fileIndex()).isZero();

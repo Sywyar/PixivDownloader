@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
-import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -155,7 +154,7 @@ public class NarrationReferenceVoiceService {
         synchronized (fileStore.lockFor(castId, characterId)) {
             fileStore.deleteCharacterFiles(castId, characterId);
             novelMapper.clearNarrationVoiceReference(castId, characterId);
-            novelMapper.touchNarrationCast(castId, TimestampUtils.nowMillis());
+            novelMapper.touchNarrationCast(castId, System.currentTimeMillis());
         }
     }
 
@@ -175,7 +174,7 @@ public class NarrationReferenceVoiceService {
                 return null;
             }
             fileStore.write(castId, characterId, data, ext);
-            long now = TimestampUtils.nowMillis();
+            long now = System.currentTimeMillis();
             String text = refText == null || refText.isBlank() ? null : refText.trim();
             int updated = novelMapper.updateNarrationVoiceReference(castId, characterId, ext, text, source, now);
             if (updated <= 0) {
@@ -193,7 +192,7 @@ public class NarrationReferenceVoiceService {
                 && novelMapper.findNarrationVoiceRef(castId, characterId) == null) {
             novelMapper.insertNarrationVoiceIfAbsent(castId, NarrationCharacter.NARRATOR_ID, "Narrator",
                     "unknown", "unknown", NarrationCharacter.DEFAULT_NARRATOR_INSTRUCTION, false,
-                    TimestampUtils.nowMillis());
+                    System.currentTimeMillis());
         }
     }
 
