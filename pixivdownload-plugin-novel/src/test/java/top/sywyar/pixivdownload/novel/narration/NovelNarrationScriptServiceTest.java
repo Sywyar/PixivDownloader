@@ -244,14 +244,14 @@ class NovelNarrationScriptServiceTest {
         when(castService.voices(5L)).thenReturn(List.of(
                 new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false),
                 new NarrationCharacter(1, "哀家", "female", "elderly", "An elderly woman, low and cold voice.", false, true)));
-        when(audio.synthesizeLine(any(), any(), any())).thenReturn(new NarrationAudio(new byte[]{1, 2}, "audio/wav"));
+        when(audio.synthesizeLine(any(), any())).thenReturn(new NarrationAudio(new byte[]{1, 2}, "audio/wav"));
 
         NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NarrationAudio out = service.synthesizeLine(7L, "", 0);
 
         assertEquals("audio/wav", out.contentType());
         ArgumentCaptor<NarrationScript.Line> lineCaptor = ArgumentCaptor.forClass(NarrationScript.Line.class);
-        verify(audio).synthesizeLine(lineCaptor.capture(), any(), any());
+        verify(audio).synthesizeLine(lineCaptor.capture(), any());
         NarrationScript.Line line = lineCaptor.getValue();
         assertEquals(1, line.speakerId());
         assertEquals("住口！", line.text());

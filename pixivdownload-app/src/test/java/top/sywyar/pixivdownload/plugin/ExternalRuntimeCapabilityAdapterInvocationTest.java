@@ -94,7 +94,7 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
 
             drainBlocking(registrar, publication, gate, () -> proxy.synthesize(
                     NarrationVoiceMode.VOICE_DESIGN,
-                    NarrationVoiceRequest.of("hello", "calm", "en")));
+                    NarrationVoiceRequest.of("hello", "calm")));
             assertThat(engineRegistry.count()).isZero();
         }
     }

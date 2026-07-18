@@ -61,7 +61,7 @@ class MiMoNarrationEngineTest {
                 .thenReturn(json(AUDIO_B64));
 
         engine(config("https://api.xiaomimimo.com/v1/", "")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("你好世界", "An elderly woman, low cold voice", null));
+                NarrationVoiceRequest.of("你好世界", "An elderly woman, low cold voice"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts-voicedesign");
@@ -80,7 +80,7 @@ class MiMoNarrationEngineTest {
         TtsPluginConfig cfg = config("https://h/v1", "");
         cfg.getMimo().setVoice("Chloe");
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("hi", "bright", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("hi", "bright"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts");
@@ -94,7 +94,7 @@ class MiMoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
 
         engine(config("https://h/v1", "")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("正文", "  ", null));
+                NarrationVoiceRequest.of("正文", "  "));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts-voicedesign");
@@ -107,7 +107,7 @@ class MiMoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子句");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         engine(config("https://h/v1", "")).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -125,7 +125,7 @@ class MiMoNarrationEngineTest {
         cfg.getMimo().setEnableClone(false);
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1}, "audio/wav", "x");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         engine(cfg).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -140,7 +140,7 @@ class MiMoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
 
         engine(config("https://h/v1", "sk-mimo-123"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         HttpHeaders headers = capturedHeaders(direct);
         assertThat(headers.getFirst("api-key")).isEqualTo("sk-mimo-123");
@@ -153,7 +153,7 @@ class MiMoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
 
         NarrationAudio audio = engine(config("https://h/v1", ""))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(audio.data()).containsExactly(0x52, 0x49, 0x46, 0x46);
         assertThat(audio.contentType()).isEqualTo("audio/wav");
@@ -166,7 +166,7 @@ class MiMoNarrationEngineTest {
                 .thenReturn(jsonRaw("{\"choices\":[]}"));
 
         assertThatThrownBy(() -> engine(config("https://h/v1", ""))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
                 .isInstanceOf(NarrationVoiceException.class);
     }
 
@@ -180,7 +180,7 @@ class MiMoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenThrow(ex);
 
         assertThatThrownBy(() -> engine(config("https://h/v1", apiKey))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("***")
                 .hasMessageNotContaining(apiKey);
@@ -193,7 +193,7 @@ class MiMoNarrationEngineTest {
         cfg.getMimo().setUseProxy(true);
         when(proxy.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         verify(proxy).exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class));
     }

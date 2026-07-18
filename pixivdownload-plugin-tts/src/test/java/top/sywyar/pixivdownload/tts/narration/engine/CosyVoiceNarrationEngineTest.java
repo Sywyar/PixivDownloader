@@ -55,7 +55,7 @@ class CosyVoiceNarrationEngineTest {
         cfg.getCosyvoice().setVoice("中文女");
 
         engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("你好", "An elderly woman, cold voice", null));
+                NarrationVoiceRequest.of("你好", "An elderly woman, cold voice"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("input")).isEqualTo("你好");
@@ -70,7 +70,7 @@ class CosyVoiceNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("http://h/v1")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("t", "", null));
+                NarrationVoiceRequest.of("t", ""));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.containsKey("voice")).isFalse();
@@ -83,7 +83,7 @@ class CosyVoiceNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子句");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         engine(config("http://h/v1")).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -102,7 +102,7 @@ class CosyVoiceNarrationEngineTest {
         cfg.getCosyvoice().setEnableClone(false);
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1}, "audio/wav", "x");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         engine(cfg).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -115,7 +115,7 @@ class CosyVoiceNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("http://h/v1", "sk-cosy"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(capturedHeaders(direct).getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer sk-cosy");
     }
@@ -127,7 +127,7 @@ class CosyVoiceNarrationEngineTest {
         cfg.getCosyvoice().setUseProxy(true);
         when(proxy.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         verify(proxy).exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class));
         verifyNoInteractions(direct);

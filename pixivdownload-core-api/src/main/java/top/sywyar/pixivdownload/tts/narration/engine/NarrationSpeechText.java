@@ -1,15 +1,15 @@
 package top.sywyar.pixivdownload.tts.narration.engine;
 
 /**
- * 朗读引擎<b>无关</b>的待合成文本工具（纯静态、可单测）。把原本困在 {@code VoxCpmNarrationEngine} 里、其实对任何
- * 自回归 TTS 都通用的文本处理收敛到这里，供 {@code NarrationAudioService} 统一归一、各引擎复用：
+ * 朗读引擎<b>无关</b>的待合成文本工具（纯静态、可单测）。把自回归 TTS 通用的文本处理收敛到这里，
+ * 供调用方统一归一并由各引擎复用：
  * <ul>
  *   <li>{@link #normalize(String)}：省略号 / 悬挂标点结尾 → 句号，纯标点 / 无可发音内容 → 空串（规避空音频 / 长噪音 / 呓语）；</li>
  *   <li>{@link #speakableCount(String)} / {@link #hasSpeakable(String)}：可发音字符统计（短输入收敛 / 跳过判定用）；</li>
  *   <li>{@link #blankToNull(String)}：空白 → {@code null}（供「空则不下发」的可选字段，如 voice / voice-id）；</li>
  *   <li>{@link #isShortInput(String, int)}：是否为「超短输入」（按可发音字数）。</li>
  * </ul>
- * 断句层的超短句合并（{@code NarrationSentenceSplitter.mergeTinySentences}）是另一回事，仍留在断句层。
+ * 句子切分与跨句合并不属于本工具，由调用方在进入合成边界前完成。
  */
 public final class NarrationSpeechText {
 

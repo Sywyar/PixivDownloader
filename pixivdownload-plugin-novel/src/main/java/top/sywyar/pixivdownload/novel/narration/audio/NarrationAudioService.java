@@ -53,8 +53,8 @@ public class NarrationAudioService {
     }
 
     /**
-     * 合成脚本中的一行：用 line 的文本 / 已合成 Control Instruction / delivery 组 {@link NarrationVoiceRequest}（gender /
-     * age 本次留空），带上由上游（持久化层）解析好的参考音 {@code referenceVoice}（可为空）后<b>数据驱动选模式</b>：
+     * 合成脚本中的一行：用 line 的文本 / 已合成 Control Instruction / delivery 组 {@link NarrationVoiceRequest}，
+     * 带上由上游解析好的参考音 {@code referenceVoice}（可为空）后<b>数据驱动选模式</b>：
      * 有可用参考音 → {@link NarrationVoiceMode#CLONE}，否则 {@link NarrationVoiceMode#VOICE_DESIGN}；是否升级为
      * Hi-Fi 续写由引擎按 {@code clone-mode} 配置自行决定。本服务与引擎都不直接读盘 / 查库，保持解耦。
      *
@@ -63,11 +63,9 @@ public class NarrationAudioService {
      *
      * @param line           朗读脚本行（{@link NarrationScript.Line}）
      * @param referenceVoice 该说话人的参考音（可为空）；非空且有音频时走克隆
-     * @param localeHint     文本 / 界面语言提示（可为空；VoxCPM 内联不使用）
      */
     public NarrationAudio synthesizeLine(NarrationScript.Line line,
-                                         NarrationReferenceVoice referenceVoice,
-                                         String localeHint) {
+                                         NarrationReferenceVoice referenceVoice) {
         if (line == null) {
             throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
         }
@@ -81,7 +79,7 @@ public class NarrationAudioService {
         }
         NarrationVoiceRequest req = new NarrationVoiceRequest(
                 line.text(), line.controlInstruction(), line.delivery(),
-                null, null, 0L, line.speakerId(), localeHint, referenceVoice);
+                referenceVoice);
         NarrationVoiceMode mode = referenceVoice != null && referenceVoice.hasAudio()
                 ? NarrationVoiceMode.CLONE : NarrationVoiceMode.VOICE_DESIGN;
         return synthesize(mode, req);
@@ -93,11 +91,10 @@ public class NarrationAudioService {
      *
      * @param text               要朗读的文本
      * @param controlInstruction 音色描述（可为空）
-     * @param localeHint         语言提示（可为空）
      */
-    public NarrationAudio synthesizeVoiceDesign(String text, String controlInstruction, String localeHint) {
+    public NarrationAudio synthesizeVoiceDesign(String text, String controlInstruction) {
         return synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of(text, controlInstruction, localeHint));
+                NarrationVoiceRequest.of(text, controlInstruction));
     }
 
     /**

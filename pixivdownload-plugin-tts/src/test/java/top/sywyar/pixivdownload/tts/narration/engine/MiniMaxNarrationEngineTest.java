@@ -62,7 +62,7 @@ class MiniMaxNarrationEngineTest {
                 .thenReturn(json(AUDIO_HEX));
 
         engine(config("https://api.minimax.io/v1/", "k", "English_expressive_narrator"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好", "ci"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("model")).isEqualTo("speech-2.8-hd");
@@ -78,7 +78,7 @@ class MiniMaxNarrationEngineTest {
     void deliveryMapsToEmotion() throws Exception {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_HEX));
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An old woman", "very angry and cold", null, null, 0L, 1, null, null);
+                "原句", "An old woman", "very angry and cold", null);
 
         engine(config("https://h/v1", "k", "v1")).synthesize(NarrationVoiceMode.VOICE_DESIGN, req);
 
@@ -93,7 +93,7 @@ class MiniMaxNarrationEngineTest {
         cfg.getMinimax().setEmotion("calm");
 
         engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("t", "ci", null));
+                NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(voiceSetting(capturedBody(direct)).get("emotion")).isEqualTo("calm");
     }
@@ -104,7 +104,7 @@ class MiniMaxNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_HEX));
 
         engine(config("https://h/v1", "k", "v1")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("t", "ci", null));
+                NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(voiceSetting(capturedBody(direct)).containsKey("emotion")).isFalse();
     }
@@ -115,7 +115,7 @@ class MiniMaxNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_HEX));
 
         NarrationAudio audio = engine(config("https://h/v1", "k", "v1"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(audio.data()).containsExactly(0x52, 0x49, 0x46, 0x46);
         assertThat(audio.contentType()).isEqualTo("audio/mpeg");
@@ -128,7 +128,7 @@ class MiniMaxNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(jsonRaw(resp));
 
         assertThatThrownBy(() -> engine(config("https://h/v1", "sk-secret", "v1"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("1004")
                 .hasMessageNotContaining("sk-secret");
@@ -141,7 +141,7 @@ class MiniMaxNarrationEngineTest {
         cfg.getMinimax().setUseProxy(true);
         when(proxy.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_HEX));
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         verify(proxy).exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class));
     }

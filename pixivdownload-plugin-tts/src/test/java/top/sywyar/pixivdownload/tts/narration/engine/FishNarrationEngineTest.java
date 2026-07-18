@@ -54,7 +54,7 @@ class FishNarrationEngineTest {
         TtsPluginConfig cfg = config("https://api.fish.audio", "sk-fish");
         cfg.getFish().setReferenceId("voice-123");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 0L, 1, null, null);
+                "原句", "An elderly woman", "angry", null);
 
         engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, req);
 
@@ -73,7 +73,7 @@ class FishNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(mp3());
 
         engine(config("https://api.fish.audio", "k"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("纯正文", "", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("纯正文", ""));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("text")).isEqualTo("纯正文");
@@ -86,7 +86,7 @@ class FishNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(mp3());
 
         NarrationAudio audio = engine(config("https://api.fish.audio", "k"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(audio.contentType()).isEqualTo("audio/mpeg");
     }
@@ -98,7 +98,7 @@ class FishNarrationEngineTest {
         cfg.getFish().setUseProxy(true);
         when(proxy.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(mp3());
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         verify(proxy).exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class));
     }

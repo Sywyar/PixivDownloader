@@ -109,7 +109,7 @@ class VoxCpmNarrationEngineTest {
                 .thenReturn(wav());
 
         engine(config("http://127.0.0.1:8000/v1/", "")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("你好世界", "An elderly woman, low and cold voice", null));
+                NarrationVoiceRequest.of("你好世界", "An elderly woman, low and cold voice"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("input")).isEqualTo("(An elderly woman, low and cold voice)你好世界");
@@ -125,7 +125,7 @@ class VoxCpmNarrationEngineTest {
         TtsPluginConfig cfg = config("http://h/v1", "");
         cfg.getVoxcpm().setVoice("alloy");
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(capturedBody(direct).get("voice")).isEqualTo("alloy");
     }
@@ -137,7 +137,7 @@ class VoxCpmNarrationEngineTest {
         TtsPluginConfig cfg = config("http://h/v1", "");
         cfg.getVoxcpm().setVoice("   ");
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(capturedBody(direct).containsKey("voice")).isFalse();
     }
@@ -148,7 +148,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("http://h/v1", "")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("仅正文", "   ", null));
+                NarrationVoiceRequest.of("仅正文", "   "));
 
         assertThat(capturedBody(direct).get("input")).isEqualTo("仅正文");
     }
@@ -159,7 +159,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子句");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman, low and cold voice", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman, low and cold voice", "angry", ref);
 
         engine(config("http://h/v1", "")).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -178,7 +178,7 @@ class VoxCpmNarrationEngineTest {
         cfg.getVoxcpm().setCloneMode("hifi");
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子句");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         engine(cfg).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -198,7 +198,7 @@ class VoxCpmNarrationEngineTest {
         cfg.getVoxcpm().setCloneMode("hifi");
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "   ");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         engine(cfg).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -215,7 +215,7 @@ class VoxCpmNarrationEngineTest {
         cfg.getVoxcpm().setEnableClone(false);
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1}, "audio/wav", "x");
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         engine(cfg).synthesize(NarrationVoiceMode.CLONE, req);
 
@@ -232,7 +232,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("http://h/v1", "")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("正文", "", null));
+                NarrationVoiceRequest.of("正文", ""));
 
         assertThat(capturedBody(direct).get("max_new_tokens")).isEqualTo(4096);
     }
@@ -243,7 +243,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("http://h/v1", "")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("吗？", "", null));
+                NarrationVoiceRequest.of("吗？", ""));
 
         assertThat(capturedBody(direct).get("max_new_tokens")).isEqualTo(1024);
     }
@@ -254,7 +254,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("http://h/v1", "sk-secret-xyz"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(capturedHeaders(direct).getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer sk-secret-xyz");
     }
@@ -265,7 +265,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("http://h/v1", ""))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(capturedHeaders(direct).getFirst(HttpHeaders.AUTHORIZATION)).isNull();
     }
@@ -279,7 +279,7 @@ class VoxCpmNarrationEngineTest {
                 .thenReturn(new ResponseEntity<>(new byte[]{1, 2, 3}, headers, 200));
 
         NarrationAudio audio = engine(config("http://h/v1", ""))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(audio.data()).containsExactly(1, 2, 3);
         assertThat(audio.contentType()).isEqualTo("audio/wav");
@@ -292,7 +292,7 @@ class VoxCpmNarrationEngineTest {
                 .thenReturn(new ResponseEntity<>(new byte[]{9}, new HttpHeaders(), 200));
 
         NarrationAudio audio = engine(config("http://h/v1", ""))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         assertThat(audio.contentType()).isEqualTo("audio/wav");
     }
@@ -304,7 +304,7 @@ class VoxCpmNarrationEngineTest {
         cfg.getVoxcpm().setUseProxy(true);
         when(proxy.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", ""));
 
         verify(proxy).exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class));
         verifyNoInteractions(direct);
@@ -317,7 +317,7 @@ class VoxCpmNarrationEngineTest {
                 .thenReturn(new ResponseEntity<>(new byte[0], new HttpHeaders(), 200));
 
         assertThatThrownBy(() -> engine(config("http://h/v1", ""))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "")))
                 .isInstanceOf(NarrationVoiceException.class);
     }
 
@@ -332,7 +332,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenThrow(ex);
 
         assertThatThrownBy(() -> engine(config("http://h/v1", apiKey))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "")))
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("***")
                 .hasMessageNotContaining(apiKey);
@@ -350,7 +350,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenThrow(ex);
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", transcript);
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+                "原句", "An elderly woman", "angry", ref);
 
         assertThatThrownBy(() -> engine(config("http://h/v1", "")).synthesize(NarrationVoiceMode.CLONE, req))
                 .isInstanceOf(NarrationVoiceException.class)
@@ -370,7 +370,7 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenThrow(ex);
 
         assertThatThrownBy(() -> engine(config("http://h/v1", apiKey))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "")))
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("***")
                 .hasMessageNotContaining(apiKey);
@@ -380,7 +380,7 @@ class VoxCpmNarrationEngineTest {
     @DisplayName("base-url 未配置直接抛受控异常，不触网")
     void unavailableThrowsWithoutNetwork() {
         assertThatThrownBy(() -> engine(config("", ""))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "")))
                 .isInstanceOf(NarrationVoiceException.class);
         verifyNoInteractions(direct, proxy);
     }

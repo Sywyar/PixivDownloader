@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.novel.db;
 
 /**
  * 某花名册角色的<b>参考音 / 标准音</b>元数据（{@code novel_narration_voices} 的参考音相关列）。音频字节本身存盘于
- * {@code data/narration-voice/{castId}/{characterId}.{ext}}，本记录只承载库内元信息。
+ * {@code data/novel/narration-voice/{castId}/{characterId}.{ext}}，本记录只承载库内元信息。
  *
  * @param castId      花名册 ID
  * @param characterId 角色 ID（0=旁白）

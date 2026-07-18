@@ -63,7 +63,7 @@ class QwenNarrationEngineTest {
                 .thenReturn(wav());
 
         NarrationAudio audio = engine(config("https://dashscope.aliyuncs.com/api/v1/", "sk-qwen"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好世界", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好世界", "ci"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("model")).isEqualTo("qwen3-tts-flash");
@@ -80,7 +80,7 @@ class QwenNarrationEngineTest {
         when(direct.exchange(eq(URI.create(AUDIO_URL)), eq(HttpMethod.GET), any(), eq(byte[].class))).thenReturn(wav());
 
         engine(config("https://dashscope.aliyuncs.com/api/v1", "k"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(input(capturedBody(direct)).containsKey("language_type")).isFalse();
     }
@@ -92,7 +92,7 @@ class QwenNarrationEngineTest {
         when(direct.exchange(eq(GEN_URL), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(jsonRaw(resp));
 
         assertThatThrownBy(() -> engine(config("https://dashscope.aliyuncs.com/api/v1", "sk-secret"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("InvalidApiKey")
                 .hasMessageNotContaining("sk-secret");
@@ -106,7 +106,7 @@ class QwenNarrationEngineTest {
         when(proxy.exchange(eq(GEN_URL), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_URL));
         when(proxy.exchange(eq(URI.create(AUDIO_URL)), eq(HttpMethod.GET), any(), eq(byte[].class))).thenReturn(wav());
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         verify(proxy).exchange(eq(GEN_URL), eq(HttpMethod.POST), any(), eq(byte[].class));
         verify(proxy).exchange(eq(URI.create(AUDIO_URL)), eq(HttpMethod.GET), any(), eq(byte[].class));
@@ -121,7 +121,7 @@ class QwenNarrationEngineTest {
                 .thenReturn(wav());
 
         engine(config("https://dashscope.aliyuncs.com/api/v1", "k"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
         verify(direct).exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(), eq(byte[].class));
@@ -139,7 +139,7 @@ class QwenNarrationEngineTest {
                 .thenThrow(new RestClientException("GET " + SIGNED_AUDIO_URL + " failed with sk-secret"));
 
         assertThatThrownBy(() -> engine(config("https://dashscope.aliyuncs.com/api/v1", "sk-secret"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("audio download failed")
                 .hasMessageNotContaining("Signature")

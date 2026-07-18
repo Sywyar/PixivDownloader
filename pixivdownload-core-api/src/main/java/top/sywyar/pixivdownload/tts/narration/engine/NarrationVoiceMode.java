@@ -1,10 +1,9 @@
 package top.sywyar.pixivdownload.tts.narration.engine;
 
 /**
- * 多角色朗读的<b>合成模式</b>：显式表达「音色从哪来、情绪如何控制」，由 {@code NarrationAudioService} 在调用处给出，
- * 引擎以 {@link NarrationVoiceEngine#supportedModes()} 声明自己能处理哪些模式（对齐 {@code PushChannel.supportedFormats()}
- * 惯例）；引擎不支持的模式由派发器降级为 {@link #VOICE_DESIGN}。模式与「有没有参考音」不再隐式绑定，便于后续接入
- * 更多富感情 TTS（MiMo / CosyVoice / Fish 等）时按各引擎能力精确路由。
+ * 多角色朗读的<b>合成模式</b>：显式表达「音色从哪来、情绪如何控制」，由调用方在合成请求处给出。
+ * 引擎以 {@link NarrationVoiceEngine#supportedModes()} 声明自己能处理哪些模式；不支持的模式由派发器降级为
+ * {@link #VOICE_DESIGN}。模式与「有没有参考音」不再隐式绑定，便于按各引擎能力精确路由。
  */
 public enum NarrationVoiceMode {
 

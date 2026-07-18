@@ -129,7 +129,7 @@ public class NarrationReferenceVoiceService {
             return new GenerateResult(Outcome.NO_BASE, null);
         }
         String text = seedText == null ? "" : seedText.trim();
-        NarrationAudio audio = narrationAudioService.synthesizeVoiceDesign(text, base, null);
+        NarrationAudio audio = narrationAudioService.synthesizeVoiceDesign(text, base);
         byte[] data = audio == null ? null : audio.data();
         String ext = extForContentType(audio == null ? null : audio.contentType());
         if (data == null || !acceptableSeed(data, ext)) {

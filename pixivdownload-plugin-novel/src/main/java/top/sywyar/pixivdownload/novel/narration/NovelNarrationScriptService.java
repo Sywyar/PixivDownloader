@@ -255,7 +255,7 @@ public class NovelNarrationScriptService {
         var referenceVoice = referenceVoiceService.resolve(row.castId(), line.speakerId());
         log.debug("narration line synth: novelId={}, lang='{}', lineIndex={}, speaker={}({}), castId={}, ref={}",
                 novelId, langKey, lineIndex, line.speakerId(), speakerName, row.castId(), referenceVoice != null);
-        return narrationAudioService.synthesizeLine(scriptLine, referenceVoice, langKey.isEmpty() ? null : langKey);
+        return narrationAudioService.synthesizeLine(scriptLine, referenceVoice);
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ class DoubaoNarrationEngineTest {
                 .thenReturn(json(AUDIO_B64));
 
         engine(config("https://openspeech.bytedance.com/", "app-1", "tok-1", "zh_female_x"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好", "ci"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(app(body)).containsEntry("appid", "app-1").containsEntry("cluster", "volcano_tts");
@@ -75,7 +75,7 @@ class DoubaoNarrationEngineTest {
     void deliveryMapsToEmotion() throws Exception {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
         NarrationVoiceRequest req = new NarrationVoiceRequest(
-                "原句", "An old woman", "very angry and cold", null, null, 0L, 1, null, null);
+                "原句", "An old woman", "very angry and cold", null);
 
         engine(config("https://h", "app", "tok", "vt")).synthesize(NarrationVoiceMode.VOICE_DESIGN, req);
 
@@ -90,7 +90,7 @@ class DoubaoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
 
         engine(config("https://h", "app", "tok", "vt"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         Map<String, Object> audio = audio(capturedBody(direct));
         assertThat(audio.containsKey("emotion")).isFalse();
@@ -103,7 +103,7 @@ class DoubaoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
 
         NarrationAudio audio = engine(config("https://h", "app", "tok", "vt"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(audio.data()).containsExactly(0x49, 0x44, 0x33, 0x04);
         assertThat(audio.contentType()).isEqualTo("audio/mpeg");
@@ -116,7 +116,7 @@ class DoubaoNarrationEngineTest {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(jsonRaw(resp));
 
         assertThatThrownBy(() -> engine(config("https://h", "app", "sk-secret", "vt"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null)))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("3001")
                 .hasMessageNotContaining("sk-secret");
@@ -129,7 +129,7 @@ class DoubaoNarrationEngineTest {
         cfg.getDoubao().setUseProxy(true);
         when(proxy.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
 
-        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci", null));
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         verify(proxy).exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class));
     }

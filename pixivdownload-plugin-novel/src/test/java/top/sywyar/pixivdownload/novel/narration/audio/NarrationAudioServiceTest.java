@@ -43,7 +43,7 @@ class NarrationAudioServiceTest {
         when(voxcpm.synthesize(any(), any())).thenReturn(audio);
         NarrationAudioService service = service(config("voxcpm"), voxcpm);
 
-        NarrationAudio out = service.synthesizeVoiceDesign("text", "ci", null);
+        NarrationAudio out = service.synthesizeVoiceDesign("text", "ci");
 
         assertThat(out).isSameAs(audio);
         verify(voxcpm).synthesize(eq(NarrationVoiceMode.VOICE_DESIGN), any(NarrationVoiceRequest.class));
@@ -55,7 +55,7 @@ class NarrationAudioServiceTest {
         NarrationVoiceEngine voxcpm = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
         NarrationAudioService service = service(config("voxcpm"), voxcpm);
 
-        assertThatThrownBy(() -> service.synthesizeVoiceDesign("……", "", null))
+        assertThatThrownBy(() -> service.synthesizeVoiceDesign("……", ""))
                 .isInstanceOf(NarrationVoiceException.class);
         verify(voxcpm, never()).synthesize(any(), any());
     }
@@ -73,7 +73,7 @@ class NarrationAudioServiceTest {
         NarrationAudioService service = service(config("voxcpm"), voxcpm);
         NarrationScript.Line line = new NarrationScript.Line(1, punct.text(), 0, "旁白", "", "Narrator voice");
 
-        NarrationAudio audio = service.synthesizeLine(line, null, null);
+        NarrationAudio audio = service.synthesizeLine(line, null);
 
         assertThat(audio).isNotNull();
         assertThat(audio.contentType()).isEqualTo("audio/wav");
@@ -91,7 +91,7 @@ class NarrationAudioServiceTest {
         NarrationScript.Line line = new NarrationScript.Line(0, "原句", 1, "甲", "angry", "An old woman");
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子");
 
-        service.synthesizeLine(line, ref, null);
+        service.synthesizeLine(line, ref);
 
         ArgumentCaptor<NarrationVoiceMode> modeCaptor = ArgumentCaptor.forClass(NarrationVoiceMode.class);
         verify(engine).synthesize(modeCaptor.capture(), any());
@@ -108,7 +108,7 @@ class NarrationAudioServiceTest {
         NarrationScript.Line line = new NarrationScript.Line(0, "原句", 1, "甲", "angry", "An old woman");
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子");
 
-        service.synthesizeLine(line, ref, null);
+        service.synthesizeLine(line, ref);
 
         verify(engine).synthesize(eq(NarrationVoiceMode.CLONE), any());
     }
@@ -121,7 +121,7 @@ class NarrationAudioServiceTest {
         when(voxcpm.isAvailable()).thenReturn(false);
         NarrationAudioService service = service(config("voxcpm"), voxcpm);
 
-        assertThatThrownBy(() -> service.synthesizeVoiceDesign("t", "", null))
+        assertThatThrownBy(() -> service.synthesizeVoiceDesign("t", ""))
                 .isInstanceOf(NarrationVoiceException.class);
         verify(voxcpm, never()).synthesize(any(), any());
     }
@@ -135,7 +135,7 @@ class NarrationAudioServiceTest {
         when(engine.id()).thenThrow(new AssertionError("service must use captured engine id"));
         when(engine.isAvailable()).thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
 
-        assertThatThrownBy(() -> service.synthesizeVoiceDesign("text", "", null))
+        assertThatThrownBy(() -> service.synthesizeVoiceDesign("text", ""))
                 .isInstanceOf(NarrationVoiceException.class);
     }
 
@@ -156,12 +156,12 @@ class NarrationAudioServiceTest {
         NarrationAudioService service = new NarrationAudioService(
                 new NarrationEngineRegistry(List.of()), config("unknown"), MESSAGES);
 
-        assertThatThrownBy(() -> service.synthesizeVoiceDesign("t", "", null))
+        assertThatThrownBy(() -> service.synthesizeVoiceDesign("t", ""))
                 .isInstanceOf(NarrationVoiceException.class);
     }
 
     @Test
-    @DisplayName("synthesizeLine：用脚本行的文本 / Control Instruction / delivery / speakerId 组请求（无参考音 → VOICE_DESIGN）")
+    @DisplayName("synthesizeLine：用脚本行的文本、音色描述和语气组请求")
     void synthesizeLinePassesLineFields() {
         NarrationVoiceEngine voxcpm = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
         when(voxcpm.synthesize(any(), any())).thenReturn(new NarrationAudio(new byte[]{1}, "audio/wav"));
@@ -169,7 +169,7 @@ class NarrationAudioServiceTest {
         NarrationScript.Line line = new NarrationScript.Line(
                 0, "原句", 1, "哀家", "angry", "An elderly woman, angry");
 
-        service.synthesizeLine(line, null, "zh-CN");
+        service.synthesizeLine(line, null);
 
         ArgumentCaptor<NarrationVoiceRequest> captor = ArgumentCaptor.forClass(NarrationVoiceRequest.class);
         verify(voxcpm).synthesize(eq(NarrationVoiceMode.VOICE_DESIGN), captor.capture());
@@ -177,8 +177,6 @@ class NarrationAudioServiceTest {
         assertThat(req.text()).isEqualTo("原句");
         assertThat(req.controlInstruction()).isEqualTo("An elderly woman, angry");
         assertThat(req.delivery()).isEqualTo("angry");
-        assertThat(req.characterId()).isEqualTo(1);
-        assertThat(req.localeHint()).isEqualTo("zh-CN");
         assertThat(req.hasReferenceVoice()).isFalse();
     }
 

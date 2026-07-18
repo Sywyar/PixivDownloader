@@ -81,7 +81,7 @@ public class NarrationTtsController {
         String controlInstruction = request.controlInstruction() == null
                 ? "" : request.controlInstruction().trim();
         try {
-            NarrationAudio audio = narrationAudioService.synthesizeVoiceDesign(text, controlInstruction, null);
+            NarrationAudio audio = narrationAudioService.synthesizeVoiceDesign(text, controlInstruction);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.valueOf(audio.contentType()));
             headers.setCacheControl(CacheControl.noStore());
