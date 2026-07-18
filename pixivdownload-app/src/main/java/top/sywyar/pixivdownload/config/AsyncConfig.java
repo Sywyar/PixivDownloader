@@ -63,7 +63,7 @@ public class AsyncConfig {
 
     /** 小说下载专用线程池，并发上限由 {@code download.novel-max-concurrent} 控制。 */
     @Bean("novelDownloadTaskExecutor")
-    public TaskExecutor novelDownloadTaskExecutor(DownloadConfig downloadConfig) {
+    public ThreadPoolTaskExecutor novelDownloadTaskExecutor(DownloadConfig downloadConfig) {
         return fixedPool(downloadConfig.getNovelMaxConcurrent(), "pixiv-novel-");
     }
 
@@ -86,7 +86,7 @@ public class AsyncConfig {
      * 固定大小线程池：corePoolSize == maxPoolSize + 无界队列，稳定保持 {@code concurrency}
      * 个工作线程，超出的任务排队，降低同时打外部服务触发限流的概率。
      */
-    private static TaskExecutor fixedPool(int concurrency, String threadNamePrefix) {
+    private static ThreadPoolTaskExecutor fixedPool(int concurrency, String threadNamePrefix) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(concurrency);
         executor.setMaxPoolSize(concurrency);
