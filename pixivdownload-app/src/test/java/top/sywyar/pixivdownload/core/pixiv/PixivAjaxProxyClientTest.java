@@ -86,9 +86,6 @@ class PixivAjaxProxyClientTest {
                         assertThat(failure.statusCode()).isZero();
                         assertThat(failure.getMessage()).doesNotContain("secret", uri.toString());
                     });
-            assertThatThrownBy(() -> client.proxyGetUri(uri, "PHPSESSID=secret"))
-                    .isInstanceOfSatisfying(PixivAjaxException.class, failure ->
-                            assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.INVALID_TARGET));
         }
 
         verifyNoInteractions(restTemplate);

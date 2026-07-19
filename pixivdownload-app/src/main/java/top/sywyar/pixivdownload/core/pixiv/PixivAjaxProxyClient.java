@@ -24,15 +24,6 @@ public class PixivAjaxProxyClient implements PixivAjaxClient {
         this.restTemplate = restTemplate;
     }
 
-    public String proxyGet(String url, String cookie) {
-        return proxyGetUri(URI.create(url), cookie);
-    }
-
-    public String proxyGetUri(URI uri, String cookie) {
-        requireAllowedTarget(uri);
-        return exchange(uri, cookie);
-    }
-
     @Override
     public String get(URI uri, String cookie) {
         requireAllowedTarget(uri);

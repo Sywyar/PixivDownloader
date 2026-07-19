@@ -11,7 +11,7 @@ import org.springframework.context.support.ReloadableResourceBundleMessageSource
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
@@ -69,7 +69,7 @@ class NarrationReferenceVoiceControllerTest {
         ResponseEntity<?> response = controller.upload(3L, 1, file, null);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody()).isInstanceOf(ErrorResponse.class);
+        assertThat(response.getBody()).isInstanceOf(NovelErrorResponse.class);
         verify(referenceVoiceService, never()).saveUpload(eq(3L), eq(1), any(), any(), any());
     }
 

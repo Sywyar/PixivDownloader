@@ -4,8 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SyncTaskExecutor;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
@@ -29,6 +28,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 
 import java.util.List;
 import java.util.Set;
@@ -52,9 +52,9 @@ class PixivScheduledNovelCapabilityAssemblyTest {
         PixivScheduledNovelWorkExecutor novelExecutor =
                 configuration.pixivScheduledNovelWorkExecutor(
                         new ObjectMapper(),
-                        mock(PixivAjaxProxyClient.class),
+                        mock(PixivAjaxClient.class),
                         mock(WorkQueryService.class),
-                        mock(WorkMetaCaptureService.class),
+                        mock(WorkMetadataCapture.class),
                         mock(NovelDownloader.class),
                         mock(NovelMergeService.class),
                         mock(NovelAutoTranslateService.class),

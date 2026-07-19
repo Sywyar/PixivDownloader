@@ -12,19 +12,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
@@ -32,10 +33,14 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 
+import java.net.URI;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -78,17 +83,17 @@ class NovelDownloadServiceTest {
     @Mock
     private CollectionDownloadRootResolver collectionDownloadRootResolver;
     @Mock
-    private PixivBookmarkService pixivBookmarkService;
+    private PixivBookmarkActions pixivBookmarkActions;
     @Mock
     private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock
-    private RestTemplate downloadRestTemplate;
+    private PixivImageDownloader pixivImageDownloader;
     @Mock
     private TaskScheduler taskScheduler;
     @Mock
     private NovelAutoTranslateService novelAutoTranslateService;
     @Mock
-    private WorkMetaCaptureService workMetaCaptureService;
+    private WorkMetadataCapture workMetadataCapture;
 
     private NovelDownloadService service;
     private final TaskExecutor downloadTaskExecutor = Runnable::run;
@@ -98,6 +103,8 @@ class NovelDownloadServiceTest {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
         lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
+        lenient().when(taskScheduler.schedule(any(Runnable.class), any(Instant.class)))
+                .thenReturn(org.mockito.Mockito.mock(ScheduledFuture.class));
         service = newService(downloadTaskExecutor);
     }
 
@@ -110,9 +117,9 @@ class NovelDownloadServiceTest {
         NovelDownloadExecutionLane executionLane = new NovelDownloadExecutionLane(taskExecutor, 1);
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard, novelDatabase,
                 novelSeriesService, authorObservationService, workCollectionMembership,
-                collectionDownloadRootResolver, pixivBookmarkService, visitorDownloadQuotaService,
-                downloadRestTemplate, taskScheduler, executionLane, APP_MESSAGES,
-                novelAutoTranslateService, workMetaCaptureService);
+                collectionDownloadRootResolver, pixivBookmarkActions, visitorDownloadQuotaService,
+                pixivImageDownloader, taskScheduler, executionLane, APP_MESSAGES,
+                novelAutoTranslateService, workMetadataCapture);
     }
 
     /** 构造一个最简的 TXT 交互式小说下载请求（无封面 / 无内嵌图 / 无系列 / 无收藏）。 */
@@ -134,7 +141,7 @@ class NovelDownloadServiceTest {
         boolean ok = service.downloadBlocking(txtRequest(101L, RAW_META), null);
 
         assertThat(ok).isTrue();
-        verify(workMetaCaptureService).captureForwardedNovel(101L, RAW_META);
+        verify(workMetadataCapture).captureForwarded(WorkType.NOVEL, 101L, RAW_META);
     }
 
     @Test
@@ -143,7 +150,7 @@ class NovelDownloadServiceTest {
         boolean ok = service.downloadBlocking(txtRequest(102L, null), null);
 
         assertThat(ok).isTrue();
-        verify(workMetaCaptureService, never()).captureForwardedNovel(anyLong(), any());
+        verify(workMetadataCapture, never()).captureForwarded(any(), anyLong(), any());
     }
 
     @Test
@@ -184,6 +191,49 @@ class NovelDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("封面与正文内嵌图保留插件自有命名、扩展和进度语义")
+    void shouldKeepOwnedImageProjectionAndProgress() throws Exception {
+        NovelDownloadRequest request = txtRequest(110L, null);
+        request.setCookie("PHPSESSID=test");
+        request.setContent("before [uploadedimage:123] after");
+        request.getOther().setEmbeddedImages(Map.of(
+                "123", "https://i.pximg.net/img-original/embed.gif"));
+        request.getOther().setCoverUrl(
+                "https://i.pximg.net/c/600x600/novel-cover-master/cover.png");
+        when(pixivImageDownloader.download(any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    PixivImageTransferObserver observer = invocation.getArgument(4);
+                    observer.onContentLength(20);
+                    observer.onBytesTransferred(12);
+                    return true;
+                });
+
+        boolean ok = service.downloadBlocking(request, null);
+
+        assertThat(ok).isTrue();
+        ArgumentCaptor<URI> sources = ArgumentCaptor.forClass(URI.class);
+        ArgumentCaptor<URI> referers = ArgumentCaptor.forClass(URI.class);
+        ArgumentCaptor<Path> targets = ArgumentCaptor.forClass(Path.class);
+        verify(pixivImageDownloader, times(2)).download(
+                sources.capture(), referers.capture(), targets.capture(), eq("PHPSESSID=test"), any());
+        assertThat(sources.getAllValues())
+                .extracting(URI::toString)
+                .containsExactly(
+                        "https://i.pximg.net/img-original/embed.gif",
+                        "https://i.pximg.net/novel-cover-master/cover.png");
+        assertThat(referers.getAllValues())
+                .extracting(URI::toString)
+                .containsOnly("https://www.pixiv.net/novel/show.php?id=110");
+        assertThat(targets.getAllValues().get(0).getFileName().toString())
+                .isEqualTo("embed_123.gif");
+        assertThat(targets.getAllValues().get(1).getFileName().toString())
+                .endsWith("_thumb.png");
+        verify(novelDatabase).saveNovelImage(110L, "123", "gif");
+        assertThat(service.getStatus(110L).getCoverTotalBytes()).isEqualTo(20);
+        assertThat(service.getStatus(110L).getCoverDownloadedBytes()).isEqualTo(12);
+    }
+
+    @Test
     @DisplayName("下载路径与文件名字典通过核心端口解析并写入小说记录")
     void shouldResolvePathAndFileNameFactsThroughCorePorts() {
         NovelDownloadRequest request = txtRequest(109L, null);
@@ -215,13 +265,13 @@ class NovelDownloadServiceTest {
     @Test
     @DisplayName("转发捕获抛异常不影响已成功的下载")
     void shouldKeepDownloadSucceededWhenCaptureThrows() {
-        doThrow(new RuntimeException("boom")).when(workMetaCaptureService)
-                .captureForwardedNovel(anyLong(), any());
+        doThrow(new RuntimeException("boom")).when(workMetadataCapture)
+                .captureForwarded(any(), anyLong(), any());
 
         boolean ok = service.downloadBlocking(txtRequest(103L, RAW_META), null);
 
         assertThat(ok).isTrue();
-        verify(workMetaCaptureService).captureForwardedNovel(eq(103L), any());
+        verify(workMetadataCapture).captureForwarded(eq(WorkType.NOVEL), eq(103L), any());
     }
 
     @Test

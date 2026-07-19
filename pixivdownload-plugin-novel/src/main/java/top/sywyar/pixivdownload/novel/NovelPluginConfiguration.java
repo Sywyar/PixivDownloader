@@ -13,8 +13,6 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
@@ -25,10 +23,10 @@ import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
-import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
-import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -73,6 +71,7 @@ import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
@@ -135,9 +134,9 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NovelSeriesService novelSeriesService(NovelDatabase novelDatabase,
                                                  DownloadSettings downloadConfig,
-                                                 PixivCoverDownloader coverDownloader,
+                                                 PixivImageDownloader pixivImageDownloader,
                                                  @Qualifier("novelPluginMessages") MessageResolver messages) {
-        return new NovelSeriesService(novelDatabase, downloadConfig, coverDownloader, messages);
+        return new NovelSeriesService(novelDatabase, downloadConfig, pixivImageDownloader, messages);
     }
 
     @Bean
@@ -197,19 +196,19 @@ public class NovelPluginConfiguration {
             AuthorObservationService authorObservationService,
             WorkCollectionMembership workCollectionMembership,
             CollectionDownloadRootResolver collectionDownloadRootResolver,
-            PixivBookmarkService pixivBookmarkService,
+            PixivBookmarkActions pixivBookmarkActions,
             @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
-            @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+            PixivImageDownloader pixivImageDownloader,
             @Qualifier("taskScheduler") TaskScheduler taskScheduler,
             NovelDownloadExecutionLane downloadExecutionLane,
             @Qualifier("novelPluginMessages") MessageResolver messages,
             NovelAutoTranslateService novelAutoTranslateService,
-            WorkMetaCaptureService workMetaCaptureService) {
+            WorkMetadataCapture workMetadataCapture) {
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard,
                 novelDatabase, novelSeriesService,
                 authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
-                pixivBookmarkService, visitorDownloadQuotaService, downloadRestTemplate,
-                taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService, workMetaCaptureService);
+                pixivBookmarkActions, visitorDownloadQuotaService, pixivImageDownloader,
+                taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService, workMetadataCapture);
     }
 
     @Bean
@@ -222,16 +221,16 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public PixivScheduledNovelWorkExecutor pixivScheduledNovelWorkExecutor(
             ObjectMapper objectMapper,
-            PixivAjaxProxyClient pixivAjaxProxyClient,
+            PixivAjaxClient pixivAjaxClient,
             WorkQueryService workQueryService,
-            WorkMetaCaptureService workMetaCaptureService,
+            WorkMetadataCapture workMetadataCapture,
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
             NovelDownloadExecutionLane downloadExecutionLane) {
         return new PixivScheduledNovelWorkExecutor(
-                objectMapper, pixivAjaxProxyClient, workQueryService,
-                workMetaCaptureService, novelDownloader, novelMergeService,
+                objectMapper, pixivAjaxClient, workQueryService,
+                workMetadataCapture, novelDownloader, novelMergeService,
                 novelAutoTranslateService, downloadExecutionLane);
     }
 
@@ -352,12 +351,13 @@ public class NovelPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public NovelPixivProxyController novelPixivProxyController(ObjectMapper objectMapper,
-                                                               PixivAjaxProxyClient pixivAjaxProxyClient,
-                                                               PixivProxyAccessGuard pixivProxyAccessGuard,
+                                                               PixivAjaxClient pixivAjaxClient,
+                                                               PixivProxyAccessPolicy pixivProxyAccessPolicy,
+                                                               RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                                WorkVisibilityService workVisibilityService,
                                                                @Qualifier("novelPluginMessages") MessageResolver messages) {
-        return new NovelPixivProxyController(objectMapper, pixivAjaxProxyClient, pixivProxyAccessGuard,
-                workVisibilityService, messages);
+        return new NovelPixivProxyController(objectMapper, pixivAjaxClient, pixivProxyAccessPolicy,
+                requestOwnerIdentityResolver, workVisibilityService, messages);
     }
 
     @Bean

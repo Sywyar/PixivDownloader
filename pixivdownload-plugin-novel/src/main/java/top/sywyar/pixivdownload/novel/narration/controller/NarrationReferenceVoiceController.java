@@ -14,13 +14,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoicePaths;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidator;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
@@ -72,13 +72,13 @@ public class NarrationReferenceVoiceController {
             return switch (result.outcome()) {
                 case ADOPTED -> ResponseEntity.ok(status(result.ref()));
                 case TOO_SHORT -> ResponseEntity.unprocessableEntity()
-                        .body(new ErrorResponse(messages.get("narration.error.ref-too-short")));
+                        .body(new NovelErrorResponse(messages.get("narration.error.ref-too-short")));
                 case NO_BASE -> badRequest("narration.error.ref-no-base");
             };
         } catch (NarrationVoiceException e) {
             log.warn(messages.getForLog("narration.tts.log.preview-failed", e.getMessage()));
             return ResponseEntity.status(502)
-                    .body(new ErrorResponse(messages.get("narration.tts.preview.failed", e.getMessage())));
+                    .body(new NovelErrorResponse(messages.get("narration.tts.preview.failed", e.getMessage())));
         }
     }
 
@@ -118,7 +118,7 @@ public class NarrationReferenceVoiceController {
         if (ref == null) {
             // 角色不在该花名册中（且非旁白）：服务已拒绝落盘，返回明确 404 而非 500。
             return ResponseEntity.status(404)
-                    .body(new ErrorResponse(messages.get("narration.error.ref-character-not-found")));
+                    .body(new NovelErrorResponse(messages.get("narration.error.ref-character-not-found")));
         }
         return ResponseEntity.ok(status(ref));
     }
@@ -158,8 +158,8 @@ public class NarrationReferenceVoiceController {
         }
     }
 
-    private ResponseEntity<ErrorResponse> badRequest(String messageKey) {
-        return ResponseEntity.badRequest().body(new ErrorResponse(messages.get(messageKey)));
+    private ResponseEntity<NovelErrorResponse> badRequest(String messageKey) {
+        return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get(messageKey)));
     }
 
     private static ReferenceStatus status(NovelNarrationVoiceRef ref) {

@@ -10,15 +10,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResourceAccessException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
@@ -40,11 +36,11 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunStatistics;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
@@ -74,11 +70,11 @@ class PixivScheduledNovelWorkExecutorTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
-    private PixivAjaxProxyClient pixivAjaxProxyClient;
+    private PixivAjaxClient pixivAjaxProxyClient;
     @Mock
     private WorkQueryService workQueryService;
     @Mock
-    private WorkMetaCaptureService workMetaCaptureService;
+    private WorkMetadataCapture workMetaCaptureService;
     @Mock
     private NovelDownloader novelDownloader;
     @Mock
@@ -164,7 +160,7 @@ class PixivScheduledNovelWorkExecutorTest {
     @Test
     @DisplayName("珍藏集 mixed 定义可执行其中的小说作品")
     void collectionMixedDefinitionExecutesNovelWork() throws Exception {
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull()))
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull()))
                 .thenReturn(minimalNovelResponse());
         when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
         ScheduledTaskDefinition collectionTask = task(
@@ -191,7 +187,7 @@ class PixivScheduledNovelWorkExecutorTest {
                 ScheduledNetworkRoute.proxy("proxy.local", 7890, null),
                 secret);
         AtomicInteger fetches = new AtomicInteger();
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), eq("PHPSESSID=test")))
+        when(pixivAjaxProxyClient.get(any(URI.class), eq("PHPSESSID=test")))
                 .thenAnswer(invocation -> {
                     assertThat(OutboundProxyOverride.isActive()).isTrue();
                     assertThat(OutboundProxyOverride.current()).isNotNull();
@@ -271,16 +267,18 @@ class PixivScheduledNovelWorkExecutorTest {
             assertThat(tag.translatedName()).isEqualTo("Series translated");
         });
 
-        ArgumentCaptor<JsonNode> sidecarBody = ArgumentCaptor.forClass(JsonNode.class);
-        verify(workMetaCaptureService).captureNovel(eq(123L), sidecarBody.capture(), eq("schedule"));
-        assertThat(sidecarBody.getValue()).isEqualTo(objectMapper.readTree(completeNovelResponse()).path("body"));
+        ArgumentCaptor<String> sidecarBody = ArgumentCaptor.forClass(String.class);
+        verify(workMetaCaptureService).capture(
+                eq(WorkType.NOVEL), eq(123L), sidecarBody.capture(), eq("schedule"));
+        assertThat(objectMapper.readTree(sidecarBody.getValue()))
+                .isEqualTo(objectMapper.readTree(completeNovelResponse()).path("body"));
     }
 
     @Test
     @DisplayName("显式直连覆盖全局路由语义并允许匿名凭证且结束后清理")
     void directRouteAllowsAnonymousCredentialAndCleansUp() throws Exception {
         ContextFixture fixture = context(definition(false, false), ScheduledNetworkRoute.direct(), null);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenAnswer(invocation -> {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenAnswer(invocation -> {
             assertThat(OutboundProxyOverride.isActive()).isTrue();
             assertThat(OutboundProxyOverride.current()).isNull();
             return minimalNovelResponse();
@@ -310,7 +308,7 @@ class PixivScheduledNovelWorkExecutorTest {
     void reusedLaneWorkerDoesNotLeakProxyOrDirectRoute() throws Exception {
         AtomicInteger fetches = new AtomicInteger();
         AtomicReference<Thread> workerThread = new AtomicReference<>();
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenAnswer(invocation -> {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenAnswer(invocation -> {
             Thread currentThread = Thread.currentThread();
             if (!workerThread.compareAndSet(null, currentThread)) {
                 assertThat(currentThread).isSameAs(workerThread.get());
@@ -352,7 +350,7 @@ class PixivScheduledNovelWorkExecutorTest {
                         """,
                 ScheduledNetworkRoute.direct(),
                 null);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenReturn(completeNovelResponse());
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenReturn(completeNovelResponse());
 
         ScheduledWorkResult result = executor().execute(work("123"), fixture.context());
 
@@ -362,7 +360,7 @@ class PixivScheduledNovelWorkExecutorTest {
                 "title", "标题",
                 "xRestrict", "1",
                 "ai", "true"));
-        verify(pixivAjaxProxyClient, times(1)).proxyGetUri(any(URI.class), isNull());
+        verify(pixivAjaxProxyClient, times(1)).get(any(URI.class), isNull());
         verifyNoInteractions(novelDownloader, workMetaCaptureService);
     }
 
@@ -370,7 +368,7 @@ class PixivScheduledNovelWorkExecutorTest {
     @DisplayName("同一任务的系列富信息含空结果只抓一次且轮末清理缓存")
     void cachesSeriesMetadataWithinRunAndClearsAtFinish() throws Exception {
         AtomicInteger seriesFetches = new AtomicInteger();
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenAnswer(invocation -> {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenAnswer(invocation -> {
             URI uri = invocation.getArgument(0);
             if (uri.getPath().contains("/series/")) {
                 seriesFetches.incrementAndGet();
@@ -401,7 +399,7 @@ class PixivScheduledNovelWorkExecutorTest {
     @DisplayName("异常结束未调用轮末时新任务定义身份会丢弃上一轮系列缓存")
     void freshDefinitionIdentityReplacesAbandonedRunCache() throws Exception {
         AtomicInteger seriesFetches = new AtomicInteger();
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenAnswer(invocation -> {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenAnswer(invocation -> {
             URI uri = invocation.getArgument(0);
             if (uri.getPath().contains("/series/")) {
                 seriesFetches.incrementAndGet();
@@ -426,7 +424,7 @@ class PixivScheduledNovelWorkExecutorTest {
     @DisplayName("异常终止清理后同一任务定义也会重新抓取系列信息")
     void abortRunClearsSuccessfulWorkSeriesCache() throws Exception {
         AtomicInteger seriesFetches = new AtomicInteger();
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenAnswer(invocation -> {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenAnswer(invocation -> {
             URI uri = invocation.getArgument(0);
             if (uri.getPath().contains("/series/")) {
                 seriesFetches.incrementAndGet();
@@ -452,47 +450,38 @@ class PixivScheduledNovelWorkExecutorTest {
     void classifiesNotFoundCredentialAndRetryableFailures() {
         ContextFixture fixture = context(definition(false, false), ScheduledNetworkRoute.direct(), null);
 
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenThrow(
-                HttpClientErrorException.create(
-                        HttpStatus.NOT_FOUND, "", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenThrow(
+                new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 404));
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.NOT_FOUND);
 
         reset(pixivAjaxProxyClient);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenThrow(
-                HttpClientErrorException.create(
-                        HttpStatus.FORBIDDEN, "", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenThrow(
+                new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 403));
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.NOT_FOUND);
 
         reset(pixivAjaxProxyClient);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenThrow(
-                HttpClientErrorException.create(
-                        HttpStatus.UNAUTHORIZED, "", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenThrow(
+                new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 401));
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.RETRYABLE_NETWORK);
 
         reset(pixivAjaxProxyClient);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenThrow(
-                HttpClientErrorException.create(
-                        HttpStatus.TOO_MANY_REQUESTS, "", HttpHeaders.EMPTY,
-                        new byte[0], StandardCharsets.UTF_8));
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenThrow(
+                new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 429));
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.RETRYABLE_NETWORK);
 
         reset(pixivAjaxProxyClient);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenThrow(
-                HttpClientErrorException.create(
-                        HttpStatus.BAD_REQUEST, "", HttpHeaders.EMPTY,
-                        new byte[0], StandardCharsets.UTF_8));
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenThrow(
+                new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 400));
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.RETRYABLE_NETWORK);
 
         reset(pixivAjaxProxyClient);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenThrow(
-                HttpServerErrorException.create(
-                        HttpStatus.INTERNAL_SERVER_ERROR, "", HttpHeaders.EMPTY,
-                        new byte[0], StandardCharsets.UTF_8));
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenThrow(
+                new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 500));
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.RETRYABLE_NETWORK);
 
         reset(pixivAjaxProxyClient);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull()))
-                .thenThrow(new ResourceAccessException("timeout"));
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull()))
+                .thenThrow(new PixivAjaxException(PixivAjaxFailure.TRANSPORT, 0));
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.RETRYABLE_NETWORK);
         assertThat(OutboundProxyOverride.isActive()).isFalse();
     }
@@ -501,7 +490,7 @@ class PixivScheduledNovelWorkExecutorTest {
     @DisplayName("阻塞下载返回 false 时进入可重试失败且不捕获 sidecar")
     void falseDownloadResultIsRetryableWithoutSidecar() {
         ContextFixture fixture = context(definition(false, false), ScheduledNetworkRoute.direct(), null);
-        when(pixivAjaxProxyClient.proxyGetUri(any(URI.class), isNull())).thenReturn(minimalNovelResponse());
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenReturn(minimalNovelResponse());
         when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(false);
 
         assertFailureCategory(fixture.context(), ScheduledFailure.Category.RETRYABLE_NETWORK);

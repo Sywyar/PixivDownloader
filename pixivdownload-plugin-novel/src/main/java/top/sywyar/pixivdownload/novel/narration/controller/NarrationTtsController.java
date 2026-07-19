@@ -10,10 +10,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
@@ -44,7 +44,7 @@ public class NarrationTtsController {
     @PostMapping("/line")
     public ResponseEntity<?> line(@RequestBody NarrationLineRequest request) {
         if (request == null || request.novelId() == null || request.lineIndex() == null) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.invalid-line")));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("narration.error.invalid-line")));
         }
         String lang = request.lang() == null ? "" : request.lang().trim();
         try {
@@ -52,7 +52,7 @@ public class NarrationTtsController {
                     request.novelId(), lang, request.lineIndex());
             if (audio == null) {
                 return ResponseEntity.status(404)
-                        .body(new ErrorResponse(messages.get("narration.error.no-script")));
+                        .body(new NovelErrorResponse(messages.get("narration.error.no-script")));
             }
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.valueOf(audio.contentType()));
@@ -61,7 +61,7 @@ public class NarrationTtsController {
         } catch (NarrationVoiceException e) {
             log.warn(messages.getForLog("narration.tts.log.preview-failed", e.getMessage()));
             return ResponseEntity.status(502)
-                    .body(new ErrorResponse(messages.get("narration.tts.preview.failed", e.getMessage())));
+                    .body(new NovelErrorResponse(messages.get("narration.tts.preview.failed", e.getMessage())));
         }
     }
 
@@ -72,11 +72,11 @@ public class NarrationTtsController {
     public ResponseEntity<?> preview(@RequestBody NarrationTtsPreviewRequest request) {
         String text = request == null || request.text() == null ? "" : request.text().trim();
         if (text.isEmpty()) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.tts.error.empty-text")));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("narration.tts.error.empty-text")));
         }
         if (text.length() > MAX_TEXT_LENGTH) {
             return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(messages.get("narration.tts.text-too-long", MAX_TEXT_LENGTH)));
+                    .body(new NovelErrorResponse(messages.get("narration.tts.text-too-long", MAX_TEXT_LENGTH)));
         }
         String controlInstruction = request.controlInstruction() == null
                 ? "" : request.controlInstruction().trim();
@@ -89,7 +89,7 @@ public class NarrationTtsController {
         } catch (NarrationVoiceException e) {
             log.warn(messages.getForLog("narration.tts.log.preview-failed", e.getMessage()));
             return ResponseEntity.status(502)
-                    .body(new ErrorResponse(messages.get("narration.tts.preview.failed", e.getMessage())));
+                    .body(new NovelErrorResponse(messages.get("narration.tts.preview.failed", e.getMessage())));
         }
     }
 }

@@ -7,7 +7,7 @@ import org.springframework.context.support.ReloadableResourceBundleMessageSource
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -182,9 +182,9 @@ class NarrationControllerTest {
                 new NarrationController.ScriptRequest(7L, null, null, true, null, null, null));
 
         assertEquals(503, resp.getStatusCode().value());
-        assertTrue(resp.getBody() instanceof ErrorResponse);
+        assertTrue(resp.getBody() instanceof NovelErrorResponse);
         assertEquals("AI 文本模型当前不可用，无法生成新的朗读脚本；请稍后再试或检查 AI 插件配置",
-                ((ErrorResponse) resp.getBody()).getError());
+                ((NovelErrorResponse) resp.getBody()).error());
         verify(scriptService, org.mockito.Mockito.never())
                 .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
     }

@@ -2,22 +2,20 @@ package top.sywyar.pixivdownload.novel.download;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpMethod;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
-import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
@@ -28,13 +26,12 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -49,7 +46,6 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.LongConsumer;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.export.NovelEpubWriter;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
@@ -92,14 +88,14 @@ public class NovelDownloadService implements NovelDownloader {
     private final AuthorObservationService authorObservationService;
     private final WorkCollectionMembership workCollectionMembership;
     private final CollectionDownloadRootResolver collectionDownloadRootResolver;
-    private final PixivBookmarkService pixivBookmarkService;
+    private final PixivBookmarkActions pixivBookmarkActions;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
-    private final RestTemplate downloadRestTemplate;
+    private final PixivImageDownloader pixivImageDownloader;
     private final TaskScheduler taskScheduler;
     private final NovelDownloadExecutionLane downloadExecutionLane;
     private final MessageResolver messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
-    private final WorkMetaCaptureService workMetaCaptureService;
+    private final WorkMetadataCapture workMetadataCapture;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
     private final QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
@@ -112,14 +108,14 @@ public class NovelDownloadService implements NovelDownloader {
                                 AuthorObservationService authorObservationService,
                                 WorkCollectionMembership workCollectionMembership,
                                 CollectionDownloadRootResolver collectionDownloadRootResolver,
-                                PixivBookmarkService pixivBookmarkService,
+                                PixivBookmarkActions pixivBookmarkActions,
                                 @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
-                                @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+                                PixivImageDownloader pixivImageDownloader,
                                 @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                 NovelDownloadExecutionLane downloadExecutionLane,
                                 MessageResolver messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
-                                WorkMetaCaptureService workMetaCaptureService) {
+                                WorkMetadataCapture workMetadataCapture) {
         this.downloadConfig = downloadConfig;
         this.workFileNameCatalog = workFileNameCatalog;
         this.downloadPathGuard = downloadPathGuard;
@@ -128,14 +124,14 @@ public class NovelDownloadService implements NovelDownloader {
         this.authorObservationService = authorObservationService;
         this.workCollectionMembership = workCollectionMembership;
         this.collectionDownloadRootResolver = collectionDownloadRootResolver;
-        this.pixivBookmarkService = pixivBookmarkService;
+        this.pixivBookmarkActions = pixivBookmarkActions;
         this.visitorDownloadQuotaService = visitorDownloadQuotaService;
-        this.downloadRestTemplate = downloadRestTemplate;
+        this.pixivImageDownloader = pixivImageDownloader;
         this.taskScheduler = taskScheduler;
         this.downloadExecutionLane = downloadExecutionLane;
         this.messages = messages;
         this.novelAutoTranslateService = novelAutoTranslateService;
-        this.workMetaCaptureService = workMetaCaptureService;
+        this.workMetadataCapture = workMetadataCapture;
     }
 
     @Override
@@ -239,7 +235,8 @@ public class NovelDownloadService implements NovelDownloader {
             if (other.getCoverUrl() != null && !other.getCoverUrl().isBlank()) {
                 status.setStage("downloading-cover");
             }
-            String coverExt = downloadCover(other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status);
+            String coverExt = downloadCover(
+                    novelId, other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status);
             ensureNotCancelled(status);
 
             // Write file
@@ -300,7 +297,7 @@ public class NovelDownloadService implements NovelDownloader {
             // Best-effort bookmark
             if (other.isBookmark()) {
                 status.setStage("bookmarking");
-                status.setBookmarkResult(pixivBookmarkService.bookmarkNovel(novelId, request.getCookie()));
+                status.setBookmarkResult(pixivBookmarkActions.bookmarkNovel(novelId, request.getCookie()));
             }
 
             // Best-effort collection
@@ -365,7 +362,7 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     /**
-     * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetaCaptureService} 解析 + 归一化。
+     * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetadataCapture} 解析 + 归一化。
      * 仅前端交互下载链路填充该字段（计划任务走后端自抓 body，不填）。捕获已是下载成功后的旁路动作，
      * 全程 best-effort、warn-continue——任何异常都不得反报已成功的下载（沿一致性模型，由下次下载或历史回填自愈）。
      */
@@ -374,7 +371,7 @@ public class NovelDownloadService implements NovelDownloader {
             return;
         }
         try {
-            workMetaCaptureService.captureForwardedNovel(novelId, other.getRawMetaJson());
+            workMetadataCapture.captureForwarded(WorkType.NOVEL, novelId, other.getRawMetaJson());
         } catch (RuntimeException e) {
             log.warn("Failed to capture forwarded novel meta for {}: {}", novelId, e.getMessage());
         }
@@ -572,12 +569,14 @@ public class NovelDownloadService implements NovelDownloader {
      * 下载小说封面到 {@code {downloadPath}/{baseName}_thumb.{ext}}。
      * Best-effort：URL 缺失、host 非 .pximg.net、网络失败一律返回 null，调用方据此把 cover_ext 置 NULL。
      */
-    private String downloadCover(String coverUrl, Path downloadPath, String baseName, String cookie,
+    private String downloadCover(long novelId, String coverUrl, Path downloadPath, String baseName, String cookie,
                                  NovelDownloadStatus status) {
         if (coverUrl == null || coverUrl.isBlank()) return null;
+        URI referer = novelPageReferer(novelId);
         for (String candidateUrl : PixivCoverUrlResolver.downloadCandidates(coverUrl)) {
             ensureNotCancelled(status);
-            String ext = downloadCoverCandidate(candidateUrl, downloadPath, baseName, cookie, status);
+            String ext = downloadCoverCandidate(
+                    candidateUrl, referer, downloadPath, baseName, cookie, status);
             if (ext != null) {
                 return ext;
             }
@@ -585,7 +584,8 @@ public class NovelDownloadService implements NovelDownloader {
         return null;
     }
 
-    private String downloadCoverCandidate(String coverUrl, Path downloadPath, String baseName, String cookie,
+    private String downloadCoverCandidate(String coverUrl, URI referer, Path downloadPath,
+                                          String baseName, String cookie,
                                           NovelDownloadStatus status) {
         URI uri;
         try {
@@ -602,22 +602,13 @@ public class NovelDownloadService implements NovelDownloader {
         String ext = inferCoverExt(uri.getPath());
         Path target = downloadPath.resolve(baseName + "_thumb." + ext);
         try {
-            Boolean ok = downloadRestTemplate.execute(coverUrl, HttpMethod.GET,
-                    request -> PixivRequestHeaders.applyImage(request.getHeaders(), cookie),
-                    response -> {
-                        if (!response.getStatusCode().is2xxSuccessful()) {
-                            return Boolean.FALSE;
-                        }
-                        if (status != null) {
-                            long len = response.getHeaders().getContentLength();
-                            status.setCoverTotalBytes(len > 0 ? len : 0);
-                            status.setCoverDownloadedBytes(0);
-                        }
-                        copyResponseBody(response.getBody(), target, status,
-                                status == null ? null : status::setCoverDownloadedBytes);
-                        return Boolean.TRUE;
-                    });
-            if (Boolean.TRUE.equals(ok)) {
+            boolean downloaded = pixivImageDownloader.download(
+                    uri,
+                    referer,
+                    target,
+                    cookie,
+                    coverTransferObserver(status));
+            if (downloaded) {
                 return ext;
             }
             log.warn("novel cover download non-2xx: {}", coverUrl);
@@ -691,32 +682,6 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    private void copyResponseBody(InputStream inputStream, Path target, NovelDownloadStatus status) throws IOException {
-        copyResponseBody(inputStream, target, status, null);
-    }
-
-    /**
-     * 拷贝响应体到目标文件；{@code onTotalBytesCopied} 在每个数据块写入后收到累计字节数，
-     * 供封面下载的流式进度条使用。
-     */
-    private void copyResponseBody(InputStream inputStream, Path target, NovelDownloadStatus status,
-                                  LongConsumer onTotalBytesCopied) throws IOException {
-        try (InputStream in = inputStream;
-             OutputStream out = Files.newOutputStream(target)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            long total = 0;
-            while ((read = in.read(buffer)) != -1) {
-                ensureNotCancelled(status);
-                out.write(buffer, 0, read);
-                total += read;
-                if (onTotalBytesCopied != null) {
-                    onTotalBytesCopied.accept(total);
-                }
-            }
-        }
-    }
-
     /**
      * 扫描 raw 中出现的 {@code [uploadedimage:id]}，逐张下载至 {@code {downloadPath}/embed_{id}.{ext}}，
      * 持久化映射到 {@code novel_images} 表。
@@ -748,6 +713,7 @@ public class NovelDownloadService implements NovelDownloader {
             status.setEmbeddedDone(0);
         }
         Map<String, String> success = new LinkedHashMap<>();
+        URI referer = novelPageReferer(novelId);
         int budget = MAX_EMBEDDED_IMAGES_PER_NOVEL;
         for (String id : ids) {
             ensureNotCancelled(status);
@@ -757,7 +723,8 @@ public class NovelDownloadService implements NovelDownloader {
             }
             String url = urlMap.get(id);
             if (url == null || url.isBlank()) continue;
-            String ext = downloadOneEmbeddedImage(novelId, id, url, downloadPath, cookie, status);
+            String ext = downloadOneEmbeddedImage(
+                    novelId, id, url, referer, downloadPath, cookie, status);
             if (ext != null) success.put(id, ext);
             if (status != null) status.setEmbeddedDone(status.getEmbeddedDone() + 1);
         }
@@ -767,7 +734,7 @@ public class NovelDownloadService implements NovelDownloader {
         return success;
     }
 
-    private String downloadOneEmbeddedImage(long novelId, String imageId, String url,
+    private String downloadOneEmbeddedImage(long novelId, String imageId, String url, URI referer,
                                             Path downloadPath, String cookie,
                                             NovelDownloadStatus status) {
         URI uri;
@@ -785,16 +752,13 @@ public class NovelDownloadService implements NovelDownloader {
         String ext = inferImageExt(uri.getPath());
         Path target = downloadPath.resolve("embed_" + imageId + "." + ext);
         try {
-            Boolean ok = downloadRestTemplate.execute(url, HttpMethod.GET,
-                    request -> PixivRequestHeaders.applyImage(request.getHeaders(), cookie),
-                    response -> {
-                        if (!response.getStatusCode().is2xxSuccessful()) {
-                            return Boolean.FALSE;
-                        }
-                        copyResponseBody(response.getBody(), target, status);
-                        return Boolean.TRUE;
-                    });
-            if (Boolean.TRUE.equals(ok)) {
+            boolean downloaded = pixivImageDownloader.download(
+                    uri,
+                    referer,
+                    target,
+                    cookie,
+                    cancellationObserver(status));
+            if (downloaded) {
                 novelDatabase.saveNovelImage(novelId, imageId, ext);
                 return ext;
             }
@@ -817,6 +781,42 @@ public class NovelDownloadService implements NovelDownloader {
         int q = candidate.indexOf('?');
         if (q >= 0) candidate = candidate.substring(0, q);
         return IMAGE_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
+    }
+
+    private static URI novelPageReferer(long novelId) {
+        return URI.create("https://www.pixiv.net/novel/show.php?id=" + novelId);
+    }
+
+    private PixivImageTransferObserver coverTransferObserver(NovelDownloadStatus status) {
+        return new PixivImageTransferObserver() {
+            @Override
+            public void checkCancelled() {
+                ensureNotCancelled(status);
+            }
+
+            @Override
+            public void onContentLength(long contentLength) {
+                if (status != null) {
+                    status.setCoverTotalBytes(contentLength);
+                }
+            }
+
+            @Override
+            public void onBytesTransferred(long transferredBytes) {
+                if (status != null) {
+                    status.setCoverDownloadedBytes(transferredBytes);
+                }
+            }
+        };
+    }
+
+    private PixivImageTransferObserver cancellationObserver(NovelDownloadStatus status) {
+        return new PixivImageTransferObserver() {
+            @Override
+            public void checkCancelled() {
+                ensureNotCancelled(status);
+            }
+        };
     }
 
     private void writeEpub(Path file, long novelId, String title, NovelDownloadRequest.Other other,

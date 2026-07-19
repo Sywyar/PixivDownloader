@@ -102,6 +102,9 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                 hostType("top.sywyar.pixivdownload.core.appconfig", "MultiModeConfig"),
                 hostType("top.sywyar.pixivdownload.config", "DebugConfig"),
                 hostType("top.sywyar.pixivdownload.config", "RuntimeFiles"),
+                hostType("top.sywyar.pixivdownload.common", "ErrorResponse"),
+                hostType("top.sywyar.pixivdownload.common", "PixivCoverDownloader"),
+                hostType("top.sywyar.pixivdownload.common", "PixivRequestHeaders"),
                 hostType("top.sywyar.pixivdownload.common", "SafePathSegment"),
                 hostType("top.sywyar.pixivdownload.core.ai", "AiService"),
                 hostType("top.sywyar.pixivdownload.core.db", "PixivDatabase"),
@@ -110,13 +113,19 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelMetadataRepository"),
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelMetadataRow"),
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelSeriesTitleRow"),
+                hostType("top.sywyar.pixivdownload.core.metadata.sidecar", "WorkMetaCaptureService"),
                 hostType("top.sywyar.pixivdownload.core.narration", "NarrationEngineRegistry"),
                 hostType("top.sywyar.pixivdownload.core.narration", "NarrationTtsConfig"),
+                hostType("top.sywyar.pixivdownload.core.pixiv", "PixivAjaxProxyClient"),
+                hostType("top.sywyar.pixivdownload.core.pixiv", "PixivBookmarkService"),
+                hostType("top.sywyar.pixivdownload.core.pixiv", "PixivImageDownloadService"),
+                hostType("top.sywyar.pixivdownload.core.pixiv", "PixivProxyAccessGuard"),
                 hostType("top.sywyar.pixivdownload.i18n", "LocalizedException"),
                 hostType("top.sywyar.pixivdownload.i18n", "MessageBundles"),
                 hostType("top.sywyar.pixivdownload.author", "AuthorService"),
                 hostType("top.sywyar.pixivdownload.collection", "CollectionService"),
                 hostType("top.sywyar.pixivdownload.quota", "UserQuotaService"),
+                hostType("top.sywyar.pixivdownload.series", "MangaSeriesService"),
                 hostType("top.sywyar.pixivdownload.setup", "SetupService"),
                 hostType("top.sywyar.pixivdownload.setup.guest", "GuestAccessGuard"),
                 hostType("top.sywyar.pixivdownload.setup.guest", "GuestInviteSession"),
@@ -130,6 +139,15 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                         javaClass -> forbiddenTypes.contains(javaClass.getName())))
                 .because("外置 novel 插件应依赖 core-api/plugin-api 稳定端口，"
                         + "宿主配置绑定、运行期路径、setup、访客会话与 UUID 解析实现必须留在 app")
+                .check(CLASSES);
+        noClasses()
+                .that().resideInAnyPackage(
+                        "top.sywyar.pixivdownload.novel..",
+                        "top.sywyar.pixivdownload.novelgallery..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("org.springframework.web.client..")
+                .because("Pixiv HTTP 客户端实现与失败分类已由 core-api 稳定端口隔离，"
+                        + "novel 不得依赖宿主 RestTemplate 异常")
                 .check(CLASSES);
     }
 

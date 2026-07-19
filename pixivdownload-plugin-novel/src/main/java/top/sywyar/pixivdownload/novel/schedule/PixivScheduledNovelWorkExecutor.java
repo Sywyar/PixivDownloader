@@ -5,15 +5,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
@@ -33,6 +29,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 import java.net.URI;
@@ -57,9 +54,9 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     private static final Logger log = LoggerFactory.getLogger(PixivScheduledNovelWorkExecutor.class);
 
     private final ObjectMapper objectMapper;
-    private final PixivAjaxProxyClient pixivAjaxProxyClient;
+    private final PixivAjaxClient pixivAjaxClient;
     private final WorkQueryService workQueryService;
-    private final WorkMetaCaptureService workMetaCaptureService;
+    private final WorkMetadataCapture workMetadataCapture;
     private final NovelDownloader novelDownloader;
     private final NovelMergeService novelMergeService;
     private final NovelAutoTranslateService novelAutoTranslateService;
@@ -70,17 +67,17 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
 
     public PixivScheduledNovelWorkExecutor(
             ObjectMapper objectMapper,
-            PixivAjaxProxyClient pixivAjaxProxyClient,
+            PixivAjaxClient pixivAjaxClient,
             WorkQueryService workQueryService,
-            WorkMetaCaptureService workMetaCaptureService,
+            WorkMetadataCapture workMetadataCapture,
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
             NovelAutoTranslateService novelAutoTranslateService,
             NovelDownloadExecutionLane downloadExecutionLane) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
-        this.pixivAjaxProxyClient = Objects.requireNonNull(pixivAjaxProxyClient, "pixivAjaxProxyClient");
+        this.pixivAjaxClient = Objects.requireNonNull(pixivAjaxClient, "pixivAjaxClient");
         this.workQueryService = Objects.requireNonNull(workQueryService, "workQueryService");
-        this.workMetaCaptureService = Objects.requireNonNull(workMetaCaptureService, "workMetaCaptureService");
+        this.workMetadataCapture = Objects.requireNonNull(workMetadataCapture, "workMetadataCapture");
         this.novelDownloader = Objects.requireNonNull(novelDownloader, "novelDownloader");
         this.novelMergeService = Objects.requireNonNull(novelMergeService, "novelMergeService");
         this.novelAutoTranslateService = Objects.requireNonNull(
@@ -194,15 +191,11 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                     .buildAndExpand(Map.of("id", novelId))
                     .encode()
                     .toUri();
-            body = requireAjaxBody(pixivAjaxProxyClient.proxyGetUri(uri, cookie));
+            body = requireAjaxBody(pixivAjaxClient.get(uri, cookie));
         } catch (ScheduledExecutionException e) {
             throw e;
-        } catch (HttpClientErrorException e) {
-            throw classifyClientError(e);
-        } catch (HttpServerErrorException | ResourceAccessException e) {
-            throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.fetch-retryable");
-        } catch (RestClientException e) {
-            throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.fetch-retryable");
+        } catch (PixivAjaxException e) {
+            throw classifyAjaxTransportFailure(e);
         } catch (RuntimeException e) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.fetch-retryable");
         }
@@ -229,8 +222,6 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             downloaded = novelDownloader.downloadBlocking(request, null);
         } catch (CancellationException e) {
             throw ScheduledExecutionException.cancelled();
-        } catch (RestClientException e) {
-            throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.download-retryable");
         } catch (RuntimeException e) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.download-retryable");
         }
@@ -238,7 +229,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.download-incomplete");
         }
         try {
-            workMetaCaptureService.captureNovel(novelId, body, "schedule");
+            workMetadataCapture.capture(WorkType.NOVEL, novelId, body.toString(), "schedule");
         } catch (RuntimeException e) {
             log.warn("Scheduled novel sidecar capture failed: novelId={}, errorType={}",
                     novelId, e.getClass().getSimpleName());
@@ -273,7 +264,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                     .encode()
                     .toUri();
             return PixivScheduledNovelMetadata.parseSeries(
-                    requireAjaxBody(pixivAjaxProxyClient.proxyGetUri(uri, cookie)));
+                    requireAjaxBody(pixivAjaxClient.get(uri, cookie)));
         } catch (Exception e) {
             log.debug("Scheduled novel series enrichment skipped: seriesId={}, errorType={}",
                     seriesId, e.getClass().getSimpleName());
@@ -475,9 +466,9 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         return failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.fetch-retryable");
     }
 
-    private static ScheduledExecutionException classifyClientError(HttpClientErrorException error) {
-        HttpStatus status = HttpStatus.resolve(error.getStatusCode().value());
-        if (status == HttpStatus.NOT_FOUND || status == HttpStatus.FORBIDDEN) {
+    private static ScheduledExecutionException classifyAjaxTransportFailure(PixivAjaxException error) {
+        if (error.failure() == PixivAjaxFailure.HTTP_STATUS
+                && (error.statusCode() == 404 || error.statusCode() == 403)) {
             return failure(ScheduledFailure.Category.NOT_FOUND, "pixiv.novel.not-found");
         }
         return failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.fetch-retryable");

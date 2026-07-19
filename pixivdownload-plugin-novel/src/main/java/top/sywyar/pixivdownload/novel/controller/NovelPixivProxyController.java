@@ -13,21 +13,24 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
-import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
+import top.sywyar.pixivdownload.novel.response.NovelProxyRateLimitResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
 import top.sywyar.pixivdownload.novel.response.UserNovelsResponse;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
@@ -54,17 +57,18 @@ public class NovelPixivProxyController {
     private static final Set<String> VALID_REST = Set.of("show", "hide");
 
     private final ObjectMapper objectMapper;
-    private final PixivAjaxProxyClient pixivAjaxProxyClient;
-    private final PixivProxyAccessGuard pixivProxyAccessGuard;
+    private final PixivAjaxClient pixivAjaxClient;
+    private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
+    private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final WorkVisibilityService workVisibilityService;
     private final MessageResolver messages;
 
     private String proxyGet(String url, String cookie) {
-        return pixivAjaxProxyClient.proxyGet(url, cookie);
+        return pixivAjaxClient.get(URI.create(url), cookie);
     }
 
     private String proxyGetUri(URI uri, String cookie) {
-        return pixivAjaxProxyClient.proxyGetUri(uri, cookie);
+        return pixivAjaxClient.get(uri, cookie);
     }
 
     private static String acquisitionCredential(HttpServletRequest request, String legacyCredential) {
@@ -74,11 +78,22 @@ public class NovelPixivProxyController {
     }
 
     private ResponseEntity<?> checkMultiModeAccess(HttpServletRequest request) {
-        return pixivProxyAccessGuard.checkMultiModeAccess(request);
+        PixivProxyAccessDecision decision = pixivProxyAccessPolicy.evaluate(
+                requestOwnerIdentityResolver.resolveExistingOwnerUuid(request).orElse(null),
+                requestOwnerIdentityResolver.isAdminAuthenticated(request));
+        return switch (decision.outcome()) {
+            case ALLOWED -> null;
+            case OWNER_REQUIRED -> ResponseEntity.status(401)
+                    .body(new NovelErrorResponse(decision.errorMessage()));
+            case RATE_LIMITED -> ResponseEntity.status(429)
+                    .body(new NovelProxyRateLimitResponse(
+                            decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
+        };
     }
 
     private int resolveSearchFillLimitPage(HttpServletRequest request) {
-        return pixivProxyAccessGuard.resolveSearchFillLimitPage(request);
+        return pixivProxyAccessPolicy.resolveSearchFillLimitPage(
+                requestOwnerIdentityResolver.isAdminAuthenticated(request));
     }
 
     /**
@@ -107,7 +122,7 @@ public class NovelPixivProxyController {
         try {
             parsedId = Long.parseLong(novelId);
         } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
         }
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
@@ -118,7 +133,7 @@ public class NovelPixivProxyController {
         String body = proxyGetUri(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
         JsonNode b = root.path("body");
         Long seriesId = null;
@@ -179,7 +194,7 @@ public class NovelPixivProxyController {
         try {
             parsedId = Long.parseLong(novelId);
         } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
         }
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
@@ -190,7 +205,7 @@ public class NovelPixivProxyController {
         String body = proxyGetUri(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
         int bookmarkCount = root.path("body").path("bookmarkCount").asInt(-1);
         return ResponseEntity.ok(new NovelBookmarkCountResponse(bookmarkCount));
@@ -209,7 +224,7 @@ public class NovelPixivProxyController {
         try {
             parsedId = Long.parseLong(seriesId);
         } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.novel.series.id.invalid", seriesId)));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.novel.series.id.invalid", seriesId)));
         }
         URI metaUri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/series/{id}")
@@ -220,7 +235,7 @@ public class NovelPixivProxyController {
         String metaBody = proxyGetUri(metaUri, cookie);
         JsonNode metaRoot = objectMapper.readTree(metaBody);
         if (metaRoot.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(metaRoot.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(metaRoot.path("message").asText()));
         }
         JsonNode mb = metaRoot.path("body");
         long sid = parsePositiveOrDefault(mb.path("id").asText(null), parsedId);
@@ -300,12 +315,12 @@ public class NovelPixivProxyController {
         if (deny != null) return deny;
         String validationError = validateSearchParams(order, mode, sMode);
         if (validationError != null) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(validationError));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(validationError));
         }
         try {
             return ResponseEntity.ok(fetchNovelSearchPage(word, order, mode, sMode, page, cookie));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(e.getMessage()));
         }
     }
 
@@ -324,11 +339,11 @@ public class NovelPixivProxyController {
         if (deny != null) return deny;
         String validationError = validateSearchParams(order, mode, sMode);
         if (validationError != null) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(validationError));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(validationError));
         }
         if (startPage < 1 || endPage < 1) {
             return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
+                    .body(new NovelErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
         }
         try {
             int limitPage = resolveSearchFillLimitPage(request);
@@ -338,7 +353,7 @@ public class NovelPixivProxyController {
                         o -> ((NovelSearchResponse.NovelSearchItem) o).id());
             }));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(e.getMessage()));
         }
     }
 
@@ -354,7 +369,7 @@ public class NovelPixivProxyController {
                 "https://www.pixiv.net/ajax/user/" + userId + "/profile/all", cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
         JsonNode b = root.path("body");
         List<String> ids = new ArrayList<>();
@@ -393,7 +408,7 @@ public class NovelPixivProxyController {
         String body = proxyGetUri(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
         List<NovelSearchResponse.NovelSearchItem> items = parseUserNovelCards(root.path("body"), ids);
         return ResponseEntity.ok(new NovelSearchResponse(items, items.size(), 1));
@@ -411,13 +426,13 @@ public class NovelPixivProxyController {
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         if (!VALID_REST.contains(rest)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.me.rest.invalid", rest)));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.me.rest.invalid", rest)));
         }
         int safeOffset = Math.max(0, offset);
         int safeLimit = Math.max(1, Math.min(100, limit));
         String uid = PixivCookieUserResolver.extractUidFromCookie(cookie);
         if (uid == null) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+            return ResponseEntity.status(401).body(new NovelErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
         }
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/user/{uid}/novels/bookmarks")
@@ -432,7 +447,7 @@ public class NovelPixivProxyController {
         String body = proxyGetUri(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
         }
         JsonNode b = root.path("body");
         int total = b.path("total").asInt(0);

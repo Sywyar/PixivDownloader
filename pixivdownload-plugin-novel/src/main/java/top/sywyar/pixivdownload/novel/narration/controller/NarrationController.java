@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
@@ -144,7 +144,7 @@ public class NarrationController {
     @PostMapping("/script")
     public ResponseEntity<?> script(@RequestBody ScriptRequest request) {
         if (request == null || request.novelId() == null) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.missing-novel")));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("narration.error.missing-novel")));
         }
         long novelId = request.novelId();
         NovelRecord rec = novelDatabase.getNovel(novelId);
@@ -171,14 +171,14 @@ public class NarrationController {
         // AI 缺失 / 禁用 / 未配置，因为分析本身依赖 LLM。
         if (willAnalyze && !aiChatClient.isConfigured()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(new ErrorResponse(messages.get("narration.error.ai-unavailable")));
+                    .body(new NovelErrorResponse(messages.get("narration.error.ai-unavailable")));
         }
 
         // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要朗读引擎可用：引擎不可用且非调试模式时
         // 直接拒绝，避免「服务不可用仍跑 LLM 分析」产生无法播放的脚本与额外 AI 成本。缓存命中 / 上面的探测仍照常返回。
         if (willAnalyze && !narrationAudioService.isEngineAvailable() && !debugSettings.isEnabled()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(new ErrorResponse(messages.get("narration.error.engine-unavailable")));
+                    .body(new NovelErrorResponse(messages.get("narration.error.engine-unavailable")));
         }
 
         // 旁白音色预设 id → 固定英文画像（未知 / 空=不改旁白）；画像文本始终由后端枚举提供，不信任客户端原文。
@@ -191,7 +191,7 @@ public class NarrationController {
                     request.castId(), narratorInstruction);
         } catch (NovelNarrationScriptService.ContentTooLargeException e) {
             return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(messages.get("narration.error.content-too-large", e.limit())));
+                    .body(new NovelErrorResponse(messages.get("narration.error.content-too-large", e.limit())));
         }
         return ResponseEntity.ok(toScriptResponse(script));
     }
@@ -287,7 +287,7 @@ public class NarrationController {
     public ResponseEntity<?> updateVoice(@RequestBody VoiceUpdateRequest request) {
         if (request == null || request.characterId() == null
                 || request.controlInstruction() == null || request.controlInstruction().isBlank()) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.invalid-voice")));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("narration.error.invalid-voice")));
         }
         long castId;
         if (request.castId() != null && request.castId() > 0) {
@@ -303,7 +303,7 @@ public class NarrationController {
             castId = def.cast() != null ? def.cast().id()
                     : castService.create(def.suggestedName(), def.seriesId(), def.novelId()).id();
         } else {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.invalid-voice")));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("narration.error.invalid-voice")));
         }
         castService.updateVoiceInstruction(castId, request.characterId(), request.controlInstruction());
         return ResponseEntity.ok().build();
