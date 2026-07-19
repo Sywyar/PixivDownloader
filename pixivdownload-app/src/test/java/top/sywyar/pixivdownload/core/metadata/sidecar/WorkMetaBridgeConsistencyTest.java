@@ -29,9 +29,9 @@ import top.sywyar.pixivdownload.core.metadata.CoreWorkMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.nio.file.Files;

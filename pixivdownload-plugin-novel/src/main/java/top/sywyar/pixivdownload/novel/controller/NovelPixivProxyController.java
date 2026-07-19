@@ -28,8 +28,9 @@ import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
 import top.sywyar.pixivdownload.novel.response.UserNovelsResponse;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
 import java.io.IOException;
 import java.net.URI;
@@ -83,11 +84,11 @@ public class NovelPixivProxyController {
     /**
      * 若请求来自访客邀请会话，校验小说是否在可见范围；越界 403。
      */
-    private void guardNovelForGuest(HttpServletRequest request, String novelId) {
+    private void guardNovelForGuest(WorkVisibilityScope visibilityScope, String novelId) {
         if (novelId == null || novelId.isBlank()) return;
         try {
             long id = Long.parseLong(novelId.trim());
-            workVisibilityService.requireVisible(request, WorkType.NOVEL, id);
+            workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, id);
         } catch (NumberFormatException ignored) {
         }
     }
@@ -96,9 +97,10 @@ public class NovelPixivProxyController {
     public ResponseEntity<?> getNovelMeta(
             @PathVariable String novelId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
+            HttpServletRequest request,
+            WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardNovelForGuest(request, novelId);
+        guardNovelForGuest(visibilityScope, novelId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         long parsedId;
@@ -167,9 +169,10 @@ public class NovelPixivProxyController {
     public ResponseEntity<?> getNovelBookmarkCount(
             @PathVariable String novelId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
+            HttpServletRequest request,
+            WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardNovelForGuest(request, novelId);
+        guardNovelForGuest(visibilityScope, novelId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         long parsedId;

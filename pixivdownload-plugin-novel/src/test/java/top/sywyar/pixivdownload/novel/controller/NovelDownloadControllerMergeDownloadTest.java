@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,9 +16,10 @@ import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -82,8 +82,8 @@ class NovelDownloadControllerMergeDownloadTest {
             when(novelMergeService.merge(eq(42L), eq(NovelDownloadService.NovelFormat.EPUB)))
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 3));
 
-            HttpServletRequest req = mock(HttpServletRequest.class);
-            ResponseEntity<byte[]> resp = controller().downloadMergedSeries(42L, null, null, req);
+            ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
+                    42L, null, null, WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
             assertThat(resp.getBody()).isEqualTo(payload);
@@ -99,6 +99,7 @@ class NovelDownloadControllerMergeDownloadTest {
                     .merge(eq(42L), eq(NovelDownloadService.NovelFormat.EPUB));
             verify(novelMergeService, never())
                     .mergeVariant(eq(42L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN"));
+            verifyNoInteractions(novelDatabase, workVisibilityService);
         } finally {
             Files.deleteIfExists(tmp);
         }
@@ -114,14 +115,15 @@ class NovelDownloadControllerMergeDownloadTest {
                     eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN")))
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 1));
 
-            HttpServletRequest req = mock(HttpServletRequest.class);
-            ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, "epub", "zh-CN", req);
+            ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
+                    7L, "epub", "zh-CN", WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
             verify(novelMergeService).mergeVariant(
                     eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN"));
             verify(novelMergeService, never())
                     .merge(eq(7L), eq(NovelDownloadService.NovelFormat.EPUB));
+            verifyNoInteractions(novelDatabase, workVisibilityService);
         } finally {
             Files.deleteIfExists(tmp);
         }
@@ -133,8 +135,8 @@ class NovelDownloadControllerMergeDownloadTest {
         when(novelMergeService.merge(eq(9L), eq(NovelDownloadService.NovelFormat.EPUB)))
                 .thenReturn(new NovelMergeService.MergeResult(false, "no-chapters", null, 0));
 
-        HttpServletRequest req = mock(HttpServletRequest.class);
-        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(9L, null, null, req);
+        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
+                9L, null, null, WorkVisibilityScope.unrestricted());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         assertThat(resp.getBody()).isNull();
@@ -148,8 +150,8 @@ class NovelDownloadControllerMergeDownloadTest {
         when(novelMergeService.merge(eq(11L), eq(NovelDownloadService.NovelFormat.EPUB)))
                 .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 1));
 
-        HttpServletRequest req = mock(HttpServletRequest.class);
-        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(11L, null, null, req);
+        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
+                11L, null, null, WorkVisibilityScope.unrestricted());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         verifyNoInteractions(novelDatabase);
@@ -158,13 +160,12 @@ class NovelDownloadControllerMergeDownloadTest {
     @Test
     @DisplayName("受邀访客的系列可见性限制应交给小说插件目录服务")
     void delegatesSeriesVisibilityToOwnedCatalog() throws Exception {
-        HttpServletRequest req = mock(HttpServletRequest.class);
         WorkRestriction restriction = new WorkRestriction(
                 Set.of(0, 1), false, List.of(21L), true, List.of());
-        when(workVisibilityService.restrictionFrom(req, WorkType.NOVEL)).thenReturn(restriction);
+        WorkVisibilityScope scope = WorkVisibilityScope.restricted(restriction, restriction);
         when(novelGalleryService.visibleSeriesIds(restriction)).thenReturn(Set.of(8L));
 
-        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, null, null, req);
+        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, null, null, scope);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         verify(novelGalleryService).visibleSeriesIds(restriction);

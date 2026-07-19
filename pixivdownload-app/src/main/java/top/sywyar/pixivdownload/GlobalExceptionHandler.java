@@ -21,6 +21,9 @@ import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityDeniedException;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -39,6 +42,47 @@ public class GlobalExceptionHandler {
         String logDetail = messages.getOrDefault(Locale.getDefault(), e.getMessageCode(), e.getDefaultMessage(), e.getMessageArgs());
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(e.getStatus()).body(new ErrorResponse(message));
+    }
+
+    @ExceptionHandler(WorkVisibilityDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleWorkVisibilityDenied(
+            WorkVisibilityDeniedException e, Locale locale) {
+        String code = e.workType() == WorkType.NOVEL
+                ? "guest.invite.novel.forbidden"
+                : "guest.invite.forbidden";
+        String fallback = e.workType() == WorkType.NOVEL
+                ? "该小说不在你的可见范围内"
+                : "该作品不在你的可见范围内";
+        String message = messages.getOrDefault(locale, code, fallback);
+        String logDetail = messages.getOrDefault(Locale.getDefault(), code, fallback);
+        log.warn(logMessage("error.log.request.failed",
+                logDetail + " [workType=" + e.workType() + ", workId=" + e.workId() + "]"));
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(message));
+    }
+
+    @ExceptionHandler(WorkDeletionException.class)
+    public ResponseEntity<ErrorResponse> handleWorkDeletion(
+            WorkDeletionException e, Locale locale) {
+        String typeName = workTypeName(locale, e.workType());
+        String logTypeName = workTypeName(Locale.getDefault(), e.workType());
+        String message = switch (e.reason()) {
+            case LOCAL_FILE_DELETE_FAILED -> messages.getOrDefault(
+                    locale,
+                    "work.delete.file-failed",
+                    "{0} {1} 的磁盘文件未能全部删除，已中止数据库清理",
+                    typeName,
+                    e.workId());
+        };
+        String logDetail = switch (e.reason()) {
+            case LOCAL_FILE_DELETE_FAILED -> messages.getOrDefault(
+                    Locale.getDefault(),
+                    "work.delete.file-failed",
+                    "{0} {1} 的磁盘文件未能全部删除，已中止数据库清理",
+                    logTypeName,
+                    e.workId());
+        };
+        log.warn(logMessage("error.log.request.failed", logDetail));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(message));
     }
 
     @ExceptionHandler(QueueNotAcceptingException.class)
@@ -189,6 +233,13 @@ public class GlobalExceptionHandler {
 
     private String fallbackLogDetail(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String workTypeName(Locale locale, WorkType workType) {
+        return switch (workType) {
+            case ARTWORK -> messages.getOrDefault(locale, "work.type.artwork", "作品");
+            case NOVEL -> messages.getOrDefault(locale, "work.type.novel", "小说");
+        };
     }
 
     /** 上游响应体可能很长，日志里截断到 300 字符即可定位问题。 */

@@ -3,134 +3,155 @@ package top.sywyar.pixivdownload.setup.guest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockHttpServletRequest;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityDeniedException;
 
 import java.util.List;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+@DisplayName("作品可见性领域服务")
 class GuestWorkVisibilityServiceTest {
 
-    private GuestAccessGuard guestAccessGuard;
+    private PixivDatabase pixivDatabase;
+    private NovelMetadataRepository novelMetadataRepository;
     private GuestWorkVisibilityService service;
-    private MockHttpServletRequest request;
-
-    /**
-     * 两侧白名单字段取值全部错开，投影用例可以分辨拿错媒体类型的回归。
-     */
-    private static final GuestInviteSession SESSION = new GuestInviteSession(
-            1L, "code",
-            true, false, true,
-            false, Set.of(11L),
-            true, Set.of(),
-            true, Set.of(),
-            false, Set.of(33L));
 
     @BeforeEach
     void setUp() {
-        guestAccessGuard = mock(GuestAccessGuard.class);
-        service = new GuestWorkVisibilityService(guestAccessGuard);
-        request = new MockHttpServletRequest();
-    }
-
-    private void attachSession() {
-        request.setAttribute(GuestInviteSession.REQUEST_ATTR, SESSION);
+        pixivDatabase = mock(PixivDatabase.class);
+        novelMetadataRepository = mock(NovelMetadataRepository.class);
+        service = new GuestWorkVisibilityService(pixivDatabase, novelMetadataRepository);
     }
 
     @Test
-    @DisplayName("非访客请求：requireVisible 放行、isVisibleToGuest 恒真、restrictionFrom 为 null")
-    void nonGuestRequestIsUnrestricted() {
-        assertDoesNotThrow(() -> service.requireVisible(request, WorkType.ARTWORK, 42L));
-        assertTrue(service.isVisibleToGuest(request, WorkType.ARTWORK, 42L));
-        assertTrue(service.isVisibleToGuest(request, WorkType.NOVEL, 42L));
-        assertNull(service.restrictionFrom(request, WorkType.ARTWORK));
-        assertNull(service.restrictionFrom(request, WorkType.NOVEL));
-        verify(guestAccessGuard, never()).isVisibleToGuest(42L, null);
-        verify(guestAccessGuard, never()).isNovelVisibleToGuest(42L, null);
+    @DisplayName("无限制作用域直接放行且不读取任何作品数据")
+    void unrestrictedScopeDoesNotReadWorkData() {
+        WorkVisibilityScope scope = WorkVisibilityScope.unrestricted();
+
+        assertThat(service.isVisible(scope, WorkType.ARTWORK, 42L)).isTrue();
+        assertThat(service.isVisible(scope, WorkType.NOVEL, 43L)).isTrue();
+        service.requireVisible(scope, WorkType.ARTWORK, 42L);
+
+        verifyNoInteractions(pixivDatabase, novelMetadataRepository);
     }
 
     @Test
-    @DisplayName("requireVisible 按 WorkType 路由到插画/小说两套守卫方法")
-    void requireVisibleRoutesByWorkType() {
-        service.requireVisible(request, WorkType.ARTWORK, 42L);
-        verify(guestAccessGuard).requireVisible(request, 42L);
-        verify(guestAccessGuard, never()).requireNovelVisible(request, 42L);
+    @DisplayName("受限作用域中作品不存在时判定不可见并抛出纯领域异常")
+    void missingWorkIsDenied() {
+        WorkVisibilityScope scope = restricted(Set.of(0), true, List.of(), true, List.of());
 
-        service.requireVisible(request, WorkType.NOVEL, 43L);
-        verify(guestAccessGuard).requireNovelVisible(request, 43L);
+        assertThat(service.isVisible(scope, WorkType.ARTWORK, 42L)).isFalse();
+        assertThatThrownBy(() -> service.requireVisible(scope, WorkType.NOVEL, 43L))
+                .isInstanceOfSatisfying(WorkVisibilityDeniedException.class, exception -> {
+                    assertThat(exception.workType()).isEqualTo(WorkType.NOVEL);
+                    assertThat(exception.workId()).isEqualTo(43L);
+                });
+    }
+
+    @ParameterizedTest(name = "小说分级 {0}，允许分级 {1} => {2}")
+    @CsvSource({
+            "0, 0, true",
+            "0, 1, false",
+            "1, 0, false",
+            "1, 1, true",
+            "2, 2, true",
+            "7, 1, true",
+            "7, 0, false"
+    })
+    @DisplayName("小说年龄分级严格匹配且未知值按 R18 处理")
+    void novelRatingMatchesRestriction(int rating, int allowed, boolean expected) {
+        when(novelMetadataRepository.getNovel(42L)).thenReturn(novelRecord(rating, 7L));
+        when(novelMetadataRepository.getNovelTags(42L)).thenReturn(List.of());
+        WorkVisibilityScope scope = restricted(Set.of(allowed), true, List.of(), true, List.of());
+
+        assertThat(service.isVisible(scope, WorkType.NOVEL, 42L)).isEqualTo(expected);
     }
 
     @Test
-    @DisplayName("访客请求的 isVisibleToGuest 按 WorkType 委托守卫并透传判定结果")
-    void isVisibleToGuestDelegatesByWorkType() {
-        attachSession();
-        when(guestAccessGuard.isVisibleToGuest(42L, SESSION)).thenReturn(false);
-        when(guestAccessGuard.isNovelVisibleToGuest(42L, SESSION)).thenReturn(true);
+    @DisplayName("插画标签和作者先排除不可见维度，再按 OR 白名单判定")
+    void artworkWhitelistPreservesExclusionAndOrSemantics() {
+        when(pixivDatabase.getArtwork(42L)).thenReturn(artworkRecord(0, 7L));
+        when(pixivDatabase.getArtworkTags(42L)).thenReturn(List.of(new TagDto(11L, "tag", null)));
 
-        assertFalse(service.isVisibleToGuest(request, WorkType.ARTWORK, 42L));
-        assertTrue(service.isVisibleToGuest(request, WorkType.NOVEL, 42L));
+        WorkVisibilityScope visible = restricted(Set.of(0), false, List.of(11L), true, List.of());
+        WorkVisibilityScope excluded = restricted(Set.of(0), false, List.of(12L), true, List.of());
+
+        assertThat(service.isVisible(visible, WorkType.ARTWORK, 42L)).isTrue();
+        assertThat(service.isVisible(excluded, WorkType.ARTWORK, 42L)).isFalse();
     }
 
     @Test
-    @DisplayName("restrictionFrom 插画侧投影：年龄分级位图与 tagIds/authorIds 白名单")
-    void restrictionFromProjectsArtworkSide() {
-        attachSession();
-        WorkRestriction restriction = service.restrictionFrom(request, WorkType.ARTWORK);
+    @DisplayName("标签与作者均受限时任一维度出现未列项都会优先排除")
+    void restrictedDimensionsExcludeBeforeCrossDimensionOr() {
+        when(pixivDatabase.getArtwork(42L)).thenReturn(artworkRecord(0, 7L));
+        when(pixivDatabase.getArtworkTags(42L)).thenReturn(List.of(new TagDto(11L, "tag", null)));
 
-        assertEquals(Set.of(0, 2), restriction.allowedXRestricts());
-        assertFalse(restriction.tagUnrestricted());
-        assertEquals(List.of(11L), restriction.tagIds());
-        assertTrue(restriction.authorUnrestricted());
-        assertEquals(List.of(), restriction.authorIds());
-        assertFalse(restriction.fullyOpen());
+        WorkVisibilityScope bothHit = restricted(Set.of(0), false, List.of(11L), false, List.of(7L));
+        WorkVisibilityScope authorExcluded = restricted(Set.of(0), false, List.of(11L), false, List.of(8L));
+        WorkVisibilityScope tagExcluded = restricted(Set.of(0), false, List.of(12L), false, List.of(7L));
+
+        assertThat(service.isVisible(bothHit, WorkType.ARTWORK, 42L)).isTrue();
+        assertThat(service.isVisible(authorExcluded, WorkType.ARTWORK, 42L)).isFalse();
+        assertThat(service.isVisible(tagExcluded, WorkType.ARTWORK, 42L)).isFalse();
     }
 
     @Test
-    @DisplayName("restrictionFrom 小说侧投影：取 novelTagIds/novelAuthorIds 两组白名单")
-    void restrictionFromProjectsNovelSide() {
-        attachSession();
-        WorkRestriction restriction = service.restrictionFrom(request, WorkType.NOVEL);
+    @DisplayName("小说使用独立的标签作者限制而不串用插画限制")
+    void novelUsesItsOwnRestriction() {
+        when(novelMetadataRepository.getNovel(42L)).thenReturn(novelRecord(0, 33L));
+        when(novelMetadataRepository.getNovelTags(42L)).thenReturn(List.of());
+        WorkRestriction artwork = restriction(Set.of(0), false, List.of(11L), false, List.of(22L));
+        WorkRestriction novel = restriction(Set.of(0), false, List.of(), false, List.of(33L));
+        WorkVisibilityScope scope = WorkVisibilityScope.restricted(artwork, novel);
 
-        assertEquals(Set.of(0, 2), restriction.allowedXRestricts());
-        assertTrue(restriction.tagUnrestricted());
-        assertEquals(List.of(), restriction.tagIds());
-        assertFalse(restriction.authorUnrestricted());
-        assertEquals(List.of(33L), restriction.authorIds());
-        assertFalse(restriction.fullyOpen());
+        assertThat(service.isVisible(scope, WorkType.NOVEL, 42L)).isTrue();
     }
 
-    @Test
-    @DisplayName("restrictionFrom 投影与 GuestRestriction.from/forNovel 逐字段等价（防漂移对照）")
-    void restrictionFromMatchesLegacyGuestRestriction() {
-        attachSession();
-        WorkRestriction artwork = service.restrictionFrom(request, WorkType.ARTWORK);
-        GuestRestriction legacyArtwork = GuestRestriction.from(SESSION);
-        assertEquals(legacyArtwork.allowedXRestricts(), artwork.allowedXRestricts());
-        assertEquals(legacyArtwork.tagUnrestricted(), artwork.tagUnrestricted());
-        assertEquals(legacyArtwork.tagIds(), artwork.tagIds());
-        assertEquals(legacyArtwork.authorUnrestricted(), artwork.authorUnrestricted());
-        assertEquals(legacyArtwork.authorIds(), artwork.authorIds());
-        assertEquals(legacyArtwork.fullyOpen(), artwork.fullyOpen());
+    private static WorkVisibilityScope restricted(
+            Set<Integer> ratings,
+            boolean tagUnrestricted,
+            List<Long> tagIds,
+            boolean authorUnrestricted,
+            List<Long> authorIds) {
+        WorkRestriction restriction = restriction(
+                ratings, tagUnrestricted, tagIds, authorUnrestricted, authorIds);
+        return WorkVisibilityScope.restricted(restriction, restriction);
+    }
 
-        WorkRestriction novel = service.restrictionFrom(request, WorkType.NOVEL);
-        GuestRestriction legacyNovel = GuestRestriction.forNovel(SESSION);
-        assertEquals(legacyNovel.allowedXRestricts(), novel.allowedXRestricts());
-        assertEquals(legacyNovel.tagUnrestricted(), novel.tagUnrestricted());
-        assertEquals(legacyNovel.tagIds(), novel.tagIds());
-        assertEquals(legacyNovel.authorUnrestricted(), novel.authorUnrestricted());
-        assertEquals(legacyNovel.authorIds(), novel.authorIds());
-        assertEquals(legacyNovel.fullyOpen(), novel.fullyOpen());
+    private static WorkRestriction restriction(
+            Set<Integer> ratings,
+            boolean tagUnrestricted,
+            List<Long> tagIds,
+            boolean authorUnrestricted,
+            List<Long> authorIds) {
+        return new WorkRestriction(ratings, tagUnrestricted, tagIds, authorUnrestricted, authorIds);
+    }
+
+    private static ArtworkRecord artworkRecord(int xRestrict, Long authorId) {
+        return new ArtworkRecord(
+                42L, "title", "folder", 1, "jpg", 1L,
+                false, null, null, xRestrict, false, authorId, null);
+    }
+
+    private static NovelMetadataRow novelRecord(int xRestrict, Long authorId) {
+        return new NovelMetadataRow(
+                42L, "title", "folder", 1, "txt", 1L,
+                xRestrict, false, authorId, "", 1L, null,
+                null, null, 10, true, null);
     }
 }

@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 
 import java.util.ArrayList;
 import java.util.Comparator;

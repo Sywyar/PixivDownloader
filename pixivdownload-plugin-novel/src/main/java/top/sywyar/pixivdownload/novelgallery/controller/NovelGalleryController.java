@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.novelgallery.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -18,12 +17,13 @@ import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchRequest;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -74,7 +74,7 @@ public class NovelGalleryController {
             @RequestParam(required = false) String seriesIds,
             @RequestParam(required = false) String notSeriesIds,
             @RequestParam(required = false) Long seriesId,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
         java.util.Set<Long> mustAuthors = parseLongCsv(authorIds);
         if (authorId != null && authorId > 0) {
             if (mustAuthors == null) mustAuthors = new java.util.LinkedHashSet<>();
@@ -92,7 +92,7 @@ public class NovelGalleryController {
                 parseLongCsv(tagIds), parseLongCsv(notTagIds), parseLongCsv(orTagIds),
                 mustAuthors, parseLongCsv(notAuthorIds), parseLongCsv(orAuthorIds),
                 mustSeries, parseLongCsv(notSeriesIds),
-                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL)));
+                visibilityScope.restrictionFor(WorkType.NOVEL)));
     }
 
     private static java.util.Set<Long> parseLongCsv(String csv) {
@@ -110,9 +110,9 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "24") int size,
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "name") String sort,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
         return novelGalleryService.getPagedAuthorsWithNovels(page, size, search, sort,
-                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL));
+                visibilityScope.restrictionFor(WorkType.NOVEL));
     }
 
     @GetMapping("/novels/series")
@@ -121,24 +121,24 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "24") int size,
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "title") String sort,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
         return novelGalleryService.getPagedSeriesWithNovels(page, size, search, sort,
-                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL));
+                visibilityScope.restrictionFor(WorkType.NOVEL));
     }
 
     @GetMapping("/novels/tags")
     public java.util.Map<String, Object> listNovelTags(
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "500") int limit,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
         return java.util.Map.of("tags", novelGalleryService.listTags(search, limit,
-                workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL)));
+                visibilityScope.restrictionFor(WorkType.NOVEL)));
     }
 
     @GetMapping("/novel/{novelId}")
     public ResponseEntity<NovelGalleryService.NovelView> findNovel(@PathVariable long novelId,
-                                                                    HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
+                                                                    WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         NovelGalleryService.NovelView view = novelGalleryService.find(novelId);
         return view == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(view);
     }
@@ -198,23 +198,23 @@ public class NovelGalleryController {
     public ResponseEntity<List<NovelGalleryService.NovelView>> bySeries(
             @PathVariable long novelId,
             @RequestParam(defaultValue = "30") int limit,
-            HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
+            WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         NovelGalleryService.NovelView current = novelGalleryService.find(novelId);
         if (current == null || current.seriesId() == null || current.seriesId() <= 0) {
             return ResponseEntity.ok(List.of());
         }
         return ResponseEntity.ok(filterForGuest(
                 novelGalleryService.bySeries(current.seriesId(), limit),
-                httpRequest));
+                visibilityScope));
     }
 
     @GetMapping("/novel/{novelId}/series")
     public ResponseEntity<NovelSeriesNavResponse> seriesNav(
             @PathVariable long novelId,
             @RequestParam(required = false) String lang,
-            HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
+            WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         SeriesNeighbors n = novelGalleryService.seriesNeighbors(novelId);
         if (n == null) {
             return ResponseEntity.ok(new NovelSeriesNavResponse(null, null, null, null, null));
@@ -230,17 +230,17 @@ public class NovelGalleryController {
         }
         return ResponseEntity.ok(new NovelSeriesNavResponse(
                 n.seriesId(), seriesTitle, n.currentOrder(),
-                visibleNeighbor(n.prev(), httpRequest, langCode),
-                visibleNeighbor(n.next(), httpRequest, langCode)
+                visibleNeighbor(n.prev(), visibilityScope, langCode),
+                visibleNeighbor(n.next(), visibilityScope, langCode)
         ));
     }
 
     private NeighborView visibleNeighbor(SeriesNeighbors.Neighbor neighbor,
-                                         HttpServletRequest httpRequest, String langCode) {
+                                         WorkVisibilityScope visibilityScope, String langCode) {
         if (neighbor == null) {
             return null;
         }
-        if (!workVisibilityService.isVisibleToGuest(httpRequest, WorkType.NOVEL, neighbor.workId())) {
+        if (!workVisibilityService.isVisible(visibilityScope, WorkType.NOVEL, neighbor.workId())) {
             return null;
         }
         String title = neighbor.title();
@@ -255,20 +255,20 @@ public class NovelGalleryController {
 
     private List<NovelGalleryService.NovelView> filterForGuest(
             List<NovelGalleryService.NovelView> items,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
         if (items == null || items.isEmpty()) {
             return items;
         }
         return items.stream()
-                .filter(item -> workVisibilityService.isVisibleToGuest(
-                        httpRequest, WorkType.NOVEL, item.novelId()))
+                .filter(item -> workVisibilityService.isVisible(
+                        visibilityScope, WorkType.NOVEL, item.novelId()))
                 .toList();
     }
 
     @GetMapping("/novel/{novelId}/cover")
     public ResponseEntity<byte[]> getNovelCover(@PathVariable long novelId,
-                                                HttpServletRequest httpRequest) throws IOException {
-        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
+                                                WorkVisibilityScope visibilityScope) throws IOException {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         WorkAssetFile cover = workAssetService.thumbnail(WorkType.NOVEL, novelId, 0).orElse(null);
         if (cover == null) {
             return ResponseEntity.notFound().build();
@@ -288,8 +288,8 @@ public class NovelGalleryController {
     public ResponseEntity<NovelContentResponse> getNovelContent(
             @PathVariable long novelId,
             @RequestParam(required = false) String lang,
-            HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
+            WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         NovelRecord rec = novelDatabase.getNovel(novelId);
         if (rec == null) {
             return ResponseEntity.notFound().build();
@@ -322,7 +322,7 @@ public class NovelGalleryController {
     public ResponseEntity<TranslatedTitlesResponse> translatedTitles(
             @RequestParam String lang,
             @RequestParam(required = false) String ids,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
         if (lang == null || lang.isBlank() || ids == null || ids.isBlank()) {
             return ResponseEntity.ok(new TranslatedTitlesResponse(Map.of()));
         }
@@ -333,7 +333,7 @@ public class NovelGalleryController {
             if (t.isEmpty()) continue;
             long novelId;
             try { novelId = Long.parseLong(t); } catch (NumberFormatException ignored) { continue; }
-            if (!workVisibilityService.isVisibleToGuest(httpRequest, WorkType.NOVEL, novelId)) continue;
+            if (!workVisibilityService.isVisible(visibilityScope, WorkType.NOVEL, novelId)) continue;
             String translated = novelDatabase.getTranslationTitle(novelId, langCode);
             if (translated != null && !translated.isBlank()) {
                 out.put(novelId, translated);
@@ -349,8 +349,8 @@ public class NovelGalleryController {
     @GetMapping("/novel/{novelId}/embed/{imageId}")
     public ResponseEntity<byte[]> getNovelEmbeddedImage(@PathVariable long novelId,
                                                         @PathVariable String imageId,
-                                                        HttpServletRequest httpRequest) throws IOException {
-        workVisibilityService.requireVisible(httpRequest, WorkType.NOVEL, novelId);
+                                                        WorkVisibilityScope visibilityScope) throws IOException {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         if (imageId == null || imageId.isBlank() || !imageId.matches("[0-9A-Za-z_-]{1,40}")) {
             return ResponseEntity.notFound().build();
         }
@@ -381,8 +381,8 @@ public class NovelGalleryController {
     @GetMapping("/novel/series/{seriesId}")
     public ResponseEntity<NovelSeriesDetailResponse> getSeries(@PathVariable long seriesId,
                                                                @RequestParam(required = false) String lang,
-                                                               HttpServletRequest httpRequest) {
-        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
+                                                               WorkVisibilityScope visibilityScope) {
+        Set<Long> filter = resolveGuestNovelSeriesFilter(visibilityScope);
         if (filter != null && !filter.contains(seriesId)) {
             return ResponseEntity.notFound().build();
         }
@@ -402,8 +402,8 @@ public class NovelGalleryController {
 
     @GetMapping("/novel/series/{seriesId}/cover")
     public ResponseEntity<byte[]> getSeriesCover(@PathVariable long seriesId,
-                                                 HttpServletRequest httpRequest) throws IOException {
-        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
+                                                 WorkVisibilityScope visibilityScope) throws IOException {
+        Set<Long> filter = resolveGuestNovelSeriesFilter(visibilityScope);
         if (filter != null && !filter.contains(seriesId)) {
             return ResponseEntity.notFound().build();
         }
@@ -425,8 +425,8 @@ public class NovelGalleryController {
         return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
     }
 
-    private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
-        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL);
+    private Set<Long> resolveGuestNovelSeriesFilter(WorkVisibilityScope visibilityScope) {
+        WorkRestriction restriction = visibilityScope.restrictionFor(WorkType.NOVEL);
         if (restriction == null) return null;
         return novelGalleryService.visibleSeriesIds(restriction);
     }
@@ -434,11 +434,11 @@ public class NovelGalleryController {
     @PostMapping("/novels/downloaded-batch")
     public ResponseEntity<NovelDownloadedBatchResponse> downloadedBatch(
             @RequestBody NovelDownloadedBatchRequest request,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
         List<Long> ids = request == null || request.novelIds() == null ? List.of() : request.novelIds();
         boolean includeDeleted = request != null
                 && request.includeDeleted()
-                && workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL) == null;
+                && visibilityScope.restrictionFor(WorkType.NOVEL) == null;
         List<Long> downloadedIds = new ArrayList<>();
         List<Long> deletedIds = new ArrayList<>();
         for (NovelDownloadedStatusRow status : novelDatabase.getDownloadedStatuses(ids)) {

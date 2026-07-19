@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.gallery;
 
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -10,11 +9,12 @@ import top.sywyar.pixivdownload.gallery.web.GalleryTagOptionResponse;
 import top.sywyar.pixivdownload.gallery.web.GalleryWorkQueryFactory;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
 import java.util.*;
 
@@ -54,7 +54,7 @@ public class GalleryController {
             @RequestParam(required = false) String seriesIds,
             @RequestParam(required = false) String notSeriesIds,
             @RequestParam(required = false) Long seriesId,
-            HttpServletRequest httpRequest) {
+            WorkVisibilityScope visibilityScope) {
 
         List<Long> requiredAuthorIds = parseLongList(authorIds);
         if (authorId != null && authorId > 0) {
@@ -66,7 +66,7 @@ public class GalleryController {
             if (requiredSeriesIds == null) requiredSeriesIds = new ArrayList<>();
             if (!requiredSeriesIds.contains(seriesId)) requiredSeriesIds.add(seriesId);
         }
-        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK);
+        WorkRestriction restriction = visibilityScope.restrictionFor(WorkType.ARTWORK);
         WorkQuery query = GalleryWorkQueryFactory.create(
                 page, size, sort, order, search, searchType, r18, ai,
                 parseFormats(format),
@@ -87,8 +87,8 @@ public class GalleryController {
     public Map<String, Object> listTags(
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "500") int limit,
-            HttpServletRequest httpRequest) {
-        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK);
+            WorkVisibilityScope visibilityScope) {
+        WorkRestriction restriction = visibilityScope.restrictionFor(WorkType.ARTWORK);
         List<GalleryTagOptionResponse> tags = galleryService.listTags(search, limit, restriction);
         return Map.of("tags", tags);
     }
@@ -103,8 +103,8 @@ public class GalleryController {
 
     @GetMapping("/artwork/{artworkId}")
     public ResponseEntity<GalleryArtworkResponse> artwork(@PathVariable long artworkId,
-                                                          HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
+                                                          WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, artworkId);
         GalleryArtworkResponse resp = galleryService.findArtwork(artworkId);
         return resp == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(resp);
     }
@@ -113,46 +113,46 @@ public class GalleryController {
     public ResponseEntity<List<GalleryArtworkResponse>> related(
             @PathVariable long artworkId,
             @RequestParam(defaultValue = "12") int limit,
-            HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
+            WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, artworkId);
         List<GalleryArtworkResponse> all = galleryService.related(artworkId, limit);
-        return ResponseEntity.ok(filterForGuest(all, httpRequest));
+        return ResponseEntity.ok(filterForGuest(all, visibilityScope));
     }
 
     @GetMapping("/artwork/{artworkId}/by-author")
     public ResponseEntity<List<GalleryArtworkResponse>> byAuthor(
             @PathVariable long artworkId,
             @RequestParam(defaultValue = "12") int limit,
-            HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
+            WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, artworkId);
         List<GalleryArtworkResponse> all = galleryService.byAuthor(artworkId, limit);
-        return ResponseEntity.ok(filterForGuest(all, httpRequest));
+        return ResponseEntity.ok(filterForGuest(all, visibilityScope));
     }
 
     @GetMapping("/artwork/{artworkId}/by-series")
     public ResponseEntity<List<GalleryArtworkResponse>> bySeries(
             @PathVariable long artworkId,
             @RequestParam(defaultValue = "30") int limit,
-            HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
+            WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, artworkId);
         List<GalleryArtworkResponse> all = galleryService.bySeries(artworkId, limit);
-        return ResponseEntity.ok(filterForGuest(all, httpRequest));
+        return ResponseEntity.ok(filterForGuest(all, visibilityScope));
     }
 
     @GetMapping("/artwork/{artworkId}/series")
     public ResponseEntity<SeriesNavResponse> seriesNav(
             @PathVariable long artworkId,
-            HttpServletRequest httpRequest) {
-        workVisibilityService.requireVisible(httpRequest, WorkType.ARTWORK, artworkId);
-        boolean restricted = workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK) != null;
+            WorkVisibilityScope visibilityScope) {
+        workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, artworkId);
+        boolean restricted = visibilityScope.restrictionFor(WorkType.ARTWORK) != null;
         SeriesNeighbors neighbors = galleryService.seriesNeighbors(artworkId);
         if (neighbors == null) {
             return ResponseEntity.ok(new SeriesNavResponse(null, null, null, null, null));
         }
         SeriesNavResponse.NeighborView prev = neighbors.prev() == null
                 ? null
-                : (restricted && !workVisibilityService.isVisibleToGuest(
-                        httpRequest, WorkType.ARTWORK, neighbors.prev().workId())
+                : (restricted && !workVisibilityService.isVisible(
+                        visibilityScope, WorkType.ARTWORK, neighbors.prev().workId())
                     ? null
                     : new SeriesNavResponse.NeighborView(
                         neighbors.prev().workId(),
@@ -160,8 +160,8 @@ public class GalleryController {
                         neighbors.prev().seriesOrder()));
         SeriesNavResponse.NeighborView next = neighbors.next() == null
                 ? null
-                : (restricted && !workVisibilityService.isVisibleToGuest(
-                        httpRequest, WorkType.ARTWORK, neighbors.next().workId())
+                : (restricted && !workVisibilityService.isVisible(
+                        visibilityScope, WorkType.ARTWORK, neighbors.next().workId())
                     ? null
                     : new SeriesNavResponse.NeighborView(
                         neighbors.next().workId(),
@@ -233,16 +233,16 @@ public class GalleryController {
     public record BatchExportResponse(String archiveToken, long archiveExpireSeconds, int count, int fileCount) {}
 
     private List<GalleryArtworkResponse> filterForGuest(List<GalleryArtworkResponse> items,
-                                                        HttpServletRequest httpRequest) {
+                                                        WorkVisibilityScope visibilityScope) {
         if (items == null || items.isEmpty()
-                || workVisibilityService.restrictionFrom(httpRequest, WorkType.ARTWORK) == null) {
+                || visibilityScope.restrictionFor(WorkType.ARTWORK) == null) {
             return items;
         }
         List<GalleryArtworkResponse> out = new ArrayList<>(items.size());
         for (GalleryArtworkResponse item : items) {
             if (item == null) continue;
-            if (workVisibilityService.isVisibleToGuest(
-                    httpRequest, WorkType.ARTWORK, item.artworkId())) {
+            if (workVisibilityService.isVisible(
+                    visibilityScope, WorkType.ARTWORK, item.artworkId())) {
                 out.add(item);
             }
         }

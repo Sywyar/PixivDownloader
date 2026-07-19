@@ -1,7 +1,7 @@
-package top.sywyar.pixivdownload.plugin.api.work.service;
+package top.sywyar.pixivdownload.core.work.service;
 
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.util.List;
 import java.util.Optional;

@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -32,6 +34,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -46,6 +49,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -319,6 +324,23 @@ class GalleryExternalPluginBootContextTest {
         assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
         assertThat(applicationContext.getBeanNamesForType(frontendProviderClass)).isEmpty();
         assertThat(galleryArtworksHandlerBean()).isSameAs(child.getBean(controllerClass));
+    }
+
+    @Test
+    @DisplayName("父 MVC 为动态 gallery controller 注入受邀作用域并由全局 advice 映射不可见作品")
+    void parentMvcResolvesGuestScopeForDynamicGalleryController() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext).build();
+        String missingArtwork = "/api/gallery/artwork/9223372036854775807";
+        GuestInviteSession guest = new GuestInviteSession(
+                1L, "external-gallery-scope", true, false, false,
+                true, Set.of(), true, Set.of(),
+                true, Set.of(), true, Set.of());
+
+        mockMvc.perform(get(missingArtwork))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get(missingArtwork)
+                        .requestAttr(GuestInviteSession.REQUEST_ATTR, guest))
+                .andExpect(status().isForbidden());
     }
 
     private Object galleryArtworksHandlerBean() {

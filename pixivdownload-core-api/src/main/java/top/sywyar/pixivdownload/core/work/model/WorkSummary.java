@@ -1,4 +1,6 @@
-package top.sywyar.pixivdownload.plugin.api.work.model;
+package top.sywyar.pixivdownload.core.work.model;
+
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 
 /**
  * 列表查询命中的作品标识行。只携带 {@code (workType, workId)}，排序由查询结果的

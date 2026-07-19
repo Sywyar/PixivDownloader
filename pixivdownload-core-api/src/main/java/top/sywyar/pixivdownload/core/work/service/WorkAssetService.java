@@ -1,8 +1,8 @@
-package top.sywyar.pixivdownload.plugin.api.work.service;
+package top.sywyar.pixivdownload.core.work.service;
 
-import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.LocalWorkAsset;
+import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.io.IOException;
 import java.util.Optional;
@@ -14,7 +14,7 @@ import java.util.Optional;
  * <p>纯文件层视角，不参与查询层的软删除三态：作品行是否软删不影响文件解析，
  * 可见性判定由 {@link WorkVisibilityService}、存量三态由查询接口各自承担。
  *
- * <p><b>小说资产语义。</b>小说独占目录 {@code novel-{id}/} 下没有页概念，约定如下：
+ * <p><b>小说资产语义。</b>小说独占目录 <code>novel-{id}/</code> 下没有页概念，约定如下：
  * <ul>
  *   <li>{@link #findAsset}：目录守卫通过后枚举目录下全部常规文件，按路径字典序排序，
  *       {@code page} = 枚举序号（0 起）、{@code pageCount} = 文件数。<b>枚举序号是本次
@@ -24,7 +24,7 @@ import java.util.Optional;
  *       {@code page} 参数无意义、被忽略，返回行的页号恒为 0。</li>
  *   <li>{@link #rawFile}：按 {@link #findAsset} 同一枚举序号取第 {@code page} 个文件。</li>
  *   <li>{@link #deleteLocalFiles}：仅当目录通过独占性守卫（目录名等于
- *       {@code novel-{id}}、非文件系统根 / 非 {@code download.root-folder} 本身）才递归
+ *       <code>novel-{id}</code>、非文件系统根 / 非 {@code download.root-folder} 本身）才递归
  *       删除；守卫不通过仅记日志并视为「无事可做」。</li>
  * </ul>
  */

@@ -59,7 +59,10 @@ class OfficialPluginHostBoundaryGuardTest {
             "top.sywyar.pixivdownload.setup.SetupService",
             "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard",
             "top.sywyar.pixivdownload.setup.guest.GuestInviteSession",
-            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService");
+            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeArgumentResolver",
+            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory",
+            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService",
+            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityWebConfiguration");
 
     /**
      * These modules still consume other app-owned domain services. The allowlist is only a ceiling for that
@@ -199,6 +202,9 @@ class OfficialPluginHostBoundaryGuardTest {
                 "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
                 "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard",
                 "top.sywyar.pixivdownload.setup.guest.GuestInviteSession",
+                "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeArgumentResolver",
+                "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory",
+                "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityWebConfiguration",
                 "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService");
     }
 

@@ -1,54 +1,61 @@
 package top.sywyar.pixivdownload.setup.guest;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
-import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@DisplayName("访客小说年龄分级守卫")
+@DisplayName("访客作品可见性请求适配器")
 class GuestAccessGuardTest {
 
-    @ParameterizedTest(name = "小说分级 {0}，访客仅允许 {1} => {2}")
-    @CsvSource({
-            "0, 0, true",
-            "0, 1, false",
-            "0, 2, false",
-            "1, 0, false",
-            "1, 1, true",
-            "1, 2, false",
-            "2, 0, false",
-            "2, 1, false",
-            "2, 2, true"
-    })
-    @DisplayName("SFW、R18 与 R18G 应严格匹配访客允许范围")
-    void novelRatingMustMatchGuestPermission(int novelRating, int allowedRating, boolean expected) {
-        NovelMetadataRepository novelMetadataRepository = mock(NovelMetadataRepository.class);
-        GuestAccessGuard guard = new GuestAccessGuard(mock(PixivDatabase.class), novelMetadataRepository);
-        when(novelMetadataRepository.getNovel(42L)).thenReturn(novelRecord(novelRating));
-        when(novelMetadataRepository.getNovelTags(42L)).thenReturn(List.of());
+    private GuestWorkVisibilityScopeFactory scopeFactory;
+    private WorkVisibilityService workVisibilityService;
+    private GuestAccessGuard guard;
 
-        GuestInviteSession session = new GuestInviteSession(
-                1L, "invite",
-                allowedRating == 0, allowedRating == 1, allowedRating == 2,
-                true, Set.of(), true, Set.of(),
-                true, Set.of(), true, Set.of());
-
-        assertThat(guard.isNovelVisibleToGuest(42L, session)).isEqualTo(expected);
+    @BeforeEach
+    void setUp() {
+        scopeFactory = mock(GuestWorkVisibilityScopeFactory.class);
+        workVisibilityService = mock(WorkVisibilityService.class);
+        guard = new GuestAccessGuard(scopeFactory, workVisibilityService);
     }
 
-    private static NovelMetadataRow novelRecord(int xRestrict) {
-        return new NovelMetadataRow(
-                42L, "title", "folder", 1, "txt", 1L,
-                xRestrict, false, 7L, "", 1L, null,
-                null, null, 10, true, null);
+    @Test
+    @DisplayName("请求守卫只把宿主请求投影为作用域后委托领域服务")
+    void requestGuardDelegatesWithTrustedScope() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        WorkVisibilityScope scope = WorkVisibilityScope.unrestricted();
+        when(scopeFactory.fromRequest(request)).thenReturn(scope);
+
+        guard.requireVisible(request, 42L);
+        guard.requireNovelVisible(request, 43L);
+
+        verify(workVisibilityService).requireVisible(scope, WorkType.ARTWORK, 42L);
+        verify(workVisibilityService).requireVisible(scope, WorkType.NOVEL, 43L);
+    }
+
+    @Test
+    @DisplayName("既有会话判定入口复用同一作用域与领域服务")
+    void sessionVisibilityDelegatesToDomainService() {
+        GuestInviteSession session = new GuestInviteSession(
+                1L, "invite", true, false, false,
+                true, Set.of(), true, Set.of(),
+                true, Set.of(), true, Set.of());
+        WorkVisibilityScope scope = WorkVisibilityScope.unrestricted();
+        when(scopeFactory.fromSession(session)).thenReturn(scope);
+        when(workVisibilityService.isVisible(scope, WorkType.ARTWORK, 42L)).thenReturn(true);
+        when(workVisibilityService.isVisible(scope, WorkType.NOVEL, 43L)).thenReturn(false);
+
+        assertThat(guard.isVisibleToGuest(42L, session)).isTrue();
+        assertThat(guard.isNovelVisibleToGuest(43L, session)).isFalse();
     }
 }

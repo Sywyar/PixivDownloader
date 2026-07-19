@@ -69,20 +69,34 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("plugin.api 中除服务接口外保持纯 JDK：contribution record 不得携带 servlet 类型")
+    @DisplayName("plugin.api 仅请求 owner 解析接口可依赖 Servlet，其余契约保持纯 JDK")
     void pluginApiDataTypesStayPureJdk() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api..")
                 .and().doNotHaveFullyQualifiedName(
-                        top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService.class.getName())
-                .and().doNotHaveFullyQualifiedName(
                         top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver.class.getName())
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
-                .because("jakarta.servlet 的放行仅限收请求入参的服务接口"
-                        + "（WorkVisibilityService / RequestOwnerIdentityResolver），"
+                .because("jakarta.servlet 的放行仅限请求 owner 身份解析接口 RequestOwnerIdentityResolver，"
                         + "纯数据的 contribution / record / 事件类型必须保持零依赖")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("plugin.api 不得重新拥有核心作品查询、元数据、资产、删除或可见性契约")
+    void pluginApiDoesNotOwnCoreWorkContracts() {
+        assertThat(CLASSES.contain("top.sywyar.pixivdownload.core.work.model.WorkMetadata"))
+                .as("核心作品契约必须实际出现在 ArchUnit 导入结果中，避免所有权守卫空跑")
+                .isTrue();
+
+        assertThat(CLASSES.stream()
+                .filter(javaClass -> javaClass.getPackageName()
+                        .startsWith("top.sywyar.pixivdownload.plugin.api.work"))
+                .map(JavaClass::getName)
+                .sorted()
+                .toList())
+                .as("完整作品语义由 core-api 长期拥有，plugin-api classpath 不得残留旧契约")
+                .isEmpty();
     }
 
     @Test

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.work.query;
+package top.sywyar.pixivdownload.core.work.query;
 
 /**
  * 作者目录行：作者与其可见作品数。

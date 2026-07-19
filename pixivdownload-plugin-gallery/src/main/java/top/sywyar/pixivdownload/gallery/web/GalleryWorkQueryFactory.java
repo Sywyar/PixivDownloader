@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.gallery.web;
 
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;

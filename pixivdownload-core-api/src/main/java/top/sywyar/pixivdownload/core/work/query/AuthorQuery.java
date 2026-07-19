@@ -1,7 +1,7 @@
-package top.sywyar.pixivdownload.plugin.api.work.query;
+package top.sywyar.pixivdownload.core.work.query;
 
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 /**
  * 作者目录查询条件。

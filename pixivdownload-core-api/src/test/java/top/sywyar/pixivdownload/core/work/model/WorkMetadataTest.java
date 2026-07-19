@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.work.model;
+package top.sywyar.pixivdownload.core.work.model;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,7 @@ class WorkMetadataTest {
                         "moveFolder", "moveTime", "fileNameTemplateId", "fileNameTemplate",
                         "fileAuthorNameId", "uploadTime", "isOriginal");
         assertThatThrownBy(() -> Class.forName(
-                "top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails"))
+                "top.sywyar.pixivdownload.core.work.model.NovelWorkDetails"))
                 .isInstanceOf(ClassNotFoundException.class);
     }
 

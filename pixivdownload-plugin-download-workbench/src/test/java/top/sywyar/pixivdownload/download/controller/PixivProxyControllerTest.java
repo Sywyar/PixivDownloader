@@ -9,13 +9,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
+import org.springframework.web.method.support.ModelAndViewContainer;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
@@ -25,8 +30,9 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
@@ -45,6 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("PixivProxyController 单元测试")
 class PixivProxyControllerTest {
     private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
+    private static final WorkVisibilityScope VISIBILITY_SCOPE = WorkVisibilityScope.unrestricted();
 
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -72,6 +79,7 @@ class PixivProxyControllerTest {
                 requestOwnerIdentityResolver, userQuotaService,
                 multiModeSettings, workVisibilityService, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
     }
@@ -577,7 +585,7 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.tags[1].name").value("Original"))
                     .andExpect(jsonPath("$.tags[1].translatedName").doesNotExist());
 
-            verify(workVisibilityService).requireVisible(any(), eq(WorkType.ARTWORK), eq(12345L));
+            verify(workVisibilityService).requireVisible(VISIBILITY_SCOPE, WorkType.ARTWORK, 12345L);
         }
 
         @Test
@@ -602,6 +610,22 @@ class PixivProxyControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.authorId").doesNotExist())
                     .andExpect(jsonPath("$.tags", hasSize(0)));
+        }
+    }
+
+    private static final class FixedVisibilityScopeResolver implements HandlerMethodArgumentResolver {
+        @Override
+        public boolean supportsParameter(MethodParameter parameter) {
+            return parameter.getParameterType() == WorkVisibilityScope.class;
+        }
+
+        @Override
+        public Object resolveArgument(
+                MethodParameter parameter,
+                ModelAndViewContainer mavContainer,
+                NativeWebRequest webRequest,
+                WebDataBinderFactory binderFactory) {
+            return VISIBILITY_SCOPE;
         }
     }
 }

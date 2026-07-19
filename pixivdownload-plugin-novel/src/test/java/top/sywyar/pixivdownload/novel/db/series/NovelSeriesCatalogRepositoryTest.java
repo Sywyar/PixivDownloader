@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
 import java.util.Map;

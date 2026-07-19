@@ -5,7 +5,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.http.HttpStatus;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
@@ -15,11 +14,11 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkDeletionService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -71,7 +70,7 @@ class WorkDeletionFileRollbackTest {
     }
 
     @Test
-    @DisplayName("插画文件删除失败：抛 409、数据库未软删、全部文件复原")
+    @DisplayName("插画文件删除失败：抛领域失败、数据库未软删、全部文件复原")
     void artworkFileDeletionFailureRollsBackAndAbortsSoftDelete() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("300"));
         Path p0 = Files.writeString(dir.resolve("300_p0.jpg"), "p0");
@@ -85,8 +84,12 @@ class WorkDeletionFileRollbackTest {
         WorkDeletionService deletionService = deletionServiceFailingOn(dir.resolve("300_p1.jpg"));
 
         assertThatThrownBy(() -> deletionService.delete(WorkType.ARTWORK, 300L))
-                .isInstanceOf(LocalizedException.class)
-                .satisfies(e -> assertThat(((LocalizedException) e).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                .isInstanceOfSatisfying(WorkDeletionException.class, exception -> {
+                    assertThat(exception.reason())
+                            .isEqualTo(WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED);
+                    assertThat(exception.workType()).isEqualTo(WorkType.ARTWORK);
+                    assertThat(exception.workId()).isEqualTo(300L);
+                });
 
         assertThat(p0).exists();
         assertThat(p1).exists();
@@ -95,7 +98,7 @@ class WorkDeletionFileRollbackTest {
     }
 
     @Test
-    @DisplayName("小说文件删除失败：抛 409、小说主行未软删、目录与全部文件复原")
+    @DisplayName("小说文件删除失败：抛领域失败、小说主行未软删、目录与全部文件复原")
     void novelFileDeletionFailureRollsBackAndAbortsSoftDelete() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("novel-7"));
         Path body = Files.writeString(dir.resolve("7_p0.txt"), "text");
@@ -108,8 +111,12 @@ class WorkDeletionFileRollbackTest {
         WorkDeletionService deletionService = deletionServiceFailingOn(dir.resolve("7.meta.json"));
 
         assertThatThrownBy(() -> deletionService.delete(WorkType.NOVEL, 7L))
-                .isInstanceOf(LocalizedException.class)
-                .satisfies(e -> assertThat(((LocalizedException) e).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                .isInstanceOfSatisfying(WorkDeletionException.class, exception -> {
+                    assertThat(exception.reason())
+                            .isEqualTo(WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED);
+                    assertThat(exception.workType()).isEqualTo(WorkType.NOVEL);
+                    assertThat(exception.workId()).isEqualTo(7L);
+                });
 
         assertThat(body).exists();
         assertThat(sidecar).exists();

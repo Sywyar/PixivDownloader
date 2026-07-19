@@ -1,6 +1,6 @@
-package top.sywyar.pixivdownload.plugin.api.work.service;
+package top.sywyar.pixivdownload.core.work.service;
 
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.util.Collection;
 
@@ -19,9 +19,7 @@ public interface WorkDeletionService {
      * 删除单个作品（唯一对外删除入口）：判存 → 删磁盘文件 → 软删 DB 主行，顺序固定。
      *
      * @return {@code true} 删除成功（文件已全删 + DB 已软删）；{@code false} 作品不存在或已软删
-     *         （调用方据此返回 404）
-     * @throws RuntimeException 磁盘文件未能全部删除时抛出（HTTP 409 语义、数据库未触碰）。为保持本接口
-     *         纯 JDK，具体异常类型不在 {@code throws} 声明，由核心实现层抛出可本地化的非受检异常。
+     * @throws WorkDeletionException 磁盘文件未能全部删除，数据库未触碰
      */
     boolean delete(WorkType workType, long workId);
 

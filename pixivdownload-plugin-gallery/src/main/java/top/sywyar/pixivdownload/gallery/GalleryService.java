@@ -5,20 +5,20 @@ import top.sywyar.pixivdownload.gallery.web.GalleryArtworkResponse;
 import top.sywyar.pixivdownload.gallery.web.GalleryPageResponse;
 import top.sywyar.pixivdownload.gallery.web.GalleryTagOptionResponse;
 import top.sywyar.pixivdownload.gallery.web.GalleryTagResponse;
-import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
+import top.sywyar.pixivdownload.core.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
-import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
-import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.core.work.query.TagOption;
+import top.sywyar.pixivdownload.core.work.query.TagQuery;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkSummary;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.util.*;
 
@@ -107,7 +107,7 @@ public class GalleryService {
      * 删除单个作品：委托核心统一删除入口 {@link WorkDeletionService#delete}——判存 → 删磁盘文件
      *（图片 / 缩略图 / 图库缓存 / 空目录）→ 清理 DB 派生数据并软删主行的编排封装在核心实现，使下载判重
      * 能识别「已下载过，但被删除」、避免被当作未下载重新下载。作品不存在或已被标记删除时返回
-     * {@code false}；磁盘文件删除失败（被锁定 / 权限不足等）抛出 409、不触碰数据库。
+     * {@code false}；磁盘文件删除失败（被锁定 / 权限不足等）抛出领域失败、不触碰数据库。
      */
     public boolean deleteArtwork(long artworkId) {
         return workDeletionService.delete(WorkType.ARTWORK, artworkId);

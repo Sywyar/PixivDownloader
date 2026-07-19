@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.novelgallery;
 
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
-import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.model.PagedResult;
+import top.sywyar.pixivdownload.core.work.model.WorkSummary;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 import java.util.List;
 import java.util.Objects;

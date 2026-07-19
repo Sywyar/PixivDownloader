@@ -70,11 +70,11 @@ import top.sywyar.pixivdownload.novelgallery.PixivNovelGalleryCapabilityProvider
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.novelgallery.frontend.NovelGalleryFrontendProvider;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -335,11 +335,11 @@ public class NovelPluginConfiguration {
                                                           NovelAutoTranslateService novelAutoTranslateService,
                                                           NovelDatabase novelDatabase,
                                                           NovelGalleryService novelGalleryService,
+                                                          WorkVisibilityService workVisibilityService,
                                                           NovelMergeService novelMergeService,
                                                           NovelTranslationService novelTranslationService,
                                                           ApplicationModeProvider applicationModeProvider,
                                                           RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                          WorkVisibilityService workVisibilityService,
                                                           UserQuotaService userQuotaService,
                                                           MultiModeSettings multiModeSettings,
                                                           MessageResolver messages) {

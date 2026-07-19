@@ -25,8 +25,9 @@ import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.quota.response.ProxyRateLimitResponse;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -92,11 +93,11 @@ public class PixivProxyController {
      * 若请求来自访客邀请会话，校验作品是否在可见范围；越界 403。
      * 非访客请求直接放行（管理员/普通访问由 AuthFilter 决定）。
      */
-    private void guardArtworkForGuest(HttpServletRequest request, String artworkId) {
+    private void guardArtworkForGuest(WorkVisibilityScope visibilityScope, String artworkId) {
         if (artworkId == null || artworkId.isBlank()) return;
         try {
             long id = Long.parseLong(artworkId.trim());
-            workVisibilityService.requireVisible(request, WorkType.ARTWORK, id);
+            workVisibilityService.requireVisible(visibilityScope, WorkType.ARTWORK, id);
         } catch (NumberFormatException ignored) {
             // 非数字 ID 不命中数据库，让现有逻辑处理；越界由其他校验拦下
         }
@@ -182,9 +183,10 @@ public class PixivProxyController {
     public ResponseEntity<?> getArtworkMeta(
             @PathVariable String artworkId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
+            HttpServletRequest request,
+            WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardArtworkForGuest(request, artworkId);
+        guardArtworkForGuest(visibilityScope, artworkId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
@@ -284,9 +286,10 @@ public class PixivProxyController {
     public ResponseEntity<?> getArtworkPages(
             @PathVariable String artworkId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
+            HttpServletRequest request,
+            WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardArtworkForGuest(request, artworkId);
+        guardArtworkForGuest(visibilityScope, artworkId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
@@ -308,9 +311,10 @@ public class PixivProxyController {
     public ResponseEntity<?> getUgoiraMeta(
             @PathVariable String artworkId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
+            HttpServletRequest request,
+            WorkVisibilityScope visibilityScope) throws IOException {
         cookie = acquisitionCredential(request, cookie);
-        guardArtworkForGuest(request, artworkId);
+        guardArtworkForGuest(visibilityScope, artworkId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(

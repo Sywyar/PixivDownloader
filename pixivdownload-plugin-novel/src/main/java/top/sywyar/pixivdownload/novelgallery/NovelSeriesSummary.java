@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novelgallery;
 
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
 

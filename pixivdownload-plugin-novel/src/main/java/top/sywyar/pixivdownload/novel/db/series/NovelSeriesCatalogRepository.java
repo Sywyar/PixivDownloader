@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novel.db.series;
 
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.ArrayList;
 import java.util.Collection;

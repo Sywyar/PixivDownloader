@@ -4,15 +4,14 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -23,7 +22,7 @@ import java.util.LinkedHashSet;
  * 文件全删成功后软删 DB 主行（插画代理 {@link PixivDatabase#markArtworkDeleted}、小说代理
  * {@link NovelMetadataRepository#markNovelDeleted}；小说普通关系由插件数据库触发器清理，可再生 FTS
  * 由查询过滤软删除行并在小说插件启动时 best-effort 回收）。
- * 磁盘文件未能全部删除时抛 409、数据库不触碰，
+ * 磁盘文件未能全部删除时抛出纯领域失败、数据库不触碰，
  * 故 {@code delete()} 对调用方是「要么文件全删 + DB 软删、要么 DB 完全未变」。被注入的查询 / 资产服务
  * 实现均不反向依赖本服务，无 Bean 环。
  */
@@ -44,10 +43,10 @@ public class CoreWorkDeletionService implements WorkDeletionService {
             return false;
         }
         if (!workAssetService.deleteLocalFiles(workType, workId)) {
-            throw new LocalizedException(HttpStatus.CONFLICT,
-                    "work.delete.file-failed",
-                    "{0} {1} 的磁盘文件未能全部删除，已中止数据库清理",
-                    typeNoun(workType), workId);
+            throw new WorkDeletionException(
+                    WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED,
+                    workType,
+                    workId);
         }
         markDeleted(workType, workId);
         log.info(messages.getForLog("work.delete.log.deleted", typeNounForLog(workType), workId));
@@ -66,7 +65,7 @@ public class CoreWorkDeletionService implements WorkDeletionService {
                 if (delete(workType, id)) deleted++;
             } catch (Exception e) {
                 log.warn(messages.getForLog("work.delete.log.delete-failed",
-                        typeNounForLog(workType), id, e.getMessage()));
+                        typeNounForLog(workType), id, deletionFailureForLog(e, workType, id)));
             }
         }
         return deleted;
@@ -83,11 +82,6 @@ public class CoreWorkDeletionService implements WorkDeletionService {
         }
     }
 
-    /** 作品类型名词（请求 locale，供面向用户的 409 文案）。 */
-    private String typeNoun(WorkType workType) {
-        return messages.get("work.type." + typeKey(workType));
-    }
-
     /** 作品类型名词（JVM 系统 locale，供日志文案，与 {@code getForLog} 同 locale）。 */
     private String typeNounForLog(WorkType workType) {
         return messages.getForLog("work.type." + typeKey(workType));
@@ -98,5 +92,13 @@ public class CoreWorkDeletionService implements WorkDeletionService {
             case ARTWORK -> "artwork";
             case NOVEL -> "novel";
         };
+    }
+
+    private String deletionFailureForLog(Exception exception, WorkType workType, long workId) {
+        if (exception instanceof WorkDeletionException deletionException
+                && deletionException.reason() == WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED) {
+            return messages.getForLog("work.delete.file-failed", typeNounForLog(workType), workId);
+        }
+        return exception.getMessage();
     }
 }

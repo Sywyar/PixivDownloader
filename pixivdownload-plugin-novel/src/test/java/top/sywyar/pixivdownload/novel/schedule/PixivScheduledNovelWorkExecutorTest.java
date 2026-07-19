@@ -39,8 +39,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentati
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunStatistics;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 import java.io.IOException;
 import java.net.URI;

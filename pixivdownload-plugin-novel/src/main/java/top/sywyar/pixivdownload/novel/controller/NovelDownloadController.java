@@ -24,9 +24,10 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
@@ -214,8 +215,8 @@ public class NovelDownloadController {
             @PathVariable long seriesId,
             @RequestParam(required = false) String format,
             @RequestParam(required = false) String lang,
-            HttpServletRequest httpRequest) throws IOException {
-        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
+            WorkVisibilityScope visibilityScope) throws IOException {
+        Set<Long> filter = resolveGuestNovelSeriesFilter(visibilityScope);
         if (filter != null && !filter.contains(seriesId)) {
             return ResponseEntity.notFound().build();
         }
@@ -329,8 +330,8 @@ public class NovelDownloadController {
         return sanitized;
     }
 
-    private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
-        WorkRestriction restriction = workVisibilityService.restrictionFrom(httpRequest, WorkType.NOVEL);
+    private Set<Long> resolveGuestNovelSeriesFilter(WorkVisibilityScope visibilityScope) {
+        WorkRestriction restriction = visibilityScope.restrictionFor(WorkType.NOVEL);
         if (restriction == null) return null;
         return novelGalleryService.visibleSeriesIds(restriction);
     }

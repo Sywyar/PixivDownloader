@@ -1,15 +1,15 @@
-package top.sywyar.pixivdownload.plugin.api.work.service;
+package top.sywyar.pixivdownload.core.work.service;
 
-import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
-import top.sywyar.pixivdownload.plugin.api.work.query.AuthorSummary;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
-import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
-import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.work.model.PagedResult;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkSummary;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.AuthorQuery;
+import top.sywyar.pixivdownload.core.work.query.AuthorSummary;
+import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.core.work.query.TagOption;
+import top.sywyar.pixivdownload.core.work.query.TagQuery;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 
 import java.util.Collection;
 import java.util.List;
@@ -64,7 +64,10 @@ public interface WorkQueryService {
      */
     List<TagOption> tags(TagQuery query);
 
-    /** 按名称 / 翻译名精确查找标签（大小写不敏感，原名命中优先）。 */
+    /**
+     * 按名称 / 翻译名精确查找全局标签（大小写不敏感，原名命中优先）。本方法不携带访问作用域；
+     * 受限访客必须从带 {@link TagQuery#restriction()} 的 {@link #tags} 结果中精确匹配。
+     */
     Optional<TagOption> tagByName(WorkType workType, String name, String translatedName);
 
     /** 作者目录（带可见作品计数），作者名按作者池补全、缺名以 id 字符串兜底。 */

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.work.query;
+package top.sywyar.pixivdownload.core.work.query;
 
 /**
  * 标签目录行：标签与「使用该标签的可见作品数」。

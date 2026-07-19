@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.work.model;
+package top.sywyar.pixivdownload.core.work.model;
 
 /**
  * 单个作品携带的标签（{@code tags} 池行的投影）。

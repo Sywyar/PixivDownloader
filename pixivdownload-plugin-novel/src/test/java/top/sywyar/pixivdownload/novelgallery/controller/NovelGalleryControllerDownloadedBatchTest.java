@@ -4,16 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
 import java.util.List;
 import java.util.Set;
@@ -21,6 +21,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @DisplayName("小说画廊可见性与批量下载状态")
@@ -48,12 +49,12 @@ class NovelGalleryControllerDownloadedBatchTest {
     @Test
     @DisplayName("读取单本小说前应通过中性可见性端口校验")
     void findNovelRequiresVisibility() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
+        WorkVisibilityScope scope = WorkVisibilityScope.unrestricted();
 
-        var response = controller.findNovel(77L, request);
+        var response = controller.findNovel(77L, scope);
 
         assertThat(response.getStatusCode().value()).isEqualTo(404);
-        verify(workVisibilityService).requireVisible(request, WorkType.NOVEL, 77L);
+        verify(workVisibilityService).requireVisible(scope, WorkType.NOVEL, 77L);
         verify(novelGalleryService).find(77L);
     }
 
@@ -67,11 +68,12 @@ class NovelGalleryControllerDownloadedBatchTest {
 
         var response = controller.downloadedBatch(
                 new NovelGalleryController.NovelDownloadedBatchRequest(ids, true),
-                new MockHttpServletRequest());
+                WorkVisibilityScope.unrestricted());
 
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().novelIds()).containsExactly(1L);
         assertThat(response.getBody().deletedNovelIds()).containsExactly(2L);
+        verifyNoInteractions(workVisibilityService);
     }
 
     @Test
@@ -81,17 +83,17 @@ class NovelGalleryControllerDownloadedBatchTest {
         when(novelDatabase.getDownloadedStatuses(ids)).thenReturn(List.of(
                 new NovelDownloadedStatusRow(1L, false),
                 new NovelDownloadedStatusRow(2L, true)));
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        when(workVisibilityService.restrictionFrom(request, WorkType.NOVEL))
-                .thenReturn(guestRestriction());
+        WorkRestriction restriction = guestRestriction();
+        WorkVisibilityScope scope = WorkVisibilityScope.restricted(restriction, restriction);
 
         var response = controller.downloadedBatch(
-                new NovelGalleryController.NovelDownloadedBatchRequest(ids, true), request);
+                new NovelGalleryController.NovelDownloadedBatchRequest(ids, true), scope);
 
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().novelIds()).containsExactly(1L);
         assertThat(response.getBody().deletedNovelIds()).isEmpty();
         verify(novelDatabase).getDownloadedStatuses(ids);
+        verifyNoInteractions(workVisibilityService);
     }
 
     @Test
@@ -104,7 +106,7 @@ class NovelGalleryControllerDownloadedBatchTest {
                 new NovelDownloadedStatusRow(1L, false),
                 new NovelDownloadedStatusRow(2L, true)));
 
-        var response = controller.downloadedBatch(request, new MockHttpServletRequest());
+        var response = controller.downloadedBatch(request, WorkVisibilityScope.unrestricted());
 
         assertThat(request.includeDeleted()).isFalse();
         assertThat(response.getBody()).isNotNull();
@@ -117,7 +119,7 @@ class NovelGalleryControllerDownloadedBatchTest {
     void emptyIdsReturnEmptyLists() {
         var response = controller.downloadedBatch(
                 new NovelGalleryController.NovelDownloadedBatchRequest(List.of(), true),
-                new MockHttpServletRequest());
+                WorkVisibilityScope.unrestricted());
 
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().novelIds()).isEmpty();

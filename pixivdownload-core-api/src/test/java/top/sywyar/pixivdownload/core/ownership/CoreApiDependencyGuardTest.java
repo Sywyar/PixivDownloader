@@ -40,6 +40,14 @@ import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
+import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
@@ -174,6 +182,19 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(PixivDescriptionHtml.class.getName())).isTrue();
         assertThat(CLASSES.contain(EpochMillisNormalizer.class.getName())).isTrue();
         assertThat(CLASSES.contain(PushFormatConverter.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含完整作品查询、元数据、资产、删除与可见性契约")
+    void coreApiContainsCompleteWorkContracts() {
+        assertThat(CLASSES.contain(WorkQueryService.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkMetadataRepository.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkAssetService.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkDeletionService.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkVisibilityService.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkMetadata.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkRestriction.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkVisibilityScope.class.getName())).isTrue();
     }
 
     @Test

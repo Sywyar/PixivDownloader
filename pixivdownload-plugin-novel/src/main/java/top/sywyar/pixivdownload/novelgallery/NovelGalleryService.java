@@ -8,21 +8,21 @@ import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRepository;
 import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRow;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
-import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
-import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
+import top.sywyar.pixivdownload.core.work.query.AuthorQuery;
+import top.sywyar.pixivdownload.core.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
-import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
-import top.sywyar.pixivdownload.plugin.api.work.query.WorkQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkSummary;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
-import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.core.work.query.TagOption;
+import top.sywyar.pixivdownload.core.work.query.TagQuery;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkSummary;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -84,7 +84,7 @@ public class NovelGalleryService {
      * 小说插件启动时 best-effort 回收陈旧索引，
      * 使下载判重能识别「已下载过，但被删除」、避免被当作未下载重新下载。系列封面与合订文件属于系列、
      * 不在此删除。小说不存在或已被标记删除时返回 {@code false}；磁盘文件删除失败（被锁定 / 权限不足等）
-     * 抛出 409、不触碰数据库。
+     * 抛出领域失败、不触碰数据库。
      */
     public boolean deleteNovel(long novelId) {
         return workDeletionService.delete(WorkType.NOVEL, novelId);

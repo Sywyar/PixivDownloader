@@ -1,4 +1,7 @@
-package top.sywyar.pixivdownload.plugin.api.work.model;
+package top.sywyar.pixivdownload.core.work.model;
+
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 import java.util.List;
 

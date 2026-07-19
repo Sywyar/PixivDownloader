@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.work.model;
+package top.sywyar.pixivdownload.core.work.model;
 
 /**
  * 作品类型。

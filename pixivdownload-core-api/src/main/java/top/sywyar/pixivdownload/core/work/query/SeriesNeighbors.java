@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.work.query;
+package top.sywyar.pixivdownload.core.work.query;
 
 /**
  * 系列内相邻作品导航：按 {@code seriesOrder} 数值找最近的上一章 / 下一章（不要求严格相邻）。

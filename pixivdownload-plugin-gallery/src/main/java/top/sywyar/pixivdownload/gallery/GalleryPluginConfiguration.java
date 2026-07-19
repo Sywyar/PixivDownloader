@@ -8,11 +8,11 @@ import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeQuery;
 import top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 
 /**
