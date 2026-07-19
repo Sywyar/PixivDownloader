@@ -2,14 +2,11 @@ package top.sywyar.pixivdownload.gallery;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -115,18 +112,4 @@ class GalleryPluginContributionTest {
                 });
     }
 
-    @Test
-    @DisplayName("gallery 精确声明读取的核心表列")
-    void coreColumnUsagesDeclareGalleryReadModel() {
-        assertThat(plugin.coreColumnUsages()).containsExactly(
-                new CoreColumnUsage("artworks", List.of(
-                        "artwork_id", "title", "description", "author_id", "R18", "is_ai",
-                        "extensions", "count", "moved", "time", "deleted",
-                        "series_id", "series_order")),
-                new CoreColumnUsage("artwork_tags", List.of("artwork_id", "tag_id")),
-                new CoreColumnUsage("tags", List.of("tag_id", "name", "translated_name")),
-                new CoreColumnUsage("authors", List.of("author_id", "name")),
-                new CoreColumnUsage("manga_series", List.of("series_id", "title")),
-                new CoreColumnUsage("artwork_collections", List.of("artwork_id", "collection_id")));
-    }
 }

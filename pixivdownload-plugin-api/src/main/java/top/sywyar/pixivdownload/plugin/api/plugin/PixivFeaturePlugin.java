@@ -6,7 +6,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -118,11 +117,6 @@ public interface PixivFeaturePlugin {
 
     /** 插件声明的表、索引与补列规则。 */
     default List<SchemaContribution> schema() {
-        return List.of();
-    }
-
-    /** 插件对核心表列的使用声明（只读契约，用于核心列演进时的影响面追踪）。 */
-    default List<CoreColumnUsage> coreColumnUsages() {
         return List.of();
     }
 

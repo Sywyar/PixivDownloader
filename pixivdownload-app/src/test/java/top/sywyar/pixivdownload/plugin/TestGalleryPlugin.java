@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.plugin;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
@@ -19,7 +18,6 @@ import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -197,10 +195,4 @@ public final class TestGalleryPlugin implements PixivFeaturePlugin {
                 ID, "gallery", Audience.INVITED_GUEST, "/pixiv-gallery.html", 20));
     }
 
-    @Override
-    public List<CoreColumnUsage> coreColumnUsages() {
-        List<CoreColumnUsage> usages = new ArrayList<>();
-        usages.add(new CoreColumnUsage("artworks", List.of("artwork_id")));
-        return usages;
-    }
 }

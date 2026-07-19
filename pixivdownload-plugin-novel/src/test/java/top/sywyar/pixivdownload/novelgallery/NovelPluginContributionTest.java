@@ -2,19 +2,14 @@ package top.sywyar.pixivdownload.novelgallery;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.novel.config.NovelExecutionSettings;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 import java.io.InputStream;
 import java.util.Properties;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -162,30 +157,6 @@ class NovelPluginContributionTest {
                     assertThat(nav.labelI18nKey()).isEqualTo("nav.type-novel");
                     assertThat(nav.href()).isEqualTo("/pixiv-novel-gallery.html?view=all");
                 });
-    }
-
-    @Test
-    @DisplayName("novel 声明的核心列使用均能在受管 schema 中找到对应表列")
-    void coreColumnUsagesResolveAgainstManagedSchema() {
-        ManagedDatabaseSchema.DatabaseSchema schema =
-                DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
-        for (CoreColumnUsage usage : plugin.coreColumnUsages()) {
-            ManagedDatabaseSchema.TableSpec table = schema.tables().values().stream()
-                    .filter(spec -> spec.name().equals(ManagedDatabaseSchema.normalizeIdentifier(usage.table())))
-                    .findFirst()
-                    .orElse(null);
-            assertThat(table)
-                    .as("novel 声明的核心表 %s 应在受管 schema 中", usage.table())
-                    .isNotNull();
-            Set<String> columns = table.columns().stream()
-                    .map(ManagedDatabaseSchema.ColumnSpec::name)
-                    .collect(Collectors.toSet());
-            for (String column : usage.columns()) {
-                assertThat(columns)
-                        .as("novel 声明的核心列 %s.%s 应在受管 schema 中", usage.table(), column)
-                        .contains(ManagedDatabaseSchema.normalizeIdentifier(column));
-            }
-        }
     }
 
     private record StaticResourceSummary(String publicPathPrefix, boolean exactPath) {

@@ -14,14 +14,11 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -44,7 +41,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -91,8 +87,6 @@ class GalleryExternalPluginBootContextTest {
     private PluginDiscoveryResult pluginDiscoveryResult;
     @Autowired
     private PluginRegistry pluginRegistry;
-    @Autowired
-    private DatabaseSchemaRegistry databaseSchemaRegistry;
     @Autowired
     private RouteAccessRegistry routeAccessRegistry;
     @Autowired
@@ -155,35 +149,6 @@ class GalleryExternalPluginBootContextTest {
                 .containsExactlyInAnyOrder("core", "plugin-market", "gallery");
         assertThat(pluginRegistry.source("gallery")).contains(PluginSource.EXTERNAL);
         assertThat(externalGalleryClassLoader()).isNotSameAs(getClass().getClassLoader());
-    }
-
-    @Test
-    @DisplayName("gallery 声明的核心列使用均能在宿主受管 schema 中解析")
-    void galleryCoreColumnUsagesResolveAgainstManagedSchema() {
-        PixivFeaturePlugin gallery = pluginRegistry.plugins().stream()
-                .filter(plugin -> plugin.id().equals("gallery"))
-                .findFirst()
-                .orElseThrow();
-        ManagedDatabaseSchema.DatabaseSchema schema = databaseSchemaRegistry.mergedSchema();
-
-        assertThat(gallery.coreColumnUsages()).isNotEmpty();
-        for (CoreColumnUsage usage : gallery.coreColumnUsages()) {
-            ManagedDatabaseSchema.TableSpec table = schema.tables().values().stream()
-                    .filter(spec -> spec.name().equals(ManagedDatabaseSchema.normalizeIdentifier(usage.table())))
-                    .findFirst()
-                    .orElse(null);
-            assertThat(table)
-                    .as("gallery 声明的核心表 %s 应在宿主受管 schema 中", usage.table())
-                    .isNotNull();
-            Set<String> columns = table.columns().stream()
-                    .map(ManagedDatabaseSchema.ColumnSpec::name)
-                    .collect(Collectors.toSet());
-            for (String column : usage.columns()) {
-                assertThat(columns)
-                        .as("gallery 声明的核心列 %s.%s 应在宿主受管 schema 中", usage.table(), column)
-                        .contains(ManagedDatabaseSchema.normalizeIdentifier(column));
-            }
-        }
     }
 
     @Test

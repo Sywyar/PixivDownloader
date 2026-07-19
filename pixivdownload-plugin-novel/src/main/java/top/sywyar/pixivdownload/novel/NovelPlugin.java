@@ -5,7 +5,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -239,13 +238,4 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 ID, "novel-gallery", Audience.INVITED_GUEST, "/pixiv-novel-gallery.html", 30));
     }
 
-    @Override
-    public List<CoreColumnUsage> coreColumnUsages() {
-        return List.of(
-                new CoreColumnUsage("novels", List.of(
-                        "novel_id", "author_id", "R18", "time", "deleted",
-                        "series_id", "series_order")),
-                new CoreColumnUsage("novel_tags", List.of("novel_id", "tag_id")),
-                new CoreColumnUsage("tags", List.of("tag_id", "name", "translated_name")));
-    }
 }

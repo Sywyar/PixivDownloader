@@ -3,15 +3,12 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.plugin.market.PluginMarketPluginConfiguration;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.push.PushFormatConverter;
 
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
@@ -165,8 +162,6 @@ class RegisteredPluginsTest {
         Set<String> pageSectionContributingPlugins = Set.of();
         Set<String> drilldownContributingPlugins = Set.of();
         Set<String> onboardingStepContributingPlugins = Set.of();
-        // coreColumnUsages 由展示插件声明；gallery/novel 的核心列使用在外置模块测试中守护。
-        Set<String> coreColumnUsingPlugins = Set.of();
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
@@ -177,12 +172,6 @@ class RegisteredPluginsTest {
                             assertThat(contribution.ownerPluginId()).isEqualTo("core"));
                 } else {
                     assertThat(plugin.schema()).isEmpty();
-                }
-                if (coreColumnUsingPlugins.contains(plugin.id())) {
-                    // 画廊/小说声明各自收敛范围内直接 SQL 仓库触及的核心列（只读使用契约，无私有表）
-                    assertThat(plugin.coreColumnUsages()).isNotEmpty();
-                } else {
-                    assertThat(plugin.coreColumnUsages()).isEmpty();
                 }
                 // i18n namespace 由内置前端插件声明；batch/userscript 归外置 download-workbench，gallery 归外置 gallery。
                 if (i18nContributingPlugins.contains(plugin.id())) {
@@ -248,34 +237,6 @@ class RegisteredPluginsTest {
                 }
             });
         });
-    }
-
-    @Test
-    @DisplayName("插件声明的核心列使用均能在受管 schema 中找到对应表列（归一化比对）")
-    void coreColumnUsagesResolveAgainstManagedSchema() {
-        ManagedDatabaseSchema.DatabaseSchema schema =
-                DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
-        for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
-            for (CoreColumnUsage usage : plugin.coreColumnUsages()) {
-                ManagedDatabaseSchema.TableSpec table = schema.tables().values().stream()
-                        .filter(spec -> spec.name()
-                                .equals(ManagedDatabaseSchema.normalizeIdentifier(usage.table())))
-                        .findFirst()
-                        .orElse(null);
-                assertThat(table)
-                        .as("插件 %s 声明的核心表 %s 应在受管 schema 中", plugin.id(), usage.table())
-                        .isNotNull();
-                Set<String> columns = table.columns().stream()
-                        .map(ManagedDatabaseSchema.ColumnSpec::name)
-                        .collect(Collectors.toSet());
-                for (String column : usage.columns()) {
-                    assertThat(columns)
-                            .as("插件 %s 声明的核心列 %s.%s 应在受管 schema 中",
-                                    plugin.id(), usage.table(), column)
-                            .contains(ManagedDatabaseSchema.normalizeIdentifier(column));
-                }
-            }
-        }
     }
 
     @Test

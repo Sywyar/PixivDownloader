@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.gallery;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
-import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -246,17 +245,4 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                 ID, "gallery", Audience.INVITED_GUEST, "/pixiv-gallery.html", 20));
     }
 
-    @Override
-    public List<CoreColumnUsage> coreColumnUsages() {
-        return List.of(
-                new CoreColumnUsage("artworks", List.of(
-                        "artwork_id", "title", "description", "author_id", "R18", "is_ai",
-                        "extensions", "count", "moved", "time", "deleted",
-                        "series_id", "series_order")),
-                new CoreColumnUsage("artwork_tags", List.of("artwork_id", "tag_id")),
-                new CoreColumnUsage("tags", List.of("tag_id", "name", "translated_name")),
-                new CoreColumnUsage("authors", List.of("author_id", "name")),
-                new CoreColumnUsage("manga_series", List.of("series_id", "title")),
-                new CoreColumnUsage("artwork_collections", List.of("artwork_id", "collection_id")));
-    }
 }
