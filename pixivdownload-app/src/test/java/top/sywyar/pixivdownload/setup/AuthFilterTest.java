@@ -1270,6 +1270,82 @@ class AuthFilterTest {
         }
     }
 
+    // ========== 小说 Pixiv 只读代理：单作品受邀可见，系列枚举仅普通访客 ==========
+
+    @Nested
+    @DisplayName("小说 Pixiv 代理端点的邀请访客边界")
+    class NovelPixivProxyEndpointTests {
+
+        @BeforeEach
+        void useNovelRoutes() {
+            authFilter = authFilterWithNovel();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/api/pixiv/novel/12345/meta",
+                "/api/pixiv/novel/12345/bookmark-count"
+        })
+        @DisplayName("邀请访客可读取经过单作品可见性校验的小说代理")
+        void invitedGuestCanReadGuardedWorkProxy(String path) throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("邀请访客不得枚举未经过本地作品可见性过滤的 Pixiv 系列")
+        void invitedGuestCannotReadSeriesProxy() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/pixiv/novel/series/67890");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("多人模式普通访客仍可读取小说 Pixiv 系列代理")
+        void multiVisitorCanReadSeriesProxy() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowed(any())).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/pixiv/novel/series/67890");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+    }
+
     // ========== 小说下载端点（归小说插件、VISITOR：复刻插画下载 /api/download/pixiv 现状） ==========
 
     @Nested
@@ -1367,6 +1443,28 @@ class AuthFilterTest {
 
             assertThat(response.getStatus()).isEqualTo(403);
             verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("邀请访客可命中单段通配的系列合订本只读路由")
+        void invitedGuestCanReachMergedSeriesRoute() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/novel/series/67890/merged");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
         }
     }
 

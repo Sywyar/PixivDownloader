@@ -76,10 +76,11 @@ public class AuthFilter extends OncePerRequestFilter {
     //      isDeclared(path, method) 解析「最具体声明 + 方法」的有效访问策略：窄声明（精确 / 长前缀 / 显式方法）
     //      覆盖宽前缀，宽 ADMIN 前缀不再吞掉其下更窄的非 monitor 端点；monitor ← AccessPolicy ∈ {ADMIN,
     //      INVITED_GUEST}；命中不了任何「path + method」声明的请求统一 404（不再回落访客默认放行）。
-    //   ② 访客白名单 / 公开 / 本地放行清单 ← 仍由 currentAccess() 按访问策略从快照派生（见 derive()）：
-    //      访客白名单 ← {INVITED_GUEST, VISITOR_AND_INVITED_GUEST}（GET/HEAD 收窄由下方谓词承载）；
-    //      公开 ← PUBLIC；本地放行特例 ← LOCAL；VISITOR / GUI / ACTUATOR_PUBLIC 不派生进任何清单
-    //      （VISITOR 落默认会话 / 访客分支、GUI 与 actuator 由内联分支判定，声明只为纳入归属 / 镜像 / 守卫）。
+    //   ② 邀请访客放行同样经 routeAccessRegistry.resolve(path, method) 解析有效路由；POST 还必须
+    //      由该有效路由显式声明。公开 / 本地放行清单与邀请访客静态资源限流分类仍由
+    //      currentAccess() 按策略从快照派生（见 derive()）：公开 ← PUBLIC；本地放行特例 ← LOCAL；
+    //      VISITOR / GUI / ACTUATOR_PUBLIC 不派生进任何清单（VISITOR 落默认会话 / 访客分支、GUI 与
+    //      actuator 由内联分支判定，声明只为纳入归属 / 镜像 / 守卫）。
     // 前缀模式以 ** 结尾，去掉末尾 ** 即还原为 startsWith 前缀字符串（含 /api/authors 这类无尾斜杠前缀）。
     private final RouteAccessRegistry routeAccessRegistry;
 
@@ -183,7 +184,6 @@ public class AuthFilter extends OncePerRequestFilter {
             Set<String> publicStaticExactPaths,
             Set<String> guestAllowedStaticExact,
             Set<String> guestAllowedExact,
-            Set<String> guestAllowedPostExact,
             List<String> guestAllowedPrefix,
             List<String> localAccessApiPrefixes,
             Set<String> localAccessApiExact) {
@@ -205,9 +205,10 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 把一份路由快照按访问策略折叠成访客白名单 / 公开 / 本地放行清单（字段顺序与 {@link DerivedRouteAccess}
-     * 一致）。monitor 受保护与「未声明即 404」不在此派生——由 {@link RouteAccessRegistry#resolve} /
-     * {@link RouteAccessRegistry#isDeclared(String, HttpMethod)} 按「path + method 命中的最具体声明」解析。
+     * 把一份路由快照按访问策略折叠成公开 / 本地放行清单与邀请访客静态资源限流分类（字段
+     * 顺序与 {@link DerivedRouteAccess} 一致）。monitor 受保护、邀请访客授权与「未声明即 404」不在此派生——
+     * 由 {@link RouteAccessRegistry#resolve} / {@link RouteAccessRegistry#isDeclared(String, HttpMethod)} 按
+     * 「path + method 命中的最具体声明」解析。
      */
     private static DerivedRouteAccess derive(List<RouteAccessRegistry.RegisteredRoute> routes) {
         return new DerivedRouteAccess(
@@ -218,7 +219,6 @@ public class AuthFilter extends OncePerRequestFilter {
                         methods -> !methods.contains(HttpMethod.POST), AuthFilter::isStaticResource),
                 exactPaths(routes, AuthFilter::isGuestPolicy,
                         methods -> !methods.contains(HttpMethod.POST), path -> !isStaticResource(path)),
-                exactPaths(routes, AuthFilter::isGuestPolicy, methods -> methods.contains(HttpMethod.POST)),
                 prefixPaths(routes, AuthFilter::isGuestPolicy),
                 prefixPaths(routes, policy -> policy == AccessPolicy.LOCAL),
                 exactPaths(routes, policy -> policy == AccessPolicy.LOCAL, method -> true));
@@ -754,16 +754,15 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isAllowedForGuestInvite(String path, String method) {
-        DerivedRouteAccess access = currentAccess();
-        if ("POST".equalsIgnoreCase(method)) {
-            return access.guestAllowedPostExact().contains(path);
-        }
-        if (!"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method)) {
+        HttpMethod httpMethod = toHttpMethod(method);
+        if (httpMethod != HttpMethod.GET && httpMethod != HttpMethod.HEAD && httpMethod != HttpMethod.POST) {
             return false;
         }
-        if (access.guestAllowedStaticExact().contains(path)) return true;
-        if (access.guestAllowedExact().contains(path)) return true;
-        return startsWithAny(path, access.guestAllowedPrefix());
+        return routeAccessRegistry.resolve(path, httpMethod)
+                .filter(registered -> isGuestPolicy(registered.route().accessPolicy()))
+                .filter(registered -> httpMethod != HttpMethod.POST
+                        || registered.route().methods().contains(HttpMethod.POST))
+                .isPresent();
     }
 
     private void handleInviteRedeemRedirect(HttpServletRequest req, HttpServletResponse res) throws IOException {

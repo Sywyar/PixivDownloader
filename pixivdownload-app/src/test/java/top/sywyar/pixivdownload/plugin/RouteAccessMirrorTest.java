@@ -254,7 +254,9 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/pixiv-douyin.html", "douyin", AccessPolicy.ADMIN);
         assertOwnerPolicy("/pixiv-douyin/**", "douyin", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/douyin/gallery/**", "douyin", AccessPolicy.ADMIN);
-        assertOwnerPolicy("/api/pixiv/novel/**", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/pixiv/novel/*/meta", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/pixiv/novel/*/bookmark-count", "novel", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/pixiv/novel/series/*", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/pixiv/novel-search**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/pixiv/user/*/novels", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/pixiv/user/*/novel-cards", "novel", AccessPolicy.VISITOR);

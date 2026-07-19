@@ -172,6 +172,41 @@ class AuthFilterRegistrySnapshotTest {
         verify(filterChain).doFilter(request, response);
     }
 
+    @Test
+    @DisplayName("邀请访客 POST 只命中显式声明该方法的有效通配路由")
+    void invitedGuestPostRequiresExplicitMethodOnResolvedRoute() throws Exception {
+        when(setupService.isSetupComplete()).thenReturn(true);
+        when(setupService.getMode()).thenReturn("solo");
+        when(guestInviteService.resolveByCode("demo-code")).thenReturn(Optional.of(guestSession()));
+        when(rateLimitService.isAllowedForInvite("invite:demo-code")).thenReturn(true);
+
+        RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of()));
+        registry.register("demo", List.of(
+                WebRouteContribution.visitorAndInvitedGuest("/api/demo/*/implicit"),
+                new WebRouteContribution("/api/demo/*/explicit", AccessPolicy.INVITED_GUEST,
+                        Set.of(HttpMethod.POST), false)));
+        AuthFilter filter = filterFor(registry);
+
+        request.setMethod("POST");
+        request.setRequestURI("/api/demo/42/implicit");
+        request.setRemoteAddr("192.168.1.100");
+        request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "demo-code"));
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
+
+        resetExchange();
+        request.setMethod("POST");
+        request.setRequestURI("/api/demo/42/explicit");
+        request.setRemoteAddr("192.168.1.100");
+        request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "demo-code"));
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        verify(guestInviteService).recordHit(1L);
+    }
+
     private AuthFilter filterFor(RouteAccessRegistry registry) {
         return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
                 localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider, registry);

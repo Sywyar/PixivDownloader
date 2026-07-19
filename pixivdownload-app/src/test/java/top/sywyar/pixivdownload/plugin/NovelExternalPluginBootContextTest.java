@@ -156,6 +156,9 @@ class NovelExternalPluginBootContextTest {
                 .extracting(r -> r.route().pathPattern())
                 .contains(
                         "/api/novel/download",
+                        "/api/pixiv/novel/*/meta",
+                        "/api/pixiv/novel/*/bookmark-count",
+                        "/api/pixiv/novel/series/*",
                         "/api/pixiv/novel-search**",
                         "/api/download/pixiv/novel",
                         "/pixiv-novel-gallery.html",
