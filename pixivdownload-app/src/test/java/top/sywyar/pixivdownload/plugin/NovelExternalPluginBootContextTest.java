@@ -16,6 +16,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -42,6 +43,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -102,6 +104,8 @@ class NovelExternalPluginBootContextTest {
     private WebApplicationContext applicationContext;
     @Autowired
     private GalleryCapabilityRegistry galleryCapabilityRegistry;
+    @Autowired
+    private ScheduleCapabilityRegistry scheduleCapabilityRegistry;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -235,6 +239,18 @@ class NovelExternalPluginBootContextTest {
                 .extracting(frontend -> frontend.contribution().contributionId())
                 .containsExactlyInAnyOrder("novel.text-renderer", "novel.detail-actions");
         assertThat(galleryCapabilityRegistry.snapshot().diagnostics()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("novel 只发布 plugin-api 计划作品执行器，不发布 legacy runner")
+    void novelPublishesOnlyCurrentScheduledWorkExecutor() {
+        assertThat(scheduleCapabilityRegistry.resolveWorkExecutor("novel"))
+                .get()
+                .satisfies(handle -> assertThat(handle.owner().featurePluginId()).isEqualTo("novel"));
+        assertThat(scheduleCapabilityRegistry.resolveLegacyWorkRunner("novel")).isEmpty();
+        assertThatThrownBy(() -> externalNovelClassLoader().loadClass(
+                "top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate"))
+                .isInstanceOf(ClassNotFoundException.class);
     }
 
     @Test

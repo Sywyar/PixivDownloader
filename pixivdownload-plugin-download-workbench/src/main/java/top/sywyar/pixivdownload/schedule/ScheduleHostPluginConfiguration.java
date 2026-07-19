@@ -47,9 +47,10 @@ import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
  * <b>依赖方向：</b>调度壳需要 Pixiv 抓取与作品下载等核心下载机器（{@link PixivFetchService} /
  * {@link ArtworkDownloader} / {@link WorkMetaCaptureService}，均由根包扫描装配、属核心机器），以及来源
  * 执行契约（{@code download.schedule.source}，住下载工作台域）；故本装配层依赖 download 包，<b>不</b> import 任何
- * novel 包类型。下载派发统一经核心契约 {@code core.schedule.work.ScheduledWorkRunner} +
- * {@link ScheduleCapabilityRegistry} generation lease 按作品类型解析：插画执行器由下载工作台贡献、小说执行器由
- * 小说插件贡献；来源和作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
+ * novel 包类型。当前来源执行经 plugin-api {@code ScheduledSourceExecutor}，作品执行经
+ * {@code ScheduledWorkExecutor}，并由 {@link ScheduleCapabilityRegistry} generation lease 按 owner 与作品类型解析：
+ * 插画执行器由下载工作台贡献、小说执行器由小说插件贡献；宿主保留的 legacy runner 只服务旧壳适配，不承载小说
+ * 生产执行。来源和作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
  * 小说判重只经稳定 {@link WorkQueryService}，宿主不接触小说插件或宿主内部数据库行。
  */
 @Configuration

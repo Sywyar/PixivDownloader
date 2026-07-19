@@ -68,7 +68,7 @@ class DownloadWorkbenchDependencyGuardTest {
                 .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.novel..")
-                .because("计划任务宿主只能经核心 ScheduledWorkRunner 契约派发小说作品，不得 import novel 包")
+                .because("计划任务宿主只能经 plugin-api ScheduledWorkExecutor 契约派发小说作品，不得 import novel 包")
                 .check(CLASSES);
     }
 

@@ -12,12 +12,16 @@ import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
+import top.sywyar.pixivdownload.novel.schedule.PixivScheduledNovelWorkExecutor;
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Set;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -118,6 +122,29 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                         javaClass -> forbiddenTypes.contains(javaClass.getName())))
                 .because("外置 novel 插件应依赖 core-api/plugin-api 稳定端口，"
                         + "宿主配置绑定、运行期路径、setup、访客会话与 UUID 解析实现必须留在 app")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("novel 计划作品执行只走 plugin-api 契约并随插件生命周期托管")
+    void novelScheduleUsesOnlyPluginApiWorkExecutors() {
+        noClasses()
+                .that().resideInAnyPackage(
+                        "top.sywyar.pixivdownload.novel..",
+                        "top.sywyar.pixivdownload.novelgallery..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.core.schedule.work..")
+                .because("小说计划作品已由 plugin-api ScheduledWorkExecutor 执行，"
+                        + "不得恢复 app legacy schedule 载体或 runner")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(PixivScheduledNovelWorkExecutor.class.getName())).isTrue();
+        classes()
+                .that().areAssignableTo(ScheduledWorkExecutor.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(PluginManagedBean.class)
+                .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
+                .because("小说计划作品执行器必须由 child context 显式装配并随插件生命周期撤回")
                 .check(CLASSES);
     }
 

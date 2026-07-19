@@ -49,7 +49,6 @@ import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.download.NovelQueueOperations;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
-import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.novel.schedule.PixivScheduledNovelWorkExecutor;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
@@ -209,16 +208,6 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public QueueOperations novelQueueOperations(NovelDownloadService novelDownloadService) {
         return new NovelQueueOperations(novelDownloadService);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("novel")
-    public ScheduledNovelDownloadDelegate scheduledNovelDownloadDelegate(
-            NovelDownloader novelDownloader,
-            NovelMergeService novelMergeService,
-            NovelAutoTranslateService novelAutoTranslateService) {
-        return new ScheduledNovelDownloadDelegate(
-                novelDownloader, novelMergeService, novelAutoTranslateService);
     }
 
     @Bean

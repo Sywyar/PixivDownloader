@@ -414,20 +414,20 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("schedule 宿主不得依赖 novel 插件包：小说下载 / 系列合订 / 翻译状态只能经核心契约 ScheduledWorkRunner")
+    @DisplayName("schedule 宿主不得依赖 novel 插件包：小说执行只经 plugin-api ScheduledWorkExecutor")
     void scheduleDoesNotDependOnNovelPlugin() {
         // 计划任务的小说一侧（构造 NovelDownloadRequest + downloadBlocking + 系列合订 + 队列视图翻译状态叠加）已收口
-        // 到核心契约 core.schedule.work.ScheduledWorkRunner（按作品类型解析、由小说插件贡献小说执行器实现）。计划任务
-        // 宿主（schedule 包：执行器 / 服务 / tick runner / 控制器 / 运行状态 / 运行队列 / 过度访问告警）只依赖该核心接口
+        // 到 plugin-api ScheduledWorkExecutor（按作品类型解析、由小说插件贡献小说执行器实现）。计划任务
+        // 宿主（schedule 包：执行器 / 服务 / tick runner / 控制器 / 运行状态 / 运行队列 / 过度访问告警）只依赖该插件契约
         // 与中性载体，不得 import 任何 novel 包类型——限流 / 熔断 / 代理 / 运行队列 / 水位线等共享调度机器留调度壳，来源
-        // 执行契约住下载工作台域（download.schedule.source），小说插件经正常 plugin→core 方向实现契约，故无
+        // 实现住下载工作台域，小说插件经正常 plugin→plugin-api 方向实现契约，故无
         // schedule↔novel 互相 import。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.novel..")
-                .because("计划任务的小说下载 / 系列合订 / 翻译状态经核心契约 core.schedule.work.ScheduledWorkRunner"
-                        + "（小说插件贡献执行器实现）完成，调度编排层不得 import 任何 novel 包类型；小说插件经 plugin→core 正向"
+                .because("计划任务的小说下载 / 系列合订 / 翻译状态经 plugin-api ScheduledWorkExecutor"
+                        + "（小说插件贡献执行器实现）完成，调度编排层不得 import 任何 novel 包类型；小说插件经 plugin→plugin-api 正向"
                         + "依赖实现该契约，发现 / 筛选 / 系列补全 / 共享调度机器仍留调度壳")
                 .check(importDownloadWorkbenchClasses());
     }
@@ -435,8 +435,8 @@ class PluginApiDependencyGuardTest {
     @Test
     @DisplayName("作品类型执行器必须 @PluginManagedBean（不得根包扫描）：随贡献它的插件生命周期归属")
     void scheduledWorkRunnersMustBePluginManaged() {
-        // ScheduledNovelDownloadDelegate 这类 ScheduledWorkRunner 实现（小说执行器住 novel 包、插画执行器住 schedule
-        // 包）必须标 @PluginManagedBean、由各自 XxxPluginConfiguration 显式装配、排除出根包扫描——否则贡献它的插件被禁 /
+        // 迁移期 ScheduledWorkRunner 实现必须标 @PluginManagedBean、由各自 XxxPluginConfiguration 显式装配、
+        // 排除出根包扫描——否则贡献它的插件被禁 /
         // 卸载后，根扫描的 @Service 仍会注册执行器偷跑，破坏「缺执行器即该作品类型不可用」语义。接口本身不在约束面。
         classes()
                 .that().areAssignableTo(
@@ -458,14 +458,14 @@ class PluginApiDependencyGuardTest {
         // 计划任务来源（download.schedule.source，怎么找作品）与插画作品类型执行器（download.schedule.work）由下载
         // 工作台贡献给计划任务宿主。它们住在 download.schedule.. 包，但「计划任务逻辑对 novel
         // 保持解耦」的不变量仍须守住：来源经 PixivFetchService + 中性载体发现插画 / 小说作品（不 import 任何 novel
-        // 类型），插画执行器只薄包核心窄接缝 ArtworkDownloader；小说下载由小说插件贡献的执行器经核心契约
-        // core.schedule.work.ScheduledWorkRunner 按 kind 解析完成。
+        // 类型），插画执行器只薄包核心窄接缝 ArtworkDownloader；小说下载由小说插件贡献的
+        // plugin-api ScheduledWorkExecutor 按 work type 解析完成。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.download.schedule..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.novel..")
-                .because("计划任务来源 / 插画执行器经 PixivFetchService + 中性载体 + 核心契约 ScheduledWorkRunner "
-                        + "工作，不得 import 任何 novel 包类型；小说下载由小说插件贡献的执行器按 kind 解析完成")
+                .because("计划任务来源 / 插画执行器经 PixivFetchService + 中性载体 + plugin-api ScheduledWorkExecutor "
+                        + "工作，不得 import 任何 novel 包类型；小说下载由小说插件贡献的执行器按 work type 解析完成")
                 .check(importDownloadWorkbenchClasses());
     }
 
