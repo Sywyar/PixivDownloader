@@ -23,15 +23,15 @@ import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import java.util.List;
 
 /**
- * 功能插件主接口。插件通过本接口向核心声明需要统一合并的信息
- * （schema、路由、i18n、导航、静态资源等）；业务 Bean 仍由各插件的
- * {@code @Configuration} 显式装配，不经本接口返回。
+ * 功能插件主接口。插件通过本接口向宿主声明需要统一合并的信息
+ * （schema、路由、i18n、导航、静态资源、维护任务归属等）。业务 Bean 的配置类由装配方显式提供：
+ * 外置插件经 {@link PixivPluginProvider#configurationClasses()} 声明，内置插件由宿主配置类装配，
+ * 都不通过本接口返回。
  * <p>
  * 实现类不得携带任何 Spring 注解（插件实例可能由非 Spring 的插件管理器创建），
  * 由每插件一个的 {@code XxxPluginConfiguration} 以 {@code @Bean} 形式提供。
  * <p>
- * 维护任务目前仍经 Spring 自动发现注册到 {@code MaintenanceCoordinator}，
- * 不经本接口声明。
+ * 维护任务实现由插件配置装配为 Bean，任务类型的 owner 则经 {@link #maintenanceTasks()} 声明。
  */
 public interface PixivFeaturePlugin {
 

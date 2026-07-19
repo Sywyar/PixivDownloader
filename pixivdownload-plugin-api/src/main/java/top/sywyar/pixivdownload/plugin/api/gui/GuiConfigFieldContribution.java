@@ -8,7 +8,8 @@ import java.util.Map;
 /**
  * Pure data declaration for one GUI configuration field.
  *
- * @param key            global config key written to config.yaml
+ * @param key            owner-scoped plugin configuration key; the host stores regular and sensitive values in
+ *                       their respective plugin configuration and credential stores
  * @param groupId        stable group id; built-in ids are available from {@link GuiConfigGroups}
  * @param labelKey       i18n key for the field label
  * @param helpKey        optional i18n key for help text

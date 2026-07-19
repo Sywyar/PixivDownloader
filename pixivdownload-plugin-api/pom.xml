@@ -45,5 +45,12 @@
             <artifactId>junit-platform-launcher</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 字节码级所有权守卫：公开类型须归入稳定协议或精确迁移例外，Servlet 例外锁定身份解析接口 -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

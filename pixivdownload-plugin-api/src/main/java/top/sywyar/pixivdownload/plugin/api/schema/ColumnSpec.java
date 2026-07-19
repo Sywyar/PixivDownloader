@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.schema;
 
 /**
- * 列声明。字段形态与 {@code ManagedDatabaseSchema.ColumnSpec} 对齐。
+ * 表列的纯数据声明。宿主 schema registry 负责规范化、合法性检查与 DDL 落地。
  *
  * @param primaryKeyPosition 主键序号，0 表示非主键列
  * @param autoIncrement      是否为 {@code AUTOINCREMENT} 主键。仅用于 DDL 生成

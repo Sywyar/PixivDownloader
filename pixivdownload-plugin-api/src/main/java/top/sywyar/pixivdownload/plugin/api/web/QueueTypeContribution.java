@@ -4,21 +4,17 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 插件声明的下载队列「作品类型」（work-type 轴：下载什么）。
  * <p>
  * 下载工作台的统一队列引擎按作品类型多态派发：每个类型由其所属插件声明一条本记录，
- * 并由 {@code moduleUrl} 指向的前端行为模块在运行期向宿主注册下载行为（判重 / 载荷 / 状态轮询 /
- * 完成处理等钩子）。「数据声明（本记录）+ 行为模块（JS）」分离：插件禁用时本记录不再合并，
- * 宿主据此隐藏该类型的交互入口、并把残留队列项标记为暂停（不报错、不删除）。
- * <p>
- * 内置类型（如插画）由宿主直接内联注册行为、{@code moduleUrl} 为 {@code null}；外部贡献的
- * 类型（如小说）的行为模块由其声明插件的 classloader 提供（打进同一 jar 时即该 jar 内的静态资源，
- * 物理拆分为独立插件 jar 后随该插件 classloader 解析）。
+ * 可由 {@code moduleUrl} 指向的同源前端行为模块在运行期向宿主注册下载行为（判重 / 载荷 / 状态轮询 /
+ * 完成处理等钩子）。「数据声明（本记录）+ 行为模块（JS）」分离：非空模块资源由声明插件的 classloader
+ * 解析；插件禁用时本记录不再合并，宿主隐藏该类型的交互入口并暂停残留队列项（不报错、不删除）。
  *
  * @param pluginId     声明该类型的插件 id
- * @param type           类型 id（与队列项 {@code kind}、{@code ScheduledSourceProvider} 共享口径，如 {@code illust} / {@code novel}）
+ * @param type           类型 id（与队列项 {@code kind}、{@link DownloadTypeDescriptor#type()} 共享口径）
  * @param labelNamespace 子模式标签所在的 i18n namespace（在该 namespace 内解析 {@code labelI18nKey}）；<b>必填</b>，
  *                       注册期对 {@code null}/空白 fail-fast（纯 key 需确定 namespace 才能解析，留空会令前端误解析）
  * @param labelI18nKey   子模式（kind 单选）标签的 i18n key（<b>纯 key</b>，不带 namespace、不直接携带文案）
  * @param order          子模式渲染顺序，越小越靠前
- * @param moduleUrl      前端行为模块 URL（内置类型为 {@code null}：宿主内联注册）
+ * @param moduleUrl      可选的前端行为模块 URL；非空时必须是同源绝对路径，{@code null} 表示无前端行为模块
  * @param descriptor     下载类型稳定 descriptor；旧构造器会生成最小兼容 descriptor，新类型应显式声明完整能力
  */
 public record QueueTypeContribution(

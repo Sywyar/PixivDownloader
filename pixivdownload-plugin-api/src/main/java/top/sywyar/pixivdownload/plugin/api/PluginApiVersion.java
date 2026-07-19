@@ -5,7 +5,7 @@ package top.sywyar.pixivdownload.plugin.api;
  * 供外置插件声明所需的核心 API 版本（{@code requires}）并在加载时做兼容性校验。
  *
  * <p>本版本号独立于 Maven 构件版本与软件发行版本：它描述的是 {@code plugin.api} 暴露给插件的
- * <b>契约面</b>（SPI 接口、contribution record、核心服务接口及其 DTO）的演进，按语义化版本
+ * <b>契约面</b>（SPI 接口、contribution record 与纯值模型）的演进，按语义化版本
  * MAJOR.MINOR.PATCH 管理。
  *
  * <p>兼容策略：
