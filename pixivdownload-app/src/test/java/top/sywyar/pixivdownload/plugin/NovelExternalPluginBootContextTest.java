@@ -217,8 +217,28 @@ class NovelExternalPluginBootContextTest {
         try {
             LocaleContextHolder.setLocale(Locale.US);
             assertThat(messages.get("novel.epub.chapter", 2)).isEqualTo("Chapter 2");
+            assertThat(messages.get("novel.series.log.refresh.failed.exception", 7))
+                    .isEqualTo("Failed to refresh novel series metadata: seriesId=7");
+            assertThat(messages.get("pixiv.proxy.novel.id.invalid", "bad"))
+                    .isEqualTo("Invalid novel ID: bad");
+            assertThat(messages.get("novel.translate.success")).isEqualTo("Translation complete");
+            assertThat(messages.get("narration.error.missing-novel")).isEqualTo("Missing novel id");
+            assertThat(messages.get("narration.tts.text-too-long", 100))
+                    .isEqualTo("Text too long for one request (max 100 characters)");
+            assertThat(messages.get("download.status.completed", 1, 2)).isEqualTo("Completed (1/2)");
+            assertThat(messages.get("narration.tts.error.empty-text")).isEqualTo("Text to read is empty");
             LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
             assertThat(messages.get("novel.epub.chapter", 2)).isEqualTo("章节 2");
+            assertThat(messages.get("novel.series.log.refresh.failed.exception", 7))
+                    .isEqualTo("刷新小说系列元数据异常: seriesId=7");
+            assertThat(messages.get("pixiv.proxy.novel.id.invalid", "bad"))
+                    .isEqualTo("无效的小说 ID: bad");
+            assertThat(messages.get("novel.translate.success")).isEqualTo("翻译完成");
+            assertThat(messages.get("narration.error.missing-novel")).isEqualTo("缺少小说 ID");
+            assertThat(messages.get("narration.tts.text-too-long", 100))
+                    .isEqualTo("单次朗读文本过长（最多 100 字）");
+            assertThat(messages.get("download.status.completed", 1, 2)).isEqualTo("已完成 (1/2)");
+            assertThat(messages.get("narration.tts.error.empty-text")).isEqualTo("朗读文本为空");
         } finally {
             LocaleContextHolder.resetLocaleContext();
         }

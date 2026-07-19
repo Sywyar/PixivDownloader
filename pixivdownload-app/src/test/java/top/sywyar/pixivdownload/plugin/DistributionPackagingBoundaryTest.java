@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
@@ -82,6 +83,87 @@ class DistributionPackagingBoundaryTest {
     private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
     private static final String DOUYIN_SCHEDULE_MODULE_ENTRY =
             "static/pixiv-douyin-download/douyin-schedule-sources.js";
+    private static final Set<String> NOVEL_OWNED_BACKEND_MESSAGE_KEYS = Set.of(
+            "novel.render.uploaded-image",
+            "novel.render.pixiv-image",
+            "novel.merge.suffix",
+            "novel.merge.invalid-series-id",
+            "novel.merge.no-chapters",
+            "novel.merge.success",
+            "novel.epub.untitled",
+            "novel.epub.unknown-author",
+            "novel.epub.chapter",
+            "novel.series.log.refresh.failed.exception",
+            "pixiv.proxy.novel.id.invalid",
+            "pixiv.proxy.novel.series.id.invalid",
+            "novel.translate.success",
+            "novel.translate.skipped",
+            "novel.translate.same-language",
+            "novel.translate.invalid-language",
+            "novel.translate.empty",
+            "novel.translate.not-found",
+            "novel.translate.truncated",
+            "novel.translate.missing-language",
+            "novel.translate.no-scope",
+            "novel.translate.unparseable",
+            "narration.error.missing-novel",
+            "narration.error.invalid-voice",
+            "narration.error.invalid-line",
+            "narration.error.no-script",
+            "narration.error.content-too-large",
+            "narration.error.ref-too-short",
+            "narration.error.ref-no-base",
+            "narration.seed-text",
+            "narration.error.ref-invalid-file",
+            "narration.error.ref-too-large",
+            "narration.error.ref-character-not-found",
+            "narration.error.ai-unavailable",
+            "narration.error.engine-unavailable",
+            "narration.tts.error.engine-not-found",
+            "narration.tts.text-too-long",
+            "narration.tts.preview.failed",
+            "narration.tts.log.beta",
+            "narration.tts.log.preview-failed",
+            "narration.tts.log.line.skip-blank",
+            "narration.tts.log.engine.selected",
+            "narration.tts.log.mode.downgrade",
+            "narration.tts.log.engine.not-found",
+            "narration.tts.log.engine.unavailable");
+    private static final Set<String> RETIRED_NOVEL_BACKEND_MESSAGE_KEYS = Set.of(
+            "novel.series.log.refresh.failed.response",
+            "pixiv.proxy.novel.kind.invalid");
+    private static final Set<String> HOST_OWNED_NOVEL_MESSAGE_KEYS = Set.of(
+            "download.asset.log.novel-directory-unreadable",
+            "work.type.novel",
+            "guest.invite.novel.forbidden",
+            "novel.gallery.log.directory-invalid",
+            "novel.gallery.log.directory-root-refused",
+            "novel.gallery.log.directory-root-folder-refused",
+            "novel.gallery.log.directory-not-exclusive",
+            "novel.gallery.log.clean-directory-failed");
+    private static final Set<String> SHARED_NOVEL_MESSAGE_KEYS = Set.of(
+            "collection.result.added",
+            "collection.result.exists",
+            "collection.result.failed",
+            "download.already-downloaded",
+            "download.cancelled",
+            "download.download-path.pending",
+            "download.quota.exceeded",
+            "download.task.started",
+            "download.status.not-found",
+            "download.status.cancelled",
+            "download.status.failed",
+            "download.status.completed",
+            "download.status.in-progress",
+            "pixiv.proxy.me.cookie.missing",
+            "pixiv.proxy.me.rest.invalid",
+            "pixiv.proxy.search.order.invalid",
+            "pixiv.proxy.search.mode.invalid",
+            "pixiv.proxy.search.s-mode.invalid",
+            "pixiv.proxy.search.failed",
+            "pixiv.proxy.search-range.invalid",
+            "narration.tts.error.empty-text",
+            "narration.tts.error.unavailable");
 
     @Test
     @DisplayName("boot jar 运行期类路径含宿主 PF4J，但不含外置下载类型 / 画廊 / 通知等插件的类与资源")
@@ -234,13 +316,19 @@ class DistributionPackagingBoundaryTest {
         assertThat(host.getResource("i18n/push/messages.properties"))
                 .as("push i18n 资源不应在 boot jar 内").isNull();
         for (String bundle : List.of("i18n/messages.properties", "i18n/messages_en.properties")) {
-            assertThat(loadUtf8Properties(host, bundle).stringPropertyNames())
-                    .as("宿主全局 i18n 不应复制外置插件专属键：%s", bundle)
+            Set<String> hostKeys = loadUtf8Properties(host, bundle).stringPropertyNames();
+            assertThat(hostKeys)
+                    .as("宿主全局 i18n 不应复制非小说插件专属键：%s", bundle)
                     .noneMatch(key -> key.startsWith("push.")
-                            || key.equals("config.template.section.push")
-                            || key.startsWith("novel.render.")
-                            || key.startsWith("novel.merge.")
-                            || key.startsWith("novel.epub."));
+                            || key.equals("config.template.section.push"));
+            assertThat(hostKeys)
+                    .as("宿主全局 i18n 不应复制 novel 插件专属键：%s", bundle)
+                    .doesNotContainAnyElementsOf(NOVEL_OWNED_BACKEND_MESSAGE_KEYS)
+                    .doesNotContainAnyElementsOf(RETIRED_NOVEL_BACKEND_MESSAGE_KEYS);
+            assertThat(hostKeys)
+                    .as("宿主全局 i18n 应保留宿主拥有和跨插件共享的小说相关键：%s", bundle)
+                    .containsAll(HOST_OWNED_NOVEL_MESSAGE_KEYS)
+                    .containsAll(SHARED_NOVEL_MESSAGE_KEYS);
         }
         assertThat(host.getResource("mail/templates/run-summary.html"))
                 .as("mail 模板资源不应在 boot jar 内").isNull();

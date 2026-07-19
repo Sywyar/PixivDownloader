@@ -88,7 +88,7 @@ class NovelPluginContributionTest {
     }
 
     @Test
-    @DisplayName("小说后端输出文案由插件资源成对持有")
+    @DisplayName("小说后端专属文案由插件资源成对持有")
     void backendOutputMessagesAreOwnedByPlugin() throws Exception {
         Set<String> expectedKeys = Set.of(
                 "novel.render.uploaded-image",
@@ -99,7 +99,43 @@ class NovelPluginContributionTest {
                 "novel.merge.success",
                 "novel.epub.untitled",
                 "novel.epub.unknown-author",
-                "novel.epub.chapter");
+                "novel.epub.chapter",
+                "novel.series.log.refresh.failed.exception",
+                "pixiv.proxy.novel.id.invalid",
+                "pixiv.proxy.novel.series.id.invalid",
+                "novel.translate.success",
+                "novel.translate.skipped",
+                "novel.translate.same-language",
+                "novel.translate.invalid-language",
+                "novel.translate.empty",
+                "novel.translate.not-found",
+                "novel.translate.truncated",
+                "novel.translate.missing-language",
+                "novel.translate.no-scope",
+                "novel.translate.unparseable",
+                "narration.error.missing-novel",
+                "narration.error.invalid-voice",
+                "narration.error.invalid-line",
+                "narration.error.no-script",
+                "narration.error.content-too-large",
+                "narration.error.ref-too-short",
+                "narration.error.ref-no-base",
+                "narration.seed-text",
+                "narration.error.ref-invalid-file",
+                "narration.error.ref-too-large",
+                "narration.error.ref-character-not-found",
+                "narration.error.ai-unavailable",
+                "narration.error.engine-unavailable",
+                "narration.tts.error.engine-not-found",
+                "narration.tts.text-too-long",
+                "narration.tts.preview.failed",
+                "narration.tts.log.beta",
+                "narration.tts.log.preview-failed",
+                "narration.tts.log.line.skip-blank",
+                "narration.tts.log.engine.selected",
+                "narration.tts.log.mode.downgrade",
+                "narration.tts.log.engine.not-found",
+                "narration.tts.log.engine.unavailable");
 
         Properties chinese = loadProperties("/i18n/novel/messages.properties");
         Properties english = loadProperties("/i18n/novel/messages_en.properties");

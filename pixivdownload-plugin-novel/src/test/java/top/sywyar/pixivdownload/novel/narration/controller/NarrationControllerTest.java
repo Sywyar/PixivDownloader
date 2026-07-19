@@ -72,6 +72,7 @@ class NarrationControllerTest {
     private static MessageResolver messageResolver() {
         ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
         source.setBasenames(
+                "classpath:i18n/novel/messages",
                 "classpath:i18n/messages",
                 "classpath:i18n/ValidationMessages",
                 "classpath:i18n/tts/messages",
