@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
  * stats 插件的 Bean 装配收敛点：业务 Bean（含 {@code @RestController}）均经
  * {@code @PluginManagedBean} 排除出根包扫描，由这里以 {@code @Bean} 显式提供。
  * <p>
- * 插件 descriptor {@link StatsPlugin} 始终注册（{@code allPlugins()} / schema 合并 / disabledPlugins
+ * 插件 descriptor {@link StatsPlugin} 始终注册（安装态视图、schema owner 稳定身份与 disabledPlugins
  * 都依赖全部 descriptor 在场）；业务 Bean 经 {@link ConditionalOnPluginEnabled} 随
  * {@code plugins.stats.enabled} 装配 / 缺席——禁用本插件时 controller 不在场、其路由因「未声明即 404」
  * 不可达。

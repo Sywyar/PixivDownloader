@@ -21,7 +21,7 @@ import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
  * 画廊的 SQL 仓库已收编进核心数据层（{@code core.metadata.artwork.GalleryRepository}，根包扫描的
  * 核心 Bean），不再由本配置提供。
  * <p>
- * 插件 descriptor {@link GalleryPlugin} 始终注册（{@code allPlugins()} / schema 合并 / disabledPlugins
+ * 插件 descriptor {@link GalleryPlugin} 始终注册（安装态视图、schema owner 稳定身份与 disabledPlugins
  * 都依赖全部 descriptor 在场）；业务 Bean 经 {@link ConditionalOnPluginEnabled} 随
  * {@code plugins.gallery.enabled} 装配 / 缺席——禁用本插件时画廊页面与 API 不在场、其路由因
  * 「未声明即 404」不可达，但核心下载链路与已落库数据不受影响（重新启用即可读既有数据）。

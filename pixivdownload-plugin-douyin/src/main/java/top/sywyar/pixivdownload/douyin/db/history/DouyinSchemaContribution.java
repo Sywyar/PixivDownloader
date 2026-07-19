@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.douyin.db.history;
 
-import top.sywyar.pixivdownload.douyin.DouyinPlugin;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.IndexOrigin;
 import top.sywyar.pixivdownload.plugin.api.schema.IndexSpec;
@@ -89,7 +88,7 @@ public final class DouyinSchemaContribution {
                 new PathColumnSpec("douyin_works", "work_id", List.of("folder"))
         );
 
-        return new SchemaContribution(DouyinPlugin.ID, tables, List.of(), List.of(), pathColumns);
+        return new SchemaContribution(tables, List.of(), pathColumns);
     }
 
     private static ColumnSpec column(String name,

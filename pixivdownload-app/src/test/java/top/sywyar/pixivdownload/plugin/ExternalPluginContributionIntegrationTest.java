@@ -72,15 +72,15 @@ class ExternalPluginContributionIntegrationTest {
     }
 
     @Test
-    @DisplayName("外置插件 schema 经 allPlugins 进入 DatabaseSchemaRegistry，注销后不残留")
+    @DisplayName("外置插件 schema 经安装态稳定身份进入 DatabaseSchemaRegistry，注销后不残留")
     void externalSchemaRegistersAndUnregister() {
         PluginRegistry registry = registryWithExternal(new ExternalDemoPlugin());
         DatabaseSchemaRegistry schema = new DatabaseSchemaRegistry(registry);
 
-        assertThat(schema.contributions()).anyMatch(c -> c.ownerPluginId().equals("ext-demo"));
+        assertThat(schema.mergedSchema().tables()).containsKey("ext_demo_table");
 
         schema.unregister("ext-demo");
-        assertThat(schema.contributions()).noneMatch(c -> c.ownerPluginId().equals("ext-demo"));
+        assertThat(schema.mergedSchema().tables()).doesNotContainKey("ext_demo_table");
     }
 
     @Test
@@ -102,16 +102,16 @@ class ExternalPluginContributionIntegrationTest {
     @DisplayName("从 PluginRegistry 注销外置插件后，重新构建的 DatabaseSchemaRegistry 不再合并其 schema")
     void unregisterFromPluginRegistryDropsSchemaOnRebuild() {
         PluginRegistry registry = registryWithExternal(new ExternalDemoPlugin());
-        // 注销前：schema 合并经 allPlugins() 覆盖外置插件
-        assertThat(new DatabaseSchemaRegistry(registry).contributions())
-                .anyMatch(c -> c.ownerPluginId().equals("ext-demo"));
+        // 注销前：schema 合并经安装态稳定身份覆盖外置插件
+        assertThat(new DatabaseSchemaRegistry(registry).mergedSchema().tables())
+                .containsKey("ext_demo_table");
 
         registry.unregister("ext-demo");
 
-        // 注销后 allPlugins() 不再含外置插件 → 重新构建的 schema registry 看不到其 schema
+        // 注销后安装态不再含外置插件 → 重新构建的 schema registry 看不到其 schema
         assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).doesNotContain("ext-demo");
-        assertThat(new DatabaseSchemaRegistry(registry).contributions())
-                .noneMatch(c -> c.ownerPluginId().equals("ext-demo"));
+        assertThat(new DatabaseSchemaRegistry(registry).mergedSchema().tables())
+                .doesNotContainKey("ext_demo_table");
     }
 
     /** 最小核心插件占位（无 contribution）：仅为满足注册中心需要一个内置插件作为对照。 */
@@ -161,10 +161,10 @@ class ExternalPluginContributionIntegrationTest {
 
         @Override
         public List<SchemaContribution> schema() {
-            return List.of(new SchemaContribution("ext-demo",
+            return List.of(new SchemaContribution(
                     List.of(new TableSpec("ext_demo_table",
                             List.of(new ColumnSpec("id", "INTEGER", true, null, 1)), List.of())),
-                    List.of(), List.of(), List.of()));
+                    List.of(), List.of()));
         }
 
         @Override

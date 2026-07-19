@@ -133,14 +133,12 @@ class ExampleMinimalPluginTest {
     }
 
     @Test
-    @DisplayName("schema 只声明插件自有的最小主键表")
+    @DisplayName("schema 只声明插件自有的最小主键表并由宿主签发所有权")
     void schemaContributionIsPluginOwnedAndMinimal() {
         List<SchemaContribution> schema = new ExampleMinimalPlugin().schema();
         assertEquals(1, schema.size());
 
         SchemaContribution contribution = schema.get(0);
-        assertEquals("example-minimal", contribution.ownerPluginId());
-        assertTrue(contribution.indexes().isEmpty());
         assertTrue(contribution.columnMigrations().isEmpty());
         assertTrue(contribution.pathColumns().isEmpty());
         assertEquals(1, contribution.tables().size());

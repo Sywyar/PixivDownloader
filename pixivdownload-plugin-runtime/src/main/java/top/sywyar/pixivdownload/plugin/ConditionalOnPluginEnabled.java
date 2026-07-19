@@ -14,8 +14,9 @@ import java.lang.annotation.Target;
  * {@link PluginToggleProperties}（app 侧 {@code PluginRegistry} 据此决定活动快照）共用同一启用事实源。
  * <p>
  * <b>不要</b>给插件 descriptor（{@code PixivFeaturePlugin}）Bean 标注本注解：descriptor 必须始终注册，
- * {@code PluginRegistry.allPlugins()}、受管 schema 合并、{@code PluginRegistry.disabledPlugins()} 都依赖
- * 全部 descriptor 在场。<b>必选插件（core / download-workbench / schedule）的业务 Bean 也一律不标注</b>
+ * {@code PluginRegistry.allPlugins()} / {@code PluginRegistry.allRegisteredPlugins()}、受管 schema 合并与
+ * {@code PluginRegistry.disabledPlugins()} 都依赖全部 descriptor 在场。<b>必选插件（core / download-workbench /
+ * schedule）的业务 Bean 也一律不标注</b>
  * （必选插件永不可禁用，其开关在 app 侧 {@code PluginRegistry} 注册期即被忽略）——该不变量由 app 侧守卫
  * {@code PluginApiDependencyGuardTest} 固化，使 {@link OnPluginEnabledCondition} 只需读开关、无需在
  * plugin-runtime 内回指 app 的组合根 {@code BuiltInPlugins} 判定必选性。功能插件若有「即便插件被禁用也必须

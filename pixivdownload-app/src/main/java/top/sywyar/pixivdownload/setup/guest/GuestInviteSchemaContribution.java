@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.setup.guest;
 
-import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
@@ -93,7 +92,6 @@ public final class GuestInviteSchemaContribution {
                 )
         );
 
-        return new SchemaContribution(CoreSchemaContribution.OWNER_PLUGIN_ID,
-                tables, List.of(), List.of(), List.of());
+        return new SchemaContribution(tables, List.of(), List.of());
     }
 }

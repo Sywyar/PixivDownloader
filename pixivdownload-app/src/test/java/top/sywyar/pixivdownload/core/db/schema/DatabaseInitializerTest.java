@@ -142,13 +142,13 @@ class DatabaseInitializerTest {
                 st.executeUpdate("CREATE TABLE t (id INTEGER PRIMARY KEY)");
             }
             DatabaseSchemaRegistry registry = new DatabaseSchemaRegistry(new PluginRegistry(List.of()));
-            registry.register(new SchemaContribution("core", List.of(
+            registry.register("core", new SchemaContribution(List.of(
                     new TableSpec("t", List.of(
                             column("id", "INTEGER", false, null, 1),
                             column("required", "TEXT", true, null, 0),
                             column("optional", "TEXT", false, null, 0)
                     ), List.of())
-            ), List.of(), List.of(), List.of()));
+            ), List.of(), List.of()));
             DatabaseInitializer initializer = new DatabaseInitializer(new JdbcTemplate(ds),
                     registry.contributions(), registry.mergedSchema(),
                     TestI18nBeans.appMessages(), event -> {});

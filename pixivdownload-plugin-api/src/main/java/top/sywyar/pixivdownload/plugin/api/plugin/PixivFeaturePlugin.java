@@ -115,7 +115,7 @@ public interface PixivFeaturePlugin {
     default void stop() {
     }
 
-    /** 插件声明的表、索引与补列规则。 */
+    /** 插件声明的自有表、补列与路径列规则；所有权由宿主按已注册插件身份盖章。 */
     default List<SchemaContribution> schema() {
         return List.of();
     }

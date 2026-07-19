@@ -7,7 +7,6 @@ import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.IndexSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
@@ -26,7 +25,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 标识符归一化在合并路径由 {@code core.db} 的规格 record 构造器统一完成，
  * contribution 侧（plugin.api 类型）保持原始形态。
  * <p>
- * 按 ownerPluginId 可逆注册（{@link #register} / {@link #unregister}），
+ * 按宿主签发的 ownerPluginId 可逆注册（{@link #register} / {@link #unregister}），
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁。
  * <p>
  * 冲突检测：表名、列名（表内重复）、显式索引名（SQLite 索引名是库级命名空间，
@@ -42,10 +41,11 @@ public class DatabaseSchemaRegistry {
     private volatile List<RegisteredContribution> snapshot = List.of();
 
     public DatabaseSchemaRegistry(PluginRegistry pluginRegistry) {
-        // 受管 schema 合并经 allPlugins()（全部内置插件，含被禁用的）：禁用插件声明的表 / 列仍需创建、
+        // 受管 schema 合并经 allRegisteredPlugins()（全部安装态插件，含被禁用的内置与外置插件）：
+        // 禁用插件声明的表 / 列仍需创建，
         // 已有数据保留，故 schema 不随插件启用开关变化（当前全部长期事实表归核心，亦为前向兼容守住此不变量）。
-        for (PixivFeaturePlugin plugin : pluginRegistry.allPlugins()) {
-            plugin.schema().forEach(this::register);
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.allRegisteredPlugins()) {
+            registered.plugin().schema().forEach(contribution -> register(registered.id(), contribution));
         }
     }
 
@@ -55,21 +55,15 @@ public class DatabaseSchemaRegistry {
     }
 
     /**
-     * 注册一份 contribution。表名 / 列名 / 索引名 / 路径列声明冲突立即抛出。
+     * 以宿主捕获的稳定插件 id 注册一份 contribution。
+     * 表名 / 列名 / 索引名 / 路径列声明冲突立即抛出。
      */
-    public void register(SchemaContribution contribution) {
-        String ownerPluginId = contribution.ownerPluginId();
-        if (ownerPluginId == null || ownerPluginId.isBlank()) {
-            throw new IllegalStateException("schema contribution without ownerPluginId");
-        }
-        if (!contribution.indexes().isEmpty()) {
-            // plugin.api 的 IndexSpec 尚无目标表字段，跨表附加索引暂时无法表达；
-            // 显式拒绝以免被静默丢弃造成 schema 漂移。支持形态待首个真实消费者出现再定。
-            throw new IllegalStateException(
-                    "standalone cross-table index contributions are not supported yet (plugin: " + ownerPluginId + ")");
+    public void register(String trustedOwnerPluginId, SchemaContribution contribution) {
+        if (trustedOwnerPluginId == null || trustedOwnerPluginId.isBlank()) {
+            throw new IllegalStateException("schema contribution without trusted ownerPluginId");
         }
         for (TableSpec table : contribution.tables()) {
-            validateAutoIncrement(table, ownerPluginId);
+            validateAutoIncrement(table, trustedOwnerPluginId);
         }
         List<ManagedDatabaseSchema.TableSpec> tables = contribution.tables().stream()
                 .map(DatabaseSchemaRegistry::convertTable)
@@ -79,7 +73,7 @@ public class DatabaseSchemaRegistry {
             for (ManagedDatabaseSchema.ColumnSpec column : table.columns()) {
                 if (!columnNames.add(column.name())) {
                     throw new IllegalStateException("duplicate column in schema contribution: "
-                            + table.name() + "." + column.name() + " (plugin: " + ownerPluginId + ")");
+                            + table.name() + "." + column.name() + " (plugin: " + trustedOwnerPluginId + ")");
                 }
             }
         }
@@ -99,12 +93,12 @@ public class DatabaseSchemaRegistry {
             for (ManagedDatabaseSchema.TableSpec table : tables) {
                 if (!existingTables.add(table.name())) {
                     throw new IllegalStateException("duplicate table in schema contributions: "
-                            + table.name() + " (plugin: " + ownerPluginId + ")");
+                            + table.name() + " (plugin: " + trustedOwnerPluginId + ")");
                 }
                 for (String indexName : explicitIndexNames(table)) {
                     if (!existingIndexNames.add(indexName)) {
                         throw new IllegalStateException("duplicate index name in schema contributions: "
-                                + indexName + " (plugin: " + ownerPluginId + ")");
+                                + indexName + " (plugin: " + trustedOwnerPluginId + ")");
                     }
                 }
             }
@@ -112,11 +106,11 @@ public class DatabaseSchemaRegistry {
                 String tableName = ManagedDatabaseSchema.normalizeIdentifier(pathColumn.table());
                 if (!existingPathTables.add(tableName)) {
                     throw new IllegalStateException("duplicate path column declaration for table: "
-                            + tableName + " (plugin: " + ownerPluginId + ")");
+                            + tableName + " (plugin: " + trustedOwnerPluginId + ")");
                 }
             }
             List<RegisteredContribution> next = new ArrayList<>(snapshot);
-            next.add(new RegisteredContribution(ownerPluginId, contribution, tables));
+            next.add(new RegisteredContribution(trustedOwnerPluginId, contribution, tables));
             snapshot = List.copyOf(next);
         }
     }
@@ -153,6 +147,7 @@ public class DatabaseSchemaRegistry {
     public PathPrefixColumns pathPrefixColumns() {
         List<RegisteredContribution> current = snapshot;
         LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> tables = mergedTables(current);
+        LinkedHashMap<String, String> tableOwners = tableOwners(current);
         List<PathPrefixColumns.TableColumns> merged = new ArrayList<>();
         for (RegisteredContribution registered : current) {
             for (PathColumnSpec spec : registered.contribution().pathColumns()) {
@@ -162,6 +157,7 @@ public class DatabaseSchemaRegistry {
                     throw new IllegalStateException("path columns target unknown table: "
                             + tableName + " (plugin: " + registered.ownerPluginId() + ")");
                 }
+                requireOwnedTable(tableOwners, tableName, registered.ownerPluginId(), "path columns");
                 Set<String> columnNames = table.columns().stream()
                         .map(ManagedDatabaseSchema.ColumnSpec::name)
                         .collect(Collectors.toSet());
@@ -193,12 +189,21 @@ public class DatabaseSchemaRegistry {
         for (RegisteredContribution registered : current) {
             registered.tables().forEach(table -> tables.put(table.name(), table));
         }
+        LinkedHashMap<String, String> tableOwners = tableOwners(current);
         for (RegisteredContribution registered : current) {
             for (ColumnMigrationSpec migration : registered.contribution().columnMigrations()) {
-                applyColumnMigration(tables, registered.ownerPluginId(), migration);
+                applyColumnMigration(tables, tableOwners, registered.ownerPluginId(), migration);
             }
         }
         return tables;
+    }
+
+    private static LinkedHashMap<String, String> tableOwners(List<RegisteredContribution> current) {
+        LinkedHashMap<String, String> owners = new LinkedHashMap<>();
+        for (RegisteredContribution registered : current) {
+            registered.tables().forEach(table -> owners.put(table.name(), registered.ownerPluginId()));
+        }
+        return owners;
     }
 
     private static List<String> explicitIndexNames(ManagedDatabaseSchema.TableSpec table) {
@@ -209,6 +214,7 @@ public class DatabaseSchemaRegistry {
     }
 
     private static void applyColumnMigration(LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> tables,
+                                             LinkedHashMap<String, String> tableOwners,
                                              String ownerPluginId,
                                              ColumnMigrationSpec migration) {
         String tableName = ManagedDatabaseSchema.normalizeIdentifier(migration.table());
@@ -217,6 +223,7 @@ public class DatabaseSchemaRegistry {
             throw new IllegalStateException("column migration targets unknown table: "
                     + tableName + " (plugin: " + ownerPluginId + ")");
         }
+        requireOwnedTable(tableOwners, tableName, ownerPluginId, "column migration");
         ManagedDatabaseSchema.ColumnSpec column = convertColumn(migration.column());
         if (table.columns().stream().anyMatch(existing -> existing.name().equals(column.name()))) {
             throw new IllegalStateException("column migration duplicates existing column: "
@@ -225,6 +232,17 @@ public class DatabaseSchemaRegistry {
         List<ManagedDatabaseSchema.ColumnSpec> columns = new ArrayList<>(table.columns());
         columns.add(column);
         tables.put(tableName, new ManagedDatabaseSchema.TableSpec(table.name(), columns, table.indexes()));
+    }
+
+    private static void requireOwnedTable(LinkedHashMap<String, String> tableOwners,
+                                          String tableName,
+                                          String ownerPluginId,
+                                          String declarationType) {
+        String tableOwner = tableOwners.get(tableName);
+        if (!ownerPluginId.equals(tableOwner)) {
+            throw new IllegalStateException(declarationType + " targets table owned by another plugin: "
+                    + tableName + " (owner: " + tableOwner + ", plugin: " + ownerPluginId + ")");
+        }
     }
 
     /**

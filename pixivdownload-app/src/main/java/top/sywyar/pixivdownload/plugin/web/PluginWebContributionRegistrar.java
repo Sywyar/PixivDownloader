@@ -64,7 +64,7 @@ import java.util.function.Supplier;
  *
  * <p>本类只管理请求准入租约，不触碰鉴权与请求分发表 handler（前者由 {@code AuthFilter} 按
  * {@link RouteAccessRegistry} 独立执行，后者由 {@code PluginControllerRegistrar} 负责），也不碰 schema
- * （受管 schema 经 {@link PluginRegistry#allPlugins()}
+ * （受管 schema 经 {@link PluginRegistry#allRegisteredPlugins()}
  * 合并，禁用 / 卸载都保留已建表与数据）。只有最终发布 / 撤回修改在本对象锁内串行；插件回调与资源准备不持锁。
  */
 @Slf4j

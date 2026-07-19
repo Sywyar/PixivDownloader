@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.collection;
 
-import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
@@ -53,7 +52,6 @@ public final class CollectionSchemaContribution {
                 new PathColumnSpec("collections", "id", List.of("download_root"))
         );
 
-        return new SchemaContribution(CoreSchemaContribution.OWNER_PLUGIN_ID,
-                tables, List.of(), List.of(), pathColumns);
+        return new SchemaContribution(tables, List.of(), pathColumns);
     }
 }

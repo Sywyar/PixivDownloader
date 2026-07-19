@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegist
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
- * 插件市场插件的 Bean 装配收敛点：descriptor 始终注册（{@code PluginRegistry.allPlugins()} / schema 合并 / disabledPlugins
+ * 插件市场插件的 Bean 装配收敛点：descriptor 始终注册（安装态视图、schema owner 稳定身份与 disabledPlugins
  * 都依赖全部 descriptor 在场），市场业务 Bean（{@link PluginMarketService} / {@link PluginMarketController}）随
  * {@code plugins.plugin-market.enabled} 装配 / 缺席。
  *

@@ -37,7 +37,6 @@ public final class ImageHashSchemaContribution {
                 )
         );
 
-        return new SchemaContribution(CoreSchemaContribution.OWNER_PLUGIN_ID,
-                tables, List.of(), List.of(), List.of());
+        return new SchemaContribution(tables, List.of(), List.of());
     }
 }

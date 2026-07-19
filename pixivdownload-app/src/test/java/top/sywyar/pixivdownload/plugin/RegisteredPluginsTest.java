@@ -166,10 +166,9 @@ class RegisteredPluginsTest {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
                 if (plugin.id().equals("core")) {
-                    // 按卸载投影测试，现存全部长期事实表归核心：领域 contribution 拆类但 owner 一律 core
+                    // 按卸载投影测试，现存全部长期事实表归核心；owner 由 DatabaseSchemaRegistry
+                    // 使用注册中心捕获的稳定插件 id 盖章，不由 contribution 自报。
                     assertThat(plugin.schema()).isNotEmpty();
-                    assertThat(plugin.schema()).allSatisfy(contribution ->
-                            assertThat(contribution.ownerPluginId()).isEqualTo("core"));
                 } else {
                     assertThat(plugin.schema()).isEmpty();
                 }

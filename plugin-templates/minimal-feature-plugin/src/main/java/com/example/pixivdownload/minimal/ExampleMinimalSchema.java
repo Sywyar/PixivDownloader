@@ -18,9 +18,7 @@ public final class ExampleMinimalSchema {
                 List.of(new ColumnSpec("id", "TEXT", true, null, 1)),
                 List.of());
         return new SchemaContribution(
-                ExampleMinimalPlugin.ID,
                 List.of(records),
-                List.of(),
                 List.of(),
                 List.of());
     }

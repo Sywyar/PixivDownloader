@@ -12,12 +12,10 @@ import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.uniqueConstrai
  * 核心基础设施 schema 的 contribution 声明（路径前缀注册表）。
  * <p>
  * 其余受管表按领域拆在各自的 {@code XxxSchemaContribution} 中；按「卸载投影测试」
- * （主人插件未安装时其他部件仍需要的表归核心），现存全部长期事实表的
- * ownerPluginId 一律为 {@link #OWNER_PLUGIN_ID}，统一由 {@code CorePlugin.schema()} 返回。
+ * （主人插件未安装时其他部件仍需要的表归核心），现存全部长期事实表统一由
+ * {@code CorePlugin.schema()} 返回，所有权由宿主使用已注册的 core 身份盖章。
  */
 public final class CoreSchemaContribution {
-
-    public static final String OWNER_PLUGIN_ID = "core";
 
     public static final SchemaContribution CONTRIBUTION = createContribution();
 
@@ -37,6 +35,6 @@ public final class CoreSchemaContribution {
                 )
         );
 
-        return new SchemaContribution(OWNER_PLUGIN_ID, tables, List.of(), List.of(), List.of());
+        return new SchemaContribution(tables, List.of(), List.of());
     }
 }

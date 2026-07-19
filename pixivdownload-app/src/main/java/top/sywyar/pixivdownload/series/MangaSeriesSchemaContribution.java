@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.series;
 
-import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
@@ -39,7 +38,6 @@ public final class MangaSeriesSchemaContribution {
                 new PathColumnSpec("manga_series", "series_id", List.of("cover_folder"))
         );
 
-        return new SchemaContribution(CoreSchemaContribution.OWNER_PLUGIN_ID,
-                tables, List.of(), List.of(), pathColumns);
+        return new SchemaContribution(tables, List.of(), pathColumns);
     }
 }

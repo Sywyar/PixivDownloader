@@ -69,7 +69,6 @@ public final class ArtworkSchemaContribution {
                 new PathColumnSpec("artworks", "artwork_id", List.of("folder", "move_folder"))
         );
 
-        return new SchemaContribution(CoreSchemaContribution.OWNER_PLUGIN_ID,
-                tables, List.of(), List.of(), pathColumns);
+        return new SchemaContribution(tables, List.of(), pathColumns);
     }
 }

@@ -105,12 +105,10 @@ class GuiLauncherStartupSchemaTest {
         @Override
         public List<SchemaContribution> schema() {
             return List.of(new SchemaContribution(
-                    PLUGIN_ID,
                     List.of(new TableSpec(
                             TABLE,
                             List.of(new ColumnSpec("id", "TEXT", false, null, 1)),
                             List.of())),
-                    List.of(),
                     List.of(),
                     List.of()));
         }

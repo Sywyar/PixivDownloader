@@ -52,8 +52,9 @@ import java.util.stream.Collectors;
  * 自动排除禁用插件，其页面 / API / 导航因而不注册。<b>内置核心插件与核心策略声明的必选插件永不可禁用</b>——
  * 即便开关写成 {@code false} 也照常注册。外置插件自己的 {@link PixivFeaturePlugin#required()} 自声明不参与
  * 活动判定，避免第三方插件自封必选后绕过禁用开关。
- * schema 不随插件禁用而缺失：受管 schema 经 {@link #allPlugins()} 合并（见 {@code DatabaseSchemaRegistry}），
- * 即使插件被禁用其声明的表 / 列仍创建，已有数据保留。
+ * schema 不随插件禁用而缺失：受管 schema 经 {@link #allRegisteredPlugins()} 合并（见
+ * {@code DatabaseSchemaRegistry}），即使插件被禁用其声明的表 / 列仍创建，已有数据保留；
+ * owner key 取注册时捕获的稳定 id，不重新调用插件实例的 {@link PixivFeaturePlugin#id()}。
  * <p>
  * 插件生命周期：应用启动后按注册顺序调用各<b>活动</b>插件 {@link PixivFeaturePlugin#start()}，
  * 关闭时按反序调用 {@link PixivFeaturePlugin#stop()}；禁用插件不进入活动快照，其生命周期方法不被调用。
@@ -139,7 +140,7 @@ public class PluginRegistry implements SmartLifecycle {
     /**
      * 全部插件（安装态，内置 + 外置）。构造期建立，运行期 {@link #register} 追加、{@link #unregister} 移除——
      * 注销后该插件不再出现在安装态中（与从未注册过一致）。读路径走不可变快照：变更时整体替换引用（读侧无锁）。
-     * schema 合并经此读取，不受启用开关影响（禁用插件仍在安装态，注销插件不在）。
+     * schema 合并经安装态稳定身份视图读取，不受启用开关影响（禁用插件仍在安装态，注销插件不在）。
      */
     /** 安装态、活动态及其派生视图一次性发布，读侧永不观察到 register/unregister 的前缀状态。 */
     private volatile RegistryState state = RegistryState.empty();
@@ -159,8 +160,8 @@ public class PluginRegistry implements SmartLifecycle {
      * Spring 构造：内置插件经注入的 {@code List<PixivFeaturePlugin>} 提供，外置插件经发现桥接的
      * {@link PluginDiscoveryResult} 提供（无 {@code plugins/} 目录 / 无外置插件时为空）。按 {@code plugins.<id>.enabled}
      * 决定哪些功能插件进入活动快照（禁用=不注册）。内置核心插件与
-     * {@link RequiredPluginPolicy} 声明的必选项永不可禁用。无论启用与否，全部插件都保留在
-     * {@link #allPlugins()} 供 schema 合并。
+     * {@link RequiredPluginPolicy} 声明的必选项永不可禁用。无论启用与否，全部插件都保留在安装态；
+     * schema 合并从 {@link #allRegisteredPlugins()} 读取稳定身份。
      */
     @Autowired
     public PluginRegistry(List<PixivFeaturePlugin> plugins, PluginToggleProperties toggles,
@@ -255,7 +256,8 @@ public class PluginRegistry implements SmartLifecycle {
 
     /**
      * 注册一个带来源与解析用 classloader 的插件（供外置插件接入与可逆性测试使用）。插件先进入安装态
-     * （{@link #allPlugins()}，供 schema 合并 / {@link #disabledPlugins()} 计算），再按启用开关与核心必选策略决定
+     * （{@link #allPlugins()}，稳定身份见 {@link #allRegisteredPlugins()}，供 schema 合并 / {@link #disabledPlugins()}
+     * 计算），再按启用开关与核心必选策略决定
      * 是否进入活动快照，使 register -> unregister -> register 可逆。
      * id 与安装态或活动快照中已有插件重复，或不符合规范，立即抛出。
      */
@@ -357,7 +359,8 @@ public class PluginRegistry implements SmartLifecycle {
     /**
      * 按注册顺序返回<b>活动</b>（启用）插件的不可变快照。禁用的插件不在其中——下游 registry 经此
      * 聚合，因而自动排除禁用插件的路由 / 导航 / i18n / 静态资源等贡献。需要全部插件（含禁用）
-     * 时用 {@link #allPlugins()}（如 schema 合并）；需要来源 / classloader 信息时用 {@link #registeredPlugins()}。
+     * 时用 {@link #allPlugins()}；需要安装态稳定身份（如 schema owner）时用 {@link #allRegisteredPlugins()}，
+     * 需要活动来源 / classloader 信息时用 {@link #registeredPlugins()}。
      */
     public List<PixivFeaturePlugin> plugins() {
         return state.activePlugins();
@@ -532,7 +535,7 @@ public class PluginRegistry implements SmartLifecycle {
     /**
      * 返回全部插件（安装态，内置 + 外置，含被禁用的），不受启用开关影响。安装态在构造期建立、随
      * {@link #register} / {@link #unregister} 可逆增删（禁用插件仍在，注销插件不在）。供必须覆盖全部已安装插件
-     * 的场景使用——典型是 schema 合并（禁用插件的表 / 列仍需创建、数据保留；注销插件的 schema 不再合并）。
+     * 的场景使用；需要用稳定 owner key 合并 schema 时应读取 {@link #allRegisteredPlugins()}。
      */
     public List<PixivFeaturePlugin> allPlugins() {
         return state.installedPlugins();

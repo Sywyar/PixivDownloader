@@ -14,7 +14,7 @@ import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.uniqueConstrai
 /**
  * 小说域受管 schema 的 contribution 声明（小说主表、系列、标签/收藏夹关联、内嵌插图、
  * 译文、名词映射表、AI 朗读花名册与脚本）。小说正文 {@code raw_content} 是需要在插件
- * 停用或卸载后继续保留的长期事实数据，因此 schema 生命周期 ownerPluginId 为 core。
+ * 停用或卸载后继续保留的长期事实数据，因此宿主以注册中心捕获的 core 身份登记其 schema 生命周期 owner。
  * 这不改变业务持久化模型的归属：完整小说行、正文读取与完整系列行由小说插件自己的
  * {@code NovelMapper}/{@code NovelDatabase} 拥有；宿主只保留跨作品查询所需的窄投影。
  * FTS 虚拟表 {@code novels_fts} 及其影子表不入受管 schema。
@@ -215,7 +215,6 @@ public final class NovelSchemaContribution {
                 new PathColumnSpec("novel_series", "series_id", List.of("cover_folder"))
         );
 
-        return new SchemaContribution(CoreSchemaContribution.OWNER_PLUGIN_ID,
-                tables, List.of(), List.of(), pathColumns);
+        return new SchemaContribution(tables, List.of(), pathColumns);
     }
 }
