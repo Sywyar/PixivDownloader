@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.io.InputStream;
 import java.util.Properties;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -84,6 +85,27 @@ class NovelPluginContributionTest {
                 .filteredOn(i18n -> i18n.namespace().equals("novel-gallery"))
                 .singleElement()
                 .satisfies(i18n -> assertThat(i18n.baseName()).isEqualTo("i18n.web.novel-gallery"));
+    }
+
+    @Test
+    @DisplayName("小说后端输出文案由插件资源成对持有")
+    void backendOutputMessagesAreOwnedByPlugin() throws Exception {
+        Set<String> expectedKeys = Set.of(
+                "novel.render.uploaded-image",
+                "novel.render.pixiv-image",
+                "novel.merge.suffix",
+                "novel.merge.invalid-series-id",
+                "novel.merge.no-chapters",
+                "novel.merge.success",
+                "novel.epub.untitled",
+                "novel.epub.unknown-author",
+                "novel.epub.chapter");
+
+        Properties chinese = loadProperties("/i18n/novel/messages.properties");
+        Properties english = loadProperties("/i18n/novel/messages_en.properties");
+
+        assertThat(chinese.stringPropertyNames()).containsExactlyInAnyOrderElementsOf(expectedKeys);
+        assertThat(english.stringPropertyNames()).containsExactlyInAnyOrderElementsOf(expectedKeys);
     }
 
     @Test

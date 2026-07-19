@@ -9,6 +9,7 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
@@ -17,6 +18,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -197,9 +199,29 @@ class NovelExternalPluginBootContextTest {
         assertThat(externalCl.getResource("static/pixiv-novel/pixiv-novel-render.js")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/novel.properties")).isNotNull();
         assertThat(externalCl.getResource("i18n/web/novel-gallery.properties")).isNotNull();
+        assertThat(externalCl.getResource("i18n/novel/messages.properties")).isNotNull();
+        assertThat(externalCl.getResource("i18n/novel/messages_en.properties")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-novel-gallery.html")).isNull();
         assertThat(getClass().getClassLoader()
                 .getResource("static/pixiv-novel-gallery/novel-gallery-frontend.js")).isNull();
+        assertThat(getClass().getClassLoader().getResource("i18n/novel/messages.properties")).isNull();
+        assertThat(getClass().getClassLoader().getResource("i18n/novel/messages_en.properties")).isNull();
+    }
+
+    @Test
+    @DisplayName("novel 子上下文的插件文案解析器读取 owner 资源并跟随请求语言")
+    void novelPluginMessagesUseOwnerBundleAndRequestLocale() {
+        ConfigurableApplicationContext child = externalPluginContextManager.contextFor("novel").orElseThrow();
+        MessageResolver messages = child.getBean("novelPluginMessages", MessageResolver.class);
+
+        try {
+            LocaleContextHolder.setLocale(Locale.US);
+            assertThat(messages.get("novel.epub.chapter", 2)).isEqualTo("Chapter 2");
+            LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+            assertThat(messages.get("novel.epub.chapter", 2)).isEqualTo("章节 2");
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
     }
 
     @Test

@@ -14,8 +14,18 @@ public class AppMessages implements MessageResolver {
 
     private final MessageSource messageSource;
 
+    @Override
+    public Locale currentLocale() {
+        return AppLocale.normalize(LocaleContextHolder.getLocale());
+    }
+
+    @Override
+    public Locale normalizeLocale(Locale locale) {
+        return locale == null ? currentLocale() : AppLocale.normalize(locale);
+    }
+
     public String get(String code, Object... args) {
-        return getOrDefault(LocaleContextHolder.getLocale(), code, code, args);
+        return getOrDefault(currentLocale(), code, code, args);
     }
 
     public String get(Locale locale, String code, Object... args) {
@@ -31,7 +41,7 @@ public class AppMessages implements MessageResolver {
     }
 
     public String getOrDefault(String code, String defaultMessage, Object... args) {
-        return getOrDefault(LocaleContextHolder.getLocale(), code, defaultMessage, args);
+        return getOrDefault(currentLocale(), code, defaultMessage, args);
     }
 
     public String getOrDefault(Locale locale, String code, String defaultMessage, Object... args) {
@@ -39,7 +49,7 @@ public class AppMessages implements MessageResolver {
                 code,
                 args,
                 defaultMessage,
-                AppLocale.normalize(locale)
+                normalizeLocale(locale)
         );
     }
 

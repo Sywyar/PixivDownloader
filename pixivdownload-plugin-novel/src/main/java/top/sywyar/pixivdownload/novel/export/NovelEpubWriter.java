@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.novel.export;
 
-import top.sywyar.pixivdownload.i18n.MessageBundles;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -10,6 +8,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -127,27 +126,6 @@ public final class NovelEpubWriter {
         String untitled();
         String unknownAuthor();
         String chapter(int index);
-
-        static Labels fromMessages() {
-            return new Labels() {
-                @Override public String untitled() {
-                    return MessageBundles.get("novel.epub.untitled");
-                }
-
-                @Override public String unknownAuthor() {
-                    return MessageBundles.get("novel.epub.unknown-author");
-                }
-
-                @Override public String chapter(int index) {
-                    return MessageBundles.get("novel.epub.chapter", index);
-                }
-            };
-        }
-    }
-
-    public static byte[] write(String bookTitle, String author, String language,
-                               List<Chapter> chapters) throws IOException {
-        return write(bookTitle, author, language, chapters, List.of(), null, Labels.fromMessages());
     }
 
     public static byte[] write(String bookTitle, String author, String language,
@@ -182,9 +160,9 @@ public final class NovelEpubWriter {
         if (chapters == null || chapters.isEmpty()) {
             throw new IllegalArgumentException("at least one chapter required");
         }
+        Objects.requireNonNull(labels, "labels");
         if (images == null) images = List.of();
         if (cover != null && !cover.usable()) cover = null;
-        if (labels == null) labels = Labels.fromMessages();
         if (metadata == null) metadata = Metadata.EMPTY;
         String safeTitle = (bookTitle == null || bookTitle.isBlank()) ? labels.untitled() : bookTitle.trim();
         String safeAuthor = (author == null || author.isBlank()) ? labels.unknownAuthor() : author.trim();

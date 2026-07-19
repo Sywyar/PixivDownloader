@@ -14,8 +14,25 @@ import java.util.zip.ZipInputStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-@DisplayName("NovelEpubWriter tests")
+@DisplayName("NovelEpubWriter 测试")
 class NovelEpubWriterTest {
+
+    private static final NovelEpubWriter.Labels LABELS = new NovelEpubWriter.Labels() {
+        @Override
+        public String untitled() {
+            return "未命名";
+        }
+
+        @Override
+        public String unknownAuthor() {
+            return "未知作者";
+        }
+
+        @Override
+        public String chapter(int index) {
+            return "章节 " + index;
+        }
+    };
 
     @Test
     @DisplayName("EPUB 包含规范的固定文件 + 每个章节一份 XHTML")
@@ -23,7 +40,7 @@ class NovelEpubWriterTest {
         byte[] epub = NovelEpubWriter.write("书名 & 测试", "作者 <名>", "ja", List.of(
                 new NovelEpubWriter.Chapter("第一章", "<section><p>正文一</p></section>"),
                 new NovelEpubWriter.Chapter("第二章", "<section><p>正文二</p></section>")
-        ));
+        ), LABELS);
 
         Map<String, EntryInfo> entries = readEntries(epub);
 
@@ -69,7 +86,7 @@ class NovelEpubWriterTest {
                         "<section><figure class=\"novel-image\">"
                                 + "<img src=\"images/embed_42.png\" alt=\"x\" /></figure></section>")),
                 List.of(new NovelEpubWriter.ImageResource("42", "PNG", png)),
-                null);
+                LABELS);
 
         Map<String, EntryInfo> entries = readEntries(epub);
 
@@ -92,7 +109,7 @@ class NovelEpubWriterTest {
                 List.of(new NovelEpubWriter.Chapter("c", "<section><p>正文</p></section>")),
                 List.of(),
                 new NovelEpubWriter.Cover("JPG", jpg),
-                null);
+                LABELS);
 
         Map<String, EntryInfo> entries = readEntries(epub);
 
@@ -131,7 +148,7 @@ class NovelEpubWriterTest {
 
         byte[] epub = NovelEpubWriter.write("书", "作者", "ja",
                 "urn:pixiv:novel-series:99", chapters, nav,
-                List.of(), null, meta, null);
+                List.of(), null, meta, LABELS);
 
         Map<String, EntryInfo> entries = readEntries(epub);
 
@@ -161,7 +178,37 @@ class NovelEpubWriterTest {
     @DisplayName("零章节抛 IllegalArgumentException")
     void rejectsEmptyChapters() {
         assertThrows(IllegalArgumentException.class, () ->
-                NovelEpubWriter.write("t", "a", "ja", List.of()));
+                NovelEpubWriter.write("t", "a", "ja", List.of(), LABELS));
+    }
+
+    @Test
+    @DisplayName("缺省标题、作者与章节名使用调用方提供的文案")
+    void usesCallerProvidedLabels() throws Exception {
+        byte[] epub = NovelEpubWriter.write(null, null, "ja",
+                List.of(new NovelEpubWriter.Chapter(null, "<section><p>正文</p></section>")),
+                new NovelEpubWriter.Labels() {
+                    @Override
+                    public String untitled() {
+                        return "Custom title";
+                    }
+
+                    @Override
+                    public String unknownAuthor() {
+                        return "Custom author";
+                    }
+
+                    @Override
+                    public String chapter(int index) {
+                        return "Custom chapter " + index;
+                    }
+                });
+
+        Map<String, EntryInfo> entries = readEntries(epub);
+        String opf = new String(entries.get("OEBPS/content.opf").data, StandardCharsets.UTF_8);
+        String ncx = new String(entries.get("OEBPS/toc.ncx").data, StandardCharsets.UTF_8);
+        assertThat(opf).contains("<dc:title>Custom title</dc:title>")
+                .contains("<dc:creator>Custom author</dc:creator>");
+        assertThat(ncx).contains("<text>Custom chapter 1</text>");
     }
 
     @Test

@@ -6,10 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -25,21 +24,18 @@ import java.util.concurrent.atomic.AtomicLong;
 public class NovelDatabase {
 
     private final NovelMapper novelMapper;
-    private final PixivDatabase pixivDatabase;
+    private final WorkTagCatalog workTagCatalog;
     private final StoredPathCodec pathPrefixCodec;
-    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
-    private final DatabaseInitializer databaseInitializer;
     /**
      * 进程内已分配但可能尚未持久化的最大 novel time。
-     * 与 {@link PixivDatabase#getUniqueTime} 同样的原因 —— 防止并发下载时多个 worker
-     * 拿到相同时间戳后被 {@code INSERT OR REPLACE} 互相覆盖导致已写入的行丢失。
+     * 与共享作品时间唯一性同样的原因 —— 防止并发下载时多个 worker 拿到相同时间戳后被
+     * {@code INSERT OR REPLACE} 互相覆盖导致已写入的行丢失。
      */
     private final AtomicLong lastIssuedTime = new AtomicLong(0);
 
     /**
-     * 非 DDL 初始化：受管表的建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行
-     * （含 backfillNovelFts 所依赖的 deleted 列），这里只保留 FTS 虚拟表维护与幂等数据迁移
-     * —— {@code novels_fts} 不入受管 schema，其 DDL 留在本类。
+     * 非 DDL 初始化：宿主受管 schema 在外置插件 child context 创建前已经就绪，这里只保留
+     * FTS 虚拟表维护与幂等数据迁移；{@code novels_fts} 不入受管 schema，其 DDL 留在本类。
      */
     @PostConstruct
     public void init() {
@@ -329,8 +325,7 @@ public class NovelDatabase {
     }
 
     /**
-     * Reuse the shared {@code tags} pool from {@link PixivDatabase} so illustration tags and
-     * novel tags share the same name → tag_id mapping.
+     * Reuse the shared {@code tags} pool so all work tags share the same name → tag_id mapping.
      */
     @Transactional
     public void saveNovelTags(long novelId, List<WorkTag> tags) {
@@ -339,7 +334,7 @@ public class NovelDatabase {
             if (t == null) continue;
             String name = t.name();
             if (name == null || name.isBlank()) continue;
-            Long tagId = pixivDatabase.upsertTagAndGetId(name, t.translatedName());
+            Long tagId = workTagCatalog.getOrCreateTagId(name, t.translatedName());
             if (tagId != null) {
                 novelMapper.insertNovelTag(novelId, tagId);
             }
@@ -375,7 +370,7 @@ public class NovelDatabase {
             if (t == null) continue;
             String name = t.name();
             if (name == null || name.isBlank()) continue;
-            Long tagId = pixivDatabase.upsertTagAndGetId(name, t.translatedName());
+            Long tagId = workTagCatalog.getOrCreateTagId(name, t.translatedName());
             if (tagId != null) {
                 novelMapper.insertNovelSeriesTag(seriesId, tagId);
             }

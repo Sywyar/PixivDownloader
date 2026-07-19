@@ -83,7 +83,7 @@ public class NovelDownloadController {
         if (request.getOther() == null) {
             request.setOther(new NovelDownloadRequest.Other());
         }
-        NovelDownloadService.validateUserDownloadFolder(request.getOther());
+        novelDownloadService.validateUserDownloadFolder(request.getOther());
         String mode = applicationModeProvider.getMode();
         if ("multi".equals(mode)) {
             String pdMode = multiModeSettings.getPostDownloadMode();

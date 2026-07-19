@@ -8,11 +8,10 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
@@ -24,12 +23,12 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 
@@ -86,7 +85,8 @@ public class NovelDownloadService implements NovelDownloader {
     private static final int MAX_EMBEDDED_IMAGES_PER_NOVEL = 200;
 
     private final DownloadSettings downloadConfig;
-    private final PixivDatabase pixivDatabase;
+    private final WorkFileNameCatalog workFileNameCatalog;
+    private final DownloadPathGuard downloadPathGuard;
     private final NovelDatabase novelDatabase;
     private final NovelSeriesService novelSeriesService;
     private final AuthorObservationService authorObservationService;
@@ -105,7 +105,8 @@ public class NovelDownloadService implements NovelDownloader {
     private final QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
 
     public NovelDownloadService(DownloadSettings downloadConfig,
-                                PixivDatabase pixivDatabase,
+                                WorkFileNameCatalog workFileNameCatalog,
+                                DownloadPathGuard downloadPathGuard,
                                 NovelDatabase novelDatabase,
                                 NovelSeriesService novelSeriesService,
                                 AuthorObservationService authorObservationService,
@@ -120,7 +121,8 @@ public class NovelDownloadService implements NovelDownloader {
                                 NovelAutoTranslateService novelAutoTranslateService,
                                 WorkMetaCaptureService workMetaCaptureService) {
         this.downloadConfig = downloadConfig;
-        this.pixivDatabase = pixivDatabase;
+        this.workFileNameCatalog = workFileNameCatalog;
+        this.downloadPathGuard = downloadPathGuard;
         this.novelDatabase = novelDatabase;
         this.novelSeriesService = novelSeriesService;
         this.authorObservationService = authorObservationService;
@@ -196,7 +198,7 @@ public class NovelDownloadService implements NovelDownloader {
             Path downloadRoot = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
             Path downloadPath = downloadRoot;
             if (other.isUserDownload() && other.getUsername() != null && !downloadConfig.isUserFlatFolder()) {
-                downloadPath = downloadPath.resolve(SafePathSegment.requireSafeDirectoryName(other.getUsername()));
+                downloadPath = downloadPath.resolve(downloadPathGuard.requireSafeDirectoryName(other.getUsername()));
                 if (other.getXRestrict() == 2) {
                     downloadPath = downloadPath.resolve("R18G");
                 } else if (other.getXRestrict() == 1) {
@@ -205,7 +207,7 @@ public class NovelDownloadService implements NovelDownloader {
             }
             String folderName = "novel-" + novelId;
             downloadPath = downloadPath.resolve(folderName).normalize();
-            ensureWithinDownloadRoot(downloadRoot, downloadPath);
+            downloadPathGuard.requireWithinRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
@@ -216,11 +218,11 @@ public class NovelDownloadService implements NovelDownloader {
                     ? EpochMillisNormalizer.normalize(other.getFileNameTimestamp())
                     : System.currentTimeMillis();
             String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
-            long templateId = pixivDatabase.getOrCreateFileNameTemplateId(template);
+            long templateId = workFileNameCatalog.getOrCreateTemplateId(template);
             String safeAuthorName = PixivWorkFileNameFormatter.normalizeBaseName(
                     other.getAuthorName(), other.getAuthorId() == null ? "" : String.valueOf(other.getAuthorId()));
             Long fileAuthorNameId = safeAuthorName.isEmpty()
-                    ? null : pixivDatabase.getOrCreateFileAuthorNameId(safeAuthorName);
+                    ? null : workFileNameCatalog.getOrCreateAuthorNameId(safeAuthorName);
             List<String> names = PixivWorkFileNameFormatter.formatAll(
                     template, novelId, title, other.getAuthorId(), other.getAuthorName(),
                     timestamp, 1, other.isAi(), other.getXRestrict());
@@ -522,9 +524,9 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    public static void validateUserDownloadFolder(NovelDownloadRequest.Other other) {
+    public void validateUserDownloadFolder(NovelDownloadRequest.Other other) {
         if (other != null && other.isUserDownload() && other.getUsername() != null) {
-            SafePathSegment.requireSafeDirectoryName(other.getUsername());
+            downloadPathGuard.requireSafeDirectoryName(other.getUsername());
         }
     }
 
@@ -554,16 +556,6 @@ public class NovelDownloadService implements NovelDownloader {
             return collectionDownloadRootResolver.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
         return defaultRoot;
-    }
-
-    private void ensureWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
-        if (!downloadPath.startsWith(downloadRoot)) {
-            throw LocalizedException.badRequest(
-                    "download.path.segment.invalid",
-                    "Unsafe download subdirectory: {0}",
-                    downloadPath
-            );
-        }
     }
 
     private String displayFolderName(Path root, Path downloadPath) {

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.novel.download;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,6 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
@@ -23,6 +23,8 @@ import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
@@ -45,6 +47,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,7 +64,9 @@ class NovelDownloadServiceTest {
     @Mock
     private DownloadSettings downloadConfig;
     @Mock
-    private PixivDatabase pixivDatabase;
+    private WorkFileNameCatalog workFileNameCatalog;
+    @Mock
+    private DownloadPathGuard downloadPathGuard;
     @Mock
     private NovelDatabase novelDatabase;
     @Mock
@@ -96,9 +101,14 @@ class NovelDownloadServiceTest {
         service = newService(downloadTaskExecutor);
     }
 
+    @AfterEach
+    void tearDown() {
+        LocaleContextHolder.resetLocaleContext();
+    }
+
     private NovelDownloadService newService(TaskExecutor taskExecutor) {
         NovelDownloadExecutionLane executionLane = new NovelDownloadExecutionLane(taskExecutor, 1);
-        return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase,
+        return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard, novelDatabase,
                 novelSeriesService, authorObservationService, workCollectionMembership,
                 collectionDownloadRootResolver, pixivBookmarkService, visitorDownloadQuotaService,
                 downloadRestTemplate, taskScheduler, executionLane, APP_MESSAGES,
@@ -171,6 +181,35 @@ class NovelDownloadServiceTest {
                 any(), any(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any());
         assertThat(rating.getValue()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("下载路径与文件名字典通过核心端口解析并写入小说记录")
+    void shouldResolvePathAndFileNameFactsThroughCorePorts() {
+        NovelDownloadRequest request = txtRequest(109L, null);
+        request.getOther().setUserDownload(true);
+        request.getOther().setUsername("reader");
+        request.getOther().setAuthorId(42L);
+        request.getOther().setAuthorName("Writer");
+        request.getOther().setFileNameTemplate("{author_name}_{artwork_id}");
+        when(downloadPathGuard.requireSafeDirectoryName("reader")).thenReturn("reader");
+        when(workFileNameCatalog.getOrCreateTemplateId("{author_name}_{artwork_id}"))
+                .thenReturn(17L);
+        when(workFileNameCatalog.getOrCreateAuthorNameId("Writer")).thenReturn(23L);
+
+        boolean ok = service.downloadBlocking(request, null);
+
+        assertThat(ok).isTrue();
+        Path root = tempDir.toAbsolutePath().normalize();
+        Path downloadPath = root.resolve("reader").resolve("novel-109");
+        verify(downloadPathGuard, times(2)).requireSafeDirectoryName("reader");
+        verify(downloadPathGuard).requireWithinRoot(root, downloadPath);
+        verify(workFileNameCatalog).getOrCreateTemplateId("{author_name}_{artwork_id}");
+        verify(workFileNameCatalog).getOrCreateAuthorNameId("Writer");
+        verify(novelDatabase).insertNovel(
+                eq(109L), any(), eq(downloadPath.toString()), anyInt(), any(), anyLong(), any(), any(),
+                eq(42L), any(), eq(17L), eq(23L), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any());
     }
 
     @Test

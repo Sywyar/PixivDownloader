@@ -12,9 +12,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 
 import java.util.List;
 
@@ -113,8 +112,7 @@ class NovelFtsSearchTest {
         insertNovel(32L, "A_B literal");
         insertNovel(33L, "ACB literal");
         NovelDatabase database = new NovelDatabase(
-                mapper, mock(PixivDatabase.class), mock(StoredPathCodec.class),
-                mock(DatabaseInitializer.class));
+                mapper, mock(WorkTagCatalog.class), mock(StoredPathCodec.class));
 
         assertThat(database.searchNovelContentIds("%")).containsExactly(30L);
         assertThat(database.searchNovelContentIds("_")).containsExactly(32L);
@@ -188,8 +186,7 @@ class NovelFtsSearchTest {
         doThrow(new IllegalStateException("broken fts"))
                 .when(failingMapper).deleteDeletedNovelFts();
         NovelDatabase database = new NovelDatabase(
-                failingMapper, mock(PixivDatabase.class), mock(StoredPathCodec.class),
-                mock(DatabaseInitializer.class));
+                failingMapper, mock(WorkTagCatalog.class), mock(StoredPathCodec.class));
 
         assertThatCode(database::init).doesNotThrowAnyException();
 

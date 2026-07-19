@@ -13,6 +13,10 @@ import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
+import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
@@ -115,9 +119,10 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.work.query",
                             "AuthorQuery", "AuthorSummary", "SeriesNeighbors", "TagOption", "TagQuery", "WorkQuery"),
                     types("top.sywyar.pixivdownload.core.work.service",
-                            "AuthorObservationService", "WorkAssetService", "WorkDeletionException", "WorkDeletionService",
-                            "WorkMetadataRepository", "WorkQueryService", "WorkVisibilityDeniedException",
-                            "WorkVisibilityService"))),
+                            "AuthorObservationService", "DownloadPathGuard", "WorkAssetService",
+                            "WorkDeletionException", "WorkDeletionService", "WorkFileNameCatalog",
+                            "WorkMetadataRepository", "WorkQueryService", "WorkTagCatalog",
+                            "WorkVisibilityDeniedException", "WorkVisibilityService"))),
             Map.entry("核心统计只读语义", types("top.sywyar.pixivdownload.core.stats",
                     "StatsAggregates", "StatsQueryStore")),
             Map.entry("中性通知场景", types("top.sywyar.pixivdownload.notification",
@@ -396,6 +401,16 @@ class CoreApiOwnershipGuardTest {
 
         assertThat(publicDeclaredMethodSignatures(AuthorObservationService.class))
                 .containsExactly("public abstract observe(long,java.lang.String):void");
+        assertThat(publicDeclaredMethodSignatures(DownloadPathGuard.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract requireSafeDirectoryName(java.lang.String):java.lang.String",
+                        "public abstract requireWithinRoot(java.nio.file.Path,java.nio.file.Path):void");
+        assertThat(publicDeclaredMethodSignatures(WorkFileNameCatalog.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract getOrCreateAuthorNameId(java.lang.String):long",
+                        "public abstract getOrCreateTemplateId(java.lang.String):long");
+        assertThat(publicDeclaredMethodSignatures(WorkTagCatalog.class))
+                .containsExactly("public abstract getOrCreateTagId(java.lang.String,java.lang.String):java.lang.Long");
         assertThat(publicDeclaredMethodSignatures(WorkCollectionMembership.class))
                 .containsExactly("public abstract addWork(top.sywyar.pixivdownload.core.work.model.WorkType,long,long):boolean");
         assertThat(publicDeclaredMethodSignatures(CollectionDownloadRootResolver.class))
@@ -405,6 +420,15 @@ class CoreApiOwnershipGuardTest {
                         "public abstract checkAndReserve(java.lang.String,int):top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation",
                         "public abstract createArchive(java.lang.String):java.lang.String",
                         "public abstract recordFolder(java.lang.String,java.nio.file.Path):void");
+        assertThat(publicDeclaredMethodSignatures(MessageResolver.class))
+                .containsExactlyInAnyOrder(
+                        "public currentLocale():java.util.Locale",
+                        "public abstract transient get(java.lang.String,[Ljava.lang.Object;):java.lang.String",
+                        "public abstract transient get(java.util.Locale,java.lang.String,[Ljava.lang.Object;):java.lang.String",
+                        "public abstract transient getForLog(java.lang.String,[Ljava.lang.Object;):java.lang.String",
+                        "public abstract transient getOrDefault(java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
+                        "public abstract transient getOrDefault(java.util.Locale,java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
+                        "public normalizeLocale(java.util.Locale):java.util.Locale");
     }
 
     @Test

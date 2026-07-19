@@ -211,6 +211,10 @@ class DistributionPackagingBoundaryTest {
                 .as("novel i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/narration.properties"))
                 .as("narration i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/novel/messages.properties"))
+                .as("novel 后端 i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/novel/messages_en.properties"))
+                .as("novel 英文后端 i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/gui-theme.properties"))
                 .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/notification.properties"))
@@ -231,9 +235,12 @@ class DistributionPackagingBoundaryTest {
                 .as("push i18n 资源不应在 boot jar 内").isNull();
         for (String bundle : List.of("i18n/messages.properties", "i18n/messages_en.properties")) {
             assertThat(loadUtf8Properties(host, bundle).stringPropertyNames())
-                    .as("宿主全局 i18n 不应复制 push 插件专属键：%s", bundle)
+                    .as("宿主全局 i18n 不应复制外置插件专属键：%s", bundle)
                     .noneMatch(key -> key.startsWith("push.")
-                            || key.equals("config.template.section.push"));
+                            || key.equals("config.template.section.push")
+                            || key.startsWith("novel.render.")
+                            || key.startsWith("novel.merge.")
+                            || key.startsWith("novel.epub."));
         }
         assertThat(host.getResource("mail/templates/run-summary.html"))
                 .as("mail 模板资源不应在 boot jar 内").isNull();
@@ -291,6 +298,7 @@ class DistributionPackagingBoundaryTest {
                 "BOOT-INF/classes/i18n/web/novel",
                 "BOOT-INF/classes/i18n/web/novel-gallery",
                 "BOOT-INF/classes/i18n/web/narration",
+                "BOOT-INF/classes/i18n/novel/",
                 "BOOT-INF/classes/i18n/web/artwork",
                 "BOOT-INF/classes/i18n/web/showcase",
                 "BOOT-INF/classes/i18n/web/series",
@@ -368,7 +376,9 @@ class DistributionPackagingBoundaryTest {
     @DisplayName("novel 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
     void novelPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(NOVEL_CLASSES_PROPERTY, "pixivdownload-plugin-novel",
-                "top/sywyar/pixivdownload/novel/NovelPf4jPlugin.class");
+                "top/sywyar/pixivdownload/novel/NovelPf4jPlugin.class",
+                "i18n/novel/messages.properties",
+                "i18n/novel/messages_en.properties");
     }
 
     @Test

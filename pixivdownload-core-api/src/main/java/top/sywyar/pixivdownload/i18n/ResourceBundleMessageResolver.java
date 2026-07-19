@@ -34,8 +34,20 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
     }
 
     @Override
+    public Locale currentLocale() {
+        return fallback == null ? Locale.getDefault() : fallback.currentLocale();
+    }
+
+    @Override
+    public Locale normalizeLocale(Locale locale) {
+        return fallback == null
+                ? MessageResolver.super.normalizeLocale(locale)
+                : fallback.normalizeLocale(locale);
+    }
+
+    @Override
     public String get(String code, Object... args) {
-        return getOrDefault(Locale.getDefault(), code, code, args);
+        return getOrDefault(currentLocale(), code, code, args);
     }
 
     @Override
@@ -45,12 +57,12 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
 
     @Override
     public String getOrDefault(String code, String defaultMessage, Object... args) {
-        return getOrDefault(Locale.getDefault(), code, defaultMessage, args);
+        return getOrDefault(currentLocale(), code, defaultMessage, args);
     }
 
     @Override
     public String getOrDefault(Locale locale, String code, String defaultMessage, Object... args) {
-        Locale effectiveLocale = locale == null ? Locale.getDefault() : locale;
+        Locale effectiveLocale = normalizeLocale(locale);
         for (String baseName : baseNames) {
             if (baseName == null || baseName.isBlank()) {
                 continue;
@@ -72,7 +84,7 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
 
     @Override
     public String getForLog(String code, Object... args) {
-        return getOrDefault(Locale.getDefault(), code, code, args);
+        return getOrDefault(normalizeLocale(Locale.getDefault()), code, code, args);
     }
 
     private static String format(String pattern, Locale locale, Object... args) {

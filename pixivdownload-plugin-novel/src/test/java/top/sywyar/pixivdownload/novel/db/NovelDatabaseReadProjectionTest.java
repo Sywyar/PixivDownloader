@@ -4,9 +4,8 @@ import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 
 import java.util.List;
 
@@ -28,9 +27,8 @@ class NovelDatabaseReadProjectionTest {
         pathCodec = mock(StoredPathCodec.class);
         database = new NovelDatabase(
                 mapper,
-                mock(PixivDatabase.class),
-                pathCodec,
-                mock(DatabaseInitializer.class));
+                mock(WorkTagCatalog.class),
+                pathCodec);
     }
 
     @Test
