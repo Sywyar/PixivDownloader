@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 
 @Slf4j
 @Service
-public class PixivBookmarkService {
+public class PixivBookmarkService implements PixivBookmarkActions {
 
     private static final String PIXIV_HOME   = "https://www.pixiv.net/";
     private static final String BOOKMARK_URL = "https://www.pixiv.net/ajax/illusts/bookmarks/add";
@@ -34,7 +34,7 @@ public class PixivBookmarkService {
     private final AppMessages messages;
 
     public PixivBookmarkService(
-            @Qualifier("restTemplate") RestTemplate restTemplate,
+            @Qualifier("pixivCredentialRestTemplate") RestTemplate restTemplate,
             ObjectMapper objectMapper,
             AppMessages messages) {
         this.restTemplate = restTemplate;
@@ -48,6 +48,7 @@ public class PixivBookmarkService {
      * @param artworkId 作品 ID
      * @param cookie    用户的 Pixiv Cookie 字符串
      */
+    @Override
     public WorkActionResult bookmarkArtwork(Long artworkId, String cookie) {
         if (cookie == null || cookie.isBlank()) {
             log.warn(message("bookmark.log.skip.missing-cookie", id(artworkId)));
@@ -116,6 +117,7 @@ public class PixivBookmarkService {
     /**
      * 收藏小说（best-effort）。失败仅记录日志。
      */
+    @Override
     public WorkActionResult bookmarkNovel(Long novelId, String cookie) {
         if (cookie == null || cookie.isBlank()) {
             log.warn(message("bookmark.log.skip.missing-cookie", id(novelId)));

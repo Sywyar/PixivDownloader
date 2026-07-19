@@ -10,11 +10,21 @@ import top.sywyar.pixivdownload.ai.AiClientSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
@@ -112,7 +122,11 @@ class CoreApiOwnershipGuardTest {
                             "ArtworkHashEntry", "ArtworkHashFingerprint", "ArtworkHashIndexMaintenance",
                             "ArtworkHashIndexQuery"),
                     types("top.sywyar.pixivdownload.core.pixiv",
-                            "PixivCookieUserResolver", "PixivCoverUrlResolver", "PixivDescriptionHtml"),
+                            "PixivAjaxClient", "PixivAjaxException", "PixivAjaxFailure",
+                            "PixivBookmarkActions", "PixivCookieUserResolver",
+                            "PixivCoverUrlResolver", "PixivDescriptionHtml", "PixivImageDownloader",
+                            "PixivImageTransferObserver", "PixivProxyAccessDecision",
+                            "PixivProxyAccessOutcome", "PixivProxyAccessPolicy"),
                     types("top.sywyar.pixivdownload.core.time", "EpochMillisNormalizer"),
                     types("top.sywyar.pixivdownload.core.work",
                             "PixivWorkFileNameFormatter", "WorkActionResult"),
@@ -124,7 +138,7 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.work.service",
                             "AuthorObservationService", "DownloadPathGuard", "WorkAssetService",
                             "WorkDeletionException", "WorkDeletionService", "WorkFileNameCatalog",
-                            "WorkMetadataRepository", "WorkQueryService", "WorkTagCatalog",
+                            "WorkMetadataCapture", "WorkMetadataRepository", "WorkQueryService", "WorkTagCatalog",
                             "WorkVisibilityDeniedException", "WorkVisibilityService"))),
             Map.entry("核心统计只读语义", types("top.sywyar.pixivdownload.core.stats",
                     "StatsAggregates", "StatsQueryStore")),
@@ -217,6 +231,10 @@ class CoreApiOwnershipGuardTest {
                     List.of("ASC", "DESC")),
             Map.entry("top.sywyar.pixivdownload.core.gallery.query.GallerySortField",
                     List.of("CREATED_AT", "DOWNLOADED_AT", "UPDATED_AT", "TITLE")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome",
+                    List.of("ALLOWED", "OWNER_REQUIRED", "RATE_LIMITED")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure",
+                    List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
             Map.entry("top.sywyar.pixivdownload.core.work.model.WorkType",
                     List.of("ARTWORK", "NOVEL")),
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
@@ -366,6 +384,9 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(VisitorDownloadQuotaReservation.class,
                 List.of("allowed", "quotaUnitsUsed", "maxQuotaUnits", "resetSeconds"),
                 List.of(boolean.class, int.class, int.class, long.class));
+        assertRecordShape(PixivProxyAccessDecision.class,
+                List.of("outcome", "errorMessage", "maxRequests", "windowHours"),
+                List.of(PixivProxyAccessOutcome.class, String.class, int.class, int.class));
 
         assertThat(publicDeclaredMethodSignatures(AiClientSettings.class))
                 .containsExactlyInAnyOrder(
@@ -439,6 +460,32 @@ class CoreApiOwnershipGuardTest {
                         "public abstract checkAndReserve(java.lang.String,int):top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation",
                         "public abstract createArchive(java.lang.String):java.lang.String",
                         "public abstract recordFolder(java.lang.String,java.nio.file.Path):void");
+        assertThat(publicDeclaredMethodSignatures(PixivAjaxClient.class))
+                .containsExactly("public abstract get(java.net.URI,java.lang.String):java.lang.String");
+        assertThat(publicDeclaredMethodSignatures(PixivAjaxException.class))
+                .containsExactlyInAnyOrder(
+                        "public failure():top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure",
+                        "public statusCode():int");
+        assertThat(publicDeclaredMethodSignatures(PixivBookmarkActions.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract bookmarkArtwork(java.lang.Long,java.lang.String):top.sywyar.pixivdownload.core.work.WorkActionResult",
+                        "public abstract bookmarkNovel(java.lang.Long,java.lang.String):top.sywyar.pixivdownload.core.work.WorkActionResult");
+        assertThat(publicDeclaredMethodSignatures(PixivImageDownloader.class))
+                .containsExactly("public abstract download(java.net.URI,java.net.URI,java.nio.file.Path,java.lang.String,top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver):boolean");
+        assertThat(publicDeclaredMethodSignatures(PixivImageTransferObserver.class))
+                .containsExactlyInAnyOrder(
+                        "public checkCancelled():void",
+                        "public onBytesTransferred(long):void",
+                        "public onContentLength(long):void");
+        assertThat(publicDeclaredMethodSignatures(PixivProxyAccessPolicy.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract evaluate(java.lang.String,boolean):top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision",
+                        "public abstract resolveSearchFillLimitPage(boolean):int");
+        assertThat(publicDeclaredMethodSignatures(WorkMetadataCapture.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract capture(top.sywyar.pixivdownload.core.work.model.WorkType,long,java.lang.String,java.lang.String,java.lang.String):void",
+                        "public capture(top.sywyar.pixivdownload.core.work.model.WorkType,long,java.lang.String,java.lang.String):void",
+                        "public captureForwarded(top.sywyar.pixivdownload.core.work.model.WorkType,long,java.lang.String):void");
         assertThat(publicDeclaredMethodSignatures(MessageResolver.class))
                 .containsExactlyInAnyOrder(
                         "public currentLocale():java.util.Locale",

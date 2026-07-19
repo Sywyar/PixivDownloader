@@ -21,6 +21,8 @@ import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityDeniedException;
@@ -178,14 +180,25 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(RestClientResponseException.class)
     public ResponseEntity<ErrorResponse> handleUpstream(RestClientResponseException e, Locale locale) {
-        int status = e.getStatusCode().value();
+        return upstreamFailure(e.getStatusCode().value(), locale, bodySnippet(e.getResponseBodyAsString()));
+    }
+
+    @ExceptionHandler(PixivAjaxException.class)
+    public ResponseEntity<ErrorResponse> handlePixivAjax(PixivAjaxException e, Locale locale) {
+        if (e.failure() != PixivAjaxFailure.HTTP_STATUS) {
+            return handleGeneric(e, locale);
+        }
+        return upstreamFailure(e.statusCode(), locale, "<body unavailable>");
+    }
+
+    private ResponseEntity<ErrorResponse> upstreamFailure(int status, Locale locale, String bodyForLog) {
         boolean authIssue = status == 401 || status == 403;
         String message = authIssue
                 ? messages.getOrDefault(locale, "error.pixiv.upstream.unauthorized",
                         "Pixiv 拒绝了请求：登录 Cookie 可能已失效或无权访问该内容，请重新获取并保存 Cookie 后重试。")
                 : messages.getOrDefault(locale, "error.pixiv.upstream.failed",
                         "请求 Pixiv 失败（HTTP {0}），请稍后重试。", status);
-        log.warn(logMessage("error.log.pixiv.upstream", status, bodySnippet(e.getResponseBodyAsString())));
+        log.warn(logMessage("error.log.pixiv.upstream", status, bodyForLog));
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(message));
     }
 

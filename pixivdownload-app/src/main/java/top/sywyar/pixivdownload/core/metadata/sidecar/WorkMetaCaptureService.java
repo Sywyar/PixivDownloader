@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -27,7 +29,7 @@ import java.nio.file.Paths;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class WorkMetaCaptureService {
+public class WorkMetaCaptureService implements WorkMetadataCapture {
 
     private final WorkMetaCurator curator;
     private final WorkSidecarStore sidecarStore;
@@ -71,6 +73,15 @@ public class WorkMetaCaptureService {
         }
         String directory = artworkFileLocator.resolveArtworkDirectory(rec);
         writeSidecar(directory, artworkId, curated, "artwork");
+    }
+
+    private void captureArtworkJson(long artworkId, String artworkJson, String pagesJson, String source) {
+        JsonNode artworkBody = parseRawJson(artworkId, "artwork", artworkJson);
+        if (artworkBody == null || !artworkBody.isObject()) {
+            return;
+        }
+        JsonNode pagesBody = parseRawJson(artworkId, "artwork pages", pagesJson);
+        captureArtwork(artworkId, artworkBody, pagesBody, source);
     }
 
     /**
@@ -130,6 +141,28 @@ public class WorkMetaCaptureService {
         writeSidecar(rec.folder(), novelId, curated, "novel");
     }
 
+    private void captureNovelJson(long novelId, String novelJson, String source) {
+        JsonNode novelBody = parseRawJson(novelId, "novel", novelJson);
+        captureNovel(novelId, novelBody, source);
+    }
+
+    @Override
+    public void capture(
+            WorkType type,
+            long workId,
+            String workJson,
+            String supplementalJson,
+            String source
+    ) {
+        if (type == null) {
+            return;
+        }
+        switch (type) {
+            case ARTWORK -> captureArtworkJson(workId, workJson, supplementalJson, source);
+            case NOVEL -> captureNovelJson(workId, workJson, source);
+        }
+    }
+
     /**
      * 捕获前端转发的小说 meta：解析油猴脚本随下载请求转发的、轻剪枝后的 {@code /ajax/novel/{id}} body
      * JSON 串后，走与计划任务同一个归一化器（来源标记 {@code forward}）。
@@ -152,6 +185,18 @@ public class WorkMetaCaptureService {
             return;
         }
         captureNovel(novelId, body, "forward");
+    }
+
+    private JsonNode parseRawJson(long workId, String kind, String rawJson) {
+        if (!StringUtils.hasText(rawJson)) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(rawJson);
+        } catch (Exception e) {
+            log.warn("Skip {} meta {}: invalid JSON ({})", kind, workId, e.getMessage());
+            return null;
+        }
     }
 
     private void writeSidecar(String directory, long workId, CuratedWorkMeta curated, String kind) {

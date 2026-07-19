@@ -6,6 +6,8 @@ import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityDeniedException;
@@ -111,5 +113,19 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().getError())
                 .isEqualTo("小说 42 的磁盘文件未能全部删除（被锁定或权限不足），"
                         + "已中止数据库清理，请稍后重试或检查文件占用情况");
+    }
+
+    @Test
+    @DisplayName("Pixiv 稳定端口的上游状态应保持本地化 502 映射")
+    void shouldMapPixivAjaxHttpFailureToLocalizedBadGateway() {
+        ResponseEntity<ErrorResponse> response = handler.handlePixivAjax(
+                new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 403),
+                Locale.SIMPLIFIED_CHINESE);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(502);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError())
+                .contains("Pixiv 拒绝了请求")
+                .doesNotContain("403");
     }
 }

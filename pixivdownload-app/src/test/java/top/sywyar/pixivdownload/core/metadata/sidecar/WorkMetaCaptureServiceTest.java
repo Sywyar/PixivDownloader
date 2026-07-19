@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -87,8 +89,11 @@ class WorkMetaCaptureServiceTest {
     void shouldCaptureNovel() throws Exception {
         when(novelMetadataRepository.getNovel(5L)).thenReturn(novel(5L));
 
-        service.captureNovel(5L, json("{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true,"
-                + "\"content\":\"很长的正文……\",\"description\":\"d\"}"), "schedule");
+        WorkMetadataCapture capture = service;
+        capture.capture(WorkType.NOVEL, 5L,
+                "{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true,"
+                        + "\"content\":\"很长的正文……\",\"description\":\"d\"}",
+                "schedule");
 
         verify(novelMetadataRepository).updateNovelUploadTime(eq(5L), eq(UPLOAD_MILLIS));
         Path sidecar = tempDir.resolve("5.meta.json");

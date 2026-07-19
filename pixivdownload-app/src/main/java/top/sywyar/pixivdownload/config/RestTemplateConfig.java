@@ -34,11 +34,28 @@ public class RestTemplateConfig {
     }
 
     /**
+     * Pixiv 凭证请求专用客户端。主页、JSON 与收藏请求会携带登录 Cookie，因此禁止底层自动跟随重定向，避免敏感
+     * 请求头被转发到未经端口校验的目标。
+     */
+    @Bean("pixivCredentialRestTemplate")
+    public RestTemplate pixivCredentialRestTemplate() {
+        return buildRestTemplate(15_000, 30_000, new DynamicProxyRoutePlanner(proxyConfig), false, false);
+    }
+
+    /**
      * 下载专用 RestTemplate，超时更长、连接池更大。
      */
     @Bean("downloadRestTemplate")
     public RestTemplate downloadRestTemplate() {
         return buildRestTemplate(30_000, 60_000, new DynamicProxyRoutePlanner(proxyConfig));
+    }
+
+    /**
+     * Pixiv 图片稳定端口专用客户端。图片请求同样可能携带登录 Cookie，禁止自动重定向后由调用方将 3xx 作为失败处理。
+     */
+    @Bean("pixivImageRestTemplate")
+    public RestTemplate pixivImageRestTemplate() {
+        return buildRestTemplate(30_000, 60_000, new DynamicProxyRoutePlanner(proxyConfig), false, false);
     }
 
     /**
@@ -125,6 +142,16 @@ public class RestTemplateConfig {
     }
 
     private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs, HttpRoutePlanner routePlanner) {
+        return buildRestTemplate(connectTimeoutMs, socketTimeoutMs, routePlanner, true, true);
+    }
+
+    private RestTemplate buildRestTemplate(
+            int connectTimeoutMs,
+            int socketTimeoutMs,
+            HttpRoutePlanner routePlanner,
+            boolean followRedirects,
+            boolean manageCookies
+    ) {
         ConnectionConfig connectionConfig = ConnectionConfig.custom()
                 .setConnectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .setSocketTimeout(socketTimeoutMs, TimeUnit.MILLISECONDS)
@@ -142,6 +169,12 @@ public class RestTemplateConfig {
         var httpClientBuilder = HttpClients.custom()
                 .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(requestConfig);
+        if (!followRedirects) {
+            httpClientBuilder.disableRedirectHandling();
+        }
+        if (!manageCookies) {
+            httpClientBuilder.disableCookieManagement();
+        }
         if (routePlanner != null) {
             httpClientBuilder.setRoutePlanner(routePlanner);
         }

@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
 
 @Service
 @RequiredArgsConstructor
-public class PixivProxyAccessGuard {
+public class PixivProxyAccessGuard implements PixivProxyAccessPolicy {
 
     private final SetupService setupService;
     private final UserQuotaService userQuotaService;
@@ -32,28 +32,56 @@ public class PixivProxyAccessGuard {
         if (!"multi".equals(setupService.getMode())) {
             return null;
         }
-        if (setupService.isAdminLoggedIn(request)) {
-            return null;
-        }
-        String uuid = UuidUtils.extractExistingUuid(request);
-        if (uuid == null) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.user-uuid.missing")));
-        }
-        if (!userQuotaService.checkAndReserveProxy(uuid)) {
-            int max = multiModeConfig.getQuota().getMaxProxyRequests();
-            int hours = multiModeConfig.getQuota().getResetPeriodHours();
-            return ResponseEntity.status(429).body(new ProxyRateLimitResponse(
-                    messages.get("pixiv.proxy.rate-limit.exceeded", hours, max),
-                    max, hours));
-        }
-        return null;
+        PixivProxyAccessDecision decision = evaluate(
+                UuidUtils.extractExistingUuid(request),
+                setupService.isAdminLoggedIn(request));
+        return switch (decision.outcome()) {
+            case ALLOWED -> null;
+            case OWNER_REQUIRED -> ResponseEntity.status(401)
+                    .body(new ErrorResponse(decision.errorMessage()));
+            case RATE_LIMITED -> ResponseEntity.status(429)
+                    .body(new ProxyRateLimitResponse(
+                            decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
+        };
     }
 
     public int resolveSearchFillLimitPage(HttpServletRequest request) {
         if (!"multi".equals(setupService.getMode())) {
             return 0;
         }
-        if (setupService.isAdminLoggedIn(request)) {
+        return resolveSearchFillLimitPage(setupService.isAdminLoggedIn(request));
+    }
+
+    @Override
+    public PixivProxyAccessDecision evaluate(String existingOwnerUuid, boolean adminAuthenticated) {
+        if (!"multi".equals(setupService.getMode())) {
+            return new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0);
+        }
+        if (adminAuthenticated) {
+            return new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0);
+        }
+        if (existingOwnerUuid == null) {
+            return new PixivProxyAccessDecision(
+                    PixivProxyAccessOutcome.OWNER_REQUIRED,
+                    messages.get("pixiv.proxy.user-uuid.missing"),
+                    0,
+                    0);
+        }
+        if (!userQuotaService.checkAndReserveProxy(existingOwnerUuid)) {
+            int max = multiModeConfig.getQuota().getMaxProxyRequests();
+            int hours = multiModeConfig.getQuota().getResetPeriodHours();
+            return new PixivProxyAccessDecision(
+                    PixivProxyAccessOutcome.RATE_LIMITED,
+                    messages.get("pixiv.proxy.rate-limit.exceeded", hours, max),
+                    max,
+                    hours);
+        }
+        return new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0);
+    }
+
+    @Override
+    public int resolveSearchFillLimitPage(boolean adminAuthenticated) {
+        if (!"multi".equals(setupService.getMode()) || adminAuthenticated) {
             return 0;
         }
         return Math.max(0, multiModeConfig.getLimitPage());
