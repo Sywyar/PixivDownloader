@@ -23,12 +23,12 @@ import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
@@ -166,16 +166,21 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
+    public QueueTaskTracker novelQueueTaskTracker() {
+        return new QueueTaskTracker("novel");
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelAutoTranslateService novelAutoTranslateService(
             NovelTranslationService translationService,
             NovelGlossaryService glossaryService,
             NovelMergeService mergeService,
             AiChatClient aiChatClient,
             @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
-            ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
+            @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker) {
         return new NovelAutoTranslateService(
-                translationService, glossaryService, mergeService, aiChatClient, executor,
-                scheduleCapabilityRegistry);
+                translationService, glossaryService, mergeService, aiChatClient, executor, taskTracker);
     }
 
     @Bean
@@ -203,12 +208,14 @@ public class NovelPluginConfiguration {
             NovelDownloadExecutionLane downloadExecutionLane,
             @Qualifier("novelPluginMessages") MessageResolver messages,
             NovelAutoTranslateService novelAutoTranslateService,
-            WorkMetadataCapture workMetadataCapture) {
+            WorkMetadataCapture workMetadataCapture,
+            @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker) {
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard,
                 novelDatabase, novelSeriesService,
                 authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
                 pixivBookmarkActions, visitorDownloadQuotaService, pixivImageDownloader,
-                taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService, workMetadataCapture);
+                taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
+                workMetadataCapture, taskTracker);
     }
 
     @Bean

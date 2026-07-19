@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
@@ -42,6 +43,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -114,12 +116,16 @@ class NovelDownloadServiceTest {
     }
 
     private NovelDownloadService newService(TaskExecutor taskExecutor) {
+        return newService(taskExecutor, new QueueTaskTracker("novel"));
+    }
+
+    private NovelDownloadService newService(TaskExecutor taskExecutor, QueueTaskTracker taskTracker) {
         NovelDownloadExecutionLane executionLane = new NovelDownloadExecutionLane(taskExecutor, 1);
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard, novelDatabase,
                 novelSeriesService, authorObservationService, workCollectionMembership,
                 collectionDownloadRootResolver, pixivBookmarkActions, visitorDownloadQuotaService,
                 pixivImageDownloader, taskScheduler, executionLane, APP_MESSAGES,
-                novelAutoTranslateService, workMetadataCapture);
+                novelAutoTranslateService, workMetadataCapture, taskTracker);
     }
 
     /** 构造一个最简的 TXT 交互式小说下载请求（无封面 / 无内嵌图 / 无系列 / 无收藏）。 */
@@ -275,17 +281,92 @@ class NovelDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("普通下载清空只取消下载任务并继续接收，不影响自动翻译")
+    void ordinaryClearKeepsAutoTranslationTask() {
+        QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
+        AtomicReference<Runnable> submittedDownload = new AtomicReference<>();
+        AtomicInteger translationRuns = new AtomicInteger();
+        QueueTaskTracker.Task translation = taskTracker.prepareQueued(
+                NovelQueueTaskOwners.autoTranslate(900L));
+        translation.bind(translationRuns::incrementAndGet);
+        NovelDownloadService queued = newService(submittedDownload::set, taskTracker);
+        queued.download(txtRequest(104L, null), "owner-a");
+
+        assertThat(queued.forceClearDownloads()).isEqualTo(1);
+
+        assertThat(taskTracker.isAccepting()).isTrue();
+        assertThat(taskTracker.activeTaskCount()).isEqualTo(1);
+        submittedDownload.get().run();
+        translation.run();
+        assertThat(translationRuns.get()).isEqualTo(1);
+        assertThat(taskTracker.activeTaskCount()).isZero();
+        assertThat(queued.getStatus(104L, "owner-a", false)).isNull();
+    }
+
+    @Test
+    @DisplayName("无 owner 与字面 null 的下载清退键互不碰撞")
+    void ownerKeysKeepNullAndLiteralNullSeparate() {
+        QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
+        AtomicInteger literalRuns = new AtomicInteger();
+        AtomicInteger adminRuns = new AtomicInteger();
+        QueueTaskTracker.Task withoutOwner = taskTracker.prepareQueued(
+                NovelQueueTaskOwners.download(null));
+        QueueTaskTracker.Task literalNull = taskTracker.prepareQueued(
+                NovelQueueTaskOwners.download("null"));
+        QueueTaskTracker.Task admin = taskTracker.prepareQueued(
+                NovelQueueTaskOwners.download("admin"));
+        withoutOwner.bind(() -> { });
+        literalNull.bind(literalRuns::incrementAndGet);
+        admin.bind(adminRuns::incrementAndGet);
+        NovelDownloadService queued = newService(Runnable::run, taskTracker);
+
+        assertThat(queued.forceClearDownloadsForOwner(null)).isEqualTo(1);
+        assertThat(taskTracker.activeTaskCount()).isEqualTo(2);
+
+        withoutOwner.run();
+        literalNull.run();
+        admin.run();
+        assertThat(literalRuns.get()).isEqualTo(1);
+        assertThat(adminRuns.get()).isEqualTo(1);
+        assertThat(taskTracker.activeTaskCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("按 owner 清空同时取消同命名空间的状态保留任务")
+    void ownerClearCancelsStatusRetentionTask() {
+        ScheduledFuture<?> retentionFuture = org.mockito.Mockito.mock(ScheduledFuture.class);
+        org.mockito.Mockito.doReturn(retentionFuture).when(taskScheduler)
+                .schedule(any(Runnable.class), any(Instant.class));
+
+        assertThat(service.downloadBlocking(txtRequest(105L, null), "owner-a")).isTrue();
+        assertThat(service.getStatus(105L, "owner-a", false)).isNotNull();
+
+        assertThat(service.forceClearDownloadsForOwner("owner-a")).isEqualTo(1);
+        verify(retentionFuture).cancel(false);
+        assertThat(service.getStatus(105L, "owner-a", false)).isNull();
+        assertThat(service.prepareQuiesceRuntimeTasks().isDrained()).isTrue();
+    }
+
+    @Test
     @DisplayName("提交后状态创建前 quiesce 应取消小说宿主任务")
     void shouldCancelPendingTaskBeforeStatusCreation() {
         AtomicReference<Runnable> submitted = new AtomicReference<>();
-        NovelDownloadService queued = newService(submitted::set);
+        QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
+        AtomicInteger translationRuns = new AtomicInteger();
+        QueueTaskTracker.Task translation = taskTracker.prepareQueued(
+                NovelQueueTaskOwners.autoTranslate(999L));
+        translation.bind(translationRuns::incrementAndGet);
+        NovelDownloadService queued = newService(submitted::set, taskTracker);
 
         queued.download(txtRequest(104L, null), "owner-a");
-        QueueGenerationDrain drain = queued.prepareQuiesceDownloads();
-        queued.cancelQuiescedDownloads();
+        assertThat(taskTracker.activeTaskCount()).isEqualTo(2);
+        QueueGenerationDrain drain = queued.prepareQuiesceRuntimeTasks();
+        queued.cancelQuiescedRuntimeTasks();
         submitted.get().run();
+        translation.run();
 
         assertThat(drain.isDrained()).isTrue();
+        assertThat(translationRuns.get()).isZero();
         assertThat(queued.getStatus(104L, "owner-a", false)).isNull();
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> queued.download(txtRequest(105L, null), "owner-a"))
@@ -304,8 +385,8 @@ class NovelDownloadServiceTest {
                         () -> rejecting.download(txtRequest(106L, null), null))
                 .isSameAs(rejected);
 
-        QueueGenerationDrain drain = rejecting.prepareQuiesceDownloads();
-        rejecting.cancelQuiescedDownloads();
+        QueueGenerationDrain drain = rejecting.prepareQuiesceRuntimeTasks();
+        rejecting.cancelQuiescedRuntimeTasks();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -327,8 +408,8 @@ class NovelDownloadServiceTest {
 
         running.download(txtRequest(107L, null), null);
         assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
-        QueueGenerationDrain drain = running.prepareQuiesceDownloads();
-        running.cancelQuiescedDownloads();
+        QueueGenerationDrain drain = running.prepareQuiesceRuntimeTasks();
+        running.cancelQuiescedRuntimeTasks();
         assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(20))).isFalse();
 
         release.countDown();

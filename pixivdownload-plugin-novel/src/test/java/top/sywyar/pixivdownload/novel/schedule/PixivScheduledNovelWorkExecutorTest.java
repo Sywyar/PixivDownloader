@@ -10,11 +10,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
+import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadExecutionLane;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
@@ -99,6 +101,24 @@ class PixivScheduledNovelWorkExecutorTest {
     void clearRouteOverride() {
         OutboundProxyOverride.clear();
         laneTaskExecutor.shutdown();
+    }
+
+    @Test
+    @DisplayName("生产工厂声明小说作品类型并沿用真实下载并发上限")
+    void productionFactoryUsesDownloadLaneCapacity() {
+        PixivScheduledNovelWorkExecutor executor = new NovelPluginConfiguration()
+                .pixivScheduledNovelWorkExecutor(
+                        objectMapper,
+                        pixivAjaxProxyClient,
+                        workQueryService,
+                        workMetaCaptureService,
+                        novelDownloader,
+                        novelMergeService,
+                        novelAutoTranslateService,
+                        new NovelDownloadExecutionLane(new SyncTaskExecutor(), 3));
+
+        assertThat(executor.workType()).isEqualTo("novel");
+        assertThat(executor.maxConcurrency()).isEqualTo(3);
     }
 
     @Test

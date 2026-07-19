@@ -159,9 +159,9 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                         "top.sywyar.pixivdownload.novel..",
                         "top.sywyar.pixivdownload.novelgallery..")
                 .should().dependOnClassesThat()
-                .resideInAPackage("top.sywyar.pixivdownload.core.schedule.work..")
-                .because("小说计划作品已由 plugin-api ScheduledWorkExecutor 执行，"
-                        + "不得恢复 app legacy schedule 载体或 runner")
+                .resideInAPackage("top.sywyar.pixivdownload.core.schedule..")
+                .because("小说计划作品与自动翻译生命周期只走 plugin-api 稳定契约，"
+                        + "不得依赖 app schedule registry、lease 或 legacy runner")
                 .check(CLASSES);
 
         assertThat(CLASSES.contain(PixivScheduledNovelWorkExecutor.class.getName())).isTrue();

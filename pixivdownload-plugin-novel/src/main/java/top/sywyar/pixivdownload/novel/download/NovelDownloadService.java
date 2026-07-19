@@ -98,7 +98,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final WorkMetadataCapture workMetadataCapture;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
-    private final QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
+    private final QueueTaskTracker taskTracker;
 
     public NovelDownloadService(DownloadSettings downloadConfig,
                                 WorkFileNameCatalog workFileNameCatalog,
@@ -115,7 +115,8 @@ public class NovelDownloadService implements NovelDownloader {
                                 NovelDownloadExecutionLane downloadExecutionLane,
                                 MessageResolver messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
-                                WorkMetadataCapture workMetadataCapture) {
+                                WorkMetadataCapture workMetadataCapture,
+                                @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker) {
         this.downloadConfig = downloadConfig;
         this.workFileNameCatalog = workFileNameCatalog;
         this.downloadPathGuard = downloadPathGuard;
@@ -132,11 +133,12 @@ public class NovelDownloadService implements NovelDownloader {
         this.messages = messages;
         this.novelAutoTranslateService = novelAutoTranslateService;
         this.workMetadataCapture = workMetadataCapture;
+        this.taskTracker = taskTracker;
     }
 
     @Override
     public void download(NovelDownloadRequest request, String userUuid) {
-        QueueTaskTracker.Task task = taskTracker.prepareQueued(userUuid);
+        QueueTaskTracker.Task task = taskTracker.prepareQueued(NovelQueueTaskOwners.download(userUuid));
         task.bind(() -> downloadTracked(task, request, userUuid));
         try {
             downloadExecutionLane.execute(task);
@@ -160,7 +162,7 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     private boolean downloadBlockingInLane(NovelDownloadRequest request, String userUuid) {
-        QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
+        QueueTaskTracker.Task task = taskTracker.beginRunning(NovelQueueTaskOwners.download(userUuid));
         try {
             return downloadTracked(task, request, userUuid);
         } finally {
@@ -353,7 +355,7 @@ public class NovelDownloadService implements NovelDownloader {
             status.setErrorMessage(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
             if (statusMap.get(statusKey) == status) {
-                QueueStatusRetention.schedule(taskTracker, userUuid, taskScheduler,
+                QueueStatusRetention.schedule(taskTracker, NovelQueueTaskOwners.download(userUuid), taskScheduler,
                         Instant.now().plusSeconds(300),
                         () -> statusMap.remove(statusKey, status));
             }
@@ -393,7 +395,7 @@ public class NovelDownloadService implements NovelDownloader {
         int clearedStatuses = 0;
         Throwable failure = null;
         try {
-            cancelledTasks = taskTracker.cancelActive();
+            cancelledTasks = taskTracker.cancelMatchingOwners(NovelQueueTaskOwners::isDownload);
         } catch (Throwable error) {
             failure = error;
         }
@@ -411,7 +413,7 @@ public class NovelDownloadService implements NovelDownloader {
         int clearedStatuses = 0;
         Throwable failure = null;
         try {
-            cancelledTasks = taskTracker.cancelForOwner(ownerUuid);
+            cancelledTasks = taskTracker.cancelForOwner(NovelQueueTaskOwners.download(ownerUuid));
         } catch (Throwable error) {
             failure = error;
         }
@@ -426,12 +428,12 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     /** 先停止接收并取得唯一 drain；本方法不执行插件 callback。 */
-    public QueueGenerationDrain prepareQuiesceDownloads() {
+    public QueueGenerationDrain prepareQuiesceRuntimeTasks() {
         return taskTracker.prepareQuiesce();
     }
 
     /** drain 已由生命周期保存后，再取消本代任务并清理状态。 */
-    public void cancelQuiescedDownloads() {
+    public void cancelQuiescedRuntimeTasks() {
         Throwable failure = null;
         try {
             taskTracker.cancelQuiescedTasks();

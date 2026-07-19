@@ -28,12 +28,12 @@ public class NovelQueueOperations implements QueueOperations {
 
     @Override
     public QueueGenerationDrain prepareQuiesce(String registeredQueueType) {
-        return novelDownloadService.prepareQuiesceDownloads();
+        return novelDownloadService.prepareQuiesceRuntimeTasks();
     }
 
     @Override
     public void cancelQuiescedTasks() {
-        novelDownloadService.cancelQuiescedDownloads();
+        novelDownloadService.cancelQuiescedRuntimeTasks();
     }
 
     @Override
