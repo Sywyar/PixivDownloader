@@ -21,17 +21,30 @@ class NovelDownloadHttpProjectionContractTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    @DisplayName("小说下载请求应把 camelCase xRestrict 绑定到年龄分级")
+    @DisplayName("小说下载请求应保持年龄分级与标签的 camelCase wire 结构")
     void downloadRequestBindsCamelCaseXRestrict() throws Exception {
         NovelDownloadRequest request = objectMapper.readValue("""
-                {"novelId":123,"other":{"xRestrict":2}}
+                {"novelId":123,"other":{"xRestrict":2,
+                 "tags":[{"tagId":7,"name":"魔法","translatedName":"magic"}],
+                 "seriesTags":[{"tagId":8,"name":"系列","translatedName":"series"}]}}
                 """, NovelDownloadRequest.class);
 
         assertThat(request.getOther().getXRestrict()).isEqualTo(2);
+        assertThat(request.getOther().getTags()).singleElement().satisfies(tag -> {
+            assertThat(tag.tagId()).isEqualTo(7L);
+            assertThat(tag.name()).isEqualTo("魔法");
+            assertThat(tag.translatedName()).isEqualTo("magic");
+        });
+        assertThat(request.getOther().getSeriesTags()).singleElement()
+                .satisfies(tag -> assertThat(tag.tagId()).isEqualTo(8L));
 
         JsonNode json = objectMapper.valueToTree(request);
         assertThat(json.path("other").path("xRestrict").asInt()).isEqualTo(2);
         assertThat(json.path("other").has("xrestrict")).isFalse();
+        assertThat(json.path("other").path("tags").get(0).path("translatedName").asText())
+                .isEqualTo("magic");
+        assertThat(json.path("other").path("seriesTags").get(0).path("name").asText())
+                .isEqualTo("系列");
     }
 
     @Test

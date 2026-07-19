@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.core.work.query.AuthorSummary;
+import top.sywyar.pixivdownload.core.work.query.TagOption;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
@@ -59,14 +61,14 @@ public class NovelGalleryRepository {
      * 作者 ID 与对应可见小说数。{@code r == null} 表示无访客限制（管理员 / 非访客），
      * 统计全部未删除行——「无限制」只豁免可见性投影，{@code deleted = 1} 仍然过滤。
      */
-    public List<NovelAuthorSummary> findVisibleNovelAuthorCounts(GuestRestriction r) {
+    public List<AuthorSummary> findVisibleNovelAuthorCounts(GuestRestriction r) {
         StringBuilder sql = new StringBuilder(
                 "SELECT n.author_id AS author_id, COUNT(*) AS cnt FROM novels n"
                         + " WHERE n.author_id IS NOT NULL AND n.author_id > 0 AND n.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Author");
         sql.append(" GROUP BY n.author_id");
-        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new NovelAuthorSummary(
+        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new AuthorSummary(
                 rs.getLong("author_id"),
                 null,
                 rs.getLong("cnt")));
@@ -90,7 +92,7 @@ public class NovelGalleryRepository {
     }
 
     /** 标签 ID 与对应可见小说数；{@code r == null} 语义同 {@link #findVisibleNovelAuthorCounts}。 */
-    public List<NovelTagOption> findVisibleNovelTagCounts(GuestRestriction r, String search, int limit) {
+    public List<TagOption> findVisibleNovelTagCounts(GuestRestriction r, String search, int limit) {
         StringBuilder sql = new StringBuilder(
                 "SELECT t.tag_id AS tag_id, t.name AS name, t.translated_name AS translated_name,"
                         + " COUNT(*) AS cnt"
@@ -109,7 +111,7 @@ public class NovelGalleryRepository {
         sql.append(" ORDER BY cnt DESC, LOWER(t.name) ASC");
         sql.append(" LIMIT :limit");
         params.addValue("limit", Math.min(Math.max(1, limit), 5000));
-        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new NovelTagOption(
+        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new TagOption(
                 rs.getLong("tag_id"),
                 rs.getString("name"),
                 rs.getString("translated_name"),
@@ -237,7 +239,7 @@ public class NovelGalleryRepository {
      * 按名称 / 翻译名精确查找小说标签（大小写不敏感，原名命中优先）；
      * 语义镜像插画侧 {@code GalleryRepository.findTagByExactName}，计数为使用数。
      */
-    public NovelTagOption findTagByExactName(String name, String translatedName) {
+    public TagOption findTagByExactName(String name, String translatedName) {
         String normalizedName = normalizeLookup(name);
         String normalizedTranslatedName = normalizeLookup(translatedName);
         if (normalizedName == null && normalizedTranslatedName == null) {
@@ -267,7 +269,7 @@ public class NovelGalleryRepository {
                 + " HAVING novel_count > 0"
                 + " ORDER BY " + String.join(", ", orderBy) + ", novel_count DESC, t.tag_id ASC"
                 + " LIMIT 1";
-        List<NovelTagOption> items = jdbc.query(sql, params, (rs, rowNum) -> new NovelTagOption(
+        List<TagOption> items = jdbc.query(sql, params, (rs, rowNum) -> new TagOption(
                 rs.getLong("tag_id"),
                 rs.getString("name"),
                 rs.getString("translated_name"),

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novel.schedule;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 
 import java.net.URI;
@@ -22,7 +22,7 @@ record PixivScheduledNovelMetadata(
         Long authorId,
         String authorName,
         String description,
-        List<TagDto> tags,
+        List<WorkTag> tags,
         Long seriesId,
         Long seriesOrder,
         String seriesTitle,
@@ -143,20 +143,20 @@ record PixivScheduledNovelMetadata(
         return true;
     }
 
-    private static List<String> tagTokens(List<TagDto> tags) {
+    private static List<String> tagTokens(List<WorkTag> tags) {
         List<String> tokens = new ArrayList<>();
-        for (TagDto tag : tags) {
-            if (tag.getName() != null && !tag.getName().isBlank()) {
-                tokens.add(tag.getName().toLowerCase(Locale.ROOT));
+        for (WorkTag tag : tags) {
+            if (tag.name() != null && !tag.name().isBlank()) {
+                tokens.add(tag.name().toLowerCase(Locale.ROOT));
             }
-            if (tag.getTranslatedName() != null && !tag.getTranslatedName().isBlank()) {
-                tokens.add(tag.getTranslatedName().toLowerCase(Locale.ROOT));
+            if (tag.translatedName() != null && !tag.translatedName().isBlank()) {
+                tokens.add(tag.translatedName().toLowerCase(Locale.ROOT));
             }
         }
         return tokens;
     }
 
-    private static List<TagDto> tags(JsonNode body) {
+    private static List<WorkTag> tags(JsonNode body) {
         JsonNode values = body.path("tags").path("tags");
         if (!values.isArray() || values.isEmpty()) {
             values = body.path("tags");
@@ -164,7 +164,7 @@ record PixivScheduledNovelMetadata(
         if (!values.isArray() || values.isEmpty()) {
             return List.of();
         }
-        List<TagDto> tags = new ArrayList<>();
+        List<WorkTag> tags = new ArrayList<>();
         for (JsonNode value : values) {
             String name = value.isTextual()
                     ? value.asText("")
@@ -180,7 +180,7 @@ record PixivScheduledNovelMetadata(
                     translated = english;
                 }
             }
-            tags.add(new TagDto(name, translated));
+            tags.add(new WorkTag(null, name, translated));
         }
         return List.copyOf(tags);
     }
@@ -347,6 +347,6 @@ record PixivScheduledNovelMetadata(
         }
     }
 
-    record SeriesMetadata(String description, String coverUrl, List<TagDto> tags) {
+    record SeriesMetadata(String description, String coverUrl, List<WorkTag> tags) {
     }
 }

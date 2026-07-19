@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.response;
 
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
 import java.util.Map;
@@ -14,7 +14,7 @@ public record NovelMetaResponse(
         Long authorId,
         String authorName,
         String description,
-        List<TagDto> tags,
+        List<WorkTag> tags,
         Long seriesId,
         Long seriesOrder,
         String seriesTitle,

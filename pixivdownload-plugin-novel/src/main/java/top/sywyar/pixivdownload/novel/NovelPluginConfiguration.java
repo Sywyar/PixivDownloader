@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
@@ -415,12 +416,11 @@ public class NovelPluginConfiguration {
                                                NovelWorkDetailsRepository novelWorkDetailsRepository,
                                                WorkAssetService workAssetService,
                                                CollectionService collectionService,
-                                               UserQuotaService userQuotaService,
-                                               MultiModeSettings multiModeSettings,
+                                               ArchiveExportService archiveExportService,
                                                ObjectMapper objectMapper) {
         return new NovelBatchService(novelGalleryService, workMetadataRepository,
                 novelWorkDetailsRepository, workAssetService, collectionService,
-                userQuotaService, multiModeSettings, objectMapper);
+                archiveExportService, objectMapper);
     }
 
     @Bean

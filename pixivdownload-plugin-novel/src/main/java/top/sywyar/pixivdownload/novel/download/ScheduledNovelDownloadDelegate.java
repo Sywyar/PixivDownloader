@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel.download;
 
 import lombok.RequiredArgsConstructor;
+import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelSettings;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
@@ -8,12 +9,15 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 小说作品类型的计划任务下载执行器（{@link ScheduledWorkRunner#kind()} == {@link ScheduledWorkKind#NOVEL}）：
@@ -67,7 +71,7 @@ public class ScheduledNovelDownloadDelegate implements ScheduledWorkRunner {
         o.setReadingTimeSeconds(w.readingTimeSeconds());
         o.setPageCount(w.pageCount());
         o.setDescription(w.description());
-        o.setTags(w.tags());
+        o.setTags(toWorkTags(w.tags()));
         o.setSeriesId(w.seriesId());
         o.setSeriesOrder(w.seriesOrder());
         o.setSeriesTitle(w.seriesTitle());
@@ -95,10 +99,24 @@ public class ScheduledNovelDownloadDelegate implements ScheduledWorkRunner {
             o.setSeriesCoverUrl(w.seriesCoverUrl());
         }
         if (w.seriesTags() != null) {
-            o.setSeriesTags(w.seriesTags());
+            o.setSeriesTags(toWorkTags(w.seriesTags()));
         }
         req.setOther(o);
         return novelDownloader.downloadBlocking(req, null);
+    }
+
+    /** 旧 app schedule 载体仍携带 TagDto；只在这个待删除的输入边界转换为 novel 使用的 WorkTag。 */
+    private static List<WorkTag> toWorkTags(List<TagDto> tags) {
+        if (tags == null) {
+            return null;
+        }
+        List<WorkTag> converted = new ArrayList<>(tags.size());
+        for (TagDto tag : tags) {
+            converted.add(tag == null
+                    ? null
+                    : new WorkTag(tag.getTagId(), tag.getName(), tag.getTranslatedName()));
+        }
+        return converted;
     }
 
     @Override

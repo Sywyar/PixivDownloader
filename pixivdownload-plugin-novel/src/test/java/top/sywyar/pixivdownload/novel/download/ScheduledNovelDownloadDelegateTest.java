@@ -7,6 +7,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelSettings;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
@@ -45,8 +46,8 @@ class ScheduledNovelDownloadDelegateTest {
     @Test
     @DisplayName("中性载体 + 设置逐字段映射为 NovelDownloadRequest 并经 downloadBlocking 同步下载")
     void mapsWorkAndSettingsToRequest() {
-        List<TagDto> tags = List.of(new TagDto("orig", "trans"));
-        List<TagDto> seriesTags = List.of(new TagDto("s-orig", "s-trans"));
+        List<TagDto> tags = List.of(new TagDto(null, "orig", "trans"));
+        List<TagDto> seriesTags = List.of(new TagDto(null, "s-orig", "s-trans"));
         ScheduledNovelWork work = new ScheduledNovelWork(
                 111L, "标题", "正文 markup",
                 9L, "作者", 1, true,
@@ -83,7 +84,7 @@ class ScheduledNovelDownloadDelegateTest {
         assertThat(o.getReadingTimeSeconds()).isEqualTo(90);
         assertThat(o.getPageCount()).isEqualTo(3);
         assertThat(o.getDescription()).isEqualTo("简介");
-        assertThat(o.getTags()).isEqualTo(tags);
+        assertThat(o.getTags()).containsExactly(new WorkTag(null, "orig", "trans"));
         assertThat(o.getSeriesId()).isEqualTo(42L);
         assertThat(o.getSeriesOrder()).isEqualTo(7L);
         assertThat(o.getSeriesTitle()).isEqualTo("系列名");
@@ -103,7 +104,7 @@ class ScheduledNovelDownloadDelegateTest {
         // 系列富信息（非空）逐字应用
         assertThat(o.getSeriesDescription()).isEqualTo("系列简介");
         assertThat(o.getSeriesCoverUrl()).isEqualTo("https://series-cover");
-        assertThat(o.getSeriesTags()).isEqualTo(seriesTags);
+        assertThat(o.getSeriesTags()).containsExactly(new WorkTag(null, "s-orig", "s-trans"));
     }
 
     @Test

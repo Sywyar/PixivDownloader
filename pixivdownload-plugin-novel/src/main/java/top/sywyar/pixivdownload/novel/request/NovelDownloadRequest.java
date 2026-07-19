@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.request;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import lombok.Data;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
 import java.util.Map;
@@ -31,7 +31,7 @@ public class NovelDownloadRequest {
         private Integer readingTimeSeconds;
         private Integer pageCount;
         private String description;
-        private List<TagDto> tags;
+        private List<WorkTag> tags;
         private Long seriesId;
         private Long seriesOrder;
         private String seriesTitle;
@@ -40,7 +40,7 @@ public class NovelDownloadRequest {
         /** 系列封面 URL（pximg），下载时若本地尚无封面则尝试 SSRF-safe 拉取后落盘。 */
         private String seriesCoverUrl;
         /** 系列标签；下载时整体替换 novel_series_tags。 */
-        private List<TagDto> seriesTags;
+        private List<WorkTag> seriesTags;
         private String fileNameTemplate;
         private String fileName;
         private Long fileNameTimestamp;

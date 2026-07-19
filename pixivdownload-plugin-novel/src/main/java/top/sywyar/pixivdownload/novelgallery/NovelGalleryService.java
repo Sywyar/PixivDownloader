@@ -1,9 +1,6 @@
 package top.sywyar.pixivdownload.novelgallery;
 
 import lombok.RequiredArgsConstructor;
-import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
 import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRepository;
 import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRow;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
@@ -228,7 +225,7 @@ public class NovelGalleryService {
                 details.pageCount(),
                 meta.isOriginal(),
                 details.xLanguage(),
-                toTagDtos(meta.tags()),
+                toWorkTags(meta.tags()),
                 details.coverExt(),
                 details.embeddedImageIds(),
                 details.translatedLanguages()
@@ -243,13 +240,13 @@ public class NovelGalleryService {
         return out;
     }
 
-    private static List<TagDto> toTagDtos(List<WorkTag> tags) {
+    private static List<WorkTag> toWorkTags(List<WorkTag> tags) {
         if (tags == null || tags.isEmpty()) {
             return List.of();
         }
-        List<TagDto> out = new ArrayList<>(tags.size());
+        List<WorkTag> out = new ArrayList<>(tags.size());
         for (WorkTag tag : tags) {
-            out.add(new TagDto(tag.tagId(), tag.name(), tag.translatedName()));
+            out.add(new WorkTag(tag.tagId(), tag.name(), tag.translatedName()));
         }
         return out;
     }
@@ -404,7 +401,7 @@ public class NovelGalleryService {
             Integer pageCount,
             Boolean isOriginal,
             String xLanguage,
-            List<TagDto> tags,
+            List<WorkTag> tags,
             String coverExt,
             List<String> embeddedImageIds,
             List<String> translatedLanguages

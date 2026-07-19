@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
@@ -357,7 +357,7 @@ public class NovelMergeService {
     private NovelEpubWriter.Metadata buildSeriesMetadata(long seriesId, String seriesTitle,
                                                          String seriesDescription) {
         List<String> subjects = novelDatabase.getNovelSeriesTags(seriesId).stream()
-                .map(TagDto::getName)
+                .map(WorkTag::name)
                 .filter(n -> n != null && !n.isBlank())
                 .toList();
         String source = "https://www.pixiv.net/novel/series/" + seriesId;

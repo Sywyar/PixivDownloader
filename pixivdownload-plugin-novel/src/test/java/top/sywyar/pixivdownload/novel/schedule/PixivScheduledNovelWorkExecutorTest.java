@@ -245,8 +245,8 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(other.getPageCount()).isEqualTo(2);
         assertThat(other.getDescription()).isEqualTo("<a href=\"/users/9\">简介</a>");
         assertThat(other.getTags()).singleElement().satisfies(tag -> {
-            assertThat(tag.getName()).isEqualTo("Orig");
-            assertThat(tag.getTranslatedName()).isEqualTo("Translated");
+            assertThat(tag.name()).isEqualTo("Orig");
+            assertThat(tag.translatedName()).isEqualTo("Translated");
         });
         assertThat(other.getSeriesId()).isEqualTo(42L);
         assertThat(other.getSeriesOrder()).isEqualTo(7L);
@@ -267,8 +267,8 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(other.getSeriesDescription()).isEqualTo("系列简介");
         assertThat(other.getSeriesCoverUrl()).isEqualTo("https://i.pximg.net/series-cover.jpg");
         assertThat(other.getSeriesTags()).singleElement().satisfies(tag -> {
-            assertThat(tag.getName()).isEqualTo("SeriesTag");
-            assertThat(tag.getTranslatedName()).isEqualTo("Series translated");
+            assertThat(tag.name()).isEqualTo("SeriesTag");
+            assertThat(tag.translatedName()).isEqualTo("Series translated");
         });
 
         ArgumentCaptor<JsonNode> sidecarBody = ArgumentCaptor.forClass(JsonNode.class);

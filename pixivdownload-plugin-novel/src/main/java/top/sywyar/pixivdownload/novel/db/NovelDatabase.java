@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 
 import java.util.Collection;
@@ -333,13 +333,13 @@ public class NovelDatabase {
      * novel tags share the same name → tag_id mapping.
      */
     @Transactional
-    public void saveNovelTags(long novelId, List<TagDto> tags) {
+    public void saveNovelTags(long novelId, List<WorkTag> tags) {
         if (tags == null || tags.isEmpty()) return;
-        for (TagDto t : tags) {
+        for (WorkTag t : tags) {
             if (t == null) continue;
-            String name = t.getName();
+            String name = t.name();
             if (name == null || name.isBlank()) continue;
-            Long tagId = pixivDatabase.upsertTagAndGetId(name, t.getTranslatedName());
+            Long tagId = pixivDatabase.upsertTagAndGetId(name, t.translatedName());
             if (tagId != null) {
                 novelMapper.insertNovelTag(novelId, tagId);
             }
@@ -354,14 +354,14 @@ public class NovelDatabase {
         novelMapper.deleteNovelTags(novelId);
     }
 
-    public List<TagDto> getNovelSeriesTags(long seriesId) {
+    public List<WorkTag> getNovelSeriesTags(long seriesId) {
         if (seriesId <= 0) return Collections.emptyList();
         List<NovelTagRow> rows = novelMapper.findNovelSeriesTags(seriesId);
         if (rows == null || rows.isEmpty()) {
             return Collections.emptyList();
         }
         return rows.stream()
-                .map(row -> new TagDto(row.tagId(), row.name(), row.translatedName()))
+                .map(row -> new WorkTag(row.tagId(), row.name(), row.translatedName()))
                 .toList();
     }
 
@@ -369,13 +369,13 @@ public class NovelDatabase {
      * Reuse the shared {@code tags} pool so series tags and novel tags share the same name → tag_id mapping.
      */
     @Transactional
-    public void saveNovelSeriesTags(long seriesId, List<TagDto> tags) {
+    public void saveNovelSeriesTags(long seriesId, List<WorkTag> tags) {
         if (seriesId <= 0 || tags == null || tags.isEmpty()) return;
-        for (TagDto t : tags) {
+        for (WorkTag t : tags) {
             if (t == null) continue;
-            String name = t.getName();
+            String name = t.name();
             if (name == null || name.isBlank()) continue;
-            Long tagId = pixivDatabase.upsertTagAndGetId(name, t.getTranslatedName());
+            Long tagId = pixivDatabase.upsertTagAndGetId(name, t.translatedName());
             if (tagId != null) {
                 novelMapper.insertNovelSeriesTag(seriesId, tagId);
             }

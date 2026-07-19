@@ -28,8 +28,6 @@ import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.model.WorkSummary;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
 
 import java.util.List;
 import java.util.Map;
@@ -135,7 +133,7 @@ class NovelGalleryServiceTest {
             assertThat(first.embeddedImageIds()).containsExactly("img-a");
             assertThat(first.translatedLanguages()).containsExactly("zh-CN");
             assertThat(first.tags()).hasSize(1);
-            assertThat(first.tags().get(0).getName()).isEqualTo("魔法");
+            assertThat(first.tags().get(0).name()).isEqualTo("魔法");
 
             ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
             verify(novelOwnedWorkSearch).search(captor.capture(), org.mockito.ArgumentMatchers.isNull());

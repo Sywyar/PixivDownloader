@@ -6,7 +6,7 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
@@ -46,7 +46,7 @@ public class NovelSeriesService {
      */
     public void observeWithMetadata(long seriesId, String title, Long authorId,
                                     String description, String coverUrl,
-                                    List<TagDto> tags, String cookie) {
+                                    List<WorkTag> tags, String cookie) {
         if (seriesId <= 0) return;
         try {
             novelDatabase.observeSeries(seriesId, StringUtils.hasText(title) ? title : null, authorId);

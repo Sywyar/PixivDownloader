@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.response;
 
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
 
@@ -22,7 +22,7 @@ public record NovelSeriesResponse(
             int totalWordCount,
             String caption,
             String coverUrl,
-            List<TagDto> tags
+            List<WorkTag> tags
     ) {
         public NovelSeriesMeta(long seriesId, String title, Long authorId, String authorName, int total,
                                String language, boolean isOriginal, int totalCharacterCount, int totalWordCount) {
@@ -44,6 +44,6 @@ public record NovelSeriesResponse(
             int seriesOrder,
             String coverUrl,
             Long uploadTimestamp,
-            List<TagDto> tags
+            List<WorkTag> tags
     ) {}
 }

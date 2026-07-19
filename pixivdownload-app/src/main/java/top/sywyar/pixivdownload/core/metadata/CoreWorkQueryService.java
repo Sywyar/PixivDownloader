@@ -2,12 +2,10 @@ package top.sywyar.pixivdownload.core.metadata;
 
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesTitleRow;
-import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelWorkSearch;
 
 import org.springframework.stereotype.Component;
@@ -157,11 +155,8 @@ public class CoreWorkQueryService implements WorkQueryService {
                                 tag.artworkCount()));
             }
             case NOVEL -> {
-                NovelTagOption tag = novelGalleryRepository.findTagByExactName(name, translatedName);
-                yield tag == null
-                        ? Optional.empty()
-                        : Optional.of(new TagOption(tag.tagId(), tag.name(), tag.translatedName(),
-                                tag.novelCount()));
+                yield Optional.ofNullable(
+                        novelGalleryRepository.findTagByExactName(name, translatedName));
             }
         };
     }
@@ -288,19 +283,19 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     /** 小说作者目录：可见作品计数（restriction 为 null 时统计全部未删行）+ 作者池补名。 */
     private List<AuthorSummary> novelAuthors(AuthorQuery query) {
-        List<NovelAuthorSummary> counts = novelGalleryRepository
+        List<AuthorSummary> counts = novelGalleryRepository
                 .findVisibleNovelAuthorCounts(toGuestRestriction(query.restriction()));
         Set<Long> authorIds = new LinkedHashSet<>();
-        for (NovelAuthorSummary item : counts) {
+        for (AuthorSummary item : counts) {
             authorIds.add(item.authorId());
         }
         Map<Long, String> names = authorService.getAuthorNames(authorIds);
         List<AuthorSummary> out = new ArrayList<>(counts.size());
-        for (NovelAuthorSummary item : counts) {
+        for (AuthorSummary item : counts) {
             out.add(new AuthorSummary(
                     item.authorId(),
                     names.getOrDefault(item.authorId(), String.valueOf(item.authorId())),
-                    item.novelCount()));
+                    item.workCount()));
         }
         return out;
     }
@@ -323,13 +318,8 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     /** 小说标签目录：可见作品计数（restriction 为 null 时统计全部未删行），钳制收在仓库侧。 */
     private List<TagOption> novelTags(TagQuery query) {
-        List<NovelTagOption> tags = novelGalleryRepository.findVisibleNovelTagCounts(
+        return novelGalleryRepository.findVisibleNovelTagCounts(
                 toGuestRestriction(query.restriction()), query.search(), query.limit());
-        List<TagOption> out = new ArrayList<>(tags.size());
-        for (NovelTagOption tag : tags) {
-            out.add(new TagOption(tag.tagId(), tag.name(), tag.translatedName(), tag.novelCount()));
-        }
-        return out;
     }
 
     private static List<WorkSummary> toSummaries(WorkType workType, List<Long> ids) {

@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
@@ -234,7 +234,7 @@ public class NovelPixivProxyController {
         int totalWordCount = mb.path("publishedTotalWordCount").asInt(0);
         String caption = mb.path("caption").asText("");
         String coverUrl = extractSeriesCoverUrl(mb);
-        List<TagDto> seriesTags = extractTags(mb);
+        List<WorkTag> seriesTags = extractTags(mb);
 
         int safePage = Math.max(1, page);
         int limit = 30;
@@ -616,7 +616,7 @@ public class NovelPixivProxyController {
         return parsed == null ? fallback : parsed;
     }
 
-    private static List<TagDto> extractTags(JsonNode body) {
+    private static List<WorkTag> extractTags(JsonNode body) {
         JsonNode tagsArr = body.path("tags").path("tags");
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
             tagsArr = body.path("tags");
@@ -624,7 +624,7 @@ public class NovelPixivProxyController {
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
             return List.of();
         }
-        List<TagDto> out = new ArrayList<>();
+        List<WorkTag> out = new ArrayList<>();
         for (JsonNode t : tagsArr) {
             String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
             if (name.isEmpty()) continue;
@@ -634,7 +634,7 @@ public class NovelPixivProxyController {
                 String en = translation.path("en").asText("");
                 if (!en.isEmpty()) translated = en;
             }
-            out.add(new TagDto(name, translated));
+            out.add(new WorkTag(null, name, translated));
         }
         return out;
     }

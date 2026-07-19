@@ -28,21 +28,17 @@ import static org.mockito.Mockito.when;
 class NovelMetadataRepositoryTest {
 
     private static final Set<String> EXPECTED_HOST_NOVEL_SOURCE_FILES = Set.of(
-            "NovelAuthorSummary.java",
             "NovelGalleryRepository.java",
             "NovelMetadataRepository.java",
             "NovelMetadataRow.java",
             "NovelSeriesTitleRow.java",
-            "NovelTagOption.java",
             "NovelWorkSearch.java");
 
     private static final List<Class<?>> HOST_NOVEL_TYPES = List.of(
-            NovelAuthorSummary.class,
             NovelGalleryRepository.class,
             NovelMetadataRepository.class,
             NovelMetadataRow.class,
             NovelSeriesTitleRow.class,
-            NovelTagOption.class,
             NovelWorkSearch.class);
 
     private SingleConnectionDataSource dataSource;

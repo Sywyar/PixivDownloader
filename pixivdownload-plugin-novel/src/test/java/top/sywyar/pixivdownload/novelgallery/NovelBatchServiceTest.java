@@ -10,8 +10,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
+import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.core.work.model.LocalWorkAsset;
@@ -20,8 +24,6 @@ import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,10 +35,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -60,18 +59,30 @@ class NovelBatchServiceTest {
     @Mock
     private CollectionService collectionService;
     @Mock
-    private UserQuotaService userQuotaService;
-    @Mock
-    private MultiModeSettings multiModeSettings;
+    private ArchiveExportService archiveExportService;
 
     private NovelBatchService service;
 
     @BeforeEach
     void setUp() {
-        lenient().when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(60);
+        lenient().when(archiveExportService.normalizeFormat(nullable(String.class))).thenAnswer(invocation -> {
+            String normalized = ArchiveExportRules.normalizeFormatToken(invocation.getArgument(0));
+            if (!ArchiveExportRules.supportsFormat(normalized)) {
+                throw new IllegalArgumentException("unsupported format: " + normalized);
+            }
+            return normalized;
+        });
+        lenient().when(archiveExportService.export(any())).thenAnswer(invocation -> {
+            ArchiveExportRequest request = invocation.getArgument(0);
+            if (request.entries().isEmpty() || request.fileCount() <= 0) {
+                return ArchiveExportResult.empty(request.workCount());
+            }
+            return new ArchiveExportResult(
+                    "token-2", 3600L, request.workCount(), request.fileCount());
+        });
         service = new NovelBatchService(novelGalleryService, workMetadataRepository,
                 novelWorkDetailsRepository, workAssetService, collectionService,
-                userQuotaService, multiModeSettings, new ObjectMapper());
+                archiveExportService, new ObjectMapper());
     }
 
     @Test
@@ -96,10 +107,12 @@ class NovelBatchServiceTest {
     }
 
     @Test
-    @DisplayName("不支持的打包格式应抛出 400")
+    @DisplayName("不支持的打包格式应由核心归档端口校验并透传失败")
     void shouldRejectUnsupportedFormat() {
         assertThatThrownBy(() -> service.exportNovels(List.of(1L), "author", "7z", false))
-                .isInstanceOf(LocalizedException.class);
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("7z");
+        verify(archiveExportService).normalizeFormat("7z");
     }
 
     @Test
@@ -117,13 +130,12 @@ class NovelBatchServiceTest {
     }
 
     @Test
-    @DisplayName("勾选导出后删除时，打包成功回调应执行批量删除")
-    void shouldDeleteAfterExportViaCallback() throws Exception {
-        ArgumentCaptor<Runnable> afterReady = ArgumentCaptor.forClass(Runnable.class);
-        exportSingleNovel("author", true, afterReady);
-        assertThat(afterReady.getValue()).isNotNull();
-        afterReady.getValue().run();
-        verify(novelGalleryService).deleteNovels(List.of(7L));
+    @DisplayName("勾选导出后删除时，应向核心归档端口提交小说删除指令")
+    void shouldRequestDeleteAfterExport() throws Exception {
+        ArchiveExportRequest request = exportSingleNovelRequest("author", true);
+
+        assertThat(request.deleteAfterReady())
+                .isEqualTo(new ArchiveWorkDeletion(WorkType.NOVEL.name(), List.of(7L)));
     }
 
     @Test
@@ -135,16 +147,22 @@ class NovelBatchServiceTest {
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
         when(novelWorkDetailsRepository.findAll(List.of(7L))).thenReturn(Map.of());
 
-        ArchiveExportSupport.ExportResult result =
+        ArchiveExportResult result =
                 service.exportNovels(List.of(7L), "author", "zip", false);
 
         assertThat(result.emptyArchive()).isTrue();
         assertThat(result.workCount()).isEqualTo(1);
-        verifyNoInteractions(workAssetService, userQuotaService);
+        verifyNoInteractions(workAssetService);
+        ArgumentCaptor<ArchiveExportRequest> requestCaptor =
+                ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().entries()).isEmpty();
+        assertThat(requestCaptor.getValue().workCount()).isEqualTo(1);
+        assertThat(requestCaptor.getValue().fileCount()).isZero();
     }
 
     @Test
-    @DisplayName("混合导出时删除回调只删除实际进入清单的小说")
+    @DisplayName("混合导出时删除指令只包含实际进入清单的小说")
     void shouldDeleteOnlyNovelsIncludedInManifest() throws Exception {
         Path folder = tempDir.resolve("novel-7");
         Files.createDirectories(folder);
@@ -163,28 +181,23 @@ class NovelBatchServiceTest {
         when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
                 new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
                         List.of(new WorkAssetFile(0, content, "txt")))));
-        when(userQuotaService.triggerAdminFileArchive(anyList(), anyString(), anyInt(), any()))
-                .thenReturn("token-2");
-        ArgumentCaptor<Runnable> afterReady = ArgumentCaptor.forClass(Runnable.class);
-
-        ArchiveExportSupport.ExportResult result =
+        ArchiveExportResult result =
                 service.exportNovels(List.of(7L, 8L), "author", "zip", true);
 
         assertThat(result.archiveToken()).isEqualTo("token-2");
-        verify(userQuotaService).triggerAdminFileArchive(
-                anyList(), eq("novels"), eq(2), afterReady.capture());
-        afterReady.getValue().run();
-        verify(novelGalleryService).deleteNovels(List.of(7L));
+        ArgumentCaptor<ArchiveExportRequest> requestCaptor =
+                ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().deleteAfterReady())
+                .isEqualTo(new ArchiveWorkDeletion(WorkType.NOVEL.name(), List.of(7L)));
     }
 
-    private List<UserQuotaService.ArchiveItem> exportSingleNovel(String groupBy, boolean deleteAfter)
+    private List<ArchiveExportEntry> exportSingleNovel(String groupBy, boolean deleteAfter)
             throws Exception {
-        return exportSingleNovel(groupBy, deleteAfter, ArgumentCaptor.forClass(Runnable.class));
+        return exportSingleNovelRequest(groupBy, deleteAfter).entries();
     }
 
-    @SuppressWarnings("unchecked")
-    private List<UserQuotaService.ArchiveItem> exportSingleNovel(String groupBy, boolean deleteAfter,
-                                                                 ArgumentCaptor<Runnable> afterReady)
+    private ArchiveExportRequest exportSingleNovelRequest(String groupBy, boolean deleteAfter)
             throws Exception {
         Path folder = tempDir.resolve("novel-7");
         Files.createDirectories(folder);
@@ -199,19 +212,20 @@ class NovelBatchServiceTest {
         when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
                 new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
                         List.of(new WorkAssetFile(0, content, "txt")))));
-        when(userQuotaService.triggerAdminFileArchive(anyList(), anyString(), anyInt(), any()))
-                .thenReturn("token-2");
-
-        ArchiveExportSupport.ExportResult result =
+        ArchiveExportResult result =
                 service.exportNovels(List.of(7L), groupBy, "zip", deleteAfter);
 
         assertThat(result.archiveToken()).isEqualTo("token-2");
         assertThat(result.fileCount()).isEqualTo(1);
 
-        ArgumentCaptor<List<UserQuotaService.ArchiveItem>> itemsCaptor =
-                ArgumentCaptor.forClass((Class) List.class);
-        verify(userQuotaService).triggerAdminFileArchive(
-                itemsCaptor.capture(), eq("novels"), eq(1), afterReady.capture());
-        return itemsCaptor.getValue();
+        ArgumentCaptor<ArchiveExportRequest> requestCaptor =
+                ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(requestCaptor.capture());
+        ArchiveExportRequest request = requestCaptor.getValue();
+        assertThat(request.exportType()).isEqualTo("novels");
+        assertThat(request.workCount()).isEqualTo(1);
+        assertThat(request.fileCount()).isEqualTo(1);
+        assertThat(request.format()).isEqualTo("zip");
+        return request;
     }
 }

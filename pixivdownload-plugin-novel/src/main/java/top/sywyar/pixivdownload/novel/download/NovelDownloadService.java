@@ -24,7 +24,7 @@ import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -863,7 +863,7 @@ public class NovelDownloadService implements NovelDownloader {
         }
         List<String> subjects = other.getTags() == null ? List.of()
                 : other.getTags().stream()
-                        .map(TagDto::getName)
+                        .map(WorkTag::name)
                         .filter(n -> n != null && !n.isBlank())
                         .toList();
         String source = "https://www.pixiv.net/novel/show.php?id=" + novelId;

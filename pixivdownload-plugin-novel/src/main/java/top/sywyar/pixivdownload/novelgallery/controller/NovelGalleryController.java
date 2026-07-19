@@ -6,9 +6,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
-import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -20,6 +19,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
@@ -176,7 +176,7 @@ public class NovelGalleryController {
     @PostMapping("/novels/export")
     public ResponseEntity<BatchExportResponse> exportNovels(
             @RequestBody NovelBatchRequest request) {
-        ArchiveExportSupport.ExportResult result = novelBatchService.exportNovels(
+        ArchiveExportResult result = novelBatchService.exportNovels(
                 novelBatchService.resolveNovelIds(request),
                 request == null ? null : request.groupBy(),
                 request == null ? null : request.format(),
@@ -475,7 +475,7 @@ public class NovelGalleryController {
 
     public record NovelSeriesDetailResponse(long seriesId, String title, Long authorId, long updatedTime,
                                             String description, String coverExt, String coverFolder,
-                                            List<TagDto> tags, List<String> translatedLanguages,
+                                            List<WorkTag> tags, List<String> translatedLanguages,
                                             String translatedTitle, String translatedDescription) {}
 
     private NovelSeriesDetailResponse toDetailResponse(NovelSeries series, String translatedTitle,
