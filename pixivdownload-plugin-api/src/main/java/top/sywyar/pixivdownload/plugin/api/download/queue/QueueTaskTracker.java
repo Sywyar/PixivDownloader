@@ -61,12 +61,21 @@ public final class QueueTaskTracker {
 
     /** 普通“清空队列”只取消当前任务，不改变后续接收能力。 */
     public int cancelActive() {
-        return state.cancelMatching(owner -> true);
+        return cancelMatchingOwners(owner -> true);
     }
 
     /** 普通按 owner 清空只取消当前匹配任务，不改变后续接收能力。 */
     public int cancelForOwner(String ownerKey) {
-        return state.cancelMatching(owner -> Objects.equals(owner, ownerKey));
+        return cancelMatchingOwners(owner -> Objects.equals(owner, ownerKey));
+    }
+
+    /**
+     * 普通按 owner 匹配器清空只取消当前匹配任务，不改变后续接收能力。
+     * 匹配器只针对调用时的活动任务快照执行，且不会在 tracker 状态锁内回调；整份快照完成匹配后才发送取消，
+     * 因此匹配器抛出异常时不会部分取消任务。返回值是该快照的匹配数，不承诺并发终结下实际新发送的取消信号数。
+     */
+    public int cancelMatchingOwners(Predicate<String> ownerMatcher) {
+        return state.cancelMatching(Objects.requireNonNull(ownerMatcher, "ownerMatcher"));
     }
 
     public boolean isAccepting() {
@@ -313,10 +322,11 @@ public final class QueueTaskTracker {
         }
 
         int cancelMatching(Predicate<String> matcher) {
-            List<Task> tasks;
+            List<Task> snapshot;
             synchronized (this) {
-                tasks = active.stream().filter(task -> matcher.test(task.ownerKey())).toList();
+                snapshot = new ArrayList<>(active);
             }
+            List<Task> tasks = snapshot.stream().filter(task -> matcher.test(task.ownerKey())).toList();
             cancelTasks(tasks);
             return tasks.size();
         }
