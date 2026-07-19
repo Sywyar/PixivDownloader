@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
-import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.gallery.web.GalleryWorkQueryFactory;
 import top.sywyar.pixivdownload.core.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
@@ -50,7 +50,7 @@ public class GalleryBatchService {
     private final GalleryService galleryService;
     private final WorkMetadataRepository workMetadataRepository;
     private final WorkAssetService workAssetService;
-    private final ArtworkCollectionMembership collectionMembership;
+    private final WorkCollectionMembership collectionMembership;
     private final ArchiveExportService archiveExportService;
     private final ObjectMapper objectMapper;
 
@@ -66,7 +66,7 @@ public class GalleryBatchService {
     public int collectArtworks(Collection<Long> artworkIds, long collectionId) {
         int changed = 0;
         for (Long id : ArchiveExportRules.normalizeIds(artworkIds)) {
-            if (collectionMembership.addArtwork(collectionId, id)) {
+            if (collectionMembership.addWork(WorkType.ARTWORK, collectionId, id)) {
                 changed++;
             }
         }

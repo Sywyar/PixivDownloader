@@ -14,8 +14,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.config.DownloadSettings;
@@ -23,6 +21,8 @@ import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.ai.AiService;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
+import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
@@ -33,6 +33,7 @@ import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.controller.NovelDownloadController;
@@ -72,12 +73,12 @@ import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.novelgallery.frontend.NovelGalleryFrontendProvider;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 /**
@@ -138,9 +139,9 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NovelMergeService novelMergeService(DownloadSettings downloadConfig,
                                                NovelDatabase novelDatabase,
-                                               AuthorService authorService,
+                                               WorkQueryService workQueryService,
                                                MessageResolver messages) {
-        return new NovelMergeService(downloadConfig, novelDatabase, authorService, messages);
+        return new NovelMergeService(downloadConfig, novelDatabase, workQueryService, messages);
     }
 
     @Bean
@@ -187,10 +188,11 @@ public class NovelPluginConfiguration {
             PixivDatabase pixivDatabase,
             NovelDatabase novelDatabase,
             NovelSeriesService novelSeriesService,
-            AuthorService authorService,
-            CollectionService collectionService,
+            AuthorObservationService authorObservationService,
+            WorkCollectionMembership workCollectionMembership,
+            CollectionDownloadRootResolver collectionDownloadRootResolver,
             PixivBookmarkService pixivBookmarkService,
-            @Nullable UserQuotaService userQuotaService,
+            @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
             @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
             @Qualifier("taskScheduler") TaskScheduler taskScheduler,
             NovelDownloadExecutionLane downloadExecutionLane,
@@ -198,7 +200,8 @@ public class NovelPluginConfiguration {
             NovelAutoTranslateService novelAutoTranslateService,
             WorkMetaCaptureService workMetaCaptureService) {
         return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase, novelSeriesService,
-                authorService, collectionService, pixivBookmarkService, userQuotaService, downloadRestTemplate,
+                authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
+                pixivBookmarkService, visitorDownloadQuotaService, downloadRestTemplate,
                 taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService, workMetaCaptureService);
     }
 
@@ -341,12 +344,13 @@ public class NovelPluginConfiguration {
                                                           NovelTranslationService novelTranslationService,
                                                           ApplicationModeProvider applicationModeProvider,
                                                           RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                          UserQuotaService userQuotaService,
+                                                          VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                           MultiModeSettings multiModeSettings,
                                                           MessageResolver messages) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
                 novelGalleryService, novelMergeService, novelTranslationService, applicationModeProvider,
-                requestOwnerIdentityResolver, workVisibilityService, userQuotaService, multiModeSettings, messages);
+                requestOwnerIdentityResolver, workVisibilityService, visitorDownloadQuotaService,
+                multiModeSettings, messages);
     }
 
     @Bean
@@ -415,11 +419,11 @@ public class NovelPluginConfiguration {
                                                WorkMetadataRepository workMetadataRepository,
                                                NovelWorkDetailsRepository novelWorkDetailsRepository,
                                                WorkAssetService workAssetService,
-                                               CollectionService collectionService,
+                                               WorkCollectionMembership workCollectionMembership,
                                                ArchiveExportService archiveExportService,
                                                ObjectMapper objectMapper) {
         return new NovelBatchService(novelGalleryService, workMetadataRepository,
-                novelWorkDetailsRepository, workAssetService, collectionService,
+                novelWorkDetailsRepository, workAssetService, workCollectionMembership,
                 archiveExportService, objectMapper);
     }
 

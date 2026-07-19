@@ -55,15 +55,18 @@ class NovelGalleryPluginModuleDependencyGuardTest {
     @Test
     @DisplayName("novel-gallery 通用查询走中性接口且仅正文适配层可读插件数据库")
     void novelGalleryServicesKeepPrivateContentAccessInOwnedAdapter() {
+        Set<String> forbiddenTypes = Set.of(
+                NovelDatabase.class.getName(),
+                hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelGalleryRepository"),
+                hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelMetadataRepository"),
+                hostType("top.sywyar.pixivdownload.author", "AuthorService"));
         noClasses()
                 .that(JavaClass.Predicates.belongToAnyOf(
                         NovelGalleryService.class,
                         NovelBatchService.class))
-                .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
-                        top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
-                        top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,
-                        top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
-                        top.sywyar.pixivdownload.author.AuthorService.class))
+                .should().dependOnClassesThat(com.tngtech.archunit.base.DescribedPredicate.describe(
+                        "宿主元数据实现或插件正文数据库",
+                        javaClass -> forbiddenTypes.contains(javaClass.getName())))
                 .because("novel-gallery 的通用元数据查询走 WorkQueryService/WorkMetadataRepository，"
                         + "删除走 WorkDeletionService，普通文件枚举走 WorkAssetService")
                 .check(CLASSES);
@@ -99,6 +102,9 @@ class NovelGalleryPluginModuleDependencyGuardTest {
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelMetadataRepository"),
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelMetadataRow"),
                 hostType("top.sywyar.pixivdownload.core.metadata.novel", "NovelSeriesTitleRow"),
+                hostType("top.sywyar.pixivdownload.author", "AuthorService"),
+                hostType("top.sywyar.pixivdownload.collection", "CollectionService"),
+                hostType("top.sywyar.pixivdownload.quota", "UserQuotaService"),
                 hostType("top.sywyar.pixivdownload.setup", "SetupService"),
                 hostType("top.sywyar.pixivdownload.setup.guest", "GuestAccessGuard"),
                 hostType("top.sywyar.pixivdownload.setup.guest", "GuestInviteSession"),

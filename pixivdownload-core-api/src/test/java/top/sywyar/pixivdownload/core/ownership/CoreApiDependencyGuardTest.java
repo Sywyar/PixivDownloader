@@ -18,7 +18,8 @@ import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
-import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
+import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
 import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
@@ -35,6 +36,8 @@ import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.stats.StatsAggregates;
 import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
@@ -43,6 +46,7 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
@@ -88,6 +92,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
                         "top.sywyar.pixivdownload.core.pixiv..",
+                        "top.sywyar.pixivdownload.core.quota..",
                         "top.sywyar.pixivdownload.core.stats..",
                         "top.sywyar.pixivdownload.core.web..",
                         "top.sywyar.pixivdownload.core.work..",
@@ -198,7 +203,7 @@ class CoreApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("core-api 模块应包含归档导出与作品收藏成员端口")
+    @DisplayName("core-api 模块应包含归档导出、作品收藏与游客下载配额端口")
     void coreApiContainsArchiveAndCollectionContracts() {
         assertThat(CLASSES.contain(ArchiveExportRules.class.getName())).isTrue();
         assertThat(CLASSES.contain(ArchiveExportEntry.class.getName())).isTrue();
@@ -206,7 +211,11 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(ArchiveExportResult.class.getName())).isTrue();
         assertThat(CLASSES.contain(ArchiveExportService.class.getName())).isTrue();
         assertThat(CLASSES.contain(ArchiveWorkDeletion.class.getName())).isTrue();
-        assertThat(CLASSES.contain(ArtworkCollectionMembership.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkCollectionMembership.class.getName())).isTrue();
+        assertThat(CLASSES.contain(CollectionDownloadRootResolver.class.getName())).isTrue();
+        assertThat(CLASSES.contain(VisitorDownloadQuotaService.class.getName())).isTrue();
+        assertThat(CLASSES.contain(VisitorDownloadQuotaReservation.class.getName())).isTrue();
+        assertThat(CLASSES.contain(AuthorObservationService.class.getName())).isTrue();
     }
 
     @Test

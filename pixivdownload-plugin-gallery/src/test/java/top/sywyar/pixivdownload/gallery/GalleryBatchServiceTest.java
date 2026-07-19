@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
-import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
@@ -49,7 +49,7 @@ class GalleryBatchServiceTest {
     @Mock
     private WorkAssetService workAssetService;
     @Mock
-    private ArtworkCollectionMembership collectionMembership;
+    private WorkCollectionMembership collectionMembership;
     @Mock
     private ArchiveExportService archiveExportService;
 
@@ -101,13 +101,13 @@ class GalleryBatchServiceTest {
     @Test
     @DisplayName("批量收藏应只通过核心收藏成员端口并统计新增数量")
     void shouldCollectThroughCoreMembershipPort() {
-        when(collectionMembership.addArtwork(9L, 1L)).thenReturn(true);
-        when(collectionMembership.addArtwork(9L, 2L)).thenReturn(false);
+        when(collectionMembership.addWork(WorkType.ARTWORK, 9L, 1L)).thenReturn(true);
+        when(collectionMembership.addWork(WorkType.ARTWORK, 9L, 2L)).thenReturn(false);
 
         assertThat(service.collectArtworks(Arrays.asList(1L, 1L, 0L, 2L), 9L)).isEqualTo(1);
 
-        verify(collectionMembership).addArtwork(9L, 1L);
-        verify(collectionMembership).addArtwork(9L, 2L);
+        verify(collectionMembership).addWork(WorkType.ARTWORK, 9L, 1L);
+        verify(collectionMembership).addWork(WorkType.ARTWORK, 9L, 2L);
     }
 
     @Test

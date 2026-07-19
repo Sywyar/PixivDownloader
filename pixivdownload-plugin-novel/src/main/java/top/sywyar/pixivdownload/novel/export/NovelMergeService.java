@@ -3,11 +3,11 @@ package top.sywyar.pixivdownload.novel.export;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
@@ -39,7 +39,7 @@ public class NovelMergeService {
 
     private final DownloadSettings downloadConfig;
     private final NovelDatabase novelDatabase;
-    private final AuthorService authorService;
+    private final WorkQueryService workQueryService;
     private final MessageResolver messages;
 
     public record MergeResult(boolean success, String message, String mergedPath, int chapterCount) {}
@@ -334,7 +334,7 @@ public class NovelMergeService {
                 authorIds.add(chapter.authorId());
             }
         }
-        Map<Long, String> names = authorService.getAuthorNames(authorIds);
+        Map<Long, String> names = workQueryService.authorNames(authorIds);
         if (series != null && series.authorId() != null) {
             String seriesAuthor = names.get(series.authorId());
             if (seriesAuthor != null && !seriesAuthor.isBlank()) {

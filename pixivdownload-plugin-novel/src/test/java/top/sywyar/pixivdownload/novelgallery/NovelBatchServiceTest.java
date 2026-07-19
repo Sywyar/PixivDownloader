@@ -9,7 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import top.sywyar.pixivdownload.collection.CollectionService;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
@@ -57,7 +57,7 @@ class NovelBatchServiceTest {
     @Mock
     private WorkAssetService workAssetService;
     @Mock
-    private CollectionService collectionService;
+    private WorkCollectionMembership workCollectionMembership;
     @Mock
     private ArchiveExportService archiveExportService;
 
@@ -81,7 +81,7 @@ class NovelBatchServiceTest {
                     "token-2", 3600L, request.workCount(), request.fileCount());
         });
         service = new NovelBatchService(novelGalleryService, workMetadataRepository,
-                novelWorkDetailsRepository, workAssetService, collectionService,
+                novelWorkDetailsRepository, workAssetService, workCollectionMembership,
                 archiveExportService, new ObjectMapper());
     }
 
@@ -104,6 +104,18 @@ class NovelBatchServiceTest {
         when(novelGalleryService.findNovelIds(any())).thenReturn(List.of(7L, 8L, 9L));
 
         assertThat(service.resolveNovelIds(request)).containsExactly(7L, 9L);
+    }
+
+    @Test
+    @DisplayName("批量收藏应只通过通用作品收藏端口并统计新增数量")
+    void shouldCollectThroughWorkMembershipPort() {
+        when(workCollectionMembership.addWork(WorkType.NOVEL, 9L, 1L)).thenReturn(true);
+        when(workCollectionMembership.addWork(WorkType.NOVEL, 9L, 2L)).thenReturn(false);
+
+        assertThat(service.collectNovels(Arrays.asList(1L, 1L, 0L, 2L), 9L)).isEqualTo(1);
+
+        verify(workCollectionMembership).addWork(WorkType.NOVEL, 9L, 1L);
+        verify(workCollectionMembership).addWork(WorkType.NOVEL, 9L, 2L);
     }
 
     @Test

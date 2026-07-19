@@ -9,6 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
@@ -21,7 +22,6 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.nio.charset.StandardCharsets;
@@ -52,7 +52,7 @@ class NovelDownloadControllerMergeDownloadTest {
     @Mock private ApplicationModeProvider applicationModeProvider;
     @Mock private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock private WorkVisibilityService workVisibilityService;
-    @Mock private UserQuotaService userQuotaService;
+    @Mock private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock private MultiModeSettings multiModeSettings;
     @Mock private MessageResolver messages;
 
@@ -67,7 +67,7 @@ class NovelDownloadControllerMergeDownloadTest {
                 applicationModeProvider,
                 requestOwnerIdentityResolver,
                 workVisibilityService,
-                userQuotaService,
+                visitorDownloadQuotaService,
                 multiModeSettings,
                 messages);
     }

@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
@@ -30,7 +32,6 @@ import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.io.IOException;
@@ -46,7 +47,7 @@ import java.util.Set;
  * 由 {@link PluginManagedBean} 排除出根包扫描、经 {@code NovelPluginConfiguration} 显式装配，
  * 随小说插件启停（禁用时本控制器不注册、{@code /api/novel/**} 一并 404）；旧址 {@code /api/download/**}
  * 下的小说路径由 {@code NovelDownloadLegacyForwardController} 服务端 forward 至此（懒迁移垫片，同随小说启停）。
- * 访问归属由 {@code NovelPlugin.routes()} 以 {@code AccessPolicy.VISITOR} 声明（multi 访客可下载、走配额；
+ * 访问归属由 {@code NovelPlugin.routes()} 以 {@code AccessPolicy.VISITOR} 声明（multi 游客可下载、走配额；
  * solo 需会话；邀请访客 403），与插画下载 {@code /api/download/pixiv} 对称。
  */
 @RestController
@@ -65,7 +66,7 @@ public class NovelDownloadController {
     private final ApplicationModeProvider applicationModeProvider;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final WorkVisibilityService workVisibilityService;
-    private final UserQuotaService userQuotaService;
+    private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final MultiModeSettings multiModeSettings;
     private final MessageResolver messages;
 
@@ -104,16 +105,16 @@ public class NovelDownloadController {
             userUuid = ownerIdentity.ownerUuid();
         }
         if (userUuid != null && multiModeSettings.isQuotaEnabled()) {
-            UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid, 1);
+            VisitorDownloadQuotaReservation check = visitorDownloadQuotaService.checkAndReserve(userUuid, 1);
             if (!check.allowed()) {
-                String archiveToken = userQuotaService.triggerArchive(userUuid);
+                String archiveToken = visitorDownloadQuotaService.createArchive(userUuid);
                 return ResponseEntity.status(429).body(new NovelQuotaExceededResponse(
                         true,
                         messages.get("download.quota.exceeded"),
                         archiveToken,
                         (long) multiModeSettings.getArchiveExpireMinutes() * 60,
-                        check.artworksUsed(),
-                        check.maxArtworks(),
+                        check.quotaUnitsUsed(),
+                        check.maxQuotaUnits(),
                         check.resetSeconds()
                 ));
             }

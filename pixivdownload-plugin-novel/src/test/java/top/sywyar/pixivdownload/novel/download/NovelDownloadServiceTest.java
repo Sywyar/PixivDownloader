@@ -12,21 +12,23 @@ import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.nio.file.Path;
 import java.util.Locale;
@@ -44,6 +46,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("NovelDownloadService 交互式下载转发捕获")
@@ -64,13 +67,15 @@ class NovelDownloadServiceTest {
     @Mock
     private NovelSeriesService novelSeriesService;
     @Mock
-    private AuthorService authorService;
+    private AuthorObservationService authorObservationService;
     @Mock
-    private CollectionService collectionService;
+    private WorkCollectionMembership workCollectionMembership;
+    @Mock
+    private CollectionDownloadRootResolver collectionDownloadRootResolver;
     @Mock
     private PixivBookmarkService pixivBookmarkService;
     @Mock
-    private UserQuotaService userQuotaService;
+    private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock
     private RestTemplate downloadRestTemplate;
     @Mock
@@ -94,8 +99,9 @@ class NovelDownloadServiceTest {
     private NovelDownloadService newService(TaskExecutor taskExecutor) {
         NovelDownloadExecutionLane executionLane = new NovelDownloadExecutionLane(taskExecutor, 1);
         return new NovelDownloadService(downloadConfig, pixivDatabase, novelDatabase,
-                novelSeriesService, authorService, collectionService, pixivBookmarkService,
-                userQuotaService, downloadRestTemplate, taskScheduler, executionLane, APP_MESSAGES,
+                novelSeriesService, authorObservationService, workCollectionMembership,
+                collectionDownloadRootResolver, pixivBookmarkService, visitorDownloadQuotaService,
+                downloadRestTemplate, taskScheduler, executionLane, APP_MESSAGES,
                 novelAutoTranslateService, workMetaCaptureService);
     }
 
@@ -128,6 +134,26 @@ class NovelDownloadServiceTest {
 
         assertThat(ok).isTrue();
         verify(workMetaCaptureService, never()).captureForwardedNovel(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("下载完成后应通过核心端口记录作者、收藏关系与游客目录")
+    void shouldRecordCoreFactsThroughPorts() {
+        NovelDownloadRequest request = txtRequest(103L, null);
+        request.getOther().setAuthorId(42L);
+        request.getOther().setAuthorName("Writer");
+        request.getOther().setCollectionId(7L);
+        when(collectionDownloadRootResolver.resolveDownloadRoot(7L, tempDir)).thenReturn(tempDir);
+        when(workCollectionMembership.addWork(WorkType.NOVEL, 7L, 103L)).thenReturn(true);
+
+        boolean ok = service.downloadBlocking(request, "visitor-1");
+
+        assertThat(ok).isTrue();
+        verify(collectionDownloadRootResolver).resolveDownloadRoot(7L, tempDir);
+        verify(authorObservationService).observe(42L, "Writer");
+        verify(workCollectionMembership).addWork(WorkType.NOVEL, 7L, 103L);
+        verify(visitorDownloadQuotaService).recordFolder(
+                "visitor-1", tempDir.resolve("novel-103").toAbsolutePath().normalize());
     }
 
     @Test

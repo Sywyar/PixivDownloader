@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
-import top.sywyar.pixivdownload.core.collection.ArtworkCollectionMembership;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.gallery.runtime.GalleryRuntimeQuery;
 import top.sywyar.pixivdownload.gallery.frontend.PixivGalleryFrontendProvider;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
@@ -70,7 +70,7 @@ public class GalleryPluginConfiguration {
     public GalleryBatchService galleryBatchService(GalleryService galleryService,
                                                    WorkMetadataRepository workMetadataRepository,
                                                    WorkAssetService workAssetService,
-                                                   ArtworkCollectionMembership collectionMembership,
+                                                   WorkCollectionMembership collectionMembership,
                                                    ArchiveExportService archiveExportService,
                                                    ObjectMapper objectMapper) {
         return new GalleryBatchService(galleryService, workMetadataRepository, workAssetService,

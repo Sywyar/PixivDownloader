@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.collection.CollectionService;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
@@ -46,7 +46,7 @@ public class NovelBatchService {
     private final WorkMetadataRepository workMetadataRepository;
     private final NovelWorkDetailsRepository novelWorkDetailsRepository;
     private final WorkAssetService workAssetService;
-    private final CollectionService collectionService;
+    private final WorkCollectionMembership workCollectionMembership;
     private final ArchiveExportService archiveExportService;
     private final ObjectMapper objectMapper;
 
@@ -62,7 +62,7 @@ public class NovelBatchService {
     public int collectNovels(Collection<Long> novelIds, long collectionId) {
         int changed = 0;
         for (Long id : ArchiveExportRules.normalizeIds(novelIds)) {
-            if (collectionService.addNovel(collectionId, id)) {
+            if (workCollectionMembership.addWork(WorkType.NOVEL, collectionId, id)) {
                 changed++;
             }
         }

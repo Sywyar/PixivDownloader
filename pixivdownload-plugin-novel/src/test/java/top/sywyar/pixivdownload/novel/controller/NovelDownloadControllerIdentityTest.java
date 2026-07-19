@@ -7,18 +7,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,7 +42,7 @@ class NovelDownloadControllerIdentityTest {
     @Mock private ApplicationModeProvider applicationModeProvider;
     @Mock private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock private WorkVisibilityService workVisibilityService;
-    @Mock private UserQuotaService userQuotaService;
+    @Mock private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock private MultiModeSettings multiModeSettings;
     @Mock private MessageResolver messages;
     @Mock private HttpServletRequest httpRequest;
@@ -52,8 +54,8 @@ class NovelDownloadControllerIdentityTest {
         when(requestOwnerIdentityResolver.resolve(httpRequest))
                 .thenReturn(RequestOwnerIdentity.owner(" visitor-1 "));
         when(multiModeSettings.isQuotaEnabled()).thenReturn(true);
-        when(userQuotaService.checkAndReserve("visitor-1", 1))
-                .thenReturn(new UserQuotaService.QuotaCheckResult(true, 1, 10, 60));
+        when(visitorDownloadQuotaService.checkAndReserve("visitor-1", 1))
+                .thenReturn(new VisitorDownloadQuotaReservation(true, 1, 10, 60));
         NovelDownloadRequest request = requestWithAdminOptions();
 
         var response = controller().downloadNovel(request, httpRequest);
@@ -61,8 +63,31 @@ class NovelDownloadControllerIdentityTest {
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(request.getOther().getCollectionId()).isNull();
         assertThat(request.getOther().isAutoTranslate()).isFalse();
-        verify(userQuotaService).checkAndReserve("visitor-1", 1);
+        verify(visitorDownloadQuotaService).checkAndReserve("visitor-1", 1);
         verify(novelDownloadService).download(request, "visitor-1");
+    }
+
+    @Test
+    @DisplayName("multi 游客配额拒绝时应创建归档并保留原有响应字段")
+    void multiVisitorQuotaRejectionCreatesArchive() {
+        when(applicationModeProvider.getMode()).thenReturn("multi");
+        when(requestOwnerIdentityResolver.resolve(httpRequest))
+                .thenReturn(RequestOwnerIdentity.owner("visitor-1"));
+        when(multiModeSettings.isQuotaEnabled()).thenReturn(true);
+        when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(15);
+        when(visitorDownloadQuotaService.checkAndReserve("visitor-1", 1))
+                .thenReturn(new VisitorDownloadQuotaReservation(false, 3, 10, 60));
+        when(visitorDownloadQuotaService.createArchive("visitor-1")).thenReturn("archive-token");
+        when(messages.get("download.quota.exceeded")).thenReturn("quota exceeded");
+
+        var response = controller().downloadNovel(requestWithAdminOptions(), httpRequest);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(429);
+        assertThat(response.getBody()).isEqualTo(new NovelQuotaExceededResponse(
+                true, "quota exceeded", "archive-token", 900, 3, 10, 60));
+        verify(visitorDownloadQuotaService).createArchive("visitor-1");
+        verify(novelDownloadService, never()).download(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -78,7 +103,7 @@ class NovelDownloadControllerIdentityTest {
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(request.getOther().getCollectionId()).isEqualTo(7L);
         assertThat(request.getOther().isAutoTranslate()).isTrue();
-        verifyNoInteractions(userQuotaService);
+        verifyNoInteractions(visitorDownloadQuotaService);
         verify(novelDownloadService).download(request, null);
     }
 
@@ -95,7 +120,7 @@ class NovelDownloadControllerIdentityTest {
         assertThat(request.getOther().getCollectionId()).isEqualTo(7L);
         assertThat(request.getOther().isAutoTranslate()).isTrue();
         verify(multiModeSettings, never()).isQuotaEnabled();
-        verifyNoInteractions(userQuotaService);
+        verifyNoInteractions(visitorDownloadQuotaService);
         verify(novelDownloadService).download(request, null);
     }
 
@@ -113,7 +138,7 @@ class NovelDownloadControllerIdentityTest {
         assertThat(request.getOther().isAutoTranslate()).isTrue();
         verify(requestOwnerIdentityResolver).isAdminAuthenticated(httpRequest);
         verify(multiModeSettings, never()).isQuotaEnabled();
-        verifyNoInteractions(userQuotaService);
+        verifyNoInteractions(visitorDownloadQuotaService);
         verify(novelDownloadService).download(request, null);
     }
 
@@ -128,7 +153,7 @@ class NovelDownloadControllerIdentityTest {
                 applicationModeProvider,
                 requestOwnerIdentityResolver,
                 workVisibilityService,
-                userQuotaService,
+                visitorDownloadQuotaService,
                 multiModeSettings,
                 messages);
     }

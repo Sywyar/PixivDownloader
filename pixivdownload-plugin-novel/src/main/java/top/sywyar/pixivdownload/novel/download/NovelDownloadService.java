@@ -8,8 +8,8 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.collection.CollectionService;
+import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
@@ -20,16 +20,18 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,10 +89,11 @@ public class NovelDownloadService implements NovelDownloader {
     private final PixivDatabase pixivDatabase;
     private final NovelDatabase novelDatabase;
     private final NovelSeriesService novelSeriesService;
-    private final AuthorService authorService;
-    private final CollectionService collectionService;
+    private final AuthorObservationService authorObservationService;
+    private final WorkCollectionMembership workCollectionMembership;
+    private final CollectionDownloadRootResolver collectionDownloadRootResolver;
     private final PixivBookmarkService pixivBookmarkService;
-    private final UserQuotaService userQuotaService;
+    private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final NovelDownloadExecutionLane downloadExecutionLane;
@@ -105,10 +108,11 @@ public class NovelDownloadService implements NovelDownloader {
                                 PixivDatabase pixivDatabase,
                                 NovelDatabase novelDatabase,
                                 NovelSeriesService novelSeriesService,
-                                AuthorService authorService,
-                                CollectionService collectionService,
+                                AuthorObservationService authorObservationService,
+                                WorkCollectionMembership workCollectionMembership,
+                                CollectionDownloadRootResolver collectionDownloadRootResolver,
                                 PixivBookmarkService pixivBookmarkService,
-                                @Nullable UserQuotaService userQuotaService,
+                                @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
                                 @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                 @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                 NovelDownloadExecutionLane downloadExecutionLane,
@@ -119,10 +123,11 @@ public class NovelDownloadService implements NovelDownloader {
         this.pixivDatabase = pixivDatabase;
         this.novelDatabase = novelDatabase;
         this.novelSeriesService = novelSeriesService;
-        this.authorService = authorService;
-        this.collectionService = collectionService;
+        this.authorObservationService = authorObservationService;
+        this.workCollectionMembership = workCollectionMembership;
+        this.collectionDownloadRootResolver = collectionDownloadRootResolver;
         this.pixivBookmarkService = pixivBookmarkService;
-        this.userQuotaService = userQuotaService;
+        this.visitorDownloadQuotaService = visitorDownloadQuotaService;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
         this.downloadExecutionLane = downloadExecutionLane;
@@ -267,7 +272,7 @@ public class NovelDownloadService implements NovelDownloader {
             }
             // Author + series
             if (other.getAuthorId() != null && other.getAuthorId() > 0) {
-                authorService.observe(other.getAuthorId(), other.getAuthorName());
+                authorObservationService.observe(other.getAuthorId(), other.getAuthorName());
             }
             if (other.getSeriesId() != null && other.getSeriesId() > 0) {
                 // 前端/脚本若一并送来了系列简介/封面/tags，由 NovelSeriesService.observeWithMetadata 落库；
@@ -285,9 +290,9 @@ public class NovelDownloadService implements NovelDownloader {
                 }
             }
 
-            // Quota tracking (multi-mode guests)
-            if (userUuid != null && userQuotaService != null) {
-                userQuotaService.recordFolder(userUuid, downloadPath);
+            // 多人模式游客配额归档
+            if (userUuid != null && visitorDownloadQuotaService != null) {
+                visitorDownloadQuotaService.recordFolder(userUuid, downloadPath);
             }
 
             // Best-effort bookmark
@@ -300,7 +305,8 @@ public class NovelDownloadService implements NovelDownloader {
             if (other.getCollectionId() != null) {
                 status.setStage("collecting");
                 try {
-                    boolean added = collectionService.addNovel(other.getCollectionId(), novelId);
+                    boolean added = workCollectionMembership.addWork(
+                            WorkType.NOVEL, other.getCollectionId(), novelId);
                     status.setCollectionResult(added
                             ? WorkActionResult.success(messages.get("collection.result.added"))
                             : WorkActionResult.exists(messages.get("collection.result.exists")));
@@ -545,7 +551,7 @@ public class NovelDownloadService implements NovelDownloader {
     private Path resolveEffectiveDownloadRoot(NovelDownloadRequest.Other other) {
         Path defaultRoot = Paths.get(downloadConfig.getRootFolder());
         if (other != null && other.getCollectionId() != null) {
-            return collectionService.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
+            return collectionDownloadRootResolver.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
         return defaultRoot;
     }
