@@ -44,6 +44,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunStatistics;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -60,8 +61,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ScheduleContractTest {
 
     @Test
-    @DisplayName("旧凭证策略的绑定探活默认方法只委托一次并要求 BIND purpose")
-    void legacyCredentialPolicyUsesSingleBindProbe() throws Exception {
+    @DisplayName("凭证策略的默认绑定探活只委托一次并要求 BIND purpose")
+    void credentialPolicyUsesSingleDefaultBindProbe() throws Exception {
         AtomicInteger probes = new AtomicInteger();
         ScheduledCredentialPolicy policy = new ScheduledCredentialPolicy() {
             @Override
@@ -244,7 +245,7 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("旧来源执行器默认把纯数据草稿提升为定义且保持二进制兼容")
+    @DisplayName("来源执行器默认把纯数据草稿原样提升为定义")
     void sourceExecutorDefaultPreparePreservesStampedDraft() throws Exception {
         ScheduledTaskDraft draft = new ScheduledTaskDraft(
                 17L,
@@ -281,8 +282,8 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("旧执行计划构造器保持可用并默认继承宿主网络路由")
-    void legacyExecutionPlanConstructorDefaultsToInheritedRoute() throws Exception {
+    @DisplayName("执行计划只暴露包含来源网络路由的完整构造器")
+    void executionPlanRequiresExplicitSourceRoute() throws Exception {
         ScheduledGuardBinding guard = new ScheduledGuardBinding(
                 "pixiv:overuse",
                 Set.of(ScheduledGuardPoint.RUN_START, ScheduledGuardPoint.WORK_BATCH, ScheduledGuardPoint.RUN_END),
@@ -296,7 +297,8 @@ class ScheduleContractTest {
                 "pixiv:watermark",
                 1,
                 4,
-                1_000L);
+                1_000L,
+                ScheduledNetworkRoute.inherit());
 
         assertThat(plan.guards()).containsExactly(guard);
         assertThat(plan.maxInFlight()).isEqualTo(4);
@@ -310,7 +312,19 @@ class ScheduleContractTest {
                 String.class,
                 int.class,
                 int.class,
-                long.class)).isNotNull();
+                long.class,
+                ScheduledNetworkRoute.class)).isNotNull();
+        assertThatThrownBy(() -> ScheduledExecutionPlan.class.getConstructor(
+                Set.class,
+                String.class,
+                ScheduledCredentialRequirement.class,
+                boolean.class,
+                List.class,
+                String.class,
+                int.class,
+                int.class,
+                long.class))
+                .isInstanceOf(NoSuchMethodException.class);
         assertThatThrownBy(() -> new ScheduledGuardBinding(
                 "guard", Set.of(ScheduledGuardPoint.WORK_BATCH), 0))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -384,8 +398,8 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("旧作品执行器通过默认轮末与异常清理方法保持兼容")
-    void legacyWorkExecutorUsesDefaultRunFinalizer() throws Exception {
+    @DisplayName("作品执行器可通过语义默认值省略可选轮级能力")
+    void workExecutorUsesOptionalRunDefaults() throws Exception {
         ScheduledWorkExecutor executor = new ScheduledWorkExecutor() {
             @Override
             public String workType() {
@@ -440,8 +454,8 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("旧 Guard 由默认结果方法包装且不产生证据")
-    void legacyGuardUsesDefaultResultWrapper() throws Exception {
+    @DisplayName("Guard 以单一抽象回调返回决定与受控证据")
+    void guardUsesSingleResultCallback() throws Exception {
         ScheduledGuardDecision decision = new ScheduledGuardDecision(
                 ScheduledGuardDecision.Action.RETRY_LATER,
                 "fixture.retry",
@@ -453,19 +467,25 @@ class ScheduleContractTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
-                return decision;
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
+                return new ScheduledGuardResult(
+                        decision,
+                        new ScheduledGuardEvidence(Map.of("fixture", "safe")));
             }
         };
 
-        ScheduledGuardResult result = guard.evaluateResult(null);
+        ScheduledGuardResult result = guard.evaluate(null);
 
         assertThat(result.decision()).isSameAs(decision);
-        assertThat(result.evidence().attributes()).isEmpty();
-        assertThat(ScheduledExecutionGuard.class
-                .getMethod("evaluateResult",
-                        ScheduledGuardContext.class)
-                .isDefault()).isTrue();
+        assertThat(result.evidence().attributes()).containsEntry("fixture", "safe");
+        var method = ScheduledExecutionGuard.class
+                .getMethod("evaluate", ScheduledGuardContext.class);
+        assertThat(method.isDefault()).isFalse();
+        assertThat(Modifier.isAbstract(method.getModifiers())).isTrue();
+        assertThat(method.getReturnType()).isEqualTo(ScheduledGuardResult.class);
+        assertThatThrownBy(() -> ScheduledExecutionGuard.class
+                .getMethod("evaluateResult", ScheduledGuardContext.class))
+                .isInstanceOf(NoSuchMethodException.class);
     }
 
     @Test
@@ -554,8 +574,8 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("Guard policy 状态读取为向后兼容的可选只读快照")
-    void guardPolicyStateAccessorIsOptionalDefault() throws Exception {
+    @DisplayName("Guard policy 状态由宿主显式提供为可选只读快照")
+    void guardPolicyStateAccessorRequiresHostImplementation() throws Exception {
         ScheduledGuardContext context = new ScheduledGuardContext() {
             @Override
             public ScheduledGuardPoint point() {
@@ -565,6 +585,11 @@ class ScheduleContractTest {
             @Override
             public long attemptedWorkCount() {
                 return 0;
+            }
+
+            @Override
+            public java.util.Optional<String> credentialPolicyStateJson() {
+                return java.util.Optional.of("{\"state\":1}");
             }
 
             @Override
@@ -595,14 +620,15 @@ class ScheduleContractTest {
         var method = ScheduledGuardContext.class
                 .getMethod("credentialPolicyStateJson");
 
-        assertThat(context.credentialPolicyStateJson()).isEmpty();
-        assertThat(method.isDefault()).isTrue();
+        assertThat(context.credentialPolicyStateJson()).contains("{\"state\":1}");
+        assertThat(method.isDefault()).isFalse();
+        assertThat(Modifier.isAbstract(method.getModifiers())).isTrue();
         assertThat(method.getReturnType()).isEqualTo(java.util.Optional.class);
     }
 
     @Test
-    @DisplayName("Guard 旧决定构造器与 record 组件保持原 ABI")
-    void guardDecisionKeepsLegacyConstructorAbi() throws Exception {
+    @DisplayName("Guard 决定保持完整的纯值 record 形状")
+    void guardDecisionKeepsDataOnlyRecordShape() throws Exception {
         Constructor<ScheduledGuardDecision> constructor = ScheduledGuardDecision.class
                 .getDeclaredConstructor(
                         ScheduledGuardDecision.Action.class,
@@ -616,8 +642,8 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("本地作品终态默认退化提交且拒绝已完成结果")
-    void localWorkCompletionFallsBackToSubmit() throws Exception {
+    @DisplayName("作品入口要求宿主显式实现本地终态与排空语义")
+    void workSinkRequiresExplicitLocalCompletionAndDrain() throws Exception {
         ScheduledWork work = new ScheduledWork(
                 new ScheduledWorkKey("fixture:work", "local-1"),
                 "fixture:work",
@@ -626,34 +652,51 @@ class ScheduleContractTest {
                 ScheduledWorkPresentation.empty(),
                 List.of());
         AtomicReference<ScheduledWork> submitted = new AtomicReference<>();
-        ScheduledWorkSink sink = submitted::set;
+        AtomicReference<ScheduledWork> completedLocally = new AtomicReference<>();
+        AtomicReference<ScheduledWorkResult> localResult = new AtomicReference<>();
+        AtomicInteger drains = new AtomicInteger();
+        ScheduledWorkSink sink = new ScheduledWorkSink() {
+            @Override
+            public void submit(ScheduledWork submittedWork) {
+                submitted.set(submittedWork);
+            }
+
+            @Override
+            public void completeLocally(
+                    ScheduledWork completedWork,
+                    ScheduledWorkResult result) {
+                completedLocally.set(completedWork);
+                localResult.set(result);
+            }
+
+            @Override
+            public void drain() {
+                drains.incrementAndGet();
+            }
+        };
 
         sink.completeLocally(work, ScheduledWorkResult.alreadyCompleted());
 
+        assertThat(completedLocally.get()).isSameAs(work);
+        assertThat(localResult.get()).isEqualTo(ScheduledWorkResult.alreadyCompleted());
+        assertThat(submitted.get()).isNull();
+        sink.submit(work);
         assertThat(submitted.get()).isSameAs(work);
-        submitted.set(null);
-        sink.completeLocally(work, new ScheduledWorkResult(
-                ScheduledWorkResult.Outcome.SKIPPED,
-                "work.filtered",
-                Map.of()));
-        assertThat(submitted.get()).isSameAs(work);
-        assertThatThrownBy(() -> sink.completeLocally(work, ScheduledWorkResult.completed()))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> sink.completeLocally(work, null))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(ScheduledWorkSink.class
-                .getMethod("completeLocally", ScheduledWork.class, ScheduledWorkResult.class)
-                .isDefault()).isTrue();
         sink.drain();
-        assertThat(ScheduledWorkSink.class
-                .getMethod("drain")
-                .isDefault()).isTrue();
-        assertThat(ScheduledWorkSink.class.isAnnotationPresent(FunctionalInterface.class)).isTrue();
+        assertThat(drains).hasValue(1);
+        var completeLocallyMethod = ScheduledWorkSink.class
+                .getMethod("completeLocally", ScheduledWork.class, ScheduledWorkResult.class);
+        var drainMethod = ScheduledWorkSink.class.getMethod("drain");
+        assertThat(completeLocallyMethod.isDefault()).isFalse();
+        assertThat(Modifier.isAbstract(completeLocallyMethod.getModifiers())).isTrue();
+        assertThat(drainMethod.isDefault()).isFalse();
+        assertThat(Modifier.isAbstract(drainMethod.getModifiers())).isTrue();
+        assertThat(ScheduledWorkSink.class.isAnnotationPresent(FunctionalInterface.class)).isFalse();
     }
 
     @Test
-    @DisplayName("旧来源默认重放全部 pending 且无 pending 索引")
-    void legacySourceUsesCompatiblePendingDefaults() throws Exception {
+    @DisplayName("来源默认重放全部 pending 且宿主显式提供 pending 索引")
+    void sourceUsesDefaultReplayPolicyAndHostPendingIndex() throws Exception {
         ScheduledSourceContext context = new ScheduledSourceContext() {
             @Override
             public ScheduledCheckpoint checkpoint() {
@@ -662,7 +705,12 @@ class ScheduleContractTest {
 
             @Override
             public ScheduledWorkSink workSink() {
-                return work -> { };
+                return noOpWorkSink();
+            }
+
+            @Override
+            public boolean isPending(ScheduledWorkKey key) {
+                return key.id().equals("pending-1");
             }
 
             @Override
@@ -703,7 +751,7 @@ class ScheduleContractTest {
         };
         ScheduledWorkKey key = new ScheduledWorkKey("fixture:work", "pending-1");
 
-        assertThat(context.isPending(key)).isFalse();
+        assertThat(context.isPending(key)).isTrue();
         assertThat(executor.pendingReplayPolicy()).isEqualTo(ScheduledPendingReplayPolicy.ALWAYS);
         assertThat(ScheduledPendingReplayPolicy.values())
                 .containsExactly(
@@ -711,7 +759,10 @@ class ScheduleContractTest {
                         ScheduledPendingReplayPolicy.REDISCOVERED_ONLY);
         assertThat(ScheduledSourceContext.class
                 .getMethod("isPending", ScheduledWorkKey.class)
-                .isDefault()).isTrue();
+                .isDefault()).isFalse();
+        assertThat(Modifier.isAbstract(ScheduledSourceContext.class
+                .getMethod("isPending", ScheduledWorkKey.class)
+                .getModifiers())).isTrue();
         assertThat(ScheduledSourceExecutor.class
                 .getMethod("pendingReplayPolicy")
                 .isDefault()).isTrue();
@@ -743,6 +794,22 @@ class ScheduleContractTest {
             @Override
             public ScheduledCancellation cancellation() {
                 return () -> false;
+            }
+        };
+    }
+
+    private static ScheduledWorkSink noOpWorkSink() {
+        return new ScheduledWorkSink() {
+            @Override
+            public void submit(ScheduledWork work) {
+            }
+
+            @Override
+            public void completeLocally(ScheduledWork work, ScheduledWorkResult result) {
+            }
+
+            @Override
+            public void drain() {
             }
         };
     }

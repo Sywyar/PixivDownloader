@@ -8,14 +8,14 @@ public interface ScheduledSourceExecutor {
 
     String sourceType();
 
-    /** 本来源的 pending 重放策略；默认保持既有每轮重放全部 pending 的行为。 */
+    /** 本来源的 pending 重放策略；默认每轮重放全部 pending。 */
     default ScheduledPendingReplayPolicy pendingReplayPolicy() {
         return ScheduledPendingReplayPolicy.ALWAYS;
     }
 
     /**
      * 在保存前规范化来源定义。实现必须保持纯函数语义，不读取凭证、不访问网络且不产生外部副作用；
-     * 宿主会重新校验所有盖章字段与返回内容。默认实现保留草稿内容，因此既有插件保持二进制兼容。
+     * 宿主会重新校验所有盖章字段与返回内容。默认实现原样提升草稿为正式定义。
      */
     default ScheduledTaskDefinition prepare(ScheduledTaskDraft draft)
             throws ScheduledExecutionException {

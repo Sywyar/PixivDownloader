@@ -1433,7 +1433,7 @@ public final class ScheduleExecutionEngine {
                     }
                 };
                 try {
-                    ScheduledGuardResult result = guard.evaluateResult(context);
+                    ScheduledGuardResult result = guard.evaluate(context);
                     if (result == null) {
                         throw pluginFailure("schedule.guard.null-result");
                     }

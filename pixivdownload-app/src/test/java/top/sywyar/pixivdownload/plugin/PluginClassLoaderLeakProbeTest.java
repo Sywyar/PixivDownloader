@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
@@ -261,7 +262,8 @@ class PluginClassLoaderLeakProbeTest {
                 null,
                 0,
                 1,
-                0L);
+                0L,
+                ScheduledNetworkRoute.inherit());
         ScheduleExecutionLease execution = schedule.prepareExpansion(planning, plan).orElseThrow();
         assertThat(schedule.activate(execution)).isTrue();
         assertThat(planning.isActive()).isFalse();
@@ -632,7 +634,7 @@ class PluginClassLoaderLeakProbeTest {
         }
 
         @Override
-        public top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision evaluate(
+        public top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult evaluate(
                 top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext context) {
             throw new UnsupportedOperationException("probe behavior must not be invoked");
         }

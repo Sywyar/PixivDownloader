@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresenta
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledWorkSink;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -686,7 +687,21 @@ class DouyinScheduledSourceSupportTest {
 
         @Override
         public ScheduledWorkSink workSink() {
-            return works::add;
+            return new ScheduledWorkSink() {
+                @Override
+                public void submit(ScheduledWork work) {
+                    works.add(work);
+                }
+
+                @Override
+                public void completeLocally(ScheduledWork work, ScheduledWorkResult result) {
+                    works.add(work);
+                }
+
+                @Override
+                public void drain() {
+                }
+            };
         }
 
         @Override

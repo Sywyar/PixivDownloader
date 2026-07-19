@@ -6,13 +6,13 @@ import java.util.Set;
  * 计划任务来源 SPI。一个 provider 对应一类可调度的作品来源
  * （画师新作 / 搜索 / 系列 / 收藏 / 关注新作 / 珍藏集 ...）。
  *
- * <p>本接口只承载来源的「身份」与「legacy 类型映射」：
+ * <p>本接口只承载来源的「身份」与存量类型映射：
  * <ul>
  *   <li>{@link #type()} 是规范类型字符串（小写短横线，如 {@code user-new}），全局唯一；</li>
  *   <li>{@link #legacyTypeNames()} 列出该来源历史上使用过的类型字符串（{@code scheduled_tasks.type}
  *       列里已存的枚举名，如 {@code USER_NEW}），供调度器把存量任务的 type 兼容映射到本 provider。</li>
  * </ul>
- * 来源的发现 / 派发执行语义不在本接口表达；本 SPI 是 1.0 插件继续可加载的兼容面。完整的新来源元数据使用
+ * 来源的发现 / 派发执行语义不在本接口表达；本 SPI 只服务已落库任务类型的迁移解析。完整来源元数据使用
  * {@code schedule.source.ScheduledSourceDescriptor}，行为使用 child context 中的
  * {@code ScheduledSourceExecutor} / {@code ScheduledWorkExecutor}。
  *
@@ -27,7 +27,7 @@ public interface ScheduledSourceProvider {
 
     /**
      * 该来源历史上使用过的类型字符串（如数据库 {@code type} 列已存的枚举名）。
-     * 用于把既有任务的存量 type 兼容映射到本 provider；无历史别名时返回空集合。
+     * 用于把既有任务的存量 type 映射到本 provider；无历史别名时返回空集合。
      */
     default Set<String> legacyTypeNames() {
         return Set.of();

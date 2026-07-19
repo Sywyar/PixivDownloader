@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
@@ -321,7 +322,8 @@ public final class PixivScheduledSourceSupport {
                 watermark ? PixivSchedulePersistenceCodec.CHECKPOINT_SCHEMA : null,
                 watermark ? PixivSchedulePersistenceCodec.CHECKPOINT_VERSION : 0,
                 definition.snapshot().download().concurrent(),
-                politeDelay);
+                politeDelay,
+                ScheduledNetworkRoute.inherit());
     }
 
     private ScheduledDiscoveryResult watermarkScan(

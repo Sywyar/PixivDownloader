@@ -36,10 +36,10 @@ import java.util.Set;
  * 下载工作台插件：{@code pixiv-batch} 页面、下载队列、油猴脚本入口与下载执行。
  * <p>
  * 计划任务安全壳随下载工作台外置包加载：调度 tick / 队列 / 限流 / 熔断 / cookie·proxy 作用域 /
- * 隔离重试 / 水位线以及 {@code /api/schedule/**} 路由均在本外置包上下文内装配。下载工作台同时声明其 7 个
- * 内置计划任务来源（{@code scheduledSources()}，怎么找作品）与插画作品类型执行器
- * （{@code ScheduledIllustWorkRunner}，下载什么）；{@code ScheduledSourceProvider} SPI 保留，其他插件（如小说）
- * 仍可经各自 {@code scheduledSources()} / 作品类型执行器贡献。
+ * 隔离重试 / 水位线以及 {@code /api/schedule/**} 路由均在本外置包上下文内装配。下载工作台通过
+ * {@link #scheduledSourceDescriptors()} 声明 7 个内置来源，并由 child context 中的
+ * {@code ScheduledSourceExecutor} / {@code PixivScheduledIllustWorkExecutor} 执行发现与下载。
+ * {@link #scheduledSources()} 只为已落库来源类型迁移与受限旧执行路径保留，不是新增来源的扩展入口。
  * <p>
  * 核心只保留下载历史 / 统计 / 本地资产 serving 等长期事实 API（{@code /api/downloaded/*}）；下载提交、
  * 队列状态、Pixiv 抓取代理、SSE 和 userscript 分发入口均随本插件启停。
@@ -216,10 +216,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<ScheduledSourceProvider> scheduledSources() {
-        // 下载工作台作为来源贡献方，向计划任务宿主插件声明其 7 个内置来源（怎么找作品），跨插画 / 小说统一调度。
-        // 每个来源是一个 ScheduledSource（在 plugin.api 身份 SPI 之上附加发现 / 模式 / 谓词执行行为，住下载工作台域
-        // download.schedule.source），宿主调度壳经来源注册中心解析后直接派发——调度主编排不再按类型枚举 switch 调
-        // 具体来源实现。其他插件仍可经各自 scheduledSources() 贡献新来源。
+        // 这些身份对象只供已落库来源类型迁移及受限旧执行路径解析；当前来源能力统一由
+        // scheduledSourceDescriptors() 与 child context 中的 ScheduledSourceExecutor 发布。
         return List.of(
                 new UserNewSource(),
                 new UserRequestSource(),

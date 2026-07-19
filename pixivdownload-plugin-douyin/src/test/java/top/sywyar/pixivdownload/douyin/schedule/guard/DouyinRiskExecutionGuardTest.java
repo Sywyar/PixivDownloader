@@ -36,7 +36,7 @@ class DouyinRiskExecutionGuardTest {
             long delay = entry.getKey() == ScheduledFailure.Category.RATE_LIMITED ? 12_345L : 0L;
             ScheduledGuardDecision decision = guard.evaluate(context(
                     ScheduledGuardPoint.RUN_FAILURE,
-                    new ScheduledFailure(entry.getKey(), "safe.code", delay)));
+                    new ScheduledFailure(entry.getKey(), "safe.code", delay))).decision();
             assertThat(decision.action()).as(entry.getKey().name()).isEqualTo(entry.getValue());
             if (entry.getKey() == ScheduledFailure.Category.RATE_LIMITED) {
                 assertThat(decision.retryAfterMillis()).isEqualTo(12_345L);
@@ -52,11 +52,11 @@ class DouyinRiskExecutionGuardTest {
         ScheduledGuardDecision limited = guard.evaluate(context(
                 ScheduledGuardPoint.RUN_FAILURE,
                 new ScheduledFailure(ScheduledFailure.Category.RATE_LIMITED,
-                        "safe.rate", 0L)));
+                        "safe.rate", 0L))).decision();
         ScheduledGuardDecision notFound = guard.evaluate(context(
                 ScheduledGuardPoint.RUN_FAILURE,
                 new ScheduledFailure(ScheduledFailure.Category.NOT_FOUND,
-                        "safe.not-found", 0L)));
+                        "safe.not-found", 0L))).decision();
 
         assertThat(limited.action()).isEqualTo(ScheduledGuardDecision.Action.RETRY_LATER);
         assertThat(limited.retryAfterMillis())
@@ -73,7 +73,7 @@ class DouyinRiskExecutionGuardTest {
                 ScheduledGuardPoint.RUN_START,
                 ScheduledGuardPoint.WORK_BATCH,
                 ScheduledGuardPoint.RUN_END}) {
-            assertThat(guard.evaluate(context(point, null)).action())
+            assertThat(guard.evaluate(context(point, null)).decision().action())
                     .isEqualTo(ScheduledGuardDecision.Action.CONTINUE);
         }
     }

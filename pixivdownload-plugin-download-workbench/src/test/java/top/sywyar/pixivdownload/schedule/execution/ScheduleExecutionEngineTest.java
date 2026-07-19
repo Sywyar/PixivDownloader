@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
@@ -97,7 +98,8 @@ class ScheduleExecutionEngineTest {
                 new PlanFailureCase(
                         new ScheduledExecutionPlan(
                                 Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
-                                List.of(), null, 0, 257, 0L),
+                                List.of(), null, 0, 257, 0L,
+                                ScheduledNetworkRoute.inherit()),
                         ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.plan.max-in-flight-too-large"),
                 new PlanFailureCase(
@@ -105,27 +107,30 @@ class ScheduleExecutionEngineTest {
                                 Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
                                 List.of(new ScheduledGuardBinding(
                                         GUARD, Set.of(ScheduledGuardPoint.WORK_BATCH), 100_001)),
-                                null, 0, 1, 0L),
+                                null, 0, 1, 0L, ScheduledNetworkRoute.inherit()),
                         ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.plan.guard-batch-too-large"),
                 new PlanFailureCase(
                         new ScheduledExecutionPlan(
                                 Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
-                                List.of(normalGuard, normalGuard), null, 0, 1, 0L),
+                                List.of(normalGuard, normalGuard), null, 0, 1, 0L,
+                                ScheduledNetworkRoute.inherit()),
                         ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.plan.capability-mismatch"),
                 new PlanFailureCase(
                         new ScheduledExecutionPlan(
                                 Set.of("other-work"), POLICY,
                                 ScheduledCredentialRequirement.REQUIRED, false,
-                                List.of(), null, 0, 1, 0L),
+                                List.of(), null, 0, 1, 0L,
+                                ScheduledNetworkRoute.inherit()),
                         ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.plan.capability-mismatch"),
                 new PlanFailureCase(
                         new ScheduledExecutionPlan(
                                 Set.of(WORK), "other-policy",
                                 ScheduledCredentialRequirement.REQUIRED, false,
-                                List.of(), null, 0, 1, 0L),
+                                List.of(), null, 0, 1, 0L,
+                                ScheduledNetworkRoute.inherit()),
                         ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.plan.capability-mismatch"),
                 new PlanFailureCase(
@@ -133,7 +138,7 @@ class ScheduleExecutionEngineTest {
                                 Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
                                 List.of(new ScheduledGuardBinding(
                                         "other-guard", Set.of(ScheduledGuardPoint.RUN_START), 0)),
-                                null, 0, 1, 0L),
+                                null, 0, 1, 0L, ScheduledNetworkRoute.inherit()),
                         ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.plan.capability-mismatch"));
 
@@ -1485,7 +1490,7 @@ class ScheduleExecutionEngineTest {
                                         firstGuardId, Set.of(ScheduledGuardPoint.RUN_START), 0),
                                 new ScheduledGuardBinding(
                                         secondGuardId, Set.of(ScheduledGuardPoint.RUN_START), 0)),
-                        null, 0, 1, 0L);
+                        null, 0, 1, 0L, ScheduledNetworkRoute.inherit());
             }
 
             @Override
@@ -1501,10 +1506,10 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
                 withdrawn.set(ScheduleCapabilityRegistryTestAccess.withdraw(
                         registry, publication.get()).orElseThrow());
-                return ScheduledGuardDecision.proceed();
+                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
         ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
@@ -1514,9 +1519,9 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
                 secondGuardCalls.incrementAndGet();
-                return ScheduledGuardDecision.proceed();
+                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(
@@ -1652,7 +1657,8 @@ class ScheduleExecutionEngineTest {
                                         GUARD, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0),
                                 new ScheduledGuardBinding(
                                         secondGuardId, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0)),
-                        "fixture.checkpoint", 1, 1, 0L);
+                        "fixture.checkpoint", 1, 1, 0L,
+                        ScheduledNetworkRoute.inherit());
             }
 
             @Override
@@ -1669,7 +1675,7 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context)
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context)
                     throws ScheduledExecutionException {
                 events.add("guard-1");
                 throw new ScheduledExecutionException(
@@ -1683,9 +1689,9 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
                 events.add("guard-2");
-                return ScheduledGuardDecision.proceed();
+                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
         ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
@@ -1947,7 +1953,7 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
                 events.add("guard-1");
                 throw new AssertionError("fixture non-fatal guard failure");
             }
@@ -1959,9 +1965,9 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
                 events.add("guard-2");
-                return ScheduledGuardDecision.proceed();
+                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
@@ -2006,7 +2012,7 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
                 throw fatal;
             }
         };
@@ -2017,9 +2023,9 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
                 secondGuardCalls.incrementAndGet();
-                return ScheduledGuardDecision.proceed();
+                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
@@ -2381,7 +2387,8 @@ class ScheduleExecutionEngineTest {
                 null,
                 0,
                 1,
-                0L);
+                0L,
+                ScheduledNetworkRoute.inherit());
     }
 
     private static ScheduledSourceExecutor sourceWithPlan(
@@ -2526,7 +2533,8 @@ class ScheduleExecutionEngineTest {
                         Set.of(WORK), POLICY, ScheduledCredentialRequirement.REQUIRED, false,
                         List.of(new ScheduledGuardBinding(
                                 GUARD, Set.of(ScheduledGuardPoint.values()), 500)),
-                        "fixture.checkpoint", 1, Math.min(count, 8), 0L);
+                        "fixture.checkpoint", 1, Math.min(count, 8), 0L,
+                        ScheduledNetworkRoute.inherit());
             }
 
             @Override
@@ -2607,9 +2615,9 @@ class ScheduleExecutionEngineTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context)
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context)
                     throws ScheduledExecutionException {
-                return guard.evaluate(context);
+                return ScheduledGuardResult.decision(guard.evaluate(context));
             }
         };
     }

@@ -46,13 +46,7 @@ public final class PixivOveruseExecutionGuard implements ScheduledExecutionGuard
     }
 
     @Override
-    public ScheduledGuardDecision evaluate(ScheduledGuardContext context)
-            throws ScheduledExecutionException {
-        return evaluateResult(context).decision();
-    }
-
-    @Override
-    public ScheduledGuardResult evaluateResult(ScheduledGuardContext context)
+    public ScheduledGuardResult evaluate(ScheduledGuardContext context)
             throws ScheduledExecutionException {
         if (!context.credential().isPresent()) {
             return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());

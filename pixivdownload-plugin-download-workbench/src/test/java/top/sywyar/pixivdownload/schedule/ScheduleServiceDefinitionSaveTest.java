@@ -32,6 +32,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredenti
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
@@ -530,13 +531,15 @@ class ScheduleServiceDefinitionSaveTest {
         List<ScheduledExecutionPlan> invalidPlans = List.of(
                 new ScheduledExecutionPlan(
                         Set.of(WORK_TYPE), null, ScheduledCredentialRequirement.NONE, false,
-                        List.of(), null, 0, 257, 0L),
+                        List.of(), null, 0, 257, 0L, ScheduledNetworkRoute.inherit()),
                 new ScheduledExecutionPlan(
                         Set.of(WORK_TYPE), null, ScheduledCredentialRequirement.NONE, false,
-                        List.of(oversizedBatch), null, 0, 1, 0L),
+                        List.of(oversizedBatch), null, 0, 1, 0L,
+                        ScheduledNetworkRoute.inherit()),
                 new ScheduledExecutionPlan(
                         Set.of(WORK_TYPE), null, ScheduledCredentialRequirement.NONE, false,
-                        List.of(normalGuard, normalGuard), null, 0, 1, 0L));
+                        List.of(normalGuard, normalGuard), null, 0, 1, 0L,
+                        ScheduledNetworkRoute.inherit()));
 
         for (int index = 0; index < invalidPlans.size(); index++) {
             ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();

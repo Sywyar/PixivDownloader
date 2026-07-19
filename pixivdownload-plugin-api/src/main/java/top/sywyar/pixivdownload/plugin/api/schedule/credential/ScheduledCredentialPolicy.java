@@ -14,8 +14,8 @@ public interface ScheduledCredentialPolicy {
             throws ScheduledExecutionException;
 
     /**
-     * 绑定时的一次性探活。旧策略默认复用 {@link #probe(ScheduledCredentialContext)}，新策略可在一次网络调用中
-     * 同时返回安全 evidence 与绑定后的任务级策略决定。
+     * 绑定时的一次性探活。默认复用 {@link #probe(ScheduledCredentialContext)}；需要绑定后任务级策略状态时，
+     * 实现可在同一次网络调用中返回安全 evidence 与绑定后的任务级策略决定。
      */
     default ScheduledCredentialBindResult probeForBinding(ScheduledCredentialContext context)
             throws ScheduledExecutionException {

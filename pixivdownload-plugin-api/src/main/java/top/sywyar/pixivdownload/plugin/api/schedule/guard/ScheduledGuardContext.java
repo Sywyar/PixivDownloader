@@ -16,9 +16,7 @@ public interface ScheduledGuardContext extends ScheduledExecutionContext {
      * 当前已解析 credential policy 的非敏感、不透明耐久状态；本轮没有 policy 时为空。
      * Guard 只读该快照，不得把它当作凭证 secret，也不得直接修改宿主持久化。
      */
-    default Optional<String> credentialPolicyStateJson() {
-        return Optional.empty();
-    }
+    Optional<String> credentialPolicyStateJson();
 
     /** 仅 {@link ScheduledGuardPoint#RUN_FAILURE} 非空。 */
     ScheduledFailure failure();

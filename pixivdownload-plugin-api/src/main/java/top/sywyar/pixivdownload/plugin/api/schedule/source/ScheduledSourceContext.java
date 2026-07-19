@@ -11,11 +11,6 @@ public interface ScheduledSourceContext extends ScheduledExecutionContext {
 
     ScheduledWorkSink workSink();
 
-    /**
-     * 当前任务是否存在指定作品的耐久 pending。旧宿主默认无法提供索引并返回 {@code false}；支持
-     * {@link ScheduledPendingReplayPolicy#REDISCOVERED_ONLY} 的宿主必须覆盖并按 {@code workType + id} 查询。
-     */
-    default boolean isPending(ScheduledWorkKey key) {
-        return false;
-    }
+    /** 当前任务是否存在指定 {@code workType + id} 作品的耐久 pending。 */
+    boolean isPending(ScheduledWorkKey key);
 }

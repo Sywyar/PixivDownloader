@@ -205,8 +205,8 @@ public interface PixivFeaturePlugin {
     }
 
     /**
-     * 已发布的轻量计划来源身份 SPI。为保持 1.0 插件二进制兼容继续保留；新执行平台通过
-     * {@link #scheduledSourceDescriptors()} 声明完整纯数据描述符，宿主可为旧 provider 建兼容适配。
+     * 存量计划任务类型迁移所需的轻量来源身份。当前执行平台通过
+     * {@link #scheduledSourceDescriptors()} 声明完整纯数据描述符；本入口只参与已落库来源类型的迁移解析。
      */
     default List<ScheduledSourceProvider> scheduledSources() {
         return List.of();

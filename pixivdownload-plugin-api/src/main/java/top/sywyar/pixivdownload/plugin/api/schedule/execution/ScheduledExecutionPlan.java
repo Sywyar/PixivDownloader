@@ -65,24 +65,6 @@ public record ScheduledExecutionPlan(
                 : sourceDefaultRoute;
     }
 
-    /**
-     * 兼容早期 1.0 草案插件的构造入口。未声明来源默认路由时继续继承宿主全局路由。
-     */
-    public ScheduledExecutionPlan(
-            Set<String> requiredWorkTypes,
-            String credentialPolicyId,
-            ScheduledCredentialRequirement credentialRequirement,
-            boolean anonymousFallbackAllowed,
-            List<ScheduledGuardBinding> guards,
-            String checkpointSchema,
-            int checkpointVersion,
-            int maxInFlight,
-            long politeDelayMillis) {
-        this(requiredWorkTypes, credentialPolicyId, credentialRequirement,
-                anonymousFallbackAllowed, guards, checkpointSchema, checkpointVersion,
-                maxInFlight, politeDelayMillis, ScheduledNetworkRoute.inherit());
-    }
-
     public static ScheduledExecutionPlan credentialFree(Set<String> workTypes) {
         return new ScheduledExecutionPlan(
                 workTypes,

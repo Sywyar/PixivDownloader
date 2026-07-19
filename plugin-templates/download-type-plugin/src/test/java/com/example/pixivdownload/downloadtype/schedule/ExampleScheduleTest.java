@@ -15,12 +15,12 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresenta
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledWorkSink;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExampleScheduleTest {
 
@@ -42,7 +42,7 @@ class ExampleScheduleTest {
         assertEquals(java.util.Set.of(ExampleDownloadPlugin.TYPE),
                 source.plan(task).requiredWorkTypes());
         AtomicReference<ScheduledWork> discovered = new AtomicReference<>();
-        source.discover(new SourceContext(task, discovered::set));
+        source.discover(new SourceContext(task, recordingSink(discovered)));
         assertEquals("123", discovered.get().key().id());
 
         ScheduledWorkResult result = workExecutor.execute(discovered.get(), new WorkContext(task));
@@ -93,11 +93,35 @@ class ExampleScheduleTest {
         public ScheduledWorkSink workSink() {
             return sink;
         }
+
+        @Override
+        public boolean isPending(ScheduledWorkKey key) {
+            return false;
+        }
     }
 
     private static final class WorkContext extends BaseContext implements ScheduledWorkContext {
         private WorkContext(ScheduledTaskDefinition task) {
             super(task);
         }
+    }
+
+    private static ScheduledWorkSink recordingSink(
+            AtomicReference<ScheduledWork> discovered) {
+        return new ScheduledWorkSink() {
+            @Override
+            public void submit(ScheduledWork work) {
+                discovered.set(work);
+            }
+
+            @Override
+            public void completeLocally(ScheduledWork work, ScheduledWorkResult result) {
+                discovered.set(work);
+            }
+
+            @Override
+            public void drain() {
+            }
+        };
     }
 }

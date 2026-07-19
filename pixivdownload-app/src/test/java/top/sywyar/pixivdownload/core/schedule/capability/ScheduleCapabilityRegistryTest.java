@@ -19,6 +19,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
@@ -1098,8 +1100,8 @@ class ScheduleCapabilityRegistryTest {
             }
 
             @Override
-            public ScheduledGuardDecision evaluate(ScheduledGuardContext context) {
-                return ScheduledGuardDecision.proceed();
+            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
+                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
     }
@@ -1115,7 +1117,8 @@ class ScheduleCapabilityRegistryTest {
                 null,
                 0,
                 1,
-                0L);
+                0L,
+                ScheduledNetworkRoute.inherit());
     }
 
     private static ScheduleCapabilityOwner owner(

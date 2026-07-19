@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredenti
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
@@ -132,7 +133,7 @@ class ScheduleTaskDefinitionValidatorTest {
                 false,
                 List.of(new ScheduledGuardBinding(
                         "fixture:guard", Set.of(ScheduledGuardPoint.RUN_START), 0)),
-                null, 0, 1, 0L));
+                null, 0, 1, 0L, ScheduledNetworkRoute.inherit()));
 
         assertThatThrownBy(() -> validator.validatePlan(
                 descriptor, ScheduledExecutionPlan.credentialFree(Set.of("other:work"))))
@@ -142,7 +143,7 @@ class ScheduleTaskDefinitionValidatorTest {
                 "other:credential",
                 ScheduledCredentialRequirement.REQUIRED,
                 false,
-                List.of(), null, 0, 1, 0L)))
+                List.of(), null, 0, 1, 0L, ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
@@ -151,7 +152,7 @@ class ScheduleTaskDefinitionValidatorTest {
                 false,
                 List.of(new ScheduledGuardBinding(
                         "other:guard", Set.of(ScheduledGuardPoint.RUN_START), 0)),
-                null, 0, 1, 0L)))
+                null, 0, 1, 0L, ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -169,7 +170,7 @@ class ScheduleTaskDefinitionValidatorTest {
                 null,
                 ScheduledCredentialRequirement.NONE,
                 false,
-                List.of(), null, 0, 257, 0L)))
+                List.of(), null, 0, 257, 0L, ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(ScheduleExecutionPlanGate.Violation.class);
         assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
@@ -178,14 +179,15 @@ class ScheduleTaskDefinitionValidatorTest {
                 false,
                 List.of(new ScheduledGuardBinding(
                         "fixture:guard", Set.of(ScheduledGuardPoint.WORK_BATCH), 100_001)),
-                null, 0, 1, 0L)))
+                null, 0, 1, 0L, ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(ScheduleExecutionPlanGate.Violation.class);
         assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
                 null,
                 ScheduledCredentialRequirement.NONE,
                 false,
-                List.of(normal, normal), null, 0, 1, 0L)))
+                List.of(normal, normal), null, 0, 1, 0L,
+                ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(ScheduleExecutionPlanGate.Violation.class);
     }
 

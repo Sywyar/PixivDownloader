@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
@@ -135,6 +136,7 @@ class PixivScheduledNovelCapabilityAssemblyTest {
                 null,
                 0,
                 2,
-                0L);
+                0L,
+                ScheduledNetworkRoute.inherit());
     }
 }

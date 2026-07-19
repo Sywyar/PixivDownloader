@@ -4,14 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 
 /**
- * 计划任务来源的「执行契约」：在 plugin.api 的身份级 {@link ScheduledSourceProvider}（{@code type} +
- * legacy 映射）之上，附加调度壳派发本来源所需的发现 / 模式 / 谓词行为。
+ * 已落库 Pixiv 来源类型迁移与受限旧执行路径使用的本地模型。在
+ * {@link ScheduledSourceProvider} 的身份和存量类型映射之上，保留旧路径仍需的发现模式、账号范围、系列合订和通知标签。
  *
- * <p>本接口住下载工作台域（{@code schedule.source}）、<b>不入</b> plugin.api——执行契约放在合适边界、
- * plugin.api 仅保留轻量身份 SPI。调度壳经来源注册中心把任务存量 {@code type} 解析到
- * {@link ScheduledSourceProvider}，再向下转型为本接口派发；当前 7 个内置来源全部由下载工作台贡献并实现本接口。
- * 由此调度主编排不再用任何按旧来源枚举的 switch
- * 调具体来源实现，发现 / 模式判定 / 账号私有判定 / 通知标签全部由各来源对象承载。
+ * <p>当前来源能力由 {@code scheduledSourceDescriptors()} 声明，并由 child context 中的
+ * {@code ScheduledSourceExecutor} 执行；本接口不是新增来源或第三方插件的执行扩展面。
  */
 public interface ScheduledSource extends ScheduledSourceProvider {
 
