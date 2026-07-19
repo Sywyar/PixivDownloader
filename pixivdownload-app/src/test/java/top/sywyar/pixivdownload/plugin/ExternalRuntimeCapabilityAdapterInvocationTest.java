@@ -63,7 +63,7 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
     @DisplayName("阻塞 AI 调用在 publication 撤回后被真实 drain")
     void blockingAiInvocationDrains() throws Exception {
         ExternalCapabilityInvocationRegistry invocation = new ExternalCapabilityInvocationRegistry();
-        AiChatClientRegistry clientRegistry = new AiChatClientRegistry(List.of());
+        AiChatClientRegistry clientRegistry = new AiChatClientRegistry();
         AiChatClientCapabilityAdapter adapter = new AiChatClientCapabilityAdapter(clientRegistry, invocation);
         BlockingGate gate = new BlockingGate();
         AiChatClient target = new BlockingAiClient(gate);

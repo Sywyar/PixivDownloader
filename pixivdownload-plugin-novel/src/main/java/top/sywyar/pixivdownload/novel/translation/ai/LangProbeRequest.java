@@ -15,7 +15,7 @@ import java.util.List;
  */
 public record LangProbeRequest(String targetLanguage) {
 
-    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiService} 在日志中标识本次请求用途。 */
+    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiChatClient} 标识本次请求用途。 */
     public static final String CALL_TYPE = "translation.lang-probe";
 
     private static final String SYSTEM_PROMPT = """

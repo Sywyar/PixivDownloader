@@ -19,7 +19,10 @@ import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelection;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -132,7 +135,8 @@ class CoreApiOwnershipGuardTest {
                     "PushFormatConverter", "PushLevel", "PushMessage", "PushResult", "RenderedMessage")),
             Map.entry("朗读引擎稳定契约", types("top.sywyar.pixivdownload.tts.narration.engine",
                     "NarrationAudio", "NarrationReferenceVoice", "NarrationSpeechText", "NarrationVoiceEngine",
-                    "NarrationVoiceException", "NarrationVoiceMode", "NarrationVoiceRequest"))
+                    "NarrationVoiceException", "NarrationVoiceMode", "NarrationVoiceRequest",
+                    "NarrationVoiceSelection", "NarrationVoiceSelector"))
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
@@ -353,6 +357,9 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(NarrationReferenceVoice.class,
                 List.of("audio", "mime", "text"),
                 List.of(byte[].class, String.class, String.class));
+        assertRecordShape(NarrationVoiceSelection.class,
+                List.of("id", "engine"),
+                List.of(String.class, NarrationVoiceEngine.class));
         assertRecordShape(NarrationVoiceRequest.class,
                 List.of("text", "controlInstruction", "delivery", "referenceVoice"),
                 List.of(String.class, String.class, String.class, NarrationReferenceVoice.class));
@@ -385,6 +392,18 @@ class CoreApiOwnershipGuardTest {
                         "public mime():java.lang.String",
                         "public text():java.lang.String",
                         "public final toString():java.lang.String");
+        assertThat(publicDeclaredMethodSignatures(NarrationVoiceSelection.class))
+                .containsExactlyInAnyOrder(
+                        "public engine():top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine",
+                        "public final equals(java.lang.Object):boolean",
+                        "public final hashCode():int",
+                        "public id():java.lang.String",
+                        "public final toString():java.lang.String");
+        assertThat(publicDeclaredMethodSignatures(NarrationVoiceSelector.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract availableEngineCount():int",
+                        "public abstract configuredEngineId():java.lang.String",
+                        "public abstract selected():java.util.Optional");
 
         assertThat(publicDeclaredMethodSignatures(NarrationVoiceRequest.class))
                 .containsExactlyInAnyOrder(

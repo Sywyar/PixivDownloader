@@ -2,7 +2,8 @@ package top.sywyar.pixivdownload.novel.narration.analysis;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationAnalysisRequest;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
@@ -36,7 +37,7 @@ class NarrationScriptServiceTest {
     @Test
     @DisplayName("analyzeSegment：一次返回逐句归属 + 新角色 + 补充；新角色临时 id 在合法集合内被保留")
     void analyzeSegmentReturnsMergedResult() throws Exception {
-        AiService ai = mock(AiService.class);
+        AiChatClient ai = mock(AiChatClient.class);
         String json = "{\"lines\":[{\"i\":0,\"speaker\":1,\"delivery\":\"angry, faster\"},"
                 + "{\"i\":1,\"speaker\":2,\"delivery\":\"\"}],"
                 + "\"newCharacters\":[{\"id\":2,\"name\":\"少年\",\"gender\":\"male\",\"age\":\"teen\","
@@ -62,9 +63,9 @@ class NarrationScriptServiceTest {
     @Test
     @DisplayName("analyzeSegment：AI 关闭 / 失败 -> 该段整段归旁白，无新角色 / 补充 / 冲突")
     void analyzeSegmentFallsBackToNarrator() throws Exception {
-        AiService ai = mock(AiService.class);
+        AiChatClient ai = mock(AiChatClient.class);
         when(ai.chat(eq(NarrationAnalysisRequest.CALL_TYPE), any(), any()))
-                .thenThrow(new AiService.AiException("ai disabled"));
+                .thenThrow(new AiClientException("ai disabled"));
         NarrationScriptService service = new NarrationScriptService(ai);
 
         NarrationSegmentAnalysis a = service.analyzeSegment(
@@ -81,7 +82,7 @@ class NarrationScriptServiceTest {
     @Test
     @DisplayName("analyzeSegment：新角色临时 id 小于 nextId / 撞既有名册时整段归旁白")
     void analyzeSegmentFallsBackWhenNewCharacterIdConflictsWithRoster() throws Exception {
-        AiService ai = mock(AiService.class);
+        AiChatClient ai = mock(AiChatClient.class);
         String json = "{\"lines\":[{\"i\":0,\"speaker\":1,\"delivery\":\"confused\"}],"
                 + "\"newCharacters\":[{\"id\":1,\"name\":\"少年\",\"gender\":\"male\",\"age\":\"teen\","
                 + "\"instruction\":\"A bright teenage boy.\"}],"
@@ -102,7 +103,7 @@ class NarrationScriptServiceTest {
     @Test
     @DisplayName("buildScript：用最终名册 + 逐句归属合成 Control Instruction（基底 + 逐句微调），每行带 delivery")
     void buildScriptAssemblesLines() {
-        NarrationScriptService service = new NarrationScriptService(mock(AiService.class));
+        NarrationScriptService service = new NarrationScriptService(mock(AiChatClient.class));
         List<NarrationCharacter> roster = List.of(
                 narrator("A calm storyteller."), ch(1, "哀家", "An elderly woman, low and cold voice."));
         List<NarrationLineVoice> voices = List.of(
@@ -126,7 +127,7 @@ class NarrationScriptServiceTest {
     @Test
     @DisplayName("buildScript：缺失逐句归属的句子归旁白；结果与输入句子等长")
     void buildScriptFillsMissingWithNarrator() {
-        NarrationScriptService service = new NarrationScriptService(mock(AiService.class));
+        NarrationScriptService service = new NarrationScriptService(mock(AiChatClient.class));
         List<NarrationCharacter> roster = List.of(narrator("A calm storyteller."));
         NarrationScript script = service.buildScript(roster, List.of("a", "b"), List.of());
         assertFalse(script.multiVoice());

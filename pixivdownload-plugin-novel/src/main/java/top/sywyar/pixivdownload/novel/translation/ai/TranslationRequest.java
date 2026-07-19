@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import java.util.List;
 
 /**
- * 一次「Pixiv 小说文本翻译」的 AI 请求体。把调用 {@link top.sywyar.pixivdownload.ai.AiService} 所需的
+ * 一次「Pixiv 小说文本翻译」的 AI 请求体。把调用 {@link top.sywyar.pixivdownload.ai.AiChatClient} 所需的
  * <b>业务变量</b>（目标语言、待翻译文本、可选随段同译的标题与简介、名词映射表）与 <b>输出规范</b>
  * （提示词 + 期望的 JSON 结构）封装在一起，与底层 OpenAI 兼容协议解耦。
  *
@@ -36,7 +36,7 @@ public record TranslationRequest(String targetLanguage, String sourceText,
                                  String sourceTitle, String sourceDescription,
                                  List<GlossaryTerm> glossary) {
 
-    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiService} 在日志中标识本次请求用途。 */
+    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiChatClient} 标识本次请求用途。 */
     public static final String CALL_TYPE = "translation";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();

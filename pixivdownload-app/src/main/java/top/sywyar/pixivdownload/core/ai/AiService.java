@@ -15,7 +15,7 @@ import java.util.List;
  * Core facade for the optional AI plugin.
  */
 @Service
-public class AiService {
+public class AiService implements AiChatClient {
 
     private final AiChatClientRegistry registry;
 
@@ -23,33 +23,36 @@ public class AiService {
         this.registry = registry;
     }
 
+    @Override
     public AiChatResult chat(String callType, List<AiChatMessage> messages,
-                             AiChatOptions options) throws AiException {
+                             AiChatOptions options) throws AiClientException {
         AiChatClient client = registry.active().orElseThrow(() ->
-                new AiException("AI plugin unavailable"));
+                new AiClientException("AI plugin unavailable"));
         try {
             return client.chat(callType, messages, options);
         } catch (ExternalCapabilityUnavailableException e) {
-            throw new AiException("AI plugin unavailable");
+            throw new AiClientException("AI plugin unavailable");
         } catch (AiClientException e) {
-            throw new AiException(e.getMessage(), e);
+            throw new AiClientException(e.getMessage(), e);
         }
     }
 
+    @Override
     public AiChatResult chatTest(String callType, AiClientSettings settings,
                                  List<AiChatMessage> messages,
-                                 AiChatOptions options) throws AiException {
+                                 AiChatOptions options) throws AiClientException {
         AiChatClient client = registry.active().orElseThrow(() ->
-                new AiException("AI plugin unavailable"));
+                new AiClientException("AI plugin unavailable"));
         try {
             return client.chatTest(callType, settings, messages, options);
         } catch (ExternalCapabilityUnavailableException e) {
-            throw new AiException("AI plugin unavailable");
+            throw new AiClientException("AI plugin unavailable");
         } catch (AiClientException e) {
-            throw new AiException(e.getMessage(), e);
+            throw new AiClientException(e.getMessage(), e);
         }
     }
 
+    @Override
     public boolean isConfigured() {
         try {
             return registry.active().map(AiChatClient::isConfigured).orElse(false);
@@ -58,13 +61,4 @@ public class AiService {
         }
     }
 
-    public static class AiException extends Exception {
-        public AiException(String message) {
-            super(message);
-        }
-
-        public AiException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

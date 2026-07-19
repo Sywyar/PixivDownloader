@@ -3,7 +3,8 @@ package top.sywyar.pixivdownload.novel.translation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.novel.translation.ai.GlossaryTerm;
@@ -34,7 +35,7 @@ import java.util.Map;
  * markup（见 {@link TranslationRequest}），写入 {@code novel_translations}，供详情页按语言渲染与系列变体合订复用，
  * 避免重复请求 AI。
  *
- * <p>所有 AI 调用统一走 {@link AiService#chat}（OpenAI 兼容协议、JSON 输出），请求 / 响应分别由
+ * <p>所有 AI 调用统一走 {@link AiChatClient#chat}（OpenAI 兼容协议、JSON 输出），请求 / 响应分别由
  * {@link TranslationRequest} / {@link TranslationResponse} 规范。
  */
 @Slf4j
@@ -45,7 +46,7 @@ public class NovelTranslationService {
     /** 单次翻译请求最多注入给 AI 的映射表条目数（控制 token 体量）。 */
     private static final int MAX_GLOSSARY_TERMS = 1000;
 
-    private final AiService aiService;
+    private final AiChatClient aiChatClient;
     private final NovelDatabase novelDatabase;
     private final NovelGlossaryService glossaryService;
     private final MessageResolver messages;
@@ -139,7 +140,7 @@ public class NovelTranslationService {
                 // 自动复用同一映射表与上下文，保证术语一致。仅在用户勾选对应字段时附带 + 保存。
                 String segmentTitle = (i == 0 && translateTitle) ? record.title() : null;
                 String segmentDescription = (i == 0 && translateDescription) ? record.description() : null;
-                AiChatResult chat = aiService.chat(
+                AiChatResult chat = aiChatClient.chat(
                         TranslationRequest.CALL_TYPE,
                         new TranslationRequest(targetLanguage, segments.get(i),
                                 segmentTitle, segmentDescription, glossaryTerms).toMessages(),
@@ -188,7 +189,7 @@ public class NovelTranslationService {
                     truncated = true;
                 }
             }
-        } catch (AiService.AiException e) {
+        } catch (AiClientException e) {
             return new Result(Status.ERROR, null, e.getMessage(), false);
         }
 
@@ -389,14 +390,14 @@ public class NovelTranslationService {
                                                          List<GlossaryTerm> terms,
                                                          List<TitleTranslationRequest.TitleReference> references) {
         try {
-            AiChatResult chat = aiService.chat(
+            AiChatResult chat = aiChatClient.chat(
                     TitleTranslationRequest.CALL_TYPE,
                     new TitleTranslationRequest(targetLanguage, sourceTitle, sourceDescription,
                             terms == null ? List.of() : terms,
                             references == null ? List.of() : references).toMessages(),
                     AiChatOptions.json().withTemperature(0.2));
             return TitleTranslationResponse.parse(chat.content());
-        } catch (AiService.AiException | IllegalArgumentException e) {
+        } catch (AiClientException | IllegalArgumentException e) {
             log.debug("title translation failed, fallback to original: {}", e.getMessage());
             return null;
         }
@@ -414,14 +415,14 @@ public class NovelTranslationService {
             return "";
         }
         try {
-            AiChatResult chat = aiService.chat(
+            AiChatResult chat = aiChatClient.chat(
                     LangProbeRequest.CALL_TYPE,
                     new LangProbeRequest(targetLanguage).toMessages(),
                     AiChatOptions.json().withTemperature(0.0));
             LangProbeResponse parsed = LangProbeResponse.parse(chat.content());
             return parsed.ok() ? parsed.code().trim() : "";
-        } catch (AiService.AiException e) {
-            // AiService 已记过失败日志，这里仅静默回退
+        } catch (AiClientException e) {
+            // 宿主 AI 门面已归一化失败，这里仅静默回退
             return "";
         }
     }
@@ -436,13 +437,13 @@ public class NovelTranslationService {
             return false;
         }
         try {
-            AiChatResult chat = aiService.chat(
+            AiChatResult chat = aiChatClient.chat(
                     SourceLanguageProbeRequest.CALL_TYPE,
                     new SourceLanguageProbeRequest(targetCode, sample).toMessages(),
                     AiChatOptions.json().withTemperature(0.0));
             return SourceLanguageProbeResponse.parse(chat.content()).isSame();
-        } catch (AiService.AiException e) {
-            // AiService 已记失败日志；探测失败不阻断翻译
+        } catch (AiClientException e) {
+            // 宿主 AI 门面已归一化失败；探测失败不阻断翻译
             return false;
         }
     }

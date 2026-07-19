@@ -40,7 +40,7 @@ public record TitleTranslationRequest(String targetLanguage, String sourceTitle,
                                       List<GlossaryTerm> glossary,
                                       List<TitleReference> referenceTitles) {
 
-    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiService} 在日志中标识本次请求用途。 */
+    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiChatClient} 标识本次请求用途。 */
     public static final String CALL_TYPE = "translation.title";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();

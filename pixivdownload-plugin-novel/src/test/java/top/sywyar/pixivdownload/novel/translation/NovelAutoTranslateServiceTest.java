@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.translation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -49,7 +49,7 @@ class NovelAutoTranslateServiceTest {
     private final NovelTranslationService translationService = mock(NovelTranslationService.class);
     private final NovelGlossaryService glossaryService = mock(NovelGlossaryService.class);
     private final NovelMergeService mergeService = mock(NovelMergeService.class);
-    private final AiService aiService = mock(AiService.class);
+    private final AiChatClient aiChatClient = mock(AiChatClient.class);
     // 同步执行器：让 submit 内联完成，测试可对终态做确定性断言（无需等待异步线程）。
     private final TaskExecutor directExecutor = Runnable::run;
 
@@ -74,7 +74,7 @@ class NovelAutoTranslateServiceTest {
                         List.of(), List.of(), List.of(), List.of(), List.of()));
         return new ServiceFixture(
                 new NovelAutoTranslateService(
-                        translationService, glossaryService, mergeService, aiService, executor, registry),
+                        translationService, glossaryService, mergeService, aiChatClient, executor, registry),
                 registry,
                 publication);
     }
@@ -92,7 +92,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("翻译 future 持有 novel owner lease，撤回后 drain 等待作业协作退出")
     void translationFutureKeepsOwnerLeaseUntilCompletion() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(100L)).thenReturn(7L);
         CountDownLatch started = new CountDownLatch(1);
@@ -130,7 +130,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("词汇表查询期间撤回 owner 后不再启动长耗时翻译")
     void withdrawalDuringGlossaryLookupStopsBeforeTranslation() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         CountDownLatch glossaryStarted = new CountDownLatch(1);
         CountDownLatch allowGlossaryReturn = new CountDownLatch(1);
@@ -226,7 +226,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("同语言合订期间撤回 owner 后以插件静默失败终结")
     void withdrawalDuringSameLanguageMergeFailsInsteadOfReportingSuccess() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(104L)).thenReturn(7L);
         when(translationService.translateChapter(eq(104L), eq("english"), eq(0), eq(false),
@@ -266,7 +266,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("AI 未启用时标记为 FAILED 且不调用翻译")
     void aiDisabledMarksFailed() {
-        when(aiService.isConfigured()).thenReturn(false);
+        when(aiChatClient.isConfigured()).thenReturn(false);
         NovelAutoTranslateService s = service();
 
         s.submit(100L, null, "english", 0, false, "epub");
@@ -283,7 +283,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("单本成功翻译后状态为 DONE 且不触发系列合订")
     void standaloneSuccessNoMerge() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(100L)).thenReturn(7L);
         when(translationService.translateChapter(eq(100L), eq("english"), eq(0), eq(false),
@@ -304,7 +304,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("系列成功翻译后翻译系列名并按设置重生译文合订")
     void seriesSuccessTriggersMerge() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(7L);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -323,7 +323,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("同系列两章都完成翻译（串行链不丢任务）")
     void seriesSerialCompletesAll() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(7L);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -344,7 +344,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("同一目标语言只探测一次语言代码")
     void langCodeProbedOnce() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(null);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -361,7 +361,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("终态状态超过保留期后被惰性清理（返回 null 并移除条目）")
     void terminalStatusExpires() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(null);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -382,7 +382,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("源语言与目标一致时标记为 SAME_LANGUAGE 终态并按设置合订，但不翻译系列名")
     void sameLanguageRefreshesMerge() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(7L);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -405,7 +405,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("翻译返回错误状态时标记为 FAILED 且不合订")
     void translateErrorMarksFailed() throws Exception {
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(null);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),

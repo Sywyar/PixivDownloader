@@ -7,18 +7,18 @@ import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
-import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
-import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceMode;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelection;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 
 /**
- * 多角色朗读音频合成的<b>集中调用层</b>：注入 {@link NarrationEngineRegistry} + {@link NarrationTtsConfig}，按
- * {@code narration-tts.engine} 选用引擎，把一条朗读脚本行（或裸文本 + 音色描述）在<b>显式 {@link NarrationVoiceMode}</b>
+ * 多角色朗读音频合成的<b>集中调用层</b>：经 {@link NarrationVoiceSelector} 取得宿主当前选中的引擎，
+ * 把一条朗读脚本行（或裸文本 + 音色描述）在<b>显式 {@link NarrationVoiceMode}</b>
  * 下合成为音频字节。
  *
  * <p>核心入口 {@link #synthesize(NarrationVoiceMode, NarrationVoiceRequest)} 统一做三件引擎无关的事：
@@ -37,18 +37,15 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 @Slf4j
 public class NarrationAudioService {
 
-    private final NarrationEngineRegistry registry;
-    private final NarrationTtsConfig config;
+    private final NarrationVoiceSelector voiceSelector;
     private final MessageResolver messages;
 
     /** 进程内仅记一次的「beta 功能」提示守卫：首次真正发起合成时告知该功能可用但尚不稳定。 */
     private final AtomicBoolean betaNoticeLogged = new AtomicBoolean(false);
 
-    public NarrationAudioService(NarrationEngineRegistry registry,
-                                 NarrationTtsConfig config,
+    public NarrationAudioService(NarrationVoiceSelector voiceSelector,
                                  MessageResolver messages) {
-        this.registry = registry;
-        this.config = config;
+        this.voiceSelector = voiceSelector;
         this.messages = messages;
     }
 
@@ -109,15 +106,16 @@ public class NarrationAudioService {
         if (normalized.isEmpty()) {
             throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
         }
-        NarrationEngineRegistry.PreparedEngine prepared =
-                registry.selectedPrepared(config.getEngine()).orElse(null);
-        if (prepared == null) {
-            log.warn(messages.getForLog("narration.tts.log.engine.not-found", config.getEngine(), registry.count()));
+        NarrationVoiceSelection selection = voiceSelector.selected().orElse(null);
+        if (selection == null) {
+            String configuredEngineId = voiceSelector.configuredEngineId();
+            log.warn(messages.getForLog("narration.tts.log.engine.not-found",
+                    configuredEngineId, voiceSelector.availableEngineCount()));
             throw new NarrationVoiceException(
-                    messages.get("narration.tts.error.engine-not-found", config.getEngine()), null);
+                    messages.get("narration.tts.error.engine-not-found", configuredEngineId), null);
         }
-        NarrationVoiceEngine engine = prepared.engine();
-        String engineId = prepared.id();
+        NarrationVoiceEngine engine = selection.engine();
+        String engineId = selection.id();
         try {
             if (!engine.isAvailable()) {
                 log.warn(messages.getForLog("narration.tts.log.engine.unavailable", engineId));
@@ -148,13 +146,12 @@ public class NarrationAudioService {
      * 可用性显隐 / 禁用「富感情朗读」入口，避免后端未配置 / 已宕机时仍可点开并触发分析。
      */
     public boolean isEngineAvailable() {
-        NarrationEngineRegistry.PreparedEngine prepared =
-                registry.selectedPrepared(config.getEngine()).orElse(null);
-        if (prepared == null) {
+        NarrationVoiceSelection selection = voiceSelector.selected().orElse(null);
+        if (selection == null) {
             return false;
         }
         try {
-            return prepared.engine().isReachable();
+            return selection.engine().isReachable();
         } catch (RuntimeException unavailable) {
             return false;
         }

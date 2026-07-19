@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.config.DebugSettings;
-import top.sywyar.pixivdownload.core.ai.AiService;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
 import top.sywyar.pixivdownload.common.ErrorResponse;
@@ -55,7 +55,7 @@ public class NarrationController {
     private final NovelDatabase novelDatabase;
     private final MessageResolver messages;
     private final DebugSettings debugSettings;
-    private final AiService aiService;
+    private final AiChatClient aiChatClient;
 
     // ── DTO ──────────────────────────────────────────────────────────────────
 
@@ -127,7 +127,7 @@ public class NarrationController {
     public ResponseEntity<?> availability() {
         return ResponseEntity.ok(new AvailabilityResponse(
                 narrationAudioService.isEngineAvailable(), debugSettings.isEnabled(),
-                aiService.isConfigured()));
+                aiChatClient.isConfigured()));
     }
 
     /** 旁白音色预设清单（admin-only）：供首次分析弹窗的「旁白音色」选择器渲染标签 / 预览 / 试听。 */
@@ -169,7 +169,7 @@ public class NarrationController {
 
         // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要 AI 文本模型可用：调试模式不能绕过
         // AI 缺失 / 禁用 / 未配置，因为分析本身依赖 LLM。
-        if (willAnalyze && !aiService.isConfigured()) {
+        if (willAnalyze && !aiChatClient.isConfigured()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(new ErrorResponse(messages.get("narration.error.ai-unavailable")));
         }

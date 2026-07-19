@@ -3,7 +3,8 @@ package top.sywyar.pixivdownload.novel.narration.analysis;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationAnalysisRequest;
@@ -23,7 +24,7 @@ import java.util.Set;
  * 说话人 + 情绪 delivery、新角色、对已有角色的兼容性补充与冲突上报（见 {@link NarrationSegmentAnalysis}）。
  * 这取代了早期的两段式（选角 + 逐句归属两次调用）。
  *
- * <p>本服务是分析层入口，刻意与具体 TTS 引擎、持久化<b>解耦</b>：只依赖 {@link AiService} 与
+ * <p>本服务是分析层入口，刻意与具体 TTS 引擎、持久化<b>解耦</b>：只依赖 {@link AiChatClient} 与
  * {@code ai.narration} 实体，<b>不</b>引用任何 Edge / VoxCPM 引擎类、<b>不</b>读小说库、<b>不</b>负责断句
  * （句子由调用方切好传入），也<b>不</b>做花名册落库 / 冲突路由（那是编排层 {@code novel.narration.NovelNarrationCastService}
  * 的职责）。
@@ -39,7 +40,7 @@ public class NarrationScriptService {
 
     private static final double ANALYSIS_TEMPERATURE = 0.3;
 
-    private final AiService aiService;
+    private final AiChatClient aiChatClient;
 
     /**
      * 对<b>一段</b>句子做合并单次分析：把 {@code roster}（当前花名册）+ 句子 + {@code nextId} 发给 LLM，
@@ -60,7 +61,7 @@ public class NarrationScriptService {
                 ? List.of(NarrationCharacter.defaultNarrator()) : roster;
         log.debug("narration segment analysis: sentences={}, rosterSize={}, nextId={}", count, safeRoster.size(), nextId);
         try {
-            AiChatResult chat = aiService.chat(
+            AiChatResult chat = aiChatClient.chat(
                     NarrationAnalysisRequest.CALL_TYPE,
                     new NarrationAnalysisRequest(safeRoster, sentences, nextId).toMessages(),
                     AiChatOptions.json().withTemperature(ANALYSIS_TEMPERATURE));
@@ -83,7 +84,7 @@ public class NarrationScriptService {
                     response.renamedCharacters().size(), response.conflicts().size());
             return new NarrationSegmentAnalysis(lines, newCharacters,
                     response.updatedCharacters(), response.renamedCharacters(), response.conflicts());
-        } catch (AiService.AiException | IllegalArgumentException e) {
+        } catch (AiClientException | IllegalArgumentException e) {
             log.warn("narration segment analysis failed, falling back to narrator: count={}, err={}",
                     count, e.getMessage());
             return NarrationSegmentAnalysis.narratorFallback(count);

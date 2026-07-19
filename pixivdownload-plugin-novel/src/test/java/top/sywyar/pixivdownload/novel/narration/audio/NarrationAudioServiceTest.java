@@ -9,17 +9,17 @@ import top.sywyar.pixivdownload.novel.narration.analysis.NarrationScript;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentenceSplitter;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
-import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
-import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
-import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceMode;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelection;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -41,7 +41,7 @@ class NarrationAudioServiceTest {
         NarrationVoiceEngine voxcpm = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
         NarrationAudio audio = new NarrationAudio(new byte[]{1}, "audio/wav");
         when(voxcpm.synthesize(any(), any())).thenReturn(audio);
-        NarrationAudioService service = service(config("voxcpm"), voxcpm);
+        NarrationAudioService service = service("voxcpm", voxcpm);
 
         NarrationAudio out = service.synthesizeVoiceDesign("text", "ci");
 
@@ -53,7 +53,7 @@ class NarrationAudioServiceTest {
     @DisplayName("归一后为空文本（纯标点 / 省略号）→ 抛受控异常且绝不调引擎")
     void emptyNormalizedTextThrowsWithoutEngine() {
         NarrationVoiceEngine voxcpm = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
-        NarrationAudioService service = service(config("voxcpm"), voxcpm);
+        NarrationAudioService service = service("voxcpm", voxcpm);
 
         assertThatThrownBy(() -> service.synthesizeVoiceDesign("……", ""))
                 .isInstanceOf(NarrationVoiceException.class);
@@ -70,7 +70,7 @@ class NarrationAudioServiceTest {
                 .findFirst().orElseThrow();
         assertThat(punct.text()).isEqualTo("……");
         NarrationVoiceEngine voxcpm = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
-        NarrationAudioService service = service(config("voxcpm"), voxcpm);
+        NarrationAudioService service = service("voxcpm", voxcpm);
         NarrationScript.Line line = new NarrationScript.Line(1, punct.text(), 0, "旁白", "", "Narrator voice");
 
         NarrationAudio audio = service.synthesizeLine(line, null);
@@ -87,7 +87,7 @@ class NarrationAudioServiceTest {
         // 引擎仅支持 VOICE_DESIGN；synthesizeLine 带参考音 → 请求 CLONE，应被降级。
         NarrationVoiceEngine engine = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
         when(engine.synthesize(any(), any())).thenReturn(new NarrationAudio(new byte[]{1}, "audio/wav"));
-        NarrationAudioService service = service(config("voxcpm"), engine);
+        NarrationAudioService service = service("voxcpm", engine);
         NarrationScript.Line line = new NarrationScript.Line(0, "原句", 1, "甲", "angry", "An old woman");
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子");
 
@@ -104,7 +104,7 @@ class NarrationAudioServiceTest {
         NarrationVoiceEngine engine = availableEngine("voxcpm",
                 NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceMode.CLONE);
         when(engine.synthesize(any(), any())).thenReturn(new NarrationAudio(new byte[]{1}, "audio/wav"));
-        NarrationAudioService service = service(config("voxcpm"), engine);
+        NarrationAudioService service = service("voxcpm", engine);
         NarrationScript.Line line = new NarrationScript.Line(0, "原句", 1, "甲", "angry", "An old woman");
         NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子");
 
@@ -119,7 +119,7 @@ class NarrationAudioServiceTest {
         NarrationVoiceEngine voxcpm = mock(NarrationVoiceEngine.class);
         when(voxcpm.id()).thenReturn("voxcpm");
         when(voxcpm.isAvailable()).thenReturn(false);
-        NarrationAudioService service = service(config("voxcpm"), voxcpm);
+        NarrationAudioService service = service("voxcpm", voxcpm);
 
         assertThatThrownBy(() -> service.synthesizeVoiceDesign("t", ""))
                 .isInstanceOf(NarrationVoiceException.class);
@@ -131,9 +131,9 @@ class NarrationAudioServiceTest {
     void withdrawnEngineSynthesisIsControlled() {
         NarrationVoiceEngine engine = mock(NarrationVoiceEngine.class);
         when(engine.id()).thenReturn("voxcpm");
-        NarrationAudioService service = service(config("voxcpm"), engine);
+        NarrationAudioService service = service("voxcpm", engine);
         when(engine.id()).thenThrow(new AssertionError("service must use captured engine id"));
-        when(engine.isAvailable()).thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
+        when(engine.isAvailable()).thenThrow(new IllegalStateException("withdrawn"));
 
         assertThatThrownBy(() -> service.synthesizeVoiceDesign("text", ""))
                 .isInstanceOf(NarrationVoiceException.class);
@@ -144,8 +144,8 @@ class NarrationAudioServiceTest {
     void withdrawnEngineReachabilityIsFalse() {
         NarrationVoiceEngine engine = mock(NarrationVoiceEngine.class);
         when(engine.id()).thenReturn("voxcpm");
-        NarrationAudioService service = service(config("voxcpm"), engine);
-        when(engine.isReachable()).thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
+        NarrationAudioService service = service("voxcpm", engine);
+        when(engine.isReachable()).thenThrow(new IllegalStateException("withdrawn"));
 
         assertThat(service.isEngineAvailable()).isFalse();
     }
@@ -153,8 +153,7 @@ class NarrationAudioServiceTest {
     @Test
     @DisplayName("配置的引擎 id 不存在时抛受控异常")
     void engineNotFoundThrows() {
-        NarrationAudioService service = new NarrationAudioService(
-                new NarrationEngineRegistry(List.of()), config("unknown"), MESSAGES);
+        NarrationAudioService service = new NarrationAudioService(selector("unknown"), MESSAGES);
 
         assertThatThrownBy(() -> service.synthesizeVoiceDesign("t", ""))
                 .isInstanceOf(NarrationVoiceException.class);
@@ -165,7 +164,7 @@ class NarrationAudioServiceTest {
     void synthesizeLinePassesLineFields() {
         NarrationVoiceEngine voxcpm = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
         when(voxcpm.synthesize(any(), any())).thenReturn(new NarrationAudio(new byte[]{1}, "audio/wav"));
-        NarrationAudioService service = service(config("voxcpm"), voxcpm);
+        NarrationAudioService service = service("voxcpm", voxcpm);
         NarrationScript.Line line = new NarrationScript.Line(
                 0, "原句", 1, "哀家", "angry", "An elderly woman, angry");
 
@@ -180,8 +179,8 @@ class NarrationAudioServiceTest {
         assertThat(req.hasReferenceVoice()).isFalse();
     }
 
-    private static NarrationAudioService service(NarrationTtsConfig config, NarrationVoiceEngine... engines) {
-        return new NarrationAudioService(new NarrationEngineRegistry(List.of(engines)), config, MESSAGES);
+    private static NarrationAudioService service(String configuredEngineId, NarrationVoiceEngine... engines) {
+        return new NarrationAudioService(selector(configuredEngineId, engines), MESSAGES);
     }
 
     private static NarrationVoiceEngine availableEngine(String id, NarrationVoiceMode... modes) {
@@ -192,9 +191,27 @@ class NarrationAudioServiceTest {
         return engine;
     }
 
-    private static NarrationTtsConfig config(String engine) {
-        NarrationTtsConfig cfg = new NarrationTtsConfig();
-        cfg.setEngine(engine);
-        return cfg;
+    private static NarrationVoiceSelector selector(String configuredEngineId, NarrationVoiceEngine... engines) {
+        List<NarrationVoiceSelection> selections = java.util.Arrays.stream(engines)
+                .map(engine -> new NarrationVoiceSelection(engine.id(), engine))
+                .toList();
+        return new NarrationVoiceSelector() {
+            @Override
+            public String configuredEngineId() {
+                return configuredEngineId;
+            }
+
+            @Override
+            public Optional<NarrationVoiceSelection> selected() {
+                return selections.stream()
+                        .filter(selection -> selection.id().equalsIgnoreCase(configuredEngineId))
+                        .findFirst();
+            }
+
+            @Override
+            public int availableEngineCount() {
+                return selections.size();
+            }
+        };
     }
 }

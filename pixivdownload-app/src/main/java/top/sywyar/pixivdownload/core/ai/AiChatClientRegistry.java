@@ -18,10 +18,7 @@ public class AiChatClientRegistry {
     private final Map<OwnerKey, AiChatClient> byOwner = new LinkedHashMap<>();
     private volatile AiChatClient active;
 
-    public AiChatClientRegistry(List<AiChatClient> initialClients) {
-        if (initialClients != null && !initialClients.isEmpty()) {
-            register("core", initialClients);
-        }
+    public AiChatClientRegistry() {
     }
 
     public void register(String pluginId, List<AiChatClient> clients) {

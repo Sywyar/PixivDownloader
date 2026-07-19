@@ -19,7 +19,7 @@ import java.util.List;
  * </ol>
  *
  * <p>每段都携带花名册，是「同一角色跨句 / 跨章音色一致」的关键：模型复用既有 id、只新增 / 补充，避免分批生成时
- * 音色漂移。遵循 {@link top.sywyar.pixivdownload.ai.AiService} 实体范式：固定英文提示词、{@link #toMessages()}、
+ * 音色漂移。遵循 {@link top.sywyar.pixivdownload.ai.AiChatClient} 契约范式：固定英文提示词、{@link #toMessages()}、
  * 期望严格 JSON 以便 {@link NarrationAnalysisResponse#parse(String)} 解析。音色画像 / delivery <b>统一英文</b>，
  * 目标句子保持原文。<b>不</b>负责断句——句子由调用方切好按顺序传入，数组下标即每句的 {@code i}。
  *
@@ -29,7 +29,7 @@ import java.util.List;
  */
 public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<String> sentences, int nextId) {
 
-    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiService} 在日志中标识本次请求用途。 */
+    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiChatClient} 标识本次请求用途。 */
     public static final String CALL_TYPE = "tts.narration.analysis";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();

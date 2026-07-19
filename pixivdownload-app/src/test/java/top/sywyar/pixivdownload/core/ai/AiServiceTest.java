@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.core.ai;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
 
 import java.util.List;
@@ -23,7 +24,9 @@ class AiServiceTest {
     void withdrawnClientIsNotConfigured() {
         AiChatClient client = mock(AiChatClient.class);
         when(client.isConfigured()).thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
-        AiService service = new AiService(new AiChatClientRegistry(List.of(client)));
+        AiChatClientRegistry registry = new AiChatClientRegistry();
+        registry.register("test", List.of(client));
+        AiService service = new AiService(registry);
 
         assertThat(service.isConfigured()).isFalse();
     }
@@ -34,10 +37,12 @@ class AiServiceTest {
         AiChatClient client = mock(AiChatClient.class);
         when(client.chat(anyString(), anyList(), any()))
                 .thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
-        AiService service = new AiService(new AiChatClientRegistry(List.of(client)));
+        AiChatClientRegistry registry = new AiChatClientRegistry();
+        registry.register("test", List.of(client));
+        AiService service = new AiService(registry);
 
         assertThatThrownBy(() -> service.chat("test", List.of(), null))
-                .isInstanceOf(AiService.AiException.class)
+                .isInstanceOf(AiClientException.class)
                 .hasMessage("AI plugin unavailable")
                 .hasNoCause();
     }

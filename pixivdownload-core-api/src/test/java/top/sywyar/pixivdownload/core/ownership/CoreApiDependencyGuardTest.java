@@ -60,6 +60,8 @@ import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.push.PushFormatConverter;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelection;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
@@ -238,6 +240,13 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(AcquisitionCredentialResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(ApplicationModeProvider.class.getName())).isTrue();
         assertThat(CLASSES.contain(LocalRequestTrust.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含朗读引擎选择的只读端口与快照")
+    void coreApiContainsNarrationSelectionContracts() {
+        assertThat(CLASSES.contain(NarrationVoiceSelector.class.getName())).isTrue();
+        assertThat(CLASSES.contain(NarrationVoiceSelection.class.getName())).isTrue();
     }
 
     @Test

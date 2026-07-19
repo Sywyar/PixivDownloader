@@ -19,15 +19,13 @@ import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
-import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.narration.NarrationEngineRegistry;
-import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxProxyClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard;
@@ -81,6 +79,7 @@ import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 
 /**
  * novel 插件的 Bean 装配收敛点。插件 descriptor 始终注册；下载、Pixiv 小说代理、
@@ -159,11 +158,11 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NovelTranslationService novelTranslationService(AiService aiService,
+    public NovelTranslationService novelTranslationService(AiChatClient aiChatClient,
                                                            NovelDatabase novelDatabase,
                                                            NovelGlossaryService glossaryService,
                                                            @Qualifier("novelPluginMessages") MessageResolver messages) {
-        return new NovelTranslationService(aiService, novelDatabase, glossaryService, messages);
+        return new NovelTranslationService(aiChatClient, novelDatabase, glossaryService, messages);
     }
 
     @Bean
@@ -172,11 +171,11 @@ public class NovelPluginConfiguration {
             NovelTranslationService translationService,
             NovelGlossaryService glossaryService,
             NovelMergeService mergeService,
-            AiService aiService,
+            AiChatClient aiChatClient,
             @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
             ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
         return new NovelAutoTranslateService(
-                translationService, glossaryService, mergeService, aiService, executor,
+                translationService, glossaryService, mergeService, aiChatClient, executor,
                 scheduleCapabilityRegistry);
     }
 
@@ -238,8 +237,8 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NarrationScriptService narrationScriptService(AiService aiService) {
-        return new NarrationScriptService(aiService);
+    public NarrationScriptService narrationScriptService(AiChatClient aiChatClient) {
+        return new NarrationScriptService(aiChatClient);
     }
 
     @Bean
@@ -256,10 +255,9 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NarrationAudioService narrationAudioService(NarrationEngineRegistry registry,
-                                                       NarrationTtsConfig config,
+    public NarrationAudioService narrationAudioService(NarrationVoiceSelector voiceSelector,
                                                        @Qualifier("novelPluginMessages") MessageResolver messages) {
-        return new NarrationAudioService(registry, config, messages);
+        return new NarrationAudioService(voiceSelector, messages);
     }
 
     @Bean
@@ -307,9 +305,9 @@ public class NovelPluginConfiguration {
                                                    NovelDatabase novelDatabase,
                                                    @Qualifier("novelPluginMessages") MessageResolver messages,
                                                    DebugSettings debugSettings,
-                                                   AiService aiService) {
+                                                   AiChatClient aiChatClient) {
         return new NarrationController(scriptService, castService, referenceVoiceService, narrationAudioService,
-                novelDatabase, messages, debugSettings, aiService);
+                novelDatabase, messages, debugSettings, aiChatClient);
     }
 
     @Bean

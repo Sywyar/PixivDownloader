@@ -4,7 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
@@ -59,20 +59,20 @@ public class NovelAutoTranslateService {
     private final NovelTranslationService translationService;
     private final NovelGlossaryService glossaryService;
     private final NovelMergeService mergeService;
-    private final AiService aiService;
+    private final AiChatClient aiChatClient;
     private final TaskExecutor executor;
     private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
 
     public NovelAutoTranslateService(NovelTranslationService translationService,
                                      NovelGlossaryService glossaryService,
                                      NovelMergeService mergeService,
-                                     AiService aiService,
+                                     AiChatClient aiChatClient,
                                      @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
                                      ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
         this.translationService = translationService;
         this.glossaryService = glossaryService;
         this.mergeService = mergeService;
-        this.aiService = aiService;
+        this.aiChatClient = aiChatClient;
         this.executor = executor;
         this.scheduleCapabilityRegistry = scheduleCapabilityRegistry;
     }
@@ -299,7 +299,7 @@ public class NovelAutoTranslateService {
             if (cancelled(cancellation, status)) {
                 return;
             }
-            if (!aiService.isConfigured()) {
+            if (!aiChatClient.isConfigured()) {
                 fail(status, "ai-unavailable");
                 return;
             }

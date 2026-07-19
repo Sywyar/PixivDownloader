@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
-import top.sywyar.pixivdownload.core.ai.AiService;
+import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
 import top.sywyar.pixivdownload.common.ErrorResponse;
@@ -49,11 +49,11 @@ class NarrationControllerTest {
     private final NarrationAudioService audioService = mock(NarrationAudioService.class);
     private final AtomicBoolean debugEnabled = new AtomicBoolean();
     private final DebugSettings debugSettings = debugEnabled::get;
-    private final AiService aiService = mock(AiService.class);
+    private final AiChatClient aiChatClient = mock(AiChatClient.class);
 
     private final NarrationController controller =
             new NarrationController(scriptService, castService, referenceVoiceService, audioService, novelDatabase,
-                    messageResolver(), debugSettings, aiService);
+                    messageResolver(), debugSettings, aiChatClient);
     private final NarrationTtsController ttsController =
             new NarrationTtsController(audioService, scriptService, messageResolver());
 
@@ -61,7 +61,7 @@ class NarrationControllerTest {
     void setUp() {
         // 默认朗读引擎可用（多数 /script 用例的 happy path）；不可用 / 调试模式的用例各自覆盖。
         when(audioService.isEngineAvailable()).thenReturn(true);
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
     }
 
     private NovelRecord novel(long id) {
@@ -174,7 +174,7 @@ class NarrationControllerTest {
     @Test
     @DisplayName("/script：AI 未配置时 force 重分析被拒（503），绝不调用分析")
     void scriptRejectsForceWhenAiUnavailable() {
-        when(aiService.isConfigured()).thenReturn(false);
+        when(aiChatClient.isConfigured()).thenReturn(false);
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
 
         ResponseEntity<?> resp = controller.script(
@@ -191,7 +191,7 @@ class NarrationControllerTest {
     @Test
     @DisplayName("/script：AI 未配置且无缓存脚本时新分析被拒（503），绝不调用分析")
     void scriptRejectsNewAnalysisWhenAiUnavailableNoCache() {
-        when(aiService.isConfigured()).thenReturn(false);
+        when(aiChatClient.isConfigured()).thenReturn(false);
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
         when(scriptService.peekScript(7L, "")).thenReturn(null);
 
@@ -206,7 +206,7 @@ class NarrationControllerTest {
     @Test
     @DisplayName("/script：调试模式不能绕过 AI 未配置的新分析门禁")
     void scriptRejectsAiUnavailableEvenInDebugMode() {
-        when(aiService.isConfigured()).thenReturn(false);
+        when(aiChatClient.isConfigured()).thenReturn(false);
         debugEnabled.set(true);
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
 
@@ -256,7 +256,7 @@ class NarrationControllerTest {
     @Test
     @DisplayName("/script：AI 未配置但命中缓存脚本时仍正常返回（不触发新分析）")
     void scriptAllowsCacheHitWhenAiUnavailable() {
-        when(aiService.isConfigured()).thenReturn(false);
+        when(aiChatClient.isConfigured()).thenReturn(false);
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
         List<NovelNarrationScriptService.ScriptLine> lines = List.of(
                 new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
@@ -321,14 +321,14 @@ class NarrationControllerTest {
     @DisplayName("/availability：透出朗读引擎是否可用 + 调试模式开关 + 文本模型是否已配置")
     void availabilityReflectsEngine() {
         when(audioService.isEngineAvailable()).thenReturn(true);
-        when(aiService.isConfigured()).thenReturn(true);
+        when(aiChatClient.isConfigured()).thenReturn(true);
         ResponseEntity<?> on = controller.availability();
         assertEquals(200, on.getStatusCode().value());
         assertTrue(((NarrationController.AvailabilityResponse) on.getBody()).available());
         assertTrue(((NarrationController.AvailabilityResponse) on.getBody()).textModelConfigured());
 
         when(audioService.isEngineAvailable()).thenReturn(false);
-        when(aiService.isConfigured()).thenReturn(false);
+        when(aiChatClient.isConfigured()).thenReturn(false);
         ResponseEntity<?> off = controller.availability();
         assertEquals(200, off.getStatusCode().value());
         assertTrue(!((NarrationController.AvailabilityResponse) off.getBody()).available());
