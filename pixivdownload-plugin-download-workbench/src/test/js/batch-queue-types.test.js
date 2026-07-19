@@ -395,37 +395,6 @@ const REQUEST_OWNER_INITIALIZER = BASIC_INITIALIZER.replace(
                     parseInput:`
 );
 
-const LEGACY_SOURCE = `(function () {
-    var queueTypes = window.PixivBatch.queueTypes;
-    testState.legacyWrongOwner = queueTypes.register('legacy', {
-        pluginId: 'forged-owner', type: 'legacy', process: function () {}
-    });
-    testState.legacyRegistered = queueTypes.register('legacy', {
-        pluginId: 'legacy-owner', type: 'legacy',
-        process: function () { return 'legacy-process'; },
-        import: {
-            sectionType: 'legacy', bareDefault: false,
-            matchUrl: function (line) { return String(line).indexOf('/legacy/') >= 0 ? '7' : null; },
-            buildItem: function (id) { return {id: String(id), kind: 'legacy'}; }
-        },
-        acquisition: {
-            user: {
-                parseInput: function (value) { return String(value); },
-                fetchMeta: function () { return ''; },
-                fetchIds: function () { return []; },
-                cardsEndpoint: function () { return '/api/legacy/cards'; },
-                queueId: function (item) { return String(item.id); },
-                cardId: function (index) { return 'legacy-user-' + index; },
-                render: function () {},
-                buildQueueMeta: function () { return {}; },
-                buildQueueMetaFromId: function () { return {}; }
-            },
-            search: {buildRequest: function () { return {}; }}
-        },
-        slots: {'kind-option-user': '<span data-legacy-slot="true"></span>'}
-    });
-})()`;
-
 const FAILING_INITIALIZER = `(function (context) {
     testState.failedContext = context;
     context.onCleanup(function () {
@@ -530,44 +499,13 @@ const LATE_UI_INITIALIZER = `(function (context) {
 
 (async function () {
     {
-        const legacy = typeDescriptor({
-            type: 'legacy', ownerPluginId: 'legacy-owner', packageId: 'legacy-package',
-            publicationId: 9, moduleUrl: '/modules/legacy.js', acquisitionModes: [],
-            legacyContract: true
-        });
-        const h = harness([manifest(1, [legacy]), manifest(2, [])], {
-            '/modules/legacy.js': {source: LEGACY_SOURCE}
-        }, {slotTarget: 'kind-option-user'});
-        await h.qt.bootstrap();
-        ok('旧模块伪造 owner 的登记会被拒绝', h.sandbox.testState.legacyWrongOwner === false);
-        ok('冻结的 v1 register(type, descriptor) 模块可在盖章 script 内激活',
-            h.sandbox.testState.legacyRegistered === true && h.qt.has('legacy'));
-        ok('旧模块只暴露实际通过校验的取得模式',
-            h.qt.typesForMode('single-import').join(',') === 'legacy'
-            && h.qt.typesForMode('user').join(',') === 'legacy'
-            && h.qt.typesForMode('search').length === 0
-            && h.qt.typesForMode('series').length === 0
-            && h.qt.typesForMode('quick').length === 0);
-        ok('旧模块 process 进入与现代模块相同的受控调用路径',
-            h.qt.get('legacy').process() === 'legacy-process');
-        const host = h.slotParent.children.find(
-            node => node.getAttribute('data-vue-slot') === 'kind-option-user');
-        ok('旧模块已有 UI 槽位仍可在成熟页面锚点渲染', !!host && host.children.length === 1
-            && host.children[0].html.includes('data-legacy-slot'));
-        const oldProcess = h.qt.get('legacy').process;
-        await h.qt.refresh();
-        ok('旧模块卸载后类型与槽位立即消失', !h.qt.has('legacy') && host.children.length === 0);
-        assert.throws(() => oldProcess(), /stale/);
-        passed++;
-    }
-
-    {
         const h = harness([
             manifest(1, [typeDescriptor({
                 acquisitionModes: ['series'],
                 owner: {pluginId: 'nested-owner', packageId: 'nested-package', generation: 5, publicationId: 6}
             })])
         ], {'/modules/demo.js': {initializer: BASIC_INITIALIZER}});
+        ok('运行时不再暴露旧模块登记入口', typeof h.qt.register === 'undefined');
         ok('作用域外不能登记模块', h.qt.registerModule(() => ({})) === false);
         await h.qt.bootstrap();
         ok('后端声明的 series 模式可见', h.qt.supports('demo', 'series'));

@@ -14,7 +14,7 @@ import java.util.List;
  * @param order           展示排序
  * @param iconKey         受控图标 token
  * @param colorToken      受控颜色 token
- * @param moduleUrl       前端行为模块 URL；内置类型可为 {@code null}
+ * @param moduleUrl       可选的前端行为模块 URL；非空时必须是同源绝对路径
  * @param acquisitionModes 支持的取得模式
  * @param queue           队列操作能力
  * @param schedule        计划任务能力
@@ -47,7 +47,9 @@ public record DownloadTypeDescriptor(
     public static final int CURRENT_CONTRACT_VERSION = 1;
 
     public DownloadTypeDescriptor {
-        contractVersion = contractVersion <= 0 ? CURRENT_CONTRACT_VERSION : contractVersion;
+        if (contractVersion <= 0) {
+            throw new IllegalArgumentException("contractVersion must be positive");
+        }
         acquisitionModes = acquisitionModes == null ? List.of() : List.copyOf(acquisitionModes);
         queue = queue == null ? DownloadQueueCapabilities.clearOnly() : queue;
         schedule = schedule == null ? DownloadScheduleCapabilities.notSaveable() : schedule;
@@ -57,34 +59,4 @@ public record DownloadTypeDescriptor(
         gallery = gallery == null ? DownloadGalleryCapabilities.none() : gallery;
     }
 
-    /**
-     * 兼容旧队列类型贡献的最小 descriptor。旧构造器没有声明取得能力，后端清单保持为空；
-     * 前端仅可在受控加载窗口内从旧模块实际提供且通过校验的 hook 推导本次激活能力，宿主
-     * 不得在模块加载前猜测该类型支持任何取得模式。
-     */
-    public static DownloadTypeDescriptor legacy(String pluginId,
-                                                String type,
-                                                String displayNamespace,
-                                                String displayI18nKey,
-                                                int order,
-                                                String moduleUrl) {
-        return new DownloadTypeDescriptor(
-                CURRENT_CONTRACT_VERSION,
-                pluginId,
-                type,
-                displayNamespace,
-                displayI18nKey,
-                order,
-                null,
-                null,
-                moduleUrl,
-                List.of(),
-                DownloadQueueCapabilities.clearOnly(),
-                DownloadScheduleCapabilities.notSaveable(),
-                List.of(),
-                List.of(),
-                List.of(),
-                displayNamespace,
-                DownloadGalleryCapabilities.none());
-    }
 }

@@ -908,7 +908,7 @@ class PluginWebContributionRegistrarTest {
 
         @Override
         public List<QueueTypeContribution> queueTypes() {
-            return List.of(new QueueTypeContribution(
+            return List.of(TestQueueTypeContributions.create(
                     id, type, "download", "kind." + type, 10, null));
         }
     }
@@ -990,7 +990,7 @@ class PluginWebContributionRegistrarTest {
 
         @Override
         public List<QueueTypeContribution> queueTypes() {
-            return List.of(new QueueTypeContribution(
+            return List.of(TestQueueTypeContributions.create(
                     id(), "snapshot-type", "download", "kind.snapshot", 10,
                     "/snapshot/module.js"));
         }

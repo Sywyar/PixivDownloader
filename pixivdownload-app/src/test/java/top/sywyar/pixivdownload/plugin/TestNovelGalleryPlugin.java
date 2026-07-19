@@ -114,7 +114,7 @@ public final class TestNovelGalleryPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<QueueTypeContribution> queueTypes() {
-        return List.of(new QueueTypeContribution(
+        return List.of(TestQueueTypeContributions.create(
                 ID, "novel", "novel", "batch.user.kind-novel", 20, NOVEL_MODULE_URL));
     }
 

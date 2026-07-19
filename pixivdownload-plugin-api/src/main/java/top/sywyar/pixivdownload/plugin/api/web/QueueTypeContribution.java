@@ -15,7 +15,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * @param labelI18nKey   子模式（kind 单选）标签的 i18n key（<b>纯 key</b>，不带 namespace、不直接携带文案）
  * @param order          子模式渲染顺序，越小越靠前
  * @param moduleUrl      可选的前端行为模块 URL；非空时必须是同源绝对路径，{@code null} 表示无前端行为模块
- * @param descriptor     下载类型稳定 descriptor；旧构造器会生成最小兼容 descriptor，新类型应显式声明完整能力
+ * @param descriptor     下载类型稳定 descriptor；必须显式声明完整能力
  */
 public record QueueTypeContribution(
         String pluginId,
@@ -26,24 +26,4 @@ public record QueueTypeContribution(
         String moduleUrl,
         DownloadTypeDescriptor descriptor
 ) {
-
-    public QueueTypeContribution(String pluginId,
-                                 String type,
-                                 String labelNamespace,
-                                 String labelI18nKey,
-                                 int order,
-                                 String moduleUrl) {
-        this(pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl,
-                DownloadTypeDescriptor.legacy(pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl));
-    }
-
-    /**
-     * 是否由 1.0 时代的六参数构造器生成。宿主只用该标记开启受当前后端 publication 与
-     * {@code document.currentScript} 双重约束的前端兼容入口；实际取得模式仍由已加载模块中
-     * 通过校验的 hook 推导，绝不预先猜测能力。
-     */
-    public boolean usesLegacyDescriptor() {
-        return descriptor != null && descriptor.equals(DownloadTypeDescriptor.legacy(
-                pluginId, type, labelNamespace, labelI18nKey, order, moduleUrl));
-    }
 }

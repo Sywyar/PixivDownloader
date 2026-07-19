@@ -826,7 +826,7 @@ class PluginRegistryTest {
 
         @Override
         public List<QueueTypeContribution> queueTypes() {
-            return List.of(new QueueTypeContribution(
+            return List.of(TestQueueTypeContributions.create(
                     "flaky-owner", "flaky-type", "flaky", "label", 1, null));
         }
 

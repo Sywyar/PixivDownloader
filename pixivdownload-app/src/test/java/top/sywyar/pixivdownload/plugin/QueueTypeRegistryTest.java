@@ -25,7 +25,7 @@ class QueueTypeRegistryTest {
     }
 
     private static QueueTypeContribution type(String pluginId, String type) {
-        return new QueueTypeContribution(pluginId, type, "demo", "label." + type, 10, null);
+        return TestQueueTypeContributions.create(pluginId, type, "demo", "label." + type, 10, null);
     }
 
     @Test
@@ -50,13 +50,26 @@ class QueueTypeRegistryTest {
     }
 
     @Test
-    @DisplayName("旧构造器安全降级为空取得模式且注册中心允许零取得入口")
-    void legacyDescriptorHasNoAcquisitionModes() {
+    @DisplayName("显式 descriptor 允许声明零取得入口")
+    void descriptorMayDeclareNoAcquisitionModes() {
         QueueTypeRegistry registry = emptyRegistry();
-        registry.register("demo", List.of(type("legacy")));
+        registry.register("demo", List.of(type("empty")));
 
         assertThat(registry.queueTypes()).singleElement()
                 .satisfies(item -> assertThat(item.queueType().descriptor().acquisitionModes()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("高于宿主当前版本的 descriptor 可被解析但注册时拒绝")
+    void unsupportedFutureDescriptorVersionRejectedByRegistry() {
+        QueueTypeRegistry registry = emptyRegistry();
+        QueueTypeContribution contribution = TestQueueTypeContributions.create(
+                "demo", "future", "demo", "label.future", 10, null,
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION + 1);
+
+        assertThatThrownBy(() -> registry.register("demo", List.of(contribution)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unsupported download type descriptor version");
     }
 
     @Test
@@ -118,10 +131,10 @@ class QueueTypeRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", List.of()))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", " ", "ns", "label", 0, null))))
+                TestQueueTypeContributions.create("demo", " ", "ns", "label", 0, null))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", "a", "ns", " ", 0, null))))
+                TestQueueTypeContributions.create("demo", "a", "ns", " ", 0, null))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -130,10 +143,10 @@ class QueueTypeRegistryTest {
     void blankLabelNamespaceRejected() {
         QueueTypeRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", "a", null, "label", 0, null))))
+                TestQueueTypeContributions.create("demo", "a", null, "label", 0, null))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", "b", " ", "label", 0, null))))
+                TestQueueTypeContributions.create("demo", "b", " ", "label", 0, null))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -145,11 +158,13 @@ class QueueTypeRegistryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("pluginId mismatch");
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", "a", "ns", "label", 0, "https://example.test/a.js"))))
+                TestQueueTypeContributions.create(
+                        "demo", "a", "ns", "label", 0, "https://example.test/a.js"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("moduleUrl");
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", "a", "ns", "label", 0, "//example.test/a.js"))))
+                TestQueueTypeContributions.create(
+                        "demo", "a", "ns", "label", 0, "//example.test/a.js"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("moduleUrl");
     }

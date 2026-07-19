@@ -1996,7 +1996,7 @@ class PluginLifecycleServiceTest {
                 throw new AssertionError("plugin-private-queue-types");
             }
             return queueType == null ? List.of()
-                    : List.of(new QueueTypeContribution(id, queueType, id, "label", 10, null));
+                    : List.of(TestQueueTypeContributions.create(id, queueType, id, "label", 10, null));
         }
 
         @Override
@@ -2065,7 +2065,7 @@ class PluginLifecycleServiceTest {
 
         @Override
         public List<QueueTypeContribution> queueTypes() {
-            return List.of(new QueueTypeContribution(
+            return List.of(TestQueueTypeContributions.create(
                     id(), "stateful-type", id(), "label", 10,
                     "/stateful-owner/module.js"));
         }

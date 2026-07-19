@@ -35,6 +35,10 @@ class DownloadWorkbenchExternalCompileProbeTest {
                 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
                 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
                 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
+                import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
+                import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
+                import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
+                import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
                 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
                 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
                 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
@@ -78,7 +82,16 @@ class DownloadWorkbenchExternalCompileProbeTest {
                         return List.of(new UserscriptContribution(id(), "classpath:/static/userscripts/*.user.js"));
                     }
                     public List<QueueTypeContribution> queueTypes() {
-                        return List.of(new QueueTypeContribution(id(), "illust", "novel", "batch.user.kind-illust", 10, null));
+                        DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(
+                                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+                                id(), "illust", "novel", "batch.user.kind-illust", 10,
+                                "download", "pixiv", null, List.of(),
+                                DownloadQueueCapabilities.clearOnly(),
+                                DownloadScheduleCapabilities.notSaveable(),
+                                List.of(), List.of(), List.of(), "novel",
+                                DownloadGalleryCapabilities.none());
+                        return List.of(new QueueTypeContribution(
+                                id(), "illust", "novel", "batch.user.kind-illust", 10, null, descriptor));
                     }
                     public List<TabContribution> downloadTabs() {
                         return List.of(new TabContribution(id(), "quick-fetch", 10, List.of("illust", "novel")));

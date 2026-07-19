@@ -139,7 +139,6 @@ public class DownloadExtensionController {
             List<String> uiSlots,
             String i18nNamespace,
             GalleryCapabilitiesView gallery,
-            boolean legacyContract,
             OwnerView owner
     ) {
 
@@ -163,7 +162,6 @@ public class DownloadExtensionController {
                     descriptor.uiSlots(),
                     descriptor.i18nNamespace(),
                     GalleryCapabilitiesView.from(descriptor.gallery()),
-                    registered.queueType().usesLegacyDescriptor(),
                     OwnerView.from(registered.owner(), registered.publicationId()));
         }
     }
@@ -188,13 +186,11 @@ public class DownloadExtensionController {
         }
     }
 
-    public record GalleryCapabilitiesView(boolean unifiedGallery,
-                                          boolean independentPage,
+    public record GalleryCapabilitiesView(boolean independentPage,
                                           String reasonNamespace,
                                           String reasonI18nKey) {
         static GalleryCapabilitiesView from(DownloadGalleryCapabilities capabilities) {
             return new GalleryCapabilitiesView(
-                    false, // wire 字段保留兼容；已废弃的统一画廊路线不再作为 SDK 能力发布
                     capabilities.independentPage(),
                     capabilities.reasonNamespace(),
                     capabilities.reasonI18nKey());

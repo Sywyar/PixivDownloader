@@ -203,7 +203,6 @@ window.PixivBatch.queueTypes = (function () {
         const contractVersion = Number(raw.contractVersion);
         const pluginGeneration = Number(owner.generation != null ? owner.generation : raw.pluginGeneration);
         const publicationId = Number(owner.publicationId != null ? owner.publicationId : raw.publicationId);
-        const legacyContract = raw.legacyContract === true;
         const order = Number(raw.order);
         if (!type || !ownerPluginId || !packageId || !moduleUrl
             || contractVersion !== CONTRACT_VERSION
@@ -225,7 +224,6 @@ window.PixivBatch.queueTypes = (function () {
             packageId,
             pluginGeneration,
             publicationId,
-            legacyContract,
             moduleUrl,
             order: Number.isFinite(order) ? order : 0,
             acquisitionModes: Object.freeze(acquisitionModes),
@@ -397,9 +395,8 @@ window.PixivBatch.queueTypes = (function () {
         if (descriptor.contractVersion != null && Number(descriptor.contractVersion) !== CONTRACT_VERSION) {
             throw new Error('unsupported queue type module contractVersion');
         }
-        const legacyContract = backend.legacyContract === true;
         const declared = new Set(backend.acquisitionModes);
-        const allowedModes = legacyContract ? KNOWN_MODES : declared;
+        const allowedModes = declared;
         const behavior = {};
         Object.keys(descriptor).forEach(key => {
             if (!['process', 'import', 'acquisition', 'contractVersion', 'slots', 'uiSlots', 'filters', 'settings']
@@ -451,18 +448,16 @@ window.PixivBatch.queueTypes = (function () {
         const rawSlots = isPlainObject(descriptor.slots)
             ? descriptor.slots
             : (isPlainObject(descriptor.uiSlots) ? descriptor.uiSlots : {});
-        const declaredSlots = legacyContract
-            ? new Set(Object.keys(rawSlots).map(text).filter(Boolean))
-            : new Set((backend.uiSlots || [])
-                .filter(target => publishedSlotTargets && publishedSlotTargets.has(target)));
+        const declaredSlots = new Set((backend.uiSlots || [])
+            .filter(target => publishedSlotTargets && publishedSlotTargets.has(target)));
         behavior.slots = {};
         Object.keys(rawSlots).forEach(target => {
             const requiredMode = SLOT_MODE[target];
             if (!declaredSlots.has(target) || (requiredMode && !allowedModes.has(requiredMode))) return;
             behavior.slots[target] = rawSlots[target];
         });
-        behavior.filters = declaredContributionMap(descriptor.filters, backend.filters, legacyContract);
-        behavior.settings = declaredContributionMap(descriptor.settings, backend.settings, legacyContract);
+        behavior.filters = declaredContributionMap(descriptor.filters, backend.filters);
+        behavior.settings = declaredContributionMap(descriptor.settings, backend.settings);
         return guardValue(behavior, activation, new Map());
     }
 
@@ -498,18 +493,6 @@ window.PixivBatch.queueTypes = (function () {
                 return queue.commitQueueItemPatch(item, normalized);
             }
         });
-    }
-
-    function effectiveDescriptor(backend, behavior) {
-        if (!backend.legacyContract) return backend;
-        const modes = [];
-        if (behavior.import) modes.push('single-import');
-        ['user', 'search', 'series', 'quick'].forEach(mode => {
-            if (behavior.acquisition && behavior.acquisition[mode]) modes.push(mode);
-        });
-        return Object.freeze(Object.assign({}, backend, {
-            acquisitionModes: Object.freeze(modes)
-        }));
     }
 
     function publishedTypeSlotTargets(manifest, backend) {
@@ -569,11 +552,10 @@ window.PixivBatch.queueTypes = (function () {
         return Object.freeze(out);
     }
 
-    function declaredContributionMap(value, declaredKeys, acceptLegacyKeys) {
+    function declaredContributionMap(value, declaredKeys) {
         const out = {};
         if (!isPlainObject(value)) return out;
-        const keys = acceptLegacyKeys ? Object.keys(value) : (declaredKeys || []);
-        keys.forEach(key => {
+        (declaredKeys || []).forEach(key => {
             if (Object.prototype.hasOwnProperty.call(value, key)) out[key] = value[key];
         });
         return out;
@@ -606,35 +588,6 @@ window.PixivBatch.queueTypes = (function () {
             return false;
         }
         load.initializer = initializer;
-        return true;
-    }
-
-    // 1.0 前端模块兼容入口。仅后端明确标记为旧构造器的当前 script 可登记；类型与 owner
-    // 由 publication 盖章，模块自报字段只用于一致性校验，随后移除并进入同一 sanitizer。
-    function register(type, descriptor) {
-        const script = document.currentScript;
-        const token = script && script.dataset ? text(script.dataset.queueTypeToken) : '';
-        const load = token ? pendingLoads.get(token) : null;
-        const normalizedType = text(type);
-        if (!load || load.kind !== 'queue-type' || load.script !== script || load.initializer
-            || !load.descriptor.legacyContract || normalizedType !== load.descriptor.type
-            || !isPlainObject(descriptor)) {
-            return false;
-        }
-        const reportedType = text(descriptor.type);
-        const reportedOwner = text(descriptor.ownerPluginId || descriptor.pluginId);
-        if ((reportedType && reportedType !== load.descriptor.type)
-            || (reportedOwner && reportedOwner !== load.descriptor.ownerPluginId)) {
-            return false;
-        }
-        const normalized = Object.assign({}, descriptor);
-        [
-            'type', 'pluginId', 'ownerPluginId', 'packageId', 'pluginGeneration',
-            'publicationId', 'moduleUrl', 'acquisitionModes'
-        ].forEach(name => { delete normalized[name]; });
-        load.initializer = function () {
-            return {descriptor: normalized};
-        };
         return true;
     }
 
@@ -812,9 +765,8 @@ window.PixivBatch.queueTypes = (function () {
                         activation,
                         module.scope,
                         publishedTypeSlotTargets(manifest, descriptor));
-                    const activeDescriptor = effectiveDescriptor(descriptor, behavior);
                     candidate.set(descriptor.type, Object.freeze({
-                        descriptor: activeDescriptor,
+                        descriptor,
                         behavior,
                         activation
                     }));
@@ -1877,7 +1829,6 @@ window.PixivBatch.queueTypes = (function () {
     }
 
     return Object.freeze({
-        register,
         registerModule,
         registerUiModule,
         bootstrap,
