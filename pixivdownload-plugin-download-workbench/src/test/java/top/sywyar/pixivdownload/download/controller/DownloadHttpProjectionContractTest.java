@@ -18,17 +18,26 @@ class DownloadHttpProjectionContractTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    @DisplayName("插画下载请求应绑定 camelCase xRestrict，且不暴露全小写别名")
-    void downloadRequestBindsCamelCaseXRestrict() throws Exception {
+    @DisplayName("插画下载请求应绑定 camelCase 分级与布尔字段，且不暴露全小写别名")
+    void downloadRequestBindsCamelCaseFields() throws Exception {
         DownloadRequest request = objectMapper.readValue("""
-                {"artworkId":123,"title":"t","imageUrls":["u"],"other":{"xRestrict":2}}
+                {"artworkId":123,"title":"t","imageUrls":["u"],"other":{"xRestrict":2,"isAi":true,"isUgoira":true,"isUserDownload":true}}
                 """, DownloadRequest.class);
 
         assertThat(request.getOther().getXRestrict()).isEqualTo(2);
+        assertThat(request.getOther().isAi()).isTrue();
+        assertThat(request.getOther().isUgoira()).isTrue();
+        assertThat(request.getOther().isUserDownload()).isTrue();
 
-        JsonNode json = objectMapper.valueToTree(request);
-        assertThat(json.path("other").path("xRestrict").asInt()).isEqualTo(2);
-        assertThat(json.path("other").has("xrestrict")).isFalse();
+        JsonNode other = objectMapper.valueToTree(request).path("other");
+        assertThat(other.path("xRestrict").asInt()).isEqualTo(2);
+        assertThat(other.path("isAi").asBoolean()).isTrue();
+        assertThat(other.path("isUgoira").asBoolean()).isTrue();
+        assertThat(other.path("isUserDownload").asBoolean()).isTrue();
+        assertThat(other.has("xrestrict")).isFalse();
+        assertThat(other.has("ai")).isFalse();
+        assertThat(other.has("ugoira")).isFalse();
+        assertThat(other.has("userDownload")).isFalse();
     }
 
     @Test
