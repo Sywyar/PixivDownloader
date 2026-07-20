@@ -31,7 +31,7 @@ class PixivUserCardsParseTest {
     void illustPreservesRequestedOrder() {
         JsonNode b = body("{\"222\":{\"id\":\"222\",\"title\":\"b\"},\"111\":{\"id\":\"111\",\"title\":\"a\"}}");
         List<SearchResponse.SearchItem> items = PixivProxyController.parseUserIllustCards(b, List.of("111", "222"));
-        assertThat(items).extracting(SearchResponse.SearchItem::getId).containsExactly("111", "222");
+        assertThat(items).extracting(SearchResponse.SearchItem::id).containsExactly("111", "222");
     }
 
     @Test
@@ -39,7 +39,7 @@ class PixivUserCardsParseTest {
     void illustSkipsDeleted() {
         JsonNode b = body("{\"111\":{\"id\":\"111\"},\"222\":null}");
         List<SearchResponse.SearchItem> items = PixivProxyController.parseUserIllustCards(b, List.of("111", "222", "333"));
-        assertThat(items).extracting(SearchResponse.SearchItem::getId).containsExactly("111");
+        assertThat(items).extracting(SearchResponse.SearchItem::id).containsExactly("111");
     }
 
     @Test
@@ -49,15 +49,15 @@ class PixivUserCardsParseTest {
                 + "\"aiType\":2,\"url\":\"https://i.pximg.net/x.jpg\",\"pageCount\":5,"
                 + "\"userId\":\"9\",\"userName\":\"u\",\"tags\":[\"a\",\"b\",\"a\"]}}");
         SearchResponse.SearchItem item = PixivProxyController.parseUserIllustCards(b, List.of("111")).get(0);
-        assertThat(item.getTitle()).isEqualTo("t");
-        assertThat(item.getIllustType()).isEqualTo(1);
-        assertThat(item.getXRestrict()).isEqualTo(1);
-        assertThat(item.getAiType()).isEqualTo(2);
-        assertThat(item.getThumbnailUrl()).isEqualTo("https://i.pximg.net/x.jpg");
-        assertThat(item.getPageCount()).isEqualTo(5);
-        assertThat(item.getUserId()).isEqualTo("9");
-        assertThat(item.getUserName()).isEqualTo("u");
-        assertThat(item.getTags()).containsExactly("a", "b"); // 去重保序
+        assertThat(item.title()).isEqualTo("t");
+        assertThat(item.illustType()).isEqualTo(1);
+        assertThat(item.xRestrict()).isEqualTo(1);
+        assertThat(item.aiType()).isEqualTo(2);
+        assertThat(item.thumbnailUrl()).isEqualTo("https://i.pximg.net/x.jpg");
+        assertThat(item.pageCount()).isEqualTo(5);
+        assertThat(item.userId()).isEqualTo("9");
+        assertThat(item.userName()).isEqualTo("u");
+        assertThat(item.tags()).containsExactly("a", "b"); // 去重保序
     }
 
     @Test

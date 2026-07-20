@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.download.request;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -32,7 +34,6 @@ public class DownloadRequest {
         private String username;
         private Long authorId;
         private String authorName;
-        @JsonProperty("xRestrict")
         private int xRestrict;
         @JsonProperty("isAi")
         private boolean isAi;
@@ -66,5 +67,15 @@ public class DownloadRequest {
          * 解析 / 落盘失败不影响下载结果。仅前端交互下载链路填充；计划任务走后端自抓 body，不读此字段。
          */
         private String rawMetaJson;
+
+        @JsonGetter("xRestrict")
+        public int getXRestrict() {
+            return xRestrict;
+        }
+
+        @JsonSetter("xRestrict")
+        public void setXRestrict(int xRestrict) {
+            this.xRestrict = xRestrict;
+        }
     }
 }

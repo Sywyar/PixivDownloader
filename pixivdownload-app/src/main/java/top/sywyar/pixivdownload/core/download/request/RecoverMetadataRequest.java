@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.download.request;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -19,4 +21,14 @@ public class RecoverMetadataRequest {
     private Integer xRestrict;
     private Boolean isAi;
     private String description;
+
+    @JsonGetter("xRestrict")
+    public Integer getXRestrict() {
+        return xRestrict;
+    }
+
+    @JsonSetter("xRestrict")
+    public void setXRestrict(Integer xRestrict) {
+        this.xRestrict = xRestrict;
+    }
 }

@@ -1,28 +1,21 @@
 package top.sywyar.pixivdownload.download.response;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
 import top.sywyar.pixivdownload.core.db.TagDto;
 
 import java.util.List;
 
-@Getter
-@AllArgsConstructor
-public class ArtworkMetaResponse {
-    private final int illustType;
-    private final String illustTitle;
-    @JsonProperty("xRestrict")
-    private final int xRestrict;
-    @JsonProperty("isAi")
-    private final boolean isAi;
-    private final int bookmarkCount;
-    private final int pageCount;
-    private final Long authorId;
-    private final String authorName;
-    private final String description;
-    private final List<TagDto> tags;
-    private final Long seriesId;
-    private final Long seriesOrder;
-    private final String seriesTitle;
-}
+public record ArtworkMetaResponse(
+        int illustType,
+        String illustTitle,
+        int xRestrict,
+        boolean isAi,
+        int bookmarkCount,
+        int pageCount,
+        Long authorId,
+        String authorName,
+        String description,
+        List<TagDto> tags,
+        Long seriesId,
+        Long seriesOrder,
+        String seriesTitle
+) {}
