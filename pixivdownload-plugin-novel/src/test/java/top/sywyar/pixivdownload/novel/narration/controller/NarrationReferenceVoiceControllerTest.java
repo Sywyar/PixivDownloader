@@ -7,13 +7,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
-import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
 import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
@@ -52,7 +50,7 @@ class NarrationReferenceVoiceControllerTest {
         runtimePaths = new TestRuntimePathProvider(tempDir);
         paths = new NarrationReferenceVoicePaths(runtimePaths);
         controller = new NarrationReferenceVoiceController(
-                castService, referenceVoiceService, messageResolver(), paths);
+                castService, referenceVoiceService, NovelTestMessages.messageResolver(), paths);
     }
 
     @Test
@@ -122,16 +120,4 @@ class NarrationReferenceVoiceControllerTest {
         assertThat(response.getHeaders().getContentType().toString()).isEqualTo("audio/wav");
     }
 
-    private static MessageResolver messageResolver() {
-        ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
-        source.setBasenames(
-                "classpath:i18n/messages",
-                "classpath:i18n/ValidationMessages",
-                "classpath:i18n/tts/messages",
-                "classpath:i18n/web/narration"
-        );
-        source.setDefaultEncoding("UTF-8");
-        source.setUseCodeAsDefaultMessage(true);
-        return TestI18nBeans.messageResolver(source);
-    }
 }

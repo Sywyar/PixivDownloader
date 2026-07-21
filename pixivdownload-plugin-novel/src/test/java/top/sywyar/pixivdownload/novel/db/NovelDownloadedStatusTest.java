@@ -11,9 +11,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 import java.util.List;
 
@@ -41,15 +38,7 @@ class NovelDownloadedStatusTest {
         sqlSession = new SqlSessionFactoryBuilder().build(configuration).openSession(true);
         mapper = sqlSession.getMapper(NovelMapper.class);
         jdbcTemplate = new JdbcTemplate(dataSource);
-
-        DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        new DatabaseInitializer(
-                jdbcTemplate,
-                registry.contributions(),
-                registry.mergedSchema(),
-                TestI18nBeans.appMessages(),
-                event -> {})
-                .initialize();
+        NovelSqliteTestSchema.createNovelRows(jdbcTemplate);
     }
 
     @AfterEach
@@ -74,8 +63,9 @@ class NovelDownloadedStatusTest {
     }
 
     private void insertNovel(long id) {
-        mapper.insertOrReplace(id, "title-" + id, "/tmp", 0, "txt", id,
-                0, false, 100L, "desc", 1L, null, null, null,
-                0, 0, 0, 0, false, "ja", "content", null);
+        jdbcTemplate.update(
+                "INSERT INTO novels(novel_id, raw_content) VALUES (?, ?)",
+                id,
+                "content");
     }
 }

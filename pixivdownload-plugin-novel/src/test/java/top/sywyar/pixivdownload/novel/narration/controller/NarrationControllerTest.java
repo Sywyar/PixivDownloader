@@ -3,14 +3,12 @@ package top.sywyar.pixivdownload.novel.narration.controller;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
-import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.config.DebugSettings;
-import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
@@ -53,9 +51,9 @@ class NarrationControllerTest {
 
     private final NarrationController controller =
             new NarrationController(scriptService, castService, referenceVoiceService, audioService, novelDatabase,
-                    messageResolver(), debugSettings, aiChatClient);
+                    NovelTestMessages.messageResolver(), debugSettings, aiChatClient);
     private final NarrationTtsController ttsController =
-            new NarrationTtsController(audioService, scriptService, messageResolver());
+            new NarrationTtsController(audioService, scriptService, NovelTestMessages.messageResolver());
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
@@ -67,19 +65,6 @@ class NarrationControllerTest {
     private NovelRecord novel(long id) {
         return new NovelRecord(id, "标题", "f", 1, "txt", 1L, null, null, null, null,
                 1L, null, null, null, null, null, null, null, null, null, "正文。", null);
-    }
-
-    private static MessageResolver messageResolver() {
-        ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
-        source.setBasenames(
-                "classpath:i18n/novel/messages",
-                "classpath:i18n/messages",
-                "classpath:i18n/ValidationMessages",
-                "classpath:i18n/tts/messages",
-                "classpath:i18n/web/tts");
-        source.setDefaultEncoding("UTF-8");
-        source.setUseCodeAsDefaultMessage(true);
-        return TestI18nBeans.messageResolver(source);
     }
 
     @Test

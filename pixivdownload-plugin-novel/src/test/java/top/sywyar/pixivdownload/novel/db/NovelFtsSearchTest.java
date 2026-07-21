@@ -28,6 +28,7 @@ class NovelFtsSearchTest {
     private SingleConnectionDataSource dataSource;
     private SqlSession sqlSession;
     private NovelMapper mapper;
+    private JdbcTemplate jdbc;
 
     @BeforeEach
     void setUp() {
@@ -44,14 +45,9 @@ class NovelFtsSearchTest {
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
         mapper = sqlSession.getMapper(NovelMapper.class);
-        // novels 等受管表建表已统一由 DatabaseInitializer 执行；FTS 虚拟表仍由 NovelMapper 维护
-        top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry registry =
-                top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry.forBuiltInPlugins();
-        new top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer(
-                new org.springframework.jdbc.core.JdbcTemplate(dataSource),
-                registry.contributions(), registry.mergedSchema(),
-                top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), event -> {})
-                .initialize();
+        jdbc = new JdbcTemplate(dataSource);
+        NovelSqliteTestSchema.createNovelRows(jdbc);
+        NovelSqliteTestSchema.createSoftDeleteDerivedTables(jdbc);
         mapper.createNovelFtsTable();
         mapper.createNovelSoftDeleteCleanupTrigger();
         mapper.cleanupExistingDeletedNovelState();
@@ -64,9 +60,10 @@ class NovelFtsSearchTest {
     }
 
     private void insertNovel(long id, String rawContent) {
-        mapper.insertOrReplace(id, "title-" + id, "/tmp", 0, "txt", id,
-                0, false, 100L, "desc", 1L, null, null, null,
-                0, 0, 0, 0, false, "ja", rawContent, null);
+        jdbc.update(
+                "INSERT INTO novels(novel_id, raw_content) VALUES (?, ?)",
+                id,
+                rawContent);
     }
 
     @Test
@@ -121,7 +118,6 @@ class NovelFtsSearchTest {
     @Test
     @DisplayName("软删除触发器只原子清理普通派生状态并由插件回收陈旧 FTS")
     void shouldCleanPluginOwnedDerivedStateOnSoftDelete() {
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         insertNovel(40L, "需要从索引移除的正文");
         mapper.insertNovelFts(40L, "需要从索引移除的正文");
         jdbc.update("INSERT INTO novel_tags(novel_id, tag_id) VALUES (?, ?)", 40L, 7L);
@@ -162,7 +158,6 @@ class NovelFtsSearchTest {
     @Test
     @DisplayName("FTS 表缺失时主行软删除与普通派生清理仍能提交")
     void shouldKeepSoftDeleteAvailableWhenFtsTableIsMissing() {
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         insertNovel(41L, "索引表缺失时仍需删除");
         jdbc.update("INSERT INTO novel_tags(novel_id, tag_id) VALUES (?, ?)", 41L, 8L);
         jdbc.execute("DROP TABLE novels_fts");

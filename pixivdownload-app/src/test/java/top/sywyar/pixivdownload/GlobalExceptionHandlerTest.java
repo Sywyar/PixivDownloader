@@ -35,6 +35,20 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("非法参数应返回 400 并保留具体错误消息")
+    void shouldHandle400ForIllegalArgumentException() {
+        IllegalArgumentException ex = new IllegalArgumentException(
+                "Conflicting acquisition credential headers");
+
+        ResponseEntity<ErrorResponse> response = handler.handleIllegalArgument(ex, Locale.US);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getError())
+                .isEqualTo("Conflicting acquisition credential headers");
+    }
+
+    @Test
     @DisplayName("通用异常应返回 500 和错误消息")
     void shouldHandle500ForGenericException() {
         Exception ex = new RuntimeException("意外错误");

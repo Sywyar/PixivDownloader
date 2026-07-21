@@ -9,7 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 
@@ -47,7 +47,7 @@ class NovelSeriesServiceTest {
                 new NovelSeries(42L, "系列", 7L, 1L, null, null, null));
         when(imageDownloader.download(any(), any(), any(), eq("PHPSESSID=test"), any())).thenReturn(true);
         NovelSeriesService service = new NovelSeriesService(
-                novelDatabase, downloadSettings, imageDownloader, TestI18nBeans.messageResolver());
+                novelDatabase, downloadSettings, imageDownloader, NovelTestMessages.messageResolver());
 
         service.observeWithMetadata(
                 42L,

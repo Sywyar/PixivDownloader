@@ -1,30 +1,22 @@
-package top.sywyar.pixivdownload.i18n;
+package top.sywyar.pixivdownload.novel.testsupport;
 
-import jakarta.validation.MessageInterpolator;
-import org.hibernate.validator.messageinterpolation.ResourceBundleMessageInterpolator;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
-import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
-import org.springframework.validation.beanvalidation.MessageSourceResourceBundleLocator;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 
-public final class TestI18nBeans {
+public final class NovelTestMessages {
 
-    private TestI18nBeans() {
+    private NovelTestMessages() {
     }
 
-    public static MessageSource messageSource() {
+    private static MessageSource messageSource() {
         ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
-        messageSource.setBasenames(
-                "classpath:i18n/messages",
-                "classpath:i18n/ValidationMessages",
-                "classpath:i18n/mail/messages",
-                "classpath:i18n/push/messages"
-        );
+        messageSource.setBasename("classpath:i18n/novel/messages");
         messageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
         messageSource.setFallbackToSystemLocale(false);
         messageSource.setUseCodeAsDefaultMessage(true);
@@ -37,21 +29,6 @@ public final class TestI18nBeans {
 
     public static MessageResolver messageResolver(MessageSource messageSource) {
         return new MessageSourceResolver(messageSource);
-    }
-
-    public static AppMessages appMessages() {
-        return new AppMessages(messageSource());
-    }
-
-    public static LocalValidatorFactoryBean validator(MessageSource messageSource) {
-        LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
-        validator.setValidationMessageSource(messageSource);
-        MessageInterpolator interpolator = new LocaleContextMessageInterpolator(
-                new ResourceBundleMessageInterpolator(new MessageSourceResourceBundleLocator(messageSource))
-        );
-        validator.setMessageInterpolator(interpolator);
-        validator.afterPropertiesSet();
-        return validator;
     }
 
     private record MessageSourceResolver(MessageSource messageSource) implements MessageResolver {

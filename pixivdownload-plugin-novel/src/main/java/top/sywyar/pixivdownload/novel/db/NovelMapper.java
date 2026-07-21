@@ -44,7 +44,7 @@ public interface NovelMapper {
     record NovelWorkDetailValueRow(long novelId, String value) {
     }
 
-    // ── 幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──────
+    // ── 幂等数据迁移（建表 / 补列 / 索引 DDL 统一由宿主受管 schema 生命周期执行）──────
 
     @Update("UPDATE novels SET time = time * 1000"
             + " WHERE time > 0 AND time < 1000000000000")

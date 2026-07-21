@@ -9,20 +9,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
-import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
@@ -31,6 +31,7 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import java.net.URI;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -47,10 +48,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("NovelPixivProxyController 单元测试")
 class NovelPixivProxyControllerTest {
 
-    private static final MessageResolver APP_MESSAGES = TestI18nBeans.messageResolver();
+    private static final MessageResolver NOVEL_MESSAGES = NovelTestMessages.messageResolver();
     private static final WorkVisibilityScope VISIBILITY_SCOPE = WorkVisibilityScope.unrestricted();
 
     private MockMvc mockMvc;
+    private NovelPixivProxyController controller;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
@@ -67,12 +69,11 @@ class NovelPixivProxyControllerTest {
         lenient().when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.empty());
         lenient().when(accessPolicy.evaluate(any(), anyBoolean())).thenReturn(
                 new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0));
-        NovelPixivProxyController controller = new NovelPixivProxyController(
+        controller = new NovelPixivProxyController(
                 objectMapper, pixivAjaxClient, accessPolicy, requestOwnerIdentityResolver,
-                workVisibilityService, APP_MESSAGES);
+                workVisibilityService, NOVEL_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
-                .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages()))
                 .build();
     }
 
@@ -158,14 +159,15 @@ class NovelPixivProxyControllerTest {
         }
 
         @Test
-        @DisplayName("通用与旧 Pixiv 凭证冲突时应返回 400")
-        void shouldRejectConflictingPixivCredentials() throws Exception {
-            mockMvc.perform(get("/api/pixiv/novel-search")
-                            .param("word", "miku")
-                            .header(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie")
-                            .header("X-Pixiv-Cookie", "legacy-cookie"))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value("Conflicting acquisition credential headers"));
+        @DisplayName("通用与旧 Pixiv 凭证冲突时应拒绝请求")
+        void shouldRejectConflictingPixivCredentials() {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.addHeader(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie");
+
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> controller.searchNovels(
+                            "miku", "date_d", "all", "s_tag", 1, "legacy-cookie", request))
+                    .withMessage("Conflicting acquisition credential headers");
 
             verifyNoInteractions(pixivAjaxClient);
         }

@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -31,6 +32,8 @@ class OfficialPluginHostBoundaryGuardTest {
 
     private static final Pattern OFFICIAL_PLUGIN_ARTIFACT = Pattern.compile(
             "pixivdownload-plugin-[a-z0-9-]+");
+    private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
+            "(?m)^[\\t ]*package[\\t ]+([A-Za-z0-9_$.]+)[\\t ]*;");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*import[\\t ]+(?:static[\\t ]+)?([A-Za-z0-9_$.*]+)[\\t ]*;");
     private static final List<String> NOVEL_EXECUTION_OWNER_TOKENS = List.of(
@@ -64,14 +67,18 @@ class OfficialPluginHostBoundaryGuardTest {
             "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService",
             "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityWebConfiguration");
 
-    /**
-     * These modules still consume other app-owned domain services. The allowlist is only a ceiling for that
-     * existing debt; concrete configuration, path, identity, visibility and shared queue runtime types remain forbidden by
-     * {@link #officialPluginsUseSharedRuntimeContracts()}.
-     */
+    /** Remaining module still consuming app-owned domain services. */
     private static final Set<String> APP_ARTIFACT_TRANSITION_ALLOWLIST = Set.of(
-            "pixivdownload-plugin-download-workbench",
-            "pixivdownload-plugin-novel");
+            "pixivdownload-plugin-download-workbench");
+
+    private enum SourceState {
+        CODE,
+        LINE_COMMENT,
+        BLOCK_COMMENT,
+        STRING,
+        TEXT_BLOCK,
+        CHARACTER
+    }
 
     @Test
     @DisplayName("官方插件必须通过共享契约读取配置、路径、身份、可见性与队列运行时")
@@ -98,7 +105,40 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     @Test
-    @DisplayName("只有已登记的领域依赖模块可暂时依赖 app artifact")
+    @DisplayName("非过渡官方插件生产源码不得引用 app owned 类型")
+    void officialPluginSourcesDoNotReferenceAppOwnedTypes() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        Set<String> appTypes = appOwnedTypes(repositoryRoot);
+        List<String> violations = new ArrayList<>();
+
+        assertThat(appTypes).as("app owned production FQN set must be non-vacuous")
+                .hasSizeGreaterThan(400);
+        for (String module : officialPluginModules(repositoryRoot)) {
+            if (!APP_ARTIFACT_TRANSITION_ALLOWLIST.contains(module)) {
+                collectAppTypeReferences(repositoryRoot, module, appTypes, violations);
+            }
+        }
+
+        assertThat(violations)
+                .as("official plugin production sources must use stable shared contracts")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("所有权扫描忽略注释并保留字符串类名")
+    void appOwnedTypeScannerIgnoresCommentsAndPreservesStrings() {
+        String appType = "example.host.AppOwnedType";
+        String commentsOnly = "// example.host.AppOwnedType\n"
+                + "/* example.host.AppOwnedType */\n";
+        String reflectionString = "Class.forName(\"example.host.AppOwnedType$Nested\");";
+
+        assertThat(referencesFullyQualifiedType(stripComments(commentsOnly), appType)).isFalse();
+        assertThat(referencesFullyQualifiedType(stripComments(reflectionString), appType)).isTrue();
+        assertThat(importsType(Set.of("example.host.*"), appType)).isTrue();
+    }
+
+    @Test
+    @DisplayName("只有 download-workbench 可暂时依赖 app artifact")
     void appArtifactDependencyCannotSpreadToOtherOfficialPlugins() throws IOException {
         Path repositoryRoot = repositoryRoot();
         Set<String> appConsumers = new LinkedHashSet<>();
@@ -111,10 +151,11 @@ class OfficialPluginHostBoundaryGuardTest {
             }
         }
 
-        assertThat(appConsumers).allMatch(APP_ARTIFACT_TRANSITION_ALLOWLIST::contains);
+        assertThat(appConsumers)
+                .containsExactlyInAnyOrderElementsOf(APP_ARTIFACT_TRANSITION_ALLOWLIST);
         assertThat(appConsumers)
                 .doesNotContain("pixivdownload-plugin-douyin", "pixivdownload-plugin-duplicate",
-                        "pixivdownload-plugin-tts");
+                        "pixivdownload-plugin-novel", "pixivdownload-plugin-tts");
     }
 
     @Test
@@ -144,6 +185,175 @@ class OfficialPluginHostBoundaryGuardTest {
                 .isEmpty();
     }
 
+    private static void collectAppTypeReferences(Path repositoryRoot,
+                                                 String module,
+                                                 Set<String> appTypes,
+                                                 List<String> violations) throws IOException {
+        Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+        if (!Files.isDirectory(sourceRoot)) {
+            return;
+        }
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
+            for (Path source : sources.filter(path -> path.toString().endsWith(".java")).sorted().toList()) {
+                String code = stripComments(read(source));
+                String packageName = packageName(code);
+                Set<String> imports = importedNames(code);
+                for (String appType : appTypes) {
+                    if (referencesFullyQualifiedType(code, appType)
+                            || importsType(imports, appType)
+                            || samePackageSimpleReference(code, packageName, appType)) {
+                        violations.add(module + ":" + repositoryRoot.relativize(source) + " -> " + appType);
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean referencesFullyQualifiedType(String code, String appType) {
+        return identifierReference(appType).matcher(code).find();
+    }
+
+    private static boolean samePackageSimpleReference(String code, String packageName, String appType) {
+        int separator = appType.lastIndexOf('.');
+        if (separator < 0 || !appType.substring(0, separator).equals(packageName)) {
+            return false;
+        }
+        return identifierReference(appType.substring(separator + 1)).matcher(code).find();
+    }
+
+    private static Set<String> importedNames(String code) {
+        Set<String> imports = new LinkedHashSet<>();
+        Matcher matcher = IMPORT_DECLARATION.matcher(code);
+        while (matcher.find()) {
+            imports.add(matcher.group(1));
+        }
+        return imports;
+    }
+
+    private static boolean importsType(Set<String> imports, String appType) {
+        int separator = appType.lastIndexOf('.');
+        if (separator < 0) {
+            return false;
+        }
+        String wildcardImport = appType.substring(0, separator) + ".*";
+        return imports.stream().anyMatch(importName -> importName.equals(appType)
+                || importName.equals(wildcardImport)
+                || importName.startsWith(appType + "."));
+    }
+
+    private static Pattern identifierReference(String identifier) {
+        return Pattern.compile("(?<![\\p{Alnum}_$])" + Pattern.quote(identifier)
+                + "(?![\\p{Alnum}_])");
+    }
+
+    private static String packageName(String code) {
+        Matcher matcher = PACKAGE_DECLARATION.matcher(code);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static Set<String> appOwnedTypes(Path repositoryRoot) throws IOException {
+        Path appSourceRoot = repositoryRoot.resolve("pixivdownload-app/src/main/java");
+        Set<String> types = new LinkedHashSet<>();
+        try (Stream<Path> sources = Files.walk(appSourceRoot)) {
+            sources.filter(path -> path.toString().endsWith(".java"))
+                    .map(appSourceRoot::relativize)
+                    .map(Path::toString)
+                    .filter(path -> !path.endsWith("package-info.java") && !path.endsWith("module-info.java"))
+                    .map(path -> path.substring(0, path.length() - ".java".length())
+                            .replace('\\', '.').replace('/', '.'))
+                    .sorted()
+                    .forEach(types::add);
+        }
+        return Set.copyOf(types);
+    }
+
+    private static String stripComments(String source) {
+        StringBuilder sanitized = new StringBuilder(source.length());
+        SourceState state = SourceState.CODE;
+        int index = 0;
+        while (index < source.length()) {
+            char current = source.charAt(index);
+            switch (state) {
+                case CODE -> {
+                    if (current == '/' && index + 1 < source.length()) {
+                        char next = source.charAt(index + 1);
+                        if (next == '/' || next == '*') {
+                            appendMasked(sanitized, current);
+                            appendMasked(sanitized, next);
+                            index += 2;
+                            state = next == '/' ? SourceState.LINE_COMMENT : SourceState.BLOCK_COMMENT;
+                            continue;
+                        }
+                    }
+                    if (startsWithTripleQuote(source, index)) {
+                        sanitized.append("\"\"\"");
+                        index += 3;
+                        state = SourceState.TEXT_BLOCK;
+                        continue;
+                    }
+                    sanitized.append(current);
+                    index++;
+                    if (current == '"') {
+                        state = SourceState.STRING;
+                    } else if (current == '\'') {
+                        state = SourceState.CHARACTER;
+                    }
+                }
+                case LINE_COMMENT -> {
+                    appendMasked(sanitized, current);
+                    index++;
+                    if (current == '\n' || current == '\r') {
+                        state = SourceState.CODE;
+                    }
+                }
+                case BLOCK_COMMENT -> {
+                    if (current == '*' && index + 1 < source.length()
+                            && source.charAt(index + 1) == '/') {
+                        appendMasked(sanitized, current);
+                        appendMasked(sanitized, '/');
+                        index += 2;
+                        state = SourceState.CODE;
+                    } else {
+                        appendMasked(sanitized, current);
+                        index++;
+                    }
+                }
+                case STRING -> {
+                    sanitized.append(current);
+                    index++;
+                    if (current == '\\' && index < source.length()) {
+                        sanitized.append(source.charAt(index++));
+                    } else if (current == '"') {
+                        state = SourceState.CODE;
+                    }
+                }
+                case TEXT_BLOCK -> {
+                    if (startsWithTripleQuote(source, index)) {
+                        sanitized.append("\"\"\"");
+                        index += 3;
+                        state = SourceState.CODE;
+                    } else {
+                        sanitized.append(current);
+                        index++;
+                        if (current == '\\' && index < source.length()) {
+                            sanitized.append(source.charAt(index++));
+                        }
+                    }
+                }
+                case CHARACTER -> {
+                    sanitized.append(current);
+                    index++;
+                    if (current == '\\' && index < source.length()) {
+                        sanitized.append(source.charAt(index++));
+                    } else if (current == '\'') {
+                        state = SourceState.CODE;
+                    }
+                }
+            }
+        }
+        return sanitized.toString();
+    }
+
     private static void collectConcreteRuntimeViolations(Path repositoryRoot,
                                                          String module,
                                                          Path source,
@@ -169,8 +379,8 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     @Test
-    @DisplayName("源码扫描忽略注释与字符串字面量中的宿主类名")
-    void sourceScannerIgnoresCommentsAndStringLiterals() {
+    @DisplayName("源码扫描忽略注释并识别字符串字面量中的宿主类名")
+    void sourceScannerIgnoresCommentsAndFindsStringLiterals() {
         String source = "package example;\n"
                 + "// top.sywyar.pixivdownload.config.ProxyConfig\n"
                 + "/** top.sywyar.pixivdownload.config.RuntimeFiles */\n"
@@ -181,7 +391,9 @@ class OfficialPluginHostBoundaryGuardTest {
                 + "      \"\"\";\n"
                 + "}\n";
 
-        assertThat(concreteRuntimeReferences(source)).isEmpty();
+        assertThat(concreteRuntimeReferences(source)).containsExactlyInAnyOrder(
+                "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
+                "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard");
     }
 
     @Test
@@ -209,7 +421,7 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     private static Set<String> concreteRuntimeReferences(String source) {
-        String productionCode = stripCommentsAndLiterals(source);
+        String productionCode = stripComments(source);
         Set<String> imports = new LinkedHashSet<>();
         var importMatcher = IMPORT_DECLARATION.matcher(productionCode);
         while (importMatcher.find()) {
@@ -224,94 +436,11 @@ class OfficialPluginHostBoundaryGuardTest {
                     importName.equals(forbiddenType)
                             || importName.equals(wildcardImport)
                             || importName.startsWith(forbiddenType + "."));
-            Pattern qualifiedReference = Pattern.compile(
-                    "(?<![\\p{Alnum}_$])" + Pattern.quote(forbiddenType)
-                            + "(?![\\p{Alnum}_$])");
-            if (imported || qualifiedReference.matcher(productionCode).find()) {
+            if (imported || identifierReference(forbiddenType).matcher(productionCode).find()) {
                 references.add(forbiddenType);
             }
         }
         return references;
-    }
-
-    private static String stripCommentsAndLiterals(String source) {
-        StringBuilder sanitized = new StringBuilder(source.length());
-        int index = 0;
-        while (index < source.length()) {
-            char current = source.charAt(index);
-            if (current == '/' && index + 1 < source.length()) {
-                char next = source.charAt(index + 1);
-                if (next == '/') {
-                    appendMasked(sanitized, current);
-                    appendMasked(sanitized, next);
-                    index += 2;
-                    while (index < source.length()
-                            && source.charAt(index) != '\n'
-                            && source.charAt(index) != '\r') {
-                        appendMasked(sanitized, source.charAt(index++));
-                    }
-                    continue;
-                }
-                if (next == '*') {
-                    appendMasked(sanitized, current);
-                    appendMasked(sanitized, next);
-                    index += 2;
-                    while (index < source.length()) {
-                        char value = source.charAt(index);
-                        if (value == '*' && index + 1 < source.length()
-                                && source.charAt(index + 1) == '/') {
-                            appendMasked(sanitized, value);
-                            appendMasked(sanitized, '/');
-                            index += 2;
-                            break;
-                        }
-                        appendMasked(sanitized, value);
-                        index++;
-                    }
-                    continue;
-                }
-            }
-            if (current == '"') {
-                boolean textBlock = startsWithTripleQuote(source, index);
-                int delimiterLength = textBlock ? 3 : 1;
-                for (int i = 0; i < delimiterLength; i++) {
-                    appendMasked(sanitized, source.charAt(index++));
-                }
-                while (index < source.length()) {
-                    if (textBlock && startsWithTripleQuote(source, index)) {
-                        for (int i = 0; i < 3; i++) {
-                            appendMasked(sanitized, source.charAt(index++));
-                        }
-                        break;
-                    }
-                    char value = source.charAt(index++);
-                    appendMasked(sanitized, value);
-                    if (value == '\\' && index < source.length()) {
-                        appendMasked(sanitized, source.charAt(index++));
-                    } else if (!textBlock && value == '"') {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if (current == '\'') {
-                appendMasked(sanitized, current);
-                index++;
-                while (index < source.length()) {
-                    char value = source.charAt(index++);
-                    appendMasked(sanitized, value);
-                    if (value == '\\' && index < source.length()) {
-                        appendMasked(sanitized, source.charAt(index++));
-                    } else if (value == '\'') {
-                        break;
-                    }
-                }
-                continue;
-            }
-            sanitized.append(current);
-            index++;
-        }
-        return sanitized.toString();
     }
 
     private static boolean startsWithTripleQuote(String source, int index) {

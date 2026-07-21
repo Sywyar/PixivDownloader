@@ -28,7 +28,7 @@ import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
@@ -62,7 +62,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("NovelDownloadService 交互式下载转发捕获")
 class NovelDownloadServiceTest {
 
-    private static final MessageResolver APP_MESSAGES = TestI18nBeans.messageResolver();
+    private static final MessageResolver NOVEL_MESSAGES = NovelTestMessages.messageResolver();
     private static final String RAW_META = "{\"uploadDate\":\"2026-06-06T21:27:00+00:00\"}";
 
     @TempDir
@@ -124,7 +124,7 @@ class NovelDownloadServiceTest {
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard, novelDatabase,
                 novelSeriesService, authorObservationService, workCollectionMembership,
                 collectionDownloadRootResolver, pixivBookmarkActions, visitorDownloadQuotaService,
-                pixivImageDownloader, taskScheduler, executionLane, APP_MESSAGES,
+                pixivImageDownloader, taskScheduler, executionLane, NOVEL_MESSAGES,
                 novelAutoTranslateService, workMetadataCapture, taskTracker);
     }
 
