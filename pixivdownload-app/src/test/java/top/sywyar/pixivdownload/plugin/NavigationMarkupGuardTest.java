@@ -55,7 +55,7 @@ class NavigationMarkupGuardTest {
     /** 已接入动态导航 slot 的页面 → 其预期声明的 placement slot。 */
     private static final Map<String, List<String>> EXPECTED_SLOTS = Map.of(
             "monitor.html", List.of(NavigationPlacements.APP_TOP),
-            "plugin-manage.html", List.of(NavigationPlacements.APP_TOP),
+            "plugin-manage.html", List.of(NavigationPlacements.APP_TOP, NavigationPlacements.PLUGINS_SEGMENT),
             "plugin-market.html", List.of(NavigationPlacements.APP_TOP),
             "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
             "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),

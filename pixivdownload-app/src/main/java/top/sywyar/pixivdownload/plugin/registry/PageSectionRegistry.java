@@ -129,6 +129,10 @@ public class PageSectionRegistry {
             throw new IllegalStateException("page section without access policy: "
                     + section.id() + " (plugin: " + pluginId + ")");
         }
+        if (!section.visibleTo().supportsUiVisibility()) {
+            throw new IllegalStateException("page section access policy cannot be projected to UI visibility: "
+                    + section.visibleTo() + " (section: " + section.id() + ", plugin: " + pluginId + ")");
+        }
         // actionHref / moduleUrl 是可选字段：要么不提供（null），要么必须是同源绝对路径。拒绝 javascript: /
         // http(s):// 等带协议的 URL、//host 协议相对 URL 与 /\host 变体（都不以「单个 /」开头）。这是<b>声明期</b>
         // 安全边界：moduleUrl 会被通用渲染器作为 <script src> 加载、actionHref 渲染为锚点 href，限定为同源路径可

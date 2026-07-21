@@ -27,7 +27,7 @@ import java.util.Set;
  * @param id           下钻贡献全局唯一 id（用于诊断 / 去重）
  * @param placements   该下钻要进入的语义 placement（slot id）集合，非空；同一模板可服务多个 placement
  * @param hrefTemplate 带 {@code {变量名}} 占位的目标链接模板；必须是同源绝对路径（以单个 {@code /} 开头）
- * @param visibleTo    可见所需的访问策略（与 {@code /api/drilldowns} 的可见性过滤对照）
+ * @param visibleTo    可见所需的访问策略；必须满足 {@link AccessPolicy#supportsUiVisibility()}，注册期拒绝流程专用策略
  * @param priority     placement 内排序权重，越小越靠前（不跨越来源层级：第三方贡献不会因 priority 小而越过内置贡献）
  */
 public record DrilldownContribution(

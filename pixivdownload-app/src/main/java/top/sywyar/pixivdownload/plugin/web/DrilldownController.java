@@ -23,8 +23,9 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 供宿主页面在某语义 placement 上以运行期变量解析出可点击的下钻 href——取代页面里硬编码、按插件 id 拼接的跨插件
  * 下钻链接（宿主不再需要知道是哪个插件、目标页面路径或查询参数名）。
  * <p>
- * 可见性与排序口径同 {@link NavigationController} / {@link PageSectionController}：复用 {@link AccessPolicy#admits(Audience)}
- * 这一「该策略允许谁访问」的权威映射，按「来源层级（内置先于第三方）→ placement 内 {@link DrilldownContribution#priority()}
+ * 可见性与排序口径同 {@link NavigationController} / {@link PageSectionController}：复用
+ * {@link AccessPolicy#isVisibleTo(Audience)} 的页面身份投影，按「来源层级（内置先于第三方）→ placement 内
+ * {@link DrilldownContribution#priority()}
  * → id」三级稳定排序。请求身份按三档解析（访客优先于管理员，因 solo 模式下 {@code hasAdminScope} 对任意请求为真）。
  * <p>
  * 响应只暴露渲染所需字段（{@code id} / {@code placements} / {@code hrefTemplate} / {@code priority}，<b>不含</b>
@@ -48,7 +49,7 @@ public class DrilldownController {
         return drilldownRegistry.drilldowns().stream()
                 .filter(registered -> placement == null
                         || registered.drilldown().placements().contains(placement))
-                .filter(registered -> isVisibleTo(registered.drilldown().visibleTo(), audience))
+                .filter(registered -> registered.drilldown().visibleTo().isVisibleTo(audience))
                 .sorted(Comparator
                         .comparingInt(DrilldownController::sourceRank)
                         .thenComparingInt(registered -> registered.drilldown().priority())
@@ -73,11 +74,6 @@ public class DrilldownController {
             return Audience.ADMIN;
         }
         return Audience.VISITOR;
-    }
-
-    /** 某下钻策略是否对给定身份可见：{@code PUBLIC} 对所有人可见，其余按策略放行的身份集合判定。 */
-    private static boolean isVisibleTo(AccessPolicy policy, Audience audience) {
-        return policy == AccessPolicy.PUBLIC || policy.admits(audience);
     }
 
     /**

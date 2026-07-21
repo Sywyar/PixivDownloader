@@ -240,7 +240,7 @@ class LandingRegistryTest {
             assertThat(route)
                     .as("落点 %s 的 href %s 应命中一条已声明路由", item.id(), item.href())
                     .isPresent();
-            assertThat(route.get().route().accessPolicy().admits(item.audience()))
+            assertThat(route.get().route().accessPolicy().isVisibleTo(item.audience()))
                     .as("落点 %s 的 href %s 对应路由策略 %s 应放行其 audience %s",
                             item.id(), item.href(), route.get().route().accessPolicy(), item.audience())
                     .isTrue();

@@ -27,8 +27,7 @@
         activeTab: 'all',  // all | enabled | disabled | external
         search: '',
         busyId: null,      // 正在执行运行期动词的插件 id（期间禁用其卡片按钮，动作串行化）
-        installBusy: false, // 本地包安装请求在途（期间禁用安装提交按钮，避免重复提交）
-        marketNav: null    // 插件市场导航入口（{href} 取自 /api/navigation；plugin-market 禁用时为 null → 分段控件隐藏）
+        installBusy: false // 本地包安装请求在途（期间禁用安装提交按钮，避免重复提交）
     };
 
     // i18n 客户端容器（init 创建 / 切语言时替换；渲染层经 t / tns 读取当前客户端）。
@@ -83,6 +82,20 @@
             }
         }
         return Object.keys(set);
+    }
+
+    // 判断导航响应中是否存在某个中性 placement 的有效入口；只用于控制宿主容器显隐，实际 href、图标与文案
+    // 仍由通用 PixivNav renderer 消费完整 contribution。本页不识别贡献方插件 id，也不复制其展示语义。
+    function hasNavigationForPlacement(items, placement) {
+        var list = Array.isArray(items) ? items : [];
+        for (var i = 0; i < list.length; i++) {
+            var item = list[i];
+            if (item && item.href && Array.isArray(item.placements)
+                    && item.placements.indexOf(placement) !== -1) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // 状态 → { i18n key, 色调 }。色调用于状态点 / API 兼容标记的着色。
@@ -392,6 +405,7 @@
         escapeHtml: escapeHtml,
         interpolate: interpolate,
         collectNamespaces: collectNamespaces,
+        hasNavigationForPlacement: hasNavigationForPlacement,
         statusMeta: statusMeta,
         verbMeta: verbMeta,
         verificationMeta: verificationMeta,

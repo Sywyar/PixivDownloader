@@ -22,8 +22,8 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 供宿主页面把活动插件贡献的区块渲染进对应的空 section slot——取代页面里硬编码、按插件 id 显隐的业务块
  * （宿主不再需要知道是哪个插件、是否启用）。
  * <p>
- * 可见性与排序口径同 {@link NavigationController}：复用 {@link AccessPolicy#admits(Audience)} 这一「该策略允许谁访问」
- * 的权威映射，按「来源层级（内置先于第三方）→ placement 内 {@link PageSectionContribution#priority()} → id」三级稳定排序。
+ * 可见性与排序口径同 {@link NavigationController}：复用 {@link AccessPolicy#isVisibleTo(Audience)} 的页面身份投影，
+ * 按「来源层级（内置先于第三方）→ placement 内 {@link PageSectionContribution#priority()} → id」三级稳定排序。
  * 请求身份按三档解析（访客优先于管理员，因 solo 模式下 {@code hasAdminScope} 对任意请求为真）。
  * <p>
  * 响应只暴露渲染所需字段（不含 {@code visibleTo}），不泄露内部访问策略模型；标签 / 操作标题只返回 i18n key，
@@ -45,7 +45,7 @@ public class PageSectionController {
         Audience audience = resolveAudience(request);
         return pageSectionRegistry.sections().stream()
                 .filter(registered -> placement == null || placement.equals(registered.section().placement()))
-                .filter(registered -> isVisibleTo(registered.section().visibleTo(), audience))
+                .filter(registered -> registered.section().visibleTo().isVisibleTo(audience))
                 .sorted(Comparator
                         .comparingInt(PageSectionController::sourceRank)
                         .thenComparingInt(registered -> registered.section().priority())
@@ -73,11 +73,6 @@ public class PageSectionController {
             return Audience.ADMIN;
         }
         return Audience.VISITOR;
-    }
-
-    /** 某区块策略是否对给定身份可见：{@code PUBLIC} 对所有人可见，其余按策略放行的身份集合判定。 */
-    private static boolean isVisibleTo(AccessPolicy policy, Audience audience) {
-        return policy == AccessPolicy.PUBLIC || policy.admits(audience);
     }
 
     /**

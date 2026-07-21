@@ -24,7 +24,7 @@ import java.util.Set;
  * @param labelI18nKey 标签的 i18n key（<b>纯 key</b>，不带 namespace、不直接携带文案）
  * @param href         目标链接（同一 placement 内不可重复）
  * @param icon         图标标识（label-only 的 slot（如类型切换 tab）会忽略它）
- * @param visibleTo    可见所需的访问策略（与 {@code /api/navigation} 的可见性过滤对照）
+ * @param visibleTo    可见所需的访问策略；必须满足 {@link AccessPolicy#supportsUiVisibility()}，Web 注册与 GUI 聚合时拒绝流程专用策略
  * @param priority     placement 内排序权重，越小越靠前（<b>不</b>跨越来源层级：第三方项不会因 priority 小而越过内置项）
  * @param markers      中性语义标记，供前端导览等消费者定位「某类入口」；不参与渲染槽位匹配与排序
  */

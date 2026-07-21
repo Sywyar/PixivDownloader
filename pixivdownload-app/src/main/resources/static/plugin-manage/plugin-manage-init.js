@@ -234,24 +234,17 @@
         });
     }
 
-    // 市场 / 已安装 分段控件：消费 /api/navigation 的渲染结果（PixivNav 每次渲染后派发 pixivnav:rendered，detail.items
-    // 为按当前身份过滤的导航项）。plugin-market 启用时其导航入口在场 → 显示「市场」入口（href 取自导航数据）；禁用时入口
-    // 缺席 → 分段控件整体撤销。生命周期感知、不在本页硬编码市场页地址，也不把市场状态写入插件管理页。
-    function syncMarketSegment(items) {
-        var market = null;
-        (items || []).forEach(function (it) {
-            if (it && it.id === 'plugin-market' && it.href) {
-                market = { href: it.href };
-            }
-        });
-        PM.state.marketNav = market;
-        PM.renderMarketSegment();
+    // 页内分段控件：PixivNav 已按当前身份把 plugins.segment 的完整 contribution 渲染进 HTML 空 slot；本页只据
+    // 同一批导航数据控制外层容器显隐，不读取插件 id，也不复制可选页的 href、图标或 i18n 文案。
+    function syncPluginSegment(items) {
+        var host = document.getElementById('pm-seg-host');
+        if (host) host.hidden = !PM.hasNavigationForPlacement(items, 'plugins.segment');
     }
 
     function wireEvents() {
         // 早绑定（PixivNav 的导航拉取为异步网络请求，本监听器先于其首次 pixivnav:rendered 派发就位）。
         window.addEventListener('pixivnav:rendered', function (e) {
-            syncMarketSegment(e.detail && e.detail.items);
+            syncPluginSegment(e.detail && e.detail.items);
         });
         document.getElementById('refreshBtn').addEventListener('click', function () { load(); });
         wireInstall();

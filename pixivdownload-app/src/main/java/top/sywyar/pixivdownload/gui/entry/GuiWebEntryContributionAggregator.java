@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui.entry;
 
 import top.sywyar.pixivdownload.gui.i18n.PluginContributionText;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
@@ -92,6 +93,12 @@ public final class GuiWebEntryContributionAggregator {
         if (id == null) {
             diagnostics.add(new GuiWebEntryContributionDiagnostic(registered.id(), null,
                     "GUI web entry id is blank"));
+            return null;
+        }
+        AccessPolicy visibleTo = contribution.visibleTo();
+        if (visibleTo == null || !visibleTo.supportsUiVisibility()) {
+            diagnostics.add(new GuiWebEntryContributionDiagnostic(registered.id(), id,
+                    "GUI web entry visibleTo must support UI visibility: " + visibleTo));
             return null;
         }
         String labelNamespace = normalize(contribution.labelNamespace());

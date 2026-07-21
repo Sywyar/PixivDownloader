@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -157,7 +158,7 @@ class PluginManagePageGuardTest {
     void doesNotHardcodePluginList() throws IOException {
         String combined = read(CORE) + read(API) + read(VIEWS) + read(INIT);
         for (String pluginId : new String[]{
-                "download-workbench", "gallery", "novel", "duplicate", "recovery-sentinel"}) {
+                "download-workbench", "gallery", "novel", "duplicate", "plugin-market", "recovery-sentinel"}) {
             assertThat(combined)
                     .as("页面模块不得硬编码内置插件 id：" + pluginId + "（列表须由后端响应驱动）")
                     .doesNotContain("\"" + pluginId + "\"")
@@ -166,21 +167,32 @@ class PluginManagePageGuardTest {
     }
 
     @Test
-    @DisplayName("市场 / 已安装 分段控件为生命周期感知：HTML 不硬编码市场页 href，由导航数据动态渲染 / 撤销")
-    void marketSegmentIsLifecycleAware() throws IOException {
+    @DisplayName("页内分段控件为生命周期感知：可选页签由通用导航完整渲染并随 contribution 撤销")
+    void pluginSegmentIsLifecycleAware() throws IOException {
         String html = read(HTML);
-        // 分段控件挂载锚点在场，但 HTML 不硬编码市场页地址——禁用 plugin-market 后不残留点开即 404 的坏入口。
+        // 分段控件直接声明通用导航 slot；贡献方拥有 href、图标与标签，本页只拥有「已安装」当前页签。
         assertThat(html).as("分段控件挂载锚点").contains("id=\"pm-seg-host\"");
+        assertThat(html).as("可选页签走通用导航 renderer")
+                .contains("data-nav-slot=\"" + NavigationPlacements.PLUGINS_SEGMENT + "\"",
+                        "data-nav-link-class=\"pm-seg-item\"");
         assertThat(html).as("HTML 不硬编码市场页 href（应由导航数据动态渲染）").doesNotContain("/plugin-market.html");
-        // 渲染由导航生命周期事件驱动：init 监听 pixivnav:rendered、据 plugin-market 导航入口在场与否同步分段控件。
+        // 容器显隐由导航生命周期事件驱动；页面模块不读取插件 id，也不复制可选页签的展示语义。
         String init = read(INIT);
         assertThat(init).as("init 监听导航渲染生命周期事件").contains("pixivnav:rendered");
-        assertThat(init).as("据 plugin-market 导航入口判定市场入口可见性").contains("plugin-market");
-        assertThat(init).as("init 不硬编码市场页 href（市场入口 href 取自导航数据）").doesNotContain("/plugin-market.html");
-        // 渲染函数据导航数据（marketNav.href）渲染，不在前端硬编码市场页地址。
+        assertThat(init).as("据 plugins.segment placement 判定可选页签是否存在")
+                .contains(NavigationPlacements.PLUGINS_SEGMENT, "hasNavigationForPlacement")
+                .doesNotContain("plugin-market");
+        assertThat(init).as("init 不硬编码可选页 href（href 由导航贡献提供）").doesNotContain("/plugin-market.html");
+        String core = read(CORE);
         String views = read(VIEWS);
-        assertThat(views).as("分段控件渲染函数存在").contains("renderMarketSegment");
-        assertThat(views).as("市场入口 href 取自导航数据、不硬编码市场页地址").doesNotContain("/plugin-market.html");
+        assertThat(core + views).as("页面状态 / 视图不复制可选页签 href、图标或标签")
+                .doesNotContain("marketNav", "seg.market", "renderMarketSegment", "/plugin-market.html");
+        Properties zh = readProperties(I18N_ZH);
+        Properties en = readProperties(I18N_EN);
+        assertThat(zh).as("可选页签中文文案归导航贡献方").doesNotContainKey("seg.market");
+        assertThat(en).as("可选页签英文文案归导航贡献方").doesNotContainKey("seg.market");
+        assertThat(zh.getProperty("seg.installed")).isNotBlank();
+        assertThat(en.getProperty("seg.installed")).isNotBlank();
     }
 
     @Test

@@ -22,8 +22,9 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 「来源层级 → placement 内 priority → id」三级排序的导航项，供页面动态渲染跨插件导航
  * （取代 HTML 中的硬编码入口）。每项带 {@link NavigationView#placements()}，前端据此把它渲染进对应的空 slot。
  * <p>
- * 可见性以请求身份（{@link Audience}）为准，复用 {@link AccessPolicy#audiences()} 这一「该策略允许谁访问」
- * 的权威映射——某导航项可见当且仅当其 {@code visibleTo} 策略放行当前身份（{@code PUBLIC} 项对所有人可见）。
+ * 可见性以请求身份（{@link Audience}）为准，经 {@link AccessPolicy#isVisibleTo(Audience)} 投影——某导航项
+ * 可见当且仅当其 {@code visibleTo} 策略对当前页面身份可见（{@code PUBLIC} 项对所有人可见）。流程专用策略在
+ * 注册期被拒绝，不会在这里静默隐藏。
  * 故导航显隐与 {@code AuthFilter} 的路由放行口径一致：能进入导航栏的入口正是该身份点开后不会被挡的入口。
  * <p>
  * 请求身份按三档解析（访客优先于管理员，因 solo 模式下 {@code hasAdminScope} 对任意请求为真，须先排除访客身份）：
@@ -62,7 +63,7 @@ public class NavigationController {
     public List<NavigationView> navigation(HttpServletRequest request) {
         Audience audience = resolveAudience(request);
         return navigationRegistry.navigation().stream()
-                .filter(registered -> isVisibleTo(registered.navigation().visibleTo(), audience))
+                .filter(registered -> registered.navigation().visibleTo().isVisibleTo(audience))
                 .sorted(Comparator
                         .comparingInt(NavigationController::sourceRank)
                         .thenComparingInt(registered -> registered.navigation().priority())
@@ -92,11 +93,6 @@ public class NavigationController {
             return Audience.ADMIN;
         }
         return Audience.VISITOR;
-    }
-
-    /** 某导航策略是否对给定身份可见：{@code PUBLIC} 对所有人可见，其余按策略放行的身份集合判定。 */
-    private static boolean isVisibleTo(AccessPolicy policy, Audience audience) {
-        return policy == AccessPolicy.PUBLIC || policy.admits(audience);
     }
 
     /**

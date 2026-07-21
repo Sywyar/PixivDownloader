@@ -72,7 +72,29 @@ ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.restartBackend === 'function'
     && typeof PM.installPackage === 'function'
     && typeof PM.buildInstallResult === 'function'
-    && typeof PM.renderInstallResultHtml === 'function');
+    && typeof PM.renderInstallResultHtml === 'function'
+    && typeof PM.hasNavigationForPlacement === 'function');
+
+// 中性 placement 探测：只判断是否存在有效贡献、不识别插件 id；完整贡献列表仍由 PixivNav 渲染，缺席返回 false。
+(function () {
+    const items = [
+        { id: 'plugin-market', placements: ['app.top'], href: '/wrong.html' },
+        { id: 'missing-placements', href: '/also-wrong.html' },
+        { id: 'missing-href', placements: ['plugins.segment'] },
+        { id: 'arbitrary-provider', placements: ['app.top', 'plugins.segment'], href: '/market-a.html' },
+        { id: 'later-provider', placements: ['plugins.segment'], href: '/market-b.html' }
+    ];
+    ok('页内分段按 plugins.segment placement 检出贡献',
+        PM.hasNavigationForPlacement(items, 'plugins.segment'));
+    ok('具体插件 id 但无 placement 的诱饵被忽略',
+        !PM.hasNavigationForPlacement([items[0]], 'plugins.segment'));
+    ok('缺 placements / href 的无效项被安全跳过',
+        !PM.hasNavigationForPlacement([items[1], items[2]], 'plugins.segment'));
+    ok('无 placement 贡献时返回 false',
+        !PM.hasNavigationForPlacement(items, 'missing.segment'));
+    ok('非法导航响应安全收敛为 false',
+        !PM.hasNavigationForPlacement(null, 'plugins.segment'));
+})();
 
 // i18n 客户端桩：
 //   t(prefixedKey, fallback) → 返回 fallback（页面自有文案在断言里就用其 fallback 文案）。

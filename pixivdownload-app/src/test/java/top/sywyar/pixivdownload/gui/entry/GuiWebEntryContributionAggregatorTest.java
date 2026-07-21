@@ -64,6 +64,34 @@ class GuiWebEntryContributionAggregatorTest {
     }
 
     @Test
+    @DisplayName("流程专用或缺失的可见性策略逐条诊断丢弃，同插件合法 GUI 入口仍保留")
+    void invalidVisibilityPoliciesAreIsolatedPerEntry() {
+        PixivFeaturePlugin mixed = new GalleryGuiPlugin() {
+            @Override
+            public List<NavigationContribution> navigation() {
+                return List.of(
+                        guiEntry("bad-local", AccessPolicy.LOCAL),
+                        guiEntry("bad-gui", AccessPolicy.GUI),
+                        guiEntry("bad-actuator", AccessPolicy.ACTUATOR_PUBLIC),
+                        guiEntry("bad-null", null),
+                        guiEntry("valid-admin", AccessPolicy.ADMIN));
+            }
+        };
+
+        GuiWebEntrySnapshot snapshot = GuiWebEntryContributionAggregator.from(
+                new PluginRegistry(List.of(mixed)));
+
+        assertThat(snapshot.statusActions())
+                .extracting(GuiWebEntrySpec::id)
+                .containsExactly("valid-admin");
+        assertThat(snapshot.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.message().contains("visibleTo must support UI visibility"))
+                .hasSize(4)
+                .extracting(GuiWebEntryContributionDiagnostic::key)
+                .containsExactlyInAnyOrder("bad-local", "bad-gui", "bad-actuator", "bad-null");
+    }
+
+    @Test
     @DisplayName("禁用 gallery 时状态页与托盘入口自然缺席")
     void galleryEntriesDisappearWhenGalleryDisabled() {
         GuiWebEntrySnapshot snapshot = GuiWebEntryContributionAggregator.from(registryDisablingGallery());
@@ -100,7 +128,13 @@ class GuiWebEntryContributionAggregatorTest {
                 .orElseThrow();
     }
 
-    private static final class GalleryGuiPlugin implements PixivFeaturePlugin {
+    private static NavigationContribution guiEntry(String id, AccessPolicy visibleTo) {
+        return new NavigationContribution(
+                id, NavigationPlacements.GUI_STATUS_ACTIONS,
+                "gallery", "gui.action.open", "/pixiv-gallery.html", "images", visibleTo, 33);
+    }
+
+    private static class GalleryGuiPlugin implements PixivFeaturePlugin {
         @Override
         public String id() {
             return "gallery";

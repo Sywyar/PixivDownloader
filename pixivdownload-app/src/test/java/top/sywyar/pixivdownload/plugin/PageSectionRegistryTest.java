@@ -125,6 +125,20 @@ class PageSectionRegistryTest {
     }
 
     @Test
+    @DisplayName("流程专用访问策略不能用于页面区块可见性，注册期逐项拒绝")
+    void flowPoliciesRejectedForSectionVisibility() {
+        for (AccessPolicy policy : new AccessPolicy[]{
+                AccessPolicy.LOCAL, AccessPolicy.GUI, AccessPolicy.ACTUATOR_PUBLIC}) {
+            assertThatThrownBy(() -> emptyRegistry().register("demo", List.of(new PageSectionContribution(
+                    "demo", "section-" + policy.name().toLowerCase(), "host.slot", "ns", "title",
+                    null, null, null, null, null, null, policy, 10))))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("UI visibility")
+                    .hasMessageContaining(policy.name());
+        }
+    }
+
+    @Test
     @DisplayName("sections() 返回不可变快照，外部不可修改")
     void snapshotIsImmutable() {
         PageSectionRegistry registry = emptyRegistry();

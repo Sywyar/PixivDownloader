@@ -35,7 +35,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
  *                             {@code actionTitleI18nKey} 条件必填——后者为空时可为 {@code null}（无操作标题），后者非空时<b>必填</b>，注册期对该组合 fail-fast
  * @param actionTitleI18nKey 可选：操作入口 title / aria-label 的 i18n key（<b>纯 key</b>），{@code null} 表示无
  * @param moduleUrl          可选：渲染区块复杂内容的前端模块脚本 URL（已安装可信插件的同源脚本钩子，由贡献方自有 ClassLoader 提供并 serving），{@code null} 表示无；非空时必须是同源绝对路径（以 {@code /} 开头）
- * @param visibleTo          可见所需的访问策略（与 {@code /api/page-sections} 的可见性过滤对照）
+ * @param visibleTo          可见所需的访问策略；必须满足 {@link AccessPolicy#supportsUiVisibility()}，注册期拒绝流程专用策略
  * @param priority           placement 内排序权重，越小越靠前（不跨越来源层级：第三方区块不会因 priority 小而越过内置区块）
  */
 public record PageSectionContribution(

@@ -80,27 +80,6 @@
         }
     }
 
-    // —— 市场 / 已安装 分段控件（生命周期感知，由导航数据驱动） ——
-    // marketNav（{href}）取自 /api/navigation 的 plugin-market 入口：启用时渲染「市场」链接（href 来自导航数据）+「已安装」
-    // 当前页激活态；plugin-market 禁用时 marketNav=null → 整体隐藏（入口消失）。href 不在本页硬编码，故禁用插件后不残留
-    // 点开即 404 的坏入口；本控件只读导航数据、不写入任何市场状态（与插件管理职责分离）。
-    function renderMarketSegment() {
-        var host = document.getElementById('pm-seg-host');
-        if (!host) return;
-        var market = PM.state.marketNav;
-        if (!market || !market.href) {
-            host.hidden = true;
-            host.innerHTML = '';
-            return;
-        }
-        host.hidden = false;
-        host.innerHTML =
-            '<a class="pm-seg-item" href="' + E(market.href) + '">'
-            + '<i class="fa-solid fa-store"></i><span>' + E(PM.t('seg.market', '市场')) + '</span></a>'
-            + '<span class="pm-seg-item active" aria-current="page">'
-            + '<i class="fa-solid fa-puzzle-piece"></i><span>' + E(PM.t('seg.installed', '已安装')) + '</span></span>';
-    }
-
     // —— 单张插件卡片 ——
     function cardHtml(vm) {
         var busy = PM.state.busyId === vm.id;
@@ -241,7 +220,6 @@
         var countEl = document.getElementById('pm-result-count');
 
         renderRecovery();
-        renderMarketSegment();
         renderStats(models);
         renderTabs(models);
 
@@ -414,7 +392,6 @@
     }
 
     PM.renderAll = renderAll;
-    PM.renderMarketSegment = renderMarketSegment;
     PM.toast = toast;
     PM.renderInstallResultHtml = renderInstallResultHtml;
     PM.showInstallResult = showInstallResult;

@@ -272,7 +272,7 @@ textarea {
     gap: 10px;
 }
 
-/* ── 市场 / 已安装 分段控件（与插件市场页互链；由导航数据驱动动态渲染，禁用 plugin-market 时整体隐藏） ── */
+/* ── 市场 / 已安装 分段控件（与市场页互链；由中性导航 placement 驱动，无贡献时整体隐藏） ── */
 .pm-seg {
     display: inline-flex;
     align-items: center;
@@ -284,6 +284,10 @@ textarea {
 
 .pm-seg[hidden] {
     display: none;
+}
+
+.pm-seg-nav {
+    display: contents;
 }
 
 .pm-seg-item {
@@ -302,6 +306,11 @@ textarea {
 
 .pm-seg-item:hover {
     color: var(--text);
+}
+
+.pm-seg-item svg {
+    width: 14px;
+    height: 14px;
 }
 
 .pm-seg-item.active {

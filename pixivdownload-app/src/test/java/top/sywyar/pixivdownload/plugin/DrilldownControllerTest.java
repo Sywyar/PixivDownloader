@@ -195,6 +195,19 @@ class DrilldownControllerTest {
     }
 
     @Test
+    @DisplayName("流程专用访问策略不能用于下钻可见性，注册期逐项拒绝")
+    void flowPoliciesRejectedForDrilldownVisibility() {
+        for (AccessPolicy policy : new AccessPolicy[]{
+                AccessPolicy.LOCAL, AccessPolicy.GUI, AccessPolicy.ACTUATOR_PUBLIC}) {
+            assertThatThrownBy(() -> emptyRegistry().register("p", List.of(new DrilldownContribution(
+                    "p", "drilldown-" + policy.name().toLowerCase(), "host.slot", "/target", policy, 10))))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("UI visibility")
+                    .hasMessageContaining(policy.name());
+        }
+    }
+
+    @Test
     @DisplayName("注册期拒绝：重复 id / 空 placement / pluginId 不匹配")
     void rejectsInvalidContributions() {
         // 重复 id（跨贡献全局唯一）

@@ -118,6 +118,10 @@ public class DrilldownRegistry {
             throw new IllegalStateException("drilldown without access policy: "
                     + drilldown.id() + " (plugin: " + pluginId + ")");
         }
+        if (!drilldown.visibleTo().supportsUiVisibility()) {
+            throw new IllegalStateException("drilldown access policy cannot be projected to UI visibility: "
+                    + drilldown.visibleTo() + " (drilldown: " + drilldown.id() + ", plugin: " + pluginId + ")");
+        }
         // hrefTemplate 是必填项，且必须是同源绝对路径。拒绝 javascript: / http(s):// 等带协议的 URL、//host
         // 协议相对 URL 与 /\host 反斜杠变体（都不以「单个 /」开头）。这是<b>声明期</b>安全边界：模板会被前端通用
         // 下钻渲染器变量替换后作为锚点 href，限定为同源路径可防止贡献把宿主导去外部站点或执行伪协议脚本。

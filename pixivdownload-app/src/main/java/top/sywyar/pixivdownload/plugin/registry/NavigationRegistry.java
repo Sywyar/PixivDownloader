@@ -147,5 +147,9 @@ public class NavigationRegistry {
             throw new IllegalStateException("navigation without access level: "
                     + navigation.id() + " (plugin: " + pluginId + ")");
         }
+        if (!navigation.visibleTo().supportsUiVisibility()) {
+            throw new IllegalStateException("navigation access policy cannot be projected to UI visibility: "
+                    + navigation.visibleTo() + " (navigation: " + navigation.id() + ", plugin: " + pluginId + ")");
+        }
     }
 }

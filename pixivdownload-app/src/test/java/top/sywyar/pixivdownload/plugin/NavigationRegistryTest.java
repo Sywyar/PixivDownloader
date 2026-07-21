@@ -243,6 +243,20 @@ class NavigationRegistryTest {
     }
 
     @Test
+    @DisplayName("流程专用访问策略不能用于导航可见性，注册期逐项拒绝")
+    void flowPoliciesRejectedForNavigationVisibility() {
+        for (AccessPolicy policy : new AccessPolicy[]{
+                AccessPolicy.LOCAL, AccessPolicy.GUI, AccessPolicy.ACTUATOR_PUBLIC}) {
+            assertThatThrownBy(() -> emptyRegistry().register("demo", List.of(new NavigationContribution(
+                    "nav-" + policy.name().toLowerCase(), "app.top", "ns", "nav.label",
+                    "/target.html", "icon", policy, 0))))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("UI visibility")
+                    .hasMessageContaining(policy.name());
+        }
+    }
+
+    @Test
     @DisplayName("labelNamespace 为 null / 空白被接受（有意的回退语义、不 fail-fast；缺省值原样保真供消费端回退）")
     void blankLabelNamespaceAcceptedAsIntentionalFallback() {
         NavigationRegistry registry = emptyRegistry();
