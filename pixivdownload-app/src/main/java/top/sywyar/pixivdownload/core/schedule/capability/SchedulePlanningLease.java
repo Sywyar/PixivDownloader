@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
@@ -14,8 +13,7 @@ public final class SchedulePlanningLease implements AutoCloseable {
 
     record TransferredSource(
             ScheduledSourceDescriptor descriptor,
-            ScheduledSourceExecutor sourceExecutor,
-            ScheduledSourceProvider legacySourceProvider
+            ScheduledSourceExecutor sourceExecutor
     ) {
     }
 
@@ -37,8 +35,7 @@ public final class SchedulePlanningLease implements AutoCloseable {
             ScheduleLeaseRoot root,
             ScheduleLeaseState.LeaseToken leaseToken,
             ScheduledSourceDescriptor descriptor,
-            ScheduledSourceExecutor sourceExecutor,
-            ScheduledSourceProvider legacySourceProvider) {
+            ScheduledSourceExecutor sourceExecutor) {
         this.owner = owner;
         this.publicationId = publicationId;
         this.activationToken = Objects.requireNonNull(activationToken, "activationToken");
@@ -46,7 +43,7 @@ public final class SchedulePlanningLease implements AutoCloseable {
         this.leaseState = leaseState;
         this.root = Objects.requireNonNull(root, "root");
         this.leaseToken = Objects.requireNonNull(leaseToken, "leaseToken");
-        this.source = new TransferredSource(descriptor, sourceExecutor, legacySourceProvider);
+        this.source = new TransferredSource(descriptor, sourceExecutor);
     }
 
     public ScheduleCapabilityOwner owner() {
@@ -73,11 +70,6 @@ public final class SchedulePlanningLease implements AutoCloseable {
     public synchronized Optional<ScheduledSourceExecutor> sourceExecutor() {
         ensurePlanning();
         return Optional.ofNullable(source.sourceExecutor());
-    }
-
-    public synchronized Optional<ScheduledSourceProvider> legacySourceProvider() {
-        ensurePlanning();
-        return Optional.ofNullable(source.legacySourceProvider());
     }
 
     public synchronized ScheduledCancellation cancellation() {

@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** 计划任务快照在服务端对单个插画或小说应用筛选条件的纯函数。 */
+/** Pixiv 插画来源对单个作品应用计划任务筛选条件的纯函数。 */
 public final class ScheduleWorkFilter {
 
     private ScheduleWorkFilter() {
@@ -28,23 +28,6 @@ public final class ScheduleWorkFilter {
             if (filters.bookmarksMax() != null && artwork.bookmarkCount() > filters.bookmarksMax()) return false;
         }
         List<String> tokens = tagTokens(artwork.tags());
-        return tagsAllMatch(tokens, filters.tagsExact(), false)
-                && tagsAllMatch(tokens, filters.tagsFuzzy(), true);
-    }
-
-    public static boolean novelMatches(PixivFetchService.NovelDetail novel, Filters filters) {
-        if (!contentMatches(filters.content(), novel.xRestrict())) return false;
-        if ("exclude".equals(filters.aiFilter()) && novel.ai()) return false;
-        if ("only".equals(filters.aiFilter()) && !novel.ai()) return false;
-        if (novel.wordCount() != null && novel.wordCount() > 0) {
-            if (filters.wordsMin() != null && novel.wordCount() < filters.wordsMin()) return false;
-            if (filters.wordsMax() != null && novel.wordCount() > filters.wordsMax()) return false;
-        }
-        if (novel.bookmarkCount() >= 0) {
-            if (filters.bookmarksMin() != null && novel.bookmarkCount() < filters.bookmarksMin()) return false;
-            if (filters.bookmarksMax() != null && novel.bookmarkCount() > filters.bookmarksMax()) return false;
-        }
-        List<String> tokens = tagTokens(novel.tags());
         return tagsAllMatch(tokens, filters.tagsExact(), false)
                 && tagsAllMatch(tokens, filters.tagsFuzzy(), true);
     }

@@ -135,16 +135,26 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("作品类型执行器必须 @PluginManagedBean")
-    void scheduledWorkRunnersMustBePluginManaged() {
+    @DisplayName("计划来源与作品执行器必须 @PluginManagedBean")
+    void scheduledSourceAndWorkExecutorsMustBePluginManaged() {
         classes()
                 .that().areAssignableTo(
-                        top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner.class)
+                        top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor.class)
                 .and().areNotInterfaces()
                 .should().beAnnotatedWith(
                         top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
                 .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
-                .because("作品类型执行器随贡献插件生命周期归属，不得被根包扫描注册")
+                .because("来源执行器随贡献插件 publication 与 child context 生命周期归属，不得被根包扫描注册")
+                .check(CLASSES);
+
+        classes()
+                .that().areAssignableTo(
+                        top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(
+                        top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
+                .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
+                .because("作品执行器随贡献插件 publication 与 child context 生命周期归属，不得被根包扫描注册")
                 .check(CLASSES);
     }
 
@@ -170,7 +180,8 @@ class DownloadWorkbenchDependencyGuardTest {
                 .contains(
                         "top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin",
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController",
-                        "top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner",
+                        "top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor",
+                        "top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor",
                         "top.sywyar.pixivdownload.schedule.ScheduleExecutor");
     }
 

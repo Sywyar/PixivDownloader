@@ -18,12 +18,8 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigra
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationResult;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationRoute;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
@@ -37,8 +33,10 @@ import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAu
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
-import java.util.Arrays;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -79,11 +77,11 @@ class PluginScheduleContributionRegistrarTest {
         PluginScheduleContributionRegistrar registrar = registrar(registry);
         PluginRegistry.RegisteredPlugin registered = registeredFeature(
                 "ext-post-commit", "ext-post-commit", 1L,
-                List.of(sourceProvider("alpha", "ALPHA")), List.of());
+                List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA")));
         Throwable observed = null;
 
         try {
-            register(registrar, registered, null);
+            registerModern(registrar, registered);
         } catch (Throwable failure) {
             observed = failure;
         }
@@ -93,7 +91,7 @@ class PluginScheduleContributionRegistrarTest {
         assertThat(ScheduleCapabilityRegistryTestAccess.publication(
                 registrar,
                 new ScheduleCapabilityOwner("ext-post-commit", "ext-post-commit", 1L))).isEmpty();
-        assertThat(register(registrar, registered, null)).isPresent();
+        assertThat(registerModern(registrar, registered)).isPresent();
     }
 
     @Test
@@ -110,13 +108,14 @@ class PluginScheduleContributionRegistrarTest {
             PluginScheduleContributionRegistrar reserveRegistrar = registrar(reserveRegistry);
             PluginRegistry.RegisteredPlugin reserveRegistered = registeredFeature(
                     "ext-reserve-return", "ext-reserve-return", 1L,
-                    List.of(sourceProvider("reserve-return", "RESERVE_RETURN")), List.of());
+                    List.of(sourceDescriptor(
+                            "reserve-return", "reserve-return-work", "RESERVE_RETURN")));
 
             reserveFailure.set(expected);
-            assertThat(catchThrowable(() -> register(reserveRegistrar, reserveRegistered, null)))
+            assertThat(catchThrowable(() -> registerModern(reserveRegistrar, reserveRegistered)))
                     .isSameAs(expected);
             assertThat(reserveRegistry.snapshotView().owners()).isEmpty();
-            assertThat(register(reserveRegistrar, reserveRegistered, null)).isPresent();
+            assertThat(registerModern(reserveRegistrar, reserveRegistered)).isPresent();
 
             AtomicReference<Error> withdrawFailure = new AtomicReference<>();
             ScheduleCapabilityRegistry withdrawRegistry =
@@ -126,12 +125,13 @@ class PluginScheduleContributionRegistrarTest {
                             }, () -> {
                             });
             PluginScheduleContributionRegistrar withdrawRegistrar = registrar(withdrawRegistry);
-            ScheduleCapabilityPublication withdrawPublication = register(
+            ScheduleCapabilityPublication withdrawPublication = registerModern(
                     withdrawRegistrar,
                     registeredFeature(
                             "ext-withdraw-return", "ext-withdraw-return", 1L,
-                            List.of(sourceProvider("withdraw-return", "WITHDRAW_RETURN")), List.of()),
-                    null).orElseThrow();
+                            List.of(sourceDescriptor(
+                                    "withdraw-return", "withdraw-return-work", "WITHDRAW_RETURN"))))
+                    .orElseThrow();
 
             withdrawFailure.set(expected);
             assertThat(catchThrowable(() -> withdrawRegistrar.withdraw(AUTHORITY, withdrawPublication)))
@@ -150,12 +150,13 @@ class PluginScheduleContributionRegistrarTest {
                             }, () -> throwPending(acknowledgeFailure), () -> {
                             });
             PluginScheduleContributionRegistrar acknowledgeRegistrar = registrar(acknowledgeRegistry);
-            ScheduleCapabilityPublication acknowledgePublication = register(
+            ScheduleCapabilityPublication acknowledgePublication = registerModern(
                     acknowledgeRegistrar,
                     registeredFeature(
                             "ext-ack-return", "ext-ack-return", 1L,
-                            List.of(sourceProvider("ack-return", "ACK_RETURN")), List.of()),
-                    null).orElseThrow();
+                            List.of(sourceDescriptor(
+                                    "ack-return", "ack-return-work", "ACK_RETURN"))))
+                    .orElseThrow();
             ScheduleGenerationDrain acknowledgeDrain =
                     acknowledgeRegistrar.withdraw(AUTHORITY, acknowledgePublication).orElseThrow();
 
@@ -174,12 +175,13 @@ class PluginScheduleContributionRegistrarTest {
                             }, () -> {
                             }, () -> throwPending(forgetFailure));
             PluginScheduleContributionRegistrar forgetRegistrar = registrar(forgetRegistry);
-            ScheduleCapabilityPublication forgetPublication = register(
+            ScheduleCapabilityPublication forgetPublication = registerModern(
                     forgetRegistrar,
                     registeredFeature(
                             "ext-forget-return", "ext-forget-return", 1L,
-                            List.of(sourceProvider("forget-return", "FORGET_RETURN")), List.of()),
-                    null).orElseThrow();
+                            List.of(sourceDescriptor(
+                                    "forget-return", "forget-return-work", "FORGET_RETURN"))))
+                    .orElseThrow();
             ScheduleGenerationDrain forgetDrain =
                     forgetRegistrar.withdraw(AUTHORITY, forgetPublication).orElseThrow();
 
@@ -198,7 +200,7 @@ class PluginScheduleContributionRegistrarTest {
         PluginRegistry activeRegistry = new PluginRegistry(List.of());
         PluginRegistry.RegisteredPlugin actual = registeredFeature(
                 "ext-authorized", "ext-authorized", 1L,
-                List.of(sourceProvider("authorized", "AUTHORIZED")), List.of());
+                List.of(sourceDescriptor("authorized", "authorized-work", "AUTHORIZED")));
         activeRegistry.register(actual);
         LegacyScheduledTaskMigrationService migrationService = (reservation, adapter) ->
                 new LegacyScheduledTaskMigrationService.OwnerMigrationReport(
@@ -219,7 +221,10 @@ class PluginScheduleContributionRegistrarTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("current active plugin identity");
         assertThat(capabilityRegistry.snapshotView().owners()).isEmpty();
-        assertThat(registrar.register(AUTHORITY, actual, null)).isPresent();
+        try (AnnotationConfigApplicationContext child = completeChildContext(
+                actual.plugin().scheduledSourceDescriptors())) {
+            assertThat(registrar.register(AUTHORITY, actual, child)).isPresent();
+        }
 
         assertThat(PluginScheduleContributionRegistrar.class.getDeclaredConstructors())
                 .allMatch(constructor -> !Modifier.isPublic(constructor.getModifiers()));
@@ -247,17 +252,17 @@ class PluginScheduleContributionRegistrarTest {
             @Override public String displayName() { return "ext-race.label"; }
             @Override public String description() { return "ext-race.summary"; }
             @Override public PluginKind kind() { return PluginKind.FEATURE; }
-            @Override public List<ScheduledSourceProvider> scheduledSources() {
+            @Override public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
                 getterEntered.countDown();
                 awaitLatch(releaseGetter);
-                return List.of(sourceProvider("alpha", "ALPHA"));
+                return List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA"));
             }
         };
         PluginRegistry.RegisteredPlugin stale = new PluginRegistry.RegisteredPlugin(
                 blockingPlugin, PluginSource.EXTERNAL, getClass().getClassLoader(),
                 "ext-race", 1L);
         PluginRegistry.RegisteredPlugin replacement = registeredFeature(
-                "ext-race", "ext-race", 2L, List.of(), List.of());
+                "ext-race", "ext-race", 2L, List.of());
         activeRegistry.register(stale);
         AtomicReference<Throwable> registrationFailure = new AtomicReference<>();
 
@@ -313,9 +318,9 @@ class PluginScheduleContributionRegistrarTest {
                 registry, migrationService, activeRegistry);
         PluginRegistry.RegisteredPlugin registered = registeredFeature(
                 "ext-migrate", "ext-migrate", 1L,
-                List.of(sourceProvider("alpha", "ALPHA")), List.of());
+                List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA")));
         PluginRegistry.RegisteredPlugin replacement = registeredFeature(
-                "ext-migrate", "ext-migrate", 2L, List.of(), List.of());
+                "ext-migrate", "ext-migrate", 2L, List.of());
         activeRegistry.register(registered);
         AtomicReference<ScheduleCapabilityPublication> published = new AtomicReference<>();
         AtomicReference<Throwable> registrationFailure = new AtomicReference<>();
@@ -391,9 +396,9 @@ class PluginScheduleContributionRegistrarTest {
                 registry, migrationService, activeRegistry);
         PluginRegistry.RegisteredPlugin registered = registeredFeature(
                 "ext-failed-migrate", "ext-failed-migrate", 1L,
-                List.of(sourceProvider("alpha", "ALPHA")), List.of());
+                List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA")));
         PluginRegistry.RegisteredPlugin replacement = registeredFeature(
-                "ext-failed-migrate", "ext-failed-migrate", 2L, List.of(), List.of());
+                "ext-failed-migrate", "ext-failed-migrate", 2L, List.of());
         activeRegistry.register(registered);
         AtomicReference<Throwable> registrationFailure = new AtomicReference<>();
         AtomicReference<Throwable> removalFailure = new AtomicReference<>();
@@ -422,11 +427,11 @@ class PluginScheduleContributionRegistrarTest {
                     activeRegistry.register(replacement);
                     reusedClaimPublication.set(ScheduleCapabilityRegistryTestAccess.publish(
                             registry,
-                            ScheduleOwnerBundle.prepare(
+                            ownerBundle(
                                     new ScheduleCapabilityOwner(
                                             "claim-reuser", "claim-reuser-package", 1L),
-                                    List.of(sourceProvider("replacement-alpha", "ALPHA")),
-                                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of())));
+                                    List.of(sourceDescriptor(
+                                            "replacement-alpha", "replacement-work", "ALPHA")))));
                 } catch (Throwable failure) {
                     removalFailure.set(failure);
                 } finally {
@@ -462,7 +467,7 @@ class PluginScheduleContributionRegistrarTest {
     }
 
     @Test
-    @DisplayName("一次发布旧来源与 child context 五类行为 Bean，并由宿主盖章 owner、package 和 generation")
+    @DisplayName("一次发布来源描述符与 child context 四类行为 Bean，并由宿主盖章 owner、package 和 generation")
     void publishesCompleteOwnerBundle() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         PluginScheduleContributionRegistrar registrar = registrar(registry);
@@ -470,22 +475,20 @@ class PluginScheduleContributionRegistrarTest {
         try (AnnotationConfigApplicationContext child = completeChildContext("alpha", "alpha-work")) {
             ScheduleCapabilityPublication publication = register(registrar,
                     registeredFeature("ext-a", "ext-a", 7L,
-                            List.of(sourceProvider("alpha", "ALPHA")),
                             List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA"))), child).orElseThrow();
 
             assertThat(publication.owner()).isEqualTo(
                     new ScheduleCapabilityOwner("ext-a", "ext-a", 7L));
             assertThat(registry.snapshotView().owners()).singleElement().satisfies(owner -> {
                 assertThat(owner.owner()).isEqualTo(publication.owner());
-                assertThat(owner.legacySourceTypes()).containsExactly("alpha");
                 assertThat(owner.sourceTypes()).containsExactly("alpha");
+                assertThat(owner.sourceAliases()).containsExactly("ALPHA");
                 assertThat(owner.workTypes()).containsExactly("alpha-work");
                 assertThat(owner.credentialPolicyIds()).containsExactly("alpha-policy");
                 assertThat(owner.guardIds()).containsExactly("alpha-guard");
             });
-            assertThat(registry.resolveLegacySource("ALPHA")).isPresent();
-            assertThat(registry.resolveSourceExecutor("alpha")).isPresent();
-            assertThat(registry.resolveLegacyWorkRunner("alpha-work")).isPresent();
+            assertThat(registry.resolveSourceDescriptor("ALPHA")).isPresent();
+            assertThat(registry.resolveSourceExecutor("ALPHA")).isPresent();
             assertThat(registry.resolveWorkExecutor("alpha-work")).isPresent();
             assertThat(registry.resolveCredentialPolicy("alpha-policy")).isPresent();
             assertThat(registry.resolveGuard("alpha-guard")).isPresent();
@@ -497,8 +500,8 @@ class PluginScheduleContributionRegistrarTest {
     void preparationFailureDoesNotPolluteSnapshot() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         PluginScheduleContributionRegistrar registrar = registrar(registry);
-        register(registrar, registeredFeature("ext-a", "ext-a", 1L,
-                List.of(sourceProvider("stable", "STABLE")), List.of()), null).orElseThrow();
+        registerModern(registrar, registeredFeature("ext-a", "ext-a", 1L,
+                List.of(sourceDescriptor("stable", "stable-work", "STABLE")))).orElseThrow();
         long revision = registry.snapshotView().revision();
 
         PixivFeaturePlugin broken = new PixivFeaturePlugin() {
@@ -521,7 +524,7 @@ class PluginScheduleContributionRegistrarTest {
                 .hasMessageNotContaining("broken getter")
                 .hasNoCause();
         assertThat(registry.snapshotView().revision()).isEqualTo(revision);
-        assertThat(registry.resolveLegacySource("stable")).isPresent();
+        assertThat(registry.resolveSourceDescriptor("stable")).isPresent();
         assertThat(ScheduleCapabilityRegistryTestAccess.publication(
                 registrar, new ScheduleCapabilityOwner("ext-b", "ext-b", 2L))).isEmpty();
     }
@@ -565,9 +568,9 @@ class PluginScheduleContributionRegistrarTest {
     void childCapabilityGetterAssertionErrorIsNormalizedAtBoundary() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         PluginScheduleContributionRegistrar registrar = registrar(registry);
-        register(registrar, registeredFeature(
+        registerModern(registrar, registeredFeature(
                 "stable-owner", "stable-owner", 1L,
-                List.of(sourceProvider("stable-source")), List.of()), null).orElseThrow();
+                List.of(sourceDescriptor("stable-source", "stable-work")))).orElseThrow();
         var before = registry.snapshotView();
         ScheduledSourceExecutor brokenExecutor = mock(ScheduledSourceExecutor.class);
         when(brokenExecutor.sourceType()).thenThrow(new AssertionError("plugin-private-source-type"));
@@ -581,7 +584,7 @@ class PluginScheduleContributionRegistrarTest {
                     registrar,
                     registeredFeature(
                             "broken-owner", "broken-owner", 2L,
-                            List.of(), List.of()),
+                            List.of()),
                     child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("source executor type")
@@ -601,9 +604,10 @@ class PluginScheduleContributionRegistrarTest {
     void exactWithdrawalReturnsGenerationDrain() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         PluginScheduleContributionRegistrar registrar = registrar(registry);
-        ScheduleCapabilityPublication publication = register(registrar,
+        ScheduleCapabilityPublication publication = registerModern(registrar,
                 registeredFeature("ext-a", "ext-a", 3L,
-                        List.of(sourceProvider("alpha", "ALPHA")), List.of()), null).orElseThrow();
+                        List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA"))))
+                .orElseThrow();
         SchedulePlanningLease lease = registry.prepareSource("alpha").orElseThrow();
         assertThat(registry.activate(lease)).isTrue();
 
@@ -623,19 +627,20 @@ class PluginScheduleContributionRegistrarTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         PluginScheduleContributionRegistrar registrar = registrar(registry);
         PluginRegistry.RegisteredPlugin registered = registeredFeature(
-                "ext-a", "ext-a", 4L, List.of(sourceProvider("alpha", "ALPHA")), List.of());
-        ScheduleCapabilityPublication oldPublication = register(registrar, registered, null).orElseThrow();
+                "ext-a", "ext-a", 4L,
+                List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA")));
+        ScheduleCapabilityPublication oldPublication = registerModern(registrar, registered).orElseThrow();
         ScheduleGenerationDrain oldDrain = registrar.withdraw(AUTHORITY, oldPublication).orElseThrow();
         registrar.acknowledgeRetired(AUTHORITY, oldDrain);
         assertThat(registrar.releaseRetirementProof(AUTHORITY, oldDrain)).isTrue();
-        ScheduleCapabilityPublication current = register(registrar, registered, null).orElseThrow();
+        ScheduleCapabilityPublication current = registerModern(registrar, registered).orElseThrow();
         ScheduleCapabilityPublication forged =
                 ScheduleCapabilityRegistryTestAccess.equivalent(current);
 
         assertThat(current.publicationId()).isGreaterThan(oldPublication.publicationId());
         assertThat(registrar.withdraw(AUTHORITY, oldPublication)).isEmpty();
         assertThat(registrar.withdraw(AUTHORITY, forged)).isEmpty();
-        assertThat(registry.resolveLegacySource("alpha")).isPresent();
+        assertThat(registry.resolveSourceDescriptor("alpha")).isPresent();
         assertThat(registrar.withdraw(AUTHORITY, current)).isPresent();
     }
 
@@ -645,8 +650,9 @@ class PluginScheduleContributionRegistrarTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         PluginScheduleContributionRegistrar registrar = registrar(registry);
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner("ext-a", "ext-a", 6L);
-        ScheduleCapabilityPublication publication = register(registrar, registeredFeature(
-                "ext-a", "ext-a", 6L, List.of(sourceProvider("alpha")), List.of()), null)
+        ScheduleCapabilityPublication publication = registerModern(registrar, registeredFeature(
+                "ext-a", "ext-a", 6L,
+                List.of(sourceDescriptor("alpha", "alpha-work"))))
                 .orElseThrow();
         ScheduleGenerationDrain drain =
                 ScheduleCapabilityRegistryTestAccess.withdraw(registry, publication).orElseThrow();
@@ -672,7 +678,7 @@ class PluginScheduleContributionRegistrarTest {
             child.refresh();
 
             assertThat(register(registrar, registeredFeature(
-                    "ext-a", "ext-a", 5L, List.of(),
+                    "ext-a", "ext-a", 5L,
                     List.of(sourceDescriptor("alpha", "alpha-work"))), child)).isPresent();
             assertThat(registry.resolveSourceExecutor("alpha")).isPresent();
             assertThat(registry.resolveSourceExecutor("parent")).isEmpty();
@@ -686,7 +692,7 @@ class PluginScheduleContributionRegistrarTest {
         PluginScheduleContributionRegistrar registrar = registrar(registry);
 
         Optional<ScheduleCapabilityPublication> publication = register(registrar,
-                registeredFeature("ext-a", "ext-a", 0L, List.of(), List.of()), null);
+                registeredFeature("ext-a", "ext-a", 0L, List.of()), null);
 
         assertThat(publication).isEmpty();
         assertThat(registry.snapshotView().owners()).isEmpty();
@@ -704,12 +710,11 @@ class PluginScheduleContributionRegistrarTest {
             var reserved = registry.reservedMigrationSnapshot(reservation);
             assertThat(registry.snapshotView().owners()).isEmpty();
             assertThatThrownBy(() -> ScheduleCapabilityRegistryTestAccess.publish(
-                    registry, ScheduleOwnerBundle.prepare(
-                    new ScheduleCapabilityOwner("ext-b", "other-package", 1L),
-                    List.of(sourceProvider("beta", "ALPHA")), List.of(),
-                    List.of(), List.of(), List.of(), List.of(), List.of())))
+                    registry, ownerBundle(
+                            new ScheduleCapabilityOwner("ext-b", "other-package", 1L),
+                            List.of(sourceDescriptor("beta", "beta-work", "ALPHA")))))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("duplicate scheduled source name");
+                    .hasMessageContaining("duplicate scheduled source alias");
             assertThat(registry.snapshotView().owners()).isEmpty();
             capturedOwner.set(reserved.ownerPluginId());
             capturedRoutes.set(reserved.routes());
@@ -722,19 +727,18 @@ class PluginScheduleContributionRegistrarTest {
                 new LegacyScheduledTaskMigrationResult.Rejected("NOT_USED", "{}");
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
+            ScheduledSourceDescriptor descriptor = sourceDescriptor("alpha", "alpha-work", "ALPHA");
+            registerCompleteBeans(child, List.of(descriptor));
             child.registerBean("legacy-migration-adapter", LegacyScheduledTaskMigrationAdapter.class, () -> adapter);
             child.registerBean("legacy-persistence", LegacySchedulePersistenceDescriptorProvider.class,
                     () -> () -> List.of(new LegacySchedulePersistenceDescriptor(
                             "alpha", "alpha.definition", 1, Set.of("alpha-work"),
-                            Set.of("alpha-policy"))));
-            child.registerBean("legacy-credential-policy", ScheduledCredentialPolicy.class,
-                    () -> credentialPolicy("alpha-policy"));
+                            descriptor.credentialPolicyIds())));
             child.refresh();
 
             assertThat(register(registrar, registeredFeature(
                     "ext-a", "ext-a", 9L,
-                    List.of(sourceProvider("alpha", "ALPHA")),
-                    List.of()), child)).isPresent();
+                    List.of(descriptor)), child)).isPresent();
         }
 
         assertThat(capturedOwner).hasValue("ext-a");
@@ -744,7 +748,7 @@ class PluginScheduleContributionRegistrarTest {
                         "alpha", "alpha.definition", 1, Set.of("alpha-work"),
                         Set.of(new LegacyScheduledCredentialPolicyTarget("alpha-policy", "ext-a"))));
         assertThat(capturedAdapter).hasValue(adapter);
-        assertThat(registry.resolveLegacySource("ALPHA")).isPresent();
+        assertThat(registry.resolveSourceDescriptor("ALPHA")).isPresent();
         assertThat(Arrays.stream(PluginScheduleContributionRegistrar.class.getDeclaredFields()))
                 .noneMatch(field -> LegacyScheduledTaskMigrationAdapter.class.isAssignableFrom(field.getType())
                         || LegacyScheduledTaskMigrationService.OwnerMigrationReport.class
@@ -756,10 +760,10 @@ class PluginScheduleContributionRegistrarTest {
     @DisplayName("迁移 route 从已发布的外部凭证策略盖章真实 owner")
     void stampsPublishedExternalCredentialPolicyOwnerIntoMigrationRoute() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityRegistryTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
+        ScheduleCapabilityRegistryTestAccess.publish(registry, ownerBundle(
                 new ScheduleCapabilityOwner("credential-owner", "credential-package", 1L),
-                List.of(), List.of(), List.of(), List.of(), List.of(),
-                List.of(credentialPolicy("shared-policy")), List.of()));
+                List.of(sourceDescriptor("credential-source", "credential-work")),
+                List.of(credentialPolicy("shared-policy"))));
         AtomicReference<Map<String, LegacyScheduledTaskMigrationRoute>> capturedRoutes =
                 new AtomicReference<>();
         LegacyScheduledTaskMigrationService migrationService = (reservation, adapter) -> {
@@ -771,6 +775,12 @@ class PluginScheduleContributionRegistrarTest {
         PluginScheduleContributionRegistrar registrar = registrar(registry, migrationService);
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
+            ScheduledSourceDescriptor descriptor = sourceDescriptor(
+                    "alpha", "alpha-work", Set.of("shared-policy"), Set.of(), "ALPHA");
+            child.registerBean("source-executor", ScheduledSourceExecutor.class,
+                    () -> sourceExecutor("alpha"));
+            child.registerBean("work-executor", ScheduledWorkExecutor.class,
+                    () -> workExecutor("alpha-work"));
             child.registerBean("legacy-adapter", LegacyScheduledTaskMigrationAdapter.class,
                     () -> snapshot -> new LegacyScheduledTaskMigrationResult.Rejected("NOT_USED", "{}"));
             child.registerBean("legacy-persistence", LegacySchedulePersistenceDescriptorProvider.class,
@@ -781,7 +791,7 @@ class PluginScheduleContributionRegistrarTest {
 
             assertThat(register(registrar, registeredFeature(
                     "source-owner", "source-owner", 2L,
-                    List.of(sourceProvider("alpha", "ALPHA")), List.of()), child)).isPresent();
+                    List.of(descriptor)), child)).isPresent();
         }
 
         LegacyScheduledTaskMigrationRoute route = capturedRoutes.get().get("ALPHA");
@@ -803,6 +813,12 @@ class PluginScheduleContributionRegistrarTest {
         PluginScheduleContributionRegistrar registrar = registrar(registry, migrationService);
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
+            ScheduledSourceDescriptor descriptor = sourceDescriptor(
+                    "alpha", "alpha-work", Set.of("missing-policy"), Set.of(), "ALPHA");
+            child.registerBean("source-executor", ScheduledSourceExecutor.class,
+                    () -> sourceExecutor("alpha"));
+            child.registerBean("work-executor", ScheduledWorkExecutor.class,
+                    () -> workExecutor("alpha-work"));
             child.registerBean("legacy-persistence", LegacySchedulePersistenceDescriptorProvider.class,
                     () -> () -> List.of(new LegacySchedulePersistenceDescriptor(
                             "alpha", "alpha.definition", 1, Set.of("alpha-work"),
@@ -811,7 +827,7 @@ class PluginScheduleContributionRegistrarTest {
 
             assertThatThrownBy(() -> register(registrar, registeredFeature(
                     "source-owner", "source-owner", 3L,
-                    List.of(sourceProvider("alpha", "ALPHA")), List.of()), child))
+                    List.of(descriptor)), child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("unavailable credential policy missing-policy");
         }
@@ -826,12 +842,13 @@ class PluginScheduleContributionRegistrarTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         PluginScheduleContributionRegistrar registrar = registrar(registry);
 
-        assertThatThrownBy(() -> register(registrar, registeredFeature(
+        assertThatThrownBy(() -> registerModern(registrar, registeredFeature(
                 "ext-a", "ext-a", 10L,
-                List.of(sourceProvider("alpha", "SHARED"), sourceProvider("beta", "SHARED")),
-                List.of()), null))
+                List.of(
+                        sourceDescriptor("alpha", "alpha-work", "SHARED"),
+                        sourceDescriptor("beta", "beta-work", "SHARED")))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("scheduled source name")
+                .hasMessageContaining("scheduled source alias")
                 .hasNoCause();
         assertThat(registry.snapshotView().owners()).isEmpty();
     }
@@ -843,6 +860,8 @@ class PluginScheduleContributionRegistrarTest {
         PluginScheduleContributionRegistrar registrar = registrar(registry);
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
+            ScheduledSourceDescriptor descriptor = sourceDescriptor("alpha", "alpha-work", "ALPHA");
+            registerCompleteBeans(child, List.of(descriptor));
             child.registerBean("duplicate-persistence", LegacySchedulePersistenceDescriptorProvider.class,
                     () -> () -> List.of(
                             new LegacySchedulePersistenceDescriptor(
@@ -855,7 +874,7 @@ class PluginScheduleContributionRegistrarTest {
 
             assertThatThrownBy(() -> register(registrar, registeredFeature(
                     "ext-a", "ext-a", 10L,
-                    List.of(sourceProvider("alpha", "ALPHA")), List.of()), child))
+                    List.of(descriptor)), child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("duplicate legacy persistence descriptor: alpha")
                     .hasNoCause();
@@ -874,33 +893,33 @@ class PluginScheduleContributionRegistrarTest {
                 new LegacyScheduledTaskMigrationResult.Rejected("NOT_USED", "{}");
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
+            ScheduledSourceDescriptor descriptor = sourceDescriptor("alpha", "alpha-work", "ALPHA");
+            registerCompleteBeans(child, List.of(descriptor));
             child.registerBean("migration-one", LegacyScheduledTaskMigrationAdapter.class, () -> first);
             child.registerBean("migration-two", LegacyScheduledTaskMigrationAdapter.class, () -> second);
             child.refresh();
 
             assertThatThrownBy(() -> register(registrar, registeredFeature(
                     "ext-a", "ext-a", 11L,
-                    List.of(sourceProvider("alpha", "ALPHA")), List.of()), child))
+                    List.of(descriptor)), child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("multiple legacy schedule migration adapters")
                     .hasNoCause();
         }
         assertThat(registry.snapshotView().owners()).isEmpty();
         assertThat(ScheduleCapabilityRegistryTestAccess.publish(
-                registry, ScheduleOwnerBundle.prepare(
-                new ScheduleCapabilityOwner("ext-b", "ext-b", 1L),
-                List.of(sourceProvider("beta", "ALPHA")), List.of(),
-                List.of(), List.of(), List.of(), List.of(), List.of()))).isNotNull();
+                registry, ownerBundle(
+                        new ScheduleCapabilityOwner("ext-b", "ext-b", 1L),
+                        List.of(sourceDescriptor("beta", "beta-work", "ALPHA"))))).isNotNull();
     }
 
     @Test
     @DisplayName("已有 owner 的冲突 claim 必须在任何旧任务迁移之前拒绝")
     void rejectsCrossOwnerConflictBeforeMigrationSideEffects() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityRegistryTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
+        ScheduleCapabilityRegistryTestAccess.publish(registry, ownerBundle(
                 new ScheduleCapabilityOwner("ext-a", "ext-a", 1L),
-                List.of(sourceProvider("alpha", "SHARED")), List.of(),
-                List.of(), List.of(), List.of(), List.of(), List.of()));
+                List.of(sourceDescriptor("alpha", "alpha-work", "SHARED"))));
         AtomicBoolean migrationCalled = new AtomicBoolean();
         LegacyScheduledTaskMigrationService migrationService = (reservation, adapter) -> {
             migrationCalled.set(true);
@@ -909,11 +928,11 @@ class PluginScheduleContributionRegistrarTest {
         };
         PluginScheduleContributionRegistrar registrar = registrar(registry, migrationService);
 
-        assertThatThrownBy(() -> register(registrar, registeredFeature(
+        assertThatThrownBy(() -> registerModern(registrar, registeredFeature(
                 "ext-b", "ext-b", 1L,
-                List.of(sourceProvider("beta", "SHARED")), List.of()), null))
+                List.of(sourceDescriptor("beta", "beta-work", "SHARED")))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("duplicate scheduled source name")
+                .hasMessageContaining("duplicate scheduled source alias")
                 .hasNoCause();
 
         assertThat(migrationCalled).isFalse();
@@ -937,7 +956,6 @@ class PluginScheduleContributionRegistrarTest {
         try (AnnotationConfigApplicationContext child = completeChildContext("alpha", "alpha-work")) {
             assertThat(register(registrar, registeredFeature(
                     "ext-a", "ext-a", 1L,
-                    List.of(sourceProvider("alpha", "ALPHA")),
                     List.of(sourceDescriptor("alpha", "alpha-work", "ALPHA"))), child)).isPresent();
         }
 
@@ -947,8 +965,13 @@ class PluginScheduleContributionRegistrarTest {
     }
 
     private static AnnotationConfigApplicationContext completeChildContext(String sourceType, String workType) {
+        return completeChildContext(List.of(sourceDescriptor(sourceType, workType)));
+    }
+
+    private static AnnotationConfigApplicationContext completeChildContext(
+            List<ScheduledSourceDescriptor> descriptors) {
         AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
-        registerCompleteBeans(child, sourceType, workType);
+        registerCompleteBeans(child, descriptors);
         child.refresh();
         return child;
     }
@@ -958,11 +981,13 @@ class PluginScheduleContributionRegistrarTest {
             String workType,
             LegacyScheduledTaskMigrationAdapter adapter) {
         AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
+        ScheduledSourceDescriptor descriptor = sourceDescriptor(sourceType, workType, sourceType.toUpperCase());
+        registerCompleteBeans(child, List.of(descriptor));
         child.registerBean("legacy-migration-adapter", LegacyScheduledTaskMigrationAdapter.class, () -> adapter);
         child.registerBean("legacy-persistence", LegacySchedulePersistenceDescriptorProvider.class,
                 () -> () -> List.of(new LegacySchedulePersistenceDescriptor(
                         sourceType, sourceType + ".definition", 1,
-                        Set.of(workType), Set.of())));
+                        Set.of(workType), descriptor.credentialPolicyIds())));
         child.refresh();
         return child;
     }
@@ -1001,28 +1026,59 @@ class PluginScheduleContributionRegistrarTest {
         return registrar.register(AUTHORITY, registered, childContext);
     }
 
+    private static Optional<ScheduleCapabilityPublication> registerModern(
+            PluginScheduleContributionRegistrar registrar,
+            PluginRegistry.RegisteredPlugin registered) {
+        try (AnnotationConfigApplicationContext child = completeChildContext(
+                registered.plugin().scheduledSourceDescriptors())) {
+            return register(registrar, registered, child);
+        }
+    }
+
     private static void registerCompleteBeans(
             AnnotationConfigApplicationContext child, String sourceType, String workType) {
-        child.registerBean("legacy-runner", ScheduledWorkRunner.class, () -> legacyRunner(workType));
-        child.registerBean("source-executor", ScheduledSourceExecutor.class, () -> sourceExecutor(sourceType));
-        child.registerBean("work-executor", ScheduledWorkExecutor.class, () -> workExecutor(workType));
-        child.registerBean("credential-policy", ScheduledCredentialPolicy.class,
-                () -> credentialPolicy(sourceType + "-policy"));
-        child.registerBean("execution-guard", ScheduledExecutionGuard.class,
-                () -> executionGuard(sourceType + "-guard"));
+        registerCompleteBeans(child, List.of(sourceDescriptor(sourceType, workType)));
+    }
+
+    private static void registerCompleteBeans(
+            AnnotationConfigApplicationContext child,
+            List<ScheduledSourceDescriptor> descriptors) {
+        LinkedHashSet<String> workTypes = new LinkedHashSet<>();
+        LinkedHashSet<String> policyIds = new LinkedHashSet<>();
+        LinkedHashSet<String> guardIds = new LinkedHashSet<>();
+        for (int index = 0; index < descriptors.size(); index++) {
+            ScheduledSourceDescriptor descriptor = descriptors.get(index);
+            String beanSuffix = Integer.toString(index);
+            child.registerBean("source-executor-" + beanSuffix, ScheduledSourceExecutor.class,
+                    () -> sourceExecutor(descriptor.sourceType()));
+            workTypes.addAll(descriptor.possibleWorkTypes());
+            policyIds.addAll(descriptor.credentialPolicyIds());
+            guardIds.addAll(descriptor.guardIds());
+        }
+        for (String workType : workTypes) {
+            child.registerBean("work-executor-" + workType, ScheduledWorkExecutor.class,
+                    () -> workExecutor(workType));
+        }
+        for (String policyId : policyIds) {
+            child.registerBean("credential-policy-" + policyId, ScheduledCredentialPolicy.class,
+                    () -> credentialPolicy(policyId));
+        }
+        for (String guardId : guardIds) {
+            child.registerBean("execution-guard-" + guardId, ScheduledExecutionGuard.class,
+                    () -> executionGuard(guardId));
+        }
     }
 
     private static PluginRegistry.RegisteredPlugin registeredFeature(
             String id, String packageId, long generation,
-            List<ScheduledSourceProvider> legacySources,
             List<ScheduledSourceDescriptor> descriptors) {
         return new PluginRegistry.RegisteredPlugin(
-                feature(id, legacySources, descriptors), PluginSource.EXTERNAL,
+                feature(id, descriptors), PluginSource.EXTERNAL,
                 PluginScheduleContributionRegistrarTest.class.getClassLoader(), packageId, generation);
     }
 
     private static PixivFeaturePlugin feature(
-            String id, List<ScheduledSourceProvider> legacySources,
+            String id,
             List<ScheduledSourceDescriptor> descriptors) {
         return new PixivFeaturePlugin() {
             @Override public String id() { return id; }
@@ -1033,7 +1089,6 @@ class PluginScheduleContributionRegistrarTest {
                 return List.of(new StaticResourceContribution(
                         id, "classpath:/test/", "/test/"));
             }
-            @Override public List<ScheduledSourceProvider> scheduledSources() { return legacySources; }
             @Override public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() { return descriptors; }
         };
     }
@@ -1056,30 +1111,58 @@ class PluginScheduleContributionRegistrarTest {
         }
     }
 
-    private static ScheduledSourceProvider sourceProvider(String type, String... aliases) {
-        return new ScheduledSourceProvider() {
-            @Override public String type() { return type; }
-            @Override public Set<String> legacyTypeNames() { return Set.of(aliases); }
-        };
+    private static ScheduledSourceDescriptor sourceDescriptor(
+            String sourceType, String workType, String... legacyAliases) {
+        return sourceDescriptor(
+                sourceType,
+                workType,
+                Set.of(sourceType + "-policy"),
+                Set.of(sourceType + "-guard"),
+                legacyAliases);
     }
 
     private static ScheduledSourceDescriptor sourceDescriptor(
-            String sourceType, String workType, String... legacyAliases) {
+            String sourceType,
+            String workType,
+            Set<String> credentialPolicyIds,
+            Set<String> guardIds,
+            String... legacyAliases) {
         return new ScheduledSourceDescriptor(
                 sourceType, Set.of(legacyAliases), sourceType + ".definition", 1,
                 new ScheduledSourcePresentation("test", "source.name", "source.description", "schedule", "neutral"),
-                Set.of("schedule"), Set.of(workType), Set.of(sourceType + "-policy"),
-                Set.of(sourceType + "-guard"),
+                Set.of("schedule"), Set.of(workType), credentialPolicyIds, guardIds,
                 null);
     }
 
-    private static ScheduledWorkRunner legacyRunner(String workType) {
-        return new ScheduledWorkRunner() {
-            @Override public String kind() { return workType; }
-            @Override public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
-                return true;
-            }
-        };
+    private static ScheduleOwnerBundle ownerBundle(
+            ScheduleCapabilityOwner owner,
+            List<ScheduledSourceDescriptor> descriptors) {
+        return ownerBundle(owner, descriptors, List.of());
+    }
+
+    private static ScheduleOwnerBundle ownerBundle(
+            ScheduleCapabilityOwner owner,
+            List<ScheduledSourceDescriptor> descriptors,
+            List<ScheduledCredentialPolicy> additionalPolicies) {
+        LinkedHashSet<String> workTypes = new LinkedHashSet<>();
+        LinkedHashSet<String> policyIds = new LinkedHashSet<>();
+        LinkedHashSet<String> guardIds = new LinkedHashSet<>();
+        descriptors.forEach(descriptor -> {
+            workTypes.addAll(descriptor.possibleWorkTypes());
+            policyIds.addAll(descriptor.credentialPolicyIds());
+            guardIds.addAll(descriptor.guardIds());
+        });
+        List<ScheduledCredentialPolicy> policies = new ArrayList<>();
+        policyIds.stream().map(PluginScheduleContributionRegistrarTest::credentialPolicy)
+                .forEach(policies::add);
+        policies.addAll(additionalPolicies);
+        return ScheduleOwnerBundle.prepare(
+                owner,
+                descriptors,
+                descriptors.stream().map(descriptor -> sourceExecutor(descriptor.sourceType())).toList(),
+                workTypes.stream().map(PluginScheduleContributionRegistrarTest::workExecutor).toList(),
+                policies,
+                guardIds.stream().map(PluginScheduleContributionRegistrarTest::executionGuard).toList());
     }
 
     private static ScheduledSourceExecutor sourceExecutor(String sourceType) {

@@ -21,14 +21,14 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegis
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
@@ -1727,14 +1727,17 @@ class PluginLifecycleServiceTest {
     // ============================ schedule 贡献热插拔组（真实子 context + 真实调度注册中心）============================
 
     @Test
-    @DisplayName("startAll 注册外置插件 schedule 来源 + 执行器：规范 type / legacy 名 / 作品类型均可解析")
-    void startAllRegistersScheduleSourceAndRunner() {
+    @DisplayName("startAll 注册外置插件 schedule 描述符与执行器：规范 type、旧别名与作品类型均可解析")
+    void startAllRegistersScheduleDescriptorAndExecutors() {
         try (ScheduleHarness h = new ScheduleHarness()) {
             h.service.startAll();
 
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isPresent();
-            assertThat(h.capabilityRegistry.resolveLegacySource("EXT_SOURCE")).isPresent(); // legacy 名解析到同一来源
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isPresent(); // 执行器从子 context 发现
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("EXT_SOURCE"))
+                    .isEqualTo(h.capabilityRegistry.resolveSourceDescriptor("ext-source"));
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("EXT_SOURCE"))
+                    .isEqualTo(h.capabilityRegistry.resolveSourceExecutor("ext-source"));
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isPresent();
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STARTED);
         }
     }
@@ -1747,8 +1750,9 @@ class PluginLifecycleServiceTest {
 
             h.service.stop("ext-sched");
 
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isEmpty();
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED);
         }
     }
@@ -1761,8 +1765,9 @@ class PluginLifecycleServiceTest {
 
             h.service.unload("ext-sched");
 
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isEmpty();
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.UNLOADED);
         }
     }
@@ -1775,41 +1780,44 @@ class PluginLifecycleServiceTest {
 
             h.service.reload("ext-sched");
 
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isPresent();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isPresent();
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STARTED);
         }
     }
 
     @Test
-    @DisplayName("stop → start 往返：执行器解析 缺失→恢复（镜像 SOURCE_UNAVAILABLE 挂起后来源恢复可再被 findDue）")
-    void stopThenStartRecoversRunnerResolution() {
+    @DisplayName("stop → start 往返：现代来源与作品执行器缺失后恢复")
+    void stopThenStartRecoversExecutorResolution() {
         try (ScheduleHarness h = new ScheduleHarness()) {
             h.service.startAll();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isPresent();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isPresent();
 
             h.service.stop("ext-sched");
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isEmpty(); // 缺执行器 → 任务挂起、数据不删
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isEmpty();
 
             h.service.start("ext-sched");
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isPresent(); // 来源 / 执行器恢复、可再被调度
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isPresent();
         }
     }
 
     @Test
-    @DisplayName("schedule 注册失败（执行器 kind 冲突）：回滚 web/controller/子 context，落 STOPPED、本次来源不泄漏、既有执行器不污染")
+    @DisplayName("schedule 注册失败（作品类型冲突）：回滚 web/controller/子 context，落 STOPPED 且既有执行器不污染")
     void scheduleRegisterFailureRollsBackFootprint() {
-        // 预置一个 kind 与插件执行器冲突的执行器 → 插件执行器注册 fail-fast
-        try (ScheduleHarness h = new ScheduleHarness(workRunner("ext-kind"))) {
+        try (ScheduleHarness h = new ScheduleHarness(workExecutor("ext-kind"))) {
             h.service.startAll();
 
-            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED); // 不进入 STARTED
-            assertThat(h.service.contextFor("ext-sched")).isEmpty();                       // 子 context 已回收
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty(); // 本次来源被回滚、不泄漏
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isPresent(); // 预置执行器未被污染
-            verify(h.controllerRegistrar).unregisterControllers("ext-sched");              // controller 足迹回滚（无注册项仍被调）
-            verify(h.webRegistrar).unregister(same(h.bootWebHandle));                      // 精确撤回启动时 web serving
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(h.service.contextFor("ext-sched")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isPresent();
+            verify(h.controllerRegistrar).unregisterControllers("ext-sched");
+            verify(h.webRegistrar).unregister(same(h.bootWebHandle));
         }
     }
 
@@ -1825,8 +1833,9 @@ class PluginLifecycleServiceTest {
 
             assertThat(h.plugin.startCount).isEqualTo(1);
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED);
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty(); // schedule 贡献从未重新发布
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isEmpty();
         }
     }
 
@@ -1835,16 +1844,18 @@ class PluginLifecycleServiceTest {
     void quiesceUnregistersScheduleContributions() {
         try (ScheduleHarness h = new ScheduleHarness()) {
             h.service.startAll();
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isPresent();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isPresent();
 
             h.service.quiesce("ext-sched");
 
             // publication 随 quiesce 精确撤回 → ScheduleExecutor 解析不到 → 残留任务数据保留
             //（「解析落空 → SOURCE_UNAVAILABLE 且不读 cookie / 不发现 / 不派发 / 不删数据」链路由 ScheduleExecutorSourceResolutionTest 钉死）。
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty();
-            assertThat(h.capabilityRegistry.resolveLegacySource("EXT_SOURCE")).isEmpty(); // legacy 名同样解析落空
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("EXT_SOURCE")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("EXT_SOURCE")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isEmpty();
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.QUIESCED);
             // quiesce 仅停新派发 + 清退在途、不拆服务足迹：子 context 仍在（待 stop 才关闭）。
             assertThat(h.service.contextFor("ext-sched")).isPresent();
@@ -1858,13 +1869,14 @@ class PluginLifecycleServiceTest {
             h.service.startAll();
 
             h.service.quiesce("ext-sched");
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
 
             // stop after quiesce：复用 quiesce 已取得的 generation drain，不二次撤回 publication。
             h.service.stop("ext-sched");
 
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isEmpty();
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED);
             assertThat(h.service.contextFor("ext-sched")).isEmpty(); // stop 才关闭子 context
         }
@@ -1876,14 +1888,18 @@ class PluginLifecycleServiceTest {
         try (ScheduleHarness h = new ScheduleHarness()) {
             h.service.startAll();
             h.service.quiesce("ext-sched");
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isEmpty();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("ext-source")).isEmpty();
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isEmpty();
 
             h.service.reload("ext-sched"); // QUIESCED → stop → start
 
-            assertThat(h.capabilityRegistry.resolveLegacySource("ext-source")).isPresent();
-            assertThat(h.capabilityRegistry.resolveLegacySource("EXT_SOURCE")).isPresent();
-            assertThat(h.capabilityRegistry.resolveLegacyWorkRunner("ext-kind")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("ext-source")).isPresent();
+            assertThat(h.capabilityRegistry.resolveSourceDescriptor("EXT_SOURCE"))
+                    .isEqualTo(h.capabilityRegistry.resolveSourceDescriptor("ext-source"));
+            assertThat(h.capabilityRegistry.resolveSourceExecutor("EXT_SOURCE"))
+                    .isEqualTo(h.capabilityRegistry.resolveSourceExecutor("ext-source"));
+            assertThat(h.capabilityRegistry.resolveWorkExecutor("ext-kind")).isPresent();
             assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STARTED);
         }
     }
@@ -1979,7 +1995,7 @@ class PluginLifecycleServiceTest {
         private boolean failStartWithError;
         private boolean failQueueTypesWithError;
         private String queueType; // 非空时声明对应作品类型（验证 quiesce / 卸载时排空其在途队列）
-        private List<ScheduledSourceProvider> scheduledSources = List.of(); // 非空时贡献计划任务来源（验证 schedule 热插拔）
+        private List<ScheduledSourceDescriptor> scheduledSourceDescriptors = List.of();
 
         RecordingPlugin(String id) {
             this.id = id;
@@ -2000,8 +2016,8 @@ class PluginLifecycleServiceTest {
         }
 
         @Override
-        public List<ScheduledSourceProvider> scheduledSources() {
-            return scheduledSources;
+        public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
+            return scheduledSourceDescriptors;
         }
 
         @Override
@@ -2207,8 +2223,9 @@ class PluginLifecycleServiceTest {
 
     /**
      * 真实父 + 真实子 context + 真实调度注册中心 + mock web/controller 注册器的装置：验证 schedule 来源 / 执行器随
-     * 插件 start/stop/unload/reload 热插拔与注册失败回滚。{@code ext-sched} 贡献一个来源（规范 {@code ext-source} +
-     * legacy {@code EXT_SOURCE}）且其子 context 含一个执行器（kind={@code ext-kind}）；可注入预置执行器制造 kind 冲突。
+     * 插件 start/stop/unload/reload 热插拔与注册失败回滚。{@code ext-sched} 贡献一个来源描述符（规范
+     * {@code ext-source} + 旧别名 {@code EXT_SOURCE}），其子 context 含匹配的来源执行器和
+     * {@code workType=ext-kind} 作品执行器；可注入预置作品执行器制造 work type 冲突。
      */
     private static final class ScheduleHarness implements AutoCloseable {
         final AnnotationConfigApplicationContext parent =
@@ -2227,16 +2244,16 @@ class PluginLifecycleServiceTest {
         final PluginScheduleContributionRegistrar scheduleRegistrar;
         final PluginLifecycleService service;
 
-        ScheduleHarness(ScheduledWorkRunner... preexistingRunners) {
-            plugin.scheduledSources = List.of(sourceProvider("ext-source", "EXT_SOURCE"));
+        ScheduleHarness(ScheduledWorkExecutor... preexistingExecutors) {
+            plugin.scheduledSourceDescriptors = List.of(sourceDescriptor("ext-source", "ext-kind", "EXT_SOURCE"));
             registry.register(registered);
             registry.startFeature(registered);
             plugin.startCount = 0;
-            if (preexistingRunners.length > 0) {
+            if (preexistingExecutors.length > 0) {
                 ScheduleCapabilityRegistryTestAccess.publish(
                         capabilityRegistry, ScheduleOwnerBundle.prepare(
                         new ScheduleCapabilityOwner("preexisting", "preexisting", 0L),
-                        List.of(), List.of(preexistingRunners), List.of(), List.of(), List.of(), List.of(), List.of()));
+                        List.of(), List.of(), List.of(preexistingExecutors), List.of(), List.of()));
             }
             scheduleRegistrar = ScheduleCapabilityRegistryTestAccess.registrar(
                     capabilityRegistry, noOpMigrationService(), registry);
@@ -2261,35 +2278,35 @@ class PluginLifecycleServiceTest {
         }
     }
 
-    private static ScheduledSourceProvider sourceProvider(String type, String... legacy) {
-        return new ScheduledSourceProvider() {
-            @Override
-            public String type() {
-                return type;
-            }
-
-            @Override
-            public Set<String> legacyTypeNames() {
-                return Set.of(legacy);
-            }
-        };
+    private static ScheduledSourceDescriptor sourceDescriptor(
+            String sourceType, String workType, String... legacyAliases) {
+        return new ScheduledSourceDescriptor(
+                sourceType,
+                Set.of(legacyAliases),
+                sourceType + ".definition",
+                1,
+                new ScheduledSourcePresentation(
+                        "test", "source.name", "source.description", "schedule", "neutral"),
+                Set.of("schedule"),
+                Set.of(workType),
+                Set.of(),
+                Set.of(),
+                null);
     }
 
-    private static ScheduledWorkRunner workRunner(String kind) {
-        return new ScheduledWorkRunner() {
-            @Override
-            public String kind() {
-                return kind;
-            }
-
-            @Override
-            public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
-                return true;
-            }
-        };
+    private static ScheduledSourceExecutor sourceExecutor(String sourceType) {
+        ScheduledSourceExecutor executor = mock(ScheduledSourceExecutor.class);
+        when(executor.sourceType()).thenReturn(sourceType);
+        return executor;
     }
 
-    /** 子 context 装配定义：核心服务消费 Bean + 一个 kind=ext-kind 的执行器（验证从子 context 发现执行器）。 */
+    private static ScheduledWorkExecutor workExecutor(String workType) {
+        ScheduledWorkExecutor executor = mock(ScheduledWorkExecutor.class);
+        when(executor.workType()).thenReturn(workType);
+        return executor;
+    }
+
+    /** 子 context 装配定义：核心服务消费 Bean + 匹配 descriptor 的现代来源 / 作品执行器。 */
     @Configuration
     static class ScheduleContribConfig {
         @Bean
@@ -2298,8 +2315,13 @@ class PluginLifecycleServiceTest {
         }
 
         @Bean
-        ScheduledWorkRunner extWorkRunner() {
-            return workRunner("ext-kind");
+        ScheduledSourceExecutor extSourceExecutor() {
+            return sourceExecutor("ext-source");
+        }
+
+        @Bean
+        ScheduledWorkExecutor extWorkExecutor() {
+            return workExecutor("ext-kind");
         }
     }
 }

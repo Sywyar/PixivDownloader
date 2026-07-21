@@ -4,10 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptor;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptorProvider;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
@@ -71,7 +67,7 @@ class ScheduleCapabilityRegistryTest {
                     ScheduleCapabilityRegistryTestAccess.withAcquireProbe(() -> throwPending(nextFailure));
             Fixture singleFixture = completeFixture(
                     owner("fatal-single-feature", "fatal-single-package", 1L),
-                    "source:fatal-single", "source:fatal-single", "SOURCE_FATAL_SINGLE",
+                    "source:fatal-single", "SOURCE_FATAL_SINGLE",
                     "work:fatal-single", "credential:fatal-single", "guard:fatal-single");
             ScheduleCapabilityPublication singlePublication = publish(singleRegistry, singleFixture.bundle());
             ScheduleCapabilityHandle<ScheduledWorkExecutor> singleHandle =
@@ -88,7 +84,7 @@ class ScheduleCapabilityRegistryTest {
                     ScheduleCapabilityRegistryTestAccess.withAcquireProbe(() -> throwPending(nextFailure));
             Fixture transferFixture = completeFixture(
                     owner("fatal-transfer-feature", "fatal-transfer-package", 2L),
-                    "source:fatal-transfer", "source:fatal-transfer", "SOURCE_FATAL_TRANSFER",
+                    "source:fatal-transfer", "SOURCE_FATAL_TRANSFER",
                     "work:fatal-transfer", "credential:fatal-transfer", "guard:fatal-transfer");
             ScheduleCapabilityPublication transferPublication = publish(transferRegistry, transferFixture.bundle());
             SchedulePlanningLease transferPlanning =
@@ -115,7 +111,7 @@ class ScheduleCapabilityRegistryTest {
             String sourceType = "source:fatal-composite";
             String workType = "work:fatal-composite";
             ScheduleOwnerBundle sourceBundle = ScheduleOwnerBundle.prepare(
-                    sourceOwner, List.of(), List.of(),
+                    sourceOwner,
                     List.of(descriptor(sourceType, Set.of(), workType, Set.of(), Set.of())),
                     List.of(sourceExecutor(sourceType)), List.of(), List.of(), List.of());
             ScheduleCapabilityPublication sourcePublication = publish(compositeRegistry, sourceBundle);
@@ -161,7 +157,7 @@ class ScheduleCapabilityRegistryTest {
         String sourceType = "source:prepared";
         String workType = "work:prepared";
         ScheduleCapabilityPublication sourcePublication = publish(registry, ScheduleOwnerBundle.prepare(
-                sourceOwner, List.of(), List.of(),
+                sourceOwner,
                 List.of(descriptor(sourceType, Set.of(), workType, Set.of(), Set.of())),
                 List.of(sourceExecutor(sourceType)), List.of(), List.of(), List.of()));
         ScheduleCapabilityPublication workPublication = publish(registry, workOnlyBundle(workOwner, workType));
@@ -225,7 +221,7 @@ class ScheduleCapabilityRegistryTest {
             String workType = "work:close-composite";
             ScheduleCapabilityPublication sourcePublication = publish(compositeRegistry,
                     ScheduleOwnerBundle.prepare(
-                            sourceOwner, List.of(), List.of(),
+                            sourceOwner,
                             List.of(descriptor(sourceType, Set.of(), workType, Set.of(), Set.of())),
                             List.of(sourceExecutor(sourceType)), List.of(), List.of(), List.of()));
             ScheduleCapabilityPublication workPublication = publish(compositeRegistry,
@@ -257,7 +253,7 @@ class ScheduleCapabilityRegistryTest {
         lifecycle.initialize("activation-feature", PluginRuntimePhase.LOADED);
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry(lifecycle);
         ScheduleCapabilityOwner owner = owner("activation-feature", "activation-package", 1L);
-        Fixture fixture = completeFixture(owner, COMPLETE_SOURCE, COMPLETE_SOURCE, COMPLETE_ALIAS,
+        Fixture fixture = completeFixture(owner, COMPLETE_SOURCE, COMPLETE_ALIAS,
                 COMPLETE_WORK, COMPLETE_POLICY, COMPLETE_GUARD);
 
         publish(registry, fixture.bundle());
@@ -276,7 +272,7 @@ class ScheduleCapabilityRegistryTest {
     void publishesCompleteOwnerThroughOneAtomicSnapshot() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityOwner owner = owner("complete-feature", "complete-package", 7L);
-        Fixture fixture = completeFixture(owner, COMPLETE_SOURCE, COMPLETE_SOURCE, COMPLETE_ALIAS,
+        Fixture fixture = completeFixture(owner, COMPLETE_SOURCE, COMPLETE_ALIAS,
                 COMPLETE_WORK, COMPLETE_POLICY, COMPLETE_GUARD);
 
         ScheduleCapabilityRegistry.SnapshotView before = registry.snapshotView();
@@ -290,7 +286,6 @@ class ScheduleCapabilityRegistryTest {
         assertThat(after.owners()).singleElement().satisfies(view -> {
             assertThat(view.owner()).isEqualTo(owner);
             assertThat(view.publicationId()).isEqualTo(publication.publicationId());
-            assertThat(view.legacySourceTypes()).containsExactly(COMPLETE_SOURCE);
             assertThat(view.sourceTypes()).containsExactly(COMPLETE_SOURCE);
             assertThat(view.sourceAliases()).containsExactly(COMPLETE_ALIAS);
             assertThat(view.workTypes()).containsExactly(COMPLETE_WORK);
@@ -301,9 +296,7 @@ class ScheduleCapabilityRegistryTest {
 
         assertThat(registry.resolveSourceDescriptor(COMPLETE_SOURCE)).isPresent();
         assertThat(registry.resolveSourceExecutor(COMPLETE_ALIAS)).isPresent();
-        assertThat(registry.resolveLegacySource(COMPLETE_ALIAS)).isPresent();
         assertThat(registry.resolveWorkExecutor(COMPLETE_WORK)).isPresent();
-        assertThat(registry.resolveLegacyWorkRunner(COMPLETE_WORK)).isPresent();
         assertThat(registry.resolveCredentialPolicy(COMPLETE_POLICY)).isPresent();
         assertThat(registry.resolveGuard(COMPLETE_GUARD)).isPresent();
 
@@ -312,7 +305,6 @@ class ScheduleCapabilityRegistryTest {
             assertThat(registry.activate(lease)).isTrue();
             assertThat(lease.descriptor()).containsSame(fixture.descriptor());
             assertThat(lease.sourceExecutor()).containsSame(fixture.sourceExecutor());
-            assertThat(lease.legacySourceProvider()).containsSame(fixture.legacySource());
         }
     }
 
@@ -323,7 +315,6 @@ class ScheduleCapabilityRegistryTest {
         ScheduleCapabilityOwner owner = owner("activation-feature", "activation-package", 4L);
         Fixture fixture = completeFixture(
                 owner,
-                "source:activation",
                 "source:activation",
                 "SOURCE_ACTIVATION",
                 "work:activation",
@@ -355,7 +346,6 @@ class ScheduleCapabilityRegistryTest {
         Fixture fixture = completeFixture(
                 owner("barrier-feature", "barrier-package", 1L),
                 "source:barrier",
-                "source:barrier",
                 "SOURCE_BARRIER",
                 "work:barrier",
                 "credential:barrier",
@@ -382,7 +372,7 @@ class ScheduleCapabilityRegistryTest {
     void publicationIdentityAndMutationVisibilityAreHostInternal() throws Exception {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityOwner owner = owner("identity-feature", "identity-package", 1L);
-        Fixture fixture = completeFixture(owner, "identity-source", "identity-source", "IDENTITY_SOURCE",
+        Fixture fixture = completeFixture(owner, "identity-source", "IDENTITY_SOURCE",
                 "identity-work", "identity-policy", "identity-guard");
         ScheduleCapabilityPublication actual = publish(registry, fixture.bundle());
         ScheduleCapabilityPublication forged =
@@ -414,7 +404,7 @@ class ScheduleCapabilityRegistryTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         Fixture existing = completeFixture(
                 owner("existing-feature", "existing-package", 1L),
-                "source:existing", "source:existing", "SOURCE_EXISTING",
+                "source:existing", "SOURCE_EXISTING",
                 "work:existing", "credential:existing", "guard:existing");
         publish(registry, existing.bundle());
         ScheduleCapabilityRegistry.SnapshotView before = registry.snapshotView();
@@ -426,8 +416,6 @@ class ScheduleCapabilityRegistryTest {
 
         assertThatThrownBy(() -> ScheduleOwnerBundle.prepare(
                 rejectedOwner,
-                List.of(),
-                List.of(),
                 List.of(descriptor),
                 List.of(),
                 List.of(workExecutor("work:missing")),
@@ -448,24 +436,24 @@ class ScheduleCapabilityRegistryTest {
     void crossOwnerConflictsLeavePublishedSnapshotUntouched() {
         Fixture existing = completeFixture(
                 owner("base-feature", "base-package", 1L),
-                "source:base", "source:base", "SHARED_SOURCE_ALIAS",
+                "source:base", "SHARED_SOURCE_ALIAS",
                 "work:shared", "credential:shared", "guard:shared");
         List<ConflictCase> conflicts = List.of(
                 new ConflictCase("来源别名", completeFixture(
                         owner("alias-feature", "alias-package", 2L),
-                        "source:alias", "source:alias", "SHARED_SOURCE_ALIAS",
+                        "source:alias", "SHARED_SOURCE_ALIAS",
                         "work:alias", "credential:alias", "guard:alias")),
                 new ConflictCase("作品", completeFixture(
                         owner("work-feature", "work-package", 3L),
-                        "source:work", "source:work", "SOURCE_WORK",
+                        "source:work", "SOURCE_WORK",
                         "work:shared", "credential:work", "guard:work")),
                 new ConflictCase("凭证策略", completeFixture(
                         owner("policy-feature", "policy-package", 4L),
-                        "source:policy", "source:policy", "SOURCE_POLICY",
+                        "source:policy", "SOURCE_POLICY",
                         "work:policy", "credential:shared", "guard:policy")),
                 new ConflictCase("Guard", completeFixture(
                         owner("guard-feature", "guard-package", 5L),
-                        "source:guard", "source:guard", "SOURCE_GUARD",
+                        "source:guard", "SOURCE_GUARD",
                         "work:guard", "credential:guard", "guard:shared"))
         );
 
@@ -490,28 +478,26 @@ class ScheduleCapabilityRegistryTest {
     }
 
     @Test
-    @DisplayName("同一 owner 的新旧不同 canonical 可共享别名并在一个来源租约中同时解析")
-    void newAndLegacyDifferentCanonicalsMayShareAliasForSameOwner() {
+    @DisplayName("描述符旧别名与 canonical 解析到同一当前来源")
+    void descriptorLegacyAliasResolvesCurrentCanonicalSource() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityOwner owner = owner("dual-feature", "dual-package", 9L);
+        ScheduleCapabilityOwner owner = owner("alias-feature", "alias-package", 9L);
         Fixture fixture = completeFixture(owner,
-                "source:new-canonical", "source:legacy-canonical", "SHARED_LEGACY_ALIAS",
-                "work:dual", "credential:dual", "guard:dual");
+                "source:canonical", "SOURCE_LEGACY_ALIAS",
+                "work:alias", "credential:alias", "guard:alias");
         publish(registry, fixture.bundle());
 
-        assertThat(registry.resolveSourceDescriptor("source:new-canonical")).isPresent();
-        assertThat(registry.resolveLegacySource("source:legacy-canonical")).isPresent();
-        assertThat(registry.resolveSourceDescriptor("SHARED_LEGACY_ALIAS")).isPresent();
-        assertThat(registry.resolveLegacySource("SHARED_LEGACY_ALIAS")).isPresent();
+        assertThat(registry.resolveSourceDescriptor("source:canonical")).isPresent();
+        assertThat(registry.resolveSourceDescriptor("SOURCE_LEGACY_ALIAS")).isPresent();
+        assertThat(registry.resolveSourceExecutor("SOURCE_LEGACY_ALIAS")).isPresent();
 
-        SchedulePlanningLease lease = registry.prepareSource("SHARED_LEGACY_ALIAS").orElseThrow();
+        SchedulePlanningLease lease = registry.prepareSource("SOURCE_LEGACY_ALIAS").orElseThrow();
         try (lease) {
             assertThat(registry.activate(lease)).isTrue();
             assertThat(lease.owner()).isEqualTo(owner);
-            assertThat(lease.sourceType()).isEqualTo("source:new-canonical");
+            assertThat(lease.sourceType()).isEqualTo("source:canonical");
             assertThat(lease.descriptor()).containsSame(fixture.descriptor());
             assertThat(lease.sourceExecutor()).containsSame(fixture.sourceExecutor());
-            assertThat(lease.legacySourceProvider()).containsSame(fixture.legacySource());
         }
     }
 
@@ -546,7 +532,7 @@ class ScheduleCapabilityRegistryTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityOwner owner = owner("stamp-feature", "stamp-package", 42L);
         Fixture fixture = completeFixture(owner,
-                "source:stamp", "source:stamp", "SOURCE_STAMP",
+                "source:stamp", "SOURCE_STAMP",
                 "work:stamp", "credential:stamp", "guard:stamp");
         ScheduleCapabilityPublication first = publish(registry, fixture.bundle());
         ScheduleCapabilityHandle<ScheduledWorkExecutor> stale =
@@ -600,7 +586,7 @@ class ScheduleCapabilityRegistryTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityOwner owner = owner("dedupe-feature", "dedupe-package", 3L);
         Fixture fixture = completeFixture(owner,
-                "source:dedupe", "source:dedupe", "SOURCE_DEDUPE",
+                "source:dedupe", "SOURCE_DEDUPE",
                 "work:dedupe", "credential:dedupe", "guard:dedupe");
         ScheduleCapabilityPublication publication = publish(registry, fixture.bundle());
         SchedulePlanningLease planning = registry.prepareSource("source:dedupe").orElseThrow();
@@ -643,11 +629,10 @@ class ScheduleCapabilityRegistryTest {
                 sourceType, Set.of(), workType, Set.of(), Set.of());
         ScheduledSourceExecutor raceSourceExecutor = sourceExecutor(sourceType);
         ScheduleOwnerBundle sourceBundle = ScheduleOwnerBundle.prepare(
-                sourceOwner, List.of(), List.of(), List.of(sourceDescriptor),
+                sourceOwner, List.of(sourceDescriptor),
                 List.of(raceSourceExecutor), List.of(), List.of(), List.of());
         Fixture workFixture = completeFixture(
                 workOwner,
-                blockerSourceType,
                 blockerSourceType,
                 "SOURCE_RACE_BLOCKER",
                 workType,
@@ -713,7 +698,7 @@ class ScheduleCapabilityRegistryTest {
                     "source:composite", Set.of("SOURCE_COMPOSITE"), "work:composite",
                     Set.of("credential:composite"), Set.of("guard:composite"));
             ScheduleOwnerBundle sourceBundle = ScheduleOwnerBundle.prepare(
-                    sourceOwner, List.of(), List.of(), List.of(descriptor),
+                    sourceOwner, List.of(descriptor),
                     List.of(sourceExecutor("source:composite")), List.of(), List.of(), List.of());
             ScheduleOwnerBundle workBundle = workOnlyBundle(workOwner, "work:composite");
             ScheduleOwnerBundle policyBundle = policyOnlyBundle(policyOwner, "credential:composite");
@@ -775,7 +760,7 @@ class ScheduleCapabilityRegistryTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         Fixture fixture = completeFixture(
                 owner("drain-feature", "drain-package", 5L),
-                "source:drain", "source:drain", "SOURCE_DRAIN",
+                "source:drain", "SOURCE_DRAIN",
                 "work:drain", "credential:drain", "guard:drain");
         ScheduleCapabilityPublication publication = publish(registry, fixture.bundle());
         ScheduleCapabilityHandle<ScheduledWorkExecutor> handle =
@@ -804,7 +789,7 @@ class ScheduleCapabilityRegistryTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         Fixture executionFixture = completeFixture(
                 owner("execution-feature", "execution-package", 6L),
-                "source:execution", "source:execution", "SOURCE_EXECUTION",
+                "source:execution", "SOURCE_EXECUTION",
                 "work:execution", "credential:execution", "guard:execution");
         ScheduleCapabilityPublication executionPublication = publish(registry, executionFixture.bundle());
         SchedulePlanningLease planning = registry.prepareSource("source:execution").orElseThrow();
@@ -871,7 +856,7 @@ class ScheduleCapabilityRegistryTest {
                         ScheduleCapabilityOwner owner = owner(
                                 "concurrent-feature", "concurrent-package", generation);
                         Fixture fixture = completeFixture(owner,
-                                "source:concurrent", "source:concurrent", "SOURCE_CONCURRENT",
+                                "source:concurrent", "SOURCE_CONCURRENT",
                                 "work:concurrent", "credential:concurrent", "guard:concurrent");
                         ScheduleCapabilityPublication publication = publish(registry, fixture.bundle());
                         LockSupport.parkNanos(200_000L);
@@ -915,7 +900,6 @@ class ScheduleCapabilityRegistryTest {
         assertThat(snapshot.owners()).hasSizeLessThanOrEqualTo(1);
         for (ScheduleCapabilityRegistry.OwnerView view : snapshot.owners()) {
             observedPublishedSnapshots.incrementAndGet();
-            assertThat(view.legacySourceTypes()).containsExactly("source:concurrent");
             assertThat(view.sourceTypes()).containsExactly("source:concurrent");
             assertThat(view.sourceAliases()).containsExactly("SOURCE_CONCURRENT");
             assertThat(view.workTypes()).containsExactly("work:concurrent");
@@ -932,44 +916,39 @@ class ScheduleCapabilityRegistryTest {
 
     private static Fixture completeFixture(
             ScheduleCapabilityOwner owner,
-            String newSourceType,
-            String legacySourceType,
+            String sourceType,
             String alias,
             String workType,
             String policyId,
             String guardId) {
         ScheduledSourceDescriptor descriptor = descriptor(
-                newSourceType, Set.of(alias), workType, Set.of(policyId), Set.of(guardId));
-        ScheduledSourceExecutor sourceExecutor = sourceExecutor(newSourceType);
-        ScheduledSourceProvider legacySource = legacySource(legacySourceType, Set.of(alias));
+                sourceType, Set.of(alias), workType, Set.of(policyId), Set.of(guardId));
+        ScheduledSourceExecutor sourceExecutor = sourceExecutor(sourceType);
         ScheduledWorkExecutor workExecutor = workExecutor(workType);
-        ScheduledWorkRunner legacyWorkRunner = legacyWorkRunner(workType);
         ScheduledCredentialPolicy credentialPolicy = credentialPolicy(policyId);
         ScheduledExecutionGuard guard = guard(guardId);
         ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
                 owner,
-                List.of(legacySource),
-                List.of(legacyWorkRunner),
                 List.of(descriptor),
                 List.of(sourceExecutor),
                 List.of(workExecutor),
                 List.of(credentialPolicy),
                 List.of(guard));
-        return new Fixture(bundle, descriptor, sourceExecutor, legacySource,
-                workExecutor, legacyWorkRunner, credentialPolicy, guard);
+        return new Fixture(bundle, descriptor, sourceExecutor,
+                workExecutor, credentialPolicy, guard);
     }
 
     private static ScheduleOwnerBundle workOnlyBundle(
             ScheduleCapabilityOwner owner, String workType) {
         return ScheduleOwnerBundle.prepare(
-                owner, List.of(), List.of(), List.of(), List.of(),
+                owner, List.of(), List.of(),
                 List.of(workExecutor(workType)), List.of(), List.of());
     }
 
     private static ScheduleOwnerBundle policyOnlyBundle(
             ScheduleCapabilityOwner owner, String policyId) {
         return ScheduleOwnerBundle.prepare(
-                owner, List.of(), List.of(), List.of(), List.of(), List.of(),
+                owner, List.of(), List.of(), List.of(),
                 List.of(credentialPolicy(policyId)), List.of());
     }
 
@@ -982,15 +961,17 @@ class ScheduleCapabilityRegistryTest {
                 new LegacySchedulePersistenceDescriptor(
                         sourceType, sourceType + ":definition", 1,
                         Set.of("work:legacy"), Set.of(policyId)));
+        ScheduledSourceDescriptor descriptor = descriptor(
+                sourceType, Set.of(alias), "work:legacy", Set.of(policyId), Set.of());
         return ScheduleOwnerBundle.prepare(
-                owner, List.of(legacySource(sourceType, Set.of(alias))), List.of(),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(persistence));
+                owner, List.of(descriptor), List.of(sourceExecutor(sourceType)),
+                List.of(workExecutor("work:legacy")), List.of(), List.of(), List.of(persistence));
     }
 
     private static ScheduleOwnerBundle guardOnlyBundle(
             ScheduleCapabilityOwner owner, String guardId) {
         return ScheduleOwnerBundle.prepare(
-                owner, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                owner, List.of(), List.of(), List.of(), List.of(),
                 List.of(guard(guardId)));
     }
 
@@ -1034,20 +1015,6 @@ class ScheduleCapabilityRegistryTest {
         };
     }
 
-    private static ScheduledSourceProvider legacySource(String sourceType, Set<String> aliases) {
-        return new ScheduledSourceProvider() {
-            @Override
-            public String type() {
-                return sourceType;
-            }
-
-            @Override
-            public Set<String> legacyTypeNames() {
-                return aliases;
-            }
-        };
-    }
-
     private static ScheduledWorkExecutor workExecutor(String workType) {
         return new ScheduledWorkExecutor() {
             @Override
@@ -1060,20 +1027,6 @@ class ScheduleCapabilityRegistryTest {
                     top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork work,
                     ScheduledWorkContext context) {
                 return ScheduledWorkResult.completed();
-            }
-        };
-    }
-
-    private static ScheduledWorkRunner legacyWorkRunner(String workType) {
-        return new ScheduledWorkRunner() {
-            @Override
-            public String kind() {
-                return workType;
-            }
-
-            @Override
-            public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
-                return true;
             }
         };
     }
@@ -1189,9 +1142,7 @@ class ScheduleCapabilityRegistryTest {
             ScheduleOwnerBundle bundle,
             ScheduledSourceDescriptor descriptor,
             ScheduledSourceExecutor sourceExecutor,
-            ScheduledSourceProvider legacySource,
             ScheduledWorkExecutor workExecutor,
-            ScheduledWorkRunner legacyWorkRunner,
             ScheduledCredentialPolicy credentialPolicy,
             ScheduledExecutionGuard guard
     ) {

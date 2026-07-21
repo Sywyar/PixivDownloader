@@ -14,14 +14,14 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("download-workbench 外置 descriptor 编译探针")
+@DisplayName("download-workbench 外置计划能力编译探针")
 class DownloadWorkbenchExternalCompileProbeTest {
 
     @TempDir
     Path tempDir;
 
     @Test
-    @DisplayName("descriptor 贡献面只依赖 plugin-api 即可编译，不借 app 扁平 classpath")
+    @DisplayName("描述符与执行器契约只依赖 plugin-api 即可编译，不借 app 扁平 classpath")
     void descriptorCompilesWithPluginApiOnly() throws Exception {
         Path source = tempDir.resolve("probe/DownloadWorkbenchProbePlugin.java");
         Files.createDirectories(source.getParent());
@@ -30,7 +30,16 @@ class DownloadWorkbenchExternalCompileProbeTest {
 
                 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
                 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-                import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
+                import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+                import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
+                import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
+                import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
+                import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
+                import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
                 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
                 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
                 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
@@ -96,8 +105,25 @@ class DownloadWorkbenchExternalCompileProbeTest {
                     public List<TabContribution> downloadTabs() {
                         return List.of(new TabContribution(id(), "quick-fetch", 10, List.of("illust", "novel")));
                     }
-                    public List<ScheduledSourceProvider> scheduledSources() {
+                    public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() {
                         return List.of();
+                    }
+
+                    static final class ProbeSourceExecutor implements ScheduledSourceExecutor {
+                        public String sourceType() { return "probe-source"; }
+                        public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                            throw new UnsupportedOperationException();
+                        }
+                        public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                            return ScheduledDiscoveryResult.withoutCheckpoint();
+                        }
+                    }
+
+                    static final class ProbeWorkExecutor implements ScheduledWorkExecutor {
+                        public String workType() { return "probe-work"; }
+                        public ScheduledWorkResult execute(ScheduledWork work, ScheduledWorkContext context) {
+                            return ScheduledWorkResult.completed();
+                        }
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -115,6 +141,10 @@ class DownloadWorkbenchExternalCompileProbeTest {
 
         assertThat(exit).isZero();
         assertThat(out.resolve("probe/DownloadWorkbenchProbePlugin.class")).isRegularFile();
+        assertThat(out.resolve("probe/DownloadWorkbenchProbePlugin$ProbeSourceExecutor.class"))
+                .isRegularFile();
+        assertThat(out.resolve("probe/DownloadWorkbenchProbePlugin$ProbeWorkExecutor.class"))
+                .isRegularFile();
     }
 
     private static String classpathEntry(Class<?> type) throws Exception {

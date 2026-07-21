@@ -433,23 +433,31 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("作品类型执行器必须 @PluginManagedBean（不得根包扫描）：随贡献它的插件生命周期归属")
-    void scheduledWorkRunnersMustBePluginManaged() {
-        // 迁移期 ScheduledWorkRunner 实现必须标 @PluginManagedBean、由各自 XxxPluginConfiguration 显式装配、
-        // 排除出根包扫描——否则贡献它的插件被禁 /
-        // 卸载后，根扫描的 @Service 仍会注册执行器偷跑，破坏「缺执行器即该作品类型不可用」语义。接口本身不在约束面。
+    @DisplayName("计划来源与作品执行器必须 @PluginManagedBean（不得根包扫描）")
+    void scheduledSourceAndWorkExecutorsMustBePluginManaged() {
+        JavaClasses workbenchClasses = importDownloadWorkbenchClasses();
+
         classes()
                 .that().areAssignableTo(
-                        top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner.class)
+                        top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor.class)
                 .and().areNotInterfaces()
                 .should().beAnnotatedWith(
                         top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
                 .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
-                .because("作品类型执行器随贡献它的插件生命周期归属：必须 @PluginManagedBean 由对应 "
-                        + "XxxPluginConfiguration 显式装配、排除出根包扫描，不得用 @Service / @Component 根扫描注册，"
-                        + "否则插件禁用后仍被注册偷跑")
-                .allowEmptyShould(true)
-                .check(CLASSES);
+                .because("来源执行器随贡献插件的 publication 与 child context 生命周期归属，"
+                        + "不得由宿主根包扫描注册")
+                .check(workbenchClasses);
+
+        classes()
+                .that().areAssignableTo(
+                        top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(
+                        top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
+                .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
+                .because("作品执行器随贡献插件的 publication 与 child context 生命周期归属，"
+                        + "不得由宿主根包扫描注册")
+                .check(workbenchClasses);
     }
 
     @Test
@@ -592,7 +600,7 @@ class PluginApiDependencyGuardTest {
         // IllustQueueOperations（住 download 包、下载工作台贡献）/ NovelQueueOperations（住 novel 包、小说插件贡献）
         // 这类 QueueOperations 实现必须标 @PluginManagedBean、由各自 XxxPluginConfiguration 显式装配、排除出根包扫描——
         // 否则贡献它的插件被禁 / 卸载后，根扫描的 @Service / @Component 仍会注册适配器偷跑，破坏「缺操作即该作品类型不
-        // 参与跨类型清空」语义（与作品类型执行器 ScheduledWorkRunner 同构）。接口本身不在约束面。
+        // 参与跨类型清空」语义（与 ScheduledWorkExecutor 生命周期边界同构）。接口本身不在约束面。
         classes()
                 .that().areAssignableTo(
                         top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations.class)

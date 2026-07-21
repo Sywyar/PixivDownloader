@@ -17,7 +17,6 @@ import top.sywyar.pixivdownload.download.schedule.guard.PixivOveruseExecutionGua
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivCollectionScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledSourceSupport;
 import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
-import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
@@ -54,8 +53,6 @@ class DownloadWorkbenchScheduleAssemblyTest {
         PixivSchedulePersistenceCodec persistenceCodec =
                 new PixivSchedulePersistenceCodec(objectMapper);
         ArtworkDownloader artworkDownloader = mock(ArtworkDownloader.class);
-        ScheduledIllustWorkRunner legacyIllustRunner =
-                configuration.scheduledIllustWorkRunner(artworkDownloader);
         DownloadSettings downloadSettings = mock(DownloadSettings.class);
         when(downloadSettings.getMaxConcurrent()).thenReturn(3, 2);
         PixivScheduledIllustWorkExecutor illustExecutor =
@@ -64,7 +61,6 @@ class DownloadWorkbenchScheduleAssemblyTest {
                         mock(PixivDatabase.class),
                         artworkDownloader,
                         mock(WorkMetadataCapture.class),
-                        legacyIllustRunner,
                         persistenceCodec,
                         objectMapper,
                         downloadSettings);
@@ -90,8 +86,6 @@ class DownloadWorkbenchScheduleAssemblyTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityRegistryTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
                 WORKBENCH_OWNER,
-                plugin.scheduledSources(),
-                List.of(legacyIllustRunner),
                 plugin.scheduledSourceDescriptors(),
                 sourceExecutors,
                 List.of(illustExecutor),
@@ -102,8 +96,7 @@ class DownloadWorkbenchScheduleAssemblyTest {
         when(novelExecutor.workType()).thenReturn("novel");
         ScheduleCapabilityRegistryTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
                 NOVEL_OWNER,
-                List.of(), List.of(), List.of(), List.of(),
-                List.of(novelExecutor), List.of(), List.of()));
+                List.of(), List.of(), List.of(novelExecutor), List.of(), List.of()));
 
         assertThat(sourceExecutors)
                 .extracting(ScheduledSourceExecutor::sourceType)
@@ -116,9 +109,9 @@ class DownloadWorkbenchScheduleAssemblyTest {
                     assertThat(view.sourceTypes()).containsExactlyInAnyOrder(
                             "user-new", "user-request", "search", "series",
                             "my-bookmarks", "follow-latest", "collection");
-                    assertThat(view.legacySourceTypes()).containsExactlyInAnyOrder(
-                            "user-new", "user-request", "search", "series",
-                            "my-bookmarks", "follow-latest", "collection");
+                    assertThat(view.sourceAliases()).containsExactlyInAnyOrder(
+                            "USER_NEW", "USER_REQUEST", "SEARCH", "SERIES",
+                            "MY_BOOKMARKS", "FOLLOW_LATEST", "COLLECTION");
                     assertThat(view.workTypes()).containsExactly("illust");
                     assertThat(view.credentialPolicyIds()).containsExactly("pixiv-cookie");
                     assertThat(view.guardIds()).containsExactly("pixiv-overuse");

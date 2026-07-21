@@ -3,19 +3,14 @@ package top.sywyar.pixivdownload.schedule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.download.ArtworkDownloader;
-import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
@@ -48,7 +43,7 @@ class ScheduleHostPluginConfigurationTest {
     }
 
     @Test
-    @DisplayName("执行器与服务共享宿主注入的同一 ScheduleCapabilityRegistry")
+    @DisplayName("执行器与服务共享宿主注入的计划能力注册表和通用执行引擎")
     void executorAndServiceShareHostCapabilityRegistry() {
         ScheduleHostPluginConfiguration configuration = new ScheduleHostPluginConfiguration();
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
@@ -59,39 +54,31 @@ class ScheduleHostPluginConfigurationTest {
         ObjectMapper objectMapper = new ObjectMapper();
         PixivSchedulePersistenceCodec persistenceCodec =
                 configuration.pixivSchedulePersistenceCodec(objectMapper);
-        OveruseWarningService overuseWarningService = mock(OveruseWarningService.class);
-        TaskExecutor direct = Runnable::run;
+        ScheduleExecutionEngine executionEngine = mock(ScheduleExecutionEngine.class);
 
         ScheduleExecutor executor = configuration.scheduleExecutor(
                 store,
                 registry,
-                mock(PixivFetchService.class),
-                mock(PixivDatabase.class),
-                mock(WorkMetaCaptureService.class),
-                mock(ArtworkDownloader.class),
-                mock(WorkQueryService.class),
-                config,
                 runState,
-                runQueue,
                 objectMapper,
-                persistenceCodec,
-                overuseWarningService,
                 mock(NotificationService.class),
                 mock(AppMessages.class),
+                mock(WebI18nBundleRegistry.class),
                 mock(UserDisplayNameProvider.class),
-                direct,
-                direct);
+                executionEngine);
         ScheduleService service = configuration.scheduleService(
                 store, executor, config, runState, runQueue,
-                objectMapper, persistenceCodec, mock(ScheduleExecutionEngine.class),
+                objectMapper, persistenceCodec, executionEngine,
                 mock(PlatformTransactionManager.class), registry);
 
         assertThat(ReflectionTestUtils.getField(executor, "scheduleCapabilityRegistry"))
                 .isSameAs(registry);
         assertThat(ReflectionTestUtils.getField(service, "scheduleCapabilityRegistry"))
                 .isSameAs(registry);
-        assertThat(ReflectionTestUtils.getField(executor, "persistenceCodec"))
-                .isSameAs(persistenceCodec);
+        assertThat(ReflectionTestUtils.getField(executor, "scheduleExecutionEngine"))
+                .isSameAs(executionEngine);
+        assertThat(ReflectionTestUtils.getField(service, "scheduleExecutionEngine"))
+                .isSameAs(executionEngine);
         assertThat(ReflectionTestUtils.getField(service, "persistenceCodec"))
                 .isSameAs(persistenceCodec);
     }

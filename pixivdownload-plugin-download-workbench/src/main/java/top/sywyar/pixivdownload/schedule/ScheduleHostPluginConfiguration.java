@@ -10,12 +10,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
-import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
@@ -29,7 +26,6 @@ import top.sywyar.pixivdownload.schedule.execution.ScheduleWorkConcurrencyLimite
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
 import top.sywyar.pixivdownload.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
-import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 /**
  * 计划任务宿主插件的 Bean 装配收敛点。承载调度安全壳的全部托管 Bean：执行器 / 服务 / tick runner / 控制器 /
@@ -44,14 +40,9 @@ import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
  * contribution 保证）。调度壳<b>不</b>直接拿 MyBatis {@code ScheduledTaskMapper} 做自由 SQL，而是经核心 owned、
  * 根包扫描的语义 Store {@code core.schedule.ScheduledTaskStore} 读写——由 Spring 注入这些 {@code @Bean}。
  * <p>
- * <b>依赖方向：</b>调度壳需要 Pixiv 抓取与作品下载等核心下载机器（{@link PixivFetchService} /
- * {@link ArtworkDownloader} / {@link WorkMetaCaptureService}，均由根包扫描装配、属核心机器），以及来源
- * 执行契约（{@code download.schedule.source}，住下载工作台域）；故本装配层依赖 download 包，<b>不</b> import 任何
- * novel 包类型。当前来源执行经 plugin-api {@code ScheduledSourceExecutor}，作品执行经
- * {@code ScheduledWorkExecutor}，并由 {@link ScheduleCapabilityRegistry} generation lease 按 owner 与作品类型解析：
- * 插画执行器由下载工作台贡献、小说执行器由小说插件贡献；宿主保留的 legacy runner 只服务旧壳适配，不承载小说
- * 生产执行。来源和作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
- * 小说判重只经稳定 {@link WorkQueryService}，宿主不接触小说插件或宿主内部数据库行。
+ * <b>依赖方向：</b>调度壳只经 plugin-api 计划契约与 {@link ScheduleCapabilityRegistry} generation lease
+ * 调用来源、作品、凭证和 Guard 能力；具体 Pixiv / 小说执行实现由各 owner 的 child context 贡献。
+ * 来源与作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
  */
 @Configuration
 @EnableScheduling
@@ -148,55 +139,17 @@ public class ScheduleHostPluginConfiguration {
     @Bean
     public ScheduleExecutor scheduleExecutor(ScheduledTaskStore store,
                                              ScheduleCapabilityRegistry scheduleCapabilityRegistry,
-                                             PixivFetchService pixivFetchService,
-                                             PixivDatabase pixivDatabase,
-                                             WorkMetaCaptureService workMetaCaptureService,
-                                             ArtworkDownloader artworkDownloader,
-                                             WorkQueryService workQueryService,
-                                             ScheduleConfig scheduleConfig,
                                              ScheduleRunState runState,
-                                             ScheduleRunQueue runQueue,
                                              ObjectMapper objectMapper,
-                                             PixivSchedulePersistenceCodec persistenceCodec,
-                                             OveruseWarningService overuseWarningService,
                                              NotificationService notificationService,
                                              AppMessages messages,
                                              WebI18nBundleRegistry webI18nBundleRegistry,
                                              UserDisplayNameProvider userDisplayNameProvider,
-                                             @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-                                             @Qualifier("scheduleWorkTaskExecutor") TaskExecutor novelDispatchTaskExecutor,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
-        return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, workQueryService,
-                scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
-                notificationService, messages, webI18nBundleRegistry, userDisplayNameProvider,
-                downloadTaskExecutor, novelDispatchTaskExecutor, scheduleExecutionEngine);
-    }
-
-    /** 只供既有配置装配单测构造 legacy 执行壳；Spring 使用上面的完整 Bean 工厂。 */
-    public ScheduleExecutor scheduleExecutor(ScheduledTaskStore store,
-                                             ScheduleCapabilityRegistry scheduleCapabilityRegistry,
-                                             PixivFetchService pixivFetchService,
-                                             PixivDatabase pixivDatabase,
-                                             WorkMetaCaptureService workMetaCaptureService,
-                                             ArtworkDownloader artworkDownloader,
-                                             WorkQueryService workQueryService,
-                                             ScheduleConfig scheduleConfig,
-                                             ScheduleRunState runState,
-                                             ScheduleRunQueue runQueue,
-                                             ObjectMapper objectMapper,
-                                             PixivSchedulePersistenceCodec persistenceCodec,
-                                             OveruseWarningService overuseWarningService,
-                                             NotificationService notificationService,
-                                             AppMessages messages,
-                                             UserDisplayNameProvider userDisplayNameProvider,
-                                             TaskExecutor downloadTaskExecutor,
-                                             TaskExecutor novelDispatchTaskExecutor) {
-        return new ScheduleExecutor(store, scheduleCapabilityRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, workQueryService,
-                scheduleConfig, runState, runQueue, objectMapper, persistenceCodec, overuseWarningService,
-                notificationService, messages, userDisplayNameProvider,
-                downloadTaskExecutor, novelDispatchTaskExecutor);
+        return new ScheduleExecutor(
+                store, scheduleCapabilityRegistry, runState, objectMapper,
+                notificationService, messages, webI18nBundleRegistry,
+                userDisplayNameProvider, scheduleExecutionEngine);
     }
 
     @Bean

@@ -13,9 +13,7 @@ public final class ScheduleCapabilityHandle<T> {
         SOURCE_EXECUTOR,
         WORK_EXECUTOR,
         CREDENTIAL_POLICY,
-        EXECUTION_GUARD,
-        LEGACY_SOURCE,
-        LEGACY_WORK_RUNNER
+        EXECUTION_GUARD
     }
 
     private final Kind kind;

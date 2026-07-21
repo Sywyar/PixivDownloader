@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.download;
 
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
@@ -20,13 +19,6 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.download.schedule.source.CollectionSource;
-import top.sywyar.pixivdownload.download.schedule.source.FollowLatestSource;
-import top.sywyar.pixivdownload.download.schedule.source.MyBookmarksSource;
-import top.sywyar.pixivdownload.download.schedule.source.SearchSource;
-import top.sywyar.pixivdownload.download.schedule.source.SeriesSource;
-import top.sywyar.pixivdownload.download.schedule.source.UserNewSource;
-import top.sywyar.pixivdownload.download.schedule.source.UserRequestSource;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 
 import java.util.List;
@@ -39,7 +31,6 @@ import java.util.Set;
  * 隔离重试 / 水位线以及 {@code /api/schedule/**} 路由均在本外置包上下文内装配。下载工作台通过
  * {@link #scheduledSourceDescriptors()} 声明 7 个内置来源，并由 child context 中的
  * {@code ScheduledSourceExecutor} / {@code PixivScheduledIllustWorkExecutor} 执行发现与下载。
- * {@link #scheduledSources()} 只为已落库来源类型迁移与受限旧执行路径保留，不是新增来源的扩展入口。
  * <p>
  * 核心只保留下载历史 / 统计 / 本地资产 serving 等长期事实 API（{@code /api/downloaded/*}）；下载提交、
  * 队列状态、Pixiv 抓取代理、SSE 和 userscript 分发入口均随本插件启停。
@@ -212,20 +203,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 new TabContribution(ID, "user", 30, List.of()),
                 new TabContribution(ID, "search", 40, List.of()),
                 new TabContribution(ID, "series", 50, List.of()));
-    }
-
-    @Override
-    public List<ScheduledSourceProvider> scheduledSources() {
-        // 这些身份对象只供已落库来源类型迁移及受限旧执行路径解析；当前来源能力统一由
-        // scheduledSourceDescriptors() 与 child context 中的 ScheduledSourceExecutor 发布。
-        return List.of(
-                new UserNewSource(),
-                new UserRequestSource(),
-                new SearchSource(),
-                new SeriesSource(),
-                new MyBookmarksSource(),
-                new FollowLatestSource(),
-                new CollectionSource());
     }
 
     @Override

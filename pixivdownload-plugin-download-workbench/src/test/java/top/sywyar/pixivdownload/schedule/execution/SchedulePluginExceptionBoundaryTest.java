@@ -125,7 +125,7 @@ class SchedulePluginExceptionBoundaryTest {
         publication.set(ScheduleCapabilityRegistryTestAccess.publish(
                 registry, ScheduleOwnerBundle.prepare(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
-                        List.of(), List.of(), List.of(descriptor), List.of(source),
+                        List.of(descriptor), List.of(source),
                         List.of(), List.of(), List.of())));
 
         ScheduledExecutionException normalized;

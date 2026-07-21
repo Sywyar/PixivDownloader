@@ -721,8 +721,6 @@ class ScheduleServiceDefinitionSaveTest {
                 ownerPluginId, ownerPluginId.replace("owner", "package"), 3L);
         ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
                 owner,
-                List.of(),
-                List.of(),
                 List.of(descriptor),
                 List.of(sourceExecutor),
                 List.of(workExecutor),
@@ -749,8 +747,6 @@ class ScheduleServiceDefinitionSaveTest {
                 DownloadWorkbenchPlugin.ID, DownloadWorkbenchPlugin.ID, 3L);
         ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
                 owner,
-                List.of(),
-                List.of(),
                 List.of(descriptor),
                 List.of(new PixivUserNewScheduledSourceExecutor(support)),
                 List.of(),

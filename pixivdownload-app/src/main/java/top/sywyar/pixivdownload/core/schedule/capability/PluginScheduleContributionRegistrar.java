@@ -8,8 +8,6 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenc
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationResult.Rejected;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
@@ -100,11 +98,6 @@ public class PluginScheduleContributionRegistrar {
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(
                 registered.id(), registered.packageId(), registered.generation());
 
-        List<ScheduledSourceProvider> legacySources =
-                readPluginValue(owner, "scheduledSources",
-                        () -> List.copyOf(registered.plugin().scheduledSources()));
-        List<ScheduledWorkRunner> legacyWorkRunners =
-                readChildBeans(owner, childContext, ScheduledWorkRunner.class);
         List<ScheduledSourceDescriptor> sourceDescriptors =
                 readPluginValue(owner, "scheduledSourceDescriptors",
                         () -> List.copyOf(registered.plugin().scheduledSourceDescriptors()));
@@ -127,8 +120,6 @@ public class PluginScheduleContributionRegistrar {
 
         ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
                 owner,
-                legacySources,
-                legacyWorkRunners,
                 sourceDescriptors,
                 sourceExecutors,
                 workExecutors,

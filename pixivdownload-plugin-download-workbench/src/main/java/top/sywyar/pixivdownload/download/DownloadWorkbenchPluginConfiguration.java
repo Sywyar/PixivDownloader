@@ -34,7 +34,6 @@ import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
 import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
 import top.sywyar.pixivdownload.download.controller.PixivProxyController;
 import top.sywyar.pixivdownload.download.controller.SSEController;
-import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
 import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.download.schedule.guard.PixivOveruseExecutionGuard;
@@ -115,25 +114,18 @@ public class DownloadWorkbenchPluginConfiguration {
                 downloadStatisticsService, downloadedArtworkService, messages);
     }
 
-    /** 插画作品类型的计划任务下载执行器，经注册中心按 kind 解析。 */
-    @Bean
-    public ScheduledIllustWorkRunner scheduledIllustWorkRunner(ArtworkDownloader artworkDownloader) {
-        return new ScheduledIllustWorkRunner(artworkDownloader);
-    }
-
     @Bean
     public PixivScheduledIllustWorkExecutor pixivScheduledIllustWorkExecutor(
             PixivFetchService pixivFetchService,
             PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
             WorkMetadataCapture workMetadataCapture,
-            ScheduledIllustWorkRunner scheduledIllustWorkRunner,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             DownloadSettings downloadSettings) {
         return new PixivScheduledIllustWorkExecutor(
                 pixivFetchService, pixivDatabase, artworkDownloader, workMetadataCapture,
-                scheduledIllustWorkRunner, persistenceCodec, objectMapper, downloadSettings);
+                persistenceCodec, objectMapper, downloadSettings);
     }
 
     @Bean

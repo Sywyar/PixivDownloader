@@ -214,7 +214,7 @@ class ScheduleContractTest {
     }
 
     @Test
-    @DisplayName("来源 descriptor 只含纯元数据且复制所有集合")
+    @DisplayName("来源 descriptor 保留迁移别名且不再实现旧来源桥")
     void sourceDescriptorIsPureMetadata() {
         Set<String> aliases = new LinkedHashSet<>(Set.of("USER_NEW"));
         ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
@@ -233,6 +233,11 @@ class ScheduleContractTest {
 
         assertThat(descriptor.sourceType()).isEqualTo("pixiv:user-new");
         assertThat(descriptor.legacyAliases()).containsExactly("USER_NEW");
+        assertThat(ScheduledSourceDescriptor.class.getInterfaces()).isEmpty();
+        assertThatThrownBy(() -> ScheduledSourceDescriptor.class.getMethod("type"))
+                .isInstanceOf(NoSuchMethodException.class);
+        assertThatThrownBy(() -> ScheduledSourceDescriptor.class.getMethod("legacyTypeNames"))
+                .isInstanceOf(NoSuchMethodException.class);
         assertThat(ScheduledSourceDescriptor.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .doesNotContain("pluginId", "packageId", "generation");

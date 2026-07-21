@@ -1427,7 +1427,7 @@ class ScheduleExecutionEngineTest {
                 Set.of("fixture"), Set.of(WORK), Set.of(POLICY), Set.of(GUARD), null);
         ScheduleCapabilityPublication publication = ScheduleCapabilityRegistryTestAccess.publish(
                 registry, ScheduleOwnerBundle.prepare(
-                        owner, List.of(), List.of(), List.of(descriptor), List.of(source),
+                        owner, List.of(descriptor), List.of(source),
                         List.of(executor),
                         List.of(credentialPolicy(new AtomicReference<>())),
                         List.of(guard(context -> ScheduledGuardDecision.proceed()))));
@@ -1534,7 +1534,7 @@ class ScheduleExecutionEngineTest {
                 Set.of(firstGuardId, secondGuardId), null);
         publication.set(ScheduleCapabilityRegistryTestAccess.publish(
                 registry, ScheduleOwnerBundle.prepare(
-                        owner, List.of(), List.of(), List.of(descriptor), List.of(source),
+                        owner, List.of(descriptor), List.of(source),
                         List.of(workExecutor(context -> ScheduledWorkResult.completed())),
                         List.of(credentialPolicy(new AtomicReference<>())),
                         List.of(firstGuard, secondGuard))));
@@ -1703,7 +1703,7 @@ class ScheduleExecutionEngineTest {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         publish(registry, ScheduleOwnerBundle.prepare(
                 new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
-                List.of(), List.of(), List.of(descriptor), List.of(source),
+                List.of(descriptor), List.of(source),
                 List.of(firstWork, secondWork),
                 List.of(credentialPolicy(new AtomicReference<>())),
                 List.of(firstGuard, secondGuard)));
@@ -2296,7 +2296,7 @@ class ScheduleExecutionEngineTest {
                         "fixture", "source.label", "source.summary", "schedule", "neutral"),
                 Set.of("fixture"), Set.of(WORK), Set.of(POLICY), Set.of(GUARD), null);
         return ScheduleOwnerBundle.prepare(
-                owner, List.of(), List.of(), List.of(descriptor), List.of(source),
+                owner, List.of(descriptor), List.of(source),
                 List.of(work), List.of(policy), List.of(guard));
     }
 
@@ -2436,8 +2436,6 @@ class ScheduleExecutionEngineTest {
                 registry,
                 ScheduleOwnerBundle.prepare(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
-                        List.of(),
-                        List.of(),
                         List.of(descriptor),
                         List.of(source),
                         workExecutors,

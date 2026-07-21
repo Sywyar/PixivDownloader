@@ -52,7 +52,6 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
 
     private static final String SUSPEND_MIGRATION_ERROR = "MIGRATION_ERROR";
     private static final String ADAPTER_FAILURE_CODE = "ADAPTER_FAILURE";
-    public static final String MIGRATION_SPEC_UNAVAILABLE = "MIGRATION_SPEC_UNAVAILABLE";
     private static final String EMPTY_DETAIL_JSON = "{}";
 
     private final JdbcTemplate jdbcTemplate;
@@ -137,11 +136,6 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
             return TaskOutcome.SKIPPED;
         }
         LegacyScheduledTaskMigrationRoute route = routes.get(snapshot.sourceType());
-        if (!route.hasPersistenceContract()) {
-            markMigrationErrorInCurrentTransaction(
-                    taskId, MIGRATION_SPEC_UNAVAILABLE, EMPTY_DETAIL_JSON);
-            return TaskOutcome.REJECTED;
-        }
 
         LegacyScheduledTaskMigrationResult result = adapter.migrate(snapshot);
         if (result == null) {
@@ -266,9 +260,8 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
         if (!route.canonicalSourceType().equals(definition.sourceType())) {
             throw new IllegalArgumentException("migrated source type is outside the owner publication");
         }
-        if (route.hasPersistenceContract()
-                && (!route.definitionSchema().equals(definition.definitionSchema())
-                || route.definitionVersion() != definition.definitionVersion())) {
+        if (!route.definitionSchema().equals(definition.definitionSchema())
+                || route.definitionVersion() != definition.definitionVersion()) {
             throw new IllegalArgumentException("migrated definition contract differs from owner publication");
         }
         validateJson(definition.definitionJson(), "migrated definition");
@@ -306,8 +299,7 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
             if (!newKeys.add(pending.work().key().workType() + '\u0000' + pending.work().key().id())) {
                 throw new IllegalArgumentException("duplicate migrated pending work key");
             }
-            if (route.hasPersistenceContract()
-                    && !route.allowedWorkTypes().contains(pending.work().key().workType())) {
+            if (!route.allowedWorkTypes().contains(pending.work().key().workType())) {
                 throw new IllegalArgumentException(
                         "migrated pending work type is outside the source descriptor");
             }

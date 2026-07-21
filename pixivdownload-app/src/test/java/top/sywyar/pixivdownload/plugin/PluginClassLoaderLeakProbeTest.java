@@ -12,14 +12,10 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -65,7 +61,7 @@ import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
  * GC 回收」这一泄漏防护不变量。
  *
  * <h2>受控子 classloader（probe loader）</h2>
- * 测试用 {@link ProbeClassLoader} 自定义子 loader 把一个 probe 执行器类 {@link LeakProbeWorkRunner} 从字节重新
+ * 测试用 {@link ProbeClassLoader} 自定义子 loader 把一个 probe 执行器类 {@link LeakProbeWorkExecutor} 从字节重新
  * {@code defineClass}（其实例的 {@code getClassLoader()} 即 probe loader），并把同一个 probe loader 作为插件注册
  * 条目的来源 classloader。由此 probe loader 同时经两条真实泄漏链被各注册中心持有：
  * <ul>
@@ -96,15 +92,13 @@ class PluginClassLoaderLeakProbeTest {
 
     private static final String PLUGIN_ID = "ext-leak-probe";
     private static final String NAMESPACE = "ext-leak-probe";
-    private static final String SOURCE_TYPE = "ext-leak-probe-source";
-    private static final String RUNNER_KIND = "ext-leak-probe-kind";
     private static final String COMPOSITE_SOURCE_TYPE = "ext-leak-probe-composite-source";
     private static final String COMPOSITE_WORK_TYPE = "ext-leak-probe-composite-work";
     private static final String COMPOSITE_POLICY_ID = "ext-leak-probe-composite-policy";
     private static final String COMPOSITE_GUARD_ID = "ext-leak-probe-composite-guard";
 
     /** 探针采集到的弱引用句柄：probe loader 本身 + 其拥有的执行器实例（强引用均已出帧）。 */
-    private record WeakHandles(WeakReference<ClassLoader> classLoader, WeakReference<Object> runner) {
+    private record WeakHandles(WeakReference<ClassLoader> classLoader, WeakReference<Object> workExecutor) {
     }
 
     /** 新式复合执行租约中四类插件 Bean 及其各自定义 classloader 的弱引用句柄。 */
@@ -144,13 +138,14 @@ class PluginClassLoaderLeakProbeTest {
         assertNoResidualReference(routes, statics, i18n, navigation, userscripts, scripts, schedule, streams);
 
         // —— GC 探针（环境容忍）：强引用已出帧后 probe loader 应可回收 ——
-        ClassLoaderLeakProbes.awaitCollected(handles.runner());
+        ClassLoaderLeakProbes.awaitCollected(handles.workExecutor());
         boolean clCollected = ClassLoaderLeakProbes.awaitCollected(handles.classLoader());
         if (!clCollected) {
             // 业务级残留已被上面的确定性断言排除（各注册中心快照不含该插件）；到此仍未回收 → 归为环境 / JVM GC 不稳定。
             Assumptions.abort("probe classloader 未在本环境被 GC 回收，但确定性引用链已确认各注册中心无残留——"
                     + "判为环境不稳定（非业务泄漏）。" + leakDiagnostic(
-                    routes, statics, i18n, navigation, userscripts, scripts, schedule, streams, handles.runner()));
+                    routes, statics, i18n, navigation, userscripts, scripts, schedule, streams,
+                    handles.workExecutor()));
         }
         assertThat(clCollected).as("probe classloader 注销后应可被 GC 回收").isTrue();
     }
@@ -235,20 +230,16 @@ class PluginClassLoaderLeakProbeTest {
 
         ScheduleCapabilityPublication sourcePublication = ScheduleCapabilityRegistryTestAccess.publish(
                 schedule, ScheduleOwnerBundle.prepare(
-                        sourceOwner, List.of(), List.of(), List.of(descriptor), List.of(source),
-                        List.of(), List.of(), List.of()));
+                        sourceOwner, List.of(descriptor), List.of(source), List.of(), List.of(), List.of()));
         ScheduleCapabilityPublication workPublication = ScheduleCapabilityRegistryTestAccess.publish(
                 schedule, ScheduleOwnerBundle.prepare(
-                        workOwner, List.of(), List.of(), List.of(), List.of(),
-                        List.of(work), List.of(), List.of()));
+                        workOwner, List.of(), List.of(), List.of(work), List.of(), List.of()));
         ScheduleCapabilityPublication policyPublication = ScheduleCapabilityRegistryTestAccess.publish(
                 schedule, ScheduleOwnerBundle.prepare(
-                        policyOwner, List.of(), List.of(), List.of(), List.of(),
-                        List.of(), List.of(policy), List.of()));
+                        policyOwner, List.of(), List.of(), List.of(), List.of(policy), List.of()));
         ScheduleCapabilityPublication guardPublication = ScheduleCapabilityRegistryTestAccess.publish(
                 schedule, ScheduleOwnerBundle.prepare(
-                        guardOwner, List.of(), List.of(), List.of(), List.of(),
-                        List.of(), List.of(), List.of(guard)));
+                        guardOwner, List.of(), List.of(), List.of(), List.of(), List.of(guard)));
 
         SchedulePlanningLease planning = schedule.prepareSource(COMPOSITE_SOURCE_TYPE).orElseThrow();
         assertThat(schedule.activate(planning)).isTrue();
@@ -377,9 +368,10 @@ class PluginClassLoaderLeakProbeTest {
             throws Exception {
         ProbeClassLoader probeCl = new ProbeClassLoader(
                 PluginClassLoaderLeakProbeTest.class.getClassLoader(),
-                LeakProbeWorkRunner.class, ProbePlugin.class);
-        ScheduledWorkRunner runner = newProbeRunner(probeCl);
-        assertThat(runner.getClass().getClassLoader())
+                LeakProbeWorkExecutor.class, ProbePlugin.class);
+        ScheduledWorkExecutor workExecutor = newProbeCapability(
+                probeCl, LeakProbeWorkExecutor.class, ScheduledWorkExecutor.class);
+        assertThat(workExecutor.getClass().getClassLoader())
                 .as("probe 执行器实例必须由受控子 loader 加载")
                 .isSameAs(probeCl);
 
@@ -390,12 +382,12 @@ class PluginClassLoaderLeakProbeTest {
                 plugin, PluginSource.EXTERNAL, probeCl);
         pluginRegistry.register(registered);
 
-        // 接入：五类 web 贡献（static / i18n / userscript 经 probe loader 解析）+ 来源 + 执行器（probe loader 拥有的 Bean）+ 一条 SSE 推流。
+        // 接入：五类 web 贡献（static / i18n / userscript 经 probe loader 解析）+
+        // probe loader 拥有的现代作品执行器 + 一条 SSE 推流。
         var webHandle = web.register(registered);
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(PLUGIN_ID, PLUGIN_ID, 17L);
         ScheduleOwnerBundle bundle = ScheduleOwnerBundle.prepare(
-                owner, List.of(probeSourceProvider()), List.of(runner), List.of(), List.of(),
-                List.of(), List.of(), List.of());
+                owner, List.of(), List.of(), List.of(workExecutor), List.of(), List.of());
         ScheduleCapabilityPublication publication =
                 ScheduleCapabilityRegistryTestAccess.publish(schedule, bundle);
         streams.register(PLUGIN_ID, "conn-1", () -> { /* no-op close */ });
@@ -411,15 +403,14 @@ class PluginClassLoaderLeakProbeTest {
                 .anyMatch(u -> u.pluginId().equals(PLUGIN_ID) && u.classLoader() == probeCl);
         assertThat(scripts.readContent("sample-plugin.user.js"))
                 .contains("Sample Plugin Userscript");
-        assertThat(schedule.resolveLegacySource(SOURCE_TYPE)).isPresent();
-        var runnerHandle = schedule.resolveLegacyWorkRunner(RUNNER_KIND).orElseThrow();
-        ScheduleSingleCapabilityLease<ScheduledWorkRunner> runnerLease =
-                schedule.prepareAcquire(runnerHandle).orElseThrow();
-        assertThat(schedule.activate(runnerLease)).isTrue();
+        var workHandle = schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE).orElseThrow();
+        ScheduleSingleCapabilityLease<ScheduledWorkExecutor> workLease =
+                schedule.prepareAcquire(workHandle).orElseThrow();
+        assertThat(schedule.activate(workLease)).isTrue();
         assertThat(streams.activeStreamCount(PLUGIN_ID)).isEqualTo(1);
 
         WeakReference<ClassLoader> weakCl = new WeakReference<>(probeCl);
-        WeakReference<Object> weakRunner = new WeakReference<>(runner);
+        WeakReference<Object> weakWorkExecutor = new WeakReference<>(workExecutor);
 
         // —— 注销（与生命周期 teardown 等价的注册中心注销路径）——
         web.unregister(webHandle); // 精确 serving 注销 + ResourceBundle.clearCache(probeCl) + scriptRegistry.refresh
@@ -429,18 +420,17 @@ class PluginClassLoaderLeakProbeTest {
         ScheduleGenerationDrain drain =
                 ScheduleCapabilityRegistryTestAccess.withdraw(schedule, publication).orElseThrow();
         assertThat(schedule.snapshotView().owners()).isEmpty();
-        assertThat(schedule.resolveLegacySource(SOURCE_TYPE)).isEmpty();
-        assertThat(schedule.resolveLegacyWorkRunner(RUNNER_KIND)).isEmpty();
+        assertThat(schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE)).isEmpty();
         assertThat(drain.activeLeaseCount()).isEqualTo(1);
         assertThat(drain.isDrained()).isFalse();
-        assertThat(runnerLease.capability()).isSameAs(runner);
-        assertThat(runnerLease.cancellation().isCancellationRequested()).isTrue();
+        assertThat(workLease.capability()).isSameAs(workExecutor);
+        assertThat(workLease.cancellation().isCancellationRequested()).isTrue();
         streams.closeForPlugin(PLUGIN_ID);
-        runnerLease.close();
+        workLease.close();
         assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(1))).isTrue();
         pluginRegistry.unregister(registered);
 
-        return new WeakHandles(weakCl, weakRunner);
+        return new WeakHandles(weakCl, weakWorkExecutor);
     }
 
     /** 注销后各注册中心快照不再暴露该插件（确定性引用链：快照即唯一持有点，不含即已释放）。 */
@@ -455,8 +445,7 @@ class PluginClassLoaderLeakProbeTest {
         assertThat(userscripts.userscripts()).noneMatch(u -> u.pluginId().equals(PLUGIN_ID));
         assertThat(scripts.getScripts()).isEmpty();
         assertThat(schedule.snapshotView().owners()).isEmpty();
-        assertThat(schedule.resolveLegacySource(SOURCE_TYPE)).isEmpty();
-        assertThat(schedule.resolveLegacyWorkRunner(RUNNER_KIND)).isEmpty();
+        assertThat(schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE)).isEmpty();
         assertThat(streams.activeStreamCount(PLUGIN_ID)).isZero();
     }
 
@@ -465,7 +454,7 @@ class PluginClassLoaderLeakProbeTest {
             RouteAccessRegistry routes, StaticResourceRegistry statics, WebI18nBundleRegistry i18n,
             NavigationRegistry navigation, UserscriptRegistry userscripts,
             ScriptRegistry scripts, ScheduleCapabilityRegistry schedule, PluginStreamRegistry streams,
-            WeakReference<?> weakRunner) {
+            WeakReference<?> weakWorkExecutor) {
         return " 诊断["
                 + "routes=" + routes.routes().stream().anyMatch(r -> r.pluginId().equals(PLUGIN_ID))
                 + ", static=" + statics.resources().stream().anyMatch(s -> s.pluginId().equals(PLUGIN_ID))
@@ -474,23 +463,10 @@ class PluginClassLoaderLeakProbeTest {
                 + ", userscript=" + userscripts.userscripts().stream().anyMatch(u -> u.pluginId().equals(PLUGIN_ID))
                 + ", scriptSnapshot=" + scripts.getScripts().size()
                 + ", scheduleOwners=" + schedule.snapshotView().owners().size()
-                + ", source=" + schedule.resolveLegacySource(SOURCE_TYPE).isPresent()
-                + ", runner=" + schedule.resolveLegacyWorkRunner(RUNNER_KIND).isPresent()
+                + ", work=" + schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE).isPresent()
                 + ", stream=" + streams.activeStreamCount(PLUGIN_ID)
-                + ", runnerInstanceCollected=" + (weakRunner.get() == null)
+                + ", workExecutorInstanceCollected=" + (weakWorkExecutor.get() == null)
                 + "]";
-    }
-
-    private static ScheduledWorkRunner newProbeRunner(ProbeClassLoader cl) throws ReflectiveOperationException {
-        Class<?> runnerClass = cl.loadClass(LeakProbeWorkRunner.class.getName());
-        return (ScheduledWorkRunner) runnerClass.getDeclaredConstructor().newInstance();
-    }
-
-    private static ScheduledSourceProvider probeSourceProvider() {
-        return new ScheduledSourceProvider() {
-            @Override public String type() { return SOURCE_TYPE; }
-            @Override public Set<String> legacyTypeNames() { return Set.of(); }
-        };
     }
 
     /** 一个声明全套 web + schedule 贡献的合成外置插件（实例由测试 loader 加载——被探针的是其来源 classloader，非本实例）。 */
@@ -543,26 +519,6 @@ class PluginClassLoaderLeakProbeTest {
             return List.of(new UserscriptContribution(PLUGIN_ID, "classpath:/test-userscripts/*.user.js"));
         }
 
-    }
-
-    /**
-     * probe 执行器：被 {@link ProbeClassLoader} 重新 {@code defineClass} 后，其实例 classloader 即 probe loader，
-     * 注册进 {@link ScheduleCapabilityRegistry} 后构成「Bean 实例 → 定义它的 classloader」泄漏链的探测点。
-     * <b>必须是静态嵌套类</b>（无外层实例引用，避免实例反向 pin 测试类）。
-     */
-    public static final class LeakProbeWorkRunner implements ScheduledWorkRunner {
-        public LeakProbeWorkRunner() {
-        }
-
-        @Override
-        public String kind() {
-            return RUNNER_KIND;
-        }
-
-        @Override
-        public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
-            return false;
-        }
     }
 
     /** 新式复合租约的来源执行器探针；行为不会被调用，只用于验证租约强引用的建立与释放。 */
@@ -648,7 +604,7 @@ class PluginClassLoaderLeakProbeTest {
         private final List<Class<?>> probeClasses;
 
         ProbeClassLoader(ClassLoader parent) {
-            this(parent, LeakProbeWorkRunner.class);
+            this(parent, LeakProbeWorkExecutor.class);
         }
 
         ProbeClassLoader(ClassLoader parent, Class<?>... probeClasses) {

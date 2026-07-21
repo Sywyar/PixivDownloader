@@ -7,12 +7,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustSettings;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustWork;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
+import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.schedule.network.PixivScheduledRouteScope;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
@@ -45,7 +44,6 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
     private final PixivDatabase pixivDatabase;
     private final ArtworkDownloader artworkDownloader;
     private final WorkMetadataCapture workMetadataCapture;
-    private final ScheduledIllustWorkRunner downloadRunner;
     private final PixivSchedulePersistenceCodec persistenceCodec;
     private final ObjectMapper objectMapper;
     private final DownloadSettings downloadSettings;
@@ -59,7 +57,6 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
             PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
             WorkMetadataCapture workMetadataCapture,
-            ScheduledIllustWorkRunner downloadRunner,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             DownloadSettings downloadSettings) {
@@ -67,7 +64,6 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         this.pixivDatabase = pixivDatabase;
         this.artworkDownloader = artworkDownloader;
         this.workMetadataCapture = workMetadataCapture;
-        this.downloadRunner = downloadRunner;
         this.persistenceCodec = persistenceCodec;
         this.objectMapper = objectMapper;
         this.downloadSettings = Objects.requireNonNull(downloadSettings, "downloadSettings");
@@ -189,17 +185,46 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
             }
         }
 
-        ScheduledIllustWork prepared = new ScheduledIllustWork(
-                artworkId, meta.title(), meta.authorId(), meta.authorName(), meta.xRestrict(), meta.ai(),
-                meta.description(), meta.tags(), meta.seriesId(), meta.seriesOrder(), seriesTitle,
-                meta.illustType(), seriesDescription, seriesCoverUrl,
-                ugoira, ugoiraZipUrl, ugoiraDelays, imageUrls, PIXIV_REFERER + id);
         ScheduleTaskSnapshot.Download download = snapshot.download();
-        ScheduledIllustSettings settings = new ScheduledIllustSettings(
-                download.fileNameTemplate(), download.bookmark(), download.collectionId(),
-                download.imageDelayMs());
+        DownloadRequest.Other other = new DownloadRequest.Other();
+        other.setAuthorId(meta.authorId());
+        other.setAuthorName(meta.authorName());
+        other.setXRestrict(meta.xRestrict());
+        other.setAi(meta.ai());
+        other.setDescription(meta.description());
+        other.setTags(meta.tags());
+        other.setSeriesId(meta.seriesId());
+        other.setSeriesOrder(meta.seriesOrder());
+        other.setIllustType(meta.illustType());
+        other.setFileNameTemplate(download.fileNameTemplate());
+        other.setBookmark(download.bookmark());
+        other.setCollectionId(download.collectionId());
+        other.setDelayMs(download.imageDelayMs() == null
+                ? 0
+                : Math.max(0, download.imageDelayMs()));
+        if (seriesTitle != null) {
+            other.setSeriesTitle(seriesTitle);
+        }
+        if (seriesDescription != null) {
+            other.setSeriesDescription(seriesDescription);
+        }
+        if (seriesCoverUrl != null) {
+            other.setSeriesCoverUrl(seriesCoverUrl);
+        }
+        if (ugoira) {
+            other.setUgoira(true);
+            other.setUgoiraZipUrl(ugoiraZipUrl);
+            other.setUgoiraDelays(ugoiraDelays);
+        }
         context.cancellation().throwIfCancellationRequested();
-        boolean downloaded = downloadRunner.download(prepared, settings, cookie);
+        boolean downloaded = artworkDownloader.downloadImagesBlocking(
+                artworkId,
+                meta.title(),
+                imageUrls,
+                PIXIV_REFERER + id,
+                other,
+                cookie,
+                null);
         if (!downloaded) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
                     "pixiv.illust.download-failed");

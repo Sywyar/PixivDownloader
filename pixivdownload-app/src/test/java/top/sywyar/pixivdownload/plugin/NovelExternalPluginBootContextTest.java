@@ -284,12 +284,11 @@ class NovelExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("novel 只发布 plugin-api 计划作品执行器，不发布 legacy runner")
+    @DisplayName("novel 只发布 plugin-api 当前计划作品执行器")
     void novelPublishesOnlyCurrentScheduledWorkExecutor() {
         assertThat(scheduleCapabilityRegistry.resolveWorkExecutor("novel"))
                 .get()
                 .satisfies(handle -> assertThat(handle.owner().featurePluginId()).isEqualTo("novel"));
-        assertThat(scheduleCapabilityRegistry.resolveLegacyWorkRunner("novel")).isEmpty();
         assertThatThrownBy(() -> externalNovelClassLoader().loadClass(
                 "top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate"))
                 .isInstanceOf(ClassNotFoundException.class);

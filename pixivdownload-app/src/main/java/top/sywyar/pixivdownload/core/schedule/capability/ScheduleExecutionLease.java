@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
@@ -34,10 +32,8 @@ public final class ScheduleExecutionLease implements AutoCloseable {
 
     private ScheduledSourceDescriptor descriptor;
     private ScheduledSourceExecutor sourceExecutor;
-    private ScheduledSourceProvider legacySourceProvider;
     private Map<String, ScheduledWorkExecutor> workExecutors;
     private Map<String, ScheduleCapabilityOwner> workExecutorOwners;
-    private Map<String, ScheduledWorkRunner> legacyWorkRunners;
     private ScheduledCredentialPolicy credentialPolicy;
     private ScheduleCapabilityOwner credentialPolicyOwner;
     private Map<String, ScheduledExecutionGuard> guards;
@@ -51,7 +47,6 @@ public final class ScheduleExecutionLease implements AutoCloseable {
             SchedulePlanningLease.TransferredSource source,
             Map<String, ScheduledWorkExecutor> workExecutors,
             Map<String, ScheduleCapabilityOwner> workExecutorOwners,
-            Map<String, ScheduledWorkRunner> legacyWorkRunners,
             ScheduledCredentialPolicy credentialPolicy,
             ScheduleCapabilityOwner credentialPolicyOwner,
             Map<String, ScheduledExecutionGuard> guards,
@@ -68,10 +63,8 @@ public final class ScheduleExecutionLease implements AutoCloseable {
         this.owners = Set.copyOf(ownerSet);
         this.descriptor = source.descriptor();
         this.sourceExecutor = source.sourceExecutor();
-        this.legacySourceProvider = source.legacySourceProvider();
         this.workExecutors = Map.copyOf(workExecutors);
         this.workExecutorOwners = Map.copyOf(workExecutorOwners);
-        this.legacyWorkRunners = Map.copyOf(legacyWorkRunners);
         this.credentialPolicy = credentialPolicy;
         this.credentialPolicyOwner = credentialPolicyOwner;
         this.guards = Map.copyOf(guards);
@@ -96,11 +89,6 @@ public final class ScheduleExecutionLease implements AutoCloseable {
         return Optional.ofNullable(sourceExecutor);
     }
 
-    public synchronized Optional<ScheduledSourceProvider> legacySourceProvider() {
-        ensureActive();
-        return Optional.ofNullable(legacySourceProvider);
-    }
-
     public synchronized Optional<ScheduledWorkExecutor> workExecutor(String workType) {
         ensureActive();
         return Optional.ofNullable(workExecutors.get(workType));
@@ -119,16 +107,6 @@ public final class ScheduleExecutionLease implements AutoCloseable {
     public synchronized Map<String, ScheduleCapabilityOwner> workExecutorOwners() {
         ensureActive();
         return Map.copyOf(workExecutorOwners);
-    }
-
-    public synchronized Optional<ScheduledWorkRunner> legacyWorkRunner(String workType) {
-        ensureActive();
-        return Optional.ofNullable(legacyWorkRunners.get(workType));
-    }
-
-    public synchronized Map<String, ScheduledWorkRunner> legacyWorkRunners() {
-        ensureActive();
-        return Map.copyOf(legacyWorkRunners);
     }
 
     public synchronized Optional<ScheduledCredentialPolicy> credentialPolicy() {
@@ -209,10 +187,8 @@ public final class ScheduleExecutionLease implements AutoCloseable {
         } finally {
             descriptor = null;
             sourceExecutor = null;
-            legacySourceProvider = null;
             workExecutors = Map.of();
             workExecutorOwners = Map.of();
-            legacyWorkRunners = Map.of();
             credentialPolicy = null;
             credentialPolicyOwner = null;
             guards = Map.of();

@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.source;
 
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
-
 import java.util.Set;
 
 /**
@@ -19,7 +17,7 @@ public record ScheduledSourceDescriptor(
         Set<String> credentialPolicyIds,
         Set<String> guardIds,
         ScheduledSourceFrontendContribution frontend
-) implements ScheduledSourceProvider {
+) {
 
     public ScheduledSourceDescriptor {
         sourceType = requireText(sourceType, "source type");
@@ -38,16 +36,6 @@ public record ScheduledSourceDescriptor(
         if (possibleWorkTypes.isEmpty()) {
             throw new IllegalArgumentException("source must declare at least one possible work type");
         }
-    }
-
-    @Override
-    public String type() {
-        return sourceType;
-    }
-
-    @Override
-    public Set<String> legacyTypeNames() {
-        return legacyAliases;
     }
 
     private static Set<String> copy(Set<String> values) {

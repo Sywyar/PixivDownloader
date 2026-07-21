@@ -7,8 +7,6 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegis
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 
 import java.util.List;
 import java.util.Optional;
@@ -59,11 +57,8 @@ class ScheduleRunnerLeaseTest {
             assertThat(allowLookup.await(5, TimeUnit.SECONDS)).isTrue();
             return List.of();
         });
-        ScheduledWorkRunner workRunner = mock(ScheduledWorkRunner.class);
-        when(workRunner.kind()).thenReturn(ScheduledWorkKind.ILLUST);
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(
-                registry, List.of(workRunner));
+        var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store,
                 mock(ScheduleExecutor.class),
@@ -104,10 +99,8 @@ class ScheduleRunnerLeaseTest {
         when(store.tryQueueDue(eq(31L), eq(7L), anyString(), anyLong()))
                 .thenReturn(Optional.empty());
 
-        ScheduledWorkRunner workRunner = mock(ScheduledWorkRunner.class);
-        when(workRunner.kind()).thenReturn(ScheduledWorkKind.ILLUST);
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of(workRunner));
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store, executor, new ScheduleConfig(), runState, registry);
 
@@ -147,10 +140,8 @@ class ScheduleRunnerLeaseTest {
                     throw new IllegalStateException("claim write failed");
                 });
 
-        ScheduledWorkRunner workRunner = mock(ScheduledWorkRunner.class);
-        when(workRunner.kind()).thenReturn(ScheduledWorkKind.ILLUST);
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of(workRunner));
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store, executor, new ScheduleConfig(), runState, registry);
 
@@ -175,11 +166,8 @@ class ScheduleRunnerLeaseTest {
         when(task.nextRunTime()).thenReturn(8_000L);
         when(store.findDue(anyLong())).thenReturn(List.of(task));
 
-        ScheduledWorkRunner workRunner = mock(ScheduledWorkRunner.class);
-        when(workRunner.kind()).thenReturn(ScheduledWorkKind.ILLUST);
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(
-                registry, List.of(workRunner));
+        var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunToken queuedToken = new ScheduleRunToken(
                 "claim-host-cancel", 13L,
                 top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
@@ -246,19 +234,19 @@ class ScheduleRunnerLeaseTest {
                 anyLong(), eq("CLAIM_ABANDONED"), isNull(), eq(9_000L)))
                 .thenReturn(OptionalLong.of(23L));
 
-        ScheduledWorkRunner workRunner = mock(ScheduledWorkRunner.class);
-        when(workRunner.kind()).thenReturn(ScheduledWorkKind.ILLUST);
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of(workRunner));
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         AtomicBoolean previousFinished = new AtomicBoolean();
         when(store.startRun(52L, waitingToken)).thenAnswer(invocation -> {
             assertThat(previousFinished).isTrue();
             return Optional.empty();
         });
         ScheduleExecutor executor = new ScheduleExecutor(
-                store, registry, null, null, null, null, null,
-                new ScheduleConfig(), runState, null, null, null, null, null, null, null,
-                null, null) {
+                store, registry, runState, new com.fasterxml.jackson.databind.ObjectMapper(),
+                mock(top.sywyar.pixivdownload.core.notification.NotificationService.class),
+                mock(top.sywyar.pixivdownload.i18n.AppMessages.class), null,
+                mock(top.sywyar.pixivdownload.setup.UserDisplayNameProvider.class),
+                mock(top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine.class)) {
             @Override
             void runTaskAndRecord(
                     top.sywyar.pixivdownload.core.schedule.ScheduledTask task,
@@ -300,10 +288,8 @@ class ScheduleRunnerLeaseTest {
         when(store.findAll()).thenReturn(List.of(orphan));
         when(store.findDue(anyLong())).thenReturn(List.of());
 
-        ScheduledWorkRunner workRunner = mock(ScheduledWorkRunner.class);
-        when(workRunner.kind()).thenReturn(ScheduledWorkKind.ILLUST);
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of(workRunner));
+        ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store, executor, new ScheduleConfig(), runState, registry);
 

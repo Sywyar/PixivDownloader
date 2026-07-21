@@ -4,12 +4,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * 下载工作台作为外置 required PF4J 插件时的 contribution 契约。这里不加载 app 的
@@ -174,12 +176,23 @@ class DownloadWorkbenchRequiredContextTest {
     }
 
     @Test
-    @DisplayName("七类默认插画/混合作品来源随 download-workbench 插件贡献")
+    @DisplayName("七类来源描述符与 child-context 执行器按同一 owner 原子发布")
     void scheduledSourcesDeclared() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityTestFixture.publish(registry, ScheduleOwnerBundle.prepare(
+        List<ScheduledSourceDescriptor> descriptors = plugin.scheduledSourceDescriptors();
+        List<ScheduledSourceExecutor> sourceExecutors = descriptors.stream()
+                .map(descriptor -> {
+                    ScheduledSourceExecutor executor = mock(ScheduledSourceExecutor.class);
+                    when(executor.sourceType()).thenReturn(descriptor.sourceType());
+                    return executor;
+                })
+                .toList();
+        ScheduleCapabilityTestFixture.publish(
+                registry,
                 new ScheduleCapabilityOwner("download-workbench", "download-workbench", 1L),
-                plugin.scheduledSources(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+                descriptors,
+                sourceExecutors,
+                List.of());
 
         assertThat(registry.snapshotView().owners()).singleElement()
                 .satisfies(owner -> {
@@ -187,17 +200,24 @@ class DownloadWorkbenchRequiredContextTest {
                     assertThat(owner.owner().packageId()).isEqualTo("download-workbench");
                     assertThat(owner.owner().pluginGeneration()).isEqualTo(1L);
                 });
-        assertThat(registry.snapshotView().owners().get(0).legacySourceTypes())
+        assertThat(registry.snapshotView().owners().get(0).sourceTypes())
                 .containsExactlyInAnyOrder("user-new", "user-request", "search", "series",
                         "my-bookmarks", "follow-latest", "collection");
+        assertThat(registry.snapshotView().owners().get(0).sourceAliases())
+                .containsExactlyInAnyOrder("USER_NEW", "USER_REQUEST", "SEARCH", "SERIES",
+                        "MY_BOOKMARKS", "FOLLOW_LATEST", "COLLECTION");
         SchedulePlanningLease userNew = registry.prepareSource("USER_NEW").orElseThrow();
         SchedulePlanningLease collection = registry.prepareSource("COLLECTION").orElseThrow();
         try (userNew; collection) {
             assertThat(registry.activate(userNew)).isTrue();
             assertThat(registry.activate(collection)).isTrue();
-            assertThat(userNew.legacySourceProvider()).map(ScheduledSourceProvider::type)
+            assertThat(userNew.descriptor()).map(ScheduledSourceDescriptor::sourceType)
                     .contains("user-new");
-            assertThat(collection.legacySourceProvider()).map(ScheduledSourceProvider::type)
+            assertThat(userNew.sourceExecutor()).map(ScheduledSourceExecutor::sourceType)
+                    .contains("user-new");
+            assertThat(collection.descriptor()).map(ScheduledSourceDescriptor::sourceType)
+                    .contains("collection");
+            assertThat(collection.sourceExecutor()).map(ScheduledSourceExecutor::sourceType)
                     .contains("collection");
         }
     }

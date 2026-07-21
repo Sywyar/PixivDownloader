@@ -21,9 +21,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * plugin-api 所有权白名单。生产类型原则上只有在表达稳定的第三方插件协议时才能进入本模块；
- * 已有持久数据迁移所需的类型必须单列精确例外，不能混入稳定协议。仅满足纯 JDK 或被当前宿主使用，
- * 不足以成为 Plugin API。
+ * plugin-api 所有权白名单。生产类型只有在表达稳定的第三方插件协议时才能进入本模块；
+ * 仅满足纯 JDK、被当前宿主使用或服务已有持久数据迁移，不足以成为 Plugin API。
  */
 @DisplayName("plugin-api 所有权边界")
 class PluginApiOwnershipGuardTest {
@@ -109,13 +108,6 @@ class PluginApiOwnershipGuardTest {
             "队列生命周期协议", 5
     );
 
-    /**
-     * 只为已有持久任务转换保留，不代表稳定第三方插件协议；迁移完成后必须删除。
-     */
-    private static final Set<String> TEMPORARY_MIGRATION_TYPES = Set.of(
-            API_PREFIX + "schedule.ScheduledSourceProvider"
-    );
-
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
             API_PREFIX + "download.queue.QueueTaskTracker$Task",
             API_PREFIX + "schedule.credential.ScheduledCredentialContext$Purpose",
@@ -127,15 +119,11 @@ class PluginApiOwnershipGuardTest {
     );
 
     @Test
-    @DisplayName("每个生产类型都必须有稳定协议 owner 或精确迁移例外")
-    void everyProductionTypeHasAnExplicitProtocolOwnerOrMigrationException() {
+    @DisplayName("每个生产类型都必须有稳定协议 owner")
+    void everyProductionTypeHasAnExplicitProtocolOwner() {
         assertThat(APPROVED_TYPES_BY_OWNER.keySet()).containsExactlyInAnyOrderElementsOf(APPROVED_TYPE_COUNTS.keySet());
         APPROVED_TYPES_BY_OWNER.forEach((owner, types) ->
                 assertThat(types).as(owner).hasSize(APPROVED_TYPE_COUNTS.get(owner)));
-        assertThat(TEMPORARY_MIGRATION_TYPES)
-                .as("迁移例外必须保持精确，不能把新类型伪装成兼容债")
-                .containsExactly(API_PREFIX + "schedule.ScheduledSourceProvider");
-        assertThat(approvedTypes()).doesNotContainAnyElementsOf(TEMPORARY_MIGRATION_TYPES);
 
         Set<String> actualTopLevelTypes = new LinkedHashSet<>();
         CLASSES.stream()
@@ -145,8 +133,8 @@ class PluginApiOwnershipGuardTest {
                 .forEach(actualTopLevelTypes::add);
 
         assertThat(actualTopLevelTypes)
-                .as("新增 plugin-api 类型必须先证明它是稳定第三方插件协议，或列为精确的持久任务迁移例外")
-                .containsExactlyInAnyOrderElementsOf(expectedProductionTypes());
+                .as("新增 plugin-api 类型必须先证明它是稳定第三方插件协议")
+                .containsExactlyInAnyOrderElementsOf(approvedTypes());
 
         Set<String> actualPublicNestedTypes = new LinkedHashSet<>();
         CLASSES.stream()
@@ -232,12 +220,6 @@ class PluginApiOwnershipGuardTest {
             throw new IllegalStateException("plugin-api owner whitelist contains duplicate types");
         }
         return Set.copyOf(approved);
-    }
-
-    private static Set<String> expectedProductionTypes() {
-        Set<String> expected = new LinkedHashSet<>(approvedTypes());
-        expected.addAll(TEMPORARY_MIGRATION_TYPES);
-        return Set.copyOf(expected);
     }
 
     private static Set<String> types(String packageName, String... simpleNames) {

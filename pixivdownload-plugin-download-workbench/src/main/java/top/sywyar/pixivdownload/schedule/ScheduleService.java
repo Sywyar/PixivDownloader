@@ -15,9 +15,6 @@ import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
@@ -237,9 +234,9 @@ public class ScheduleService {
         Integer translatePending = null;
         if (ScheduleRunQueue.KIND_NOVEL.equals(it.getKind()) && it.isAutoTranslateSubmitted()) {
             try {
-                long novelId = Long.parseLong(it.getId());
-                ScheduledWorkTranslateStatus tv = null;
-                var executorHandle = scheduleCapabilityRegistry.resolveWorkExecutor(ScheduledWorkKind.NOVEL)
+                TranslateStatus tv = null;
+                var executorHandle = scheduleCapabilityRegistry.resolveWorkExecutor(
+                                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL)
                         .orElse(null);
                 if (executorHandle != null) {
                     ScheduleSingleCapabilityLease<ScheduledWorkExecutor> lease =
@@ -247,21 +244,10 @@ public class ScheduleService {
                     try (lease) {
                         if (lease != null && scheduleCapabilityRegistry.activate(lease)) {
                             Map<String, String> status = lease.capability().status(
-                                    new ScheduledWorkKey(ScheduledWorkKind.NOVEL, it.getId()));
+                                    new ScheduledWorkKey(
+                                            PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL,
+                                            it.getId()));
                             tv = safeTranslateStatus(status);
-                        }
-                    }
-                } else {
-                    // 仅保留给尚未迁移的内置测试适配器；第三方旧插件不会进入新 Schedule 执行流。
-                    var legacyHandle = scheduleCapabilityRegistry.resolveLegacyWorkRunner(ScheduledWorkKind.NOVEL)
-                            .orElse(null);
-                    if (legacyHandle != null) {
-                        ScheduleSingleCapabilityLease<ScheduledWorkRunner> lease =
-                                scheduleCapabilityRegistry.prepareAcquire(legacyHandle).orElse(null);
-                        try (lease) {
-                            if (lease != null && scheduleCapabilityRegistry.activate(lease)) {
-                                tv = lease.capability().translateStatus(novelId);
-                            }
                         }
                     }
                 }
@@ -270,8 +256,6 @@ public class ScheduleService {
                     translateElapsed = tv.elapsedSeconds();
                     translatePending = tv.seriesPending();
                 }
-            } catch (NumberFormatException ignored) {
-                // 非数字 ID（不应出现于小说）：跳过叠加
             } catch (RuntimeException ignored) {
                 // 插件执行器异常不得穿过边界破坏整份队列视图，也不保留 child classloader 的异常对象。
                 log.debug("Scheduled work translation status is temporarily unavailable");
@@ -522,7 +506,7 @@ public class ScheduleService {
         }
     }
 
-    private static ScheduledWorkTranslateStatus safeTranslateStatus(Map<String, String> status) {
+    private static TranslateStatus safeTranslateStatus(Map<String, String> status) {
         if (status == null || status.isEmpty() || status.size() > MAX_PLUGIN_STATUS_ENTRIES) {
             return null;
         }
@@ -535,7 +519,10 @@ public class ScheduleService {
         if ((elapsed != null && elapsed < 0L) || (pending != null && pending < 0)) {
             return null;
         }
-        return new ScheduledWorkTranslateStatus(phase, elapsed, pending);
+        return new TranslateStatus(phase, elapsed, pending);
+    }
+
+    private record TranslateStatus(String phase, Long elapsedSeconds, Integer seriesPending) {
     }
 
     private static String safeStatusValue(String value) {
@@ -572,7 +559,7 @@ public class ScheduleService {
      * 应改用「停用」阻止自动调度。空闲时直接拒绝（前端也会禁用按钮，这里是后端防护）。
      *
      * <p>通过 {@link ScheduleRunState#requestCancel(long)} 给正在运行的本轮派发循环发协作式取消信号：
-     * executor 在下一个作品派发前抛 {@link SchedulePauseException} 干净 unwind 本轮，
+     * 通用执行引擎在下一个作品边界观察取消并干净收束本轮，
      * 这样「按下暂停立刻见效」，已下载的不回滚、未派发的不再继续；持久化状态先原子转为
      * {@code CANCEL_REQUESTED}，再由持有原 claim token 的执行方完成取消收尾。
      */

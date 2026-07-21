@@ -27,17 +27,25 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigra
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskSnapshot;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 import java.io.IOException;
@@ -52,6 +60,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -395,28 +404,6 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
         }
     }
 
-    @Test
-    @DisplayName("缺少宿主持久化规范时不调用适配器并保留旧凭证与 pending")
-    void shouldRejectMissingPersistenceSpecBeforeAdapterInvocation() throws Exception {
-        try (Database database = openFixture("missing-spec.db")) {
-            AtomicBoolean adapterCalled = new AtomicBoolean();
-            LegacyScheduledTaskMigrationAdapter adapter = snapshot -> {
-                adapterCalled.set(true);
-                throw new AssertionError("adapter must not run without a host-stamped persistence spec");
-            };
-
-            var report = database.authorized(
-                    Map.of("USER_NEW", LegacyScheduledTaskMigrationRoute.specUnavailable("user-new")),
-                    taskId -> {}).migrate(adapter);
-
-            assertThat(report.rejected()).isEqualTo(1);
-            assertThat(report.failed()).isZero();
-            assertThat(adapterCalled).isFalse();
-            assertLegacyMigrationInputPreserved(database, 1L,
-                    LegacyScheduledTaskMigrationCoordinator.MIGRATION_SPEC_UNAVAILABLE);
-        }
-    }
-
     private Database openFixture(String fileName) throws Exception {
         SingleConnectionDataSource dataSource = new SingleConnectionDataSource();
         dataSource.setDriverClassName("org.sqlite.JDBC");
@@ -662,38 +649,85 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
                             .add(target.policyId()));
         });
 
-        List<ScheduledSourceProvider> sources = new ArrayList<>();
-        List<LegacySchedulePersistenceDescriptor> descriptors = new ArrayList<>();
+        List<ScheduledSourceDescriptor> sourceDescriptors = new ArrayList<>();
+        List<ScheduledSourceExecutor> sourceExecutors = new ArrayList<>();
+        Set<String> workTypes = new LinkedHashSet<>();
+        List<LegacySchedulePersistenceDescriptor> persistenceDescriptors = new ArrayList<>();
         byCanonical.forEach((canonical, route) -> {
             Set<String> aliases = Set.copyOf(aliasesByCanonical.get(canonical));
-            sources.add(new ScheduledSourceProvider() {
-                @Override public String type() { return canonical; }
-                @Override public Set<String> legacyTypeNames() { return aliases; }
-            });
-            if (route.hasPersistenceContract()) {
-                descriptors.add(new LegacySchedulePersistenceDescriptor(
-                        canonical, route.definitionSchema(), route.definitionVersion(),
-                        route.allowedWorkTypes(), route.allowedCredentialPolicies().stream()
-                        .map(LegacyScheduledCredentialPolicyTarget::policyId).collect(java.util.stream.Collectors.toSet())));
-            }
+            Set<String> policyIds = route.allowedCredentialPolicies().stream()
+                    .map(LegacyScheduledCredentialPolicyTarget::policyId)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            sourceDescriptors.add(sourceDescriptor(canonical, aliases, route, policyIds));
+            sourceExecutors.add(sourceExecutor(canonical, route.allowedWorkTypes()));
+            workTypes.addAll(route.allowedWorkTypes());
+            persistenceDescriptors.add(new LegacySchedulePersistenceDescriptor(
+                    canonical, route.definitionSchema(), route.definitionVersion(),
+                    route.allowedWorkTypes(), policyIds));
         });
         List<ScheduledCredentialPolicy> localPolicies = policyIdsByOwner.getOrDefault(OWNER, Set.of()).stream()
                 .map(LegacyScheduledTaskMigrationCoordinatorTest::credentialPolicy)
                 .toList();
-        List<LegacySchedulePersistenceDescriptorProvider> persistenceProviders = descriptors.isEmpty()
-                ? List.of() : List.of(() -> List.copyOf(descriptors));
+        List<LegacySchedulePersistenceDescriptorProvider> persistenceProviders =
+                List.of(() -> List.copyOf(persistenceDescriptors));
         return ScheduleOwnerBundle.prepare(
                 new ScheduleCapabilityOwner(OWNER, "fixture-package", 1L),
-                sources, List.of(), List.of(), List.of(), List.of(), localPolicies, List.of(),
+                sourceDescriptors,
+                sourceExecutors,
+                workTypes.stream().map(LegacyScheduledTaskMigrationCoordinatorTest::workExecutor).toList(),
+                localPolicies,
+                List.of(),
                 persistenceProviders);
     }
 
     private static ScheduleOwnerBundle policyBundle(String owner, Set<String> policyIds) {
         return ScheduleOwnerBundle.prepare(
                 new ScheduleCapabilityOwner(owner, owner + "-package", 1L),
-                List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
                 policyIds.stream().map(LegacyScheduledTaskMigrationCoordinatorTest::credentialPolicy).toList(),
                 List.of());
+    }
+
+    private static ScheduledSourceDescriptor sourceDescriptor(
+            String sourceType,
+            Set<String> aliases,
+            LegacyScheduledTaskMigrationRoute route,
+            Set<String> policyIds) {
+        return new ScheduledSourceDescriptor(
+                sourceType,
+                aliases,
+                route.definitionSchema(),
+                route.definitionVersion(),
+                new ScheduledSourcePresentation(
+                        "schedule-test", "schedule.source.name", "schedule.source.description",
+                        "schedule", "neutral"),
+                Set.of("default"),
+                route.allowedWorkTypes(),
+                policyIds,
+                Set.of(),
+                null);
+    }
+
+    private static ScheduledSourceExecutor sourceExecutor(String sourceType, Set<String> workTypes) {
+        return new ScheduledSourceExecutor() {
+            @Override public String sourceType() { return sourceType; }
+            @Override public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
+                return ScheduledExecutionPlan.credentialFree(workTypes);
+            }
+            @Override public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+        };
+    }
+
+    private static ScheduledWorkExecutor workExecutor(String workType) {
+        return new ScheduledWorkExecutor() {
+            @Override public String workType() { return workType; }
+            @Override public ScheduledWorkResult execute(
+                    ScheduledWork work, ScheduledWorkContext context) {
+                return ScheduledWorkResult.completed();
+            }
+        };
     }
 
     private static ScheduledCredentialPolicy credentialPolicy(String policyId) {

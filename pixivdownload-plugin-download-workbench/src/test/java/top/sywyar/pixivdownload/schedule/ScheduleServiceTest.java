@@ -21,14 +21,10 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
-import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
@@ -857,16 +853,23 @@ class ScheduleServiceTest {
         run.discovered("222", ScheduleRunQueue.KIND_NOVEL);
         run.mark("222", ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
         when(runQueue.get(1L)).thenReturn(run);
-        ScheduledWorkRunner novelRunner = org.mockito.Mockito.mock(ScheduledWorkRunner.class);
-        when(novelRunner.kind()).thenReturn(ScheduledWorkKind.NOVEL);
-        when(novelRunner.translateStatus(111L)).thenReturn(
-                new ScheduledWorkTranslateStatus("TRANSLATING", 5L, 0));
+        ScheduledWorkExecutor novelExecutor =
+                org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
+        when(novelExecutor.workType())
+                .thenReturn(PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL);
+        when(novelExecutor.status(new ScheduledWorkKey(
+                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "111")))
+                .thenReturn(Map.of(
+                        "phase", "TRANSLATING",
+                        "elapsedSeconds", "5",
+                        "seriesPending", "0"));
         ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
                 capabilityRegistry,
                 new ScheduleCapabilityOwner("novel", "novel", 1L),
                 List.of(),
-                List.of(novelRunner));
+                List.of(),
+                List.of(novelExecutor));
 
         List<ScheduleQueueView.Item> items =
                 newService(new ScheduleRunState(), capabilityRegistry).queue(1L).items();
@@ -881,8 +884,10 @@ class ScheduleServiceTest {
                 .orElseThrow();
         assertThat(submitted.translatePhase()).isEqualTo("TRANSLATING");
         assertThat(skipped.translatePhase()).isNull();
-        verify(novelRunner).translateStatus(111L);
-        verify(novelRunner, never()).translateStatus(222L);
+        verify(novelExecutor).status(new ScheduledWorkKey(
+                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "111"));
+        verify(novelExecutor, never()).status(new ScheduledWorkKey(
+                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "222"));
         assertThat(ScheduleCapabilityTestFixture.withdraw(capabilityRegistry, publication)
                 .orElseThrow().isDrained()).isTrue();
     }
@@ -901,7 +906,7 @@ class ScheduleServiceTest {
         ScheduledWorkExecutor novelExecutor = new ScheduledWorkExecutor() {
             @Override
             public String workType() {
-                return ScheduledWorkKind.NOVEL;
+                return PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL;
             }
 
             @Override
@@ -916,10 +921,11 @@ class ScheduleServiceTest {
         };
         ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
-                capabilityRegistry, ScheduleOwnerBundle.prepare(
-                        new ScheduleCapabilityOwner("novel", "novel", 1L),
-                        List.of(), List.of(), List.of(), List.of(),
-                        List.of(novelExecutor), List.of(), List.of()));
+                capabilityRegistry,
+                new ScheduleCapabilityOwner("novel", "novel", 1L),
+                List.of(),
+                List.of(),
+                List.of(novelExecutor));
         ScheduleService service = newService(new ScheduleRunState(), capabilityRegistry);
 
         assertThat(service.queue(4L).items().get(0).translatePhase())
@@ -960,15 +966,20 @@ class ScheduleServiceTest {
         run.mark("444", ScheduleRunQueue.STATUS_DOWNLOADED, null);
         run.markAutoTranslateSubmitted("444");
         when(runQueue.get(3L)).thenReturn(run);
-        ScheduledWorkRunner novelRunner = org.mockito.Mockito.mock(ScheduledWorkRunner.class);
-        when(novelRunner.kind()).thenReturn(ScheduledWorkKind.NOVEL);
-        when(novelRunner.translateStatus(444L))
+        ScheduledWorkExecutor novelExecutor =
+                org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
+        when(novelExecutor.workType())
+                .thenReturn(PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL);
+        when(novelExecutor.status(new ScheduledWorkKey(
+                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "444")))
                 .thenThrow(new IllegalStateException("plugin child failure"));
         ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
         ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
                 capabilityRegistry,
                 new ScheduleCapabilityOwner("novel", "novel", 1L),
-                List.of(), List.of(novelRunner));
+                List.of(),
+                List.of(),
+                List.of(novelExecutor));
 
         ScheduleQueueView.Item item =
                 newService(new ScheduleRunState(), capabilityRegistry).queue(3L).items().get(0);
