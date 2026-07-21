@@ -239,7 +239,7 @@ public class TtsPlugin implements PixivFeaturePlugin {
                                                     GuiConfigCondition... enabledWhen) {
         String prefix = "gui.config.field." + key;
         List<GuiConfigCondition> enabledConditions = List.of(enabledWhen);
-        return new GuiConfigFieldContribution(key, GuiConfigGroups.NARRATION_TTS, prefix + ".label", prefix + ".help",
+        return new GuiConfigFieldContribution(key, GuiConfigGroups.AI, prefix + ".label", prefix + ".help",
                 ID, type, defaultValue, order, false, false, enumValues,
                 enabledConditions, visibleWhenEngine(enabledConditions), minValue, maxValue,
                 true, enumValueLabelKeys);

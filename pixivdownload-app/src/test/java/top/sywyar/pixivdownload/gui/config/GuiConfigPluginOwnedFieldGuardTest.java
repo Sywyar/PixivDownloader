@@ -25,6 +25,9 @@ class GuiConfigPluginOwnedFieldGuardTest {
             Pattern.compile("\\bpush\\."),
             Pattern.compile("\\bai\\."),
             Pattern.compile("\\bnarration-tts\\."),
+            Pattern.compile("GuiConfigGroups\\.NARRATION_TTS"),
+            Pattern.compile("groupNarrationTts"),
+            Pattern.compile("gui\\.config\\.group\\.narration-tts"),
             Pattern.compile("download\\.novel-max-concurrent"),
             Pattern.compile("download\\.novel-translate-max-concurrent"),
             Pattern.compile("mail-test"),
@@ -40,7 +43,9 @@ class GuiConfigPluginOwnedFieldGuardTest {
         List<Path> roots = List.of(
                 appRoot().resolve("src/main/java/top/sywyar/pixivdownload/gui/config"),
                 appRoot().resolve("src/main/java/top/sywyar/pixivdownload/gui/panel/configtab"),
-                appRoot().resolve("src/main/java/top/sywyar/pixivdownload/gui/panel/ConfigPanel.java"));
+                appRoot().resolve("src/main/java/top/sywyar/pixivdownload/gui/panel/ConfigPanel.java"),
+                appRoot().resolve("src/main/resources/i18n/gui.properties"),
+                appRoot().resolve("src/main/resources/i18n/gui_en.properties"));
         List<String> violations = new ArrayList<>();
         for (Path root : roots) {
             if (!Files.exists(root)) {

@@ -29,7 +29,7 @@ class TtsPluginGuiConfigContributionTest {
                 .allMatch(key -> ((String) key).startsWith("narration-tts."));
         assertThat(fields).allSatisfy(field -> {
             assertThat(field.key()).startsWith("narration-tts.");
-            assertThat(field.groupId()).isEqualTo(GuiConfigGroups.NARRATION_TTS);
+            assertThat(field.groupId()).isEqualTo(GuiConfigGroups.AI);
             assertThat(field.i18nNamespace()).isEqualTo(TtsPlugin.ID);
             assertThat(field.contributesGroupVisibility()).isTrue();
         });

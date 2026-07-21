@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.config.FieldType;
@@ -25,7 +24,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigConditionOperator;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 
 import javax.swing.BorderFactory;
@@ -418,11 +416,6 @@ final class DeclaredGuiConfigSection implements ConfigSection {
     private boolean matchesGroup(ConfigFieldSpec field, GuiConfigSectionSpec section) {
         String fieldGroupId = normalizeGroupId(field.groupId());
         String sectionGroupId = normalizeGroupId(section.groupId());
-        if (GuiConfigGroups.AI.equals(sectionGroupId)
-                && (GuiConfigGroups.NARRATION_TTS.equals(fieldGroupId)
-                || ConfigFieldRegistry.groupNarrationTts().equals(field.group()))) {
-            return true;
-        }
         if (fieldGroupId != null && sectionGroupId != null) {
             return fieldGroupId.equals(sectionGroupId);
         }

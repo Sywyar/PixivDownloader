@@ -6,13 +6,17 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +35,21 @@ class PluginApiOwnershipGuardTest {
     private static final String REQUEST_OWNER_RESOLVER = API_PREFIX + "web.RequestOwnerIdentityResolver";
     private static final Set<String> PRIMITIVE_TYPE_NAMES = Set.of(
             "boolean", "byte", "char", "short", "int", "long", "float", "double", "void"
+    );
+    private static final Map<String, String> APPROVED_GUI_CONFIG_GROUPS = Map.ofEntries(
+            Map.entry("SERVER", "server"),
+            Map.entry("DOWNLOAD", "download"),
+            Map.entry("PLUGINS", "plugins"),
+            Map.entry("PROXY", "proxy"),
+            Map.entry("MULTI_MODE", "multi-mode"),
+            Map.entry("GUEST_INVITE", "guest-invite"),
+            Map.entry("SECURITY", "security"),
+            Map.entry("MAINTENANCE", "maintenance"),
+            Map.entry("HTTPS", "https"),
+            Map.entry("UPDATE", "update"),
+            Map.entry("SCHEDULE", "schedule"),
+            Map.entry("AI", "ai"),
+            Map.entry("NOTIFICATION", "notification")
     );
 
     private static final JavaClasses CLASSES = new ClassFileImporter()
@@ -198,6 +217,14 @@ class PluginApiOwnershipGuardTest {
                 .doesNotContain("ownerPluginId", "indexes");
     }
 
+    @Test
+    @DisplayName("内置 GUI 配置分组只暴露宿主或跨插件共享语义")
+    void builtInGuiConfigGroupsHaveNeutralOwners() {
+        assertThat(publicStringConstants(GuiConfigGroups.class))
+                .as("单一官方插件私有的配置分组不得提升进 plugin-api")
+                .containsExactlyInAnyOrderEntriesOf(APPROVED_GUI_CONFIG_GROUPS);
+    }
+
     private static boolean isJdkOrPluginApi(String typeName) {
         return typeName.startsWith("java.")
                 || typeName.startsWith(API_PREFIX)
@@ -207,6 +234,24 @@ class PluginApiOwnershipGuardTest {
 
     private static String listOf(Class<?> elementType) {
         return List.class.getName() + "<" + elementType.getName() + ">";
+    }
+
+    private static Map<String, String> publicStringConstants(Class<?> type) {
+        Map<String, String> constants = new LinkedHashMap<>();
+        for (Field field : type.getDeclaredFields()) {
+            int modifiers = field.getModifiers();
+            if (!Modifier.isPublic(modifiers)
+                    || !Modifier.isStatic(modifiers)
+                    || field.getType() != String.class) {
+                continue;
+            }
+            try {
+                constants.put(field.getName(), (String) field.get(null));
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException("cannot read public GUI config group constant " + field.getName(), e);
+            }
+        }
+        return Map.copyOf(constants);
     }
 
     private static Set<String> approvedTypes() {

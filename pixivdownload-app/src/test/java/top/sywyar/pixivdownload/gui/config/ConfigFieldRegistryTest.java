@@ -56,23 +56,19 @@ class ConfigFieldRegistryTest {
     }
 
     @Test
-    @DisplayName("没有 AI / TTS 插件字段贡献时不显示 AI 与朗读分组")
-    void aiGroupHiddenWithoutAiOrTtsPluginFields() {
+    @DisplayName("没有共享 AI 分组贡献时不显示 AI 分组")
+    void aiGroupHiddenWithoutContributions() {
         String aiGroup = GuiMessages.get("gui.config.group.ai");
-        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
 
-        assertThat(ConfigFieldRegistry.groups())
-                .doesNotContain(aiGroup)
-                .doesNotContain(narrationTtsGroup);
+        assertThat(ConfigFieldRegistry.groups()).doesNotContain(aiGroup);
     }
 
     @Test
-    @DisplayName("仅 AI 插件字段贡献时显示 AI 分组")
-    void aiGroupVisibleWithAiPluginFields() {
+    @DisplayName("共享 AI 分组字段贡献时显示 AI 分组")
+    void aiGroupVisibleWithContributedField() {
         String aiGroup = GuiMessages.get("gui.config.group.ai");
-        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
         ConfigFieldSpec aiField = ConfigFieldSpec.builder(
-                        "ai.enabled", "AI", FieldType.BOOL, aiGroup)
+                        "fixture.ai-enabled", "AI", FieldType.BOOL, aiGroup)
                 .defaultValue("false")
                 .hotReloadable()
                 .build();
@@ -81,7 +77,6 @@ class ConfigFieldRegistryTest {
                 new GuiConfigContributionSnapshot(List.of(), List.of(aiField), List.of()));
 
         assertThat(snapshot.groups()).contains(aiGroup);
-        assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
     }
 
     @Test
@@ -199,49 +194,6 @@ class ConfigFieldRegistryTest {
                 new GuiConfigContributionSnapshot(List.of(group), List.of(), List.of(section), List.of()));
 
         assertThat(snapshot.groups()).contains("Fixture Group");
-    }
-
-    @Test
-    @DisplayName("仅 TTS 插件字段贡献时并入 AI 分组，不单独显示朗读分组")
-    void aiGroupVisibleWithTtsPluginFields() {
-        String aiGroup = GuiMessages.get("gui.config.group.ai");
-        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
-        ConfigFieldSpec ttsField = ConfigFieldSpec.builder(
-                        "narration-tts.engine", "Engine", FieldType.ENUM, narrationTtsGroup)
-                .defaultValue("voxcpm")
-                .enumValues("voxcpm")
-                .hotReloadable()
-                .build();
-
-        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                new GuiConfigContributionSnapshot(List.of(), List.of(ttsField), List.of()));
-
-        assertThat(snapshot.groups()).contains(aiGroup);
-        assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
-    }
-
-    @Test
-    @DisplayName("AI 和 TTS 插件字段同时贡献时显示组合后的 AI 分组")
-    void aiGroupVisibleWithAiAndTtsPluginFields() {
-        String aiGroup = GuiMessages.get("gui.config.group.ai");
-        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
-        ConfigFieldSpec aiField = ConfigFieldSpec.builder(
-                        "ai.enabled", "AI", FieldType.BOOL, aiGroup)
-                .defaultValue("false")
-                .hotReloadable()
-                .build();
-        ConfigFieldSpec ttsField = ConfigFieldSpec.builder(
-                        "narration-tts.engine", "Engine", FieldType.ENUM, narrationTtsGroup)
-                .defaultValue("voxcpm")
-                .enumValues("voxcpm")
-                .hotReloadable()
-                .build();
-
-        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
-                new GuiConfigContributionSnapshot(List.of(), List.of(aiField, ttsField), List.of()));
-
-        assertThat(snapshot.groups()).contains(aiGroup);
-        assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
     }
 
     private static ConfigFieldSpec notificationPluginField(String key) {

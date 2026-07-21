@@ -163,11 +163,6 @@ public final class GuiConfigSectionResolver {
     private static boolean matchesGroup(String itemGroupId, String itemGroupLabel, ConfigGroupSpec group) {
         String normalizedItemId = normalizeGroupId(itemGroupId);
         String normalizedGroupId = normalizeGroupId(group.id());
-        if (GuiConfigGroups.AI.equals(normalizedGroupId)
-                && (GuiConfigGroups.NARRATION_TTS.equals(normalizedItemId)
-                || ConfigFieldRegistry.groupNarrationTts().equals(itemGroupLabel))) {
-            return true;
-        }
         if (normalizedItemId != null && normalizedGroupId != null) {
             return normalizedItemId.equals(normalizedGroupId);
         }

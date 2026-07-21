@@ -548,22 +548,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         if (field == null || group == null) {
             return false;
         }
-        if (GuiConfigGroups.AI.equals(group.id())
-                && (GuiConfigGroups.NARRATION_TTS.equals(normalizeGroupId(field.groupId()))
-                || ConfigFieldRegistry.groupNarrationTts().equals(field.group()))) {
-            return true;
-        }
         return matchesGroup(field.groupId(), field.group(), group);
     }
 
     private static boolean matchesGroup(GuiConfigSectionSpec section, ConfigGroupSpec group) {
         if (section == null || group == null) {
             return false;
-        }
-        if (GuiConfigGroups.AI.equals(group.id())
-                && (GuiConfigGroups.NARRATION_TTS.equals(normalizeGroupId(section.groupId()))
-                || ConfigFieldRegistry.groupNarrationTts().equals(section.group()))) {
-            return true;
         }
         return matchesGroup(section.groupId(), section.group(), group);
     }

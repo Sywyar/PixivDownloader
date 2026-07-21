@@ -41,7 +41,6 @@ public final class ConfigFieldRegistry {
             new CoreGroupDefinition(GuiConfigGroups.UPDATE, "gui.config.group.update", 1000, true),
             new CoreGroupDefinition(GuiConfigGroups.SCHEDULE, "gui.config.group.schedule", 1100, true),
             new CoreGroupDefinition(GuiConfigGroups.AI, "gui.config.group.ai", 1200, true),
-            new CoreGroupDefinition(GuiConfigGroups.NARRATION_TTS, "gui.config.group.narration-tts", 1250, false),
             new CoreGroupDefinition(GuiConfigGroups.NOTIFICATION, "gui.config.group.notification", 1300, true)
     );
 
@@ -65,11 +64,6 @@ public final class ConfigFieldRegistry {
     /** AI 配置分组名（按当前 locale）。 */
     public static String groupAi() {
         return message("gui.config.group.ai");
-    }
-
-    /** AI 听小说朗读 TTS 分组名（按当前 locale）。其字段并入 AI 配置页的「TTS 模型」模态卡片，不再单独成页。 */
-    public static String groupNarrationTts() {
-        return message("gui.config.group.narration-tts");
     }
 
     /** 通知分组名（邮件 / SMTP + 多通道推送，按当前 locale）。 */
@@ -122,11 +116,6 @@ public final class ConfigFieldRegistry {
                 .filter(ConfigFieldSpec::contributesGroupVisibility)
                 .flatMap(field -> groupKeys(field.groupId(), field.group()).stream())
                 .collect(java.util.stream.Collectors.toSet());
-        List<ConfigFieldSpec> contributedFields = contributions.fields();
-        Set<String> contributedGroupsWithFields = contributedFields.stream()
-                .filter(ConfigFieldSpec::contributesGroupVisibility)
-                .flatMap(field -> groupKeys(field.groupId(), field.group()).stream())
-                .collect(java.util.stream.Collectors.toSet());
         List<GuiConfigSectionSpec> sections = contributions.sections();
         Set<String> contributedGroupsWithSections = sections.stream()
                 .filter(GuiConfigSectionSpec::contributesGroupVisibility)
@@ -134,24 +123,14 @@ public final class ConfigFieldRegistry {
                 .collect(java.util.stream.Collectors.toSet());
         List<ConfigGroupSpec> visibleGroupSpecs = mergedGroups.stream()
                 .filter(ConfigGroupSpec::visibleInTabs)
-                .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithFields,
-                        contributedGroupsWithSections))
+                .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithSections))
                 .sorted(Comparator.comparingInt(ConfigGroupSpec::order))
                 .toList();
         return ConfigFieldSnapshot.withGroupSpecs(visibleGroupSpecs, fields, sections, contributions.diagnostics());
     }
 
     private static boolean shouldShowGroup(ConfigGroupSpec group, Set<String> groupsWithFields,
-                                           Set<String> contributedGroupsWithFields,
                                            Set<String> contributedGroupsWithSections) {
-        if (GuiConfigGroups.AI.equals(group.id())) {
-            return contributedGroupsWithFields.contains(group.id())
-                    || contributedGroupsWithFields.contains(group.label())
-                    || contributedGroupsWithFields.contains(GuiConfigGroups.NARRATION_TTS)
-                    || contributedGroupsWithFields.contains(message("gui.config.group.narration-tts"))
-                    || contributedGroupsWithSections.contains(group.id())
-                    || contributedGroupsWithSections.contains(group.label());
-        }
         return groupsWithFields.contains(group.id())
                 || groupsWithFields.contains(group.label())
                 || contributedGroupsWithSections.contains(group.id())

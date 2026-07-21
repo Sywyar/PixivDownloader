@@ -17,7 +17,6 @@ public final class GuiConfigGroups {
     public static final String UPDATE = "update";
     public static final String SCHEDULE = "schedule";
     public static final String AI = "ai";
-    public static final String NARRATION_TTS = "narration-tts";
     public static final String NOTIFICATION = "notification";
 
     private GuiConfigGroups() {
