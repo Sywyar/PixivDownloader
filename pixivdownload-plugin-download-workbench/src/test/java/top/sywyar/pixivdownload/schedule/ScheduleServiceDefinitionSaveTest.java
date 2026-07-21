@@ -14,7 +14,7 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
@@ -115,10 +115,7 @@ class ScheduleServiceDefinitionSaveTest {
         AtomicBoolean planCalled = new AtomicBoolean();
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", prepareCalled, planCalled, false, false);
-        doAnswer(invocation -> {
-            invocation.<ScheduledTaskInsert>getArgument(0).setId(31L);
-            return null;
-        }).when(store).insert(any(ScheduledTaskInsert.class));
+        when(store.create(any(ScheduledTaskCreate.class))).thenReturn(31L);
         when(store.findById(31L)).thenReturn(task(
                 31L, "fixture-owner", SOURCE_TYPE,
                 "{\"canonical\":true}",
@@ -128,16 +125,24 @@ class ScheduleServiceDefinitionSaveTest {
 
         ScheduleTaskView view = service.create(request(fixture.activationToken()));
 
-        ArgumentCaptor<ScheduledTaskInsert> row = ArgumentCaptor.forClass(ScheduledTaskInsert.class);
-        verify(store).insert(row.capture());
+        ArgumentCaptor<ScheduledTaskCreate> command =
+                ArgumentCaptor.forClass(ScheduledTaskCreate.class);
+        verify(store).create(command.capture());
         assertThat(prepareCalled).isTrue();
         assertThat(planCalled).isTrue();
-        assertThat(row.getValue().getSourceOwnerPluginId()).isEqualTo("fixture-owner");
-        assertThat(row.getValue().getSourceType()).isEqualTo(SOURCE_TYPE);
-        assertThat(row.getValue().getDefinitionSchema()).isEqualTo(DEFINITION_SCHEMA);
-        assertThat(row.getValue().getDefinitionVersion()).isEqualTo(1);
-        assertThat(row.getValue().getDefinitionJson()).isEqualTo("{\"canonical\":true}");
-        assertThat(row.getValue().getPresentationJson()).contains("owner title", "kind");
+        assertThat(command.getValue().name()).isEqualTo("任务");
+        assertThat(command.getValue().sourceOwnerPluginId()).isEqualTo("fixture-owner");
+        assertThat(command.getValue().sourceType()).isEqualTo(SOURCE_TYPE);
+        assertThat(command.getValue().definitionSchema()).isEqualTo(DEFINITION_SCHEMA);
+        assertThat(command.getValue().definitionVersion()).isEqualTo(1);
+        assertThat(command.getValue().definitionJson()).isEqualTo("{\"canonical\":true}");
+        assertThat(command.getValue().presentationJson()).contains("owner title", "kind");
+        assertThat(command.getValue().triggerKind()).isEqualTo(ScheduledTask.TRIGGER_INTERVAL);
+        assertThat(command.getValue().intervalMinutes()).isEqualTo(60);
+        assertThat(command.getValue().cronExpr()).isNull();
+        assertThat(command.getValue().createdTime()).isPositive();
+        assertThat(command.getValue().nextRunTime())
+                .isEqualTo(command.getValue().createdTime() + 60L * 60_000L);
         assertThat(view.sourceAvailable()).isTrue();
         assertThat(view.sourceActivationToken()).isEqualTo(fixture.activationToken());
         assertThat(view.presentation().attributes())
@@ -164,14 +169,13 @@ class ScheduleServiceDefinitionSaveTest {
                 registry, "fixture-owner", prepareCalled, new AtomicBoolean(), false, false);
         BlockingCommitTransactionManager transactionManager =
                 new BlockingCommitTransactionManager(prepareCalled);
-        CountDownLatch insertEntered = new CountDownLatch(1);
-        CountDownLatch allowInsert = new CountDownLatch(1);
+        CountDownLatch createEntered = new CountDownLatch(1);
+        CountDownLatch allowCreate = new CountDownLatch(1);
         doAnswer(invocation -> {
-            insertEntered.countDown();
-            await(allowInsert);
-            invocation.<ScheduledTaskInsert>getArgument(0).setId(81L);
-            return null;
-        }).when(store).insert(any(ScheduledTaskInsert.class));
+            createEntered.countDown();
+            await(allowCreate);
+            return 81L;
+        }).when(store).create(any(ScheduledTaskCreate.class));
         when(store.findById(81L)).thenReturn(task(
                 81L, "fixture-owner", SOURCE_TYPE,
                 "{\"canonical\":true}",
@@ -181,7 +185,7 @@ class ScheduleServiceDefinitionSaveTest {
         try {
             Future<ScheduleTaskView> result = worker.submit(() ->
                     service(registry, transactionManager).create(request(fixture.activationToken())));
-            assertThat(insertEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(createEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
             CountDownLatch withdrawStarted = new CountDownLatch(1);
             Future<ScheduleGenerationDrain> withdrawal = worker.submit(() -> {
@@ -193,7 +197,7 @@ class ScheduleServiceDefinitionSaveTest {
             assertThat(withdrawal.isDone()).isFalse();
             assertThat(registry.snapshotView().owners()).singleElement();
 
-            allowInsert.countDown();
+            allowCreate.countDown();
             assertThat(transactionManager.commitEntered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(withdrawal.isDone()).isFalse();
             assertThat(registry.snapshotView().owners()).singleElement();
@@ -205,7 +209,7 @@ class ScheduleServiceDefinitionSaveTest {
             assertThat(drain.activeLeaseCount()).isZero();
             assertThat(registry.snapshotView().owners()).isEmpty();
         } finally {
-            allowInsert.countDown();
+            allowCreate.countDown();
             transactionManager.allowCommit.countDown();
             worker.shutdownNow();
         }
@@ -218,10 +222,7 @@ class ScheduleServiceDefinitionSaveTest {
         SourceFixture fixture = publishSource(
                 registry, "fixture-owner", new AtomicBoolean(), new AtomicBoolean(), false, false);
         NestedCommitTransactionManager transactionManager = new NestedCommitTransactionManager();
-        doAnswer(invocation -> {
-            invocation.<ScheduledTaskInsert>getArgument(0).setId(83L);
-            return null;
-        }).when(store).insert(any(ScheduledTaskInsert.class));
+        when(store.create(any(ScheduledTaskCreate.class))).thenReturn(83L);
         when(store.findById(83L)).thenReturn(task(
                 83L, "fixture-owner", SOURCE_TYPE,
                 "{\"canonical\":true}",
@@ -280,9 +281,8 @@ class ScheduleServiceDefinitionSaveTest {
                 false,
                 false);
         RecordingTransactionManager rollbackManager = new RecordingTransactionManager(null);
-        doAnswer(invocation -> {
-            throw new IllegalStateException("fixture insert failure");
-        }).when(store).insert(any(ScheduledTaskInsert.class));
+        when(store.create(any(ScheduledTaskCreate.class)))
+                .thenThrow(new IllegalStateException("fixture insert failure"));
 
         assertThatThrownBy(() -> service(rollbackRegistry, rollbackManager)
                 .create(request(rollbackFixture.activationToken())))
@@ -303,10 +303,7 @@ class ScheduleServiceDefinitionSaveTest {
                 false);
         RecordingTransactionManager commitManager = new RecordingTransactionManager(
                 new IllegalStateException("fixture commit failure"));
-        doAnswer(invocation -> {
-            invocation.<ScheduledTaskInsert>getArgument(0).setId(82L);
-            return null;
-        }).when(store).insert(any(ScheduledTaskInsert.class));
+        when(store.create(any(ScheduledTaskCreate.class))).thenReturn(82L);
         when(store.findById(82L)).thenReturn(task(
                 82L, "commit-owner", SOURCE_TYPE,
                 "{\"canonical\":true}",
@@ -334,7 +331,7 @@ class ScheduleServiceDefinitionSaveTest {
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
                         assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
         assertThat(prepareCalled).isFalse();
-        verify(store, never()).insert(any(ScheduledTaskInsert.class));
+        verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
 
     @Test
@@ -363,7 +360,7 @@ class ScheduleServiceDefinitionSaveTest {
                 .isInstanceOf(LocalizedException.class);
 
         assertThat(prepareCalled).isFalse();
-        verify(store, never()).insert(any(ScheduledTaskInsert.class));
+        verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
 
     @Test
@@ -471,7 +468,7 @@ class ScheduleServiceDefinitionSaveTest {
                 .isInstanceOf(LocalizedException.class);
 
         assertThat(prepareCalled).isFalse();
-        verify(store, never()).insert(any(ScheduledTaskInsert.class));
+        verify(store, never()).create(any(ScheduledTaskCreate.class));
         verify(store, never()).updateDefinition(any(Long.class), any(Long.class), any());
     }
 
@@ -491,7 +488,7 @@ class ScheduleServiceDefinitionSaveTest {
             assertThatThrownBy(() -> service(registry).create(request(fixture.activationToken())))
                     .isInstanceOf(LocalizedException.class);
         }
-        verify(store, never()).insert(any(ScheduledTaskInsert.class));
+        verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
 
     @Test
@@ -518,7 +515,7 @@ class ScheduleServiceDefinitionSaveTest {
 
             assertThat(registry.snapshotView()).isEqualTo(before);
         }
-        verify(store, never()).insert(any(ScheduledTaskInsert.class));
+        verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
 
     @Test
@@ -558,7 +555,7 @@ class ScheduleServiceDefinitionSaveTest {
             assertThatThrownBy(() -> service(registry).create(request(fixture.activationToken())))
                     .isInstanceOf(LocalizedException.class);
         }
-        verify(store, never()).insert(any(ScheduledTaskInsert.class));
+        verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
 
     @Test
@@ -580,7 +577,7 @@ class ScheduleServiceDefinitionSaveTest {
         assertThatThrownBy(() -> service(registry).update(71L, invalid))
                 .isInstanceOf(LocalizedException.class);
 
-        verify(store, never()).insert(any(ScheduledTaskInsert.class));
+        verify(store, never()).create(any(ScheduledTaskCreate.class));
         verify(store, never()).updateDefinition(any(Long.class), any(Long.class), any());
     }
 

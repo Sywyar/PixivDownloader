@@ -31,7 +31,8 @@ public interface ScheduledTaskStore {
                                                  String policyId,
                                                  String accountKey);
 
-    void insert(ScheduledTaskInsert task);
+    /** 创建 canonical 任务并返回数据库生成的 id。 */
+    long create(ScheduledTaskCreate command);
 
     /** 周期 tick 的原子 due + 可运行条件复核与认领。 */
     Optional<ScheduleRunToken> tryQueueDue(long id,

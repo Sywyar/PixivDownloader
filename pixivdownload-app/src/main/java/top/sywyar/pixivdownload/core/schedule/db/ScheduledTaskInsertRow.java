@@ -1,21 +1,17 @@
-package top.sywyar.pixivdownload.core.schedule;
+package top.sywyar.pixivdownload.core.schedule.db;
 
 import lombok.Data;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 
-/**
- * {@code scheduled_tasks} 插入用的可变载体。
- *
- * <p>用可变 bean 是为了让 MyBatis {@code useGeneratedKeys} 回填自增 id。新建任务显式写入
- * {@link ScheduledTask#CURRENT_STORAGE_VERSION}，不能依赖数据库给旧行准备的默认值 0。
- */
+/** {@code scheduled_tasks} 的 MyBatis generated-key 可变插入行；不得越过 app 实现边界。 */
 @Data
-public class ScheduledTaskInsert {
+final class ScheduledTaskInsertRow {
     private Long id;
     private String name;
-    private boolean enabled;
+    private boolean enabled = true;
     private String sourceType;
     private String sourceOwnerPluginId;
     private String definitionSchema;
@@ -42,23 +38,4 @@ public class ScheduledTaskInsert {
     private String suspendDetailJson;
     private long stateVersion;
     private long createdTime;
-
-    /** 可选的初始凭证元数据；secret 由 Store 在任务插入后写入专用凭证表。 */
-    private String credentialPolicyOwnerPluginId;
-    private String credentialPolicyId;
-    private String credentialAccountKey;
-    private String credentialPolicyStateJson = "{}";
-    private String credentialSecretReference;
-    private Long credentialUpdatedTime;
-    /** 敏感裸标量，不参与 {@link #toString()}。 */
-    private transient String credentialSecret;
-
-    @Override
-    public String toString() {
-        return "ScheduledTaskInsert{id=" + id
-                + ", name='" + name + '\''
-                + ", sourceType='" + sourceType + '\''
-                + ", storageVersion=" + storageVersion
-                + ", credentialSecret=<redacted>}";
-    }
 }

@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
@@ -132,30 +132,27 @@ public class ScheduleService {
             String triggerKind = validateTrigger(req);
             long now = System.currentTimeMillis();
             ResolvedDefinition resolved = resolveDefinition(0, req, null, planning);
-            ScheduledTaskInsert row = new ScheduledTaskInsert();
-            row.setName(req.getName().trim());
-            row.setEnabled(true);
-            row.setSourceType(resolved.definition().sourceType());
-            row.setSourceOwnerPluginId(resolved.sourceOwnerPluginId());
-            row.setDefinitionSchema(resolved.definition().definitionSchema());
-            row.setDefinitionVersion(resolved.definition().definitionVersion());
-            row.setDefinitionJson(resolved.definition().definitionJson());
-            row.setPresentationJson(writeJson(resolved.definition().presentation()));
-            row.setTriggerKind(triggerKind);
-            row.setIntervalMinutes(req.getIntervalMinutes());
-            row.setCronExpr(emptyToNull(req.getCronExpr()));
-            row.setProxySnapshot(null);
-            row.setNextRunTime(ScheduleTiming.computeNextRun(
-                    triggerKind, req.getIntervalMinutes(), req.getCronExpr(), now));
-            row.setCreatedTime(now);
+            ScheduledTaskCreate command = new ScheduledTaskCreate(
+                    req.getName().trim(),
+                    resolved.definition().sourceType(),
+                    resolved.sourceOwnerPluginId(),
+                    resolved.definition().definitionSchema(),
+                    resolved.definition().definitionVersion(),
+                    resolved.definition().definitionJson(),
+                    writeJson(resolved.definition().presentation()),
+                    triggerKind,
+                    req.getIntervalMinutes(),
+                    emptyToNull(req.getCronExpr()),
+                    ScheduleTiming.computeNextRun(
+                            triggerKind, req.getIntervalMinutes(), req.getCronExpr(), now),
+                    now);
 
             return executeDefinitionSave(planning, status -> {
                 if (store.countAll() >= config.getMaxTasks()) {
                     throw LocalizedException.badRequest(
                             "schedule.error.max-tasks", "计划任务数量已达上限: {0}", config.getMaxTasks());
                 }
-                store.insert(row);
-                return get(row.getId());
+                return get(store.create(command));
             });
         }
     }

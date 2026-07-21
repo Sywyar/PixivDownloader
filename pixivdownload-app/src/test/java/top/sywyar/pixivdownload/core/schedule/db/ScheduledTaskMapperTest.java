@@ -16,7 +16,6 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState;
@@ -67,9 +66,10 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("新任务显式写 storageVersion=1，并按中性来源和定义字段往返")
     void insertsCanonicalTaskProjection() {
-        ScheduledTaskInsert row = sample("中性任务", 1_000L);
+        ScheduledTaskInsertRow row = sample("中性任务", 1_000L);
         mapper.insert(row);
 
+        assertThat(row.getId()).isPositive();
         ScheduledTask read = mapper.findById(row.getId());
         assertThat(read.sourceType()).isEqualTo("fixture-source");
         assertThat(read.sourceOwnerPluginId()).isEqualTo("fixture-plugin");
@@ -84,7 +84,7 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("credential join 只投影非敏感元数据，secret 仅专用标量可读")
     void credentialSecretUsesDedicatedScalar() {
-        ScheduledTaskInsert row = sample("凭证任务", 1_000L);
+        ScheduledTaskInsertRow row = sample("凭证任务", 1_000L);
         mapper.insert(row);
         mapper.upsertCredential(row.getId(), "fixture-plugin", "fixture-credential", "account-1",
                 "{\"ack\":12}", "credential-secret", "vault:fixture", 2_000L);
@@ -104,7 +104,7 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("due 认领和开始运行各自原子返回 claimToken 与新 stateVersion")
     void claimsDueTaskAndStartsWithReturnedToken() {
-        ScheduledTaskInsert row = sample("到期任务", 500L);
+        ScheduledTaskInsertRow row = sample("到期任务", 500L);
         mapper.insert(row);
 
         ScheduleRunToken queued = mapper.tryQueueDue(row.getId(), 0L, "claim-a", 1_000L);
@@ -131,7 +131,7 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("失败完成未提供 checkpoint 时保留上次安全断点")
     void failedCompletionPreservesPreviousCheckpoint() {
-        ScheduledTaskInsert row = sample("失败任务", 500L);
+        ScheduledTaskInsertRow row = sample("失败任务", 500L);
         row.setCheckpointSchema("fixture.checkpoint");
         row.setCheckpointVersion(1);
         row.setCheckpointJson("{\"cursor\":\"safe\"}");
@@ -154,7 +154,7 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("管理员挂起令旧 normal complete 失败，但原 claim 可完成取消且保留挂起")
     void suspendedRunRejectsNormalCompletionButAcceptsSameClaimCancellation() {
-        ScheduledTaskInsert row = sample("竞态任务", 500L);
+        ScheduledTaskInsertRow row = sample("竞态任务", 500L);
         mapper.insert(row);
         ScheduleRunToken queued = mapper.tryQueueNow(row.getId(), 0L, "claim-race");
         ScheduleRunToken running = mapper.startRun(row.getId(), queued);
@@ -186,7 +186,7 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("异步提交失败只可用同一 QUEUED token 释放认领")
     void releasesQueuedClaimAfterSubmissionFailure() {
-        ScheduledTaskInsert row = sample("提交失败", 500L);
+        ScheduledTaskInsertRow row = sample("提交失败", 500L);
         mapper.insert(row);
         ScheduleRunToken queued = mapper.tryQueueNow(row.getId(), 0L, "claim-submit");
 
@@ -205,7 +205,7 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("resume 必须精确匹配 stateVersion、reason 和 code")
     void resumesOnlyExactSuspension() {
-        ScheduledTaskInsert row = sample("精确恢复", 500L);
+        ScheduledTaskInsertRow row = sample("精确恢复", 500L);
         mapper.insert(row);
         Long suspendedVersion = mapper.suspend(row.getId(), 0L, ScheduleSuspendReason.POLICY,
                 "risk.limit", "{\"event\":1}");
@@ -232,7 +232,7 @@ class ScheduledTaskMapperTest {
                 ScheduledTask.TRIGGER_INTERVAL, 30, null, 2_000L);
 
         for (ScheduleSuspendReason reason : ScheduleSuspendReason.values()) {
-            ScheduledTaskInsert row = sample("挂起-" + reason, 1_000L);
+            ScheduledTaskInsertRow row = sample("挂起-" + reason, 1_000L);
             row.setSuspendReason(reason);
             row.setSuspendCode("fixture.suspend");
             row.setSuspendDetailJson("{\"reason\":\"fixture\"}");
@@ -258,17 +258,17 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("findDue 只返回 canonical、启用、未挂起且无认领的到期任务")
     void findDueUsesOrthogonalStateGate() {
-        ScheduledTaskInsert due = sample("可运行", 500L);
+        ScheduledTaskInsertRow due = sample("可运行", 500L);
         mapper.insert(due);
-        ScheduledTaskInsert disabled = sample("停用", 500L);
+        ScheduledTaskInsertRow disabled = sample("停用", 500L);
         disabled.setEnabled(false);
         mapper.insert(disabled);
-        ScheduledTaskInsert future = sample("未来", 5_000L);
+        ScheduledTaskInsertRow future = sample("未来", 5_000L);
         mapper.insert(future);
-        ScheduledTaskInsert suspended = sample("挂起", 500L);
+        ScheduledTaskInsertRow suspended = sample("挂起", 500L);
         suspended.setSuspendReason(ScheduleSuspendReason.CREDENTIAL);
         mapper.insert(suspended);
-        ScheduledTaskInsert legacy = sample("待迁移", 500L);
+        ScheduledTaskInsertRow legacy = sample("待迁移", 500L);
         legacy.setStorageVersion(ScheduledTask.LEGACY_STORAGE_VERSION);
         mapper.insert(legacy);
         ScheduleRunToken queued = mapper.tryQueueNow(due.getId(), 0L, "claim-due");
@@ -281,11 +281,11 @@ class ScheduledTaskMapperTest {
     @Test
     @DisplayName("启动恢复重排普通中断并保留管理员挂起终态")
     void recoversInterruptedClaimsWithoutOverwritingSuspension() {
-        ScheduledTaskInsert row = sample("崩溃任务", 9_000L);
+        ScheduledTaskInsertRow row = sample("崩溃任务", 9_000L);
         mapper.insert(row);
         ScheduleRunToken queued = mapper.tryQueueNow(row.getId(), 0L, "claim-crash");
         mapper.startRun(row.getId(), queued);
-        ScheduledTaskInsert pausedRow = sample("暂停中崩溃", 9_000L);
+        ScheduledTaskInsertRow pausedRow = sample("暂停中崩溃", 9_000L);
         mapper.insert(pausedRow);
         ScheduleRunToken paused = mapper.tryQueueNow(pausedRow.getId(), 0L, "claim-paused");
         mapper.suspend(pausedRow.getId(), paused.stateVersion(), ScheduleSuspendReason.MANUAL,
@@ -350,8 +350,8 @@ class ScheduledTaskMapperTest {
         assertThat(mapper.findPendingWork(1L, "other.work", "1")).isNotNull();
     }
 
-    private ScheduledTaskInsert sample(String name, Long nextRunTime) {
-        ScheduledTaskInsert row = new ScheduledTaskInsert();
+    private ScheduledTaskInsertRow sample(String name, Long nextRunTime) {
+        ScheduledTaskInsertRow row = new ScheduledTaskInsertRow();
         row.setName(name);
         row.setEnabled(true);
         row.setSourceType("fixture-source");

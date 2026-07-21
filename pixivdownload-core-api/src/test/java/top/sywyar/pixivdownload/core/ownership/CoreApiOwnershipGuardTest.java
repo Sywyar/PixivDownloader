@@ -21,6 +21,17 @@ import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
+import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
@@ -90,6 +101,13 @@ class CoreApiOwnershipGuardTest {
                             "CollectionDownloadRootResolver", "WorkCollectionMembership"))),
             Map.entry("游客下载配额", types("top.sywyar.pixivdownload.core.quota",
                     "VisitorDownloadQuotaReservation", "VisitorDownloadQuotaService")),
+            Map.entry("核心计划任务持久化语义", union(
+                    types("top.sywyar.pixivdownload.core.schedule",
+                            "ScheduleTaskDefinitionUpdate", "ScheduledPendingWork", "ScheduledTask",
+                            "ScheduledTaskCreate", "ScheduledTaskCredential", "ScheduledTaskStore"),
+                    types("top.sywyar.pixivdownload.core.schedule.state",
+                            "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
+                            "ScheduleRunToken", "ScheduleSuspendReason"))),
             Map.entry("主画廊长期中性协议", union(
                     types("top.sywyar.pixivdownload.core.gallery",
                             "GalleryProjectionProvider", "GalleryWorkProvider"),
@@ -171,6 +189,10 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.archive.ArchiveExportRules#FORMAT_ZIP:java.lang.String", "zip"),
             Map.entry("top.sywyar.pixivdownload.core.archive.ArchiveExportRules#GROUP_BY_ID:java.lang.String", "id"),
             Map.entry("top.sywyar.pixivdownload.core.archive.ArchiveExportRules#GROUP_BY_AUTHOR:java.lang.String", "author"),
+            Map.entry("top.sywyar.pixivdownload.core.schedule.ScheduledTask#LEGACY_STORAGE_VERSION:int", 0),
+            Map.entry("top.sywyar.pixivdownload.core.schedule.ScheduledTask#CURRENT_STORAGE_VERSION:int", 1),
+            Map.entry("top.sywyar.pixivdownload.core.schedule.ScheduledTask#TRIGGER_INTERVAL:java.lang.String", "interval"),
+            Map.entry("top.sywyar.pixivdownload.core.schedule.ScheduledTask#TRIGGER_CRON:java.lang.String", "cron"),
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#HEADER_NAME:java.lang.String",
                     "X-Acquisition-Credential"),
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#MAX_LENGTH:int", 16_384),
@@ -235,6 +257,13 @@ class CoreApiOwnershipGuardTest {
                     List.of("ALLOWED", "OWNER_REQUIRED", "RATE_LIMITED")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure",
                     List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
+            Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome",
+                    List.of("NEVER", "OK", "ERROR", "CANCELLED", "INTERRUPTED")),
+            Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState",
+                    List.of("QUEUED", "RUNNING", "CANCEL_REQUESTED")),
+            Map.entry("top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason",
+                    List.of("MANUAL", "CREDENTIAL", "POLICY", "SOURCE_UNAVAILABLE", "EXECUTOR_UNAVAILABLE",
+                            "QUIESCED", "MIGRATION_ERROR")),
             Map.entry("top.sywyar.pixivdownload.core.work.model.WorkType",
                     List.of("ARTWORK", "NOVEL")),
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
@@ -381,6 +410,52 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(NarrationVoiceRequest.class,
                 List.of("text", "controlInstruction", "delivery", "referenceVoice"),
                 List.of(String.class, String.class, String.class, NarrationReferenceVoice.class));
+        assertRecordShape(ScheduledTask.class,
+                List.of("id", "name", "enabled", "sourceType", "sourceOwnerPluginId", "definitionSchema",
+                        "definitionVersion", "definitionJson", "presentationJson", "triggerKind", "intervalMinutes",
+                        "cronExpr", "proxySnapshot", "nextRunTime", "lastRunTime", "checkpointSchema",
+                        "checkpointVersion", "checkpointJson", "storageVersion", "runState", "runClaimToken",
+                        "lastOutcome", "outcomeCode", "outcomeMessage", "suspendReason", "suspendCode",
+                        "suspendDetailJson", "stateVersion", "credentialPolicyOwnerPluginId", "credentialPolicyId",
+                        "credentialAccountKey", "credentialPolicyStateJson", "credentialSecretReference",
+                        "credentialUpdatedTime", "createdTime"),
+                List.of(Long.class, String.class, boolean.class, String.class, String.class, String.class,
+                        Integer.class, String.class, String.class, String.class, Integer.class, String.class,
+                        String.class, Long.class, Long.class, String.class, Integer.class, String.class, int.class,
+                        ScheduleRunState.class, String.class, ScheduleLastOutcome.class, String.class, String.class,
+                        ScheduleSuspendReason.class, String.class, String.class, long.class, String.class,
+                        String.class, String.class, String.class, String.class, Long.class, long.class));
+        assertRecordShape(ScheduledTaskCreate.class,
+                List.of("name", "sourceType", "sourceOwnerPluginId", "definitionSchema", "definitionVersion",
+                        "definitionJson", "presentationJson", "triggerKind", "intervalMinutes", "cronExpr",
+                        "nextRunTime", "createdTime"),
+                List.of(String.class, String.class, String.class, String.class, int.class, String.class,
+                        String.class, String.class, Integer.class, String.class, Long.class, long.class));
+        assertRecordShape(ScheduledTaskCredential.class,
+                List.of("taskId", "policyOwnerPluginId", "policyId", "accountKey", "policyStateJson",
+                        "secretReference", "updatedTime"),
+                List.of(long.class, String.class, String.class, String.class, String.class, String.class,
+                        Long.class));
+        assertRecordShape(ScheduledPendingWork.class,
+                List.of("taskId", "workType", "workId", "payloadSchema", "payloadVersion", "payloadJson",
+                        "relationsJson", "presentationJson", "reasonCode", "reasonDetailJson", "attempts",
+                        "firstSeenTime", "lastAttemptTime"),
+                List.of(long.class, String.class, String.class, String.class, int.class, String.class, String.class,
+                        String.class, String.class, String.class, int.class, Long.class, Long.class));
+        assertRecordShape(ScheduleTaskDefinitionUpdate.class,
+                List.of("name", "sourceType", "sourceOwnerPluginId", "definitionSchema", "definitionVersion",
+                        "definitionJson", "presentationJson", "triggerKind", "intervalMinutes", "cronExpr",
+                        "nextRunTime"),
+                List.of(String.class, String.class, String.class, String.class, int.class, String.class,
+                        String.class, String.class, Integer.class, String.class, Long.class));
+        assertRecordShape(ScheduleRunCompletion.class,
+                List.of("finishedTime", "outcome", "outcomeCode", "outcomeMessage", "nextRunTime",
+                        "checkpointSchema", "checkpointVersion", "checkpointJson"),
+                List.of(long.class, ScheduleLastOutcome.class, String.class, String.class, Long.class,
+                        String.class, Integer.class, String.class));
+        assertRecordShape(ScheduleRunToken.class,
+                List.of("claimToken", "stateVersion", "runState"),
+                List.of(String.class, long.class, ScheduleRunState.class));
         assertRecordShape(VisitorDownloadQuotaReservation.class,
                 List.of("allowed", "quotaUnitsUsed", "maxQuotaUnits", "resetSeconds"),
                 List.of(boolean.class, int.class, int.class, long.class));
@@ -495,6 +570,20 @@ class CoreApiOwnershipGuardTest {
                         "public abstract transient getOrDefault(java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
                         "public abstract transient getOrDefault(java.util.Locale,java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
                         "public normalizeLocale(java.util.Locale):java.util.Locale");
+    }
+
+    @Test
+    @DisplayName("计划任务 Store 创建契约必须接收不可变命令并返回生成 id")
+    void scheduledTaskStoreCreateHasExactCommandAndGeneratedIdContract() throws NoSuchMethodException {
+        Method create = ScheduledTaskStore.class.getDeclaredMethod("create", ScheduledTaskCreate.class);
+
+        assertThat(create.getReturnType()).isEqualTo(long.class);
+        assertThat(create.getReturnType().isPrimitive()).isTrue();
+        assertThat(Modifier.isPublic(create.getModifiers())).isTrue();
+        assertThat(Modifier.isAbstract(create.getModifiers())).isTrue();
+        assertThat(Arrays.stream(ScheduledTaskStore.class.getDeclaredMethods())
+                .map(Method::getName))
+                .doesNotContain("insert");
     }
 
     @Test

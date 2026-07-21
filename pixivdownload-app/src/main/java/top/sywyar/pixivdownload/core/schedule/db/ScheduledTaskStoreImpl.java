@@ -8,8 +8,8 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
@@ -66,40 +66,26 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     @Override
     @Transactional
-    public void insert(ScheduledTaskInsert task) {
-        Objects.requireNonNull(task, "task");
-        if (task.getStorageVersion() == ScheduledTask.CURRENT_STORAGE_VERSION) {
-            requireText(task.getSourceType(), "source type");
-            requireText(task.getSourceOwnerPluginId(), "source owner plugin id");
-            requireText(task.getDefinitionSchema(), "definition schema");
-            if (task.getDefinitionVersion() == null || task.getDefinitionVersion() <= 0) {
-                throw new IllegalArgumentException("definition version must be positive");
-            }
-            if (task.getDefinitionJson() == null) {
-                throw new IllegalArgumentException("definition json must not be null");
-            }
-        } else if (task.getStorageVersion() != ScheduledTask.LEGACY_STORAGE_VERSION) {
-            throw new IllegalArgumentException("unsupported scheduled task storage version");
+    public long create(ScheduledTaskCreate command) {
+        Objects.requireNonNull(command, "command");
+        ScheduledTaskInsertRow row = new ScheduledTaskInsertRow();
+        row.setName(command.name());
+        row.setSourceType(command.sourceType());
+        row.setSourceOwnerPluginId(command.sourceOwnerPluginId());
+        row.setDefinitionSchema(command.definitionSchema());
+        row.setDefinitionVersion(command.definitionVersion());
+        row.setDefinitionJson(command.definitionJson());
+        row.setPresentationJson(command.presentationJson());
+        row.setTriggerKind(command.triggerKind());
+        row.setIntervalMinutes(command.intervalMinutes());
+        row.setCronExpr(command.cronExpr());
+        row.setNextRunTime(command.nextRunTime());
+        row.setCreatedTime(command.createdTime());
+        mapper.insert(row);
+        if (row.getId() == null || row.getId() <= 0) {
+            throw new IllegalStateException("scheduled task insert did not return a generated id");
         }
-        mapper.insert(task);
-        boolean hasCredentialMetadata = hasText(task.getCredentialPolicyOwnerPluginId())
-                || hasText(task.getCredentialPolicyId());
-        if (!hasCredentialMetadata) {
-            if (task.getCredentialSecret() != null || task.getCredentialSecretReference() != null) {
-                throw new IllegalArgumentException("credential policy metadata is required for secret storage");
-            }
-            return;
-        }
-        requireText(task.getCredentialPolicyOwnerPluginId(), "credential policy owner");
-        requireText(task.getCredentialPolicyId(), "credential policy id");
-        if (task.getCredentialUpdatedTime() == null) {
-            throw new IllegalArgumentException("credential updated time is required");
-        }
-        mapper.upsertCredential(task.getId(), task.getCredentialPolicyOwnerPluginId(),
-                task.getCredentialPolicyId(), task.getCredentialAccountKey(),
-                normalizePolicyState(task.getCredentialPolicyStateJson()),
-                task.getCredentialSecret(), task.getCredentialSecretReference(),
-                task.getCredentialUpdatedTime());
+        return row.getId();
     }
 
     @Override

@@ -38,6 +38,17 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
+import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.core.stats.StatsAggregates;
 import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
@@ -98,6 +109,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.hash..",
                         "top.sywyar.pixivdownload.core.pixiv..",
                         "top.sywyar.pixivdownload.core.quota..",
+                        "top.sywyar.pixivdownload.core.schedule..",
                         "top.sywyar.pixivdownload.core.stats..",
                         "top.sywyar.pixivdownload.core.web..",
                         "top.sywyar.pixivdownload.core.work..",
@@ -128,6 +140,7 @@ class CoreApiDependencyGuardTest {
                         "org.slf4j..", "ch.qos.logback..",
                         "java.sql..", "javax.sql..",
                         "org.apache.ibatis..",
+                        "top.sywyar.pixivdownload.core.schedule.db..",
                         "top.sywyar.pixivdownload.core.stats.db..")
                 .because("core-api 只承载核心 owned 的稳定语义端口、纯 JDK 值模型与中性纯算法：Spring、Apache HTTP、"
                         + "日志门面、JDBC、MyBatis 与 mapper/repository 实现全部留在 app 实现层，"
@@ -158,6 +171,22 @@ class CoreApiDependencyGuardTest {
     void coreApiContainsStatsApiTypes() {
         assertThat(CLASSES.contain(StatsQueryStore.class.getName())).isTrue();
         assertThat(CLASSES.contain(StatsAggregates.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("core-api 模块应包含完整计划任务持久化语义（防守卫 vacuous 通过）")
+    void coreApiContainsSchedulePersistenceContracts() {
+        assertThat(CLASSES.contain(ScheduledTask.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduledTaskCreate.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduledPendingWork.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduledTaskCredential.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduleTaskDefinitionUpdate.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduledTaskStore.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduleLastOutcome.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduleRunCompletion.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduleRunState.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduleRunToken.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ScheduleSuspendReason.class.getName())).isTrue();
     }
 
     @Test

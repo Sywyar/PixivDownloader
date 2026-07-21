@@ -21,8 +21,9 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
@@ -78,9 +79,50 @@ class ScheduledTaskStoreTest {
     }
 
     @Test
+    @DisplayName("create 返回 generated key，并持久化 canonical 默认状态")
+    void createReturnsGeneratedIdAndPersistsCanonicalDefaults() {
+        long id = store.create(create("新建任务"));
+
+        assertThat(id).isPositive();
+        ScheduledTask created = mapper.findById(id);
+        assertThat(created.id()).isEqualTo(id);
+        assertThat(created.enabled()).isTrue();
+        assertThat(created.proxySnapshot()).isNull();
+        assertThat(created.storageVersion()).isEqualTo(ScheduledTask.CURRENT_STORAGE_VERSION);
+        assertThat(created.runState()).isNull();
+        assertThat(created.runClaimToken()).isNull();
+        assertThat(created.lastOutcome()).isEqualTo(ScheduleLastOutcome.NEVER);
+        assertThat(created.outcomeCode()).isNull();
+        assertThat(created.outcomeMessage()).isNull();
+        assertThat(created.lastRunTime()).isNull();
+        assertThat(created.checkpointSchema()).isNull();
+        assertThat(created.checkpointVersion()).isNull();
+        assertThat(created.checkpointJson()).isNull();
+        assertThat(created.suspendReason()).isNull();
+        assertThat(created.suspendCode()).isNull();
+        assertThat(created.suspendDetailJson()).isNull();
+        assertThat(created.stateVersion()).isZero();
+        assertThat(store.findCredentialMetadata(id)).isNull();
+        assertThat(jdbc.queryForObject(
+                "SELECT cookie_mode FROM scheduled_tasks WHERE id = ?", String.class, id))
+                .isEqualTo("restricted");
+    }
+
+    @Test
+    @DisplayName("generated key 缺失时 create 失败并回滚已插入任务")
+    void createRollsBackWhenGeneratedIdIsMissing() {
+        ScheduledTaskStoreImpl missingIdStore = transactionalStore(missingGeneratedIdMapper());
+
+        assertThatThrownBy(() -> missingIdStore.create(create("缺失 ID")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("did not return a generated id");
+        assertThat(mapper.countAll()).isZero();
+    }
+
+    @Test
     @DisplayName("definition CAS 编辑清 checkpoint、pending 与可修复挂起")
     void definitionEditResetsCheckpointAndPending() {
-        ScheduledTaskInsert row = sample("编辑前");
+        ScheduledTaskInsertRow row = sample("编辑前");
         row.setCheckpointSchema("fixture.checkpoint");
         row.setCheckpointVersion(1);
         row.setCheckpointJson("{\"cursor\":\"before\"}");
@@ -112,7 +154,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("definition CAS 编辑保留人工与运行策略挂起")
     void definitionEditPreservesNonDefinitionSuspension() {
-        ScheduledTaskInsert row = sample("人工挂起");
+        ScheduledTaskInsertRow row = sample("人工挂起");
         row.setSuspendReason(ScheduleSuspendReason.MANUAL);
         row.setSuspendCode("admin.pause");
         row.setSuspendDetailJson("{\"by\":\"admin\"}");
@@ -132,7 +174,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("definition 版本不匹配时不改定义也不误删 pending")
     void staleDefinitionEditKeepsAggregateUntouched() {
-        ScheduledTaskInsert row = sample("原定义");
+        ScheduledTaskInsertRow row = sample("原定义");
         mapper.insert(row);
         mapper.upsertPendingWork(pending(row.getId(), "fixture.work", "001"));
         ScheduleTaskDefinitionUpdate update = new ScheduleTaskDefinitionUpdate(
@@ -147,7 +189,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("credential 绑定、策略状态 CAS 与移除都推进 task stateVersion，secret 不进元数据")
     void credentialLifecycleUsesTaskVersionAndDedicatedSecretScalar() {
-        ScheduledTaskInsert row = sample("凭证生命周期");
+        ScheduledTaskInsertRow row = sample("凭证生命周期");
         mapper.insert(row);
 
         OptionalLong bound = store.bindCredential(row.getId(), 0L,
@@ -181,7 +223,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("管理员清 pending 与 durable claim 争用同一 stateVersion CAS")
     void pendingClearAndRunClaimAreMutuallyExclusive() {
-        ScheduledTaskInsert clearedFirst = sample("先清 pending");
+        ScheduledTaskInsertRow clearedFirst = sample("先清 pending");
         mapper.insert(clearedFirst);
         mapper.upsertPendingWork(pending(clearedFirst.getId(), "fixture.work", "001/路径?'\"#_%"));
 
@@ -192,7 +234,7 @@ class ScheduledTaskStoreTest {
         assertThat(store.tryQueueNow(clearedFirst.getId(), 0L, "stale-claim")).isEmpty();
         assertThat(store.tryQueueNow(clearedFirst.getId(), 1L, "fresh-claim")).isPresent();
 
-        ScheduledTaskInsert claimedFirst = sample("先认领运行");
+        ScheduledTaskInsertRow claimedFirst = sample("先认领运行");
         mapper.insert(claimedFirst);
         mapper.upsertPendingWork(pending(claimedFirst.getId(), "fixture.work", "same/id"));
         assertThat(store.tryQueueNow(claimedFirst.getId(), 0L, "active-claim")).isPresent();
@@ -207,7 +249,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("清 pending 失败应回滚已推进的 stateVersion")
     void pendingClearRollsBackVersionWhenDeleteFails() {
-        ScheduledTaskInsert row = sample("清 pending 回滚");
+        ScheduledTaskInsertRow row = sample("清 pending 回滚");
         mapper.insert(row);
         mapper.upsertPendingWork(pending(row.getId(), "fixture.work", "001/路径?'\"#_%"));
         ScheduledTaskStoreImpl faulting = transactionalStore(faultingMapper("deletePendingWork"));
@@ -226,7 +268,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("definition 写入后清 pending 失败应回滚整个聚合")
     void definitionEditRollsBackWhenPendingDeleteFails() {
-        ScheduledTaskInsert row = sample("回滚前定义");
+        ScheduledTaskInsertRow row = sample("回滚前定义");
         row.setCheckpointSchema("fixture.checkpoint");
         row.setCheckpointVersion(1);
         row.setCheckpointJson("{\"cursor\":\"kept\"}");
@@ -251,7 +293,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("deleteAggregate 按 stateVersion 清任务、credential、新 pending 与旧迁移源 pending")
     void deletesWholeAggregateOnlyOnMatchingVersion() {
-        ScheduledTaskInsert row = sample("聚合删除");
+        ScheduledTaskInsertRow row = sample("聚合删除");
         mapper.insert(row);
         assertThat(store.bindCredential(row.getId(), 0L,
                 "fixture-plugin", "fixture-policy", "account-8", "{}",
@@ -274,7 +316,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("聚合删除末尾失败应恢复任务、凭证和两类 pending")
     void deleteAggregateRollsBackAllChildrenOnFailure() {
-        ScheduledTaskInsert row = sample("删除回滚");
+        ScheduledTaskInsertRow row = sample("删除回滚");
         mapper.insert(row);
         assertThat(store.bindCredential(row.getId(), 0L,
                 "fixture-plugin", "fixture-policy", "account-rollback", "{}",
@@ -299,7 +341,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("凭证绑定、恢复与策略挂起组合失败应由真实外层事务整体回滚")
     void credentialBindResumeAndSuspendRollBackTogether() {
-        ScheduledTaskInsert row = sample("凭证组合回滚");
+        ScheduledTaskInsertRow row = sample("凭证组合回滚");
         row.setSuspendReason(ScheduleSuspendReason.CREDENTIAL);
         row.setSuspendCode("COOKIE_DEAD");
         mapper.insert(row);
@@ -328,7 +370,7 @@ class ScheduledTaskStoreTest {
     @Test
     @DisplayName("未完成迁移的 storageVersion=0 任务仍可按版本聚合删除")
     void deletesRejectedLegacyAggregate() {
-        ScheduledTaskInsert row = sample("迁移失败待处理");
+        ScheduledTaskInsertRow row = sample("迁移失败待处理");
         row.setStorageVersion(ScheduledTask.LEGACY_STORAGE_VERSION);
         mapper.insert(row);
         jdbc.update("INSERT INTO scheduled_task_pending(task_id, work_id, reason, attempts) VALUES(?,?,?,?)",
@@ -366,8 +408,41 @@ class ScheduledTaskStoreTest {
                 });
     }
 
-    private ScheduledTaskInsert sample(String name) {
-        ScheduledTaskInsert row = new ScheduledTaskInsert();
+    private ScheduledTaskMapper missingGeneratedIdMapper() {
+        return (ScheduledTaskMapper) Proxy.newProxyInstance(
+                ScheduledTaskMapper.class.getClassLoader(),
+                new Class<?>[]{ScheduledTaskMapper.class},
+                (proxy, method, args) -> {
+                    try {
+                        Object result = method.invoke(mapper, args);
+                        if (method.getName().equals("insert")) {
+                            ((ScheduledTaskInsertRow) args[0]).setId(null);
+                        }
+                        return result;
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+    }
+
+    private ScheduledTaskCreate create(String name) {
+        return new ScheduledTaskCreate(
+                name,
+                "fixture-source",
+                "fixture-plugin",
+                "fixture.definition",
+                1,
+                "{\"query\":{\"mode\":\"fixture\"}}",
+                "{}",
+                ScheduledTask.TRIGGER_INTERVAL,
+                60,
+                null,
+                1_000L,
+                1_700_000_000_000L);
+    }
+
+    private ScheduledTaskInsertRow sample(String name) {
+        ScheduledTaskInsertRow row = new ScheduledTaskInsertRow();
         row.setName(name);
         row.setEnabled(true);
         row.setSourceType("fixture-source");

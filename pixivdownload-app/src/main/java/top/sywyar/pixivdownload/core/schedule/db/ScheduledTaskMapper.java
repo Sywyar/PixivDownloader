@@ -11,7 +11,6 @@ import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
@@ -59,7 +58,7 @@ public interface ScheduledTaskMapper {
             + " #{storageVersion}, #{runState}, #{runClaimToken}, #{lastOutcome}, #{outcomeCode}, #{outcomeMessage},"
             + " #{suspendReason}, #{suspendCode}, #{suspendDetailJson}, #{stateVersion}, #{createdTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    void insert(ScheduledTaskInsert task);
+    void insert(ScheduledTaskInsertRow task);
 
     @Select(SELECT_TASK + " ORDER BY t.id DESC")
     List<ScheduledTask> findAll();
