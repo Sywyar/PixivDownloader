@@ -73,12 +73,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
-    /** 下载工作台是必选插件：下载页与下载执行是核心使用路径，不允许关闭。 */
-    @Override
-    public boolean required() {
-        return true;
-    }
-
     @Override
     public List<WebRouteContribution> routes() {
         // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
@@ -134,9 +128,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     @Override
     public List<NavigationContribution> navigation() {
         // 下载工作台跨页入口。VISITOR：multi 匿名访客与管理员在 /api/navigation 可见、受邀访客看不到
-        //（下载页对受邀访客 403，故不进其导航栏）。本插件 required，配置写 false 也仍贡献导航（恒进活动快照）。
-        // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）；priority 10 为内置项最小值，使「自带基础页面」
-        // 在每个 slot 内恒排最前。标签走本插件自有 namespace batch 的 nav.label。
+        //（下载页对受邀访客 403，故不进其导航栏）。宿主发行策略将本插件列为必选，配置写 false 也仍贡献导航。
+        // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）；priority 10 让该官方基础页面按既定顺序
+        // 在每个 slot 内靠前展示。标签走本插件自有 namespace batch 的 nav.label。
         return List.of(new NavigationContribution(
                 ID,
                 Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,

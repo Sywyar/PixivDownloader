@@ -93,15 +93,6 @@ public interface PixivFeaturePlugin {
     PluginKind kind();
 
     /**
-     * 是否为必选插件。必选插件无法经 {@code plugins.<id>.enabled} 关闭：恒进入活动快照、其托管 Bean 恒装配，
-     * 即便配置或手工把开关写成 {@code false} 也会被忽略。核心插件（{@link PluginKind#CORE}）恒为必选；
-     * 功能插件默认可禁用，必选的功能插件覆写本方法返回 {@code true}。
-     */
-    default boolean required() {
-        return kind() == PluginKind.CORE;
-    }
-
-    /**
      * 生命周期：启动。注册中心在应用启动（或插件被安装启用）时调用一次。
      */
     default void start() {

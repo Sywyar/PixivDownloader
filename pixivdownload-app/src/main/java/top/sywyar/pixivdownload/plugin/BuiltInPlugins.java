@@ -28,25 +28,10 @@ public final class BuiltInPlugins {
                 new PluginMarketPlugin());
     }
 
-    /** 内置清单中自声明必选的插件 id 集合，随内置清单固定。 */
-    private static final Set<String> REQUIRED_IDS = createAll().stream()
-            .filter(PixivFeaturePlugin::required)
-            .map(PixivFeaturePlugin::id)
-            .collect(Collectors.toUnmodifiableSet());
-
     /** 全部内置插件 id 集合，随内置清单固定。 */
     private static final Set<String> BUILT_IN_IDS = createAll().stream()
             .map(PixivFeaturePlugin::id)
             .collect(Collectors.toUnmodifiableSet());
-
-    /**
-     * 给定 id 是否为内置自声明必选插件。本方法供守卫
-     * {@code PluginApiDependencyGuardTest} 据此断言「必选插件的业务 Bean 不得标
-     * {@code @ConditionalOnPluginEnabled}」；活动判定以 {@link PluginRegistry} 的内置核心 / 核心必选策略为准。
-     */
-    public static boolean isRequired(String pluginId) {
-        return pluginId != null && REQUIRED_IDS.contains(pluginId);
-    }
 
     /**
      * 给定 id 是否为内置插件。用于导航排序的来源层级判定：内置插件（核心 / 必选基础页面 / 可选功能插件）

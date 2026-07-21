@@ -173,6 +173,24 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("宿主策略必选的下载工作台不得用插件开关门控配置类或 Bean")
+    void requiredWorkbenchBeansMustNotBeConditionalOnPluginEnabled() {
+        assertThat(CLASSES.stream()
+                .filter(javaClass -> javaClass.isAnnotatedWith(ConditionalOnPluginEnabled.class))
+                .map(JavaClass::getName)
+                .toList())
+                .as("download-workbench 配置类由宿主 RequiredPluginPolicy 保证恒活动，不得读取原始插件开关门控")
+                .isEmpty();
+        assertThat(CLASSES.stream()
+                .flatMap(javaClass -> javaClass.getMethods().stream())
+                .filter(method -> method.isAnnotatedWith(ConditionalOnPluginEnabled.class))
+                .map(method -> method.getFullName())
+                .toList())
+                .as("download-workbench Bean 由宿主 RequiredPluginPolicy 保证恒活动，不得读取原始插件开关门控")
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("外置模块类导入非空且覆盖关键工作台类型")
     void pluginClassImportIsNonEmpty() {
         assertThat(CLASSES)

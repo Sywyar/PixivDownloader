@@ -10,9 +10,9 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
  * <p>它的存在只是为了在真实外置插件加载链路上充当一个「可被核心策略声明为必选、又能被开关禁用 / 整包移除」的探针：
  * 核心据此能验证「必选插件缺失 / 被禁用 / 启动失败 / 版本不兼容时进入恢复模式」的判定与访问拦截。
  *
- * <p><b>本插件不自称必选</b>——刻意不覆写 {@link #required()}（功能插件默认 {@code false}）。必选性只能由核心侧的
- * 必选插件策略对插件 id 提出（外置插件无法自封必选）；正因为它不是自声明必选，{@code plugins.recovery-sentinel.enabled=false}
- * 才能把它当作「已安装但被禁用」来模拟，从而触发恢复模式。
+ * <p><b>插件契约不提供自声明必选性的入口</b>。必选性只能由核心侧的必选插件策略对插件 id 提出；默认策略不要求
+ * 本插件。只有宿主显式把它加入必选策略后，{@code plugins.recovery-sentinel.enabled=false} 才用于复现
+ * 「已安装但被禁用」并触发恢复模式。
  */
 public class RecoverySentinelPlugin implements PixivFeaturePlugin {
 
@@ -51,6 +51,6 @@ public class RecoverySentinelPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
-    // 不覆写 required()：保持功能插件默认可禁用，必选性只由核心策略声明。
-    // 其余 schema() / routes() / staticResources() / i18n() / navigation() / ... 全部沿用接口默认空实现：不贡献任何功能。
+    // 必选性不属于插件契约，只由核心策略声明。
+    // schema() / routes() / staticResources() / i18n() / navigation() / ... 全部沿用接口默认空实现：不贡献任何功能。
 }

@@ -31,7 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 下载工作台作为外置 required PF4J 插件时的 contribution 契约。这里不加载 app 的
+ * 下载工作台作为宿主策略 required 的外置 PF4J 插件时的 contribution 契约。这里不加载 app 的
  * {@code SpringBootTest} 上下文，避免外置模块出现在测试 classpath 后被 app 根包扫描成内置 controller。
  */
 @DisplayName("download-workbench 外置 required 插件贡献契约")
@@ -40,11 +40,10 @@ class DownloadWorkbenchRequiredContextTest {
     private final DownloadWorkbenchPlugin plugin = new DownloadWorkbenchPlugin();
 
     @Test
-    @DisplayName("插件身份：required 功能插件，核心策略可据 id 约束为官方必需包")
+    @DisplayName("插件身份：FEATURE 与稳定 id，宿主策略可据 id 约束为官方必需包")
     void pluginIdentity() {
         assertThat(plugin.id()).isEqualTo(DownloadWorkbenchPlugin.ID);
         assertThat(plugin.kind()).isEqualTo(PluginKind.FEATURE);
-        assertThat(plugin.required()).isTrue();
         assertThat(plugin.displayNamespace()).isEqualTo("batch");
     }
 

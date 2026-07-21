@@ -54,10 +54,10 @@ public final class DefaultConfigTemplate {
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.plugins");
-        // 内置可禁用功能插件的开关从 BuiltInPlugins 清单动态派生（必选插件如核心 / 下载工作台 / 计划任务宿主不写开关），
-        // 供启动期与 Web 插件前端消费；桌面 GUI 配置页不呈现这些插件启停项。
+        // 内置功能插件的开关从 BuiltInPlugins 清单动态派生；内置 CORE 不写开关。
+        // 外置必选性由宿主 RequiredPluginPolicy 拥有，不属于插件描述契约。
         for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
-            if (plugin.kind() == PluginKind.FEATURE && !plugin.required()) {
+            if (plugin.kind() == PluginKind.FEATURE) {
                 appendSetting(config, messages, "plugins." + plugin.id() + ".enabled: true",
                         "config.template.plugins.enabled.comment");
             }

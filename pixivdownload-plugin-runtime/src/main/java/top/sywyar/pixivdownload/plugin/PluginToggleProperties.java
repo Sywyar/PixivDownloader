@@ -14,8 +14,8 @@ import java.util.LinkedHashMap;
  * {@link ConditionalOnPluginEnabled} 据此决定插件托管业务 Bean 是否装配。
  * <p>
  * 本类只反映 {@code config.yaml} 里的<b>原始开关值</b>；内置核心插件与核心策略声明的必选插件是否可禁用，
- * 由 app 侧 {@code PluginRegistry} 在注册期判定，与外置插件自己的 {@code PixivFeaturePlugin.required()}
- * 自声明无关。{@link OnPluginEnabledCondition} 只读开关、不特判必选性。
+ * 由 app 侧 {@code PluginRegistry} 在注册期判定。插件契约不提供自声明必选性的入口；
+ * {@link OnPluginEnabledCondition} 只读开关、不特判必选性。
  * <p>
  * Spring 上下文之外（{@code BuiltInPlugins.createAll()} 路径、单元测试）用空实例即代表全部启用。
  */

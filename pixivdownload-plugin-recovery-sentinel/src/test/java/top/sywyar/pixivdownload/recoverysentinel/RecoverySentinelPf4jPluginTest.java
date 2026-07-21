@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>{@link RecoverySentinelPf4jPlugin} 继承 {@code org.pf4j.Plugin} 并实现入口契约 {@link PixivPluginProvider}；</li>
  *   <li>{@link PixivPluginProvider#featurePlugins()} 暴露最小功能插件 {@link RecoverySentinelPlugin}
  *       （id {@code recovery-sentinel}）；</li>
- *   <li>该功能插件<b>不自称必选</b>（{@link PixivFeaturePlugin#required()} 为 {@code false}）、且<b>不贡献任何东西</b>
+ *   <li>该功能插件<b>不贡献任何东西</b>
  *       （route / static / i18n / navigation / schema / 维护任务 / 调度来源 / 队列 / 标签页 / 落点 全部为空）。</li>
  * </ul>
  * 这些是核心据以加载 / 校验 / 接入外置 recovery-sentinel 插件并用其验证恢复模式的契约面。
@@ -69,14 +69,6 @@ class RecoverySentinelPf4jPluginTest {
         assertThat(sentinel).isInstanceOf(RecoverySentinelPlugin.class);
         assertThat(sentinel.id()).isEqualTo("recovery-sentinel");
         assertThat(sentinel.kind()).isEqualTo(PluginKind.FEATURE);
-    }
-
-    @Test
-    @DisplayName("recovery-sentinel 不自称必选（required=false），必选性只能由核心策略声明")
-    void sentinelDoesNotSelfDeclareRequired() {
-        assertThat(new RecoverySentinelPlugin().required())
-                .as("外置插件不得自封必选——否则 plugins.recovery-sentinel.enabled=false 无法模拟「已安装但禁用」")
-                .isFalse();
     }
 
     @Test

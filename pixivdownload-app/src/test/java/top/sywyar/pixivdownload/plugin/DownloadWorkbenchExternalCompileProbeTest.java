@@ -66,7 +66,6 @@ class DownloadWorkbenchExternalCompileProbeTest {
                     public String iconKey() { return "download"; }
                     public String colorToken() { return "pixiv"; }
                     public PluginKind kind() { return PluginKind.FEATURE; }
-                    public boolean required() { return true; }
                     public List<WebRouteContribution> routes() {
                         return List.of(
                                 WebRouteContribution.visitor("/pixiv-batch.html"),

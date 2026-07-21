@@ -50,8 +50,8 @@ import java.util.stream.Collectors;
  * {@code plugins.<id>.enabled=false}（{@link PluginToggleProperties}）在构造期<b>不被注册进快照</b>，
  * 故各下游 registry（路由 / 导航 / i18n / 静态资源 / 调度来源 / 队列 / 标签页 / 落点）经 {@link #plugins()}
  * 自动排除禁用插件，其页面 / API / 导航因而不注册。<b>内置核心插件与核心策略声明的必选插件永不可禁用</b>——
- * 即便开关写成 {@code false} 也照常注册。外置插件自己的 {@link PixivFeaturePlugin#required()} 自声明不参与
- * 活动判定，避免第三方插件自封必选后绕过禁用开关。
+ * 即便开关写成 {@code false} 也照常注册。插件契约不提供自封必选的入口；外置插件只有被宿主
+ * {@link RequiredPluginPolicy} 声明后才能绕过禁用开关。
  * schema 不随插件禁用而缺失：受管 schema 经 {@link #allRegisteredPlugins()} 合并（见
  * {@code DatabaseSchemaRegistry}），即使插件被禁用其声明的表 / 列仍创建，已有数据保留；
  * owner key 取注册时捕获的稳定 id，不重新调用插件实例的 {@link PixivFeaturePlugin#id()}。

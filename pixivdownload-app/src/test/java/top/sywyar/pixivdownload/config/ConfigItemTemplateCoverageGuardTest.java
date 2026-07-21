@@ -144,7 +144,7 @@ class ConfigItemTemplateCoverageGuardTest {
 
     private static Set<String> pluginToggleKeysWithoutGuiField() {
         Set<String> keys = BuiltInPlugins.createAll().stream()
-                .filter(plugin -> plugin.kind() == PluginKind.FEATURE && !plugin.required())
+                .filter(plugin -> plugin.kind() == PluginKind.FEATURE)
                 .map(plugin -> "plugins." + plugin.id() + ".enabled")
                 .collect(Collectors.toCollection(TreeSet::new));
         keys.addAll(OFFICIAL_EXTERNAL_PLUGIN_TOGGLE_KEYS);

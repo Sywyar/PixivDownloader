@@ -40,23 +40,22 @@ import top.sywyar.pixivdownload.plugin.registry.PluginSource;
  *   <li>把 recovery-sentinel 声明为必选、且该外置插件<b>已安装且启用</b>（STARTED）时，核心<b>不</b>进入恢复模式；</li>
  *   <li>把 recovery-sentinel 声明为必选、但用 {@code plugins.recovery-sentinel.enabled=false} <b>禁用</b>它（仍被 PF4J
  *       加载、但不进入活动快照）时，状态评估为 {@link PluginStatus#DISABLED}、核心<b>进入</b>恢复模式；</li>
- *   <li>外置 recovery-sentinel 以 {@link PluginSource#EXTERNAL} 接入，且它<b>不自称必选</b>
- *       （{@link PixivFeaturePlugin#required()} 为 {@code false}）——必选性只来自核心策略。</li>
+ *   <li>外置 recovery-sentinel 以 {@link PluginSource#EXTERNAL} 接入；必选性只来自核心策略。</li>
  * </ol>
  *
  * <p>「必选但缺失（未安装）」一案不需要真实 jar（缺失即清点为空），由 {@link RecoverySentinelRecoveryGateTest} 用真实
  * {@link RecoveryModeService} 覆盖；此处用真实 jar 专门覆盖「已安装且启用」与「已安装但禁用」两案，正是没有真实外置
  * 插件时无法复现的两种状态。
  *
- * <p>本测试用的必选策略<b>只含 recovery-sentinel</b>（不含内置 download-workbench），以隔离被验证的变量——组件级注册
- * 中心此处不装配内置插件，若策略含 download-workbench 会因其缺失干扰判定。
+ * <p>本测试用的必选策略<b>只含 recovery-sentinel</b>（不含宿主必选的外置 download-workbench），以隔离被验证的变量——
+ * 组件级 fixture 此处不安装 / 发现该外置插件，若策略含 download-workbench 会因其缺失干扰判定。
  *
  * <p>recovery-sentinel 构建产物目录经 surefire 系统属性 {@code recovery-sentinel.plugin.classes} 传入（reactor 中先于
  * app 构建）；未就绪时（如 IDE 未触发 reactor 构建）整类 {@link Assumptions assume} 跳过。Windows 下 PF4J 加载 jar 会
  * 持有文件锁，故 {@link #unloadAndCleanup()} 先停止 / 卸载插件释放 classloader 再删除临时目录。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@DisplayName("recovery-sentinel 外置 PF4J 插件：真实加载下「已装启用→正常」「已装禁用→恢复」+ EXTERNAL 接入不自称必选")
+@DisplayName("recovery-sentinel 外置 PF4J 插件：真实加载下「已装启用→正常」「已装禁用→恢复」+ EXTERNAL 接入")
 class RecoverySentinelExternalPluginIntegrationTest {
 
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
@@ -113,14 +112,13 @@ class RecoverySentinelExternalPluginIntegrationTest {
     }
 
     @Test
-    @DisplayName("已安装且启用：状态 STARTED、来源 EXTERNAL、不自称必选，核心不进入恢复模式")
+    @DisplayName("已安装且启用：状态 STARTED、来源 EXTERNAL，核心策略满足后不进入恢复模式")
     void enabledSentinelKeepsOperational() {
         PluginToggleProperties enabled = new PluginToggleProperties();   // 默认全部启用
         PluginRegistry registry = registryFor(enabled);
 
-        // 外置接入 + 不自称必选（必选性只来自核心策略）。
+        // 外置接入；必选性只来自核心策略。
         assertThat(registry.source("recovery-sentinel")).contains(PluginSource.EXTERNAL);
-        assertThat(registry.find("recovery-sentinel").orElseThrow().required()).isFalse();
 
         PluginStatusService statusService = new PluginStatusService(registry, manager.inspectPlugins(), POLICY);
         assertThat(statusService.report().byId("recovery-sentinel").orElseThrow().status())

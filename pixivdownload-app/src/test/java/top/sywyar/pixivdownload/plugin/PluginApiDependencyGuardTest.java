@@ -13,6 +13,8 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
@@ -21,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
@@ -36,6 +39,10 @@ class PluginApiDependencyGuardTest {
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
+    private static final Set<String> BUILT_IN_CORE_PLUGIN_IDS = BuiltInPlugins.createAll().stream()
+            .filter(plugin -> plugin.kind() == PluginKind.CORE)
+            .map(PixivFeaturePlugin::id)
+            .collect(Collectors.toUnmodifiableSet());
 
     /**
      * 业务插件禁止直接调用的 {@code java.nio.file.Files} 读取 / 打开类静态方法。普通作品文件的枚举 / 读取是
@@ -514,54 +521,50 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("必选插件的业务 Bean 不得标 @ConditionalOnPluginEnabled（method 级与 class 级都覆盖）：plugin-runtime 删 isRequired 短路分支后由本守卫固化")
-    void requiredPluginBeansMustNotBeConditionalOnPluginEnabled() {
+    @DisplayName("内置 CORE 的业务 Bean 不得标 @ConditionalOnPluginEnabled（method 级与 class 级都覆盖）")
+    void builtInCorePluginBeansMustNotBeConditionalOnPluginEnabled() {
         // plugin-runtime 的 OnPluginEnabledCondition 已断掉对组合根 BuiltInPlugins 的反向引用（删除 isRequired
-        // 短路分支、只读 plugins.<id>.enabled 开关）。该分支可安全删除的前提是「没有任何必选插件的业务 Bean 被
-        // @ConditionalOnPluginEnabled 门控」——否则必选插件会被开关误伤。@ConditionalOnPluginEnabled 的 @Target
+        // 短路分支、只读 plugins.<id>.enabled 开关）。内置 CORE 的不可禁用性来自「BUILT_IN + CORE」结构事实，
+        // 其 Bean 若被 @ConditionalOnPluginEnabled 门控就会被原始开关误伤。@ConditionalOnPluginEnabled 的 @Target
         // 同时含 METHOD 与 TYPE（既可标 @Bean 工厂方法，也可标整个 @Configuration 类一并门控其全部 @Bean），故本守卫
-        // 两端都扫：method 级与 class 级被注解的元素都读 value()、断言被门控 id 都不是必选插件。生产中本注解当前只用
-        // 于可选插件的 @Bean 工厂方法（gallery / novel / stats / duplicate）；必选插件（core / download-workbench /
-        // schedule）的 Bean 恒无条件装配。class 级当前无生产用法（allowEmptyShould 放行空集），是防未来有人用类级注解
-        // 门控必选插件的前向守卫。
-        ArchCondition<JavaMethod> methodNotGateRequiredPlugin =
-                new ArchCondition<>("@Bean 方法不得用 @ConditionalOnPluginEnabled 门控必选插件") {
+        // 两端都扫：method 级与 class 级被注解的元素都读 value()、断言被门控 id 不是内置 CORE。外置 required
+        // download-workbench 的同一不变量由其模块自己的 DownloadWorkbenchDependencyGuardTest 守住；必选性仍只由宿主
+        // RequiredPluginPolicy 声明，不回填到插件契约。
+        ArchCondition<JavaMethod> methodNotGateBuiltInCore =
+                new ArchCondition<>("@Bean 方法不得用 @ConditionalOnPluginEnabled 门控内置 CORE") {
                     @Override
                     public void check(JavaMethod method, ConditionEvents events) {
                         String pluginId = method.getAnnotationOfType(ConditionalOnPluginEnabled.class).value();
-                        if (BuiltInPlugins.isRequired(pluginId)) {
+                        if (BUILT_IN_CORE_PLUGIN_IDS.contains(pluginId)) {
                             events.add(SimpleConditionEvent.violated(method,
                                     method.getFullName() + " 用 @ConditionalOnPluginEnabled(\"" + pluginId
-                                            + "\") 门控了必选插件——必选插件不可禁用、其业务 Bean 必须恒无条件装配"));
+                                            + "\") 门控了内置 CORE——核心 Bean 必须恒无条件装配"));
                         }
                     }
                 };
-        ArchCondition<JavaClass> typeNotGateRequiredPlugin =
-                new ArchCondition<>("@Configuration 类不得用 @ConditionalOnPluginEnabled 门控必选插件") {
+        ArchCondition<JavaClass> typeNotGateBuiltInCore =
+                new ArchCondition<>("@Configuration 类不得用 @ConditionalOnPluginEnabled 门控内置 CORE") {
                     @Override
                     public void check(JavaClass clazz, ConditionEvents events) {
                         String pluginId = clazz.getAnnotationOfType(ConditionalOnPluginEnabled.class).value();
-                        if (BuiltInPlugins.isRequired(pluginId)) {
+                        if (BUILT_IN_CORE_PLUGIN_IDS.contains(pluginId)) {
                             events.add(SimpleConditionEvent.violated(clazz,
                                     clazz.getFullName() + " 用 @ConditionalOnPluginEnabled(\"" + pluginId
-                                            + "\") 门控了必选插件——必选插件不可禁用、其托管 Bean 必须恒无条件装配"));
+                                            + "\") 门控了内置 CORE——核心托管 Bean 必须恒无条件装配"));
                         }
                     }
                 };
-        String because = "OnPluginEnabledCondition 已删除 isRequired 短路分支（plugin-runtime 不再回指组合根 "
-                + "BuiltInPlugins）：删除安全的前提是『没有任何必选插件的 Bean 被 @ConditionalOnPluginEnabled "
-                + "门控』。本守卫固化此不变量——内置必选插件的业务 Bean 一律"
-                + "不标本注解（method 级或 class 级都不行）、恒无条件装配；只有可选插件（gallery / novel / stats / "
-                + "duplicate）才用它按开关装配 / 缺席";
+        String because = "OnPluginEnabledCondition 只读原始开关且不回指组合根；内置 CORE 的 Bean 一律不标本注解"
+                + "（method 级或 class 级都不行）、恒无条件装配";
         methods()
                 .that().areAnnotatedWith(ConditionalOnPluginEnabled.class)
-                .should(methodNotGateRequiredPlugin)
+                .should(methodNotGateBuiltInCore)
                 .because(because)
                 .check(CLASSES);
         // @Target 含 TYPE，但当前生产无类级用法 → allowEmptyShould 放行空集（前向守卫）。
         classes()
                 .that().areAnnotatedWith(ConditionalOnPluginEnabled.class)
-                .should(typeNotGateRequiredPlugin)
+                .should(typeNotGateBuiltInCore)
                 .allowEmptyShould(true)
                 .because(because)
                 .check(CLASSES);

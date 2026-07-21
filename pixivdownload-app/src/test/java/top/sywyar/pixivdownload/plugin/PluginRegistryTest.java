@@ -70,11 +70,6 @@ class PluginRegistryTest {
         }
 
         @Override
-        public boolean required() {
-            return false;
-        }
-
-        @Override
         public void start() {
             lifecycleLog.add("start:" + id);
         }
@@ -431,21 +426,28 @@ class PluginRegistryTest {
     }
 
     @Test
-    @DisplayName("外置插件自称 required 不得绕过 enabled=false")
-    void externalSelfDeclaredRequiredCannotBypassDisabledToggle() {
+    @DisplayName("外置插件声明 CORE 也不能绕过 enabled=false")
+    void externalCoreKindCannotBypassToggle() {
         ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
         PluginToggleProperties toggles = new PluginToggleProperties();
-        toggles.put("third-party", disabledToggle());
+        toggles.put("external-core", disabledToggle());
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(external("third-party", new RequiredTestPlugin("third-party"), extCl)), List.of());
+                List.of(external("external-core", new TestPlugin("external-core", PluginKind.CORE), extCl)),
+                List.of());
 
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), toggles, discovery);
 
         assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
-        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).contains("third-party");
-        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("third-party");
-        assertThat(registry.source("third-party")).isEmpty();
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id)
+                .containsExactly("core", "external-core");
+        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id)
+                .containsExactly("external-core");
+        assertThat(registry.source("external-core")).isEmpty();
+        assertThat(registry.allRegisteredPlugins())
+                .filteredOn(registered -> registered.id().equals("external-core"))
+                .extracting(PluginRegistry.RegisteredPlugin::source)
+                .containsExactly(PluginSource.EXTERNAL);
     }
 
     @Test
@@ -657,17 +659,6 @@ class PluginRegistryTest {
         PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
         toggle.setEnabled(false);
         return toggle;
-    }
-
-    private static final class RequiredTestPlugin extends TestPlugin {
-        private RequiredTestPlugin(String id) {
-            super(id);
-        }
-
-        @Override
-        public boolean required() {
-            return true;
-        }
     }
 
     private static final class RetryStopPlugin implements PixivFeaturePlugin {
