@@ -10,10 +10,11 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
@@ -24,7 +25,9 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
@@ -58,7 +61,6 @@ import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 
 /**
  * 下载工作台外置插件的 Bean 装配收敛点。子上下文只注册本配置类，不扫描应用根包；因此下载执行器、
@@ -89,24 +91,27 @@ public class DownloadWorkbenchPluginConfiguration {
     public ArtworkDownloadExecutor artworkDownloadExecutor(DownloadSettings downloadSettings,
                                                            ApplicationEventPublisher eventPublisher,
                                                            PixivDatabase pixivDatabase,
-                                                           UserQuotaService userQuotaService,
+                                                           VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                            @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                                            @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                                            @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-                                                           PixivBookmarkService pixivBookmarkService,
+                                                           PixivBookmarkActions pixivBookmarkActions,
                                                            UgoiraService ugoiraService,
                                                            AuthorService authorService,
-                                                           CollectionService collectionService,
+                                                           CollectionDownloadRootResolver collectionDownloadRootResolver,
+                                                           WorkCollectionMembership workCollectionMembership,
                                                            MangaSeriesService mangaSeriesService,
                                                            ArtworkHashService artworkHashService,
-                                                           WorkMetaCaptureService workMetaCaptureService,
+                                                           WorkMetadataCapture workMetadataCapture,
                                                            DownloadStatisticsService downloadStatisticsService,
                                                            DownloadedArtworkService downloadedArtworkService,
                                                            AppMessages messages) {
-        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase, userQuotaService,
+        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
+                visitorDownloadQuotaService,
                 downloadRestTemplate, taskScheduler, downloadTaskExecutor,
-                pixivBookmarkService, ugoiraService, authorService,
-                collectionService, mangaSeriesService, artworkHashService, workMetaCaptureService,
+                pixivBookmarkActions, ugoiraService, authorService,
+                collectionDownloadRootResolver, workCollectionMembership,
+                mangaSeriesService, artworkHashService, workMetadataCapture,
                 downloadStatisticsService, downloadedArtworkService, messages);
     }
 
@@ -121,13 +126,13 @@ public class DownloadWorkbenchPluginConfiguration {
             PixivFetchService pixivFetchService,
             PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
-            WorkMetaCaptureService workMetaCaptureService,
+            WorkMetadataCapture workMetadataCapture,
             ScheduledIllustWorkRunner scheduledIllustWorkRunner,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             DownloadSettings downloadSettings) {
         return new PixivScheduledIllustWorkExecutor(
-                pixivFetchService, pixivDatabase, artworkDownloader, workMetaCaptureService,
+                pixivFetchService, pixivDatabase, artworkDownloader, workMetadataCapture,
                 scheduledIllustWorkRunner, persistenceCodec, objectMapper, downloadSettings);
     }
 
@@ -247,12 +252,13 @@ public class DownloadWorkbenchPluginConfiguration {
     public DownloadTaskController downloadTaskController(ArtworkDownloadExecutor artworkDownloadExecutor,
                                                          ApplicationModeProvider applicationModeProvider,
                                                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                         UserQuotaService userQuotaService,
+                                                         VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                          MultiModeSettings multiModeSettings,
                                                          PixivDatabase pixivDatabase,
                                                          AppMessages messages) {
         return new DownloadTaskController(artworkDownloadExecutor, applicationModeProvider,
-                requestOwnerIdentityResolver, userQuotaService, multiModeSettings, pixivDatabase, messages);
+                requestOwnerIdentityResolver, visitorDownloadQuotaService,
+                multiModeSettings, pixivDatabase, messages);
     }
 
     @Bean

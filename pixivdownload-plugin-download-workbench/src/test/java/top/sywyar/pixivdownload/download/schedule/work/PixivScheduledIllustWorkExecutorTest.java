@@ -17,7 +17,8 @@ import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
@@ -43,6 +44,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -64,7 +66,7 @@ class PixivScheduledIllustWorkExecutorTest {
     @Mock
     private ArtworkDownloader artworkDownloader;
     @Mock
-    private WorkMetaCaptureService workMetaCaptureService;
+    private WorkMetadataCapture workMetadataCapture;
     @Mock
     private ScheduledIllustWorkRunner downloadRunner;
 
@@ -103,7 +105,7 @@ class PixivScheduledIllustWorkExecutorTest {
 
         assertThat(fixture.credential().lastCopy()).isNull();
         verifyNoInteractions(fetchService, pixivDatabase, artworkDownloader,
-                workMetaCaptureService, downloadRunner);
+                workMetadataCapture, downloadRunner);
     }
 
     @ParameterizedTest(name = "HTTP {0} 归类为作品不存在")
@@ -123,7 +125,7 @@ class PixivScheduledIllustWorkExecutorTest {
         assertThat(failure.code()).isEqualTo("pixiv.illust.gone");
         assertThat(fixture.credential().lastCopy()).containsOnly('\0');
         assertThat(OutboundProxyOverride.isActive()).isFalse();
-        verifyNoInteractions(workMetaCaptureService, downloadRunner);
+        verifyNoInteractions(workMetadataCapture, downloadRunner);
     }
 
     @ParameterizedTest(name = "HTTP {0} 归类为 {1}")
@@ -270,7 +272,28 @@ class PixivScheduledIllustWorkExecutorTest {
         assertThat(fixture.credential().lastCopy()).containsOnly('\0');
         assertThat(OutboundProxyOverride.isActive()).isFalse();
         assertThat(OutboundProxyOverride.current()).isNull();
-        verify(workMetaCaptureService).captureArtwork(123L, body, body, "schedule");
+        verify(workMetadataCapture).capture(
+                WorkType.ARTWORK, 123L, body.toString(), body.toString(), "schedule");
+    }
+
+    @Test
+    @DisplayName("元数据捕获失败不应反报已经完成的下载")
+    void metadataCaptureFailureDoesNotFailCompletedDownload() throws Exception {
+        JsonNode body = objectMapper.createObjectNode();
+        when(fetchService.fetchArtworkMetaCapture("123", "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.ArtworkMetaCapture(meta(null), body));
+        when(fetchService.resolveArtworkPages("123", "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.ArtworkPages(
+                        List.of("https://i.pximg.net/original.jpg"), body));
+        when(downloadRunner.download(any(), any(), eq("PHPSESSID=8_secret")))
+                .thenReturn(true);
+        doThrow(new IllegalStateException("boom")).when(workMetadataCapture).capture(
+                WorkType.ARTWORK, 123L, body.toString(), body.toString(), "schedule");
+
+        ScheduledWorkResult result = executor().execute(
+                work("123"), context(task(), ScheduledNetworkRoute.direct()).context());
+
+        assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
     }
 
     private void stubSeriesArtwork() throws Exception {
@@ -289,7 +312,7 @@ class PixivScheduledIllustWorkExecutorTest {
                 fetchService,
                 pixivDatabase,
                 artworkDownloader,
-                workMetaCaptureService,
+                workMetadataCapture,
                 downloadRunner,
                 new PixivSchedulePersistenceCodec(objectMapper),
                 objectMapper,

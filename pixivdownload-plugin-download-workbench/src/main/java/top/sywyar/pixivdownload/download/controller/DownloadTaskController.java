@@ -10,15 +10,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.AlreadyDownloadedResponse;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.QuotaExceededResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 @RestController
@@ -29,7 +30,7 @@ public class DownloadTaskController {
     private final ArtworkDownloadExecutor artworkDownloadExecutor;
     private final ApplicationModeProvider applicationModeProvider;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    private final UserQuotaService userQuotaService;
+    private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final MultiModeSettings multiModeSettings;
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
@@ -73,19 +74,20 @@ public class DownloadTaskController {
         // 多人模式且配额启用时，检查下载配额
         if (userUuid != null && multiModeSettings.isQuotaEnabled()) {
             int imageCount = request.getOther().isUgoira() ? 1 : request.getImageUrls().size();
-            UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid, imageCount);
+            VisitorDownloadQuotaReservation reservation =
+                    visitorDownloadQuotaService.checkAndReserve(userUuid, imageCount);
 
-            if (!check.allowed()) {
+            if (!reservation.allowed()) {
                 // 配额不足：触发打包，返回 429
-                String archiveToken = userQuotaService.triggerArchive(userUuid);
+                String archiveToken = visitorDownloadQuotaService.createArchive(userUuid);
                 return ResponseEntity.status(429).body(new QuotaExceededResponse(
                         true,
                         messages.get("download.quota.exceeded"),
                         archiveToken,
                         (long) multiModeSettings.getArchiveExpireMinutes() * 60,
-                        check.artworksUsed(),
-                        check.maxArtworks(),
-                        check.resetSeconds()
+                        reservation.quotaUnitsUsed(),
+                        reservation.maxQuotaUnits(),
+                        reservation.resetSeconds()
                 ));
             }
         }

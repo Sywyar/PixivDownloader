@@ -12,11 +12,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -26,15 +27,16 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.io.*;
@@ -63,17 +65,18 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private final DownloadSettings downloadSettings;
     private final ApplicationEventPublisher eventPublisher;
     private final PixivDatabase pixivDatabase;
-    private final UserQuotaService userQuotaService;
+    private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final TaskExecutor downloadTaskExecutor;
-    private final PixivBookmarkService pixivBookmarkService;
+    private final PixivBookmarkActions pixivBookmarkActions;
     private final UgoiraService ugoiraService;
     private final AuthorService authorService;
-    private final CollectionService collectionService;
+    private final CollectionDownloadRootResolver collectionDownloadRootResolver;
+    private final WorkCollectionMembership workCollectionMembership;
     private final MangaSeriesService mangaSeriesService;
     private final ArtworkHashService artworkHashService;
-    private final WorkMetaCaptureService workMetaCaptureService;
+    private final WorkMetadataCapture workMetadataCapture;
     private final DownloadStatisticsService downloadStatisticsService;
     private final DownloadedArtworkService downloadedArtworkService;
     private final AppMessages messages;
@@ -85,34 +88,36 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     public ArtworkDownloadExecutor(DownloadSettings downloadSettings,
                                    ApplicationEventPublisher eventPublisher,
                                    PixivDatabase pixivDatabase,
-                                   @Nullable UserQuotaService userQuotaService,
+                                   @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
                                    @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                    @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                    @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
-                                   PixivBookmarkService pixivBookmarkService,
+                                   PixivBookmarkActions pixivBookmarkActions,
                                    UgoiraService ugoiraService,
                                    AuthorService authorService,
-                                   CollectionService collectionService,
+                                   CollectionDownloadRootResolver collectionDownloadRootResolver,
+                                   WorkCollectionMembership workCollectionMembership,
                                    MangaSeriesService mangaSeriesService,
                                    ArtworkHashService artworkHashService,
-                                   WorkMetaCaptureService workMetaCaptureService,
+                                   WorkMetadataCapture workMetadataCapture,
                                    DownloadStatisticsService downloadStatisticsService,
                                    DownloadedArtworkService downloadedArtworkService,
                                    AppMessages messages) {
         this.downloadSettings = downloadSettings;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
-        this.userQuotaService = userQuotaService;
+        this.visitorDownloadQuotaService = visitorDownloadQuotaService;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
         this.downloadTaskExecutor = downloadTaskExecutor;
-        this.pixivBookmarkService = pixivBookmarkService;
+        this.pixivBookmarkActions = pixivBookmarkActions;
         this.ugoiraService = ugoiraService;
         this.authorService = authorService;
-        this.collectionService = collectionService;
+        this.collectionDownloadRootResolver = collectionDownloadRootResolver;
+        this.workCollectionMembership = workCollectionMembership;
         this.mangaSeriesService = mangaSeriesService;
         this.artworkHashService = artworkHashService;
-        this.workMetaCaptureService = workMetaCaptureService;
+        this.workMetadataCapture = workMetadataCapture;
         this.downloadStatisticsService = downloadStatisticsService;
         this.downloadedArtworkService = downloadedArtworkService;
         this.messages = messages;
@@ -252,8 +257,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             ensureNotCancelled(status);
 
             // 多人模式：记录已下载的文件夹（用于配额超出时打包）；部分失败时已落盘的文件同样要纳入打包/清理
-            if (userUuid != null && userQuotaService != null && successCount.get() > 0) {
-                userQuotaService.recordFolder(userUuid, downloadPath);
+            if (userUuid != null && visitorDownloadQuotaService != null && successCount.get() > 0) {
+                visitorDownloadQuotaService.recordFolder(userUuid, downloadPath);
             }
 
             int expectedCount = other.isUgoira() && other.getUgoiraZipUrl() != null ? 1 : imageUrls.size();
@@ -292,13 +297,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
             // 下载后收藏（可选，best-effort）
             if (other.isBookmark()) {
-                status.setBookmarkResult(pixivBookmarkService.bookmarkArtwork(artworkId, cookie));
+                status.setBookmarkResult(pixivBookmarkActions.bookmarkArtwork(artworkId, cookie));
             }
 
             // 下载后加入收藏夹（可选，best-effort）
             if (other.getCollectionId() != null) {
                 try {
-                    boolean added = collectionService.addArtwork(other.getCollectionId(), artworkId);
+                    boolean added = workCollectionMembership.addWork(
+                            WorkType.ARTWORK, other.getCollectionId(), artworkId);
                     status.setCollectionResult(added
                             ? WorkActionResult.success(messages.get("collection.result.added"))
                             : WorkActionResult.exists(messages.get("collection.result.exists")));
@@ -353,7 +359,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private Path resolveEffectiveDownloadRoot(DownloadRequest.Other other) {
         Path defaultRoot = Paths.get(downloadSettings.getRootFolder());
         if (other != null && other.getCollectionId() != null) {
-            return collectionService.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
+            return collectionDownloadRootResolver.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
         return defaultRoot;
     }
@@ -826,7 +832,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     }
 
     /**
-     * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetaCaptureService} 解析 + 归一化。
+     * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetadataCapture} 解析 + 归一化。
      * 仅前端交互下载链路填充该字段（计划任务走后端自抓 body，不填）。捕获已是下载成功后的旁路动作，
      * 全程 best-effort、warn-continue——任何异常都不得反报已成功的下载（沿一致性模型，由下次下载或历史回填自愈）。
      */
@@ -835,7 +841,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             return;
         }
         try {
-            workMetaCaptureService.captureForwardedArtwork(artworkId, other.getRawMetaJson());
+            workMetadataCapture.captureForwarded(WorkType.ARTWORK, artworkId, other.getRawMetaJson());
         } catch (RuntimeException e) {
             log.warn("Failed to capture forwarded meta for {}: {}", artworkId, e.getMessage());
         }

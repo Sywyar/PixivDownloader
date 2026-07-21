@@ -5,13 +5,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.download.schedule.guard.PixivOveruseExecutionGuard;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivCollectionScheduledSourceExecutor;
@@ -63,7 +63,7 @@ class DownloadWorkbenchScheduleAssemblyTest {
                         mock(PixivFetchService.class),
                         mock(PixivDatabase.class),
                         artworkDownloader,
-                        mock(WorkMetaCaptureService.class),
+                        mock(WorkMetadataCapture.class),
                         legacyIllustRunner,
                         persistenceCodec,
                         objectMapper,

@@ -22,8 +22,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
+import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
@@ -31,13 +32,14 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
-import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkService;
+import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.io.ByteArrayInputStream;
@@ -71,25 +73,27 @@ class ArtworkDownloadExecutorTest {
     @Mock
     private PixivDatabase pixivDatabase;
     @Mock
-    private UserQuotaService userQuotaService;
+    private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock
     private RestTemplate downloadRestTemplate;
     @Mock
     private TaskScheduler taskScheduler;
     @Mock
-    private PixivBookmarkService pixivBookmarkService;
+    private PixivBookmarkActions pixivBookmarkActions;
     @Mock
     private UgoiraService ugoiraService;
     @Mock
     private AuthorService authorService;
     @Mock
-    private CollectionService collectionService;
+    private CollectionDownloadRootResolver collectionDownloadRootResolver;
+    @Mock
+    private WorkCollectionMembership workCollectionMembership;
     @Mock
     private MangaSeriesService mangaSeriesService;
     @Mock
     private ArtworkHashService artworkHashService;
     @Mock
-    private WorkMetaCaptureService workMetaCaptureService;
+    private WorkMetadataCapture workMetadataCapture;
     @Mock
     private DownloadStatisticsService downloadStatisticsService;
     @Mock
@@ -108,10 +112,11 @@ class ArtworkDownloadExecutorTest {
 
     private ArtworkDownloadExecutor newExecutor(TaskExecutor taskExecutor) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
-                userQuotaService, downloadRestTemplate, taskScheduler, taskExecutor,
-                pixivBookmarkService, ugoiraService,
-                authorService, collectionService, mangaSeriesService, artworkHashService,
-                workMetaCaptureService, downloadStatisticsService, downloadedArtworkService, APP_MESSAGES);
+                visitorDownloadQuotaService, downloadRestTemplate, taskScheduler, taskExecutor,
+                pixivBookmarkActions, ugoiraService,
+                authorService, collectionDownloadRootResolver, workCollectionMembership,
+                mangaSeriesService, artworkHashService,
+                workMetadataCapture, downloadStatisticsService, downloadedArtworkService, APP_MESSAGES);
     }
 
     @Nested
@@ -614,7 +619,7 @@ class ArtworkDownloadExecutorTest {
             other.setUgoiraDelays(List.of(100));
             other.setCollectionId(7L);
             Path collectionRoot = tempDir.resolve("收藏😀");
-            when(collectionService.resolveDownloadRoot(7L, tempDir)).thenReturn(collectionRoot);
+            when(collectionDownloadRootResolver.resolveDownloadRoot(7L, tempDir)).thenReturn(collectionRoot);
 
             artworkDownloadExecutor.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
@@ -631,7 +636,7 @@ class ArtworkDownloadExecutorTest {
             );
             verify(pixivDatabase).insertArtwork(12345L, "test", expectedPath.toAbsolutePath().toString(),
                     1, "webp", 1700000100L, 0, false, null, null, 1L, null, null, null);
-            verify(collectionService).addArtwork(7L, 12345L);
+            verify(workCollectionMembership).addWork(WorkType.ARTWORK, 7L, 12345L);
         }
     }
 
@@ -665,7 +670,7 @@ class ArtworkDownloadExecutorTest {
             artworkDownloadExecutor.downloadImages(12345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
-            verify(workMetaCaptureService).captureForwardedArtwork(12345L,
+            verify(workMetadataCapture).captureForwarded(WorkType.ARTWORK, 12345L,
                     "{\"uploadDate\":\"2026-06-06T21:27:00+00:00\"}");
         }
 
@@ -675,7 +680,7 @@ class ArtworkDownloadExecutorTest {
             artworkDownloadExecutor.downloadImages(22345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", ugoiraOther(), null, null);
 
-            verify(workMetaCaptureService, never()).captureForwardedArtwork(anyLong(), any());
+            verify(workMetadataCapture, never()).captureForwarded(any(), anyLong(), any());
         }
     }
 

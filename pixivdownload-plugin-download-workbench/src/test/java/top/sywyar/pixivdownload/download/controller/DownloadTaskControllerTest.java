@@ -18,9 +18,10 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.util.List;
@@ -45,7 +46,7 @@ class DownloadTaskControllerTest {
     @Mock
     private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock
-    private UserQuotaService userQuotaService;
+    private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock
     private PixivDatabase pixivDatabase;
 
@@ -58,7 +59,7 @@ class DownloadTaskControllerTest {
                 .thenReturn(RequestOwnerIdentity.adminScope());
         DownloadTaskController controller = new DownloadTaskController(
                 artworkDownloadExecutor, applicationModeProvider, requestOwnerIdentityResolver,
-                userQuotaService, multiModeSettings, pixivDatabase, APP_MESSAGES);
+                visitorDownloadQuotaService, multiModeSettings, pixivDatabase, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -113,9 +114,9 @@ class DownloadTaskControllerTest {
             when(multiModeSettings.getArchiveExpireMinutes()).thenReturn(60);
             when(multiModeSettings.getPostDownloadMode()).thenReturn("pack-and-delete");
 
-            when(userQuotaService.checkAndReserve(anyString(), anyInt()))
-                    .thenReturn(new UserQuotaService.QuotaCheckResult(false, 50, 50, 3600));
-            when(userQuotaService.triggerArchive(anyString())).thenReturn("archive-token");
+            when(visitorDownloadQuotaService.checkAndReserve(anyString(), anyInt()))
+                    .thenReturn(new VisitorDownloadQuotaReservation(false, 50, 50, 3600));
+            when(visitorDownloadQuotaService.createArchive(anyString())).thenReturn("archive-token");
 
             DownloadRequest request = new DownloadRequest();
             request.setArtworkId(12345L);
@@ -180,7 +181,7 @@ class DownloadTaskControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true));
 
-            verify(userQuotaService, never()).checkAndReserve(anyString(), anyInt());
+            verify(visitorDownloadQuotaService, never()).checkAndReserve(anyString(), anyInt());
             verify(artworkDownloadExecutor).downloadImages(
                     eq(12345L),
                     eq("测试"),

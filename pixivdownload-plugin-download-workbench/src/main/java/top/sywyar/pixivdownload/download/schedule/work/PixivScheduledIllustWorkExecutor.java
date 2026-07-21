@@ -2,12 +2,15 @@ package top.sywyar.pixivdownload.download.schedule.work;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustSettings;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustWork;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.schedule.network.PixivScheduledRouteScope;
@@ -36,11 +39,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExecutor {
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/artworks/";
+    private static final Logger log = LoggerFactory.getLogger(PixivScheduledIllustWorkExecutor.class);
 
     private final PixivFetchService fetchService;
     private final PixivDatabase pixivDatabase;
     private final ArtworkDownloader artworkDownloader;
-    private final WorkMetaCaptureService workMetaCaptureService;
+    private final WorkMetadataCapture workMetadataCapture;
     private final ScheduledIllustWorkRunner downloadRunner;
     private final PixivSchedulePersistenceCodec persistenceCodec;
     private final ObjectMapper objectMapper;
@@ -54,7 +58,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
             PixivFetchService fetchService,
             PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
-            WorkMetaCaptureService workMetaCaptureService,
+            WorkMetadataCapture workMetadataCapture,
             ScheduledIllustWorkRunner downloadRunner,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
@@ -62,7 +66,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         this.fetchService = fetchService;
         this.pixivDatabase = pixivDatabase;
         this.artworkDownloader = artworkDownloader;
-        this.workMetaCaptureService = workMetaCaptureService;
+        this.workMetadataCapture = workMetadataCapture;
         this.downloadRunner = downloadRunner;
         this.persistenceCodec = persistenceCodec;
         this.objectMapper = objectMapper;
@@ -200,7 +204,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
                     "pixiv.illust.download-failed");
         }
-        workMetaCaptureService.captureArtwork(artworkId, capture.body(), pagesBody, "schedule");
+        captureMetadata(artworkId, capture.body(), pagesBody);
         return new ScheduledWorkResult(
                 ScheduledWorkResult.Outcome.COMPLETED,
                 "pixiv.illust.completed", attributes);
@@ -315,6 +319,24 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private void captureMetadata(long artworkId, JsonNode artworkBody, JsonNode pagesBody) {
+        try {
+            workMetadataCapture.capture(
+                    WorkType.ARTWORK,
+                    artworkId,
+                    rawJson(artworkBody),
+                    rawJson(pagesBody),
+                    "schedule");
+        } catch (RuntimeException failure) {
+            log.warn("Scheduled artwork sidecar capture failed: artworkId={}, errorType={}",
+                    artworkId, failure.getClass().getSimpleName());
+        }
+    }
+
+    private static String rawJson(JsonNode node) {
+        return node == null ? null : node.toString();
     }
 
     private record SeriesKey(long taskId, long seriesId) {
