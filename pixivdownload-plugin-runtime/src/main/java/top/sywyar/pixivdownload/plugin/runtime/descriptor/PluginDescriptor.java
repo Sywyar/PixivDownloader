@@ -172,6 +172,11 @@ public record PluginDescriptor(
             if (dependency.pluginId() == null || !ID_PATTERN.matcher(dependency.pluginId()).matches()) {
                 errors.add("invalid dependency plugin id: " + dependency.pluginId());
             }
+            PluginApiRequirement dependencyRequirement = dependency.requirement();
+            if (dependencyRequirement.present() && !dependencyRequirement.valid()) {
+                errors.add("unparseable dependency version support for " + dependency.pluginId()
+                        + ": " + dependencyRequirement.raw());
+            }
         }
         for (String replacedId : replaces) {
             if (replacedId == null || !ID_PATTERN.matcher(replacedId).matches()) {

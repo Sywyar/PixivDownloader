@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.plugin.runtime.descriptor;
 
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * 一个对某个 semver 提供方（核心 API 或被依赖插件）的版本要求，由插件描述符的 {@code requires} /
  * 依赖的 {@code versionSupport} 字段解析而来。只保留参与兼容判定的 {@code major.minor}（PATCH 不参与，
@@ -30,6 +33,15 @@ public record PluginApiRequirement(int major, int minor, boolean present, boolea
     private static final PluginApiRequirement UNSPECIFIED =
             new PluginApiRequirement(-1, -1, false, true, null);
 
+    /**
+     * 当前兼容模型只能表达「同主版本、提供方次版本不低于要求」；因此只接受裸版本或语义等价的 {@code >=}。
+     * 其它范围运算符、复合范围与尾随内容必须拒绝，不能截取首个数字片段后猜测含义。
+     */
+    private static final Pattern REQUIREMENT_PATTERN = Pattern.compile(
+            "(?:>=\\s*)?[vV]?(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?"
+                    + "(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?"
+                    + "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
+
     /** 未声明任何版本要求（兼容任何版本）。 */
     public static PluginApiRequirement unspecified() {
         return UNSPECIFIED;
@@ -42,12 +54,12 @@ public record PluginApiRequirement(int major, int minor, boolean present, boolea
 
     /**
      * 解析 {@code requires} / {@code versionSupport} 声明。{@code null} / 空白 / {@code *}（不限版本标记）
-     * → {@link #unspecified()}；否则在<b>仅容忍合法前导</b>（比较 / 范围运算符 {@code < > = ~ ^ !} 与空白、
-     * 以及单个 {@code v} / {@code V} 前缀）后，要求紧接一个数字开头的版本号，取其 {@code MAJOR[.MINOR[.PATCH]]}
-     * 的 {@code major.minor}（形如 {@code 1.0.0 & <2.0.0} 的范围取首段）。
+     * → {@link #unspecified()}；其它声明必须完整匹配 {@code [>=][v]MAJOR[.MINOR[.PATCH]][-PRERELEASE][+BUILD]}，
+     * 其中 {@code >=}、{@code v}、预发布段与构建元数据均可省略，PATCH 及其后缀只校验形态、不参与兼容判定。
      *
-     * <p>「仅容忍合法前导」是相对旧实现的<b>收紧</b>：旧实现跳过<i>任意</i>非数字前缀，会把 {@code abc1.2} 之类
-     * 误判为合法的 {@code 1.2}；现要求前导只能是运算符 / {@code v} 前缀，其后必须直接是数字，否则整串判为无效。
+     * <p>当前兼容规则无法表达上界、排除、精确相等或复合范围，因此 {@code <} / {@code >} / {@code <=} /
+     * {@code =} / {@code ~} / {@code ^} / {@code !} 以及 {@code 1.0 & <2.0} 等声明一律判为无效；尾随文字、
+     * 空版本段和第四段版本号也不得被静默截断。
      *
      * @param raw 原始声明
      * @return 解析结果（永不返回 {@code null}）
@@ -61,37 +73,17 @@ public record PluginApiRequirement(int major, int minor, boolean present, boolea
             // 「不限版本」标记（如插件框架未声明 requires 时的默认值）：等同未声明、兼容任何版本。
             return UNSPECIFIED;
         }
-        int len = trimmed.length();
-        int start = 0;
-        // 仅跳过合法前导：比较 / 范围运算符与其间空白。
-        while (start < len && isLeadingOperator(trimmed.charAt(start))) {
-            start++;
-        }
-        // 容忍单个 v / V 版本前缀。
-        if (start < len && (trimmed.charAt(start) == 'v' || trimmed.charAt(start) == 'V')) {
-            start++;
-        }
-        // 合法前导之后必须紧跟数字，否则不是版本号（如 abc1.2 / latest）。
-        if (start >= len || !Character.isDigit(trimmed.charAt(start))) {
+        Matcher matcher = REQUIREMENT_PATTERN.matcher(trimmed);
+        if (!matcher.matches()) {
             return invalid(raw);
         }
-        int end = start;
-        while (end < len && (Character.isDigit(trimmed.charAt(end)) || trimmed.charAt(end) == '.')) {
-            end++;
-        }
-        String[] parts = trimmed.substring(start, end).split("\\.");
         try {
-            int major = Integer.parseInt(parts[0]);
-            int minor = parts.length > 1 && !parts[1].isEmpty() ? Integer.parseInt(parts[1]) : 0;
+            int major = Integer.parseInt(matcher.group(1));
+            int minor = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 0;
             return new PluginApiRequirement(major, minor, true, true, raw);
         } catch (NumberFormatException e) {
             return invalid(raw);
         }
-    }
-
-    /** 允许出现在版本号之前的比较 / 范围运算符（及其间空白），如 {@code >=}、{@code <}、{@code ~}、{@code ^}。 */
-    private static boolean isLeadingOperator(char c) {
-        return c == '<' || c == '>' || c == '=' || c == '~' || c == '^' || c == '!' || Character.isWhitespace(c);
     }
 
     private static PluginApiRequirement invalid(String raw) {

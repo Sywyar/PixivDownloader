@@ -140,6 +140,16 @@ class PluginDescriptorTest {
     }
 
     @Test
+    @DisplayName("不可解析的依赖版本要求被描述符校验拒绝")
+    void rejectsUnparseableDependencyVersionSupport() {
+        PluginDescriptor descriptor = external("ext", "1.0", "1.0", "com.example.P", "x.label",
+                PluginKind.FEATURE, List.of(new PluginDependencyRef("novel", "<1.1", false)));
+
+        assertThat(descriptor.validationErrors())
+                .anyMatch(error -> error.contains("unparseable dependency version support for novel"));
+    }
+
+    @Test
     @DisplayName("替代声明拒绝非法 id、自替代和重复身份")
     void rejectsInvalidReplacementIds() {
         PluginDescriptor descriptor = new PluginDescriptor("novel", "novel", "1.0.0",

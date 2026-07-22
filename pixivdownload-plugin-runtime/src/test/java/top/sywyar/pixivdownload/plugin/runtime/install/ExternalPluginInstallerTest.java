@@ -172,6 +172,19 @@ class ExternalPluginInstallerTest {
     }
 
     @Test
+    @DisplayName("尾随垃圾的 requires：REJECTED_INVALID，不能截断成兼容版本")
+    void rejectsPartiallyParsedApiRequirement() {
+        Path pkg = PluginPackageFixtures.explodedZip(home.resolve("bad-requires.zip"),
+                "ext", "1.0.0", "1.0garbage", "com.example.P");
+
+        PluginInstallResult result = installer.install(pkg);
+
+        assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INVALID);
+        assertThat(result.messages()).anyMatch(message -> message.contains("unparseable requires"));
+        assertThat(pluginFiles()).isEmpty();
+    }
+
+    @Test
     @DisplayName("requires 高于核心 API：REJECTED_INCOMPATIBLE，不装为可加载状态")
     void rejectsIncompatible() {
         String requires = (PluginApiVersion.MAJOR + 1) + ".0";

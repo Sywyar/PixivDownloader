@@ -34,14 +34,16 @@ class PluginApiRequirementTest {
     }
 
     @Test
-    @DisplayName("容忍前导比较符 / v 前缀与范围首段")
-    void tolerantParsing() {
+    @DisplayName("接受可表达为最低兼容版本的 >= 与 v 前缀")
+    void parsesSupportedMinimumForms() {
         assertThat(PluginApiRequirement.parse(">=1.2")).extracting(
+                PluginApiRequirement::major, PluginApiRequirement::minor).containsExactly(1, 2);
+        assertThat(PluginApiRequirement.parse(">= v1.2.3")).extracting(
                 PluginApiRequirement::major, PluginApiRequirement::minor).containsExactly(1, 2);
         assertThat(PluginApiRequirement.parse("v3.4.0")).extracting(
                 PluginApiRequirement::major, PluginApiRequirement::minor).containsExactly(3, 4);
-        assertThat(PluginApiRequirement.parse("1.0.0 & <2.0.0")).extracting(
-                PluginApiRequirement::major, PluginApiRequirement::minor).containsExactly(1, 0);
+        assertThat(PluginApiRequirement.parse("2.3.1-rc.1+build.9")).extracting(
+                PluginApiRequirement::major, PluginApiRequirement::minor).containsExactly(2, 3);
     }
 
     @Test
@@ -66,6 +68,20 @@ class PluginApiRequirementTest {
         // 单个合法 v 前缀后必须紧跟数字；"version1.0" 的 v 之后是字母 → 无效
         assertThat(PluginApiRequirement.parse("version1.0").valid()).isFalse();
         assertThat(PluginApiRequirement.parse("ext-1.0").valid()).isFalse();
+    }
+
+    @Test
+    @DisplayName("拒绝尾随内容、空版本段、额外版本段与无法表达的范围运算符")
+    void rejectsMalformedOrUnsupportedRequirementForms() {
+        for (String raw : new String[]{
+                "1.0garbage", "1..9", "1.0.0.0", "1.", ".1", "-1.0",
+                "<1.1", ">1.1", "<=1.1", "=1.1", "!1.1", "~1.1", "^1.1",
+                "1.0.0 & <2.0.0"
+        }) {
+            PluginApiRequirement requirement = PluginApiRequirement.parse(raw);
+            assertThat(requirement.valid()).as("'%s' must be rejected", raw).isFalse();
+            assertThat(requirement.isSatisfiedBy(1, 9)).as("'%s' must fail closed", raw).isFalse();
+        }
     }
 
     @Test
