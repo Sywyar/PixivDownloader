@@ -56,8 +56,8 @@ public final class PluginArtifactVerificationService {
                 artifact,
                 descriptor.id(),
                 descriptor.version(),
-                origin.expectedSizeBytes(),
-                origin.expectedSha256(),
+                provenance.artifactSizeBytes(),
+                provenance.artifactSha256(),
                 origin.signature(),
                 origin.installedVerificationPolicy()));
     }

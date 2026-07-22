@@ -216,9 +216,9 @@ class PluginBootstrapSessionTest {
                 SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "missing-key", "c2ln");
         PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
                 "test-repository", false, Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), signature);
-        VerificationResult result = new VerificationResult(VerificationStatus.UNKNOWN_KEY,
+        VerificationResult result = new VerificationResult(VerificationStatus.VERIFIED,
                 "bootstrap-probe", "1.0.0", "missing-key", SignatureMetadata.ED25519,
-                null, null, Instant.now(), Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), "UNKNOWN_KEY");
+                null, null, Instant.now(), Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), "VERIFIED");
         new PluginProvenanceStore(pluginsDir).write(jar, origin, result);
 
         PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());

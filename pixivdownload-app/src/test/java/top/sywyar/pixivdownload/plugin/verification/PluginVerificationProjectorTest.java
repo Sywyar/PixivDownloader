@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("插件验签状态后端投影")
 class PluginVerificationProjectorTest {
 
+    private static final String ARTIFACT_SHA256 = "a".repeat(64);
+
     @Test
     @DisplayName("catalog 包：官方 ACTIVE official key 投影为官方已验证")
     void officialActiveKeyProjectsAsVerifiedOfficial() {
@@ -140,7 +142,7 @@ class PluginVerificationProjectorTest {
 
     private static PluginCatalogPackage pkg(SignatureMetadata signature) {
         return new PluginCatalogPackage("1.0.0", "https://example.test/plugin.jar", 123L,
-                "abcdef", signature, null, "1.0", List.of(), null, List.of(), "stable", false);
+                ARTIFACT_SHA256, signature, null, "1.0", List.of(), null, List.of(), "stable", false);
     }
 
     private static SignatureMetadata signature(String keyId) {
@@ -171,7 +173,9 @@ class PluginVerificationProjectorTest {
                 catalog ? "test-repository" : null,
                 official,
                 catalog ? 123L : null,
-                catalog ? "abcdef" : null,
+                catalog ? ARTIFACT_SHA256 : null,
+                123L,
+                ARTIFACT_SHA256,
                 catalog ? signature("test-key") : null,
                 installedStatus,
                 catalog ? "test-key" : null,
@@ -179,7 +183,7 @@ class PluginVerificationProjectorTest {
                 catalog ? "Test Trust" : null,
                 Instant.parse("2026-07-01T00:00:00Z"),
                 offlineStatus,
-                Instant.parse("2026-07-01T00:01:00Z"),
+                offlineStatus != null ? Instant.parse("2026-07-01T00:01:00Z") : null,
                 diagnosticCode);
     }
 }

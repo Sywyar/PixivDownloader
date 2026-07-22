@@ -808,7 +808,8 @@ public class PluginRuntimeManager {
                     frozenArtifact, inspection.descriptor(), provenance);
             try {
                 if (provenance != null) {
-                    provenanceStore.write(snapshot.originalArtifact(), provenance.withOfflineResult(result));
+                    provenanceStore.write(snapshot.originalArtifact(), provenance.withOfflineResult(
+                            result, inspection.descriptor().id(), inspection.descriptor().version()));
                 }
             } catch (IOException e) {
                 log.warn("Failed to persist plugin verification provenance for {}: {}",

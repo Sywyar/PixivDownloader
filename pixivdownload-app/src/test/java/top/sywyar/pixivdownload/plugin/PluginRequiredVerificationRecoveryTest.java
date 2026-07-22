@@ -53,6 +53,7 @@ class PluginRequiredVerificationRecoveryTest {
 
     private static final String PLUGIN_ID = "bootstrap-probe";
     private static final String VERSION = "1.0.0";
+    private static final String ZIP_COMMENT = "integrity-marker-0";
     private static final RequiredPluginPolicy REQUIRED_POLICY = RequiredPluginPolicy.of(List.of(
             new RequiredPlugin(PLUGIN_ID, PluginApiRequirement.unspecified(), false, "plugin.recovery.blocked")));
 
@@ -108,7 +109,7 @@ class PluginRequiredVerificationRecoveryTest {
         SignatureMetadata metadata = new SignatureMetadata(SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519, "unknown-key", "c2ln");
         writeOfficialProvenance(scenario, metadata, null,
-                VerificationStatus.UNKNOWN_KEY, "UNKNOWN_KEY");
+                VerificationStatus.VERIFIED, "VERIFIED");
 
         startAndAssertRecovery(scenario, new PluginSupplyChainVerifier(), REQUIRED_POLICY);
     }
@@ -146,8 +147,8 @@ class PluginRequiredVerificationRecoveryTest {
         SigningFixture signing = SigningFixture.create("active-key", TrustedPluginKey.State.ACTIVE);
         SignatureMetadata metadata = signing.artifactSignature(scenario.jar());
         writeOfficialProvenance(scenario, metadata, signing,
-                "0000000000000000000000000000000000000000000000000000000000000000",
                 VerificationStatus.VERIFIED, "VERIFIED");
+        tamperArtifactWithoutChangingSize(scenario.jar());
 
         PluginRuntimeManager manager = start(scenario, signing.verifier());
         try {
@@ -180,12 +181,14 @@ class PluginRequiredVerificationRecoveryTest {
     @DisplayName("optional bad signature：不加载该插件，但不触发恢复模式")
     void optionalBadSignatureDoesNotEnterRecovery() throws Exception {
         Scenario scenario = scenario("optional-bad-signature");
+        SigningFixture signing = SigningFixture.create("active-key", TrustedPluginKey.State.ACTIVE);
         SignatureMetadata metadata = new SignatureMetadata(SignatureMetadata.FORMAT_VERSION,
-                SignatureMetadata.ED25519, "unknown-key", "c2ln");
-        writeOfficialProvenance(scenario, metadata, null,
-                VerificationStatus.UNKNOWN_KEY, "UNKNOWN_KEY");
+                SignatureMetadata.ED25519, signing.keyId(),
+                Base64.getEncoder().encodeToString("bad-signature".getBytes(StandardCharsets.UTF_8)));
+        writeOfficialProvenance(scenario, metadata, signing,
+                VerificationStatus.VERIFIED, "VERIFIED");
 
-        PluginRuntimeManager manager = start(scenario, new PluginSupplyChainVerifier());
+        PluginRuntimeManager manager = start(scenario, signing.verifier());
         try {
             assertThat(manager.status().orElseThrow().startedPluginIds()).doesNotContain(PLUGIN_ID);
             assertThat(manager.status().orElseThrow().hasFailures()).isTrue();
@@ -266,6 +269,7 @@ class PluginRequiredVerificationRecoveryTest {
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {
+            zos.setComment(ZIP_COMMENT);
             zos.putNextEntry(new ZipEntry("plugin.properties"));
             zos.write(props.getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
@@ -295,6 +299,15 @@ class PluginRequiredVerificationRecoveryTest {
                 Instant.now(), Files.size(scenario.jar()), PluginPackageIntegrity.sha256Hex(scenario.jar()),
                 diagnostic);
         new PluginProvenanceStore(scenario.pluginsDir()).write(scenario.jar(), origin, result);
+    }
+
+    private static void tamperArtifactWithoutChangingSize(Path artifact) throws IOException {
+        byte[] bytes = Files.readAllBytes(artifact);
+        int commentOffset = bytes.length - ZIP_COMMENT.length();
+        assertThat(new String(bytes, commentOffset, ZIP_COMMENT.length(), StandardCharsets.UTF_8))
+                .isEqualTo(ZIP_COMMENT);
+        bytes[bytes.length - 1] = '1';
+        Files.write(artifact, bytes);
     }
 
     private static void addClassEntry(ZipOutputStream zos, Class<?> type) throws IOException {
