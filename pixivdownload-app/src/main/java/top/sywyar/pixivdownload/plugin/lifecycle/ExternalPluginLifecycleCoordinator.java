@@ -29,8 +29,8 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
- * 外置插件全部运行期写动作的唯一编排入口。固定顺序为应用足迹清退、PF4J 物理生命周期、代际替换，
- * 并以 packageId 锁阻止同包动作交错。
+ * 外置插件全部运行期写动作的唯一编排入口。固定顺序为应用足迹清退、PF4J 物理生命周期、代际替换；
+ * 进程级写预约保护跨包依赖与替代关系，packageId 锁进一步固定目标包与被替代包的提交窗口。
  */
 @Service
 public class ExternalPluginLifecycleCoordinator {
@@ -42,6 +42,11 @@ public class ExternalPluginLifecycleCoordinator {
     private final ExternalPluginInstaller installer;
     private final RecoveryModeService recoveryModeService;
     private final PluginDependencyResolver dependencyResolver;
+    /**
+     * 插件生命周期写事务的进程内总预约。安装必须在发布可恢复事务前取得，并持有到提交或回滚结束；
+     * 其它启停、卸载和删除动作走同一预约，避免依赖或旧 artifact 在检查与激活之间变化。
+     */
+    private final ReentrantLock lifecycleMutationLock = new ReentrantLock();
     private final Map<String, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final Map<String, ExternalPluginOperationSnapshot> operations = new ConcurrentHashMap<>();
 
@@ -174,11 +179,22 @@ public class ExternalPluginLifecycleCoordinator {
         return Optional.ofNullable(operations.get(packageId));
     }
 
-    /**
-     * 统一的本地/市场安装更新事务。安全校验在包锁外完成；最终版本复核、卸载、替换、激活和回滚在包锁内完成。
-     */
+    /** 统一的本地/市场安装更新事务；全局写预约从安全校验前持续到提交或回滚终态。 */
     public PluginActivationResult installOrUpdate(Path packageFile, boolean allowDowngrade,
                                                   PluginPackageOrigin origin) {
+        if (!lifecycleMutationLock.tryLock()) {
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                    "another plugin lifecycle mutation is already in progress");
+        }
+        try {
+            return installOrUpdateExclusive(packageFile, allowDowngrade, origin);
+        } finally {
+            lifecycleMutationLock.unlock();
+        }
+    }
+
+    private PluginActivationResult installOrUpdateExclusive(Path packageFile, boolean allowDowngrade,
+                                                             PluginPackageOrigin origin) {
         PreparedPluginTransaction prepared = null;
         try {
             prepared = installer.prepareTransaction(packageFile, allowDowngrade, origin);
@@ -187,6 +203,8 @@ public class ExternalPluginLifecycleCoordinator {
             DeferredFailure failures = new DeferredFailure(failure);
             if (prepared != null && prepared.readyToCommit()
                     && prepared.commitState() == PreparedPluginTransaction.CommitState.PREPARED) {
+                // 任何尚未进入 commit 状态机的失败都在这里统一退役 PREPARED；已完成内部回滚、已开始
+                // commit 或已 durable 的事务由 installer 的幂等状态校验保持原终态。
                 discardPreparedSafely(prepared, failures);
             }
             throw propagateFailure("failed to finish prepared plugin install", failures.primary());
@@ -195,14 +213,15 @@ public class ExternalPluginLifecycleCoordinator {
 
     private PluginActivationResult finishPreparedInstall(PreparedPluginTransaction prepared) {
         PluginInstallResult stagedResult = prepared.result();
-        if (stagedResult != null && stagedResult.descriptor() != null && stagedResult.outcome().accepted()) {
-            List<PluginDependencyProblem> problems =
-                    dependencyResolver.activationProblems(stagedResult.descriptor());
-            if (!problems.isEmpty()) {
-                return dependencyRejected(prepared, problems);
-            }
-        }
         if (!prepared.readyToCommit()) {
+            if (stagedResult != null && stagedResult.descriptor() != null
+                    && stagedResult.outcome().accepted()) {
+                List<PluginDependencyProblem> problems =
+                        dependencyResolver.activationProblems(stagedResult.descriptor());
+                if (!problems.isEmpty()) {
+                    return dependencyRejected(prepared, problems);
+                }
+            }
             String packageId = stagedResult != null ? stagedResult.pluginId() : null;
             PluginRuntimePhase phase = currentPhase(packageId);
             return new PluginActivationResult(prepared.transactionId(), stagedResult,
@@ -217,10 +236,22 @@ public class ExternalPluginLifecycleCoordinator {
         // 即时激活，其重启约束只应用于管理页启停，避免把已 activated 的安装结果误报为待重启生效。
         if (stagedResult.descriptor().lifecyclePolicy().requiresProcessRestart()) {
             return withLock(packageId, operation, prepared.transactionId(), () ->
-                    withReplacementLocks(prepared, operation, () -> commitForProcessRestart(prepared)));
+                    withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
+                            prepared, () -> commitForProcessRestart(prepared))));
         }
         return withLock(packageId, operation, prepared.transactionId(), () ->
-                withReplacementLocks(prepared, operation, () -> activatePrepared(prepared)));
+                withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
+                        prepared, () -> activatePrepared(prepared))));
+    }
+
+    private PluginActivationResult activatePreparedWithDependencies(
+            PreparedPluginTransaction prepared, Operation<PluginActivationResult> action) {
+        List<PluginDependencyProblem> problems =
+                dependencyResolver.activationProblems(prepared.result().descriptor());
+        if (!problems.isEmpty()) {
+            return dependencyRejected(prepared, problems);
+        }
+        return action.run();
     }
 
     private PluginActivationResult commitForProcessRestart(PreparedPluginTransaction prepared) {
@@ -858,30 +889,38 @@ public class ExternalPluginLifecycleCoordinator {
 
     private <T> T withLock(String packageId, ExternalPluginOperation operation,
                            String transactionId, Operation<T> action) {
-        ReentrantLock lock = locks.computeIfAbsent(packageId, ignored -> new ReentrantLock());
-        if (!lock.tryLock()) {
+        if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
-                    "operation already in progress for plugin package '" + packageId + "'");
+                    "another plugin lifecycle mutation is already in progress");
         }
         try {
-            operations.put(packageId, new ExternalPluginOperationSnapshot(
-                    packageId, operation, transactionId, null));
-            T result = action.run();
-            ExternalPluginOperationSnapshot current = operations.get(packageId);
-            if (current == null || current.operation() != ExternalPluginOperation.FAILED) {
-                operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
-                        ExternalPluginOperation.IDLE, transactionId, null));
+            ReentrantLock lock = locks.computeIfAbsent(packageId, ignored -> new ReentrantLock());
+            if (!lock.tryLock()) {
+                throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                        "operation already in progress for plugin package '" + packageId + "'");
             }
-            return result;
-        } catch (Throwable failure) {
-            ExternalPluginOperationSnapshot current = operations.get(packageId);
-            if (current == null || current.operation() != ExternalPluginOperation.FAILED) {
-                operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
-                        ExternalPluginOperation.IDLE, transactionId, describe(failure)));
+            try {
+                operations.put(packageId, new ExternalPluginOperationSnapshot(
+                        packageId, operation, transactionId, null));
+                T result = action.run();
+                ExternalPluginOperationSnapshot current = operations.get(packageId);
+                if (current == null || current.operation() != ExternalPluginOperation.FAILED) {
+                    operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
+                            ExternalPluginOperation.IDLE, transactionId, null));
+                }
+                return result;
+            } catch (Throwable failure) {
+                ExternalPluginOperationSnapshot current = operations.get(packageId);
+                if (current == null || current.operation() != ExternalPluginOperation.FAILED) {
+                    operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
+                            ExternalPluginOperation.IDLE, transactionId, describe(failure)));
+                }
+                throw propagateFailure("plugin operation failed for '" + packageId + "'", failure);
+            } finally {
+                lock.unlock();
             }
-            throw propagateFailure("plugin operation failed for '" + packageId + "'", failure);
         } finally {
-            lock.unlock();
+            lifecycleMutationLock.unlock();
         }
     }
 
