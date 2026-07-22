@@ -38,34 +38,66 @@ public final class PluginArtifactLoadPlan {
         if (candidates == null || candidates.isEmpty()) {
             return new PluginArtifactLoadPlan(List.of(), List.of(), Set.of());
         }
-        List<Entry> entries = new ArrayList<>();
+        List<Entry> inspectedEntries = new ArrayList<>();
         List<PluginLoadFailure> failures = new ArrayList<>();
-        Map<String, Entry> byId = new LinkedHashMap<>();
         for (Path candidate : candidates) {
             try {
                 PluginPackageInspection inspection = PluginPackageReader.inspect(candidate);
-                PluginDescriptor descriptor = inspection.descriptor();
-                List<String> validationErrors = descriptor.externalValidationErrors();
-                if (!validationErrors.isEmpty()) {
-                    failures.add(failure(candidate, "invalid plugin descriptor: "
-                            + String.join("; ", validationErrors)));
-                    continue;
-                }
-                Entry entry = new Entry(candidate, descriptor);
-                Entry previous = byId.putIfAbsent(entry.pluginId(), entry);
-                if (previous != null) {
-                    failures.add(failure(candidate, "duplicate plugin id " + entry.pluginId()
-                            + " already provided by " + previous.artifactPath().getFileName()));
-                    continue;
-                }
-                entries.add(entry);
+                inspectedEntries.add(new Entry(candidate, inspection.descriptor()));
             } catch (RuntimeException e) {
                 failures.add(failure(candidate, describe(e)));
             }
         }
+        return createValidated(inspectedEntries, failures);
+    }
 
+    /**
+     * 从同一批已冻结 snapshot 得到的描述符创建计划，不再按公开 artifact 路径重新读取字节。
+     */
+    public static PluginArtifactLoadPlan createInspected(List<Entry> inspectedEntries) {
+        if (inspectedEntries == null || inspectedEntries.isEmpty()) {
+            return new PluginArtifactLoadPlan(List.of(), List.of(), Set.of());
+        }
+        return createValidated(inspectedEntries, new ArrayList<>());
+    }
+
+    private static PluginArtifactLoadPlan createValidated(List<Entry> inspectedEntries,
+                                                          List<PluginLoadFailure> failures) {
+        Map<String, List<Entry>> candidatesById = new LinkedHashMap<>();
+        for (Entry entry : inspectedEntries) {
+            Objects.requireNonNull(entry, "inspected entry");
+            List<String> validationErrors = entry.descriptor().externalValidationErrors();
+            if (!validationErrors.isEmpty()) {
+                failures.add(failure(entry.artifactPath(), "invalid plugin descriptor: "
+                        + String.join("; ", validationErrors)));
+                continue;
+            }
+            candidatesById.computeIfAbsent(entry.pluginId(), ignored -> new ArrayList<>()).add(entry);
+        }
+
+        List<Entry> entries = new ArrayList<>();
+        Map<String, Entry> byId = new LinkedHashMap<>();
         Set<String> blockedIds = new LinkedHashSet<>();
         Map<String, String> blockReasons = new LinkedHashMap<>();
+        for (Map.Entry<String, List<Entry>> group : candidatesById.entrySet()) {
+            if (group.getValue().size() > 1) {
+                String sources = group.getValue().stream()
+                        .map(entry -> entry.artifactPath().getFileName().toString())
+                        .sorted()
+                        .collect(java.util.stream.Collectors.joining(", "));
+                String reason = "duplicate plugin id " + group.getKey() + " provided by: " + sources;
+                blockedIds.add(group.getKey());
+                blockReasons.put(group.getKey(), reason);
+                for (Entry duplicate : group.getValue()) {
+                    failures.add(failure(duplicate.artifactPath(), reason));
+                }
+                continue;
+            }
+            Entry entry = group.getValue().get(0);
+            entries.add(entry);
+            byId.put(entry.pluginId(), entry);
+        }
+
         propagateBlockedRequiredDependencies(entries, byId, blockedIds, blockReasons, failures);
         blockDependencyCycles(entries, byId, blockedIds, blockReasons, failures);
         propagateBlockedRequiredDependencies(entries, byId, blockedIds, blockReasons, failures);
