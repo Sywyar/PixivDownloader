@@ -22,6 +22,7 @@ public class DependencyOrderProbePlugin extends Plugin implements PixivPluginPro
         super(wrapper);
         this.pluginId = wrapper.getPluginId();
         record("load");
+        replaceConfiguredArtifact();
     }
 
     @Override
@@ -44,6 +45,19 @@ public class DependencyOrderProbePlugin extends Plugin implements PixivPluginPro
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException ignored) {
             // best-effort：探针记录失败不影响 PF4J 生命周期。
+        }
+    }
+
+    private void replaceConfiguredArtifact() {
+        String trigger = System.getProperty("dependency.order.probe.replace-trigger");
+        String target = System.getProperty("dependency.order.probe.replace-target");
+        if (!pluginId.equals(trigger) || target == null || target.isBlank()) {
+            return;
+        }
+        try {
+            Files.writeString(Path.of(target), "replaced-by-dependency-order-probe", StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to replace dependency-order probe artifact", e);
         }
     }
 }

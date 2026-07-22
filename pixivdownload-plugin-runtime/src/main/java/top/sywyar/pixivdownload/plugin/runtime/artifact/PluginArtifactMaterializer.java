@@ -1,153 +1,77 @@
 package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageFormat;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.ZipSafety;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Properties;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-import java.util.zip.ZipInputStream;
 
 /**
- * Converts verified plugin artifacts into the PF4J path that should be loaded.
+ * 从已冻结并完成验签的私有 snapshot 生成 PF4J 加载路径。
  *
- * <p>The original artifact remains the trust source. The runtime directory is only a cache produced
- * after provenance/signature/SHA verification has accepted the original bytes.
+ * <p>每个 snapshot 自带唯一 runtime workspace；本类不读取原始安装路径、不复用旧 marker cache，
+ * 也不把任何确定性共享目录作为加载来源。
  */
 public final class PluginArtifactMaterializer {
 
-    private static final Logger log = LoggerFactory.getLogger(PluginArtifactMaterializer.class);
-    private static final String MARKER = ".pixiv-plugin-runtime-cache";
-
-    private final PluginRuntimeLayout layout;
-
     public PluginArtifactMaterializer(PluginRuntimeLayout layout) {
-        this.layout = Objects.requireNonNull(layout, "layout");
+        Objects.requireNonNull(layout, "layout");
     }
 
-    public MaterializedPluginArtifact materialize(Path artifact, PluginPackageInspection inspection) {
-        Objects.requireNonNull(artifact, "artifact");
+    public MaterializedPluginArtifact materialize(PluginArtifactSnapshot snapshot,
+                                                   PluginPackageInspection inspection,
+                                                   String verifiedSha256) {
+        Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(inspection, "inspection");
-        Path original = artifact.toAbsolutePath().normalize();
-        if (inspection.format() == PluginPackageFormat.SINGLE_JAR
-                && inspection.innerJarEntry() == null
-                && !inspection.containsPrivateLibraries()) {
-            return new MaterializedPluginArtifact(original, original, false);
+        String expectedSha256 = Objects.requireNonNull(verifiedSha256, "verifiedSha256")
+                .toLowerCase(Locale.ROOT);
+        if (!expectedSha256.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("verifiedSha256 is not a SHA-256 digest");
+        }
+        Path original = snapshot.originalArtifact().toAbsolutePath().normalize();
+        Path frozen = snapshot.snapshotArtifact().toAbsolutePath().normalize();
+        if (inspection.innerJarEntry() != null) {
+            throw new PluginRuntimeOperationException(
+                    "installed plugin package must be canonical and cannot contain an inner plugin jar: "
+                            + original);
         }
 
         try {
-            String sha256 = PluginPackageIntegrity.sha256Hex(original);
-            Path target = cacheDirectory(inspection, sha256);
-            CacheMarker marker = reusableCacheMarker(target, inspection, sha256);
-            if (marker != null) {
-                refreshMarkerPathIfNeeded(target, original, inspection, sha256, marker);
-                return new MaterializedPluginArtifact(original, target, true);
+            requireVerifiedSnapshotHash(frozen, expectedSha256, "after verification");
+            Path loadPath;
+            boolean materialized;
+            if (inspection.format() == PluginPackageFormat.EXPLODED_DIRECTORY) {
+                loadPath = snapshot.createLoadDirectory();
+                extractExplodedZip(frozen, loadPath);
+                materialized = true;
+            } else if (inspection.containsPrivateLibraries()) {
+                loadPath = snapshot.createLoadDirectory();
+                extractJarAsDirectory(frozen, loadPath);
+                materialized = true;
+            } else {
+                loadPath = frozen;
+                materialized = false;
             }
-            if (Files.exists(target)) {
-                throw new PluginRuntimeOperationException("runtime cache path exists but is not owned by this artifact: "
-                        + target);
-            }
-            Files.createDirectories(layout.runtimeDirectory());
-            Path temporary = Files.createTempDirectory(layout.runtimeDirectory(), ".materialize-");
-            boolean moved = false;
-            try {
-                if (inspection.format() == PluginPackageFormat.EXPLODED_DIRECTORY) {
-                    extractExplodedZip(original, temporary);
-                } else if (inspection.innerJarEntry() != null) {
-                    extractInnerJarAsDirectory(original, inspection.innerJarEntry(), temporary);
-                } else {
-                    extractJarAsDirectory(original, temporary);
-                }
-                writeMarker(temporary, original, inspection, sha256);
-                moveDirectory(temporary, target);
-                moved = true;
-                return new MaterializedPluginArtifact(original, target, true);
-            } finally {
-                if (!moved) {
-                    deleteRecursivelyQuietly(temporary);
-                }
-            }
+            requireVerifiedSnapshotHash(frozen, expectedSha256, "during materialization");
+            return new MaterializedPluginArtifact(original, loadPath, materialized);
         } catch (IOException e) {
-            throw new PluginRuntimeOperationException("failed to materialize plugin artifact " + artifact, e);
+            throw new PluginRuntimeOperationException("failed to materialize plugin artifact " + original, e);
         }
     }
 
-    private Path cacheDirectory(PluginPackageInspection inspection, String sha256) {
-        String id = safeSegment(inspection.descriptor().id());
-        String version = safeSegment(inspection.descriptor().version());
-        return layout.runtimeDirectory().resolve(id + "-" + version + "-" + sha256);
-    }
-
-    private static String safeSegment(String value) {
-        String text = value == null || value.isBlank() ? "unknown" : value;
-        return text.replaceAll("[^A-Za-z0-9._-]", "_");
-    }
-
-    private static CacheMarker reusableCacheMarker(Path target, PluginPackageInspection inspection,
-                                                   String sha256) throws IOException {
-        Path marker = target.resolve(MARKER);
-        if (!Files.isDirectory(target) || !Files.isRegularFile(marker)) {
-            return null;
-        }
-        Properties properties = new Properties();
-        try (InputStream in = Files.newInputStream(marker)) {
-            properties.load(in);
-        }
-        boolean reusable = sha256.equals(properties.getProperty("artifact.sha256"))
-                && inspection.descriptor().id().equals(properties.getProperty("plugin.id"))
-                && inspection.descriptor().version().equals(properties.getProperty("plugin.version"));
-        return reusable ? new CacheMarker(properties.getProperty("artifact.path")) : null;
-    }
-
-    private static void refreshMarkerPathIfNeeded(Path target, Path original, PluginPackageInspection inspection,
-                                                  String sha256, CacheMarker marker) {
-        if (original.toString().equals(marker.artifactPath())) {
-            return;
-        }
-        try {
-            writeMarker(target, original, inspection, sha256);
-        } catch (IOException | RuntimeException e) {
-            log.warn("Failed to refresh plugin materialization cache marker {}: {}",
-                    target.resolve(MARKER), e.toString());
-        }
-    }
-
-    private static void writeMarker(Path directory, Path original, PluginPackageInspection inspection,
-                                    String sha256) throws IOException {
-        Properties properties = new Properties();
-        properties.setProperty("formatVersion", "1");
-        properties.setProperty("artifact.path", original.toString());
-        properties.setProperty("artifact.sha256", sha256);
-        properties.setProperty("plugin.id", inspection.descriptor().id());
-        properties.setProperty("plugin.version", inspection.descriptor().version());
-        Path marker = directory.resolve(MARKER);
-        Path temporary = directory.resolve(MARKER + ".tmp");
-        boolean moved = false;
-        try (var out = Files.newOutputStream(temporary)) {
-            properties.store(out, "PixivDownloader plugin runtime cache");
-        }
-        try {
-            moveFile(temporary, marker);
-            moved = true;
-        } finally {
-            if (!moved) {
-                Files.deleteIfExists(temporary);
-            }
+    private static void requireVerifiedSnapshotHash(Path snapshot, String expectedSha256, String phase)
+            throws IOException {
+        if (!expectedSha256.equals(PluginPackageIntegrity.sha256Hex(snapshot))) {
+            throw new IOException("plugin artifact snapshot changed " + phase);
         }
     }
 
@@ -186,28 +110,6 @@ public final class PluginArtifactMaterializer {
         }
     }
 
-    private static void extractInnerJarAsDirectory(Path zip, String jarEntryName, Path target) throws IOException {
-        ZipSafety.requireSafeEntryName(jarEntryName);
-        try (ZipFile zipFile = new ZipFile(zip.toFile())) {
-            ZipEntry jarEntry = zipFile.getEntry(jarEntryName);
-            if (jarEntry == null) {
-                throw new IOException("inner plugin jar not found: " + jarEntryName);
-            }
-            try (ZipInputStream jarStream = new ZipInputStream(
-                    new BufferedInputStream(zipFile.getInputStream(jarEntry)))) {
-                ZipEntry inner;
-                while ((inner = jarStream.getNextEntry()) != null) {
-                    if (inner.isDirectory()) {
-                        continue;
-                    }
-                    String entryName = inner.getName().replace('\\', '/');
-                    ZipSafety.requireSafeEntryName(entryName);
-                    copyJarEntry(jarStream, entryName, target);
-                }
-            }
-        }
-    }
-
     private static void copyJarEntry(InputStream in, String entryName, Path target) throws IOException {
         Path output;
         if ("plugin.properties".equals(entryName)) {
@@ -229,8 +131,9 @@ public final class PluginArtifactMaterializer {
     }
 
     private static Path safeResolve(Path root, String entryName) {
-        Path output = root.resolve(entryName).normalize();
-        if (!output.startsWith(root.normalize())) {
+        Path normalizedRoot = root.toAbsolutePath().normalize();
+        Path output = normalizedRoot.resolve(entryName).normalize();
+        if (!output.startsWith(normalizedRoot)) {
             throw new PluginRuntimeOperationException("unsafe plugin archive entry: " + entryName);
         }
         return output;
@@ -241,45 +144,9 @@ public final class PluginArtifactMaterializer {
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Files.copy(in, output, StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    private static void moveDirectory(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException | java.nio.file.FileAlreadyExistsException e) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private static void moveFile(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException | java.nio.file.FileAlreadyExistsException e) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private static void deleteRecursivelyQuietly(Path root) {
-        if (root == null || !Files.exists(root)) {
-            return;
-        }
-        try (var walk = Files.walk(root)) {
-            walk.sorted(Comparator.comparingInt(Path::getNameCount).reversed()).forEach(path -> {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (IOException e) {
-                    log.warn("Failed to delete plugin materialization cache entry {}: {}", path, e.toString());
-                }
-            });
-        } catch (IOException e) {
-            log.warn("Failed to clean plugin materialization cache {}: {}", root, e.toString());
-        }
+        Files.copy(in, output);
     }
 
     public record MaterializedPluginArtifact(Path originalArtifactPath, Path pf4jLoadPath, boolean materialized) {
-    }
-
-    private record CacheMarker(String artifactPath) {
     }
 }

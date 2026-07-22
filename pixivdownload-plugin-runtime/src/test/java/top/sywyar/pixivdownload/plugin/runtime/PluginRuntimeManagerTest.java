@@ -17,7 +17,9 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -34,7 +36,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.Properties;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -163,6 +165,8 @@ class PluginRuntimeManagerTest {
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
         manager.loadPlugin(jar);
         PluginManager delegate = manager.pluginManager().orElseThrow();
+        Path retainedWorkspace = delegate.getPlugin(PROBE_ID).getPluginPath()
+                .toAbsolutePath().normalize().getParent();
         PluginManager faulting = spy(delegate);
         doAnswer(invocation -> {
             delegate.unloadPlugin(PROBE_ID);
@@ -177,6 +181,7 @@ class PluginRuntimeManagerTest {
         assertThat(manager.packagePhases()).doesNotContainKey(PROBE_ID);
         assertThat(manager.generation(PROBE_ID)).isEmpty();
         manager.shutdown();
+        assertThat(retainedWorkspace).exists();
     }
 
     @Test
@@ -189,6 +194,7 @@ class PluginRuntimeManagerTest {
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
         PluginManager faulting = mock(PluginManager.class);
         PluginWrapper wrapper = mock(PluginWrapper.class);
+        AtomicReference<Path> attemptedLoadPath = new AtomicReference<>();
         org.pf4j.PluginDescriptor pf4jDescriptor = mock(org.pf4j.PluginDescriptor.class);
         when(faulting.getPlugins()).thenReturn(List.of(), List.of(wrapper));
         when(wrapper.getPluginId()).thenReturn(PROBE_ID);
@@ -196,6 +202,7 @@ class PluginRuntimeManagerTest {
         when(wrapper.getDescriptor()).thenReturn(pf4jDescriptor);
         when(pf4jDescriptor.getVersion()).thenReturn(PROBE_VERSION);
         doAnswer(invocation -> {
+            attemptedLoadPath.set(invocation.getArgument(0));
             throw new AssertionError("load failed after wrapper creation");
         }).when(faulting).loadPlugin(any(Path.class));
         when(faulting.unloadPlugin(PROBE_ID)).thenReturn(false);
@@ -210,6 +217,87 @@ class PluginRuntimeManagerTest {
 
         assertThat(manager.packagePhases().get(PROBE_ID))
                 .isEqualTo(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase.LOADED);
+        Path retainedWorkspace = attemptedLoadPath.get().toAbsolutePath().normalize().getParent();
+        assertThat(retainedWorkspace).exists();
+        manager.shutdown();
+        assertThat(retainedWorkspace).exists();
+    }
+
+    @Test
+    @DisplayName("load 抛错且未暴露新增 wrapper 时保留无法确认已释放的 snapshot")
+    void loadFailureWithoutObservableWrapperRetainsUnconfirmedSnapshot() throws Exception {
+        Path plugins = tempDir.resolve("plugins-hidden-loader-failure");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        PluginManager faulting = mock(PluginManager.class);
+        AtomicReference<Path> attemptedLoadPath = new AtomicReference<>();
+        when(faulting.getPlugins()).thenReturn(List.of(), List.of(), List.of());
+        doAnswer(invocation -> {
+            attemptedLoadPath.set(invocation.getArgument(0));
+            throw new AssertionError("load failed after an unregistered classloader may have been created");
+        }).when(faulting).loadPlugin(any(Path.class));
+        replacePluginManager(manager, faulting);
+
+        assertThatThrownBy(() -> manager.loadPlugin(jar))
+                .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
+                .hasCauseInstanceOf(AssertionError.class);
+
+        Path retainedWorkspace = attemptedLoadPath.get().toAbsolutePath().normalize().getParent();
+        assertThat(manager.packagePhases()).isEmpty();
+        assertThat(retainedWorkspace).exists();
+        manager.shutdown();
+        assertThat(retainedWorkspace).exists();
+    }
+
+    @Test
+    @DisplayName("同一次失败 load 留下两个 wrapper 时最后一个卸载前不释放共享 snapshot")
+    void multipleResidualWrappersReleaseSharedSnapshotOnlyAfterLastUnload() throws Exception {
+        Path plugins = tempDir.resolve("plugins-multiple-residuals");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        PluginManager faulting = mock(PluginManager.class);
+        PluginWrapper firstWrapper = mock(PluginWrapper.class);
+        PluginWrapper secondWrapper = mock(PluginWrapper.class);
+        org.pf4j.PluginDescriptor firstDescriptor = mock(org.pf4j.PluginDescriptor.class);
+        org.pf4j.PluginDescriptor secondDescriptor = mock(org.pf4j.PluginDescriptor.class);
+        AtomicReference<Path> attemptedLoadPath = new AtomicReference<>();
+        when(firstWrapper.getPluginId()).thenReturn("residual-one");
+        when(secondWrapper.getPluginId()).thenReturn("residual-two");
+        when(firstWrapper.getPluginState()).thenReturn(PluginState.CREATED);
+        when(secondWrapper.getPluginState()).thenReturn(PluginState.CREATED);
+        when(firstWrapper.getDescriptor()).thenReturn(firstDescriptor);
+        when(secondWrapper.getDescriptor()).thenReturn(secondDescriptor);
+        when(firstDescriptor.getVersion()).thenReturn(PROBE_VERSION);
+        when(secondDescriptor.getVersion()).thenReturn(PROBE_VERSION);
+        when(faulting.getPlugins()).thenReturn(
+                List.of(), List.of(firstWrapper, secondWrapper), List.of());
+        doAnswer(invocation -> {
+            attemptedLoadPath.set(invocation.getArgument(0));
+            throw new AssertionError("load failed after two wrappers were created");
+        }).when(faulting).loadPlugin(any(Path.class));
+        when(faulting.unloadPlugin("residual-one")).thenReturn(false, true);
+        when(faulting.unloadPlugin("residual-two")).thenReturn(false, true);
+        when(faulting.getPlugin("residual-one")).thenReturn(firstWrapper).thenReturn(null);
+        when(faulting.getPlugin("residual-two")).thenReturn(secondWrapper).thenReturn(null);
+        replacePluginManager(manager, faulting);
+
+        assertThatThrownBy(() -> manager.loadPlugin(jar))
+                .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
+                .hasCauseInstanceOf(AssertionError.class);
+
+        Path retainedWorkspace = attemptedLoadPath.get().toAbsolutePath().normalize().getParent();
+        assertThat(manager.packagePhases()).containsOnlyKeys("residual-one", "residual-two");
+        assertThat(retainedWorkspace).exists();
+
+        manager.unloadPlugin("residual-one");
+        assertThat(retainedWorkspace).exists();
+
+        manager.unloadPlugin("residual-two");
+        assertThat(retainedWorkspace).doesNotExist();
         manager.shutdown();
     }
 
@@ -312,8 +400,8 @@ class PluginRuntimeManagerTest {
         assertThat(status.failures()).hasSize(1);
         assertThat(status.failures().get(0).source()).isEqualTo("broken-plugin.jar");
         assertThat(status.failures().get(0).reason()).isNotBlank();
-        // POPULATED 路径会创建 PF4J 实例供后续桥接流程使用
-        assertThat(manager.pluginManager()).isPresent();
+        // 坏包在完整准入前被隔离，不应为它构造 PF4J 实例。
+        assertThat(manager.pluginManager()).isEmpty();
     }
 
     @Test
@@ -567,7 +655,8 @@ class PluginRuntimeManagerTest {
     void startupOrdersRootArtifactsByTransitiveDependencies() throws IOException {
         Path plugins = tempDir.resolve("ordered-root-artifacts");
         Files.createDirectories(plugins);
-        writeDependencyOrderProbeJar(plugins.resolve("mail-1.0.0.jar"), "mail",
+        Path mail = plugins.resolve("mail-1.0.0.jar");
+        writeDependencyOrderProbeJar(mail, "mail",
                 List.of(new PluginDependencyRef("notification", "1.0", false)));
         writeDependencyOrderProbeJar(plugins.resolve("notification-1.0.0.jar"), "notification",
                 List.of(new PluginDependencyRef("base", "1.0", false)));
@@ -601,8 +690,10 @@ class PluginRuntimeManagerTest {
     void startupSkipsPluginWithMissingRequiredDependencyBeforePf4jLoad() throws IOException {
         Path plugins = tempDir.resolve("missing-required-dependency");
         Files.createDirectories(plugins);
-        writeDependencyOrderProbeJar(plugins.resolve("mail-1.0.0.jar"), "mail",
+        Path mail = plugins.resolve("mail-1.0.0.jar");
+        writeDependencyOrderProbeJar(mail, "mail",
                 List.of(new PluginDependencyRef("notification", "1.0", false)));
+        writeLocalProvenance(plugins, mail, "mail", PROBE_VERSION);
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
 
         PluginRuntimeStatus status = manager.start();
@@ -614,16 +705,16 @@ class PluginRuntimeManagerTest {
             assertThat(failure.source()).isEqualTo("mail-1.0.0.jar");
             assertThat(failure.reason()).contains("missing required dependency: notification");
         });
-        assertThat(manager.pluginManager()).isPresent();
-        assertThat(manager.pluginManager().orElseThrow().getPlugin("mail")).isNull();
+        assertThat(manager.pluginManager()).isEmpty();
         manager.shutdown();
     }
 
     @Test
     @DisplayName("重新扫描 POPULATED→EMPTY：清理陈旧 PF4J 实例，pluginManager() 与发现结果均为空")
     void rescanFromPopulatedToEmptyClearsStaleManager() throws IOException {
-        Path broken = tempDir.resolve("broken-plugin.jar");
-        Files.writeString(broken, "not a valid plugin jar", StandardCharsets.UTF_8);
+        Path artifact = tempDir.resolve("bootstrap-probe.jar");
+        writeProbeJar(artifact, true);
+        writeLocalProvenance(tempDir, artifact);
         PluginRuntimeManager manager = new PluginRuntimeManager(tempDir);
 
         PluginRuntimeStatus first = manager.start();
@@ -631,7 +722,7 @@ class PluginRuntimeManagerTest {
         assertThat(manager.pluginManager()).isPresent();
 
         // 移除候选包后重新扫描：目录转为空
-        Files.delete(broken);
+        Files.delete(artifact);
         PluginRuntimeStatus second = manager.start();
 
         assertThat(second.state()).isEqualTo(PluginDirectoryState.EMPTY);
@@ -647,8 +738,10 @@ class PluginRuntimeManagerTest {
     void rescanFromPopulatedToAbsentClearsStaleManager() throws IOException {
         Path pluginsRoot = tempDir.resolve("plugins");
         Files.createDirectory(pluginsRoot);
-        Path broken = pluginsRoot.resolve("broken-plugin.jar");
-        Files.writeString(broken, "not a valid plugin jar", StandardCharsets.UTF_8);
+        Path artifact = pluginsRoot.resolve("bootstrap-probe.jar");
+        writeProbeJar(artifact, true);
+        PluginProvenanceStore provenanceStore = new PluginProvenanceStore(pluginsRoot);
+        writeLocalProvenance(pluginsRoot, artifact);
         PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
 
         PluginRuntimeStatus first = manager.start();
@@ -656,7 +749,11 @@ class PluginRuntimeManagerTest {
         assertThat(manager.pluginManager()).isPresent();
 
         // 删除整个插件目录后重新扫描：目录转为缺失
-        Files.delete(broken);
+        manager.unloadPlugin(PROBE_ID);
+        provenanceStore.delete(artifact);
+        Files.delete(artifact);
+        Files.delete(provenanceStore.provenanceDir());
+        Files.delete(pluginsRoot.resolve("runtime"));
         Files.delete(pluginsRoot);
         PluginRuntimeStatus second = manager.start();
 
@@ -708,12 +805,15 @@ class PluginRuntimeManagerTest {
                 .exists();
         assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
         assertThat(plugins.resolve(PROBE_ID + "-" + PROBE_VERSION)).doesNotExist();
+        Path workspace = pf4jPath.getParent();
+        assertThat(workspace.getFileName().toString()).startsWith(".artifact-snapshot-");
         manager.shutdown();
+        assertThat(workspace).doesNotExist();
     }
 
     @Test
-    @DisplayName("JAR-with-lib：同一 sha 的不同 artifact 路径复用同一个 runtime cache")
-    void jarWithPrivateLibrariesReusesRuntimeCacheAcrossArtifactPathsWithSameSha() throws IOException {
+    @DisplayName("JAR-with-lib：相同字节的不同加载代际使用互不复用的私有 workspace")
+    void identicalArtifactsUseIsolatedProductionWorkspaces() throws IOException {
         Path plugins = tempDir.resolve("plugins-reusable-cache");
         Path fullOffline = plugins.resolve("full-offline");
         Path portable = plugins.resolve("portable");
@@ -725,33 +825,33 @@ class PluginRuntimeManagerTest {
         Files.write(secondJar, Files.readAllBytes(firstJar));
         writeLocalProvenance(plugins, firstJar);
         writeLocalProvenance(plugins, secondJar);
-        String sha256 = PluginPackageIntegrity.sha256Hex(firstJar);
-        assertThat(PluginPackageIntegrity.sha256Hex(secondJar)).isEqualTo(sha256);
-        Path expectedCache = plugins.resolve(PluginRuntimeLayout.RUNTIME_DIR)
-                .resolve(PROBE_ID + "-" + PROBE_VERSION + "-" + sha256)
-                .toAbsolutePath().normalize();
+        assertThat(PluginPackageIntegrity.sha256Hex(secondJar))
+                .isEqualTo(PluginPackageIntegrity.sha256Hex(firstJar));
 
         PluginRuntimeManager firstManager = new PluginRuntimeManager(plugins);
         LoadedPluginPackage firstLoaded = firstManager.loadPlugin(firstJar);
         firstManager.startPlugin(PROBE_ID);
         Path firstPf4jPath = firstManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
+        Path firstWorkspace = firstPf4jPath.getParent();
         assertThat(firstLoaded.artifactPath()).isEqualTo(firstJar.toAbsolutePath().normalize());
-        assertThat(firstPf4jPath).isEqualTo(expectedCache);
+        assertThat(firstWorkspace).exists();
         firstManager.shutdown();
+        assertThat(firstWorkspace).doesNotExist();
 
         PluginRuntimeManager secondManager = new PluginRuntimeManager(plugins);
         LoadedPluginPackage secondLoaded = secondManager.loadPlugin(secondJar);
         secondManager.startPlugin(PROBE_ID);
         Path secondPf4jPath = secondManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
                 .getPluginPath().toAbsolutePath().normalize();
+        Path secondWorkspace = secondPf4jPath.getParent();
 
         assertThat(secondLoaded.artifactPath()).isEqualTo(secondJar.toAbsolutePath().normalize());
         assertThat(secondManager.artifactPath(PROBE_ID)).contains(secondJar.toAbsolutePath().normalize());
-        assertThat(secondPf4jPath).isEqualTo(firstPf4jPath);
-        assertThat(readCacheMarker(secondPf4jPath).getProperty("artifact.path"))
-                .isEqualTo(secondJar.toAbsolutePath().normalize().toString());
+        assertThat(secondPf4jPath).isNotEqualTo(firstPf4jPath);
+        assertThat(secondWorkspace).exists();
         secondManager.shutdown();
+        assertThat(secondWorkspace).doesNotExist();
     }
 
     @Test
@@ -773,7 +873,89 @@ class PluginRuntimeManagerTest {
         assertThat(pf4jPath).isDirectory();
         assertThat(pf4jPath).isNotEqualTo(zip.toAbsolutePath().normalize());
         assertThat(plugins.resolve(PROBE_ID + "-" + PROBE_VERSION)).doesNotExist();
+        Path workspace = pf4jPath.getParent();
         manager.shutdown();
+        assertThat(workspace).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("直接加载在离线复验后替换原路径仍只从同一冻结 snapshot 进入 PF4J")
+    void productionLoadContinuesFromFrozenSnapshotAfterVerification() throws Exception {
+        Path plugins = tempDir.resolve("plugins-frozen-direct");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        PluginArtifactVerificationService delegate = verificationService(manager);
+        PluginArtifactVerificationService replacing = spy(delegate);
+        AtomicReference<Path> verifiedPath = new AtomicReference<>();
+        doAnswer(invocation -> {
+            VerificationResult result = (VerificationResult) invocation.callRealMethod();
+            verifiedPath.set(invocation.getArgument(0));
+            Files.writeString(jar, "replaced-after-verification", StandardCharsets.UTF_8);
+            return result;
+        }).when(replacing).verifyInstalled(any(Path.class), any(PluginDescriptor.class), any());
+        replaceVerificationService(manager, replacing);
+
+        LoadedPluginPackage loaded = manager.loadPlugin(jar);
+
+        Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                .getPluginPath().toAbsolutePath().normalize();
+        assertThat(loaded.artifactPath()).isEqualTo(jar.toAbsolutePath().normalize());
+        assertThat(verifiedPath.get()).isNotEqualTo(jar.toAbsolutePath().normalize());
+        assertThat(verifiedPath.get().getParent()).isEqualTo(pf4jPath.getParent());
+        assertThat(Files.readString(jar, StandardCharsets.UTF_8)).isEqualTo("replaced-after-verification");
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("启动批量在首个插件执行代码前已冻结后续候选并沿用同一字节")
+    void startupLoadsPreFrozenCandidateAfterEarlierPluginReplacesOriginal() throws IOException {
+        Path plugins = tempDir.resolve("startup-frozen-batch");
+        Files.createDirectories(plugins);
+        Path base = plugins.resolve("base-1.0.0.jar");
+        Path dependent = plugins.resolve("dependent-1.0.0.jar");
+        writeDependencyOrderProbeJar(base, "base", List.of());
+        writeDependencyOrderProbeJar(dependent, "dependent",
+                List.of(new PluginDependencyRef("base", "1.0", false)));
+        writeLocalProvenance(plugins, base, "base", PROBE_VERSION);
+        writeLocalProvenance(plugins, dependent, "dependent", PROBE_VERSION);
+        String previousTrigger = System.getProperty("dependency.order.probe.replace-trigger");
+        String previousTarget = System.getProperty("dependency.order.probe.replace-target");
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        try {
+            System.setProperty("dependency.order.probe.replace-trigger", "base");
+            System.setProperty("dependency.order.probe.replace-target", dependent.toString());
+
+            PluginRuntimeStatus status = manager.start();
+
+            assertThat(status.failures()).isEmpty();
+            assertThat(status.loadedPluginIds()).containsExactly("base", "dependent");
+            assertThat(Files.readString(dependent, StandardCharsets.UTF_8))
+                    .isEqualTo("replaced-by-dependency-order-probe");
+        } finally {
+            manager.shutdown();
+            restoreProperty("dependency.order.probe.replace-trigger", previousTrigger);
+            restoreProperty("dependency.order.probe.replace-target", previousTarget);
+        }
+    }
+
+    @Test
+    @DisplayName("已安装的根 inner JAR ZIP 在创建 PF4J manager 前按非规范形态拒绝")
+    void installedInnerJarZipIsRejectedBeforePf4jLoad() throws IOException {
+        Path plugins = tempDir.resolve("plugins-inner-jar");
+        Files.createDirectories(plugins);
+        Path zip = PluginPackageFixtures.singleJarZip(plugins.resolve("probe.zip"), "probe.jar",
+                PROBE_ID, PROBE_VERSION, "1.0", BootstrapProbePlugin.class.getName());
+        writeLocalProvenance(plugins, zip);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        assertThatThrownBy(() -> manager.loadPlugin(zip))
+                .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
+                .hasMessageContaining("canonical")
+                .hasMessageContaining("inner plugin jar");
+        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.packagePhases()).isEmpty();
     }
 
     @Test
@@ -853,6 +1035,21 @@ class PluginRuntimeManagerTest {
         Field field = PluginRuntimeManager.class.getDeclaredField("pluginManager");
         field.setAccessible(true);
         field.set(runtimeManager, pluginManager);
+    }
+
+    private static PluginArtifactVerificationService verificationService(PluginRuntimeManager runtimeManager)
+            throws ReflectiveOperationException {
+        Field field = PluginRuntimeManager.class.getDeclaredField("verificationService");
+        field.setAccessible(true);
+        return (PluginArtifactVerificationService) field.get(runtimeManager);
+    }
+
+    private static void replaceVerificationService(
+            PluginRuntimeManager runtimeManager, PluginArtifactVerificationService verificationService)
+            throws ReflectiveOperationException {
+        Field field = PluginRuntimeManager.class.getDeclaredField("verificationService");
+        field.setAccessible(true);
+        field.set(runtimeManager, verificationService);
     }
 
     private static int invokeInt(Object target, String methodName) throws ReflectiveOperationException {
@@ -953,14 +1150,6 @@ class PluginRuntimeManagerTest {
                 pluginId, version, null, null, null, null, Instant.now(), Files.size(artifact),
                 PluginPackageIntegrity.sha256Hex(artifact), "UNSIGNED_ALLOWED");
         new PluginProvenanceStore(pluginsDir).write(artifact, PluginPackageOrigin.localUpload(), result);
-    }
-
-    private static Properties readCacheMarker(Path runtimeCache) throws IOException {
-        Properties properties = new Properties();
-        try (InputStream in = Files.newInputStream(runtimeCache.resolve(".pixiv-plugin-runtime-cache"))) {
-            properties.load(in);
-        }
-        return properties;
     }
 
     private static void writeProbeSourceDescriptor(Path moduleRoot) throws IOException {
