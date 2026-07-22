@@ -105,10 +105,6 @@ public class WebUiSlotRegistry {
         if (slot == null) {
             throw new IllegalStateException("null ui slot contribution (plugin: " + pluginId + ")");
         }
-        if (!pluginId.equals(slot.pluginId())) {
-            throw new IllegalStateException("ui slot pluginId mismatch: declared "
-                    + slot.pluginId() + " under plugin " + pluginId);
-        }
         if (slot.slotId() == null || slot.slotId().isBlank()) {
             throw new IllegalStateException("ui slot without id (plugin: " + pluginId + ")");
         }

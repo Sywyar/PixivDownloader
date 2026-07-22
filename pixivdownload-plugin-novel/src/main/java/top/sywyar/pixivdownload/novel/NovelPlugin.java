@@ -109,12 +109,12 @@ public class NovelPlugin implements PixivFeaturePlugin {
         // 由小说插件 serving，随插件启停：禁用 → 目录不再注册 → 下载页据 /api/download/extensions 不再加载该模块。
         return List.of(
                 new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-novel-download/", "/pixiv-novel-download/"),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-novel-gallery.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-novel.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-novel-gallery/",
+                        "classpath:/static/pixiv-novel-download/", "/pixiv-novel-download/"),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-novel-gallery.html", true),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-novel.html", true),
+                new StaticResourceContribution("classpath:/static/pixiv-novel-gallery/",
                         "/pixiv-novel-gallery/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-novel/", "/pixiv-novel/"));
+                new StaticResourceContribution("classpath:/static/pixiv-novel/", "/pixiv-novel/"));
     }
 
     @Override
@@ -160,7 +160,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
     public List<WebUiSlotContribution> uiSlots() {
         return NOVEL_UI_SLOT_TARGETS.stream()
                 .map(target -> new WebUiSlotContribution(
-                        ID, ID + "." + target, target, NOVEL_MODULE_URL, 20))
+                        ID + "." + target, target, NOVEL_MODULE_URL, 20))
                 .toList();
     }
 
@@ -225,7 +225,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
     @Override
     public List<LandingContribution> landings() {
         return List.of(new LandingContribution(
-                ID, "novel-gallery", Audience.INVITED_GUEST, "/pixiv-novel-gallery.html", 30));
+                "novel-gallery", Audience.INVITED_GUEST, "/pixiv-novel-gallery.html", 30));
     }
 
 }

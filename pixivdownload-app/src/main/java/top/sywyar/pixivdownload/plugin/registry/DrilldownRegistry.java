@@ -97,10 +97,6 @@ public class DrilldownRegistry {
         if (drilldown == null) {
             throw new IllegalStateException("null drilldown contribution (plugin: " + pluginId + ")");
         }
-        if (!pluginId.equals(drilldown.pluginId())) {
-            throw new IllegalStateException("drilldown pluginId mismatch: declared "
-                    + drilldown.pluginId() + " under plugin " + pluginId);
-        }
         if (drilldown.id() == null || drilldown.id().isBlank()) {
             throw new IllegalStateException("drilldown without id (plugin: " + pluginId + ")");
         }

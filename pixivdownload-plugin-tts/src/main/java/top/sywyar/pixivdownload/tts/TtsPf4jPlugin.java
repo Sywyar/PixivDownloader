@@ -9,8 +9,8 @@ import java.util.List;
 public class TtsPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new TtsPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new TtsPlugin();
     }
 
     @Override

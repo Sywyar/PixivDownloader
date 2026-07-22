@@ -13,10 +13,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StartupRouteContributionTest {
 
     @Test
-    @DisplayName("三参构造默认不绑定首选启动上下文")
+    @DisplayName("两参构造默认不绑定首选启动上下文")
     void legacyConstructorDefaultsPreferredContextsToEmpty() {
         StartupRouteContribution contribution =
-                new StartupRouteContribution("demo", "/demo.html", 10);
+                new StartupRouteContribution("/demo.html", 10);
 
         assertThat(contribution.preferredContexts()).isEmpty();
     }
@@ -26,7 +26,7 @@ class StartupRouteContributionTest {
     void preferredContextsAreDefensivelyCopied() {
         Set<StartupRouteContext> contexts = new HashSet<>(Set.of(StartupRouteContext.SOLO));
         StartupRouteContribution contribution =
-                new StartupRouteContribution("demo", "/demo.html", 10, contexts);
+                new StartupRouteContribution("/demo.html", 10, contexts);
 
         contexts.add(StartupRouteContext.MULTI);
 

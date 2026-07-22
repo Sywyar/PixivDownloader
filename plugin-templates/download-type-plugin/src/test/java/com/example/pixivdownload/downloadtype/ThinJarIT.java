@@ -63,7 +63,7 @@ class ThinJarIT {
 
             assertInstanceOf(Plugin.class, instance);
             PixivPluginProvider provider = assertInstanceOf(PixivPluginProvider.class, instance);
-            assertEquals("example-download", provider.featurePlugins().get(0).id());
+            assertEquals("example-download", provider.featurePlugin().id());
             assertEquals(List.of(
                             "com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration"),
                     provider.configurationClasses().stream().map(Class::getName).toList());

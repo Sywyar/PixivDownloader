@@ -13,8 +13,8 @@ import java.util.List;
 public class DuplicatePf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new DuplicatePlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new DuplicatePlugin();
     }
 
     @Override

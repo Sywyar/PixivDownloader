@@ -136,10 +136,6 @@ public class StartupRouteRegistry {
         if (route == null) {
             throw new IllegalStateException("null startup route contribution (plugin: " + pluginId + ")");
         }
-        if (!pluginId.equals(route.pluginId())) {
-            throw new IllegalStateException("startup route pluginId mismatch: declared "
-                    + route.pluginId() + " under plugin " + pluginId);
-        }
         String path = route.path();
         if (path == null || path.isBlank() || !path.startsWith("/")) {
             throw new IllegalStateException("invalid startup route path: " + path

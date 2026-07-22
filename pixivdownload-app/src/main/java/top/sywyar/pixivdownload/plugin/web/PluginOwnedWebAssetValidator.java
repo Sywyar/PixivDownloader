@@ -67,10 +67,6 @@ public final class PluginOwnedWebAssetValidator {
                 throw invalid(contributionLabel, moduleUrl,
                         "owner declared a null static resource contribution", null);
             }
-            if (!owner.id().equals(resource.pluginId())) {
-                throw invalid(contributionLabel, moduleUrl,
-                        "static resource owner does not match registered plugin", null);
-            }
             String suffix = resolveRelativeAsset(resource, path);
             if (suffix == null) {
                 continue;

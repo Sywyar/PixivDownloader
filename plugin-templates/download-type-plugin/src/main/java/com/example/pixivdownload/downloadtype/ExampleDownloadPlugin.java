@@ -68,11 +68,11 @@ public final class ExampleDownloadPlugin implements PixivFeaturePlugin {
     public List<StaticResourceContribution> staticResources() {
         return List.of(
                 new StaticResourceContribution(
-                        ID, "classpath:/static/example-download/", "/example-download/"),
+                        "classpath:/static/example-download/", "/example-download/"),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/", "/example-download-gallery.html", true),
+                        "classpath:/static/", "/example-download-gallery.html", true),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/example-download-gallery/", "/example-download-gallery/"));
+                        "classpath:/static/example-download-gallery/", "/example-download-gallery/"));
     }
 
     @Override
@@ -107,9 +107,9 @@ public final class ExampleDownloadPlugin implements PixivFeaturePlugin {
     public List<WebUiSlotContribution> uiSlots() {
         return List.of(
                 new WebUiSlotContribution(
-                        ID, ID + ".settings-card", "settings-card", TYPE_MODULE_URL, 900),
+                        ID + ".settings-card", "settings-card", TYPE_MODULE_URL, 900),
                 new WebUiSlotContribution(
-                        ID, ID + ".quick-actions-mine", "quick-actions-mine", UI_MODULE_URL, 900));
+                        ID + ".quick-actions-mine", "quick-actions-mine", UI_MODULE_URL, 900));
     }
 
     @Override

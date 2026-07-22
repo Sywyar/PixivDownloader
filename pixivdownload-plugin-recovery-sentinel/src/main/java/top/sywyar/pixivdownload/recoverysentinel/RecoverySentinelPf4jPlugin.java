@@ -4,8 +4,6 @@ import org.pf4j.Plugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
-import java.util.List;
-
 /**
  * recovery-sentinel 外置插件的 PF4J 主类：作为外置插件包从 {@code plugins/} 目录被 PF4J 加载、启动后，经入口契约
  * {@link PixivPluginProvider} 把最小功能插件 {@link RecoverySentinelPlugin} 暴露给核心发现桥接，由其接入核心
@@ -25,7 +23,7 @@ import java.util.List;
 public class RecoverySentinelPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new RecoverySentinelPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new RecoverySentinelPlugin();
     }
 }

@@ -10,8 +10,8 @@ import java.util.List;
 public final class ExampleMinimalPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new ExampleMinimalPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new ExampleMinimalPlugin();
     }
 
     @Override

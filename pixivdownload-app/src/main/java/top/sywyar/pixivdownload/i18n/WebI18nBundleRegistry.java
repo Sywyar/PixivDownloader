@@ -113,7 +113,7 @@ public class WebI18nBundleRegistry {
             PixivFeaturePlugin plugin = registered.plugin();
             List<I18nContribution> contributions = plugin.i18n();
             if (!contributions.isEmpty()) {
-                register(plugin.id(), registered.classLoader(), contributions);
+                register(registered.id(), registered.classLoader(), contributions);
             }
         }
         refreshInstalledSnapshot();

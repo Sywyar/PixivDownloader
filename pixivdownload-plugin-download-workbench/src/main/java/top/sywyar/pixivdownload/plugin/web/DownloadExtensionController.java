@@ -54,7 +54,7 @@ public class DownloadExtensionController {
                         item.slot().target(),
                         item.slot().moduleUrl(),
                         item.slot().order(),
-                        item.slot().metadata(),
+                        Map.of(),
                         OwnerView.from(item.owner(), item.publicationId())))
                 .toList();
         DownloadExtensionsView view = new DownloadExtensionsView(

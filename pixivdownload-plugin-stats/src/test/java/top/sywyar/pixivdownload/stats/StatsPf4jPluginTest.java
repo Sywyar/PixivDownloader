@@ -6,7 +6,6 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
 import java.io.InputStream;
-import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>jar 根部含 PF4J 描述符 {@code plugin.properties}（id=stats、合法 semver 版本、requires=1.0、
  *       plugin.class 指向 {@link StatsPf4jPlugin}）；</li>
  *   <li>{@link StatsPf4jPlugin} 继承 {@code org.pf4j.Plugin} 并实现入口契约 {@link PixivPluginProvider}；</li>
- *   <li>{@link PixivPluginProvider#featurePlugins()} 暴露统计功能插件 {@link StatsPlugin}（id {@code stats}）。</li>
+ *   <li>{@link PixivPluginProvider#featurePlugin()} 暴露统计功能插件 {@link StatsPlugin}（id {@code stats}）。</li>
  * </ul>
  * 这些是核心发现桥接据以加载 / 校验 / 接入外置 stats 插件的契约面（真实 jar 端到端加载在 app 模块的集成测试覆盖）。
  */
@@ -56,12 +55,10 @@ class StatsPf4jPluginTest {
     }
 
     @Test
-    @DisplayName("featurePlugins() 暴露统计功能插件 StatsPlugin（id=stats）")
-    void featurePluginsExposeStats() {
+    @DisplayName("featurePlugin() 暴露统计功能插件 StatsPlugin（id=stats）")
+    void featurePluginExposesStats() {
         PixivPluginProvider provider = new StatsPf4jPlugin();
-        List<PixivFeaturePlugin> featurePlugins = provider.featurePlugins();
-        assertThat(featurePlugins).hasSize(1);
-        PixivFeaturePlugin stats = featurePlugins.get(0);
+        PixivFeaturePlugin stats = provider.featurePlugin();
         assertThat(stats).isInstanceOf(StatsPlugin.class);
         assertThat(stats.id()).isEqualTo("stats");
     }

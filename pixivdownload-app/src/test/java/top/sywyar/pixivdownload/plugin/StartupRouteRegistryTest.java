@@ -32,9 +32,9 @@ class StartupRouteRegistryTest {
     @DisplayName("首选插件缺失时回退到 order 最小的已注册落点")
     void fallsBackToLowestOrderWhenPreferredAbsent() {
         StartupRouteRegistry registry = emptyRegistry();
-        registry.register("gallery", List.of(new StartupRouteContribution("gallery", "/pixiv-gallery.html", 20)));
+        registry.register("gallery", List.of(new StartupRouteContribution("/pixiv-gallery.html", 20)));
         registry.register("download-workbench",
-                List.of(new StartupRouteContribution("download-workbench", "/pixiv-batch.html", 10)));
+                List.of(new StartupRouteContribution("/pixiv-batch.html", 10)));
 
         // 未声明首选上下文 → 回退到 order 最小者（download-workbench order=10）
         assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-batch.html");
@@ -47,7 +47,7 @@ class StartupRouteRegistryTest {
     void fallsBackToGalleryWhenDownloadWorkbenchUnregistered() {
         StartupRouteRegistry registry = registryWithGallery();
         registry.register("download-workbench",
-                List.of(new StartupRouteContribution("download-workbench", "/pixiv-batch.html", 10,
+                List.of(new StartupRouteContribution("/pixiv-batch.html", 10,
                         java.util.Set.of(StartupRouteContext.MULTI))));
         assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-batch.html");
 
@@ -70,7 +70,7 @@ class StartupRouteRegistryTest {
     @DisplayName("注册 → 注销 → 再注册后状态与首次一致（可逆性）")
     void registerUnregisterReversible() {
         StartupRouteRegistry registry = emptyRegistry();
-        StartupRouteContribution route = new StartupRouteContribution("download-workbench", "/pixiv-batch.html", 10);
+        StartupRouteContribution route = new StartupRouteContribution("/pixiv-batch.html", 10);
 
         registry.register("download-workbench", List.of(route));
         assertThat(registry.startupRoutes()).hasSize(1);
@@ -97,26 +97,21 @@ class StartupRouteRegistryTest {
     void duplicatePluginRegistrationThrows() {
         StartupRouteRegistry registry = emptyRegistry();
         registry.register("download-workbench",
-                List.of(new StartupRouteContribution("download-workbench", "/pixiv-batch.html", 10)));
+                List.of(new StartupRouteContribution("/pixiv-batch.html", 10)));
 
         assertThatThrownBy(() -> registry.register("download-workbench",
-                List.of(new StartupRouteContribution("download-workbench", "/other.html", 11))))
+                List.of(new StartupRouteContribution("/other.html", 11))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    @DisplayName("非法落点（pluginId 不符 / 路径非法）注册即抛错")
+    @DisplayName("非法落点路径注册即抛错")
     void invalidContributionThrows() {
         StartupRouteRegistry registry = emptyRegistry();
 
-        // pluginId 与声明方不一致
-        assertThatThrownBy(() -> registry.register("download-workbench",
-                List.of(new StartupRouteContribution("gallery", "/pixiv-batch.html", 10))))
-                .isInstanceOf(IllegalStateException.class);
-
         // 路径非法（不以 / 开头）
         assertThatThrownBy(() -> registry.register("download-workbench",
-                List.of(new StartupRouteContribution("download-workbench", "pixiv-batch.html", 10))))
+                List.of(new StartupRouteContribution("pixiv-batch.html", 10))))
                 .isInstanceOf(IllegalStateException.class);
 
         // 空来源列表

@@ -97,7 +97,7 @@ class ScriptRegistryTest {
         try (URLClassLoader loader = new URLClassLoader(
                 new URL[]{tempDir.toUri().toURL()}, getClass().getClassLoader())) {
             sources.register("external", loader, List.of(new UserscriptContribution(
-                    "external", "classpath:/static/userscripts/*.user.js")));
+                    "classpath:/static/userscripts/*.user.js")));
             ScriptRegistry registry = new ScriptRegistry(TestI18nBeans.appMessages(), sources);
 
             assertThat(registry.getScripts()).singleElement()

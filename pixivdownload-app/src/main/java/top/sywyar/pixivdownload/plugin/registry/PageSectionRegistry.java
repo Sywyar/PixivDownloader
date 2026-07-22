@@ -97,10 +97,6 @@ public class PageSectionRegistry {
         if (section == null) {
             throw new IllegalStateException("null page section contribution (plugin: " + pluginId + ")");
         }
-        if (!pluginId.equals(section.pluginId())) {
-            throw new IllegalStateException("page section pluginId mismatch: declared "
-                    + section.pluginId() + " under plugin " + pluginId);
-        }
         if (section.id() == null || section.id().isBlank()) {
             throw new IllegalStateException("page section without id (plugin: " + pluginId + ")");
         }

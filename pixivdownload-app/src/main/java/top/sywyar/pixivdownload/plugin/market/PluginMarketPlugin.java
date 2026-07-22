@@ -73,7 +73,7 @@ public class PluginMarketPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(new StaticResourceContribution(
-                ID, "classpath:/static/plugin-market/", "/plugin-market/"));
+                "classpath:/static/plugin-market/", "/plugin-market/"));
     }
 
     @Override

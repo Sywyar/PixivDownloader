@@ -17,7 +17,6 @@ class GuiOnboardingStepContributionTest {
     void bulletKeysAreDefensivelyCopied() {
         List<String> bullets = new ArrayList<>(List.of("point.one"));
         GuiOnboardingStepContribution contribution = new GuiOnboardingStepContribution(
-                "demo",
                 "demo-guide",
                 "demo",
                 "title",
@@ -40,7 +39,6 @@ class GuiOnboardingStepContributionTest {
     @DisplayName("null bullet key 列表归一化为空列表")
     void nullBulletKeysNormalizeToEmptyList() {
         GuiOnboardingStepContribution contribution = new GuiOnboardingStepContribution(
-                "demo",
                 "demo-guide",
                 "demo",
                 "title",

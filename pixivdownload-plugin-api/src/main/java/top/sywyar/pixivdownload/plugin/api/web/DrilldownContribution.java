@@ -23,7 +23,6 @@ import java.util.Set;
  * 消失）只是渲染体验，不是权限边界</b>——下钻链接指向的目标 URL（如画廊页）其访问权限仍由后端 {@code AuthFilter}
  * 依据 {@code RouteAccessRegistry} 鉴权；某下钻对当前身份隐藏，不代表其目标 URL 在后端开放，反之亦然。
  *
- * @param pluginId     声明方插件 id（注册时校验与登记方一致）
  * @param id           下钻贡献全局唯一 id（用于诊断 / 去重）
  * @param placements   该下钻要进入的语义 placement（slot id）集合，非空；同一模板可服务多个 placement
  * @param hrefTemplate 带 {@code {变量名}} 占位的目标链接模板；必须是同源绝对路径（以单个 {@code /} 开头）
@@ -31,7 +30,6 @@ import java.util.Set;
  * @param priority     placement 内排序权重，越小越靠前（不跨越来源层级：第三方贡献不会因 priority 小而越过内置贡献）
  */
 public record DrilldownContribution(
-        String pluginId,
         String id,
         Set<String> placements,
         String hrefTemplate,
@@ -43,8 +41,8 @@ public record DrilldownContribution(
     }
 
     /** 便捷构造：单一 placement 的下钻贡献。 */
-    public DrilldownContribution(String pluginId, String id, String placement, String hrefTemplate,
+    public DrilldownContribution(String id, String placement, String hrefTemplate,
                                  AccessPolicy visibleTo, int priority) {
-        this(pluginId, id, placement == null ? Set.of() : Set.of(placement), hrefTemplate, visibleTo, priority);
+        this(id, placement == null ? Set.of() : Set.of(placement), hrefTemplate, visibleTo, priority);
     }
 }

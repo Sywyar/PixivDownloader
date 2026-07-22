@@ -125,10 +125,6 @@ public class LandingRegistry {
         if (landing == null) {
             throw new IllegalStateException("null landing contribution (plugin: " + pluginId + ")");
         }
-        if (!pluginId.equals(landing.pluginId())) {
-            throw new IllegalStateException("landing pluginId mismatch: declared "
-                    + landing.pluginId() + " under plugin " + pluginId);
-        }
         if (landing.id() == null || landing.id().isBlank()) {
             throw new IllegalStateException("landing without id (plugin: " + pluginId + ")");
         }

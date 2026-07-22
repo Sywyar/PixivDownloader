@@ -90,6 +90,44 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("同代 stop/start 复用声明快照而物理 reload 为新代各读取一次")
+    void capturesProviderDeclarationsOncePerGeneration() throws Exception {
+        Path plugins = tempDir.resolve("plugins-provider-snapshot");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        manager.loadPlugin(jar);
+        manager.startPlugin(PROBE_ID);
+        manager.inspectPlugins();
+        manager.inspectContextModules();
+        manager.discoverFeaturePlugins();
+
+        Object firstProvider = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID).getPlugin();
+        long firstGeneration = manager.generation(PROBE_ID).orElseThrow();
+        assertThat(invokeInt(firstProvider, "featurePluginCalls")).isEqualTo(1);
+        assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isEqualTo(1);
+
+        manager.stopPlugin(PROBE_ID);
+        manager.startPlugin(PROBE_ID);
+        manager.inspectPlugins();
+        assertThat(invokeInt(firstProvider, "featurePluginCalls")).isEqualTo(1);
+        assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isEqualTo(1);
+
+        manager.stopPlugin(PROBE_ID);
+        manager.unloadPlugin(PROBE_ID);
+        manager.loadPlugin(jar);
+        manager.startPlugin(PROBE_ID);
+        Object secondProvider = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID).getPlugin();
+        assertThat(secondProvider).isNotSameAs(firstProvider);
+        assertThat(manager.generation(PROBE_ID).orElseThrow()).isGreaterThan(firstGeneration);
+        assertThat(invokeInt(secondProvider, "featurePluginCalls")).isEqualTo(1);
+        assertThat(invokeInt(secondProvider, "configurationClassesCalls")).isEqualTo(1);
+        manager.shutdown();
+    }
+
+    @Test
     @DisplayName("PF4J start 已变更 wrapper 后抛 Error 时本地阶段复核为 STARTED")
     void startErrorAfterPf4jMutationReconcilesEntry() throws Exception {
         Path plugins = tempDir.resolve("plugins");
@@ -815,6 +853,10 @@ class PluginRuntimeManagerTest {
         Field field = PluginRuntimeManager.class.getDeclaredField("pluginManager");
         field.setAccessible(true);
         field.set(runtimeManager, pluginManager);
+    }
+
+    private static int invokeInt(Object target, String methodName) throws ReflectiveOperationException {
+        return (int) target.getClass().getMethod(methodName).invoke(target);
     }
 
     private static void replaceDevelopmentCacheSession(

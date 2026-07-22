@@ -32,8 +32,8 @@ class LandingRegistryTest {
         return new LandingRegistry(new PluginRegistry(List.of()));
     }
 
-    private static LandingContribution landing(String pluginId, String id, Audience audience, int priority) {
-        return new LandingContribution(pluginId, id, audience, "/" + id + ".html", priority);
+    private static LandingContribution landing(String id, Audience audience, int priority) {
+        return new LandingContribution(id, audience, "/" + id + ".html", priority);
     }
 
     private static PluginToggleProperties disabling(String... ids) {
@@ -108,7 +108,7 @@ class LandingRegistryTest {
             @Override
             public List<LandingContribution> landings() {
                 return List.of(new LandingContribution(
-                        "contender", "contender", Audience.INVITED_GUEST, "/contender.html", 5));
+                        "contender", Audience.INVITED_GUEST, "/contender.html", 5));
             }
         };
         List<PixivFeaturePlugin> plugins = new ArrayList<>(
@@ -123,8 +123,8 @@ class LandingRegistryTest {
     void resolvesPerAudience() {
         LandingRegistry registry = emptyRegistry();
         registry.register("p", List.of(
-                landing("p", "vis", Audience.VISITOR, 5),
-                landing("p", "guest", Audience.INVITED_GUEST, 50)));
+                landing("vis", Audience.VISITOR, 5),
+                landing("guest", Audience.INVITED_GUEST, 50)));
         assertThat(registry.resolve(Audience.INVITED_GUEST)).contains("/guest.html");
         assertThat(registry.resolve(Audience.VISITOR)).contains("/vis.html");
         assertThat(registry.resolve(Audience.ADMIN)).isEmpty();
@@ -135,9 +135,9 @@ class LandingRegistryTest {
     void resolvesByPriorityThenId() {
         LandingRegistry registry = emptyRegistry();
         registry.register("p", List.of(
-                landing("p", "b-high", Audience.INVITED_GUEST, 10),
-                landing("p", "a-tie", Audience.INVITED_GUEST, 5),
-                landing("p", "c-tie", Audience.INVITED_GUEST, 5)));
+                landing("b-high", Audience.INVITED_GUEST, 10),
+                landing("a-tie", Audience.INVITED_GUEST, 5),
+                landing("c-tie", Audience.INVITED_GUEST, 5)));
         // priority 5 的两条按 id 稳定取 "a-tie"
         assertThat(registry.resolve(Audience.INVITED_GUEST)).contains("/a-tie.html");
     }
@@ -146,7 +146,7 @@ class LandingRegistryTest {
     @DisplayName("register → unregister → 再 register 后快照与首次一致（可逆性）")
     void registerUnregisterRoundTrip() {
         LandingRegistry registry = emptyRegistry();
-        List<LandingContribution> items = List.of(landing("demo", "a", Audience.INVITED_GUEST, 10));
+        List<LandingContribution> items = List.of(landing("a", Audience.INVITED_GUEST, 10));
         registry.register("demo", items);
         List<LandingRegistry.RegisteredLanding> first = registry.landings();
         registry.unregister("demo");
@@ -167,9 +167,9 @@ class LandingRegistryTest {
     @DisplayName("同一 pluginId 重复注册立即抛出")
     void duplicatePluginRejected() {
         LandingRegistry registry = emptyRegistry();
-        registry.register("demo", List.of(landing("demo", "a", Audience.INVITED_GUEST, 1)));
+        registry.register("demo", List.of(landing("a", Audience.INVITED_GUEST, 1)));
         assertThatThrownBy(() -> registry.register("demo",
-                List.of(landing("demo", "b", Audience.INVITED_GUEST, 2))))
+                List.of(landing("b", Audience.INVITED_GUEST, 2))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("demo");
     }
 
@@ -177,34 +177,30 @@ class LandingRegistryTest {
     @DisplayName("落点 id 全局冲突立即抛出（跨插件不可重名）")
     void duplicateIdRejected() {
         LandingRegistry registry = emptyRegistry();
-        registry.register("a", List.of(landing("a", "shared", Audience.INVITED_GUEST, 1)));
+        registry.register("a", List.of(landing("shared", Audience.INVITED_GUEST, 1)));
         assertThatThrownBy(() -> registry.register("b",
-                List.of(landing("b", "shared", Audience.INVITED_GUEST, 2))))
+                List.of(landing("shared", Audience.INVITED_GUEST, 2))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("shared");
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId 不符 / id 空 / audience 空 / href 非法 / 列表空")
+    @DisplayName("非法输入拒绝：id 空 / audience 空 / href 非法 / 列表空")
     void invalidInputRejected() {
         LandingRegistry registry = emptyRegistry();
-        // pluginId 与声明方不一致
-        assertThatThrownBy(() -> registry.register("demo", List.of(
-                new LandingContribution("other", "a", Audience.INVITED_GUEST, "/a.html", 1))))
-                .isInstanceOf(IllegalStateException.class);
         // 空列表
         assertThatThrownBy(() -> registry.register("demo", List.of()))
                 .isInstanceOf(IllegalStateException.class);
         // id 空
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new LandingContribution("demo", " ", Audience.INVITED_GUEST, "/a.html", 1))))
+                new LandingContribution(" ", Audience.INVITED_GUEST, "/a.html", 1))))
                 .isInstanceOf(IllegalStateException.class);
         // audience 空
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new LandingContribution("demo", "a", null, "/a.html", 1))))
+                new LandingContribution("a", null, "/a.html", 1))))
                 .isInstanceOf(IllegalStateException.class);
         // href 非法（不以 / 开头）
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new LandingContribution("demo", "a", Audience.INVITED_GUEST, "a.html", 1))))
+                new LandingContribution("a", Audience.INVITED_GUEST, "a.html", 1))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -212,10 +208,10 @@ class LandingRegistryTest {
     @DisplayName("landings() 返回不可变快照，外部不可修改")
     void snapshotIsImmutable() {
         LandingRegistry registry = emptyRegistry();
-        registry.register("demo", List.of(landing("demo", "a", Audience.INVITED_GUEST, 1)));
+        registry.register("demo", List.of(landing("a", Audience.INVITED_GUEST, 1)));
         List<LandingRegistry.RegisteredLanding> snapshot = registry.landings();
         assertThatThrownBy(() -> snapshot.add(
-                new LandingRegistry.RegisteredLanding("x", landing("x", "x", Audience.INVITED_GUEST, 1))))
+                new LandingRegistry.RegisteredLanding("x", landing("x", Audience.INVITED_GUEST, 1))))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

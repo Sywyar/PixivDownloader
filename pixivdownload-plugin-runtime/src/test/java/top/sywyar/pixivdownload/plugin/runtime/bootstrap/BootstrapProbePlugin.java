@@ -22,6 +22,9 @@ import java.util.List;
  */
 public class BootstrapProbePlugin extends Plugin implements PixivPluginProvider {
 
+    private int featurePluginCalls;
+    private int configurationClassesCalls;
+
     public BootstrapProbePlugin(PluginWrapper wrapper) {
         super(wrapper);
         record("load");
@@ -38,8 +41,23 @@ public class BootstrapProbePlugin extends Plugin implements PixivPluginProvider 
     }
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new BootstrapProbeFeaturePlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        featurePluginCalls++;
+        return new BootstrapProbeFeaturePlugin();
+    }
+
+    @Override
+    public List<Class<?>> configurationClasses() {
+        configurationClassesCalls++;
+        return List.of();
+    }
+
+    public int featurePluginCalls() {
+        return featurePluginCalls;
+    }
+
+    public int configurationClassesCalls() {
+        return configurationClassesCalls;
     }
 
     private void record(String event) {

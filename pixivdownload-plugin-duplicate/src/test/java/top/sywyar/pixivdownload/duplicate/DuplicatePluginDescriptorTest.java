@@ -29,10 +29,8 @@ class DuplicatePluginDescriptorTest {
     void pf4jProviderExposesFeaturePluginAndConfiguration() {
         DuplicatePf4jPlugin provider = new DuplicatePf4jPlugin();
 
-        assertThat(provider.featurePlugins()).singleElement()
-                .isInstanceOf(DuplicatePlugin.class)
-                .extracting(plugin -> plugin.id())
-                .isEqualTo("duplicate");
+        assertThat(provider.featurePlugin()).isInstanceOf(DuplicatePlugin.class)
+                .extracting(plugin -> plugin.id()).isEqualTo("duplicate");
         assertThat(provider.configurationClasses()).containsExactly(DuplicatePluginConfiguration.class);
     }
 

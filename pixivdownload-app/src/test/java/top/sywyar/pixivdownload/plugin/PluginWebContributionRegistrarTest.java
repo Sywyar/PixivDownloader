@@ -189,7 +189,7 @@ class PluginWebContributionRegistrarTest {
     @DisplayName("页面区块冲突会回滚此前接入的启动落点与业务落点")
     void lifecycleRegistryConflictRollsBackEarlierContributions() {
         Harness h = emptyHarness();
-        h.pageSections.register("existing", List.of(lifecycleSection("existing", "shared.section")));
+        h.pageSections.register("existing", List.of(lifecycleSection("shared.section")));
 
         assertThatThrownBy(() -> h.registrar.register(external(
                 new LifecycleWebPlugin("lifecycle-failure", "shared.section"))))
@@ -811,9 +811,9 @@ class PluginWebContributionRegistrarTest {
                 .isEqualTo(expected);
     }
 
-    private static PageSectionContribution lifecycleSection(String pluginId, String sectionId) {
+    private static PageSectionContribution lifecycleSection(String sectionId) {
         return new PageSectionContribution(
-                pluginId, sectionId, "lifecycle.sections", "lifecycle", "section.title",
+                sectionId, "lifecycle.sections", "lifecycle", "section.title",
                 null, null, null, null, null, null, AccessPolicy.ADMIN, 10);
     }
 
@@ -980,24 +980,24 @@ class PluginWebContributionRegistrarTest {
         @Override
         public List<StartupRouteContribution> startupRoutes() {
             return List.of(new StartupRouteContribution(
-                    id, "/" + id + ".html", 10, Set.of(StartupRouteContext.SOLO)));
+                    "/" + id + ".html", 10, Set.of(StartupRouteContext.SOLO)));
         }
 
         @Override
         public List<LandingContribution> landings() {
             return List.of(new LandingContribution(
-                    id, id + ".landing", Audience.INVITED_GUEST, "/" + id + ".html", 10));
+                    id + ".landing", Audience.INVITED_GUEST, "/" + id + ".html", 10));
         }
 
         @Override
         public List<PageSectionContribution> pageSections() {
-            return List.of(lifecycleSection(id, sectionId));
+            return List.of(lifecycleSection(sectionId));
         }
 
         @Override
         public List<DrilldownContribution> drilldowns() {
             return List.of(new DrilldownContribution(
-                    id, id + ".drilldown", "lifecycle.drilldown", "/" + id + ".html?work={id}",
+                    id + ".drilldown", "lifecycle.drilldown", "/" + id + ".html?work={id}",
                     AccessPolicy.ADMIN, 10));
         }
     }
@@ -1033,7 +1033,7 @@ class PluginWebContributionRegistrarTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    "web-demo", "classpath:/test-userscripts/", "/web-demo/"));
+                    "classpath:/test-userscripts/", "/web-demo/"));
         }
 
         @Override
@@ -1050,12 +1050,12 @@ class PluginWebContributionRegistrarTest {
         @Override
         public List<WebUiSlotContribution> uiSlots() {
             return List.of(new WebUiSlotContribution(
-                    "web-demo", "web-demo.slot", "demo-anchor", "/web-demo/slot.js", 10));
+                    "web-demo.slot", "demo-anchor", "/web-demo/slot.js", 10));
         }
 
         @Override
         public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution("web-demo", "classpath:/test-userscripts/*.user.js"));
+            return List.of(new UserscriptContribution("classpath:/test-userscripts/*.user.js"));
         }
     }
 
@@ -1079,7 +1079,7 @@ class PluginWebContributionRegistrarTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    id, "classpath:/test-download/", publicPrefix()));
+                    "classpath:/test-download/", publicPrefix()));
         }
 
         private String publicPrefix() {
@@ -1124,7 +1124,7 @@ class PluginWebContributionRegistrarTest {
         }
         @Override public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    id(), "classpath:/test-download/", "/late-getter-error/"));
+                    "classpath:/test-download/", "/late-getter-error/"));
         }
         @Override public List<I18nContribution> i18n() {
             throw new AssertionError("plugin-controlled error text");
@@ -1142,7 +1142,7 @@ class PluginWebContributionRegistrarTest {
         }
         @Override public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    id(), "classpath:/test-download/", "/download-getter-error/"));
+                    "classpath:/test-download/", "/download-getter-error/"));
         }
         @Override public List<DownloadTypeDescriptor> downloadTypes() {
             throw new AssertionError("plugin-controlled download error text");
@@ -1163,7 +1163,7 @@ class PluginWebContributionRegistrarTest {
             String location = staticReads.incrementAndGet() == 1
                     ? "classpath:/test-download/"
                     : "classpath:/missing-second-read/";
-            return List.of(new StaticResourceContribution(id(), location, "/snapshot/"));
+            return List.of(new StaticResourceContribution(location, "/snapshot/"));
         }
 
         @Override
@@ -1329,7 +1329,7 @@ class PluginWebContributionRegistrarTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    "web-demo-2", "classpath:/test-userscripts/", "/web-demo-2/"));
+                    "classpath:/test-userscripts/", "/web-demo-2/"));
         }
 
         @Override
@@ -1391,7 +1391,7 @@ class PluginWebContributionRegistrarTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    "web-demo-3", "classpath:/test-userscripts/", "/web-demo-3/"));
+                    "classpath:/test-userscripts/", "/web-demo-3/"));
         }
 
         @Override
@@ -1403,7 +1403,7 @@ class PluginWebContributionRegistrarTest {
         @Override
         public List<WebUiSlotContribution> uiSlots() {
             return List.of(new WebUiSlotContribution(
-                    "web-demo-3", "web-demo.slot", "demo-anchor-3", "/web-demo-3/slot.js", 10));
+                    "web-demo.slot", "demo-anchor-3", "/web-demo-3/slot.js", 10));
         }
     }
 }

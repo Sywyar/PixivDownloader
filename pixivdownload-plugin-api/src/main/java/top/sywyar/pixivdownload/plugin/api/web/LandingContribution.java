@@ -13,14 +13,12 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 对应路由的访问策略执行。声明一个对该 {@code audience} 不可达的 {@code href} 属配置错误，由测试覆盖捕获
  * （见 {@code LandingRegistryTest} 的可达性守卫），不应静默产生坏入口。
  *
- * @param pluginId 声明方插件 id（注册时校验与登记方一致）
  * @param id       落点项唯一 id（全局唯一，便于诊断 / 去重）
  * @param audience 该落点服务的目标身份
  * @param href     落点目标页（必须以 {@code /} 开头，且应是对该 {@code audience} 可达的已声明路由）
  * @param priority 落点优先级，<b>越小越优先</b>（landing/entrypoint priority，<b>不是</b>导航 order）
  */
 public record LandingContribution(
-        String pluginId,
         String id,
         Audience audience,
         String href,

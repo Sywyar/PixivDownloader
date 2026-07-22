@@ -142,7 +142,8 @@ class ExternalPluginContextManagerTest {
         };
         List<DiscoveredFeaturePlugin> discovered = modules.stream()
                 .map(module -> new DiscoveredFeaturePlugin(
-                        module.sourcePluginId(), new FixturePlugin(module.sourcePluginId()), module.classLoader()))
+                        module.sourcePluginId(), module.sourcePluginId(),
+                        new FixturePlugin(module.sourcePluginId()), module.classLoader()))
                 .toList();
         PluginRegistry pluginRegistry = new PluginRegistry(
                 List.of(), new PluginToggleProperties(), new PluginDiscoveryResult(discovered, List.of()));

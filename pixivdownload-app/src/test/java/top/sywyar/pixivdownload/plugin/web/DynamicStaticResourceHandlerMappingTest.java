@@ -30,7 +30,7 @@ class DynamicStaticResourceHandlerMappingTest {
                 mock(StaticResourceRegistry.RegisteredStaticResource.class);
         when(latest.pluginId()).thenReturn("latest");
         when(latest.contribution()).thenReturn(new StaticResourceContribution(
-                "latest", "classpath:/static/", "/latest/"));
+                "classpath:/static/", "/latest/"));
         when(latest.location()).thenReturn(new ClassPathResource("static/"));
         List<StaticResourceRegistry.RegisteredStaticResource> stale = List.of();
         List<StaticResourceRegistry.RegisteredStaticResource> current = List.of(latest);

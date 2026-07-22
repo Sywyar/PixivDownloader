@@ -68,9 +68,9 @@ public class StatsPlugin implements PixivFeaturePlugin {
     public List<StaticResourceContribution> staticResources() {
         return List.of(
                 new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-stats/", "/pixiv-stats/"),
+                        "classpath:/static/pixiv-stats/", "/pixiv-stats/"),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/", "/pixiv-stats.html", true));
+                        "classpath:/static/", "/pixiv-stats.html", true));
     }
 
     @Override

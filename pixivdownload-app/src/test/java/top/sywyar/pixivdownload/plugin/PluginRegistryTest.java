@@ -498,7 +498,7 @@ class PluginRegistryTest {
 
     private static DiscoveredFeaturePlugin external(String sourcePackageId, PixivFeaturePlugin plugin,
                                                     ClassLoader classLoader) {
-        return new DiscoveredFeaturePlugin(sourcePackageId, plugin, classLoader);
+        return new DiscoveredFeaturePlugin(sourcePackageId, sourcePackageId, plugin, classLoader);
     }
 
     @Test
@@ -829,7 +829,7 @@ class PluginRegistryTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    "flaky-owner", "classpath:/test-download/", "/test-download/"));
+                    "classpath:/test-download/", "/test-download/"));
         }
 
         int idCalls() {

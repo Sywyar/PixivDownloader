@@ -7,7 +7,6 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.io.InputStream;
-import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>jar 根部含 PF4J 描述符 {@code plugin.properties}（id=recovery-sentinel、合法 semver 版本、requires=1.0、
  *       plugin.class 指向 {@link RecoverySentinelPf4jPlugin}）；</li>
  *   <li>{@link RecoverySentinelPf4jPlugin} 继承 {@code org.pf4j.Plugin} 并实现入口契约 {@link PixivPluginProvider}；</li>
- *   <li>{@link PixivPluginProvider#featurePlugins()} 暴露最小功能插件 {@link RecoverySentinelPlugin}
+ *   <li>{@link PixivPluginProvider#featurePlugin()} 暴露最小功能插件 {@link RecoverySentinelPlugin}
  *       （id {@code recovery-sentinel}）；</li>
  *   <li>该功能插件<b>不贡献任何东西</b>
  *       （route / static / i18n / navigation / schema / 调度来源 / 队列 / 标签页 / 落点 全部为空）。</li>
@@ -60,12 +59,10 @@ class RecoverySentinelPf4jPluginTest {
     }
 
     @Test
-    @DisplayName("featurePlugins() 暴露最小功能插件 RecoverySentinelPlugin（id=recovery-sentinel、类别 FEATURE）")
-    void featurePluginsExposeRecoverySentinel() {
+    @DisplayName("featurePlugin() 暴露最小功能插件 RecoverySentinelPlugin（id=recovery-sentinel、类别 FEATURE）")
+    void featurePluginExposesRecoverySentinel() {
         PixivPluginProvider provider = new RecoverySentinelPf4jPlugin();
-        List<PixivFeaturePlugin> featurePlugins = provider.featurePlugins();
-        assertThat(featurePlugins).hasSize(1);
-        PixivFeaturePlugin sentinel = featurePlugins.get(0);
+        PixivFeaturePlugin sentinel = provider.featurePlugin();
         assertThat(sentinel).isInstanceOf(RecoverySentinelPlugin.class);
         assertThat(sentinel.id()).isEqualTo("recovery-sentinel");
         assertThat(sentinel.kind()).isEqualTo(PluginKind.FEATURE);

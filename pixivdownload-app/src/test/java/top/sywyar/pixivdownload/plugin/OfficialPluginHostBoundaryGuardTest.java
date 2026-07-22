@@ -10,12 +10,14 @@ import org.xml.sax.SAXException;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,6 +38,10 @@ class OfficialPluginHostBoundaryGuardTest {
             "(?m)^[\\t ]*package[\\t ]+([A-Za-z0-9_$.]+)[\\t ]*;");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*import[\\t ]+(?:static[\\t ]+)?([A-Za-z0-9_$.*]+)[\\t ]*;");
+    private static final Pattern FEATURE_PLUGIN_FACTORY = Pattern.compile(
+            "(?s)featurePlugin\\s*\\(\\s*\\)\\s*\\{\\s*return\\s+new\\s+([A-Za-z0-9_$.]+)\\s*\\(");
+    private static final Pattern FEATURE_ID_RETURN = Pattern.compile(
+            "(?s)String\\s+id\\s*\\(\\s*\\)\\s*\\{\\s*return\\s+(?:\"([^\"]+)\"|([A-Z][A-Z0-9_]*))\\s*;");
     private static final List<String> NOVEL_EXECUTION_OWNER_TOKENS = List.of(
             "download.novel-max-concurrent",
             "download.novel-translate-max-concurrent",
@@ -156,6 +162,78 @@ class OfficialPluginHostBoundaryGuardTest {
         assertThat(appConsumers)
                 .doesNotContain("pixivdownload-plugin-douyin", "pixivdownload-plugin-duplicate",
                         "pixivdownload-plugin-novel", "pixivdownload-plugin-tts");
+    }
+
+    @Test
+    @DisplayName("每个官方外置包只声明一个与 plugin.properties 同 id 的功能插件")
+    void officialProviderIdentityMatchesPackageDescriptor() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path descriptorPath = repositoryRoot.resolve(module)
+                    .resolve("src/main/resources/plugin.properties");
+            Properties descriptor = new Properties();
+            descriptor.load(new StringReader(read(descriptorPath)));
+            String packageId = descriptor.getProperty("plugin.id");
+            String providerClass = descriptor.getProperty("plugin.class");
+            if (packageId == null || packageId.isBlank() || providerClass == null || providerClass.isBlank()) {
+                violations.add(module + ": plugin.properties must declare plugin.id and plugin.class");
+                continue;
+            }
+
+            Path providerSource = repositoryRoot.resolve(module).resolve("src/main/java")
+                    .resolve(providerClass.replace('.', '/') + ".java");
+            if (!Files.isRegularFile(providerSource)) {
+                violations.add(module + ": provider source not found: " + providerClass);
+                continue;
+            }
+            String providerCode = stripComments(read(providerSource));
+            Matcher factory = FEATURE_PLUGIN_FACTORY.matcher(providerCode);
+            if (!factory.find()) {
+                violations.add(module + ": provider must return exactly one concrete featurePlugin()");
+                continue;
+            }
+            String featureSimpleName = factory.group(1);
+            if (factory.find()) {
+                violations.add(module + ": provider contains multiple featurePlugin factories");
+                continue;
+            }
+            int lastDot = providerClass.lastIndexOf('.');
+            String featureClass = featureSimpleName.contains(".")
+                    ? featureSimpleName
+                    : providerClass.substring(0, lastDot + 1) + featureSimpleName;
+            Path featureSource = repositoryRoot.resolve(module).resolve("src/main/java")
+                    .resolve(featureClass.replace('.', '/') + ".java");
+            if (!Files.isRegularFile(featureSource)) {
+                violations.add(module + ": feature source not found: " + featureClass);
+                continue;
+            }
+            String featureCode = stripComments(read(featureSource));
+            Matcher idReturn = FEATURE_ID_RETURN.matcher(featureCode);
+            if (!idReturn.find()) {
+                violations.add(module + ": feature id() must return a literal or local String constant");
+                continue;
+            }
+            String featureId = idReturn.group(1);
+            if (featureId == null) {
+                Pattern constant = Pattern.compile("(?m)\\bString\\s+" + Pattern.quote(idReturn.group(2))
+                        + "\\s*=\\s*\"([^\"]+)\"\\s*;");
+                Matcher constantMatcher = constant.matcher(featureCode);
+                if (!constantMatcher.find()) {
+                    violations.add(module + ": unresolved feature id constant " + idReturn.group(2));
+                    continue;
+                }
+                featureId = constantMatcher.group(1);
+            }
+            if (!packageId.equals(featureId)) {
+                violations.add(module + ": package id " + packageId + " != feature id " + featureId);
+            }
+        }
+
+        assertThat(violations)
+                .as("official PF4J package identity must equal its singular feature identity")
+                .isEmpty();
     }
 
     @Test

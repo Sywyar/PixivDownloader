@@ -134,7 +134,7 @@ class StaticResourceConfigTest {
                         .andExpect(status().isNotFound());
 
                 registry.register(owner, List.of(
-                        new StaticResourceContribution("demo", "classpath:/test-download/", "/module.js", true)));
+                        new StaticResourceContribution("classpath:/test-download/", "/module.js", true)));
                 mvc.perform(get("/module.js"))
                         .andExpect(status().isOk());
 
@@ -143,7 +143,7 @@ class StaticResourceConfigTest {
                         .andExpect(status().isNotFound());
 
                 registry.register(owner, List.of(
-                        new StaticResourceContribution("demo", "classpath:/test-download/", "/module.js", true)));
+                        new StaticResourceContribution("classpath:/test-download/", "/module.js", true)));
                 mvc.perform(get("/module.js"))
                         .andExpect(status().isOk());
             } finally {
@@ -179,7 +179,7 @@ class StaticResourceConfigTest {
         RegisteredPlugin owner = owner("mapping-leak-probe");
         plugins.register(owner);
         registry.register(owner, List.of(new StaticResourceContribution(
-                owner.id(), "classpath:/test-download/", "/module.js", true)));
+                "classpath:/test-download/", "/module.js", true)));
         mvc.perform(get("/module.js"))
                 .andExpect(status().isOk());
         WeakReference<RegisteredPlugin> weakOwner = new WeakReference<>(owner);

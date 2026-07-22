@@ -18,10 +18,10 @@ import java.util.regex.Pattern;
  * {@link PixivFeaturePlugin}）与 JDK；但<b>不</b>引用任何插件加载框架（PF4J）类型——PF4J 描述符到本模型的映射收口在
  * 发现桥接里。
  *
- * <p>同一外置插件包（一个 PF4J pluginId = {@link #sourcePluginId}）可贡献多个 {@link PixivFeaturePlugin}；
- * 本描述符按<b>功能插件粒度</b>建模：{@link #id} 是功能插件 id（核心注册中心去重 / 排序的键），而
- * {@link #version} / {@link #requires} / {@link #dependencies} / {@link #pluginClass} 来自其所属插件包、同一包内
- * 各功能插件共享。内置插件没有独立插件包，{@link #sourcePluginId} 等于 {@link #id}。
+ * <p>当前外置发布格式要求一个 PF4J 包只提供一个同 id 的 {@link PixivFeaturePlugin}：
+ * {@link #sourcePluginId} 是包 id，{@link #id} 是发现时已校验并盖章的功能插件 id，两者必须相同。
+ * {@link #version} / {@link #requires} / {@link #dependencies} / {@link #pluginClass} 来自所属插件包。
+ * 内置插件没有独立插件包，{@link #sourcePluginId} 同样等于 {@link #id}。
  *
  * @param id             插件 id（功能插件 id；小写短横线风格）
  * @param sourcePluginId 承载该功能插件的插件包 id（外置=PF4J pluginId；内置=同 {@link #id}）

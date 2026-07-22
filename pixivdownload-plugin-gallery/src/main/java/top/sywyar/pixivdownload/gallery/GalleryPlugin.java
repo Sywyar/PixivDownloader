@@ -91,14 +91,14 @@ public class GalleryPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-gallery.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-artwork.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-showcase.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-series.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-gallery/", "/pixiv-gallery/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-artwork/", "/pixiv-artwork/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-showcase/", "/pixiv-showcase/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-series/", "/pixiv-series/"));
+                new StaticResourceContribution("classpath:/static/", "/pixiv-gallery.html", true),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-artwork.html", true),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-showcase.html", true),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-series.html", true),
+                new StaticResourceContribution("classpath:/static/pixiv-gallery/", "/pixiv-gallery/"),
+                new StaticResourceContribution("classpath:/static/pixiv-artwork/", "/pixiv-artwork/"),
+                new StaticResourceContribution("classpath:/static/pixiv-showcase/", "/pixiv-showcase/"),
+                new StaticResourceContribution("classpath:/static/pixiv-series/", "/pixiv-series/"));
     }
 
     @Override
@@ -175,11 +175,11 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         // 两区块均 INVITED_GUEST（与画廊页面同级可见性，管理员 / 受邀访客可见）；title / 操作标题用本插件 namespace key。
         return List.of(
                 new PageSectionContribution(
-                        ID, "gallery-stats-views", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
+                        "gallery-stats-views", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
                         "gallery", "section.view", NavigationPlacements.STATS_GALLERY_LINKS,
                         null, null, null, null, null, AccessPolicy.INVITED_GUEST, 10),
                 new PageSectionContribution(
-                        ID, "gallery-stats-collections", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
+                        "gallery-stats-collections", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
                         "gallery", "section.collections", null,
                         "/pixiv-gallery.html?view=all&createCollection=1", "plus", "gallery", "collection.new",
                         "/pixiv-gallery/gallery-stats-embed.js", AccessPolicy.INVITED_GUEST, 20));
@@ -196,11 +196,11 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         // 统计页 /api/drilldowns 对应 placement 无内容、回到纯展示。
         return List.of(
                 new DrilldownContribution(
-                        ID, "gallery-stats-author", DrilldownPlacements.STATS_TOP_AUTHORS,
+                        "gallery-stats-author", DrilldownPlacements.STATS_TOP_AUTHORS,
                         "/pixiv-gallery.html?view=all&filterAuthorId={authorId}&filterAuthorName={authorName}",
                         AccessPolicy.INVITED_GUEST, 10),
                 new DrilldownContribution(
-                        ID, "gallery-stats-tag", DrilldownPlacements.STATS_TOP_TAGS,
+                        "gallery-stats-tag", DrilldownPlacements.STATS_TOP_TAGS,
                         "/pixiv-gallery.html?view=all&filterTagId={tagId}&filterTag={tagName}"
                                 + "&filterTagTranslated={tagTranslatedName}",
                         AccessPolicy.INVITED_GUEST, 10));
@@ -209,13 +209,12 @@ public class GalleryPlugin implements PixivFeaturePlugin {
     @Override
     public List<StartupRouteContribution> startupRoutes() {
         // solo 模式默认落点：画廊页；也是 multi 模式下禁用下载工作台后按 order 回退的下一落点。
-        return List.of(new StartupRouteContribution(ID, "/pixiv-gallery.html", 20, Set.of(StartupRouteContext.SOLO)));
+        return List.of(new StartupRouteContribution("/pixiv-gallery.html", 20, Set.of(StartupRouteContext.SOLO)));
     }
 
     @Override
     public List<GuiOnboardingStepContribution> guiOnboardingSteps() {
         return List.of(new GuiOnboardingStepContribution(
-                ID,
                 "local-gallery-guide",
                 "gallery",
                 "gui.onboarding.title",
@@ -237,7 +236,7 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         // 不是导航 order；禁用画廊后本落点不进活动快照、邀请兑换自动回退到小说。/pixiv-gallery.html 对受邀访客
         // 可达（routes() 声明为 INVITED_GUEST），可达性由 LandingRegistryTest 守卫。
         return List.of(new LandingContribution(
-                ID, "gallery", Audience.INVITED_GUEST, "/pixiv-gallery.html", 20));
+                "gallery", Audience.INVITED_GUEST, "/pixiv-gallery.html", 20));
     }
 
 }

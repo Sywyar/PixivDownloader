@@ -8,7 +8,9 @@ import java.util.Objects;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 
 /**
- * 一个已由 PF4J 加载的包代际快照。该对象可能携带插件实例、配置类和 classloader，调用方必须在物理卸载前丢弃。
+ * 一个已由 PF4J 加载的包代际快照。功能身份、展示元数据和配置类在该物理 generation 的 load 准入时由宿主
+ * 恰好读取一次；后续 start / 状态查询 / Spring 接入复用同一快照。该对象可能携带插件实例、配置类和 classloader，
+ * 调用方必须在物理卸载前丢弃。
  */
 public record LoadedPluginPackage(
         String packageId,

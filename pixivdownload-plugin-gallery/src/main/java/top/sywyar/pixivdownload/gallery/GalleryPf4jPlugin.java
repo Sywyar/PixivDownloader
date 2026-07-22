@@ -14,8 +14,8 @@ import java.util.List;
 public class GalleryPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new GalleryPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new GalleryPlugin();
     }
 
     @Override

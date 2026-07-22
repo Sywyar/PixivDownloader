@@ -32,6 +32,6 @@ public final class OwnerOnlyAssetPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(new StaticResourceContribution(
-                id(), "classpath:/test-download/", "/owner-only/"));
+                "classpath:/test-download/", "/owner-only/"));
     }
 }

@@ -412,7 +412,7 @@ public class PluginLifecycleService {
             PluginInstallation installation = registrable.get(0);
             PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
                     installation.plugin(), PluginSource.EXTERNAL, installation.classLoader(),
-                    packageId, loaded.generation());
+                    packageId, loaded.generation(), installation.id());
             PluginContextModule module = loaded.contextModules().isEmpty() ? null : loaded.contextModules().get(0);
             ManagedPlugin record = new ManagedPlugin(packageId, loaded.generation(), module, registered);
             Optional<PluginRuntimePhase> previousPhase = lifecycleState.phase(packageId);

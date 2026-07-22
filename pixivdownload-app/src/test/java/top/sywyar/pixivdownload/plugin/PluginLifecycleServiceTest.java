@@ -1761,7 +1761,7 @@ class PluginLifecycleServiceTest {
             PluginRegistry pluginRegistry = new PluginRegistry(
                     List.of(), toggles,
                     new PluginDiscoveryResult(List.of(new DiscoveredFeaturePlugin(
-                            pluginId, plugin, getClass().getClassLoader())), List.of()));
+                            pluginId, pluginId, plugin, getClass().getClassLoader())), List.of()));
             PluginContextModule module = new PluginContextModule(
                     pluginId, getClass().getClassLoader(), List.of(UnconditionalMaintenanceConfig.class));
             MaintenanceTask coreTask = maintenanceTask("core-maintenance");
@@ -1957,7 +1957,8 @@ class PluginLifecycleServiceTest {
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
         List<DiscoveredFeaturePlugin> discovered = modules.stream()
                 .map(module -> new DiscoveredFeaturePlugin(
-                        module.sourcePluginId(), new RecordingPlugin(module.sourcePluginId()), module.classLoader()))
+                        module.sourcePluginId(), module.sourcePluginId(),
+                        new RecordingPlugin(module.sourcePluginId()), module.classLoader()))
                 .toList();
         PluginRegistry pluginRegistry = new PluginRegistry(
                 List.of(), new PluginToggleProperties(), new PluginDiscoveryResult(discovered, List.of()));
@@ -2096,7 +2097,7 @@ class PluginLifecycleServiceTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return queueType == null ? List.of() : List.of(new StaticResourceContribution(
-                    id, "classpath:/test-download/", downloadPublicPrefix()));
+                    "classpath:/test-download/", downloadPublicPrefix()));
         }
 
         private String downloadPublicPrefix() {
@@ -2163,7 +2164,7 @@ class PluginLifecycleServiceTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    id(), "classpath:/test-download/", "/stateful-owner/"));
+                    "classpath:/test-download/", "/stateful-owner/"));
         }
 
         @Override

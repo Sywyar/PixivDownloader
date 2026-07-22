@@ -93,15 +93,15 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     public List<StaticResourceContribution> staticResources() {
         return List.of(
                 new StaticResourceContribution(
-                        ID, "classpath:/static/", "/pixiv-douyin-gallery.html", true),
+                        "classpath:/static/", "/pixiv-douyin-gallery.html", true),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/", "/pixiv-douyin.html", true),
+                        "classpath:/static/", "/pixiv-douyin.html", true),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-douyin-gallery/", "/pixiv-douyin-gallery/"),
+                        "classpath:/static/pixiv-douyin-gallery/", "/pixiv-douyin-gallery/"),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-douyin/", "/pixiv-douyin/"),
+                        "classpath:/static/pixiv-douyin/", "/pixiv-douyin/"),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-douyin-download/", "/pixiv-douyin-download/"));
+                        "classpath:/static/pixiv-douyin-download/", "/pixiv-douyin-download/"));
     }
 
     @Override
@@ -130,7 +130,7 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebUiSlotContribution> uiSlots() {
         return UI_SLOT_TARGETS.stream()
-                .map(target -> new WebUiSlotContribution(ID, ID + "." + target, target, MODULE_URL, 30))
+                .map(target -> new WebUiSlotContribution(ID + "." + target, target, MODULE_URL, 30))
                 .toList();
     }
 

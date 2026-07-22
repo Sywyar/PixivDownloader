@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.web.WebUiSlotController;
 
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,7 @@ class WebUiSlotRegistryTest {
     }
 
     private static WebUiSlotContribution slot(String pluginId, String slotId) {
-        return new WebUiSlotContribution(pluginId, slotId, "anchor-" + slotId, "/" + pluginId + "/slot.js", 10);
+        return new WebUiSlotContribution(slotId, "anchor-" + slotId, "/" + pluginId + "/slot.js", 10);
     }
 
     @Test
@@ -126,13 +127,13 @@ class WebUiSlotRegistryTest {
     @DisplayName("moduleUrl 为 null（宿主内联渲染）放行")
     void nullModuleUrlAllowed() {
         WebUiSlotRegistry registry = emptyRegistry();
-        registry.register("demo", List.of(new WebUiSlotContribution("demo", "demo.inline", "anchor", null, 0)));
+        registry.register("demo", List.of(new WebUiSlotContribution("demo.inline", "anchor", null, 0)));
         assertThat(registry.slots()).singleElement()
                 .satisfies(registered -> assertThat(registered.slot().moduleUrl()).isNull());
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / slotId / target 非空，pluginId 与声明一致，moduleUrl 非空时须同源绝对路径")
+    @DisplayName("非法输入拒绝：pluginId / slotId / target 非空，moduleUrl 非空时须同源绝对路径")
     void invalidInputRejected() {
         WebUiSlotRegistry registry = emptyRegistry();
         // 空 pluginId
@@ -143,45 +144,29 @@ class WebUiSlotRegistryTest {
                 .isInstanceOf(IllegalStateException.class);
         // 空 slotId
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new WebUiSlotContribution("demo", " ", "anchor", "/demo/s.js", 0))))
+                new WebUiSlotContribution(" ", "anchor", "/demo/s.js", 0))))
                 .isInstanceOf(IllegalStateException.class);
         // 空 target
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new WebUiSlotContribution("demo", "demo.a", " ", "/demo/s.js", 0))))
-                .isInstanceOf(IllegalStateException.class);
-        // pluginId 与声明不一致
-        assertThatThrownBy(() -> registry.register("demo", List.of(
-                new WebUiSlotContribution("other", "demo.a", "anchor", "/demo/s.js", 0))))
+                new WebUiSlotContribution("demo.a", " ", "/demo/s.js", 0))))
                 .isInstanceOf(IllegalStateException.class);
         // moduleUrl 带协议（外部 URL）
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new WebUiSlotContribution("demo", "demo.a", "anchor", "https://evil.example/s.js", 0))))
+                new WebUiSlotContribution("demo.a", "anchor", "https://evil.example/s.js", 0))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("same-origin");
         // moduleUrl 协议相对（//host）
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new WebUiSlotContribution("demo", "demo.a", "anchor", "//evil.example/s.js", 0))))
+                new WebUiSlotContribution("demo.a", "anchor", "//evil.example/s.js", 0))))
                 .isInstanceOf(IllegalStateException.class);
         // moduleUrl 反斜杠变体（/\host）
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new WebUiSlotContribution("demo", "demo.a", "anchor", "/\\evil.example/s.js", 0))))
+                new WebUiSlotContribution("demo.a", "anchor", "/\\evil.example/s.js", 0))))
                 .isInstanceOf(IllegalStateException.class);
         // moduleUrl 伪协议（不以 / 开头）
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new WebUiSlotContribution("demo", "demo.a", "anchor", "javascript:alert(1)", 0))))
+                new WebUiSlotContribution("demo.a", "anchor", "javascript:alert(1)", 0))))
                 .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    @DisplayName("metadata 不可变拷贝：构造期复制，传入 map 后续改动不影响已声明的槽位")
-    void metadataIsDefensivelyCopied() {
-        java.util.HashMap<String, String> mutable = new java.util.HashMap<>();
-        mutable.put("k", "v");
-        WebUiSlotContribution contribution = new WebUiSlotContribution("demo", "demo.a", "anchor", null, 0, mutable);
-        mutable.put("k2", "v2");
-        assertThat(contribution.metadata()).containsExactlyEntriesOf(Map.of("k", "v"));
-        assertThatThrownBy(() -> contribution.metadata().put("x", "y"))
-                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -193,6 +178,20 @@ class WebUiSlotRegistryTest {
         assertThatThrownBy(() -> slots.add(
                 new WebUiSlotRegistry.RegisteredUiSlot("x", slot("x", "x.a"))))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("通用槽位 wire 继续保留 metadata 字段并固定投影空对象")
+    void controllerKeepsCompatibilityMetadataAsEmptyObject() {
+        WebUiSlotRegistry registry = emptyRegistry();
+        registry.register("demo", List.of(slot("demo", "demo.a")));
+
+        assertThat(new WebUiSlotController(registry).uiSlots(null))
+                .singleElement()
+                .satisfies(view -> assertThat(view.metadata()).isEqualTo(Map.of()));
+        assertThat(WebUiSlotController.UiSlotView.class.getRecordComponents())
+                .extracting(component -> component.getName())
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata");
     }
 
     private static final class FlakyIdSlotPlugin implements PixivFeaturePlugin {

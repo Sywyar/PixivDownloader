@@ -97,7 +97,6 @@ class GuiOnboardingContributionAggregatorTest {
         @Override
         public List<GuiOnboardingStepContribution> guiOnboardingSteps() {
             return List.of(new GuiOnboardingStepContribution(
-                    "gallery",
                     "local-gallery-guide",
                     "gallery",
                     "gui.onboarding.title",

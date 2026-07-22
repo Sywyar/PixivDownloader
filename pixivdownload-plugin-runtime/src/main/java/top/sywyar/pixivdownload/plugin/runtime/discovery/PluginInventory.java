@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.discovery;
 
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 
 import java.util.ArrayList;
@@ -15,18 +16,27 @@ import java.util.List;
  * {@code discovered}、不兼容条目并入 {@code failures}），供 {@code PluginRegistry} 接入——<b>不兼容插件因此被拒绝接入</b>。
  *
  * @param installations 各功能插件安装条目（含可接入与不兼容两类）
+ * @param contextModules 与同一包代际原子捕获的 Spring 子 context 装配定义
  * @param failures      包级加载 / 发现失败诊断（坏包、主类未实现入口契约、入口方法抛错等，被隔离不致命）
  */
-public record PluginInventory(List<PluginInstallation> installations, List<PluginLoadFailure> failures) {
+public record PluginInventory(List<PluginInstallation> installations,
+                              List<PluginContextModule> contextModules,
+                              List<PluginLoadFailure> failures) {
 
     public PluginInventory {
         installations = List.copyOf(installations);
+        contextModules = List.copyOf(contextModules);
         failures = List.copyOf(failures);
+    }
+
+    /** 无 Spring 模块的兼容构造；测试和纯描述符清点可省略 context 快照。 */
+    public PluginInventory(List<PluginInstallation> installations, List<PluginLoadFailure> failures) {
+        this(installations, List.of(), failures);
     }
 
     /** 空清点结果（无插件目录 / 无候选包 / 未加载任何外置插件时使用）。 */
     public static PluginInventory empty() {
-        return new PluginInventory(List.of(), List.of());
+        return new PluginInventory(List.of(), List.of(), List.of());
     }
 
     /**
@@ -39,7 +49,7 @@ public record PluginInventory(List<PluginInstallation> installations, List<Plugi
         for (PluginInstallation installation : installations) {
             if (installation.registrable()) {
                 discovered.add(new DiscoveredFeaturePlugin(
-                        installation.descriptor().sourcePluginId(), 0L,
+                        installation.descriptor().sourcePluginId(), installation.id(), 0L,
                         installation.plugin(),
                         installation.classLoader()));
             } else if (installation.status() == PluginStatus.INCOMPATIBLE) {

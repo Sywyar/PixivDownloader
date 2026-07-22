@@ -43,7 +43,7 @@ public class UserscriptRegistry {
             PixivFeaturePlugin plugin = registered.plugin();
             List<UserscriptContribution> contributions = plugin.userscripts();
             if (!contributions.isEmpty()) {
-                register(plugin.id(), registered.classLoader(), contributions);
+                register(registered.id(), registered.classLoader(), contributions);
             }
         }
     }
@@ -103,10 +103,6 @@ public class UserscriptRegistry {
     private static void validate(UserscriptContribution contribution, String pluginId) {
         if (contribution == null) {
             throw new IllegalStateException("null userscript contribution (plugin: " + pluginId + ")");
-        }
-        if (!pluginId.equals(contribution.pluginId())) {
-            throw new IllegalStateException("userscript pluginId mismatch: declared "
-                    + contribution.pluginId() + " under plugin " + pluginId);
         }
         if (contribution.classpathPattern() == null || contribution.classpathPattern().isBlank()) {
             throw new IllegalStateException("userscript contribution without classpath pattern (plugin: "

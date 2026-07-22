@@ -77,17 +77,17 @@ public class AiPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<StaticResourceContribution> staticResources() {
-        return List.of(new StaticResourceContribution(ID, "classpath:/static/pixiv-ai/", "/pixiv-ai/"));
+        return List.of(new StaticResourceContribution("classpath:/static/pixiv-ai/", "/pixiv-ai/"));
     }
 
     @Override
     public List<WebUiSlotContribution> uiSlots() {
         return List.of(
-                new WebUiSlotContribution(ID, ID + ".novel-detail-translate", "novel-detail-ai-translate",
+                new WebUiSlotContribution(ID + ".novel-detail-translate", "novel-detail-ai-translate",
                         "/pixiv-ai/novel-detail-ai-translate-slot.js", 20),
-                new WebUiSlotContribution(ID, ID + ".series-detail-translate", "series-detail-ai-translate",
+                new WebUiSlotContribution(ID + ".series-detail-translate", "series-detail-ai-translate",
                         "/pixiv-ai/series-detail-ai-translate-slot.js", 20),
-                new WebUiSlotContribution(ID, ID + ".download-novel-translate-settings",
+                new WebUiSlotContribution(ID + ".download-novel-translate-settings",
                         "settings-card", "/pixiv-ai/download-novel-ai-settings-slot.js", 20));
     }
 

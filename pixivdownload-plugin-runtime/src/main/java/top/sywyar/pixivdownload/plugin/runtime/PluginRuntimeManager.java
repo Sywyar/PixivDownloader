@@ -390,7 +390,7 @@ public class PluginRuntimeManager {
         }
     }
 
-    /** 启动 PF4J 插件入口，并重新发现这一代的功能插件和 Spring 模块。 */
+    /** 启动 PF4J 插件入口，并返回 load 准入时固化的本代功能插件与 Spring 模块快照。 */
     public synchronized LoadedPluginPackage startPlugin(String packageId) {
         RuntimeEntry entry = requireEntry(packageId);
         if (entry.phase == PluginRuntimePackagePhase.STARTED) {
@@ -557,11 +557,24 @@ public class PluginRuntimeManager {
         return Optional.ofNullable(pluginManager);
     }
 
-    /** 动态清点，不缓存插件对象或 classloader。 */
+    /** 汇总当前 STARTED generation 在 load 准入时固化的 provider 快照，不重新调用插件 getter。 */
     public synchronized PluginInventory inspectPlugins() {
-        return pluginManager == null
-                ? PluginInventory.empty()
-                : attachPackageMetadata(new PixivPluginDiscoveryBridge().inspect(pluginManager));
+        if (pluginManager == null) {
+            return PluginInventory.empty();
+        }
+        List<PluginInstallation> installations = new ArrayList<>();
+        List<PluginContextModule> contextModules = new ArrayList<>();
+        List<PluginLoadFailure> failures = new ArrayList<>();
+        for (RuntimeEntry entry : entries.values()) {
+            if (entry.phase != PluginRuntimePackagePhase.STARTED) {
+                continue;
+            }
+            PluginInventory captured = contributionSnapshot(entry);
+            installations.addAll(captured.installations());
+            contextModules.addAll(captured.contextModules());
+            failures.addAll(captured.failures());
+        }
+        return new PluginInventory(installations, contextModules, failures);
     }
 
     public synchronized PluginDiscoveryResult discoverFeaturePlugins() {
@@ -577,14 +590,14 @@ public class PluginRuntimeManager {
         PluginDiscoveryResult raw = source.toDiscoveryResult();
         List<DiscoveredFeaturePlugin> discovered = raw.discovered().stream()
                 .map(item -> new DiscoveredFeaturePlugin(item.sourcePluginId(),
-                        generation(item.sourcePluginId()).orElse(0L), item.plugin(), item.classLoader()))
+                        item.featurePluginId(), generation(item.sourcePluginId()).orElse(0L),
+                        item.plugin(), item.classLoader()))
                 .toList();
         return new PluginDiscoveryResult(discovered, raw.failures());
     }
 
     public synchronized List<PluginContextModule> inspectContextModules() {
-        return pluginManager == null ? List.of()
-                : new PixivPluginDiscoveryBridge().inspectContextModules(pluginManager);
+        return inspectPlugins().contextModules();
     }
 
     /** 当前所有 STARTED 包的代际快照。 */
@@ -628,12 +641,24 @@ public class PluginRuntimeManager {
         PluginInventory inventory = PluginInventory.empty();
         List<PluginContextModule> modules = List.of();
         if (includeContributions && pluginManager != null) {
-            PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
-            inventory = attachPackageMetadata(bridge.inspectLoadedPackage(pluginManager, entry.packageId));
-            modules = bridge.inspectLoadedContextModules(pluginManager, entry.packageId);
+            inventory = contributionSnapshot(entry);
+            modules = inventory.contextModules();
         }
         return new LoadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation,
                 entry.phase, inventory, modules);
+    }
+
+    /**
+     * 每个物理 generation 恰好读取一次 provider 的 feature/configuration 声明并固化为宿主快照。
+     * load、start、Spring 接入与状态查询只复用该快照，禁止状态化 getter 改变已验证身份或制造半份装配。
+     */
+    private PluginInventory contributionSnapshot(RuntimeEntry entry) {
+        if (entry.contributionSnapshot == null) {
+            PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
+            entry.contributionSnapshot = attachPackageMetadata(
+                    bridge.inspectLoadedPackage(pluginManager, entry.packageId));
+        }
+        return entry.contributionSnapshot;
     }
 
     /**
@@ -653,17 +678,22 @@ public class PluginRuntimeManager {
                             installation.plugin());
                 })
                 .toList();
-        return new PluginInventory(installations, inventory.failures());
+        return new PluginInventory(installations, inventory.contextModules(), inventory.failures());
     }
 
-    /** 当前发布格式要求一个物理包只贡献一个同 id 功能插件和至多一个 Spring 模块。 */
+    /** 当前发布格式要求物理包与唯一功能插件同 id，并至多声明一个 Spring 模块。 */
     private static PluginDescriptor validateReleaseShape(LoadedPluginPackage loaded) {
         List<PluginInstallation> registrable = loaded.inventory().installations().stream()
                 .filter(PluginInstallation::registrable)
                 .toList();
-        if (registrable.size() != 1 || !loaded.packageId().equals(registrable.get(0).id())) {
+        if (registrable.size() != 1) {
             throw new PluginRuntimeOperationException("external package " + loaded.packageId()
-                    + " must contribute exactly one feature plugin with the same id");
+                    + " must expose exactly one registrable feature plugin");
+        }
+        PluginDescriptor featureDescriptor = registrable.get(0).descriptor();
+        if (!loaded.packageId().equals(featureDescriptor.id())) {
+            throw new PluginRuntimeOperationException("external package " + loaded.packageId()
+                    + " must contribute a feature plugin with the same id");
         }
         if (loaded.contextModules().size() > 1) {
             throw new PluginRuntimeOperationException("external package " + loaded.packageId()
@@ -674,7 +704,7 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException("external package " + loaded.packageId()
                     + " declared a context module for another package");
         }
-        return registrable.get(0).descriptor();
+        return featureDescriptor;
     }
 
     private void ensureManager() {
@@ -997,6 +1027,7 @@ public class PluginRuntimeManager {
         private final long generation;
         private PluginRuntimePackagePhase phase;
         private PluginDescriptor descriptor;
+        private PluginInventory contributionSnapshot;
 
         private RuntimeEntry(String packageId, Path artifactPath, Path pf4jLoadPath, String version,
                              long generation, PluginRuntimePackagePhase phase, PluginDescriptor descriptor) {

@@ -500,7 +500,7 @@ class PluginClassLoaderLeakProbeTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    PLUGIN_ID, "classpath:/static/ext-leak-probe/", "/ext-leak-probe/"));
+                    "classpath:/static/ext-leak-probe/", "/ext-leak-probe/"));
         }
 
         @Override
@@ -516,7 +516,7 @@ class PluginClassLoaderLeakProbeTest {
 
         @Override
         public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution(PLUGIN_ID, "classpath:/test-userscripts/*.user.js"));
+            return List.of(new UserscriptContribution("classpath:/test-userscripts/*.user.js"));
         }
 
     }

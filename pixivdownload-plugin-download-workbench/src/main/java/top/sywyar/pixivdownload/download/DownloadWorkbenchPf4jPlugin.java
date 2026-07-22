@@ -13,8 +13,8 @@ import java.util.List;
 public class DownloadWorkbenchPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new DownloadWorkbenchPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new DownloadWorkbenchPlugin();
     }
 
     @Override

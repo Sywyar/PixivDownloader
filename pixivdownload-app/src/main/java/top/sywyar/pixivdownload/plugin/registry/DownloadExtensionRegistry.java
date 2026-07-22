@@ -415,15 +415,8 @@ public final class DownloadExtensionRegistry {
         if (slot == null) {
             throw new IllegalStateException("null download UI slot contribution (plugin: " + pluginId + ")");
         }
-        if (!pluginId.equals(slot.pluginId())) {
-            throw new IllegalStateException("download UI slot pluginId mismatch: declared "
-                    + slot.pluginId() + " under plugin " + pluginId);
-        }
         requireText(slot.slotId(), "download UI slot id", pluginId);
         requireText(slot.target(), "download UI slot target", pluginId);
-        if (slot.metadata() == null) {
-            throw new IllegalStateException("download UI slot metadata must not be null: " + slot.slotId());
-        }
     }
 
     static void validateDescriptor(DownloadTypeDescriptor descriptor, String pluginId) {

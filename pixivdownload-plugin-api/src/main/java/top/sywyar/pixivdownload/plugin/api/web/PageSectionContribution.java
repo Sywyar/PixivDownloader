@@ -22,7 +22,6 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 不是权限边界</b>——区块内任何 href / moduleUrl / 其调用的 API，其访问权限仍由后端 {@code AuthFilter} 依据
  * {@code RouteAccessRegistry} 的路由访问策略鉴权；某区块对当前身份隐藏，不代表其 URL 在后端开放。
  *
- * @param pluginId           声明方插件 id（注册时校验与登记方一致）
  * @param id                 区块全局唯一 id（用于诊断 / 去重 / 前端模块定位自身容器）
  * @param placement          宿主页面 slot id（如 {@code stats.sidebar.sections}）
  * @param titleNamespace     区块标题所在的 i18n namespace（在该 namespace 内解析 {@code titleI18nKey}）；<b>必填</b>，
@@ -39,7 +38,6 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * @param priority           placement 内排序权重，越小越靠前（不跨越来源层级：第三方区块不会因 priority 小而越过内置区块）
  */
 public record PageSectionContribution(
-        String pluginId,
         String id,
         String placement,
         String titleNamespace,

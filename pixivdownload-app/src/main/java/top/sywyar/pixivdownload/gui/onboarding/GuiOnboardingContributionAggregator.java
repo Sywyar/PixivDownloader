@@ -89,11 +89,6 @@ public final class GuiOnboardingContributionAggregator {
                     "null GUI onboarding step contribution"));
             return null;
         }
-        if (!registered.id().equals(contribution.pluginId())) {
-            diagnostics.add(new GuiOnboardingContributionDiagnostic(registered.id(), contribution.stepId(),
-                    "GUI onboarding step pluginId mismatch: " + contribution.pluginId()));
-            return null;
-        }
         String stepId = normalize(contribution.stepId());
         if (stepId == null) {
             diagnostics.add(new GuiOnboardingContributionDiagnostic(registered.id(), null,

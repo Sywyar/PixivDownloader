@@ -110,14 +110,14 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-batch.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-batch/", "/pixiv-batch/"));
+                new StaticResourceContribution("classpath:/static/", "/pixiv-batch.html", true),
+                new StaticResourceContribution("classpath:/static/pixiv-batch/", "/pixiv-batch/"));
     }
 
     @Override
     public List<StartupRouteContribution> startupRoutes() {
         // multi 模式默认落点：下载工作台页。
-        return List.of(new StartupRouteContribution(ID, "/pixiv-batch.html", 10, Set.of(StartupRouteContext.MULTI)));
+        return List.of(new StartupRouteContribution("/pixiv-batch.html", 10, Set.of(StartupRouteContext.MULTI)));
     }
 
     @Override
@@ -146,7 +146,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     public List<UserscriptContribution> userscripts() {
         // 油猴脚本分发归下载工作台：ScriptRegistry 经声明方 ClassLoader 扫描此模式，
         // 不再做全局 classpath 扫描假设（物理拆分为插件 jar 后脚本随插件 ClassLoader 解析）。
-        return List.of(new UserscriptContribution(ID, "classpath:/static/userscripts/*.user.js"));
+        return List.of(new UserscriptContribution("classpath:/static/userscripts/*.user.js"));
     }
 
     @Override

@@ -151,22 +151,22 @@ class DrilldownControllerTest {
         DrilldownRegistry registry = emptyRegistry();
         // 同一 placement 下：内置插件 core（priority 故意填很大 99）+ 外置插件多条（priority 1/5/5）。
         registry.register("core", List.of(
-                new DrilldownContribution("core", "g-builtin", "X", "/g", AccessPolicy.PUBLIC, 99)));
+                new DrilldownContribution("g-builtin", "X", "/g", AccessPolicy.PUBLIC, 99)));
         registry.register("third", List.of(
-                new DrilldownContribution("third", "z-prio1", "X", "/z", AccessPolicy.PUBLIC, 1),
-                new DrilldownContribution("third", "a-prio5", "X", "/a", AccessPolicy.PUBLIC, 5),
-                new DrilldownContribution("third", "b-prio5", "X", "/b", AccessPolicy.PUBLIC, 5)));
+                new DrilldownContribution("z-prio1", "X", "/z", AccessPolicy.PUBLIC, 1),
+                new DrilldownContribution("a-prio5", "X", "/a", AccessPolicy.PUBLIC, 5),
+                new DrilldownContribution("b-prio5", "X", "/b", AccessPolicy.PUBLIC, 5)));
         // 内置（rank 0）恒先于外置（rank 1），即便其 priority(99) 远大于外置；外置内按 priority 升序、
         // 同 priority 按 id 升序：g-builtin → z-prio1 → a-prio5 → b-prio5。
         assertThat(ids(controllerFor(registry), adminRequest(), "X"))
                 .containsExactly("g-builtin", "z-prio1", "a-prio5", "b-prio5");
     }
 
-    // ========== DrilldownRegistry 注册期校验（hrefTemplate 同源 / id 唯一 / placement 非空 / pluginId 一致） ==========
+    // ========== DrilldownRegistry 注册期校验（hrefTemplate 同源 / id 唯一 / placement 非空） ==========
 
     /** 最小合法下钻，只改 hrefTemplate（被校验的同源绝对路径字段）。 */
     private static DrilldownContribution drilldownWith(String hrefTemplate) {
-        return new DrilldownContribution("p", "d", "host.slot", hrefTemplate, AccessPolicy.ADMIN, 10);
+        return new DrilldownContribution("d", "host.slot", hrefTemplate, AccessPolicy.ADMIN, 10);
     }
 
     @ParameterizedTest
@@ -200,7 +200,7 @@ class DrilldownControllerTest {
         for (AccessPolicy policy : new AccessPolicy[]{
                 AccessPolicy.LOCAL, AccessPolicy.GUI, AccessPolicy.ACTUATOR_PUBLIC}) {
             assertThatThrownBy(() -> emptyRegistry().register("p", List.of(new DrilldownContribution(
-                    "p", "drilldown-" + policy.name().toLowerCase(), "host.slot", "/target", policy, 10))))
+                    "drilldown-" + policy.name().toLowerCase(), "host.slot", "/target", policy, 10))))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("UI visibility")
                     .hasMessageContaining(policy.name());
@@ -208,32 +208,26 @@ class DrilldownControllerTest {
     }
 
     @Test
-    @DisplayName("注册期拒绝：重复 id / 空 placement / pluginId 不匹配")
+    @DisplayName("注册期拒绝：重复 id / 空 placement")
     void rejectsInvalidContributions() {
         // 重复 id（跨贡献全局唯一）
         assertThatThrownBy(() -> emptyRegistry().register("p", List.of(
-                new DrilldownContribution("p", "dup", "host.a", "/a", AccessPolicy.ADMIN, 1),
-                new DrilldownContribution("p", "dup", "host.b", "/b", AccessPolicy.ADMIN, 2))))
+                new DrilldownContribution("dup", "host.a", "/a", AccessPolicy.ADMIN, 1),
+                new DrilldownContribution("dup", "host.b", "/b", AccessPolicy.ADMIN, 2))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("duplicate drilldown id");
 
         // 空 placement 集合
         assertThatThrownBy(() -> emptyRegistry().register("p", List.of(
-                new DrilldownContribution("p", "d", Set.of(), "/a", AccessPolicy.ADMIN, 1))))
+                new DrilldownContribution("d", Set.of(), "/a", AccessPolicy.ADMIN, 1))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("placement");
 
         // 空白 placement 字符串
         assertThatThrownBy(() -> emptyRegistry().register("p", List.of(
-                new DrilldownContribution("p", "d", " ", "/a", AccessPolicy.ADMIN, 1))))
+                new DrilldownContribution("d", " ", "/a", AccessPolicy.ADMIN, 1))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("placement");
-
-        // pluginId 与登记方不一致
-        assertThatThrownBy(() -> emptyRegistry().register("p", List.of(
-                new DrilldownContribution("other", "d", "host.a", "/a", AccessPolicy.ADMIN, 1))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("pluginId mismatch");
     }
 
     private static List<top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin> withGallery(

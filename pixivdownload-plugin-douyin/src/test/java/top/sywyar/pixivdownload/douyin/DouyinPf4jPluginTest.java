@@ -32,10 +32,8 @@ class DouyinPf4jPluginTest {
     void pf4jProviderExposesFeaturePluginAndConfiguration() {
         DouyinPf4jPlugin provider = new DouyinPf4jPlugin();
 
-        assertThat(provider.featurePlugins()).singleElement()
-                .isInstanceOf(DouyinPlugin.class)
-                .extracting(plugin -> plugin.id())
-                .isEqualTo("douyin");
+        assertThat(provider.featurePlugin()).isInstanceOf(DouyinPlugin.class)
+                .extracting(plugin -> plugin.id()).isEqualTo("douyin");
         assertThat(provider.configurationClasses()).containsExactly(DouyinPluginConfiguration.class);
     }
 

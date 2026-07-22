@@ -10,8 +10,8 @@ import java.util.List;
 public final class ExampleDownloadPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new ExampleDownloadPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new ExampleDownloadPlugin();
     }
 
     @Override

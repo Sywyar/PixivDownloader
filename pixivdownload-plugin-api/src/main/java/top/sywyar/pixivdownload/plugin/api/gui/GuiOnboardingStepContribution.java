@@ -5,7 +5,6 @@ import java.util.List;
 /**
  * Pure data contribution for one GUI onboarding guide step.
  *
- * @param pluginId       owner plugin id
  * @param stepId         stable step id
  * @param i18nNamespace  namespace used to resolve all text keys
  * @param titleKey       title text key
@@ -18,7 +17,6 @@ import java.util.List;
  * @param order          display order among contributed steps
  */
 public record GuiOnboardingStepContribution(
-        String pluginId,
         String stepId,
         String i18nNamespace,
         String titleKey,

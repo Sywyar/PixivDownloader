@@ -9,8 +9,8 @@ import java.util.List;
 public class MailPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new MailPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new MailPlugin();
     }
 
     @Override

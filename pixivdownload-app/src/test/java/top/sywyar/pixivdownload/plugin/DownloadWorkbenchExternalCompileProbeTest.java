@@ -69,10 +69,10 @@ class DownloadWorkbenchExternalCompileProbeTest {
                                 WebRouteContribution.visitor("/api/download/extensions"));
                     }
                     public List<StaticResourceContribution> staticResources() {
-                        return List.of(new StaticResourceContribution(id(), "classpath:/static/pixiv-batch/", "/pixiv-batch/"));
+                        return List.of(new StaticResourceContribution("classpath:/static/pixiv-batch/", "/pixiv-batch/"));
                     }
                     public List<StartupRouteContribution> startupRoutes() {
-                        return List.of(new StartupRouteContribution(id(), "/pixiv-batch.html", 10, Set.of(StartupRouteContext.MULTI)));
+                        return List.of(new StartupRouteContribution("/pixiv-batch.html", 10, Set.of(StartupRouteContext.MULTI)));
                     }
                     public List<NavigationContribution> navigation() {
                         return List.of(new NavigationContribution(id(), NavigationPlacements.APP_TOP,
@@ -82,7 +82,7 @@ class DownloadWorkbenchExternalCompileProbeTest {
                         return List.of(new I18nContribution("batch", "i18n.web.batch", 5));
                     }
                     public List<UserscriptContribution> userscripts() {
-                        return List.of(new UserscriptContribution(id(), "classpath:/static/userscripts/*.user.js"));
+                        return List.of(new UserscriptContribution("classpath:/static/userscripts/*.user.js"));
                     }
                     public List<DownloadTypeDescriptor> downloadTypes() {
                         DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(

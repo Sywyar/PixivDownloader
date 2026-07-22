@@ -62,11 +62,10 @@ class ExampleMinimalPluginTest {
     @DisplayName("provider 返回非空、无 null 的功能插件并声明唯一配置类")
     void providerReturnsFeaturesAndConfiguration() {
         ExampleMinimalPf4jPlugin provider = new ExampleMinimalPf4jPlugin();
-        List<PixivFeaturePlugin> features = provider.featurePlugins();
+        PixivFeaturePlugin feature = provider.featurePlugin();
 
-        assertFalse(features.isEmpty());
-        assertTrue(features.stream().noneMatch(Objects::isNull));
-        assertInstanceOf(ExampleMinimalPlugin.class, features.get(0));
+        assertNotNull(feature);
+        assertInstanceOf(ExampleMinimalPlugin.class, feature);
         assertEquals(List.of(ExampleMinimalConfiguration.class), provider.configurationClasses());
     }
 
@@ -110,7 +109,6 @@ class ExampleMinimalPluginTest {
         List<StaticResourceContribution> staticResources = plugin.staticResources();
 
         assertEquals(2, staticResources.size());
-        assertTrue(staticResources.stream().allMatch(resource -> resource.pluginId().equals(plugin.id())));
         assertTrue(staticResources.stream().anyMatch(resource ->
                 resource.exactFile() && resource.publicPathPrefix().equals("/example-minimal.html")));
         assertTrue(staticResources.stream().anyMatch(resource ->

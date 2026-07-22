@@ -238,9 +238,9 @@ public class CorePlugin implements PixivFeaturePlugin {
         // 作为核心公共资源声明：被所有页面跨插件复用，解析经核心 ClassLoader。本记录只描述 serving；
         // 逐文件访问（公开 / 邀请访客放行）由 routes() / RouteAccessRegistry 声明、AuthFilter 执行。
         return List.of(
-                new StaticResourceContribution("core", "classpath:/static/js/", "/js/"),
-                new StaticResourceContribution("core", "classpath:/static/css/", "/css/"),
-                new StaticResourceContribution("core", "classpath:/static/vendor/", "/vendor/"));
+                new StaticResourceContribution("classpath:/static/js/", "/js/"),
+                new StaticResourceContribution("classpath:/static/css/", "/css/"),
+                new StaticResourceContribution("classpath:/static/vendor/", "/vendor/"));
     }
 
     @Override

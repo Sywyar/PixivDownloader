@@ -53,9 +53,9 @@ class StaticResourceRegistryTest {
         return new RegisteredPlugin(plugin, PluginSource.BUILT_IN, plugin.getClass().getClassLoader());
     }
 
-    private static StaticResourceContribution res(String pluginId, String name) {
+    private static StaticResourceContribution res(String name) {
         return new StaticResourceContribution(
-                pluginId, "classpath:/static/" + name + "/", "/" + name + "/");
+                "classpath:/static/" + name + "/", "/" + name + "/");
     }
 
     @Test
@@ -94,7 +94,7 @@ class StaticResourceRegistryTest {
     @DisplayName("register → unregister → 再 register 后快照与首次注册一致（可逆性）")
     void registerUnregisterRoundTrip() {
         StaticResourceRegistry registry = emptyRegistry();
-        List<StaticResourceContribution> items = List.of(res("demo", "a"), res("demo", "b"));
+        List<StaticResourceContribution> items = List.of(res("a"), res("b"));
         RegisteredPlugin owner = owner("demo");
         registry.register(owner, items);
         List<StaticResourceRegistry.RegisteredStaticResource> first = registry.resources();
@@ -112,7 +112,7 @@ class StaticResourceRegistryTest {
         RegisteredPlugin oldOwner = owner("demo");
         plugins.register(oldOwner);
         StaticResourceRegistry.PreparedResources prepared =
-                registry.prepare(oldOwner, List.of(res("demo", "a")));
+                registry.prepare(oldOwner, List.of(res("a")));
 
         registry.register(prepared);
         registry.unregister("demo");
@@ -123,7 +123,7 @@ class StaticResourceRegistryTest {
         plugins.unregister(oldOwner);
         RegisteredPlugin newOwner = owner("demo");
         plugins.register(newOwner);
-        assertThatThrownBy(() -> registry.register(oldOwner, List.of(res("demo", "b"))))
+        assertThatThrownBy(() -> registry.register(oldOwner, List.of(res("b"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("current active identity");
         assertThat(registry.resources()).isEmpty();
@@ -142,8 +142,8 @@ class StaticResourceRegistryTest {
     void duplicatePluginRegistrationRejected() {
         StaticResourceRegistry registry = emptyRegistry();
         RegisteredPlugin owner = owner("demo");
-        registry.register(owner, List.of(res("demo", "a")));
-        assertThatThrownBy(() -> registry.register(owner, List.of(res("demo", "b"))))
+        registry.register(owner, List.of(res("a")));
+        assertThatThrownBy(() -> registry.register(owner, List.of(res("b"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("demo");
     }
@@ -152,8 +152,8 @@ class StaticResourceRegistryTest {
     @DisplayName("对外路径前缀全局冲突立即抛出（跨插件指向同一前缀）")
     void duplicatePrefixAcrossPluginsRejected() {
         StaticResourceRegistry registry = emptyRegistry();
-        registry.register(owner("a"), List.of(res("a", "shared")));
-        assertThatThrownBy(() -> registry.register(owner("b"), List.of(res("b", "shared"))))
+        registry.register(owner("a"), List.of(res("shared")));
+        assertThatThrownBy(() -> registry.register(owner("b"), List.of(res("shared"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/shared/")
                 .hasMessageContaining("b");
@@ -164,17 +164,17 @@ class StaticResourceRegistryTest {
     void duplicatePrefixWithinPluginRejected() {
         StaticResourceRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register(owner("demo"),
-                List.of(res("demo", "dup"), res("demo", "dup"))))
+                List.of(res("dup"), res("dup"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/dup/");
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / classpath 位置 / 路径 / pluginId 一致性")
+    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / classpath 位置 / 路径")
     void invalidInputRejected() {
         StaticResourceRegistry registry = emptyRegistry();
         // pluginId 空
-        assertThatThrownBy(() -> registry.register(owner(" "), List.of(res(" ", "a"))))
+        assertThatThrownBy(() -> registry.register(owner(" "), List.of(res("a"))))
                 .isInstanceOf(IllegalStateException.class);
         // classLoader 为 null
         assertThatThrownBy(() -> new RegisteredPlugin(
@@ -185,32 +185,28 @@ class StaticResourceRegistryTest {
                 .isInstanceOf(IllegalStateException.class);
         // classpathLocation 不以 classpath: 开头
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "/static/a/", "/a/"))))
+                new StaticResourceContribution("/static/a/", "/a/"))))
                 .isInstanceOf(IllegalStateException.class);
         // classpathLocation 不以 / 结尾
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a", "/a/"))))
+                new StaticResourceContribution("classpath:/static/a", "/a/"))))
                 .isInstanceOf(IllegalStateException.class);
         // classpath 相对位置不得用绝对 URL scheme 逃出 owner CodeSource
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/file:C:/escape/", "/escape/"))))
+                new StaticResourceContribution("classpath:/file:C:/escape/", "/escape/"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("forbidden character");
         // publicPathPrefix 不以 / 开头
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a/", "a/"))))
+                new StaticResourceContribution("classpath:/static/a/", "a/"))))
                 .isInstanceOf(IllegalStateException.class);
         // 目录贡献 publicPathPrefix 不以 / 结尾
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a/", "/a"))))
+                new StaticResourceContribution("classpath:/static/a/", "/a"))))
                 .isInstanceOf(IllegalStateException.class);
-        // 声明的 pluginId 与注册 pluginId 不一致
-        assertThatThrownBy(() -> registry.register(owner("demo"), List.of(res("other", "a"))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("mismatch");
         // 精确文件贡献 publicPathPrefix 以 / 结尾（应拒绝）
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a/", "/a.html/", true))))
+                new StaticResourceContribution("classpath:/static/a/", "/a.html/", true))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -229,7 +225,7 @@ class StaticResourceRegistryTest {
     @DisplayName("resources() 返回不可变快照，外部不可修改")
     void snapshotIsImmutable() {
         StaticResourceRegistry registry = emptyRegistry();
-        registry.register(owner("demo"), List.of(res("demo", "a")));
+        registry.register(owner("demo"), List.of(res("a")));
         List<StaticResourceRegistry.RegisteredStaticResource> resources = registry.resources();
         assertThatThrownBy(() -> resources.add(resources.get(0)))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -247,7 +243,8 @@ class StaticResourceRegistryTest {
         PluginRegistry registry = new PluginRegistry(
                 List.of(new CorePlaceholderPlugin()), new PluginToggleProperties(),
                 new PluginDiscoveryResult(
-                        List.of(new DiscoveredFeaturePlugin("ext-static", external, bridgeClassLoader)),
+                        List.of(new DiscoveredFeaturePlugin(
+                                "ext-static", "ext-static", external, bridgeClassLoader)),
                         List.of()));
         assertThatThrownBy(() -> new StaticResourceRegistry(registry))
                 .isInstanceOf(IllegalStateException.class)
@@ -260,8 +257,8 @@ class StaticResourceRegistryTest {
     void exactFileContributionRegistered() {
         StaticResourceRegistry registry = emptyRegistry();
         registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/demo/", "/demo/"),
-                new StaticResourceContribution("demo", "classpath:/static/demo/", "/demo/index.html", true)));
+                new StaticResourceContribution("classpath:/static/demo/", "/demo/"),
+                new StaticResourceContribution("classpath:/static/demo/", "/demo/index.html", true)));
         assertThat(registry.resources())
                 .extracting(r -> r.contribution().publicPathPrefix())
                 .containsExactlyInAnyOrder("/demo/", "/demo/index.html");
@@ -272,7 +269,7 @@ class StaticResourceRegistryTest {
     void exactFileRequiresClasspathDirectory() {
         StaticResourceRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/index.html", "/index.html", true))))
+                new StaticResourceContribution("classpath:/static/index.html", "/index.html", true))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -282,11 +279,11 @@ class StaticResourceRegistryTest {
         StaticResourceRegistry registry = emptyRegistry();
         // 不以 / 开头
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/", "index.html", true))))
+                new StaticResourceContribution("classpath:/static/", "index.html", true))))
                 .isInstanceOf(IllegalStateException.class);
         // 以 / 结尾
         assertThatThrownBy(() -> registry.register(owner("demo"), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/", "/index.html/", true))))
+                new StaticResourceContribution("classpath:/static/", "/index.html/", true))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -295,10 +292,10 @@ class StaticResourceRegistryTest {
     void exactFileAndDirectoryPrefixesDoNotConflict() {
         StaticResourceRegistry registry = emptyRegistry();
         registry.register(owner("a"), List.of(
-                new StaticResourceContribution("a", "classpath:/static/a/", "/a/")));
+                new StaticResourceContribution("classpath:/static/a/", "/a/")));
         // "/a"（精确文件）与 "/a/"（目录）是不同的前缀字符串，不冲突
         assertThatCode(() -> registry.register(owner("b"), List.of(
-                new StaticResourceContribution("b", "classpath:/static/b/", "/a", true))))
+                new StaticResourceContribution("classpath:/static/b/", "/a", true))))
                 .doesNotThrowAnyException();
     }
 
@@ -317,7 +314,7 @@ class StaticResourceRegistryTest {
         @Override public String description() { return "ext-static.summary"; }
         @Override public PluginKind kind() { return PluginKind.FEATURE; }
         @Override public List<StaticResourceContribution> staticResources() {
-            return List.of(new StaticResourceContribution("ext-static", "classpath:/ext-static/", "/ext-static/"));
+            return List.of(new StaticResourceContribution("classpath:/ext-static/", "/ext-static/"));
         }
     }
 

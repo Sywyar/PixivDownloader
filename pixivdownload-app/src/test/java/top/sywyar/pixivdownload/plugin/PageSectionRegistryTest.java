@@ -25,9 +25,9 @@ class PageSectionRegistryTest {
         return new PageSectionRegistry(new PluginRegistry(List.of()));
     }
 
-    /** 最小合法区块：pluginId=demo、titleNamespace=ns、无操作入口 / 内嵌导航 / 模块。 */
+    /** 最小合法区块：titleNamespace=ns、无操作入口 / 内嵌导航 / 模块。 */
     private static PageSectionContribution section(String id) {
-        return new PageSectionContribution("demo", id, "host.slot", "ns", "title",
+        return new PageSectionContribution(id, "host.slot", "ns", "title",
                 null, null, null, null, null, null, AccessPolicy.ADMIN, 10);
     }
 
@@ -77,21 +77,12 @@ class PageSectionRegistryTest {
     @DisplayName("区块 id 全局冲突立即抛出（跨插件不可重名）")
     void duplicateSectionIdAcrossPluginsRejected() {
         PageSectionRegistry registry = emptyRegistry();
-        registry.register("a", List.of(new PageSectionContribution("a", "shared", "host.slot", "ns", "title",
+        registry.register("a", List.of(new PageSectionContribution("shared", "host.slot", "ns", "title",
                 null, null, null, null, null, null, AccessPolicy.ADMIN, 10)));
-        assertThatThrownBy(() -> registry.register("b", List.of(new PageSectionContribution("b", "shared", "host.slot",
+        assertThatThrownBy(() -> registry.register("b", List.of(new PageSectionContribution("shared", "host.slot",
                 "ns", "title", null, null, null, null, null, null, AccessPolicy.ADMIN, 10))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("shared");
-    }
-
-    @Test
-    @DisplayName("pluginId 与区块声明方不一致立即抛出（区块归属须与登记方一致）")
-    void pluginIdMismatchRejected() {
-        PageSectionRegistry registry = emptyRegistry();
-        assertThatThrownBy(() -> registry.register("demo", List.of(new PageSectionContribution(
-                "other", "a", "host.slot", "ns", "title", null, null, null, null, null, null, AccessPolicy.ADMIN, 10))))
-                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -99,10 +90,10 @@ class PageSectionRegistryTest {
     void blankTitleNamespaceRejected() {
         PageSectionRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register("demo", List.of(new PageSectionContribution(
-                "demo", "a", "host.slot", null, "title", null, null, null, null, null, null, AccessPolicy.ADMIN, 10))))
+                "a", "host.slot", null, "title", null, null, null, null, null, null, AccessPolicy.ADMIN, 10))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(new PageSectionContribution(
-                "demo", "b", "host.slot", " ", "title", null, null, null, null, null, null, AccessPolicy.ADMIN, 10))))
+                "b", "host.slot", " ", "title", null, null, null, null, null, null, AccessPolicy.ADMIN, 10))))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -112,15 +103,15 @@ class PageSectionRegistryTest {
         PageSectionRegistry registry = emptyRegistry();
         // 有 actionTitleI18nKey 但缺 actionTitleNamespace → 抛（actionHref 合法、唯一不合法因素是缺 namespace）。
         assertThatThrownBy(() -> registry.register("demo", List.of(new PageSectionContribution(
-                "demo", "a", "host.slot", "ns", "title", null, "/a.html", "plus", null, "act.key", null,
+                "a", "host.slot", "ns", "title", null, "/a.html", "plus", null, "act.key", null,
                 AccessPolicy.ADMIN, 10)))).isInstanceOf(IllegalStateException.class);
         // 有 actionTitleI18nKey 且有 actionTitleNamespace → 通过。
         assertThatCode(() -> registry.register("demo", List.of(new PageSectionContribution(
-                "demo", "b", "host.slot", "ns", "title", null, "/a.html", "plus", "ns2", "act.key", null,
+                "b", "host.slot", "ns", "title", null, "/a.html", "plus", "ns2", "act.key", null,
                 AccessPolicy.ADMIN, 10)))).doesNotThrowAnyException();
         // 无 actionTitleI18nKey 时 actionTitleNamespace 可为 null（无操作标题）→ 通过。
         assertThatCode(() -> emptyRegistry().register("demo", List.of(new PageSectionContribution(
-                "demo", "c", "host.slot", "ns", "title", null, "/a.html", "plus", null, null, null,
+                "c", "host.slot", "ns", "title", null, "/a.html", "plus", null, null, null,
                 AccessPolicy.ADMIN, 10)))).doesNotThrowAnyException();
     }
 
@@ -130,7 +121,7 @@ class PageSectionRegistryTest {
         for (AccessPolicy policy : new AccessPolicy[]{
                 AccessPolicy.LOCAL, AccessPolicy.GUI, AccessPolicy.ACTUATOR_PUBLIC}) {
             assertThatThrownBy(() -> emptyRegistry().register("demo", List.of(new PageSectionContribution(
-                    "demo", "section-" + policy.name().toLowerCase(), "host.slot", "ns", "title",
+                    "section-" + policy.name().toLowerCase(), "host.slot", "ns", "title",
                     null, null, null, null, null, null, policy, 10))))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("UI visibility")

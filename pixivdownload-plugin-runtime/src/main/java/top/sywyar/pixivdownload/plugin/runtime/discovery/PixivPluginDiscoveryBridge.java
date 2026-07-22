@@ -18,7 +18,6 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * PF4J 外置插件发现桥接：把 PF4J {@link PluginManager} 已加载 / 启动的外置插件，连同其插件框架描述符
@@ -40,7 +39,8 @@ import java.util.Objects;
  *       version / requires / dependencies / plugin-class 取所属插件包的 PF4J 描述符。</li>
  *   <li><b>classloader 边界严格。</b>每条安装条目带其插件 classloader（资源解析依据），绝不用核心壳应用 classloader
  *       误读外置插件资源。</li>
- *   <li><b>诊断清晰、隔离失败。</b>主类未实现入口契约、入口方法抛错 / 返回 {@code null} 都被收敛为
+ *   <li><b>诊断清晰、隔离失败。</b>主类未实现入口契约、入口方法抛错 / 返回 {@code null}、功能 id 与包 id
+ *       不同都被收敛为
  *       {@link PluginLoadFailure} 条目并记日志，<b>不</b>抛出、<b>不</b>影响其它插件、<b>不</b>致核心壳启动失败。</li>
  * </ul>
  */
@@ -50,21 +50,35 @@ public final class PixivPluginDiscoveryBridge {
 
     /**
      * 遍历 {@link PluginManager} 已启动的外置插件，清点其功能插件安装条目（含兼容性基线状态）与失败诊断。
-     * 本方法不向上抛出：任一插件的清点失败被隔离为 {@link PluginInventory#failures()} 条目。
+     * 本方法只向上保留 JVM 致命错误；任一插件的其它清点失败被隔离为
+     * {@link PluginInventory#failures()} 条目。
      */
     public PluginInventory inspect(PluginManager manager) {
         if (manager == null) {
             return PluginInventory.empty();
         }
         List<PluginInstallation> installations = new ArrayList<>();
+        List<PluginContextModule> contextModules = new ArrayList<>();
         List<PluginLoadFailure> failures = new ArrayList<>();
-        for (PluginWrapper wrapper : manager.getPlugins()) {
-            if (wrapper.getPluginState() != PluginState.STARTED) {
-                continue;
+        try {
+            for (PluginWrapper wrapper : manager.getPlugins()) {
+                try {
+                    if (wrapper.getPluginState() != PluginState.STARTED) {
+                        continue;
+                    }
+                    inspectWrapper(wrapper, installations, contextModules, failures);
+                } catch (Throwable failure) {
+                    throwIfJvmFatal(failure);
+                    failures.add(fail(diagnosticSource(wrapper),
+                            "unexpected discovery failure: " + describe(failure)));
+                }
             }
-            inspectWrapper(wrapper, installations, failures);
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail("<plugin-manager>",
+                    "failed to enumerate plugin wrappers: " + describe(failure)));
         }
-        return new PluginInventory(installations, failures);
+        return new PluginInventory(installations, contextModules, failures);
     }
 
     /** 清点一个已加载包；允许 RESOLVED/STOPPED，用于在 PF4J start 前建立新的代际句柄。 */
@@ -72,15 +86,21 @@ public final class PixivPluginDiscoveryBridge {
         if (manager == null || packageId == null) {
             return PluginInventory.empty();
         }
-        PluginWrapper wrapper = manager.getPlugin(packageId);
-        if (wrapper == null || wrapper.getPluginState() == PluginState.FAILED
-                || wrapper.getPluginState() == PluginState.UNLOADED) {
-            return PluginInventory.empty();
-        }
         List<PluginInstallation> installations = new ArrayList<>();
+        List<PluginContextModule> contextModules = new ArrayList<>();
         List<PluginLoadFailure> failures = new ArrayList<>();
-        inspectWrapper(wrapper, installations, failures);
-        return new PluginInventory(installations, failures);
+        try {
+            PluginWrapper wrapper = manager.getPlugin(packageId);
+            if (wrapper == null || wrapper.getPluginState() == PluginState.FAILED
+                    || wrapper.getPluginState() == PluginState.UNLOADED) {
+                return PluginInventory.empty();
+            }
+            inspectWrapper(wrapper, installations, contextModules, failures);
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(packageId, "unexpected discovery failure: " + describe(failure)));
+        }
+        return new PluginInventory(installations, contextModules, failures);
     }
 
     /**
@@ -92,80 +112,9 @@ public final class PixivPluginDiscoveryBridge {
         return inspect(manager).toDiscoveryResult();
     }
 
-    /**
-     * 清点已启动且核心 API 兼容的外置插件包声明的 Spring 子 context 装配定义（{@link PluginContextModule}：
-     * 配置类 + 插件 classloader + 来源 id）。仅返回声明了至少一个配置类的插件包——无 Spring Bean 的包不需要子 context。
-     *
-     * <p>与 {@link #inspect} 正交、各自独立施加同一道核心 API 兼容门（不信任不兼容插件的贡献）：清点是<b>功能插件</b>
-     * 粒度（核心注册中心接入），本方法是<b>插件包</b>粒度（按包建立子 context）。本方法不向上抛出：单个插件包的清点失败
-     * （未实现入口契约 / 入口方法抛错等，已由 {@link #inspect} 记诊断）在此被安静跳过。
-     */
-    public List<PluginContextModule> inspectContextModules(PluginManager manager) {
-        if (manager == null) {
-            return List.of();
-        }
-        List<PluginContextModule> modules = new ArrayList<>();
-        for (PluginWrapper wrapper : manager.getPlugins()) {
-            if (wrapper.getPluginState() != PluginState.STARTED) {
-                continue;
-            }
-            collectContextModule(wrapper, modules);
-        }
-        return modules;
-    }
-
-    /** 清点一个已加载包声明的子 context 模块；允许 RESOLVED/STOPPED。 */
-    public List<PluginContextModule> inspectLoadedContextModules(PluginManager manager, String packageId) {
-        if (manager == null || packageId == null) {
-            return List.of();
-        }
-        PluginWrapper wrapper = manager.getPlugin(packageId);
-        if (wrapper == null || wrapper.getPluginState() == PluginState.FAILED
-                || wrapper.getPluginState() == PluginState.UNLOADED) {
-            return List.of();
-        }
-        List<PluginContextModule> modules = new ArrayList<>();
-        collectContextModule(wrapper, modules);
-        return List.copyOf(modules);
-    }
-
-    private void collectContextModule(PluginWrapper wrapper, List<PluginContextModule> modules) {
-        org.pf4j.PluginDescriptor pf4jDescriptor = wrapper.getDescriptor();
-        PluginApiRequirement requires = PluginApiRequirement.parse(
-                pf4jDescriptor != null ? pf4jDescriptor.getRequires() : null);
-        // 与 inspect 一致的接入兼容门：不兼容插件包不参与子 context 装配（其 INCOMPATIBLE 诊断已由 inspect 给出）。
-        if (!requires.isSatisfiedByCurrentApi()) {
-            return;
-        }
-        Plugin plugin;
-        try {
-            plugin = wrapper.getPlugin();
-        } catch (Exception e) {
-            return; // 实例获取失败已由 inspect 收敛为诊断；此处只负责子 context 装配定义、安静跳过
-        }
-        if (!(plugin instanceof PixivPluginProvider provider)) {
-            return;
-        }
-        List<Class<?>> configurationClasses;
-        try {
-            configurationClasses = provider.configurationClasses();
-        } catch (Exception e) {
-            log.warn("External plugin {} configurationClasses() threw: {} - skipping its plugin context.",
-                    wrapper.getPluginId(), describe(e));
-            return;
-        }
-        if (configurationClasses == null) {
-            return;
-        }
-        List<Class<?>> sanitized = configurationClasses.stream().filter(Objects::nonNull).toList();
-        if (sanitized.isEmpty()) {
-            return;
-        }
-        modules.add(new PluginContextModule(wrapper.getPluginId(), wrapper.getPluginClassLoader(), sanitized));
-    }
-
     private void inspectWrapper(PluginWrapper wrapper,
                                 List<PluginInstallation> installations,
+                                List<PluginContextModule> contextModules,
                                 List<PluginLoadFailure> failures) {
         String sourcePluginId = wrapper.getPluginId();
         ClassLoader classLoader = wrapper.getPluginClassLoader();
@@ -186,8 +135,9 @@ public final class PixivPluginDiscoveryBridge {
         Plugin plugin;
         try {
             plugin = wrapper.getPlugin();
-        } catch (Exception e) {
-            failures.add(fail(sourcePluginId, "failed to obtain plugin instance: " + describe(e)));
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(sourcePluginId, "failed to obtain plugin instance: " + describe(failure)));
             return;
         }
         if (!(plugin instanceof PixivPluginProvider provider)) {
@@ -198,34 +148,80 @@ public final class PixivPluginDiscoveryBridge {
             return;
         }
 
-        List<PixivFeaturePlugin> featurePlugins;
+        PixivFeaturePlugin featurePlugin;
         try {
-            featurePlugins = provider.featurePlugins();
-        } catch (Exception e) {
-            failures.add(fail(sourcePluginId, "featurePlugins() threw: " + describe(e)));
+            featurePlugin = provider.featurePlugin();
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(sourcePluginId, "featurePlugin() threw: " + describe(failure)));
             return;
         }
-        if (featurePlugins == null) {
-            failures.add(fail(sourcePluginId, "featurePlugins() returned null"));
+        if (featurePlugin == null) {
+            failures.add(fail(sourcePluginId, "featurePlugin() returned null"));
             return;
         }
-        for (PixivFeaturePlugin featurePlugin : featurePlugins) {
-            if (featurePlugin == null) {
-                failures.add(fail(sourcePluginId, "featurePlugins() contained a null element"));
-                continue;
+        String featurePluginId;
+        try {
+            featurePluginId = featurePlugin.id();
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(sourcePluginId, "featurePlugin().id() threw: " + describe(failure)));
+            return;
+        }
+        if (!sourcePluginId.equals(featurePluginId)) {
+            failures.add(fail(sourcePluginId, "featurePlugin() id must match package id '" + sourcePluginId
+                    + "': got '" + String.valueOf(featurePluginId) + "'"));
+            return;
+        }
+        PluginDescriptor descriptor;
+        try {
+            descriptor = featureDescriptor(featurePluginId, featurePlugin, sourcePluginId, pf4jDescriptor, requires);
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(sourcePluginId,
+                    "feature plugin metadata getter threw: " + describe(failure)));
+            return;
+        }
+
+        List<Class<?>> configurationClasses;
+        try {
+            List<Class<?>> declared = provider.configurationClasses();
+            if (declared == null) {
+                failures.add(fail(sourcePluginId, "configurationClasses() returned null"));
+                return;
             }
-            installations.add(new PluginInstallation(
-                    featureDescriptor(featurePlugin, sourcePluginId, pf4jDescriptor, requires),
-                    PluginStatus.STARTED, classLoader, featurePlugin));
+            configurationClasses = List.copyOf(declared);
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(sourcePluginId, "configurationClasses() failed: " + describe(failure)));
+            return;
+        }
+
+        PluginContextModule contextModule = null;
+        if (!configurationClasses.isEmpty()) {
+            try {
+                contextModule = new PluginContextModule(sourcePluginId, classLoader, configurationClasses);
+            } catch (Throwable failure) {
+                throwIfJvmFatal(failure);
+                failures.add(fail(sourcePluginId, "configurationClasses() produced an invalid module: "
+                        + describe(failure)));
+                return;
+            }
+        }
+        installations.add(new PluginInstallation(
+                descriptor, PluginStatus.STARTED, classLoader, featurePlugin));
+        if (contextModule != null) {
+            contextModules.add(contextModule);
         }
     }
 
     /** 兼容插件包内某个功能插件的统一描述符：身份 / 展示取功能插件，版本 / 依赖 / 主类取插件包。 */
-    private static PluginDescriptor featureDescriptor(PixivFeaturePlugin featurePlugin, String sourcePluginId,
+    private static PluginDescriptor featureDescriptor(String featurePluginId, PixivFeaturePlugin featurePlugin,
+                                                      String sourcePluginId,
                                                       org.pf4j.PluginDescriptor pf4jDescriptor,
                                                       PluginApiRequirement requires) {
         return new PluginDescriptor(
-                featurePlugin.id(),
+                featurePluginId,
                 sourcePluginId,
                 pf4jDescriptor != null ? pf4jDescriptor.getVersion() : null,
                 requires,
@@ -284,11 +280,39 @@ public final class PixivPluginDiscoveryBridge {
         return new PluginLoadFailure(sourcePluginId, reason);
     }
 
+    private static String diagnosticSource(PluginWrapper wrapper) {
+        if (wrapper == null) {
+            return "<unknown-plugin>";
+        }
+        try {
+            String pluginId = wrapper.getPluginId();
+            return pluginId == null || pluginId.isBlank() ? "<unknown-plugin>" : pluginId;
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            return "<unknown-plugin>";
+        }
+    }
+
+    private static void throwIfJvmFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError virtualMachineError) {
+            throw virtualMachineError;
+        }
+        if (failure instanceof ThreadDeath threadDeath) {
+            throw threadDeath;
+        }
+    }
+
     private static String describe(Throwable t) {
         if (t == null) {
             return "unknown error";
         }
-        String message = t.getMessage();
+        String message;
+        try {
+            message = t.getMessage();
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            message = null;
+        }
         return (message != null && !message.isBlank()) ? message : t.getClass().getName();
     }
 }

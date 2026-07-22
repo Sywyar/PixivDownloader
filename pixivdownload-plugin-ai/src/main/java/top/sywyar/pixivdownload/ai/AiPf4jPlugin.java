@@ -9,8 +9,8 @@ import java.util.List;
 public class AiPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new AiPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new AiPlugin();
     }
 
     @Override

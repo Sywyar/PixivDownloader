@@ -10,11 +10,19 @@ import org.junit.jupiter.api.Test;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
+import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
+import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -289,6 +297,28 @@ class PluginApiOwnershipGuardTest {
         assertThat(Arrays.stream(SchemaContribution.class.getDeclaredMethods())
                 .map(method -> method.getName()).toList())
                 .doesNotContain("ownerPluginId", "indexes");
+    }
+
+    @Test
+    @DisplayName("插件贡献不携带宿主负责盖章的 owner 身份")
+    void contributionsDoNotSelfReportHostStampedOwner() {
+        List<Class<?>> ownerFreeContributions = List.of(
+                StaticResourceContribution.class,
+                UserscriptContribution.class,
+                StartupRouteContribution.class,
+                LandingContribution.class,
+                PageSectionContribution.class,
+                DrilldownContribution.class,
+                WebUiSlotContribution.class,
+                GuiOnboardingStepContribution.class);
+
+        ownerFreeContributions.forEach(type -> assertThat(Arrays.stream(type.getRecordComponents())
+                .map(component -> component.getName()).toList())
+                .as(type.getSimpleName())
+                .doesNotContain("pluginId", "ownerPluginId", "packageId", "generation", "publicationId"));
+        assertThat(Arrays.stream(WebUiSlotContribution.class.getRecordComponents())
+                .map(component -> component.getName()).toList())
+                .containsExactly("slotId", "target", "moduleUrl", "order");
     }
 
     @Test

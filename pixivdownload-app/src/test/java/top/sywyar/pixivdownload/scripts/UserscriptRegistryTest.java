@@ -26,8 +26,8 @@ class UserscriptRegistryTest {
         return new UserscriptRegistry(new PluginRegistry(List.of()));
     }
 
-    private static UserscriptContribution uscript(String pluginId, String pattern) {
-        return new UserscriptContribution(pluginId, pattern);
+    private static UserscriptContribution uscript(String pattern) {
+        return new UserscriptContribution(pattern);
     }
 
     @Test
@@ -42,7 +42,7 @@ class UserscriptRegistryTest {
     @DisplayName("register → unregister → 再 register 后快照与首次注册一致（可逆性）")
     void registerUnregisterRoundTrip() {
         UserscriptRegistry registry = emptyRegistry();
-        List<UserscriptContribution> items = List.of(uscript("demo", "classpath:/x/*.user.js"));
+        List<UserscriptContribution> items = List.of(uscript("classpath:/x/*.user.js"));
         registry.register("demo", CL, items);
         List<UserscriptRegistry.RegisteredUserscript> first = registry.userscripts();
         registry.unregister("demo");
@@ -63,8 +63,8 @@ class UserscriptRegistryTest {
     @DisplayName("同一 pluginId 重复注册立即抛出")
     void duplicatePluginRegistrationRejected() {
         UserscriptRegistry registry = emptyRegistry();
-        registry.register("demo", CL, List.of(uscript("demo", "classpath:/a/*.user.js")));
-        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript("demo", "classpath:/b/*.user.js"))))
+        registry.register("demo", CL, List.of(uscript("classpath:/a/*.user.js")));
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript("classpath:/b/*.user.js"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("demo");
     }
@@ -73,8 +73,8 @@ class UserscriptRegistryTest {
     @DisplayName("扫描模式全局冲突立即抛出（跨插件指向同一模式）")
     void duplicatePatternAcrossPluginsRejected() {
         UserscriptRegistry registry = emptyRegistry();
-        registry.register("a", CL, List.of(uscript("a", "classpath:/shared/*.user.js")));
-        assertThatThrownBy(() -> registry.register("b", CL, List.of(uscript("b", "classpath:/shared/*.user.js"))))
+        registry.register("a", CL, List.of(uscript("classpath:/shared/*.user.js")));
+        assertThatThrownBy(() -> registry.register("b", CL, List.of(uscript("classpath:/shared/*.user.js"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("classpath:/shared/*.user.js")
                 .hasMessageContaining("b");
@@ -85,42 +85,39 @@ class UserscriptRegistryTest {
     void duplicatePatternWithinPluginRejected() {
         UserscriptRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(
-                uscript("demo", "classpath:/dup/*.user.js"),
-                uscript("demo", "classpath:/dup/*.user.js"))))
+                uscript("classpath:/dup/*.user.js"),
+                uscript("classpath:/dup/*.user.js"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("classpath:/dup/*.user.js");
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / 扫描模式非空，pluginId 一致性")
+    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / 扫描模式非空")
     void invalidInputRejected() {
         UserscriptRegistry registry = emptyRegistry();
-        assertThatThrownBy(() -> registry.register(" ", CL, List.of(uscript(" ", "classpath:/a/*.user.js"))))
+        assertThatThrownBy(() -> registry.register(" ", CL, List.of(uscript("classpath:/a/*.user.js"))))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> registry.register("demo", null, List.of(uscript("demo", "classpath:/a/*.user.js"))))
+        assertThatThrownBy(() -> registry.register("demo", null, List.of(uscript("classpath:/a/*.user.js"))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", CL, List.of()))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript("demo", " "))))
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript(" "))))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript("other", "classpath:/a/*.user.js"))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("mismatch");
     }
 
     @Test
     @DisplayName("userscripts() 返回不可变快照，外部不可修改")
     void snapshotIsImmutable() {
         UserscriptRegistry registry = emptyRegistry();
-        registry.register("demo", CL, List.of(uscript("demo", "classpath:/a/*.user.js")));
+        registry.register("demo", CL, List.of(uscript("classpath:/a/*.user.js")));
         List<UserscriptRegistry.RegisteredUserscript> userscripts = registry.userscripts();
         assertThatThrownBy(() -> userscripts.add(new UserscriptRegistry.RegisteredUserscript(
-                "x", uscript("x", "classpath:/x/*.user.js"), CL)))
+                "x", uscript("classpath:/x/*.user.js"), CL)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
-    @DisplayName("外置插件油猴脚本来源用桥接提供的 classloader 注册，而非插件对象 class 的 loader")
+    @DisplayName("外置脚本使用宿主盖章 owner 与桥接 classloader 且不重读插件 id")
     void externalUserscriptUsesBridgeClassLoaderNotPluginClassLoader() {
         // 桥接捕获的插件 classloader（真实场景为 PF4J 插件 classloader），与插件实例 class 的 loader 不同
         ClassLoader bridgeClassLoader = new ClassLoader(UserscriptRegistryTest.class.getClassLoader()) {};
@@ -129,7 +126,8 @@ class UserscriptRegistryTest {
         assertThat(external.getClass().getClassLoader()).isNotSameAs(bridgeClassLoader);
 
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(new DiscoveredFeaturePlugin("ext-script", external, bridgeClassLoader)), List.of());
+                List.of(new DiscoveredFeaturePlugin("ext-script", "ext-script", external, bridgeClassLoader)),
+                List.of());
         PluginRegistry registry = new PluginRegistry(
                 List.of(new CorePlaceholderPlugin()), new PluginToggleProperties(), discoveryProvider(discovery));
         UserscriptRegistry registry2 = new UserscriptRegistry(registry);
@@ -162,12 +160,12 @@ class UserscriptRegistryTest {
 
     /** 外置功能插件：声明一条油猴脚本来源，用于验证注册中心采用桥接 classloader。 */
     private static final class ExternalUserscriptPlugin implements PixivFeaturePlugin {
-        @Override public String id() { return "ext-script"; }
+        @Override public String id() { throw new IllegalStateException("id must not be read after discovery"); }
         @Override public String displayName() { return "ext-script.label"; }
         @Override public String description() { return "ext-script.summary"; }
         @Override public PluginKind kind() { return PluginKind.FEATURE; }
         @Override public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution("ext-script", "classpath:/ext-script/*.user.js"));
+            return List.of(new UserscriptContribution("classpath:/ext-script/*.user.js"));
         }
     }
 }

@@ -12,12 +12,13 @@ import javax.swing.UIManager;
 import java.awt.Color;
 import java.awt.Window;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -69,7 +70,7 @@ public final class GuiThemeManager {
     }
 
     public static void applyBeforeFirstWindow(Path configPath, String configuredThemeId,
-                                              Collection<? extends PixivFeaturePlugin> activePlugins) {
+                                              Collection<ThemePluginSource> activePlugins) {
         Runnable task = () -> {
             synchronized (LOCK) {
                 GuiThemeManager.configPath = configPath;
@@ -84,9 +85,17 @@ public final class GuiThemeManager {
         }
         try {
             SwingUtilities.invokeAndWait(task);
-        } catch (Exception e) {
-            log.error("Failed to apply GUI theme before first window; using fallback: {}", e.toString(), e);
-            SwingUtilities.invokeLater(() -> applySystemFallback("theme manager dispatch failure", e));
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            log.error("Interrupted while applying GUI theme before first window; using fallback: {}",
+                    failure.toString(), failure);
+            SwingUtilities.invokeLater(() -> applySystemFallback("theme manager dispatch interrupted", failure));
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+            throwIfJvmFatal(cause);
+            log.error("Failed to apply GUI theme before first window; using fallback: {}",
+                    cause.toString(), cause);
+            SwingUtilities.invokeLater(() -> applySystemFallback("theme manager dispatch failure", cause));
         }
     }
 
@@ -229,9 +238,10 @@ public final class GuiThemeManager {
         }
         try {
             registered.contribution().applyOnEventDispatchThread();
-        } catch (Exception e) {
-            log.error("GUI theme '{}' failed to apply; using system/JDK fallback", target, e);
-            applySystemFallback("theme apply failed: " + target, e);
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            log.error("GUI theme '{}' failed to apply; using system/JDK fallback", target, failure);
+            applySystemFallback("theme apply failed: " + target, failure);
             return;
         }
 
@@ -243,9 +253,11 @@ public final class GuiThemeManager {
             try {
                 activeContributionListener = registered.contribution().openListener(
                         appearance -> SwingUtilities.invokeLater(() -> applyAppearance(appearance)));
-            } catch (RuntimeException e) {
+            } catch (Throwable failure) {
+                throwIfJvmFatal(failure);
                 activeContributionListener = GuiThemeListenerSession.none();
-                log.warn("GUI theme '{}' listener failed to start: {}", target, e.toString(), e);
+                log.warn("GUI theme '{}' listener failed to start: {}",
+                        target, failure.toString(), failure);
             }
         }
         if (refreshExistingWindows) {
@@ -259,7 +271,8 @@ public final class GuiThemeManager {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
             log.info("Applied system LookAndFeel fallback for GUI theme: {}", reason);
             refreshWindows();
-        } catch (Exception fallbackFailure) {
+        } catch (Throwable fallbackFailure) {
+            throwIfJvmFatal(fallbackFailure);
             log.error("System LookAndFeel fallback failed; keeping current JDK LookAndFeel: {}",
                     fallbackFailure.toString(), fallbackFailure);
             if (cause != null) {
@@ -283,25 +296,32 @@ public final class GuiThemeManager {
         notifyListeners();
     }
 
-    private static Map<String, RegisteredTheme> collectThemes(Collection<? extends PixivFeaturePlugin> plugins) {
+    private static Map<String, RegisteredTheme> collectThemes(Collection<ThemePluginSource> plugins) {
         if (plugins == null || plugins.isEmpty()) {
             return Map.of();
         }
         Map<String, RegisteredTheme> collected = new LinkedHashMap<>();
         List<String> duplicates = new ArrayList<>();
-        for (PixivFeaturePlugin plugin : plugins) {
-            if (plugin == null) {
+        for (ThemePluginSource source : plugins) {
+            if (source == null) {
                 continue;
             }
+            String pluginId = source.pluginId();
+            PixivFeaturePlugin plugin = source.plugin();
             List<GuiThemeContribution> contributions;
             try {
                 contributions = plugin.guiThemes();
-            } catch (RuntimeException e) {
-                log.warn("Plugin '{}' failed to expose GUI themes: {}", plugin.id(), e.toString(), e);
+                if (contributions != null) {
+                    contributions = new ArrayList<>(contributions);
+                }
+            } catch (Throwable failure) {
+                throwIfJvmFatal(failure);
+                log.warn("Plugin '{}' failed to expose GUI themes: {}",
+                        pluginId, failure.toString(), failure);
                 continue;
             }
             if (contributions == null) {
-                log.warn("Plugin '{}' returned null GUI themes; ignoring it", plugin.id());
+                log.warn("Plugin '{}' returned null GUI themes; ignoring it", pluginId);
                 continue;
             }
             for (GuiThemeContribution contribution : contributions) {
@@ -312,24 +332,36 @@ public final class GuiThemeManager {
                 if (collected.containsKey(id)) {
                     collected.remove(id);
                     duplicates.add(id);
-                    log.error("Duplicate GUI theme id '{}' from plugin '{}' ignored", id, plugin.id());
+                    log.error("Duplicate GUI theme id '{}' from plugin '{}' ignored", id, pluginId);
                     continue;
                 }
                 if (duplicates.contains(id)) {
-                    log.error("Duplicate GUI theme id '{}' from plugin '{}' ignored", id, plugin.id());
+                    log.error("Duplicate GUI theme id '{}' from plugin '{}' ignored", id, pluginId);
                     continue;
                 }
-                collected.put(id, new RegisteredTheme(id, plugin.id(), contribution));
+                collected.put(id, new RegisteredTheme(id, pluginId, contribution));
             }
         }
         return Collections.unmodifiableMap(new LinkedHashMap<>(collected));
     }
 
+    /** 启动发现桥已校验并盖章的主题插件来源；主题聚合不得重新读取插件自报 id。 */
+    public record ThemePluginSource(String pluginId, PixivFeaturePlugin plugin) {
+        public ThemePluginSource {
+            if (pluginId == null || pluginId.isBlank()) {
+                throw new IllegalArgumentException("pluginId must not be blank");
+            }
+            Objects.requireNonNull(plugin, "plugin");
+        }
+    }
+
     private static String safeDisplayName(GuiThemeContribution contribution, Locale locale) {
         try {
             return contribution.displayName(locale);
-        } catch (RuntimeException e) {
-            log.warn("GUI theme '{}' display name failed: {}", contribution.themeId(), e.toString());
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            log.warn("GUI theme '{}' display name failed: {}",
+                    contribution.themeId(), failure.toString(), failure);
             return normalizeThemeId(contribution.themeId());
         }
     }
@@ -337,10 +369,20 @@ public final class GuiThemeManager {
     private static void closeContributionListener() {
         try {
             activeContributionListener.close();
-        } catch (RuntimeException e) {
-            log.warn("Failed to close GUI theme listener: {}", e.toString(), e);
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            log.warn("Failed to close GUI theme listener: {}", failure.toString(), failure);
         } finally {
             activeContributionListener = GuiThemeListenerSession.none();
+        }
+    }
+
+    private static void throwIfJvmFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError virtualMachineError) {
+            throw virtualMachineError;
+        }
+        if (failure instanceof ThreadDeath threadDeath) {
+            throw threadDeath;
         }
     }
 

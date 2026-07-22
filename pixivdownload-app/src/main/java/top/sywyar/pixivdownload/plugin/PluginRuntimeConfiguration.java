@@ -115,7 +115,8 @@ public class PluginRuntimeConfiguration {
      * 清点已启动外置插件的功能插件安装条目（统一描述符 + 兼容性基线状态 + classloader + 实例）与失败诊断，供
      * {@link PluginDiscoveryResult}（注册接入）与 {@link PluginStatusService}（状态报告）共用同一次清点结果。
      * 形参 {@code pluginRuntimeStatus} 仅用于排序（确保 start 先完成、PF4J 实例已就绪）。prototype——每次注入从
-     * 同一 manager 动态清点，后端 restart 后拿到当前 inventory、不永远复用过期的初始快照，也不重新扫描 / start。
+     * 同一 manager 动态汇总当前 generation 在 load 准入时固化的 provider 快照；后端 restart 后拿到当前 inventory，
+     * 不永远复用过期的初始快照，也不重新扫描 / start 或重复调用插件声明 getter。
      */
     @Bean
     @Scope("prototype")
@@ -126,7 +127,7 @@ public class PluginRuntimeConfiguration {
 
     /**
      * 投影出可接入 {@link PluginRegistry} 的外置功能插件发现结果：仅核心 API 兼容且已启动者进入 {@code discovered}，
-     * 不兼容 / 失败者并入 {@code failures}（拒绝接入）。prototype——从同一 manager 动态清点。
+     * 不兼容 / 失败者并入 {@code failures}（拒绝接入）。prototype——从同一 manager 动态汇总当前代快照。
      */
     @Bean
     @Scope("prototype")

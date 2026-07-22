@@ -41,7 +41,8 @@ import java.util.stream.Collectors;
  * 插件（{@link PluginSource#EXTERNAL}，各自插件 classloader 加载）。两类来源在注册中心里行为一致——都进入活动快照、
  * 都参与 schema / 路由 / 导航 / i18n / 静态资源合并；每条注册都保留来源与解析用 classloader（{@link RegisteredPlugin}），
  * 下游静态资源 / i18n 解析据此 classloader-aware。注册顺序稳定：<b>内置插件优先</b>（按装配顺序），外置插件追加在后、
- * 按 {@link PixivFeaturePlugin#id()} 排序。<b>pluginId 全局唯一</b>：内置与外置之间、外置彼此之间 id 冲突一律在构造期
+ * 按发现桥已盖章的 {@link DiscoveredFeaturePlugin#featurePluginId()} 排序。<b>pluginId 全局唯一</b>：
+ * 内置与外置之间、外置彼此之间 id 冲突一律在构造期
  * fail-fast 并指出冲突双方来源（不静默覆盖）。外置插件包加载 / 发现失败（坏包、主类未实现入口契约等）只记诊断、不致命。
  * <p>
  * 「安装」与「启用」分离：{@link #allPlugins()} 是全部插件（安装态，含内置与外置；构造期建立，运行期经
@@ -202,7 +203,7 @@ public class PluginRegistry implements SmartLifecycle {
         for (DiscoveredFeaturePlugin discovered : externalSorted) {
             addInstalled(byId, all,
                     new RegisteredPlugin(discovered.plugin(), PluginSource.EXTERNAL, discovered.classLoader(),
-                            discovered.sourcePluginId(), discovered.generation()),
+                            discovered.sourcePluginId(), discovered.generation(), discovered.featurePluginId()),
                     "external plugin package '" + discovered.sourcePluginId() + "'");
         }
         logExternalDiscovery(external);

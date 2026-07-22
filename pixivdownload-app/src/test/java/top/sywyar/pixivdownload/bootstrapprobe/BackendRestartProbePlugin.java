@@ -8,7 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.List;
 
 /**
  * 真实可加载的外置探针插件（仅测试用）：继承 PF4J Plugin、实现入口契约 {@link PixivPluginProvider}、暴露最小功能插件
@@ -38,8 +37,8 @@ public class BackendRestartProbePlugin extends org.pf4j.Plugin implements PixivP
     }
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new BackendRestartProbeFeaturePlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new BackendRestartProbeFeaturePlugin();
     }
 
     private void record(String event) {

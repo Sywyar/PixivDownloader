@@ -1087,7 +1087,7 @@ class PluginScheduleContributionRegistrarTest {
             @Override public PluginKind kind() { return PluginKind.FEATURE; }
             @Override public List<StaticResourceContribution> staticResources() {
                 return List.of(new StaticResourceContribution(
-                        id, "classpath:/test/", "/test/"));
+                        "classpath:/test/", "/test/"));
             }
             @Override public List<ScheduledSourceDescriptor> scheduledSourceDescriptors() { return descriptors; }
         };

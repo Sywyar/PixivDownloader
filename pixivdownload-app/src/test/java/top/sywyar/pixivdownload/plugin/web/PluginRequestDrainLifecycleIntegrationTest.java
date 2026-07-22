@@ -391,7 +391,7 @@ class PluginRequestDrainLifecycleIntegrationTest {
 
         private StaticServing(RequestLifecycleHarness harness, Resource location) {
             StaticResourceContribution contribution = new StaticResourceContribution(
-                    PLUGIN_ID, "classpath:/request-probe-static/", "/request-probe-static/", false);
+                    "classpath:/request-probe-static/", "/request-probe-static/", false);
             StaticResourceRegistry.RegisteredStaticResource registeredResource =
                     new StaticResourceRegistry.RegisteredStaticResource(
                             harness.registered, contribution, location);

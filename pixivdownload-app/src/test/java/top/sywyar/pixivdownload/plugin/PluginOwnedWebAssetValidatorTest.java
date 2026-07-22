@@ -253,7 +253,7 @@ class PluginOwnedWebAssetValidatorTest {
         public List<StaticResourceContribution> staticResources() {
             return declareResources
                     ? List.of(new StaticResourceContribution(
-                    id, "classpath:/test-download/", "/test-download/"))
+                    "classpath:/test-download/", "/test-download/"))
                     : List.of();
         }
     }

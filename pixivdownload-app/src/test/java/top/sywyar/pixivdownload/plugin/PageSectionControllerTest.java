@@ -128,7 +128,7 @@ class PageSectionControllerTest {
 
     /** 最小合法区块，只改 actionHref / moduleUrl 两个被校验的可选字段。 */
     private static PageSectionContribution sectionWith(String actionHref, String moduleUrl) {
-        return new PageSectionContribution("p", "sec", "host.slot", "stats", "title",
+        return new PageSectionContribution("sec", "host.slot", "stats", "title",
                 null, actionHref, null, null, null, moduleUrl, AccessPolicy.ADMIN, 10);
     }
 

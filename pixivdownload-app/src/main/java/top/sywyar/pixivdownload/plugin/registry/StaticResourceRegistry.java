@@ -215,10 +215,6 @@ public class StaticResourceRegistry {
         if (contribution == null) {
             throw new IllegalStateException("null static resource contribution (plugin: " + pluginId + ")");
         }
-        if (!pluginId.equals(contribution.pluginId())) {
-            throw new IllegalStateException("static resource pluginId mismatch: declared "
-                    + contribution.pluginId() + " under plugin " + pluginId);
-        }
         String location = contribution.classpathLocation();
         if (location == null || location.isBlank()
                 || !location.startsWith("classpath:") || !location.endsWith("/")) {

@@ -77,14 +77,14 @@ public final class TestGalleryPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-gallery.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-artwork.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-showcase.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/", "/pixiv-series.html", true),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-gallery/", "/pixiv-gallery/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-artwork/", "/pixiv-artwork/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-showcase/", "/pixiv-showcase/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-series/", "/pixiv-series/"));
+                new StaticResourceContribution("classpath:/static/", "/pixiv-gallery.html", true),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-artwork.html", true),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-showcase.html", true),
+                new StaticResourceContribution("classpath:/static/", "/pixiv-series.html", true),
+                new StaticResourceContribution("classpath:/static/pixiv-gallery/", "/pixiv-gallery/"),
+                new StaticResourceContribution("classpath:/static/pixiv-artwork/", "/pixiv-artwork/"),
+                new StaticResourceContribution("classpath:/static/pixiv-showcase/", "/pixiv-showcase/"),
+                new StaticResourceContribution("classpath:/static/pixiv-series/", "/pixiv-series/"));
     }
 
     @Override
@@ -141,11 +141,11 @@ public final class TestGalleryPlugin implements PixivFeaturePlugin {
     public List<PageSectionContribution> pageSections() {
         return List.of(
                 new PageSectionContribution(
-                        ID, "gallery-stats-views", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
+                        "gallery-stats-views", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
                         "gallery", "section.view", NavigationPlacements.STATS_GALLERY_LINKS,
                         null, null, null, null, null, AccessPolicy.INVITED_GUEST, 10),
                 new PageSectionContribution(
-                        ID, "gallery-stats-collections", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
+                        "gallery-stats-collections", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
                         "gallery", "section.collections", null,
                         "/pixiv-gallery.html?view=all&createCollection=1", "plus", "gallery", "collection.new",
                         "/pixiv-gallery/gallery-stats-embed.js", AccessPolicy.INVITED_GUEST, 20));
@@ -155,11 +155,11 @@ public final class TestGalleryPlugin implements PixivFeaturePlugin {
     public List<DrilldownContribution> drilldowns() {
         return List.of(
                 new DrilldownContribution(
-                        ID, "gallery-stats-author", DrilldownPlacements.STATS_TOP_AUTHORS,
+                        "gallery-stats-author", DrilldownPlacements.STATS_TOP_AUTHORS,
                         "/pixiv-gallery.html?view=all&filterAuthorId={authorId}&filterAuthorName={authorName}",
                         AccessPolicy.INVITED_GUEST, 10),
                 new DrilldownContribution(
-                        ID, "gallery-stats-tag", DrilldownPlacements.STATS_TOP_TAGS,
+                        "gallery-stats-tag", DrilldownPlacements.STATS_TOP_TAGS,
                         "/pixiv-gallery.html?view=all&filterTagId={tagId}&filterTag={tagName}"
                                 + "&filterTagTranslated={tagTranslatedName}",
                         AccessPolicy.INVITED_GUEST, 10));
@@ -167,13 +167,12 @@ public final class TestGalleryPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<StartupRouteContribution> startupRoutes() {
-        return List.of(new StartupRouteContribution(ID, "/pixiv-gallery.html", 20, Set.of(StartupRouteContext.SOLO)));
+        return List.of(new StartupRouteContribution("/pixiv-gallery.html", 20, Set.of(StartupRouteContext.SOLO)));
     }
 
     @Override
     public List<GuiOnboardingStepContribution> guiOnboardingSteps() {
         return List.of(new GuiOnboardingStepContribution(
-                ID,
                 "local-gallery-guide",
                 "gallery",
                 "gui.onboarding.title",
@@ -192,7 +191,7 @@ public final class TestGalleryPlugin implements PixivFeaturePlugin {
     @Override
     public List<LandingContribution> landings() {
         return List.of(new LandingContribution(
-                ID, "gallery", Audience.INVITED_GUEST, "/pixiv-gallery.html", 20));
+                "gallery", Audience.INVITED_GUEST, "/pixiv-gallery.html", 20));
     }
 
 }

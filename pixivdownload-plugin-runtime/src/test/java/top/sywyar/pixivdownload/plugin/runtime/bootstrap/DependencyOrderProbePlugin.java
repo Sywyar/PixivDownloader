@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.List;
 
 /**
  * 依赖排序探针插件：同一插件类可被多个测试包复用，功能插件 id 跟随 PF4J 包 id。
@@ -31,8 +30,8 @@ public class DependencyOrderProbePlugin extends Plugin implements PixivPluginPro
     }
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new DependencyOrderProbeFeaturePlugin(pluginId));
+    public PixivFeaturePlugin featurePlugin() {
+        return new DependencyOrderProbeFeaturePlugin(pluginId);
     }
 
     private void record(String event) {

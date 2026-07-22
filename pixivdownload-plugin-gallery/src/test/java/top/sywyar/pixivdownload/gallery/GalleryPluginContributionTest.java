@@ -21,7 +21,6 @@ class GalleryPluginContributionTest {
         assertThat(plugin.startupRoutes())
                 .singleElement()
                 .satisfies(route -> {
-                    assertThat(route.pluginId()).isEqualTo("gallery");
                     assertThat(route.path()).isEqualTo("/pixiv-gallery.html");
                     assertThat(route.preferredContexts()).containsExactly(StartupRouteContext.SOLO);
                 });
@@ -102,7 +101,6 @@ class GalleryPluginContributionTest {
         assertThat(plugin.guiOnboardingSteps())
                 .singleElement()
                 .satisfies(step -> {
-                    assertThat(step.pluginId()).isEqualTo("gallery");
                     assertThat(step.stepId()).isEqualTo("local-gallery-guide");
                     assertThat(step.i18nNamespace()).isEqualTo("gallery");
                     assertThat(step.titleKey()).isEqualTo("gui.onboarding.title");

@@ -24,7 +24,6 @@ import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
@@ -258,10 +257,8 @@ public class GuiLauncher {
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
         // 首窗前 startup-only 消费者先取出需要的固定快照；GUI 动态贡献在面板 / 菜单重建时从运行期 manager 重新发现，
         // 以便按当前 GUI locale 重新解析插件 i18n，同时不长期持有启动 discovery。
-        final List<PixivFeaturePlugin> startupThemePlugins = pluginSession.startupDiscovery().discovered().stream()
-                .map(discovered -> discovered.plugin())
-                .filter(plugin -> pluginSession.enabledSnapshot().isEnabled(plugin.id()))
-                .toList();
+        final List<GuiThemeManager.ThemePluginSource> startupThemePlugins = buildStartupThemePlugins(
+                pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
         final Supplier<GuiConfigContributionSnapshot> guiConfigContributions =
                 () -> buildGuiConfigContributionSnapshot(pluginSession);
         final Supplier<GuiWebEntrySnapshot> guiWebEntries = () -> buildGuiWebEntrySnapshot(pluginSession);
@@ -849,6 +846,21 @@ public class GuiLauncher {
                                                                           PluginDiscoveryResult discovery) {
         return new DatabaseSchemaRegistry(new PluginRegistry(BuiltInPlugins.createAll(),
                 togglesFromSnapshot(enabledSnapshot), discovery)).mergedSchema();
+    }
+
+    static List<GuiThemeManager.ThemePluginSource> buildStartupThemePlugins(
+            PluginEnabledSnapshot enabledSnapshot, PluginDiscoveryResult discovery) {
+        if (discovery == null) {
+            return List.of();
+        }
+        PluginEnabledSnapshot effectiveEnabled = enabledSnapshot != null
+                ? enabledSnapshot
+                : PluginEnabledSnapshot.empty();
+        return discovery.discovered().stream()
+                .filter(discovered -> effectiveEnabled.isEnabled(discovered.featurePluginId()))
+                .map(discovered -> new GuiThemeManager.ThemePluginSource(
+                        discovered.featurePluginId(), discovered.plugin()))
+                .toList();
     }
 
     private static PluginToggleProperties togglesFromSnapshot(PluginEnabledSnapshot snapshot) {

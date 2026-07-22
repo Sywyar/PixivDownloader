@@ -62,9 +62,9 @@ class DownloadExtensionRegistryTest {
                                 DownloadAcquisitionMode.QUICK,
                                 DownloadAcquisitionMode.SEARCH))),
                 List.of(
-                        new WebUiSlotContribution("download-owner", "download-owner.settings",
+                        new WebUiSlotContribution("download-owner.settings",
                                 "settings-card", MODULE_URL, 10),
-                        new WebUiSlotContribution("download-owner", "download-owner.other",
+                        new WebUiSlotContribution("download-owner.other",
                                 "novel-detail-tts", MODULE_URL, 20)));
         PluginRegistry plugins = new PluginRegistry(List.of(plugin));
         DownloadExtensionRegistry registry = registry(plugins);
@@ -178,8 +178,8 @@ class DownloadExtensionRegistryTest {
     }
 
     @Test
-    @DisplayName("非活动注册身份以及 UI slot owner 不一致都会被拒绝")
-    void inactiveIdentityAndUiSlotOwnerMismatchRejected() {
+    @DisplayName("非活动注册身份以及复制的活动身份都会被拒绝")
+    void inactiveAndCopiedIdentityRejected() {
         PluginRegistry plugins = new PluginRegistry(List.of());
         DownloadExtensionRegistry registry = registry(plugins);
         PluginRegistry.RegisteredPlugin inactive = registered(
@@ -202,13 +202,6 @@ class DownloadExtensionRegistryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("current active plugin identity");
 
-        ExtensionPlugin mismatch = new ExtensionPlugin(
-                "real-owner", List.of(),
-                List.of(new WebUiSlotContribution(
-                        "other-owner", "other.settings", "settings-card", MODULE_URL, 10)));
-        assertThatThrownBy(() -> registry(new PluginRegistry(List.of(mismatch))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("pluginId mismatch");
     }
 
     @Test
@@ -390,7 +383,7 @@ class DownloadExtensionRegistryTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    id, "classpath:/test-download/", "/test-download/"));
+                    "classpath:/test-download/", "/test-download/"));
         }
     }
 
@@ -435,7 +428,7 @@ class DownloadExtensionRegistryTest {
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    id(), "classpath:/test-download/", "/test-download/"));
+                    "classpath:/test-download/", "/test-download/"));
         }
     }
 
@@ -451,14 +444,14 @@ class DownloadExtensionRegistryTest {
         public List<WebUiSlotContribution> uiSlots() {
             return uiSlotReads.incrementAndGet() == 1
                     ? List.of(new WebUiSlotContribution(
-                            id(), "stateful-ui.settings", "settings-card", MODULE_URL, 10))
+                            "stateful-ui.settings", "settings-card", MODULE_URL, 10))
                     : List.of();
         }
 
         @Override
         public List<StaticResourceContribution> staticResources() {
             return List.of(new StaticResourceContribution(
-                    id(), "classpath:/test-download/", "/test-download/"));
+                    "classpath:/test-download/", "/test-download/"));
         }
     }
 }

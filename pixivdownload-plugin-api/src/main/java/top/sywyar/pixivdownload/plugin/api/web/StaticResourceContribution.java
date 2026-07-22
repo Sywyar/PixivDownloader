@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
 
 /**
  * 插件声明的静态资源。资源解析必须经声明方插件的 ClassLoader
- * （由注册中心按 {@code pluginId} 解析），不做全局 {@code classpath:} 扫描假设。
+ * （由注册中心按宿主登记的 owner 解析），不做全局 {@code classpath:} 扫描假设。
  * <p>
  * 本记录描述两种字形：
  * <ul>
@@ -15,19 +15,17 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * {@code routes()} / {@code RouteAccessRegistry} 声明（同一目录前缀下不同文件可有不同访问级别，
  * 故访问必须按路径声明，无法挂在目录级的本记录上）。
  *
- * @param pluginId          声明方插件 id
  * @param classpathLocation classpath 位置，如 {@code classpath:/static/pixiv-gallery/}
  * @param publicPathPrefix  对外公开路径（目录前缀或精确文件路径），如 {@code /pixiv-gallery/} 或 {@code /pixiv-stats.html}
  * @param exactFile         {@code true} 为精确文件映射，{@code false} 为目录前缀映射（默认）
  */
 public record StaticResourceContribution(
-        String pluginId,
         String classpathLocation,
         String publicPathPrefix,
         boolean exactFile
 ) {
     /** 目录贡献的便捷构造（{@code exactFile=false}）。 */
-    public StaticResourceContribution(String pluginId, String classpathLocation, String publicPathPrefix) {
-        this(pluginId, classpathLocation, publicPathPrefix, false);
+    public StaticResourceContribution(String classpathLocation, String publicPathPrefix) {
+        this(classpathLocation, publicPathPrefix, false);
     }
 }

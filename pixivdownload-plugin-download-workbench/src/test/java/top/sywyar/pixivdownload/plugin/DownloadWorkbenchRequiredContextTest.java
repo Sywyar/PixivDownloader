@@ -93,17 +93,17 @@ class DownloadWorkbenchRequiredContextTest {
     @DisplayName("静态资源、i18n 与 userscript 均由插件 classloader-aware contribution 声明")
     void staticResourcesI18nAndUserscriptsDeclared() {
         assertThat(plugin.staticResources())
-                .extracting(resource -> resource.pluginId() + "|" + resource.classpathLocation()
+                .extracting(resource -> resource.classpathLocation()
                         + "|" + resource.publicPathPrefix() + "|" + resource.exactFile())
                 .containsExactly(
-                        "download-workbench|classpath:/static/|/pixiv-batch.html|true",
-                        "download-workbench|classpath:/static/pixiv-batch/|/pixiv-batch/|false");
+                        "classpath:/static/|/pixiv-batch.html|true",
+                        "classpath:/static/pixiv-batch/|/pixiv-batch/|false");
         assertThat(plugin.i18n())
                 .extracting(i18n -> i18n.namespace() + "|" + i18n.baseName())
                 .containsExactly("batch|i18n.web.batch", "userscript|i18n.web.userscript");
         assertThat(plugin.userscripts())
-                .extracting(script -> script.pluginId() + "|" + script.classpathPattern())
-                .containsExactly("download-workbench|classpath:/static/userscripts/*.user.js");
+                .extracting(script -> script.classpathPattern())
+                .containsExactly("classpath:/static/userscripts/*.user.js");
     }
 
     @Test

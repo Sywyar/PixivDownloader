@@ -50,9 +50,9 @@ class ExampleDownloadPluginTest {
     @DisplayName("Provider 暴露非空功能插件与显式配置类")
     void providerExposesFeatureAndConfiguration() {
         ExampleDownloadPf4jPlugin provider = new ExampleDownloadPf4jPlugin();
-        assertEquals(1, provider.featurePlugins().size());
-        assertTrue(provider.featurePlugins().stream().allMatch(PixivFeaturePlugin.class::isInstance));
-        assertTrue(provider.featurePlugins().stream().noneMatch(java.util.Objects::isNull));
+        PixivFeaturePlugin feature = provider.featurePlugin();
+        assertNotNull(feature);
+        assertEquals("example-download", feature.id());
         assertEquals(java.util.List.of(ExampleDownloadConfiguration.class), provider.configurationClasses());
     }
 

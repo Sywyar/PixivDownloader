@@ -55,9 +55,9 @@ public final class ExampleMinimalPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
-                new StaticResourceContribution(ID, "classpath:/static/", "/example-minimal.html", true),
+                new StaticResourceContribution("classpath:/static/", "/example-minimal.html", true),
                 new StaticResourceContribution(
-                        ID, "classpath:/static/example-minimal/", "/example-minimal/"));
+                        "classpath:/static/example-minimal/", "/example-minimal/"));
     }
 
     @Override

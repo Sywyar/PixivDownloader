@@ -20,6 +20,7 @@ import java.util.jar.JarFile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ThinJarIT {
@@ -61,10 +62,9 @@ class ThinJarIT {
 
             assertInstanceOf(Plugin.class, instance);
             PixivPluginProvider provider = assertInstanceOf(PixivPluginProvider.class, instance);
-            List<PixivFeaturePlugin> features = provider.featurePlugins();
-            assertFalse(features.isEmpty());
-            assertTrue(features.stream().noneMatch(Objects::isNull));
-            assertEquals("example-minimal", features.get(0).id());
+            PixivFeaturePlugin feature = provider.featurePlugin();
+            assertNotNull(feature);
+            assertEquals("example-minimal", feature.id());
             assertEquals(List.of("com.example.pixivdownload.minimal.ExampleMinimalConfiguration"),
                     provider.configurationClasses().stream().map(Class::getName).toList());
             assertTrue(provider.configurationClasses().stream()

@@ -9,8 +9,8 @@ import java.util.List;
 public class PushPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new PushPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new PushPlugin();
     }
 
     @Override

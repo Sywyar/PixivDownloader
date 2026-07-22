@@ -9,8 +9,8 @@ import java.util.List;
 public class DouyinPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new DouyinPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new DouyinPlugin();
     }
 
     @Override

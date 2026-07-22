@@ -69,11 +69,11 @@ class DownloadExtensionControllerTest {
                 "demo");
         List<DownloadExtensionRegistry.RegisteredUiSlot> slots = List.of(
                 registeredSlot(owner, publicationId,
-                        new WebUiSlotContribution("demo", "demo.z", "settings-card", null, 10, Map.of("k", "v"))),
+                        new WebUiSlotContribution("demo.z", "settings-card", null, 10)),
                 registeredSlot(owner, publicationId,
-                        new WebUiSlotContribution("demo", "demo.a", "import-hint", null, 10)),
+                        new WebUiSlotContribution("demo.a", "import-hint", null, 10)),
                 registeredSlot(owner, publicationId,
-                        new WebUiSlotContribution("demo", "demo.m", "cookie-tools", null, 5)));
+                        new WebUiSlotContribution("demo.m", "cookie-tools", null, 5)));
         DownloadExtensionRegistry.Snapshot snapshot = new DownloadExtensionRegistry.Snapshot(
                 "demo-epoch",
                 1L,
@@ -97,10 +97,7 @@ class DownloadExtensionControllerTest {
         assertThat(first.owner().packageId()).isEqualTo("demo");
         assertThat(first.owner().generation()).isZero();
         assertThat(first.owner().publicationId()).isPositive();
-        assertThat(view.uiSlots()).filteredOn(slot -> slot.slotId().equals("demo.z"))
-                .singleElement()
-                .satisfies(slot -> assertThat(slot.metadata()).containsExactlyEntriesOf(Map.of("k", "v")));
-
+        assertThat(first.metadata()).isEqualTo(Map.of());
         assertThat(view.downloadTypes()).singleElement()
                 .satisfies(type -> {
                     assertThat(type.type()).isEqualTo("demo");
@@ -128,6 +125,9 @@ class DownloadExtensionControllerTest {
                         "iconKey", "colorToken", "moduleUrl", "acquisitionModes", "cancelSupported",
                         "filters", "settings", "i18nNamespace", "owner")
                 .doesNotContain("pluginId", "queue", "schedule", "gallery", "uiSlots");
+        assertThat(DownloadExtensionController.UiSlotView.class.getRecordComponents())
+                .extracting(component -> component.getName())
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "owner");
     }
 
     @Test

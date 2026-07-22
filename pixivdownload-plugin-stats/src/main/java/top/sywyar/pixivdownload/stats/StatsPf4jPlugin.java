@@ -31,8 +31,8 @@ import java.util.List;
 public class StatsPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
-    public List<PixivFeaturePlugin> featurePlugins() {
-        return List.of(new StatsPlugin());
+    public PixivFeaturePlugin featurePlugin() {
+        return new StatsPlugin();
     }
 
     @Override

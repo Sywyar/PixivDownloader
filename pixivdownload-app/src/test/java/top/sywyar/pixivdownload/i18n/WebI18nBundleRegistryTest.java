@@ -316,7 +316,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("外置插件只在注册时用桥接 ClassLoader 物化消息，发布快照不保留 loader")
+    @DisplayName("外置 i18n 使用宿主盖章 owner 与桥接 ClassLoader 且不重读插件 id")
     void externalI18nIsMaterializedThroughBridgeClassLoader() {
         // 桥接捕获的插件 classloader（真实场景为 PF4J 插件 classloader），与插件实例 class 的 loader 不同
         ClassLoader bridgeClassLoader = syntheticBundleClassLoader("bridge");
@@ -325,7 +325,8 @@ class WebI18nBundleRegistryTest {
         assertThat(external.getClass().getClassLoader()).isNotSameAs(bridgeClassLoader);
 
         PluginDiscoveryResult discovery = new PluginDiscoveryResult(
-                List.of(new DiscoveredFeaturePlugin("ext-i18n", external, bridgeClassLoader)), List.of());
+                List.of(new DiscoveredFeaturePlugin("ext-i18n", "ext-i18n", external, bridgeClassLoader)),
+                List.of());
         PluginRegistry registry = new PluginRegistry(
                 List.of(new CorePlaceholderPlugin()), new PluginToggleProperties(), discoveryProvider(discovery));
         WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(registry);
@@ -436,7 +437,7 @@ class WebI18nBundleRegistryTest {
 
     /** 外置功能插件：声明一个 i18n namespace，用于验证注册中心采用桥接 classloader。 */
     private static final class ExternalI18nPlugin implements PixivFeaturePlugin {
-        @Override public String id() { return "ext-i18n"; }
+        @Override public String id() { throw new IllegalStateException("id must not be read after discovery"); }
         @Override public String displayName() { return "ext-i18n.label"; }
         @Override public String description() { return "ext-i18n.summary"; }
         @Override public PluginKind kind() { return PluginKind.FEATURE; }

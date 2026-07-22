@@ -64,13 +64,13 @@ public class TtsPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<StaticResourceContribution> staticResources() {
-        return List.of(new StaticResourceContribution(ID, "classpath:/static/pixiv-tts/", "/pixiv-tts/"));
+        return List.of(new StaticResourceContribution("classpath:/static/pixiv-tts/", "/pixiv-tts/"));
     }
 
     @Override
     public List<WebUiSlotContribution> uiSlots() {
         return List.of(new WebUiSlotContribution(
-                ID, ID + ".novel-detail-tts", "novel-detail-tts",
+                ID + ".novel-detail-tts", "novel-detail-tts",
                 "/pixiv-tts/novel-detail-tts-slot.js", 10));
     }
 
