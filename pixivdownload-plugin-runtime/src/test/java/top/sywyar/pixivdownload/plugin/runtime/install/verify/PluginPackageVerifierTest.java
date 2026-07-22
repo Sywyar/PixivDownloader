@@ -72,6 +72,26 @@ class PluginPackageVerifierTest {
     }
 
     @Test
+    @DisplayName("单 entry 超限失败仍记录触发拒绝的实际读取字节")
+    void reportsBytesReadWhenSingleEntryCrossesLimit() {
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put("payload.bin", new byte[]{1, 2});
+        Path zip = dir.resolve("entry-usage.zip");
+        PluginPackageFixtures.writeZip(zip, entries);
+
+        assertThatThrownBy(() -> PluginPackageVerifier.verifyAndMeasure(
+                zip, limits(64 << 20, 20000, 100, 1, 1 << 20, Long.MAX_VALUE)))
+                .isInstanceOf(PluginPackageException.class)
+                .satisfies(error -> {
+                    PluginPackageException failure = (PluginPackageException) error;
+                    assertThat(failure.reason()).isEqualTo(PluginPackageException.Reason.TOO_LARGE);
+                    assertThat(failure.hasVerificationUsage()).isTrue();
+                    assertThat(failure.consumedEntries()).isEqualTo(1);
+                    assertThat(failure.consumedUncompressedBytes()).isEqualTo(2L);
+                });
+    }
+
+    @Test
     @DisplayName("归档体积超限：TOO_LARGE（解压前即按磁盘体积拒绝）")
     void rejectsArchiveTooLarge() {
         Path zip = PluginPackageFixtures.explodedZip(dir.resolve("arch.zip"),
@@ -118,6 +138,35 @@ class PluginPackageVerifierTest {
         }
         // 总解压上限设为 1 字节，jar 内任何 entry 都会超 → 证明 .jar 同样被扫描
         assertTooLarge(jar, limits(64 << 20, 20000, 1, 64 << 20, 1 << 20, Long.MAX_VALUE));
+    }
+
+    @Test
+    @DisplayName("JAR-with-lib 的私有依赖内部压缩炸弹也按同一预算拒绝")
+    void rejectsCompressionBombInsidePrivateLibrary() {
+        Map<String, byte[]> privateLibraryEntries = new LinkedHashMap<>();
+        privateLibraryEntries.put("private/zeros.bin", new byte[256 * 1024]);
+        Map<String, byte[]> pluginEntries = new LinkedHashMap<>();
+        pluginEntries.put("plugin.properties", PluginPackageFixtures.bytes("plugin.id=ext\n"));
+        pluginEntries.put("lib/private-lib.jar", PluginPackageFixtures.zipBytes(privateLibraryEntries));
+        Path jar = dir.resolve("private-lib-bomb.jar");
+        PluginPackageFixtures.writeZip(jar, pluginEntries);
+
+        assertTooLarge(jar, PluginPackageLimits.defaults());
+    }
+
+    @Test
+    @DisplayName("根 inner JAR 的内部 entry 数也计入统一上限")
+    void countsEntriesInsideRootInnerJar() {
+        Map<String, byte[]> innerEntries = new LinkedHashMap<>();
+        innerEntries.put("plugin.properties", PluginPackageFixtures.bytes("plugin.id=ext\n"));
+        innerEntries.put("a.class", PluginPackageFixtures.bytes("a"));
+        innerEntries.put("b.class", PluginPackageFixtures.bytes("b"));
+        Map<String, byte[]> outerEntries = new LinkedHashMap<>();
+        outerEntries.put("plugin.jar", PluginPackageFixtures.zipBytes(innerEntries));
+        Path zip = dir.resolve("inner-entry-count.zip");
+        PluginPackageFixtures.writeZip(zip, outerEntries);
+
+        assertTooLarge(zip, limits(64 << 20, 3, 256L << 20, 64 << 20, 1 << 20, Long.MAX_VALUE));
     }
 
     // ---------- helpers ----------

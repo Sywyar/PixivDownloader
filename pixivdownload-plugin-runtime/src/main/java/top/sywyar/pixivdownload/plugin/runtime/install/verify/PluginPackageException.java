@@ -35,18 +35,45 @@ public class PluginPackageException extends RuntimeException {
     }
 
     private final Reason reason;
+    private final int consumedEntries;
+    private final long consumedUncompressedBytes;
 
     public PluginPackageException(Reason reason, String message) {
-        super(message);
-        this.reason = Objects.requireNonNull(reason, "reason");
+        this(reason, message, null, -1, -1L);
     }
 
     public PluginPackageException(Reason reason, String message, Throwable cause) {
+        this(reason, message, cause, -1, -1L);
+    }
+
+    private PluginPackageException(Reason reason, String message, Throwable cause,
+                                   int consumedEntries, long consumedUncompressedBytes) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
+        this.consumedEntries = consumedEntries;
+        this.consumedUncompressedBytes = consumedUncompressedBytes;
     }
 
     public Reason reason() {
         return reason;
+    }
+
+    public boolean hasVerificationUsage() {
+        return consumedEntries >= 0 && consumedUncompressedBytes >= 0L;
+    }
+
+    public int consumedEntries() {
+        return consumedEntries;
+    }
+
+    public long consumedUncompressedBytes() {
+        return consumedUncompressedBytes;
+    }
+
+    PluginPackageException withVerificationUsage(int entries, long uncompressedBytes) {
+        if (hasVerificationUsage()) {
+            return this;
+        }
+        return new PluginPackageException(reason, getMessage(), getCause(), entries, uncompressedBytes);
     }
 }
