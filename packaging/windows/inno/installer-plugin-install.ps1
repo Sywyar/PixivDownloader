@@ -400,8 +400,22 @@ function Verify-Package($Item, [string]$ArtifactPath, [string]$SignaturePath) {
     if ($LASTEXITCODE -ne 0) { throw "Artifact signature verification failed for $($Item.PluginId)." }
 }
 
+function Get-Sha256Hex([string]$Path) {
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
 function Write-Provenance($Item, [string]$ArtifactPath, [string]$SignaturePath) {
     $artifact = Get-Item -LiteralPath $ArtifactPath
+    $expectedSizeBytes = [int64](Get-Prop $Item.Package "expectedSizeBytes")
+    $expectedSha256 = [string](Get-Prop $Item.Package "sha256")
+    $artifactSizeBytes = [int64]$artifact.Length
+    $artifactSha256 = Get-Sha256Hex $ArtifactPath
+    if ($artifactSizeBytes -ne $expectedSizeBytes) {
+        throw "Installed artifact size mismatch for $($Item.PluginId)."
+    }
+    if (-not [string]::Equals($artifactSha256, $expectedSha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Installed artifact SHA-256 mismatch for $($Item.PluginId)."
+    }
     $signature = Get-Prop $Item.Package "signature"
     $provenanceDir = Join-Path $artifact.Directory.FullName "provenance"
     [System.IO.Directory]::CreateDirectory($provenanceDir) | Out-Null
@@ -412,8 +426,10 @@ function Write-Provenance($Item, [string]$ArtifactPath, [string]$SignaturePath) 
         "source=MARKET_CATALOG",
         "repositoryId=official",
         "officialRepository=true",
-        "expectedSizeBytes=$([string](Get-Prop $Item.Package "expectedSizeBytes"))",
-        "expectedSha256=$([string](Get-Prop $Item.Package "sha256"))",
+        "expectedSizeBytes=$expectedSizeBytes",
+        "expectedSha256=$expectedSha256",
+        "artifactSizeBytes=$artifactSizeBytes",
+        "artifactSha256=$artifactSha256",
         "signature.formatVersion=$([string](Get-Prop $signature "formatVersion"))",
         "signature.algorithm=$([string](Get-Prop $signature "algorithm"))",
         "signature.keyId=$([string](Get-Prop $signature "keyId"))",

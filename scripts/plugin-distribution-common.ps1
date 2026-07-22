@@ -260,6 +260,14 @@ function Write-PluginProvenanceSidecar {
         [Parameter(Mandatory = $true)][string]$VerifiedAt
     )
     $artifact = Get-Item -LiteralPath $ArtifactPath
+    $artifactSizeBytes = [int64]$artifact.Length
+    $artifactSha256 = Get-Sha256Hex $ArtifactPath
+    if ($artifactSizeBytes -ne $ExpectedSizeBytes) {
+        throw "Artifact size mismatch for provenance: $ArtifactPath"
+    }
+    if (-not [string]::Equals($artifactSha256, $Sha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Artifact SHA-256 mismatch for provenance: $ArtifactPath"
+    }
     $provenanceDir = Join-Path $artifact.Directory.FullName "provenance"
     New-Item -ItemType Directory -Force -Path $provenanceDir | Out-Null
     $sidecar = Join-Path $provenanceDir "$($artifact.Name).pixiv-plugin-provenance"
@@ -270,6 +278,8 @@ function Write-PluginProvenanceSidecar {
         "officialRepository=true",
         "expectedSizeBytes=$ExpectedSizeBytes",
         "expectedSha256=$Sha256",
+        "artifactSizeBytes=$artifactSizeBytes",
+        "artifactSha256=$artifactSha256",
         "signature.formatVersion=$($Signature.formatVersion)",
         "signature.algorithm=$($Signature.algorithm)",
         "signature.keyId=$($Signature.keyId)",
@@ -294,10 +304,13 @@ function Write-UnsignedLocalPluginProvenanceSidecar {
     $provenanceDir = Join-Path $artifact.Directory.FullName "provenance"
     New-Item -ItemType Directory -Force -Path $provenanceDir | Out-Null
     $sidecar = Join-Path $provenanceDir "$($artifact.Name).pixiv-plugin-provenance"
+    $artifactSha256 = Get-Sha256Hex $ArtifactPath
     $lines = @(
         "formatVersion=1",
         "source=LOCAL_UPLOAD",
         "officialRepository=false",
+        "artifactSizeBytes=$($artifact.Length)",
+        "artifactSha256=$artifactSha256",
         "status=UNSIGNED_ALLOWED",
         "verifiedAt=$VerifiedAt",
         "diagnosticCode=UNSIGNED_ALLOWED"

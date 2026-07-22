@@ -301,11 +301,28 @@ class PluginReleaseScriptsTest {
                 "function Write-UnsignedLocalPluginProvenanceSidecar",
                 "Join-Path $artifact.Directory.FullName \"provenance\"",
                 ".pixiv-plugin-provenance",
+                "artifactSizeBytes=$artifactSizeBytes",
+                "artifactSha256=$artifactSha256",
                 "signature.formatVersion=$($Signature.formatVersion)",
                 "status=VERIFIED",
                 "source=LOCAL_UPLOAD",
                 "status=UNSIGNED_ALLOWED"
         );
+        Matcher signedProvenance = Pattern.compile(
+                "function Write-PluginProvenanceSidecar(?<body>.*?)function Write-UnsignedLocalPluginProvenanceSidecar",
+                Pattern.DOTALL).matcher(common);
+        assertThat(signedProvenance.find()).isTrue();
+        assertThat(signedProvenance.group("body")).contains(
+                "$artifactSizeBytes = [int64]$artifact.Length",
+                "$artifactSha256 = Get-Sha256Hex $ArtifactPath",
+                "if ($artifactSizeBytes -ne $ExpectedSizeBytes)",
+                "[string]::Equals($artifactSha256, $Sha256, [System.StringComparison]::OrdinalIgnoreCase)",
+                "artifactSizeBytes=$artifactSizeBytes",
+                "artifactSha256=$artifactSha256");
+        assertThat(signedProvenance.group("body").indexOf("if ($artifactSizeBytes -ne $ExpectedSizeBytes)"))
+                .isLessThan(signedProvenance.group("body").indexOf("\"status=VERIFIED\""));
+        assertThat(signedProvenance.group("body").indexOf("[string]::Equals($artifactSha256, $Sha256"))
+                .isLessThan(signedProvenance.group("body").indexOf("\"status=VERIFIED\""));
         for (String script : List.of(distribution, windows)) {
             assertThat(script).contains(
                     "Find-PluginArtifactSignatureSidecar",
@@ -450,7 +467,34 @@ class PluginReleaseScriptsTest {
                 "$($artifact.FullName).sha256",
                 "$($artifact.FullName).sig",
                 ".pixiv-plugin-provenance");
-        assertThat(installerInstall).doesNotContain("[^ -~]");
+        Matcher installerProvenance = Pattern.compile(
+                "function Write-Provenance(?<body>.*?)function Enable-Plugin",
+                Pattern.DOTALL).matcher(installerInstall);
+        assertThat(installerProvenance.find()).isTrue();
+        assertThat(installerProvenance.group("body")).contains(
+                "$expectedSizeBytes = [int64](Get-Prop $Item.Package \"expectedSizeBytes\")",
+                "$expectedSha256 = [string](Get-Prop $Item.Package \"sha256\")",
+                "$artifactSizeBytes = [int64]$artifact.Length",
+                "$artifactSha256 = Get-Sha256Hex $ArtifactPath",
+                "if ($artifactSizeBytes -ne $expectedSizeBytes)",
+                "[string]::Equals($artifactSha256, $expectedSha256, [System.StringComparison]::OrdinalIgnoreCase)",
+                "artifactSizeBytes=$artifactSizeBytes",
+                "artifactSha256=$artifactSha256");
+        assertThat(installerProvenance.group("body").indexOf("if ($artifactSizeBytes -ne $expectedSizeBytes)"))
+                .isLessThan(installerProvenance.group("body").indexOf("\"status=VERIFIED\""));
+        assertThat(installerProvenance.group("body").indexOf("[string]::Equals($artifactSha256, $expectedSha256"))
+                .isLessThan(installerProvenance.group("body").indexOf("\"status=VERIFIED\""));
+        assertThat(installerInstall.indexOf("Write-Provenance $item $target \"$target.sig\""))
+                .isGreaterThan(installerInstall.indexOf(
+                        "Copy-Item -LiteralPath $download -Destination $target -Force"));
+    }
+
+    @Test
+    @DisplayName("PowerShell provenance 脚本保持无 BOM 的纯 ASCII 字节")
+    void provenancePowerShellScriptsAreAsciiWithoutBom() throws Exception {
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("plugin-distribution-common.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
+                .resolve("installer-plugin-install.ps1"));
     }
 
     @Test
@@ -812,6 +856,20 @@ class PluginReleaseScriptsTest {
     private static String pluginDescriptor(String module) throws IOException {
         return Files.readString(repoRoot().resolve(module).resolve("src/main/resources/plugin.properties"),
                 StandardCharsets.UTF_8);
+    }
+
+    private static void assertAsciiWithoutBom(Path path) throws IOException {
+        byte[] bytes = Files.readAllBytes(path);
+        boolean hasUtf8Bom = bytes.length >= 3
+                && Byte.toUnsignedInt(bytes[0]) == 0xEF
+                && Byte.toUnsignedInt(bytes[1]) == 0xBB
+                && Byte.toUnsignedInt(bytes[2]) == 0xBF;
+        assertThat(hasUtf8Bom).as("%s must not start with a UTF-8 BOM", path).isFalse();
+        for (int index = 0; index < bytes.length; index++) {
+            assertThat(Byte.toUnsignedInt(bytes[index]))
+                    .as("%s byte %s must be ASCII", path, index)
+                    .isLessThanOrEqualTo(0x7F);
+        }
     }
 
     private static List<OfficialPlugin> officialDistributionPlugins(String common) {
