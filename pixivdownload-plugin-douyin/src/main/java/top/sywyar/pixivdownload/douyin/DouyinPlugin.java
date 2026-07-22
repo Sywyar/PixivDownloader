@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.douyin;
 import top.sywyar.pixivdownload.douyin.db.history.DouyinSchemaContribution;
 import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -13,15 +15,9 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -109,37 +105,26 @@ public class DouyinPlugin implements PixivFeaturePlugin {
     }
 
     @Override
-    public List<QueueTypeContribution> queueTypes() {
-        return List.of(new QueueTypeContribution(
-                ID,
+    public List<DownloadTypeDescriptor> downloadTypes() {
+        return List.of(new DownloadTypeDescriptor(
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
                 ID,
                 "douyin",
                 "batch.kind",
                 30,
+                "video",
+                "red",
                 MODULE_URL,
-                new DownloadTypeDescriptor(
-                        DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-                        ID,
-                        ID,
-                        "douyin",
-                        "batch.kind",
-                        30,
-                        "video",
-                        "red",
-                        MODULE_URL,
-                        List.of(
-                                DownloadAcquisitionMode.SINGLE_IMPORT,
-                                DownloadAcquisitionMode.USER_PROFILE,
-                                DownloadAcquisitionMode.SEARCH,
-                                DownloadAcquisitionMode.SERIES_COLLECTION,
-                                DownloadAcquisitionMode.QUICK),
-                        DownloadQueueCapabilities.full(),
-                        DownloadScheduleCapabilities.saveableSource(),
-                        List.of(),
-                        List.of(),
-                        UI_SLOT_TARGETS,
-                        "douyin",
-                        DownloadGalleryCapabilities.independentPageOnly())));
+                List.of(
+                        DownloadAcquisitionMode.SINGLE_IMPORT,
+                        DownloadAcquisitionMode.USER_PROFILE,
+                        DownloadAcquisitionMode.SEARCH,
+                        DownloadAcquisitionMode.SERIES_COLLECTION,
+                        DownloadAcquisitionMode.QUICK),
+                true,
+                List.of(),
+                List.of(),
+                "douyin"));
     }
 
     @Override

@@ -104,38 +104,44 @@ async function runParse(textareaValue, {
     const document = makeDocument(textareaValue);
     const downloadTypes = [];
     if (pixivEnabled) downloadTypes.push({
-        contractVersion: 1, type: 'illust', ownerPluginId: 'download-workbench',
-        packageId: 'download-workbench', pluginGeneration: 1, publicationId: 1,
+        contractVersion: 1, type: 'illust',
+        owner: {pluginId: 'download-workbench', packageId: 'download-workbench', generation: 1, publicationId: 1},
         order: 1, moduleUrl: '/test/illust.js', acquisitionModes: ['single-import']
     });
     if (novelEnabled) {
         downloadTypes.push(
-            {contractVersion: 1, type: 'novel', ownerPluginId: 'novel', packageId: 'novel',
-                pluginGeneration: 1, publicationId: 2, order: 2, moduleUrl: '/test/novel.js',
+            {contractVersion: 1, type: 'novel',
+                owner: {pluginId: 'novel', packageId: 'novel', generation: 1, publicationId: 2},
+                order: 2, moduleUrl: '/test/novel.js',
                 acquisitionModes: ['single-import']},
-            {contractVersion: 1, type: 'structured', ownerPluginId: 'structured', packageId: 'structured',
-                pluginGeneration: 1, publicationId: 3, order: 3, moduleUrl: '/test/structured.js',
+            {contractVersion: 1, type: 'structured',
+                owner: {pluginId: 'structured', packageId: 'structured', generation: 1, publicationId: 3},
+                order: 3, moduleUrl: '/test/structured.js',
                 acquisitionModes: ['single-import']});
     }
     if (douyinEnabled) downloadTypes.push({
-        contractVersion: 1, type: 'douyin', ownerPluginId: 'douyin', packageId: 'douyin',
-        pluginGeneration: 1, publicationId: 4, order: 4,
+        contractVersion: 1, type: 'douyin',
+        owner: {pluginId: 'douyin', packageId: 'douyin', generation: 1, publicationId: 4},
+        order: 4,
         moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
         acquisitionModes: ['single-import', 'series']
     });
     if (lowOrderEnabled) downloadTypes.push({
-        contractVersion: 1, type: 'low-order', ownerPluginId: 'low-order', packageId: 'low-order',
-        pluginGeneration: 1, publicationId: 5, order: -30,
+        contractVersion: 1, type: 'low-order',
+        owner: {pluginId: 'low-order', packageId: 'low-order', generation: 1, publicationId: 5},
+        order: -30,
         moduleUrl: '/test/low-order.js', acquisitionModes: ['single-import']
     });
     if (ambiguousUrlEnabled) downloadTypes.push({
-        contractVersion: 1, type: 'rival-url', ownerPluginId: 'rival-url', packageId: 'rival-url',
-        pluginGeneration: 1, publicationId: 6, order: -20,
+        contractVersion: 1, type: 'rival-url',
+        owner: {pluginId: 'rival-url', packageId: 'rival-url', generation: 1, publicationId: 6},
+        order: -20,
         moduleUrl: '/test/rival-url.js', acquisitionModes: ['single-import']
     });
     if (secondBareDefaultEnabled) downloadTypes.push({
-        contractVersion: 1, type: 'rival-default', ownerPluginId: 'rival-default',
-        packageId: 'rival-default', pluginGeneration: 1, publicationId: 7, order: -10,
+        contractVersion: 1, type: 'rival-default',
+        owner: {pluginId: 'rival-default', packageId: 'rival-default', generation: 1, publicationId: 7},
+        order: -10,
         moduleUrl: '/test/rival-default.js', acquisitionModes: ['single-import']
     });
     const localStorageMap = new Map();
@@ -152,7 +158,7 @@ async function runParse(textareaValue, {
             setItem: (key, value) => localStorageMap.set(key, String(value || ''))
         },
         fetch: () => Promise.resolve({ok: true, json: () => Promise.resolve({
-            epoch: 'single-import-test-epoch', revision: 1, downloadTypes, tabs: [], uiSlots: []
+            epoch: 'single-import-test-epoch', revision: 1, downloadTypes, uiSlots: []
         })}),
         // —— 宿主工具函数桩 ——
         SINGLE_IMPORT_MODE: 'single-import',

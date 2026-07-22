@@ -5,6 +5,8 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +20,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -101,6 +104,18 @@ class DuplicatePluginModuleDependencyGuardTest {
         assertThat(CLASSES.contain(DuplicateService.class.getName())).isTrue();
         assertThat(CLASSES.contain(DuplicateScanService.class.getName())).isTrue();
         assertThat(CLASSES.contain(DuplicateHashBackfillTask.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("duplicate 队列操作实现非空且由插件生命周期托管")
+    void queueOperationsArePluginManaged() {
+        assertThat(CLASSES.contain(DuplicateScanService.class.getName())).isTrue();
+        classes()
+                .that().areAssignableTo(QueueOperations.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(PluginManagedBean.class)
+                .because("运行期队列操作必须随所属插件 child context 一并发布和撤回")
+                .check(CLASSES);
     }
 
     private static void collectAppTypeReferences(Path root,

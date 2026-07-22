@@ -12,10 +12,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescri
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
@@ -140,12 +138,10 @@ class DownloadWorkbenchRequiredContextTest {
     }
 
     @Test
-    @DisplayName("导航、默认落点、插画队列类型和五个下载页 tab 均随插件注册/注销")
-    void navigationStartupQueueTypeAndTabsDeclared() {
+    @DisplayName("导航、默认落点和插画下载类型由插件声明")
+    void navigationStartupAndDownloadTypeDeclared() {
         PluginRegistry pluginRegistry = new PluginRegistry(List.of(plugin));
         StartupRouteRegistry startupRouteRegistry = new StartupRouteRegistry(pluginRegistry);
-        QueueTypeRegistry queueTypeRegistry = new QueueTypeRegistry(pluginRegistry);
-        DownloadTabRegistry downloadTabRegistry = new DownloadTabRegistry(pluginRegistry);
 
         assertThat(plugin.navigation()).singleElement()
                 .satisfies(nav -> {
@@ -154,24 +150,15 @@ class DownloadWorkbenchRequiredContextTest {
                 });
         assertThat(startupRouteRegistry.resolvePath(StartupRouteContext.MULTI))
                 .contains("/pixiv-batch.html");
-        assertThat(queueTypeRegistry.queueTypes())
-                .extracting(item -> item.queueType().type())
-                .containsExactly("illust");
-        assertThat(queueTypeRegistry.queueTypes()).singleElement().satisfies(item -> {
-            assertThat(item.queueType().labelNamespace()).isEqualTo("batch");
-            assertThat(item.queueType().descriptor().displayNamespace()).isEqualTo("batch");
-            assertThat(item.queueType().descriptor().i18nNamespace()).isEqualTo("batch");
+        assertThat(plugin.downloadTypes()).singleElement().satisfies(descriptor -> {
+            assertThat(descriptor.type()).isEqualTo("illust");
+            assertThat(descriptor.displayNamespace()).isEqualTo("batch");
+            assertThat(descriptor.i18nNamespace()).isEqualTo("batch");
+            assertThat(descriptor.cancelSupported()).isTrue();
         });
-        assertThat(downloadTabRegistry.tabs())
-                .extracting(item -> item.tab().tabId())
-                .containsExactly("quick-fetch", "single-import", "user", "search", "series");
 
         startupRouteRegistry.unregister("download-workbench");
-        queueTypeRegistry.unregister("download-workbench");
-        downloadTabRegistry.unregister("download-workbench");
         assertThat(startupRouteRegistry.resolvePath(StartupRouteContext.MULTI)).isEmpty();
-        assertThat(queueTypeRegistry.queueTypes()).isEmpty();
-        assertThat(downloadTabRegistry.tabs()).isEmpty();
     }
 
     @Test

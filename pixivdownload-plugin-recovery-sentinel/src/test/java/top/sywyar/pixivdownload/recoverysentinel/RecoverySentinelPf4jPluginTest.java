@@ -82,8 +82,7 @@ class RecoverySentinelPf4jPluginTest {
         assertThat(sentinel.schema()).isEmpty();
         assertThat(sentinel.maintenanceTasks()).isEmpty();
         assertThat(sentinel.scheduledSourceDescriptors()).isEmpty();
-        assertThat(sentinel.queueTypes()).isEmpty();
-        assertThat(sentinel.downloadTabs()).isEmpty();
+        assertThat(sentinel.downloadTypes()).isEmpty();
         assertThat(sentinel.startupRoutes()).isEmpty();
         assertThat(sentinel.landings()).isEmpty();
         assertThat(sentinel.pageSections()).isEmpty();

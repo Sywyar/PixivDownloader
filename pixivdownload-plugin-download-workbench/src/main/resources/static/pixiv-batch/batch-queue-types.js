@@ -29,7 +29,6 @@ window.PixivBatch.queueTypes = (function () {
         orderedTypes: [],
         activations: new Map(),
         uiActivations: new Set(),
-        tabs: [],
         uiSlots: [],
         controller: new AbortController(),
         disposers: []
@@ -197,12 +196,12 @@ window.PixivBatch.queueTypes = (function () {
         if (!raw || typeof raw !== 'object') return null;
         const owner = raw.owner && typeof raw.owner === 'object' ? raw.owner : {};
         const type = text(raw.type);
-        const ownerPluginId = text(owner.pluginId || raw.ownerPluginId);
-        const packageId = text(owner.packageId || raw.packageId);
+        const ownerPluginId = text(owner.pluginId);
+        const packageId = text(owner.packageId);
         const moduleUrl = normalizedModuleUrl(raw.moduleUrl);
         const contractVersion = Number(raw.contractVersion);
-        const pluginGeneration = Number(owner.generation != null ? owner.generation : raw.pluginGeneration);
-        const publicationId = Number(owner.publicationId != null ? owner.publicationId : raw.publicationId);
+        const pluginGeneration = Number(owner.generation);
+        const publicationId = Number(owner.publicationId);
         const order = Number(raw.order);
         if (!type || !ownerPluginId || !packageId || !moduleUrl
             || contractVersion !== CONTRACT_VERSION
@@ -213,29 +212,25 @@ window.PixivBatch.queueTypes = (function () {
         const acquisitionModes = Array.isArray(raw.acquisitionModes)
             ? Array.from(new Set(raw.acquisitionModes.map(text).filter(mode => KNOWN_MODES.has(mode))))
             : [];
-        const declaredSlots = Array.isArray(raw.uiSlots)
-            ? Array.from(new Set(raw.uiSlots.map(text).filter(Boolean))) : [];
-        const rawQueue = raw.queue && typeof raw.queue === 'object' && !Array.isArray(raw.queue)
-            ? raw.queue : {};
-        const descriptor = Object.assign({}, raw, {
+        const descriptor = {
             contractVersion,
             type,
+            displayNamespace: text(raw.displayNamespace),
+            displayI18nKey: text(raw.displayI18nKey),
+            order: Number.isFinite(order) ? order : 0,
+            iconKey: text(raw.iconKey),
+            colorToken: text(raw.colorToken),
+            moduleUrl,
+            acquisitionModes: Object.freeze(acquisitionModes),
+            cancelSupported: raw.cancelSupported === true,
+            filters: Object.freeze(Array.isArray(raw.filters) ? raw.filters.map(text).filter(Boolean) : []),
+            settings: Object.freeze(Array.isArray(raw.settings) ? raw.settings.map(text).filter(Boolean) : []),
+            i18nNamespace: text(raw.i18nNamespace),
             ownerPluginId,
             packageId,
             pluginGeneration,
-            publicationId,
-            moduleUrl,
-            order: Number.isFinite(order) ? order : 0,
-            acquisitionModes: Object.freeze(acquisitionModes),
-            uiSlots: Object.freeze(declaredSlots),
-            queue: Object.freeze({
-                clearAll: rawQueue.clearAll === true,
-                clearForOwner: rawQueue.clearForOwner === true,
-                cancel: rawQueue.cancel === true
-            }),
-            filters: Object.freeze(Array.isArray(raw.filters) ? raw.filters.map(text).filter(Boolean) : []),
-            settings: Object.freeze(Array.isArray(raw.settings) ? raw.settings.map(text).filter(Boolean) : [])
-        });
+            publicationId
+        };
         descriptor.identity = [ownerPluginId, packageId, pluginGeneration, publicationId, type, moduleUrl].join(':');
         return Object.freeze(descriptor);
     }
@@ -293,7 +288,6 @@ window.PixivBatch.queueTypes = (function () {
         const orderedTypes = Array.from(manifest.values())
             .sort((a, b) => (a.order - b.order) || a.type.localeCompare(b.type))
             .map(item => item.type);
-        const tabs = Array.isArray(raw.tabs) ? raw.tabs.slice() : [];
         const slotIds = new Set();
         const uiSlots = [];
         (Array.isArray(raw.uiSlots) ? raw.uiSlots : []).forEach(item => {
@@ -307,7 +301,7 @@ window.PixivBatch.queueTypes = (function () {
             .concat(orderedTypes.map(type => manifest.get(type).identity))
             .concat(uiSlots.map(slot => slot.identity))
             .join('|');
-        return {epoch, revision, identity, manifest, orderedTypes, tabs, uiSlots};
+        return {epoch, revision, identity, manifest, orderedTypes, uiSlots};
     }
 
     function appendCachebuster(moduleUrl, load) {
@@ -399,7 +393,8 @@ window.PixivBatch.queueTypes = (function () {
         const allowedModes = declared;
         const behavior = {};
         Object.keys(descriptor).forEach(key => {
-            if (!['process', 'import', 'acquisition', 'contractVersion', 'slots', 'uiSlots', 'filters', 'settings']
+            if (key === 'uiSlots') return;
+            if (!['process', 'import', 'acquisition', 'contractVersion', 'slots', 'filters', 'settings']
                 .includes(key)) {
                 behavior[key] = descriptor[key];
             }
@@ -445,11 +440,8 @@ window.PixivBatch.queueTypes = (function () {
             }
         });
         behavior.acquisition = acquisition;
-        const rawSlots = isPlainObject(descriptor.slots)
-            ? descriptor.slots
-            : (isPlainObject(descriptor.uiSlots) ? descriptor.uiSlots : {});
-        const declaredSlots = new Set((backend.uiSlots || [])
-            .filter(target => publishedSlotTargets && publishedSlotTargets.has(target)));
+        const rawSlots = isPlainObject(descriptor.slots) ? descriptor.slots : {};
+        const declaredSlots = new Set(publishedSlotTargets || []);
         behavior.slots = {};
         Object.keys(rawSlots).forEach(target => {
             const requiredMode = SLOT_MODE[target];
@@ -979,7 +971,6 @@ window.PixivBatch.queueTypes = (function () {
             orderedTypes: manifest.orderedTypes,
             activations: new Map(),
             uiActivations,
-            tabs: manifest.tabs,
             uiSlots: manifest.uiSlots,
             controller,
             activation,
@@ -1007,7 +998,6 @@ window.PixivBatch.queueTypes = (function () {
             orderedTypes: manifest.orderedTypes,
             activations: candidate,
             uiActivations,
-            tabs: manifest.tabs,
             uiSlots: manifest.uiSlots,
             controller,
             activation,
@@ -1229,7 +1219,7 @@ window.PixivBatch.queueTypes = (function () {
             moduleUrl: item.moduleUrl,
             i18nNamespace: text(item.i18nNamespace),
             acquisitionModes: Object.freeze(item.acquisitionModes.slice()),
-            queue: item.queue,
+            cancelSupported: item.cancelSupported,
             owner: Object.freeze({
                 pluginId: item.ownerPluginId,
                 packageId: item.packageId,
@@ -1371,22 +1361,20 @@ window.PixivBatch.queueTypes = (function () {
         if (Object.prototype.hasOwnProperty.call(value, 'cancelWorkKey')) {
             return normalizedCancelWorkKey(value.cancelWorkKey);
         }
-        const type = text(value.kind);
-        const legacyId = typeof value.id === 'string' ? value.id : '';
-        return type === 'illust' && /^[0-9]{1,18}$/.test(legacyId) ? legacyId : null;
+        return null;
     }
 
     function canCancel(item) {
         const type = text(item && item.kind);
         const entry = activeEntry(type);
-        return !!entry && entry.descriptor.queue.cancel === true && cancelWorkKey(item) !== null;
+        return !!entry && entry.descriptor.cancelSupported === true && cancelWorkKey(item) !== null;
     }
 
     async function cancel(item) {
         const type = text(item && item.kind);
         const entry = activeEntry(type);
         const workKey = cancelWorkKey(item);
-        if (!entry || entry.descriptor.queue.cancel !== true || workKey === null) {
+        if (!entry || entry.descriptor.cancelSupported !== true || workKey === null) {
             const error = new Error('queue item cancellation is unavailable');
             error.code = 'QUEUE_CANCEL_UNAVAILABLE';
             throw error;
@@ -1611,7 +1599,6 @@ window.PixivBatch.queueTypes = (function () {
         downloadTypes.forEach(item => {
             addNamespace(out, seen, item && item.displayNamespace);
             addNamespace(out, seen, item && item.i18nNamespace);
-            addNamespace(out, seen, item && item.gallery && item.gallery.reasonNamespace);
         });
         if (current.identity) {
             current.orderedTypes.forEach(type => {

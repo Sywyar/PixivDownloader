@@ -1,10 +1,12 @@
 package top.sywyar.pixivdownload.plugin.api.download.queue;
 
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
+
 /**
  * 插件贡献的 owner-scoped 队列操作契约。
  *
  * <p>{@link #queueType()} 是注册中心内全局唯一的稳定路由键。下载作品类型通常与
- * {@code QueueTypeContribution.type()} 使用同一口径，但注册中心也承载已有的非下载后台队列；调用方不得假定
+ * {@link DownloadTypeDescriptor#type()} 使用同一口径，但注册中心也承载已有的非下载后台队列；调用方不得假定
  * 每个操作都存在下载类型 descriptor。
  *
  * <p>{@link #clearAll()} 与 {@link #clearForOwner(String)} 是必选能力；单项取消是可选能力。清退方法的默认实现

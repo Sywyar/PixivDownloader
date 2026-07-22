@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
@@ -11,10 +12,8 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
-import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -202,13 +201,8 @@ public interface PixivFeaturePlugin {
         return List.of();
     }
 
-    /** 插件贡献的下载队列作品类型（work-type 轴：下载什么；由提供该类型的插件声明）。 */
-    default List<QueueTypeContribution> queueTypes() {
-        return List.of();
-    }
-
-    /** 插件贡献的下载工作台获取方式标签页（acquisition 轴：怎么找作品；由提供该标签页的插件声明）。 */
-    default List<TabContribution> downloadTabs() {
+    /** 插件贡献的下载工作台作品类型；可信 owner 与 publication 身份由宿主注册时盖章。 */
+    default List<DownloadTypeDescriptor> downloadTypes() {
         return List.of();
     }
 

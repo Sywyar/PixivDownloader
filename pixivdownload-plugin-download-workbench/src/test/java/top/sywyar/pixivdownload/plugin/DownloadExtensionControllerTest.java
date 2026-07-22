@@ -4,32 +4,27 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
-import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
-import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
-
-import java.util.List;
-import java.util.Map;
-
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionOwner;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
- * {@link DownloadExtensionController} 单测：下载页扩展点端点把 queueType / tab / ui-slot 三类合并后的不可变快照
- * 暴露给前端。重点验证新增的 ui-slot 视图：按 {@code order} 再 {@code slotId} 稳定排序、携带可信 owner、
- * 保留 target / moduleUrl / metadata，且只投影下载页稳定目标。
+ * {@link DownloadExtensionController} 单测：端点仅投影 owner-stamped 下载类型与独立发布的 UI 槽位。
+ * 重点验证响应字段收窄、稳定排序、可信 owner，以及 descriptor 不再携带 queue / schedule / gallery /
+ * uiSlots / pluginId 等职责外数据。
  */
 @DisplayName("DownloadExtensionController 下载页扩展点端点")
 class DownloadExtensionControllerTest {
@@ -46,11 +41,46 @@ class DownloadExtensionControllerTest {
         return controllerFor(registry).extensions();
     }
 
+    private static ResponseEntity<DownloadExtensionController.DownloadExtensionsView> responseFor(
+            DownloadExtensionRegistry.Snapshot snapshot) {
+        DownloadExtensionRegistry registry = mock(DownloadExtensionRegistry.class);
+        when(registry.snapshot()).thenReturn(snapshot);
+        return new DownloadExtensionController(registry).extensions();
+    }
+
     @Test
-    @DisplayName("ui-slot 视图按 order→slotId 稳定排序并保留可信 owner 与扩展元数据")
-    void uiSlotsSortedAndProjected() {
-        PluginRegistry registry = new PluginRegistry(List.of(new DemoExtensionPlugin()));
-        ResponseEntity<DownloadExtensionController.DownloadExtensionsView> response = responseFor(registry);
+    @DisplayName("下载类型与 ui-slot 稳定排序并只投影收窄契约和可信 owner")
+    void downloadTypesAndUiSlotsAreSortedAndProjected() {
+        DownloadExtensionOwner owner = new DownloadExtensionOwner("demo", "demo", 0L);
+        long publicationId = 7L;
+        DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+                "demo",
+                "demo",
+                "demo.kind",
+                5,
+                "download",
+                "neutral",
+                "/pixiv-batch/pixiv-queue-type.js",
+                List.of(DownloadAcquisitionMode.SINGLE_IMPORT),
+                true,
+                List.of(),
+                List.of(),
+                "demo");
+        List<DownloadExtensionRegistry.RegisteredUiSlot> slots = List.of(
+                registeredSlot(owner, publicationId,
+                        new WebUiSlotContribution("demo", "demo.z", "settings-card", null, 10, Map.of("k", "v"))),
+                registeredSlot(owner, publicationId,
+                        new WebUiSlotContribution("demo", "demo.a", "import-hint", null, 10)),
+                registeredSlot(owner, publicationId,
+                        new WebUiSlotContribution("demo", "demo.m", "cookie-tools", null, 5)));
+        DownloadExtensionRegistry.Snapshot snapshot = new DownloadExtensionRegistry.Snapshot(
+                "demo-epoch",
+                1L,
+                List.of(new DownloadExtensionRegistry.RegisteredDownloadType(
+                        owner, publicationId, descriptor)),
+                slots);
+        ResponseEntity<DownloadExtensionController.DownloadExtensionsView> response = responseFor(snapshot);
         DownloadExtensionController.DownloadExtensionsView view = response.getBody();
 
         assertThat(response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-store");
@@ -58,54 +88,51 @@ class DownloadExtensionControllerTest {
         assertThat(view.epoch()).isNotBlank();
         assertThat(view.revision()).isEqualTo(1L);
         assertThat(view.uiSlots()).extracting(DownloadExtensionController.UiSlotView::slotId)
-                .containsExactly("demo.m", "demo.a", "demo.z");   // order 5 → order 10（slotId a 先于 z）
+                .containsExactly("demo.m", "demo.a", "demo.z");
 
         DownloadExtensionController.UiSlotView first = view.uiSlots().get(0);
         assertThat(first.target()).isEqualTo("cookie-tools");
-        assertThat(first.moduleUrl()).isNull();                   // null moduleUrl（宿主内联）保真
+        assertThat(first.moduleUrl()).isNull();
         assertThat(first.owner().pluginId()).isEqualTo("demo");
         assertThat(first.owner().packageId()).isEqualTo("demo");
         assertThat(first.owner().generation()).isZero();
         assertThat(first.owner().publicationId()).isPositive();
-        assertThat(view.uiSlots()).filteredOn(s -> s.slotId().equals("demo.z"))
+        assertThat(view.uiSlots()).filteredOn(slot -> slot.slotId().equals("demo.z"))
                 .singleElement()
-                .satisfies(s -> assertThat(s.metadata()).containsExactlyEntriesOf(Map.of("k", "v")));
+                .satisfies(slot -> assertThat(slot.metadata()).containsExactlyEntriesOf(Map.of("k", "v")));
 
-        // queueType / tab 仍正常暴露（回归）
-        assertThat(view.queueTypes()).extracting(DownloadExtensionController.QueueTypeView::type).containsExactly("demo");
-        assertThat(view.downloadTypes()).extracting(DownloadExtensionController.DownloadTypeView::type)
-                .containsExactly("demo");
         assertThat(view.downloadTypes()).singleElement()
                 .satisfies(type -> {
-                    assertThat(type.pluginId()).isEqualTo("demo");
+                    assertThat(type.type()).isEqualTo("demo");
                     assertThat(type.contractVersion()).isEqualTo(1);
+                    assertThat(type.displayNamespace()).isEqualTo("demo");
+                    assertThat(type.displayI18nKey()).isEqualTo("demo.kind");
+                    assertThat(type.moduleUrl()).isEqualTo("/pixiv-batch/pixiv-queue-type.js");
                     assertThat(type.acquisitionModes()).containsExactly("single-import");
-                    assertThat(type.queue().clearAll()).isTrue();
-                    assertThat(type.schedule().suspendWhenExecutorMissing()).isTrue();
-                    assertThat(type.gallery().independentPage()).isTrue();
+                    assertThat(type.cancelSupported()).isTrue();
                     assertThat(type.owner().pluginId()).isEqualTo("demo");
                     assertThat(type.owner().publicationId()).isPositive();
                 });
-        assertThat(view.tabs()).extracting(DownloadExtensionController.TabView::tabId)
-                .containsExactly("single-import");
-        assertThat(view.tabs()).singleElement()
-                .satisfies(tab -> assertThat(tab.supportedQueueTypes()).containsExactly("demo"));
     }
 
     @Test
-    @DisplayName("扩展清单只投影当前下载类型与独立页能力")
-    void responseRecordsExcludeRemovedDraftFields() {
+    @DisplayName("扩展响应与下载类型视图只包含当前单一来源契约字段")
+    void responseRecordsContainOnlyCurrentContractFields() {
+        assertThat(DownloadExtensionController.DownloadExtensionsView.class.getRecordComponents())
+                .extracting(component -> component.getName())
+                .containsExactly("epoch", "revision", "downloadTypes", "uiSlots");
         assertThat(DownloadExtensionController.DownloadTypeView.class.getRecordComponents())
                 .extracting(component -> component.getName())
-                .doesNotContain("legacyContract");
-        assertThat(DownloadExtensionController.GalleryCapabilitiesView.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly("independentPage", "reasonNamespace", "reasonI18nKey");
+                .containsExactly(
+                        "contractVersion", "type", "displayNamespace", "displayI18nKey", "order",
+                        "iconKey", "colorToken", "moduleUrl", "acquisitionModes", "cancelSupported",
+                        "filters", "settings", "i18nNamespace", "owner")
+                .doesNotContain("pluginId", "queue", "schedule", "gallery", "uiSlots");
     }
 
     @Test
     @DisplayName("novel 插件缺席时端点不暴露小说 UI 槽位")
-    void builtInNovelUiSlotsExposed() {
+    void novelUiSlotsAreAbsentWithoutNovelPlugin() {
         DownloadExtensionController.DownloadExtensionsView view = responseFor(
                 new PluginRegistry(BuiltInPlugins.createAll())).getBody();
         assertThat(view).isNotNull();
@@ -115,55 +142,10 @@ class DownloadExtensionControllerTest {
                         "import-hint", "search-filter", "settings-card");
     }
 
-    /** 合成扩展点插件：声明一个作品类型 + 一个标签页 + 三个乱序 UI 槽位（验证端点排序 / 投影）。 */
-    private static final class DemoExtensionPlugin implements PixivFeaturePlugin {
-        @Override
-        public String id() {
-            return "demo";
-        }
-
-        @Override
-        public String displayName() {
-            return "demo.label";
-        }
-
-        @Override
-        public String description() {
-            return "demo.summary";
-        }
-
-        @Override
-        public PluginKind kind() {
-            return PluginKind.FEATURE;
-        }
-
-        @Override
-        public List<QueueTypeContribution> queueTypes() {
-            return List.of(new QueueTypeContribution(
-                    "demo", "demo", "demo", "demo.kind", 5, null,
-                    new DownloadTypeDescriptor(
-                            DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-                            "demo", "demo", "demo", "demo.kind", 5,
-                            "download", "neutral", null,
-                            List.of(DownloadAcquisitionMode.SINGLE_IMPORT),
-                            DownloadQueueCapabilities.full(),
-                            DownloadScheduleCapabilities.notSaveable(),
-                            List.of(), List.of(), List.of(), "demo",
-                            new DownloadGalleryCapabilities(true, null, null))));
-        }
-
-        @Override
-        public List<TabContribution> downloadTabs() {
-            return List.of(new TabContribution("demo", "single-import", 5, List.of()));
-        }
-
-        @Override
-        public List<WebUiSlotContribution> uiSlots() {
-            return List.of(
-                    new WebUiSlotContribution("demo", "demo.z", "settings-card", null, 10, Map.of("k", "v")),
-                    new WebUiSlotContribution("demo", "demo.a", "import-hint", null, 10),
-                    new WebUiSlotContribution("demo", "demo.m", "cookie-tools", null, 5));
-        }
+    private static DownloadExtensionRegistry.RegisteredUiSlot registeredSlot(
+            DownloadExtensionOwner owner,
+            long publicationId,
+            WebUiSlotContribution slot) {
+        return new DownloadExtensionRegistry.RegisteredUiSlot(owner, publicationId, slot);
     }
-
 }

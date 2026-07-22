@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry.Owned
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -29,7 +30,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescri
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -548,10 +548,10 @@ class PluginLifecycleServiceTest {
     }
 
     @Test
-    @DisplayName("queueTypes getter 抛断言错误时 quiesce 仍完成且 stop 不会二次撤回 schedule")
-    void queueTypeGetterAssertionErrorDoesNotStrandQuiesce() {
+    @DisplayName("downloadTypes getter 已不可安全读取时 quiesce 仍完成且 stop 不会二次撤回 schedule")
+    void downloadTypeGetterAssertionErrorDoesNotStrandQuiesce() {
         MockHarness h = new MockHarness();
-        h.plugin.failQueueTypesWithError = true;
+        h.plugin.failDownloadTypesWithError = true;
 
         h.service.quiesce("ext-demo");
 
@@ -1601,7 +1601,7 @@ class PluginLifecycleServiceTest {
             assertThat(h.service.phase(h.plugin.id())).contains(PluginRuntimePhase.STOPPED);
             assertThat(h.routes.routes()).noneMatch(route -> route.pluginId().equals(h.plugin.id()));
             assertThat(h.statics.resources()).noneMatch(resource -> resource.pluginId().equals(h.plugin.id()));
-            assertThat(h.downloads.snapshot().queueTypes()).isEmpty();
+            assertThat(h.downloads.snapshot().downloadTypes()).isEmpty();
             assertThat(h.webRegistrar.currentHandle(h.registered)).isEmpty();
 
             releaseStart.countDown();
@@ -1611,8 +1611,8 @@ class PluginLifecycleServiceTest {
             assertThat(h.service.phase(h.plugin.id())).contains(PluginRuntimePhase.STARTED);
             assertThat(h.routes.routes()).anyMatch(route -> route.pluginId().equals(h.plugin.id()));
             assertThat(h.statics.resources()).anyMatch(resource -> resource.pluginId().equals(h.plugin.id()));
-            assertThat(h.downloads.snapshot().queueTypes()).singleElement().satisfies(queue ->
-                    assertThat(queue.queueType().type()).isEqualTo("stateful-type"));
+            assertThat(h.downloads.snapshot().downloadTypes()).singleElement().satisfies(type ->
+                    assertThat(type.descriptor().type()).isEqualTo("stateful-type"));
             h.plugin.startEntered = null;
             h.plugin.releaseStart = null;
             h.service.stop(h.plugin.id());
@@ -1644,7 +1644,7 @@ class PluginLifecycleServiceTest {
             assertThat(h.plugin.startCount).isEqualTo(1);
             assertThat(h.plugin.stopCount).isEqualTo(1);
             assertThat(h.routes.routes()).anyMatch(route -> route.pluginId().equals(h.plugin.id()));
-            assertThat(h.downloads.snapshot().queueTypes()).isEmpty();
+            assertThat(h.downloads.snapshot().downloadTypes()).isEmpty();
 
             clearInvocations(h.controllerRegistrar, h.capabilityRegistrar);
             assertThatThrownBy(() -> h.service.unload(h.plugin.id()))
@@ -1697,7 +1697,7 @@ class PluginLifecycleServiceTest {
             assertThat(h.plugin.startCount).isEqualTo(1);
             assertThat(h.plugin.stopCount).isEqualTo(1);
             assertThat(h.routes.routes()).anyMatch(route -> route.pluginId().equals(h.plugin.id()));
-            assertThat(h.downloads.snapshot().queueTypes()).isEmpty();
+            assertThat(h.downloads.snapshot().downloadTypes()).isEmpty();
 
             clearInvocations(h.controllerRegistrar, h.capabilityRegistrar);
             assertThatThrownBy(() -> h.service.unload(h.plugin.id()))
@@ -1993,7 +1993,7 @@ class PluginLifecycleServiceTest {
         private int stopCount;
         private boolean failStart;
         private boolean failStartWithError;
-        private boolean failQueueTypesWithError;
+        private boolean failDownloadTypesWithError;
         private String queueType; // 非空时声明对应作品类型（验证 quiesce / 卸载时排空其在途队列）
         private List<ScheduledSourceDescriptor> scheduledSourceDescriptors = List.of();
 
@@ -2007,12 +2007,27 @@ class PluginLifecycleServiceTest {
         }
 
         @Override
-        public List<QueueTypeContribution> queueTypes() {
-            if (failQueueTypesWithError) {
-                throw new AssertionError("plugin-private-queue-types");
+        public List<DownloadTypeDescriptor> downloadTypes() {
+            if (failDownloadTypesWithError) {
+                throw new AssertionError("plugin-private-download-types");
             }
             return queueType == null ? List.of()
-                    : List.of(TestQueueTypeContributions.create(id, queueType, id, "label", 10, null));
+                    : List.of(TestDownloadTypeDescriptors.create(
+                            queueType, id, "label", 10, downloadModuleUrl()));
+        }
+
+        @Override
+        public List<StaticResourceContribution> staticResources() {
+            return queueType == null ? List.of() : List.of(new StaticResourceContribution(
+                    id, "classpath:/test-download/", downloadPublicPrefix()));
+        }
+
+        private String downloadPublicPrefix() {
+            return "/" + id + "-download/";
+        }
+
+        private String downloadModuleUrl() {
+            return downloadPublicPrefix() + "module.js";
         }
 
         @Override
@@ -2080,9 +2095,9 @@ class PluginLifecycleServiceTest {
         }
 
         @Override
-        public List<QueueTypeContribution> queueTypes() {
-            return List.of(TestQueueTypeContributions.create(
-                    id(), "stateful-type", id(), "label", 10,
+        public List<DownloadTypeDescriptor> downloadTypes() {
+            return List.of(TestDownloadTypeDescriptors.create(
+                    "stateful-type", id(), "label", 10,
                     "/stateful-owner/module.js"));
         }
 

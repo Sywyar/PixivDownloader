@@ -2,10 +2,10 @@ package top.sywyar.pixivdownload.douyin.schedule.source;
 
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFrontendContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 
 import java.util.List;
 import java.util.Set;

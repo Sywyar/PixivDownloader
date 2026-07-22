@@ -74,18 +74,41 @@ class El {
 }
 
 function typeDescriptor(overrides = {}) {
-    return Object.assign({
+    const defaults = {
         contractVersion: 1,
         type: 'demo',
-        ownerPluginId: 'demo-owner',
-        packageId: 'demo-package',
-        pluginGeneration: 1,
-        publicationId: 1,
+        displayNamespace: 'demo',
+        displayI18nKey: 'type.demo',
         order: 10,
+        iconKey: 'download',
+        colorToken: 'green',
         moduleUrl: '/modules/demo.js',
-        queue: {clearAll: true, clearForOwner: true, cancel: true},
-        acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick']
-    }, overrides);
+        acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick'],
+        cancelSupported: true,
+        filters: [],
+        settings: [],
+        i18nNamespace: 'demo-i18n',
+        owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+    };
+    const descriptor = Object.assign({}, defaults, overrides);
+    const suppliedOwner = overrides.owner && typeof overrides.owner === 'object' ? overrides.owner : {};
+    descriptor.owner = {
+        pluginId: Object.prototype.hasOwnProperty.call(overrides, 'ownerPluginId')
+            ? overrides.ownerPluginId : (suppliedOwner.pluginId || defaults.owner.pluginId),
+        packageId: Object.prototype.hasOwnProperty.call(overrides, 'packageId')
+            ? overrides.packageId : (suppliedOwner.packageId || defaults.owner.packageId),
+        generation: Object.prototype.hasOwnProperty.call(overrides, 'pluginGeneration')
+            ? overrides.pluginGeneration
+            : (suppliedOwner.generation == null ? defaults.owner.generation : suppliedOwner.generation),
+        publicationId: Object.prototype.hasOwnProperty.call(overrides, 'publicationId')
+            ? overrides.publicationId
+            : (suppliedOwner.publicationId == null ? defaults.owner.publicationId : suppliedOwner.publicationId)
+    };
+    delete descriptor.ownerPluginId;
+    delete descriptor.packageId;
+    delete descriptor.pluginGeneration;
+    delete descriptor.publicationId;
+    return descriptor;
 }
 
 function uiSlotDescriptor(overrides = {}) {
@@ -100,7 +123,7 @@ function uiSlotDescriptor(overrides = {}) {
 }
 
 function manifest(revision, types, epoch = 'epoch-a', uiSlots = []) {
-    return {epoch, revision, downloadTypes: types, tabs: [], uiSlots};
+    return {epoch, revision, downloadTypes: types, uiSlots};
 }
 
 function fakeTimerClock() {
@@ -502,7 +525,12 @@ const LATE_UI_INITIALIZER = `(function (context) {
         const h = harness([
             manifest(1, [typeDescriptor({
                 acquisitionModes: ['series'],
-                owner: {pluginId: 'nested-owner', packageId: 'nested-package', generation: 5, publicationId: 6}
+                owner: {pluginId: 'nested-owner', packageId: 'nested-package', generation: 5, publicationId: 6},
+                pluginId: 'forged-plugin',
+                queue: {cancel: true},
+                schedule: {saveable: true},
+                gallery: {reasonNamespace: 'legacy-gallery'},
+                uiSlots: ['cookie-tools']
             })])
         ], {'/modules/demo.js': {initializer: BASIC_INITIALIZER}});
         ok('运行时不再暴露旧模块登记入口', typeof h.qt.register === 'undefined');
@@ -514,11 +542,15 @@ const LATE_UI_INITIALIZER = `(function (context) {
         ok('typesForMode 只含已声明且实现的类型', h.qt.typesForMode('series').join(',') === 'demo');
         ok('resolveTypeForMode 不回退到未声明模式', h.qt.resolveTypeForMode('demo', 'search') === null);
         ok('owner 由后端 manifest 注入', h.qt.descriptor('demo').owner.ownerPluginId === 'nested-owner');
-        ok('manifestDescriptor 只读暴露后端 owner/i18n 视图',
-            h.qt.manifestDescriptor('demo').owner.pluginId === 'nested-owner'
-            && Object.isFrozen(h.qt.manifestDescriptor('demo').acquisitionModes)
-            && h.qt.manifestDescriptor('demo').queue.cancel === true
-            && Object.isFrozen(h.qt.manifestDescriptor('demo').queue));
+        const projectedManifest = h.qt.manifestDescriptor('demo');
+        ok('manifestDescriptor 只读暴露 lean descriptor、cancelSupported 与后端 owner',
+            projectedManifest.owner.pluginId === 'nested-owner'
+            && Object.isFrozen(projectedManifest.acquisitionModes)
+            && projectedManifest.cancelSupported === true
+            && !['pluginId', 'queue', 'schedule', 'gallery', 'uiSlots']
+                .some(field => Object.prototype.hasOwnProperty.call(projectedManifest, field)));
+        ok('旧 gallery reason namespace 不再进入预加载集合',
+            !(await h.qt.i18nNamespaces()).includes('legacy-gallery'));
         ok('模块不能用 descriptor 覆盖 type', h.qt.descriptor('demo').type === 'demo');
         ok('scheduledQueueItem 调用 owner hook', h.qt.scheduledQueueItem('demo', {id: '7'}, {}).id === 'owned-7');
         ok('scheduled SSE 能力来自 descriptor', h.qt.supportsScheduledSse('demo') === false);
@@ -549,7 +581,7 @@ const LATE_UI_INITIALIZER = `(function (context) {
             status: 'downloading',
             cancelWorkKey: rawWorkKey
         };
-        ok('活动类型只有后端声明 cancel 且队列项携原始 workKey 时才可取消',
+        ok('活动类型只有后端声明 cancelSupported 且队列项携原始 workKey 时才可取消',
             h.qt.canCancel(item) === true);
         const result = await h.qt.cancel(item);
         const cancellationBody = JSON.parse(cancellationRequests[0].init.body);
@@ -598,9 +630,9 @@ const LATE_UI_INITIALIZER = `(function (context) {
             '/modules/demo.js': {initializer: BASIC_INITIALIZER}
         });
         await h.qt.bootstrap();
-        ok('仅 illust 旧队列项允许从安全数字展示 id 回退取消键',
-            h.qt.canCancel({id: '123456', kind: 'illust'}) === true
-            && h.qt.canCancel({id: 'illust:123456', kind: 'illust'}) === false);
+        ok('illust 与其它类型一样必须显式携带顶层 cancelWorkKey',
+            h.qt.canCancel({id: '123456', kind: 'illust'}) === false
+            && h.qt.canCancel({id: '123456', kind: 'illust', cancelWorkKey: '123456'}) === true);
     }
 
     {
@@ -1103,16 +1135,32 @@ const LATE_UI_INITIALIZER = `(function (context) {
     }
 
     {
+        const flatOwner = typeDescriptor();
+        const owner = flatOwner.owner;
+        delete flatOwner.owner;
+        flatOwner.ownerPluginId = owner.pluginId;
+        flatOwner.packageId = owner.packageId;
+        flatOwner.pluginGeneration = owner.generation;
+        flatOwner.publicationId = owner.publicationId;
+        const h = harness([manifest(1, [flatOwner])], {
+            '/modules/demo.js': {initializer: BASIC_INITIALIZER}
+        });
+        await h.qt.bootstrap();
+        ok('下载类型拒绝旧 flattened owner 字段，只接受后端嵌套 owner',
+            !h.qt.has('demo') && h.loads.length === 0);
+    }
+
+    {
         const h = harness([
             manifest(1, [typeDescriptor({
-                pluginGeneration: 1, publicationId: 11, uiSlots: ['cookie-tools']
+                pluginGeneration: 1, publicationId: 11
             })], 'epoch-a', [uiSlotDescriptor({
                 slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
                 owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 11}
             })]),
             manifest(2, []),
             manifest(3, [typeDescriptor({
-                pluginGeneration: 2, publicationId: 22, uiSlots: ['cookie-tools']
+                pluginGeneration: 2, publicationId: 22
             })], 'epoch-a', [uiSlotDescriptor({
                 slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
                 owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 2, publicationId: 22}
@@ -1141,13 +1189,13 @@ const LATE_UI_INITIALIZER = `(function (context) {
     {
         const h = harness([
             manifest(1, [typeDescriptor({
-                pluginGeneration: 1, publicationId: 11, uiSlots: ['cookie-tools']
+                pluginGeneration: 1, publicationId: 11
             })], 'epoch-a', [uiSlotDescriptor({
                 slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
                 owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 11}
             })]),
             manifest(2, [typeDescriptor({
-                pluginGeneration: 2, publicationId: 22, uiSlots: ['cookie-tools']
+                pluginGeneration: 2, publicationId: 22
             })], 'epoch-a', [uiSlotDescriptor({
                 slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
                 owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 2, publicationId: 22}
@@ -1453,17 +1501,40 @@ const LATE_UI_INITIALIZER = `(function (context) {
     }
 
     {
+        const legacyUiSlotsInitializer = `(function () {
+            return {descriptor: {
+                process: function () {},
+                uiSlots: {'cookie-tools': '<span data-legacy-ui-slot></span>'}
+            }};
+        })`;
+        const h = harness([manifest(1, [typeDescriptor()], 'epoch-a', [
+            uiSlotDescriptor({
+                slotId: 'demo.cookie', target: 'cookie-tools', moduleUrl: '/modules/demo.js',
+                owner: {pluginId: 'demo-owner', packageId: 'demo-package', generation: 1, publicationId: 1}
+            })
+        ])], {
+            '/modules/demo.js': {initializer: legacyUiSlotsInitializer}
+        }, {slotTarget: 'cookie-tools'});
+        await h.qt.bootstrap();
+        const host = h.slotParent.children.find(node => node.getAttribute('data-vue-slot') === 'cookie-tools');
+        const behavior = h.qt.descriptor('demo');
+        ok('模块返回的旧 uiSlots capability bag 即使后端发布槽位也不会渲染',
+            (!host || host.children.length === 0)
+            && Object.keys(behavior.slots).length === 0
+            && !Object.prototype.hasOwnProperty.call(behavior, 'uiSlots'));
+    }
+
+    {
         const badSlotInitializer = `(function () {
             return {descriptor: {
                 process: function () {},
                 slots: {'cookie-tools': function () { throw new Error('broken slot'); }}
             }};
         })`;
-        const goodType = typeDescriptor({uiSlots: ['cookie-tools']});
+        const goodType = typeDescriptor();
         const badType = typeDescriptor({
             type: 'bad-slot', ownerPluginId: 'bad-slot-owner', packageId: 'bad-slot-package',
-            publicationId: 2, moduleUrl: '/modules/bad-slot.js', acquisitionModes: [],
-            uiSlots: ['cookie-tools']
+            publicationId: 2, moduleUrl: '/modules/bad-slot.js', acquisitionModes: []
         });
         const h = harness([manifest(1, [goodType, badType], 'epoch-a', [
             uiSlotDescriptor({

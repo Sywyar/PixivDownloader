@@ -12,7 +12,7 @@ import java.util.Optional;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationException;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 
 /**
  * 跨类型队列宿主操作注册中心（核心 owned）。收集各方贡献的 {@link QueueOperations} Bean
@@ -21,7 +21,8 @@ import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
  * 永不观察到半更新；注册失败时既有快照原样保留。
  *
  * <p>与其它 owner-scoped 能力注册中心一致，{@code queueType} 全局唯一。下载队列的键通常与
- * {@link QueueTypeRegistry} 对类型 id 的全局唯一约束同口径，但本注册中心不要求每项都存在下载 descriptor；重复
+ * {@link DownloadExtensionRegistry} 对下载类型 id 的全局唯一约束同口径，但本注册中心不要求每项都存在下载
+ * descriptor；重复
  * {@code queueType} 在注册期 fail-fast。某队列操作缺席（贡献它的插件被禁 / 卸载、或本就未提供该 Bean）时，
  * {@link #resolve} 返回空、{@link #all()} 不含它——下载队列控制器据此只作用于在场的操作，绝不因缺操作而启动失败
  * （{@code List<QueueOperations>} 注入在无任何操作 Bean 时为空列表，不阻断启动）。
@@ -305,7 +306,7 @@ public class QueueOperationRegistry {
 
     /**
      * 返回当前精确归属于某外置插件 identity 的操作快照。生命周期据此清退本代队列，禁止在 teardown 时重读
-     * {@code PixivFeaturePlugin.queueTypes()}（getter 可变或已不可安全调用）。父 context 无 owner 的操作不在结果中。
+     * 下载类型或队列操作 getter（getter 可变或已不可安全调用）。父 context 无 owner 的操作不在结果中。
      */
     public List<OwnedQueueOperations> operationsForOwner(String ownerPluginId) {
         if (ownerPluginId == null || ownerPluginId.isBlank()) {

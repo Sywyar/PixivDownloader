@@ -49,17 +49,19 @@ class El {
 }
 
 function manifest(revision, downloadTypes) {
-    return {epoch: 'novel-test', revision, downloadTypes, tabs: [], uiSlots: []};
+    return {epoch: 'novel-test', revision, downloadTypes, uiSlots: []};
 }
 
 function novelType() {
     return {
         contractVersion: 1,
         type: 'novel',
-        ownerPluginId: 'novel-owner',
-        packageId: 'novel-package',
-        pluginGeneration: 1,
-        publicationId: 1,
+        owner: {
+            pluginId: 'novel-owner',
+            packageId: 'novel-package',
+            generation: 1,
+            publicationId: 1
+        },
         order: 10,
         moduleUrl: '/modules/novel.js',
         acquisitionModes: [],

@@ -2,14 +2,20 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,9 +23,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 
 class PluginRegistryTest {
 
@@ -338,18 +341,20 @@ class PluginRegistryTest {
     @Test
     @DisplayName("下游贡献注册使用捕获的稳定 owner id 而不再次调用插件 getter")
     void downstreamRegistryUsesCapturedOwnerId() {
-        FlakyQueuePlugin plugin = new FlakyQueuePlugin("flaky-owner");
+        FlakyDownloadPlugin plugin = new FlakyDownloadPlugin("flaky-owner");
         PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
                 plugin, PluginSource.EXTERNAL, plugin.getClass().getClassLoader());
         PluginRegistry registry = new PluginRegistry(List.of());
         registry.register(registered);
 
-        QueueTypeRegistry queueTypes = new QueueTypeRegistry(registry);
+        StaticResourceRegistry staticResources = new StaticResourceRegistry(registry);
+        DownloadExtensionRegistry downloadTypes = new DownloadExtensionRegistry(
+                registry, staticResources, new PluginOwnedWebAssetValidator(staticResources));
 
         assertThat(plugin.idCalls()).isEqualTo(1);
-        assertThat(queueTypes.queueTypes()).singleElement().satisfies(queue -> {
-            assertThat(queue.pluginId()).isEqualTo("flaky-owner");
-            assertThat(queue.queueType().type()).isEqualTo("flaky-type");
+        assertThat(downloadTypes.snapshot().downloadTypes()).singleElement().satisfies(downloadType -> {
+            assertThat(downloadType.owner().featurePluginId()).isEqualTo("flaky-owner");
+            assertThat(downloadType.descriptor().type()).isEqualTo("flaky-type");
         });
     }
 
@@ -795,11 +800,11 @@ class PluginRegistryTest {
         }
     }
 
-    private static final class FlakyQueuePlugin implements PixivFeaturePlugin {
+    private static final class FlakyDownloadPlugin implements PixivFeaturePlugin {
         private final String id;
         private int idCalls;
 
-        private FlakyQueuePlugin(String id) {
+        private FlakyDownloadPlugin(String id) {
             this.id = id;
         }
 
@@ -816,9 +821,15 @@ class PluginRegistryTest {
         @Override public PluginKind kind() { return PluginKind.FEATURE; }
 
         @Override
-        public List<QueueTypeContribution> queueTypes() {
-            return List.of(TestQueueTypeContributions.create(
-                    "flaky-owner", "flaky-type", "flaky", "label", 1, null));
+        public List<DownloadTypeDescriptor> downloadTypes() {
+            return List.of(TestDownloadTypeDescriptors.create(
+                    "flaky-type", "flaky", "label", 1, "/test-download/module.js"));
+        }
+
+        @Override
+        public List<StaticResourceContribution> staticResources() {
+            return List.of(new StaticResourceContribution(
+                    "flaky-owner", "classpath:/test-download/", "/test-download/"));
         }
 
         int idCalls() {

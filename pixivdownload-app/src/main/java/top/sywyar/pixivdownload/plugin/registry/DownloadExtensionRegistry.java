@@ -2,11 +2,8 @@ package top.sywyar.pixivdownload.plugin.registry;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
-import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
 
@@ -14,7 +11,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -24,7 +20,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * 下载工作台扩展的单一 owner 原子快照。每个插件一次发布 queue type、tab 与下载页 UI slot，
+ * 下载工作台扩展的单一 owner 原子快照。每个插件一次发布下载类型与下载页 UI slot，
  * 读侧只读取一个 volatile snapshot，因而不会观察到跨注册中心的半代数据。
  */
 @Component
@@ -42,27 +38,14 @@ public final class DownloadExtensionRegistry {
             "search-filter",
             "settings-card");
 
-    public record RegisteredQueueType(
+    public record RegisteredDownloadType(
             DownloadExtensionOwner owner,
             long publicationId,
-            QueueTypeContribution queueType
+            DownloadTypeDescriptor descriptor
     ) {
-        public RegisteredQueueType {
+        public RegisteredDownloadType {
             Objects.requireNonNull(owner, "download extension owner");
-            Objects.requireNonNull(queueType, "queue type contribution");
-        }
-    }
-
-    public record RegisteredTab(
-            DownloadExtensionOwner owner,
-            long publicationId,
-            TabContribution tab,
-            List<String> supportedQueueTypes
-    ) {
-        public RegisteredTab {
-            Objects.requireNonNull(owner, "download extension owner");
-            Objects.requireNonNull(tab, "download tab contribution");
-            supportedQueueTypes = List.copyOf(supportedQueueTypes);
+            Objects.requireNonNull(descriptor, "download type descriptor");
         }
     }
 
@@ -80,21 +63,19 @@ public final class DownloadExtensionRegistry {
     public record Snapshot(
             String epoch,
             long revision,
-            List<RegisteredQueueType> queueTypes,
-            List<RegisteredTab> tabs,
+            List<RegisteredDownloadType> downloadTypes,
             List<RegisteredUiSlot> uiSlots
     ) {
         public Snapshot {
             if (epoch == null || epoch.isBlank()) {
                 throw new IllegalArgumentException("download extension epoch must not be blank");
             }
-            queueTypes = List.copyOf(queueTypes);
-            tabs = List.copyOf(tabs);
+            downloadTypes = List.copyOf(downloadTypes);
             uiSlots = List.copyOf(uiSlots);
         }
 
         static Snapshot empty(String epoch) {
-            return new Snapshot(epoch, 0L, List.of(), List.of(), List.of());
+            return new Snapshot(epoch, 0L, List.of(), List.of());
         }
     }
 
@@ -134,18 +115,16 @@ public final class DownloadExtensionRegistry {
     }
 
     private record OwnerBundle(
-            List<QueueTypeContribution> queueTypes,
-            List<TabContribution> tabs,
+            List<DownloadTypeDescriptor> downloadTypes,
             List<WebUiSlotContribution> uiSlots
     ) {
         OwnerBundle {
-            queueTypes = List.copyOf(queueTypes);
-            tabs = List.copyOf(tabs);
+            downloadTypes = List.copyOf(downloadTypes);
             uiSlots = List.copyOf(uiSlots);
         }
 
         boolean isEmpty() {
-            return queueTypes.isEmpty() && tabs.isEmpty() && uiSlots.isEmpty();
+            return downloadTypes.isEmpty() && uiSlots.isEmpty();
         }
     }
 
@@ -180,8 +159,7 @@ public final class DownloadExtensionRegistry {
                 PixivFeaturePlugin plugin = registered.plugin();
                 publish(preparePublication(
                         registered,
-                        readList(registered.id(), "queueTypes", plugin::queueTypes),
-                        readList(registered.id(), "downloadTabs", plugin::downloadTabs),
+                        readList(registered.id(), "downloadTypes", plugin::downloadTypes),
                         webUiSlotRegistry.slotsFor(registered.id())));
             }
         }
@@ -199,14 +177,14 @@ public final class DownloadExtensionRegistry {
         return snapshot;
     }
 
-    /** 从同一个当前快照按稳定 type 解析队列 descriptor；未知或空白 type 返回空。 */
-    public Optional<RegisteredQueueType> resolveQueueType(String type) {
+    /** 从同一个当前快照按稳定 type 解析下载类型；未知或空白 type 返回空。 */
+    public Optional<RegisteredDownloadType> resolveDownloadType(String type) {
         if (type == null || type.isBlank()) {
             return Optional.empty();
         }
         Snapshot current = snapshot;
-        return current.queueTypes().stream()
-                .filter(registered -> type.equals(registered.queueType().type()))
+        return current.downloadTypes().stream()
+                .filter(registered -> type.equals(registered.descriptor().type()))
                 .findFirst();
     }
 
@@ -225,8 +203,7 @@ public final class DownloadExtensionRegistry {
         String pluginId = registered.id();
         return preparePublication(
                 registered,
-                readList(pluginId, "queueTypes", plugin::queueTypes),
-                readList(pluginId, "downloadTabs", plugin::downloadTabs),
+                readList(pluginId, "downloadTypes", plugin::downloadTypes),
                 readList(pluginId, "uiSlots", plugin::uiSlots));
     }
 
@@ -235,11 +212,10 @@ public final class DownloadExtensionRegistry {
      */
     public PreparedPublication preparePublication(
             PluginRegistry.RegisteredPlugin registered,
-            List<QueueTypeContribution> queueTypes,
-            List<TabContribution> tabs,
+            List<DownloadTypeDescriptor> downloadTypes,
             List<WebUiSlotContribution> uiSlots) {
         return preparePublication(
-                registered, queueTypes, tabs, uiSlots,
+                registered, downloadTypes, uiSlots,
                 staticResourceRegistry.resourcesFor(registered));
     }
 
@@ -248,13 +224,12 @@ public final class DownloadExtensionRegistry {
      */
     public PreparedPublication preparePublication(
             PluginRegistry.RegisteredPlugin registered,
-            List<QueueTypeContribution> queueTypes,
-            List<TabContribution> tabs,
+            List<DownloadTypeDescriptor> downloadTypes,
             List<WebUiSlotContribution> uiSlots,
             List<StaticResourceRegistry.RegisteredStaticResource> staticResources) {
         requireActiveIdentity(registered);
         OwnerBundle prepared = prepareOwner(
-                registered, List.copyOf(queueTypes), List.copyOf(tabs), List.copyOf(uiSlots),
+                registered, List.copyOf(downloadTypes), List.copyOf(uiSlots),
                 List.copyOf(staticResources));
         return new PreparedPublication(
                 preparationAuthority, registered, DownloadExtensionOwner.from(registered), prepared);
@@ -346,8 +321,7 @@ public final class DownloadExtensionRegistry {
     }
 
     private OwnerBundle prepareOwner(PluginRegistry.RegisteredPlugin registered,
-                                     List<QueueTypeContribution> queueTypes,
-                                     List<TabContribution> tabs,
+                                     List<DownloadTypeDescriptor> downloadTypes,
                                      List<WebUiSlotContribution> allSlots,
                                      List<StaticResourceRegistry.RegisteredStaticResource> staticResources) {
         String pluginId = registered.id();
@@ -355,22 +329,17 @@ public final class DownloadExtensionRegistry {
                 .filter(slot -> slot != null && DOWNLOAD_SLOT_TARGETS.contains(slot.target()))
                 .toList();
 
-        boolean needsAssets = queueTypes.stream().anyMatch(item -> item != null && item.moduleUrl() != null)
+        boolean needsAssets = !downloadTypes.isEmpty()
                 || downloadSlots.stream().anyMatch(item -> item != null && item.moduleUrl() != null);
         List<StaticResourceRegistry.RegisteredStaticResource> resources = needsAssets
                 ? staticResources
                 : List.of();
 
-        for (QueueTypeContribution queueType : queueTypes) {
-            validateQueueType(queueType, pluginId);
-            if (queueType.moduleUrl() != null) {
-                assetValidator.validateOwnedJavaScript(
-                        registered, resources, queueType.moduleUrl(),
-                        "download queue type '" + queueType.type() + "'");
-            }
-        }
-        for (TabContribution tab : tabs) {
-            validateTab(tab, pluginId);
+        for (DownloadTypeDescriptor descriptor : downloadTypes) {
+            validateDescriptor(descriptor, pluginId);
+            assetValidator.validateOwnedJavaScript(
+                    registered, resources, descriptor.moduleUrl(),
+                    "download type '" + descriptor.type() + "'");
         }
         for (WebUiSlotContribution slot : downloadSlots) {
             validateUiSlot(slot, pluginId);
@@ -380,23 +349,23 @@ public final class DownloadExtensionRegistry {
                         "download UI slot '" + slot.slotId() + "'");
             }
         }
-        return new OwnerBundle(queueTypes, tabs, downloadSlots);
+        return new OwnerBundle(downloadTypes, downloadSlots);
     }
 
     private Snapshot rebuild(Map<String, PublishedOwner> nextOwners, long revision) {
-        List<RegisteredQueueType> queueTypes = new ArrayList<>();
+        List<RegisteredDownloadType> downloadTypes = new ArrayList<>();
         List<RegisteredUiSlot> uiSlots = new ArrayList<>();
         Set<String> typeIds = new HashSet<>();
         Set<String> slotIds = new HashSet<>();
 
         for (PublishedOwner published : nextOwners.values()) {
             DownloadExtensionPublication publication = published.publication();
-            for (QueueTypeContribution queueType : published.bundle().queueTypes()) {
-                if (!typeIds.add(queueType.type())) {
-                    throw new IllegalStateException("duplicate download queue type: " + queueType.type());
+            for (DownloadTypeDescriptor descriptor : published.bundle().downloadTypes()) {
+                if (!typeIds.add(descriptor.type())) {
+                    throw new IllegalStateException("duplicate download type: " + descriptor.type());
                 }
-                queueTypes.add(new RegisteredQueueType(
-                        publication.owner(), publication.publicationId(), queueType));
+                downloadTypes.add(new RegisteredDownloadType(
+                        publication.owner(), publication.publicationId(), descriptor));
             }
             for (WebUiSlotContribution slot : published.bundle().uiSlots()) {
                 if (!slotIds.add(slot.slotId())) {
@@ -407,27 +376,7 @@ public final class DownloadExtensionRegistry {
             }
         }
 
-        List<RegisteredTab> tabs = new ArrayList<>();
-        Set<String> tabIds = new HashSet<>();
-        for (PublishedOwner published : nextOwners.values()) {
-            DownloadExtensionPublication publication = published.publication();
-            for (TabContribution tab : published.bundle().tabs()) {
-                if (!tabIds.add(tab.tabId())) {
-                    throw new IllegalStateException("duplicate download tab id: " + tab.tabId());
-                }
-                DownloadAcquisitionMode mode = acquisitionMode(tab.tabId());
-                Set<String> explicitLimit = new LinkedHashSet<>(tab.supportedQueueTypes());
-                List<String> supported = queueTypes.stream()
-                        .map(RegisteredQueueType::queueType)
-                        .filter(queueType -> queueType.descriptor().acquisitionModes().contains(mode))
-                        .map(QueueTypeContribution::type)
-                        .filter(type -> explicitLimit.isEmpty() || explicitLimit.contains(type))
-                        .toList();
-                tabs.add(new RegisteredTab(
-                        publication.owner(), publication.publicationId(), tab, supported));
-            }
-        }
-        return new Snapshot(epoch, revision, queueTypes, tabs, uiSlots);
+        return new Snapshot(epoch, revision, downloadTypes, uiSlots);
     }
 
     private void requireActiveIdentity(PluginRegistry.RegisteredPlugin registered) {
@@ -462,34 +411,6 @@ public final class DownloadExtensionRegistry {
         }
     }
 
-    static void validateQueueType(QueueTypeContribution queueType, String pluginId) {
-        if (queueType == null) {
-            throw new IllegalStateException("null queue type contribution (plugin: " + pluginId + ")");
-        }
-        if (!pluginId.equals(queueType.pluginId())) {
-            throw new IllegalStateException("queue type pluginId mismatch: declared "
-                    + queueType.pluginId() + " under plugin " + pluginId);
-        }
-        requireText(queueType.type(), "queue type id", pluginId);
-        requireText(queueType.labelNamespace(), "queue type label namespace", pluginId);
-        requireText(queueType.labelI18nKey(), "queue type label i18n key", pluginId);
-        validateDescriptor(queueType.descriptor(), queueType, pluginId);
-    }
-
-    static void validateTab(TabContribution tab, String pluginId) {
-        if (tab == null) {
-            throw new IllegalStateException("null download tab contribution (plugin: " + pluginId + ")");
-        }
-        if (!pluginId.equals(tab.pluginId())) {
-            throw new IllegalStateException("download tab pluginId mismatch: declared "
-                    + tab.pluginId() + " under plugin " + pluginId);
-        }
-        requireText(tab.tabId(), "download tab id", pluginId);
-        acquisitionMode(tab.tabId());
-        rejectBlankOrDuplicateStrings(
-                tab.supportedQueueTypes(), "supported queue type", tab.tabId(), pluginId);
-    }
-
     private static void validateUiSlot(WebUiSlotContribution slot, String pluginId) {
         if (slot == null) {
             throw new IllegalStateException("null download UI slot contribution (plugin: " + pluginId + ")");
@@ -505,49 +426,25 @@ public final class DownloadExtensionRegistry {
         }
     }
 
-    private static void validateDescriptor(DownloadTypeDescriptor descriptor,
-                                           QueueTypeContribution queueType,
-                                           String pluginId) {
+    static void validateDescriptor(DownloadTypeDescriptor descriptor, String pluginId) {
         if (descriptor == null) {
-            throw new IllegalStateException("queue type without descriptor: "
-                    + queueType.type() + " (plugin: " + pluginId + ")");
+            throw new IllegalStateException("null download type descriptor (plugin: " + pluginId + ")");
         }
         if (descriptor.contractVersion() != DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION) {
             throw new IllegalStateException("unsupported download type descriptor version: "
-                    + descriptor.contractVersion() + " (type: " + queueType.type() + ")");
+                    + descriptor.contractVersion() + " (type: " + descriptor.type() + ")");
         }
-        if (!pluginId.equals(descriptor.pluginId()) || !queueType.type().equals(descriptor.type())) {
-            throw new IllegalStateException("download type descriptor owner/type mismatch: "
-                    + queueType.type() + " (plugin: " + pluginId + ")");
-        }
-        if (!queueType.labelNamespace().equals(descriptor.displayNamespace())
-                || !queueType.labelI18nKey().equals(descriptor.displayI18nKey())
-                || queueType.order() != descriptor.order()
-                || !Objects.equals(queueType.moduleUrl(), descriptor.moduleUrl())) {
-            throw new IllegalStateException("download type descriptor projection mismatch: "
-                    + queueType.type() + " (plugin: " + pluginId + ")");
-        }
+        requireText(descriptor.type(), "download type id", pluginId);
+        requireText(descriptor.displayNamespace(), "download type display namespace", pluginId);
+        requireText(descriptor.displayI18nKey(), "download type display i18n key", pluginId);
+        requireText(descriptor.iconKey(), "download type icon key", pluginId);
+        requireText(descriptor.colorToken(), "download type color token", pluginId);
+        requireText(descriptor.moduleUrl(), "download type module URL", pluginId);
         requireText(descriptor.i18nNamespace(), "download type i18n namespace", pluginId);
         rejectDuplicatesAndNulls(
-                descriptor.acquisitionModes(), "acquisition mode", queueType.type(), pluginId);
-        rejectBlankOrDuplicateStrings(descriptor.filters(), "filter", queueType.type(), pluginId);
-        rejectBlankOrDuplicateStrings(descriptor.settings(), "setting", queueType.type(), pluginId);
-        rejectBlankOrDuplicateStrings(descriptor.uiSlots(), "ui slot", queueType.type(), pluginId);
-        if (descriptor.queue() == null || descriptor.schedule() == null || descriptor.gallery() == null) {
-            throw new IllegalStateException("download type descriptor has incomplete capabilities: "
-                    + queueType.type() + " (plugin: " + pluginId + ")");
-        }
-    }
-
-    private static DownloadAcquisitionMode acquisitionMode(String tabId) {
-        return switch (tabId) {
-            case "single-import" -> DownloadAcquisitionMode.SINGLE_IMPORT;
-            case "user" -> DownloadAcquisitionMode.USER_PROFILE;
-            case "series" -> DownloadAcquisitionMode.SERIES_COLLECTION;
-            case "search" -> DownloadAcquisitionMode.SEARCH;
-            case "quick-fetch" -> DownloadAcquisitionMode.QUICK;
-            default -> throw new IllegalStateException("download tab has no stable acquisition mode: " + tabId);
-        };
+                descriptor.acquisitionModes(), "acquisition mode", descriptor.type(), pluginId);
+        rejectBlankOrDuplicateStrings(descriptor.filters(), "filter", descriptor.type(), pluginId);
+        rejectBlankOrDuplicateStrings(descriptor.settings(), "setting", descriptor.type(), pluginId);
     }
 
     private static <T> void rejectDuplicatesAndNulls(Collection<T> values,

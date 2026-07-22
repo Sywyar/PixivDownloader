@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -63,14 +64,20 @@ class PixivFeaturePluginDefaultsTest {
         assertThat(plugin.guiConfigContributions()).isEmpty();
         assertThat(plugin.guiOnboardingSteps()).isEmpty();
         assertThat(plugin.scheduledSourceDescriptors()).isEmpty();
+        assertThat(plugin.downloadTypes()).isEmpty();
     }
 
     @Test
     @DisplayName("插件接口不暴露自声明必选性，必选事实由宿主策略拥有")
-    void pluginInterfaceDoesNotExposeRequiredDeclaration() {
-        assertThat(Arrays.stream(PixivFeaturePlugin.class.getDeclaredMethods())
-                .map(method -> method.getName()).toList())
-                .doesNotContain("required");
+    void pluginInterfaceDoesNotExposeRequiredDeclaration() throws NoSuchMethodException {
+        List<String> methodNames = Arrays.stream(PixivFeaturePlugin.class.getDeclaredMethods())
+                .map(method -> method.getName()).toList();
+
+        assertThat(methodNames)
+                .contains("downloadTypes")
+                .doesNotContain("required", "queueTypes", "downloadTabs");
+        assertThat(PixivFeaturePlugin.class.getDeclaredMethod("downloadTypes").getGenericReturnType().getTypeName())
+                .isEqualTo("java.util.List<top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor>");
     }
 
     @Test

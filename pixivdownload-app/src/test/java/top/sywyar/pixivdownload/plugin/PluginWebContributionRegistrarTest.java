@@ -4,13 +4,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -57,9 +57,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * {@link PluginWebContributionRegistrar} 单测：验证把一个插件的六类 web 贡献
- * （route / static / i18n / navigation / ui-slot / userscript）按 pluginId 统一接入 / 撤销，且
+ * （route / static / i18n / navigation / ui-slot / userscript）与下载扩展按精确 owner 统一接入 / 撤销，且
  * <ul>
- *   <li>注销后六类快照均无残留，i18n bundle 与脚本层（{@link ScriptRegistry}）也随之刷新无残留；</li>
+ *   <li>注销后六类 web 快照与下载扩展快照均无残留，i18n bundle 与脚本层也随之刷新无残留；</li>
  *   <li>注销后路由「未声明」——即 {@code AuthFilter} 对其 URL「未声明即 404」（静态资源回收靠此、与禁用语义一致）；</li>
  *   <li>「注册 → 注销 → 再注册」后各注册中心快照与首次一致；</li>
  *   <li>冲突（i18n namespace 重复 / ui-slot slotId 重复）在注册期 fail-fast，且本插件已接入的其它注册中心全部回滚（原子）；</li>
@@ -68,7 +68,7 @@ import static org.mockito.Mockito.when;
  * </ul>
  * 真实外置 stats 插件经完整上下文的端到端注销不可达验证见 {@code StatsExternalPluginBootContextTest}。
  */
-@DisplayName("插件 web 贡献统一注册 / 注销（route/static/i18n/navigation/ui-slot/userscript）")
+@DisplayName("插件 web 贡献与下载扩展统一注册 / 注销")
 class PluginWebContributionRegistrarTest {
 
     private static final ClassLoader CL = PluginWebContributionRegistrarTest.class.getClassLoader();
@@ -210,13 +210,13 @@ class PluginWebContributionRegistrarTest {
                 "download-owner", 1L);
         h.plugins.register(registered);
         PluginWebContributionHandle first = h.registrar.register(registered);
-        long firstPublication = h.downloads.snapshot().queueTypes().get(0).publicationId();
+        long firstPublication = h.downloads.snapshot().downloadTypes().get(0).publicationId();
 
         h.registrar.unregister(first);
         PluginWebContributionHandle second = h.registrar.register(registered);
         DownloadExtensionRegistry.Snapshot secondSnapshot = h.downloads.snapshot();
 
-        assertThat(secondSnapshot.queueTypes()).singleElement().satisfies(item -> {
+        assertThat(secondSnapshot.downloadTypes()).singleElement().satisfies(item -> {
             assertThat(item.owner().generation()).isEqualTo(1L);
             assertThat(item.publicationId()).isGreaterThan(firstPublication);
         });
@@ -225,7 +225,7 @@ class PluginWebContributionRegistrarTest {
         assertThat(h.downloads.snapshot()).isSameAs(secondSnapshot);
 
         h.registrar.unregister(second);
-        assertThat(h.downloads.snapshot().queueTypes()).isEmpty();
+        assertThat(h.downloads.snapshot().downloadTypes()).isEmpty();
     }
 
     @Test
@@ -239,7 +239,7 @@ class PluginWebContributionRegistrarTest {
         PluginWebContributionHandle handle = h.registrar.currentHandle(registered).orElseThrow();
         assertThat(handle.pluginId()).isEqualTo("boot-owner");
         assertThat(h.registrar.unregister(handle)).isTrue();
-        assertThat(h.downloads.snapshot().queueTypes()).isEmpty();
+        assertThat(h.downloads.snapshot().downloadTypes()).isEmpty();
     }
 
     @Test
@@ -413,7 +413,7 @@ class PluginWebContributionRegistrarTest {
 
         assertThatThrownBy(() -> h.registrar.register(contender))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("duplicate download queue type");
+                .hasMessageContaining("duplicate download type");
         assertThat(h.route.routes()).noneMatch(route -> route.pluginId().equals("download-owner-b"));
         assertThat(h.downloads.snapshot()).isSameAs(before);
     }
@@ -444,7 +444,7 @@ class PluginWebContributionRegistrarTest {
 
         assertThatThrownBy(() -> h.registrar.register(registered))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("queueTypes")
+                .hasMessageContaining("downloadTypes")
                 .hasMessageContaining("failureType=java.lang.AssertionError")
                 .hasNoCause();
 
@@ -468,8 +468,8 @@ class PluginWebContributionRegistrarTest {
         assertThat(plugin.staticReads()).isEqualTo(1);
         assertThat(h.staticResources.resources()).singleElement().satisfies(resource ->
                 assertThat(resource.contribution().classpathLocation()).isEqualTo("classpath:/test-download/"));
-        assertThat(h.downloads.snapshot().queueTypes()).singleElement().satisfies(queue ->
-                assertThat(queue.queueType().moduleUrl()).isEqualTo("/snapshot/module.js"));
+        assertThat(h.downloads.snapshot().downloadTypes()).singleElement().satisfies(type ->
+                assertThat(type.descriptor().moduleUrl()).isEqualTo("/snapshot/module.js"));
         assertThat(h.registrar.unregister(handle)).isTrue();
     }
 
@@ -633,7 +633,7 @@ class PluginWebContributionRegistrarTest {
 
         long revisionAfterDownloadWithdraw = downloads.snapshot().revision();
         assertThat(revisionAfterDownloadWithdraw).isEqualTo(2L);
-        assertThat(downloads.snapshot().queueTypes()).isEmpty();
+        assertThat(downloads.snapshot().downloadTypes()).isEmpty();
         assertThat(routes.routes()).anyMatch(route -> route.pluginId().equals("stateful-owner"));
         assertThat(registrar.isCurrent(first)).isTrue();
 
@@ -646,8 +646,8 @@ class PluginWebContributionRegistrarTest {
         PluginWebContributionHandle second = registrar.register(registered);
         assertThat(second).isNotSameAs(first);
         assertThat(second.servingId()).isGreaterThan(first.servingId());
-        assertThat(downloads.snapshot().queueTypes()).singleElement().satisfies(queue ->
-                assertThat(queue.queueType().type()).isEqualTo("stateful-type"));
+        assertThat(downloads.snapshot().downloadTypes()).singleElement().satisfies(type ->
+                assertThat(type.descriptor().type()).isEqualTo("stateful-type"));
         assertThat(registrar.unregister(second)).isTrue();
     }
 
@@ -907,9 +907,23 @@ class PluginWebContributionRegistrarTest {
         @Override public List<WebRouteContribution> routes() { return routes; }
 
         @Override
-        public List<QueueTypeContribution> queueTypes() {
-            return List.of(TestQueueTypeContributions.create(
-                    id, type, "download", "kind." + type, 10, null));
+        public List<DownloadTypeDescriptor> downloadTypes() {
+            return List.of(TestDownloadTypeDescriptors.create(
+                    type, "download", "kind." + type, 10, moduleUrl()));
+        }
+
+        @Override
+        public List<StaticResourceContribution> staticResources() {
+            return List.of(new StaticResourceContribution(
+                    id, "classpath:/test-download/", publicPrefix()));
+        }
+
+        private String publicPrefix() {
+            return "/" + id + "-download/";
+        }
+
+        private String moduleUrl() {
+            return publicPrefix() + "module.js";
         }
     }
 
@@ -966,7 +980,7 @@ class PluginWebContributionRegistrarTest {
             return List.of(new StaticResourceContribution(
                     id(), "classpath:/test-download/", "/download-getter-error/"));
         }
-        @Override public List<QueueTypeContribution> queueTypes() {
+        @Override public List<DownloadTypeDescriptor> downloadTypes() {
             throw new AssertionError("plugin-controlled download error text");
         }
     }
@@ -989,9 +1003,9 @@ class PluginWebContributionRegistrarTest {
         }
 
         @Override
-        public List<QueueTypeContribution> queueTypes() {
-            return List.of(TestQueueTypeContributions.create(
-                    id(), "snapshot-type", "download", "kind.snapshot", 10,
+        public List<DownloadTypeDescriptor> downloadTypes() {
+            return List.of(TestDownloadTypeDescriptors.create(
+                    "snapshot-type", "download", "kind.snapshot", 10,
                     "/snapshot/module.js"));
         }
 

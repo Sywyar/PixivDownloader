@@ -176,14 +176,14 @@ class NovelPluginContributionTest {
     }
 
     @Test
-    @DisplayName("novel 声明小说队列类型与下载页 UI 槽位")
-    void queueTypeAndUiSlotsAreOwnedByPlugin() {
-        assertThat(plugin.queueTypes())
+    @DisplayName("novel 声明小说下载类型与独立的下载页 UI 槽位")
+    void downloadTypeAndUiSlotsAreOwnedByPlugin() {
+        assertThat(plugin.downloadTypes())
                 .singleElement()
-                .satisfies(queueType -> {
-                    assertThat(queueType.pluginId()).isEqualTo("novel");
-                    assertThat(queueType.type()).isEqualTo("novel");
-                    assertThat(queueType.moduleUrl()).isEqualTo("/pixiv-novel-download/novel-queue-type.js");
+                .satisfies(descriptor -> {
+                    assertThat(descriptor.type()).isEqualTo("novel");
+                    assertThat(descriptor.moduleUrl()).isEqualTo("/pixiv-novel-download/novel-queue-type.js");
+                    assertThat(descriptor.cancelSupported()).isFalse();
                 });
         assertThat(plugin.uiSlots())
                 .extracting(slot -> slot.target())

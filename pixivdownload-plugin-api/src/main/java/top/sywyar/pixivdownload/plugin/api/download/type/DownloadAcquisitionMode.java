@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.web;
+package top.sywyar.pixivdownload.plugin.api.download.type;
 
 /**
  * 下载工作台取得作品的模式。枚举名用于 Java 侧稳定编译，{@link #code()} 是前端 descriptor 与

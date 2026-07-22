@@ -19,8 +19,8 @@ import java.util.Set;
  * @param placements   该入口要进入的 placement（slot id）集合，非空；同一入口可进入多个 slot
  * @param labelNamespace 标签所在的 i18n namespace（在该 namespace 内解析 {@code labelI18nKey}）；{@code null}/空白是<b>有意的回退
  *                       语义</b>、注册期<b>不</b>fail-fast——表示该入口未绑定确定 namespace，由消费端回退（前端 {@code tns} 退化为
- *                       {@code t()} 裸 key，在页面首个 namespace 内解析）。这与 {@code PageSectionContribution#titleNamespace} /
- *                       {@code QueueTypeContribution#labelNamespace} 的「必填、缺省即 fail-fast」语义刻意不同
+ *                       {@code t()} 裸 key，在页面首个 namespace 内解析）。这与
+ *                       {@code PageSectionContribution#titleNamespace} 的「必填、缺省即 fail-fast」语义刻意不同
  * @param labelI18nKey 标签的 i18n key（<b>纯 key</b>，不带 namespace、不直接携带文案）
  * @param href         目标链接（同一 placement 内不可重复）
  * @param icon         图标标识（label-only 的 slot（如类型切换 tab）会忽略它）

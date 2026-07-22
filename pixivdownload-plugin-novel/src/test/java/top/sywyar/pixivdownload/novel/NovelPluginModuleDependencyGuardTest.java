@@ -9,12 +9,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
+import top.sywyar.pixivdownload.novel.download.NovelQueueOperations;
 import top.sywyar.pixivdownload.novel.schedule.PixivScheduledNovelWorkExecutor;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.novelgallery.NovelOwnedWorkSearch;
 import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 
 import java.io.IOException;
@@ -269,6 +271,18 @@ class NovelPluginModuleDependencyGuardTest {
                 .should().beAnnotatedWith(PluginManagedBean.class)
                 .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
                 .because("小说计划作品执行器必须由 child context 显式装配并随插件生命周期撤回")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("novel 队列操作实现非空且由插件生命周期托管")
+    void novelQueueOperationsArePluginManaged() {
+        assertThat(CLASSES.contain(NovelQueueOperations.class.getName())).isTrue();
+        classes()
+                .that().areAssignableTo(QueueOperations.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(PluginManagedBean.class)
+                .because("下载类型是否在场与对应队列操作必须随同一插件生命周期发布和撤回")
                 .check(CLASSES);
     }
 

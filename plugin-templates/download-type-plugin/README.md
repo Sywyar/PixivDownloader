@@ -21,7 +21,7 @@ Build from this directory with `mvn clean verify`, or build both repository temp
 ## Stable examples included
 
 - PF4J entry point, `PixivPluginProvider`, `PixivFeaturePlugin`, and explicit Spring child-context configuration.
-- `DownloadTypeDescriptor` contract version 1 with all five acquisition modes, truthful queue/schedule/gallery capability declarations, filters, settings, and UI slots.
+- `DownloadTypeDescriptor` contract version 1 with all five acquisition modes, explicit single-item cancellation support, filters, settings, and a required behavior-module URL. UI slots are published separately so their module ownership cannot drift from the host-stamped contribution.
 - `QueueOperations` with clear-all, owner-scoped clear, optional opaque-string `workKey` cancel, and the default already-drained quiesce sentinel. Queue items keep the raw key in top-level `cancelWorkKey`; the host posts it as JSON to the queue-type endpoint, so it is distinct from the card/display id and is not restricted to one URL path segment. The default drain is correct only because this mock performs no background work; an asynchronous implementation must return and drain a real positive generation.
 - A controller that obtains `RequestOwnerIdentity` only from the host-provided `RequestOwnerIdentityResolver`; request bodies and query parameters never choose their own owner.
 - A current-script-scoped queue behavior module with `process(item)`, import, user, series, search, quick, filters, settings, and a declarative settings slot. `process` writes only through `context.updateItem`, and quick actions publish results through `context.publishWorks`; plugins do not receive queue persistence or rendering globals.

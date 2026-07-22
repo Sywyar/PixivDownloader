@@ -1,22 +1,17 @@
 package top.sywyar.pixivdownload.download;
 
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
-import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
@@ -155,48 +150,29 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     }
 
     @Override
-    public List<QueueTypeContribution> queueTypes() {
+    public List<DownloadTypeDescriptor> downloadTypes() {
         // 插画作品类型：下载工作台自有行为模块按与其它类型相同的版本化前端契约注册。
-        // 小说等其它类型由各自插件经 queueTypes() 贡献、附带 moduleUrl 指向其行为模块。
+        // 小说等其它类型由各自插件经 downloadTypes() 贡献、附带 moduleUrl 指向其行为模块。
         // 插画子模式是下载工作台的基础能力，展示文案由本插件的 batch namespace 提供。
-        return List.of(new QueueTypeContribution(
-                ID, "illust", "batch", "batch.user.kind-illust", 10,
+        return List.of(new DownloadTypeDescriptor(
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+                "illust",
+                "batch",
+                "batch.user.kind-illust",
+                10,
+                "image",
+                "pixiv",
                 "/pixiv-batch/pixiv-queue-type.js",
-                new DownloadTypeDescriptor(
-                        DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-                        ID,
-                        "illust",
-                        "batch",
-                        "batch.user.kind-illust",
-                        10,
-                        "image",
-                        "pixiv",
-                        "/pixiv-batch/pixiv-queue-type.js",
-                        List.of(
-                                DownloadAcquisitionMode.SINGLE_IMPORT,
-                                DownloadAcquisitionMode.USER_PROFILE,
-                                DownloadAcquisitionMode.SERIES_COLLECTION,
-                                DownloadAcquisitionMode.SEARCH,
-                                DownloadAcquisitionMode.QUICK),
-                        DownloadQueueCapabilities.full(),
-                        DownloadScheduleCapabilities.saveableSource(),
-                        List.of("illust-extra"),
-                        List.of(),
-                        List.of(),
-                        "batch",
-                        DownloadGalleryCapabilities.independentPageOnly())));
-    }
-
-    @Override
-    public List<TabContribution> downloadTabs() {
-        // 获取方式标签页只声明宿主稳定模式与排序；支持的作品类型由各 DownloadTypeDescriptor.acquisitionModes
-        // 动态推导，避免下载工作台硬编码其它插件类型。计划任务标签页是管理 UI、不产出队列项，不在此声明。
-        return List.of(
-                new TabContribution(ID, "quick-fetch", 10, List.of()),
-                new TabContribution(ID, "single-import", 20, List.of()),
-                new TabContribution(ID, "user", 30, List.of()),
-                new TabContribution(ID, "search", 40, List.of()),
-                new TabContribution(ID, "series", 50, List.of()));
+                List.of(
+                        DownloadAcquisitionMode.SINGLE_IMPORT,
+                        DownloadAcquisitionMode.USER_PROFILE,
+                        DownloadAcquisitionMode.SERIES_COLLECTION,
+                        DownloadAcquisitionMode.SEARCH,
+                        DownloadAcquisitionMode.QUICK),
+                true,
+                List.of("illust-extra"),
+                List.of(),
+                "batch"));
     }
 
     @Override

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin;
 
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
@@ -8,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -113,9 +113,9 @@ public final class TestNovelGalleryPlugin implements PixivFeaturePlugin {
     }
 
     @Override
-    public List<QueueTypeContribution> queueTypes() {
-        return List.of(TestQueueTypeContributions.create(
-                ID, "novel", "novel", "batch.user.kind-novel", 20, NOVEL_MODULE_URL));
+    public List<DownloadTypeDescriptor> downloadTypes() {
+        return List.of(TestDownloadTypeDescriptors.create(
+                "novel", "novel", "batch.user.kind-novel", 20, NOVEL_MODULE_URL));
     }
 
     @Override

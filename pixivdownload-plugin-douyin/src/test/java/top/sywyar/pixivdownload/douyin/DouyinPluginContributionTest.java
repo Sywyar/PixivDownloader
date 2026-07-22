@@ -6,14 +6,13 @@ import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
 import top.sywyar.pixivdownload.douyin.schedule.source.DouyinScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 
 import java.util.List;
 import java.util.Set;
@@ -65,38 +64,29 @@ class DouyinPluginContributionTest {
     }
 
     @Test
-    @DisplayName("下载类型 descriptor 声明完整能力与画廊边界")
-    @SuppressWarnings("deprecation")
-    void descriptorDeclaresCapabilitiesAndGalleryBoundary() {
+    @DisplayName("下载类型 descriptor 声明取得模式与单项取消边界")
+    void descriptorDeclaresAcquisitionAndCancellationBoundary() {
         DouyinPlugin plugin = new DouyinPlugin();
-        QueueTypeContribution queueType = plugin.queueTypes().get(0);
+        var descriptor = plugin.downloadTypes().get(0);
 
-        assertThat(queueType.pluginId()).isEqualTo("douyin");
-        assertThat(queueType.type()).isEqualTo("douyin");
-        assertThat(queueType.moduleUrl()).isEqualTo("/pixiv-douyin-download/douyin-queue-type.js");
-        assertThat(queueType.descriptor().acquisitionModes()).containsExactly(
+        assertThat(descriptor.type()).isEqualTo("douyin");
+        assertThat(descriptor.moduleUrl()).isEqualTo("/pixiv-douyin-download/douyin-queue-type.js");
+        assertThat(descriptor.acquisitionModes()).containsExactly(
                 DownloadAcquisitionMode.SINGLE_IMPORT,
                 DownloadAcquisitionMode.USER_PROFILE,
                 DownloadAcquisitionMode.SEARCH,
                 DownloadAcquisitionMode.SERIES_COLLECTION,
                 DownloadAcquisitionMode.QUICK);
-        assertThat(queueType.descriptor().queue().clearAll()).isTrue();
-        assertThat(queueType.descriptor().queue().clearForOwner()).isTrue();
-        assertThat(queueType.descriptor().queue().cancel()).isTrue();
-        assertThat(queueType.descriptor().schedule().saveable()).isTrue();
-        assertThat(queueType.descriptor().schedule().sourceSerializable()).isTrue();
-        assertThat(queueType.descriptor().schedule().suspendWhenExecutorMissing()).isTrue();
-        assertThat(queueType.descriptor().filters()).isEmpty();
-        assertThat(queueType.descriptor().settings()).isEmpty();
-        assertThat(queueType.descriptor().uiSlots()).containsExactly(
+        assertThat(descriptor.cancelSupported()).isTrue();
+        assertThat(descriptor.filters()).isEmpty();
+        assertThat(descriptor.settings()).isEmpty();
+        assertThat(plugin.uiSlots()).extracting(slot -> slot.target()).containsExactly(
                 "kind-option-quick",
                 "kind-option-user",
                 "quick-actions-bookmarks",
                 "quick-actions-mine",
                 "import-hint",
                 "cookie-tools");
-        assertThat(queueType.descriptor().gallery().independentPage()).isTrue();
-        assertThat(queueType.descriptor().gallery().reasonI18nKey()).isNull();
     }
 
     @Test
@@ -166,7 +156,7 @@ class DouyinPluginContributionTest {
     }
 
     @Test
-    @DisplayName("插件入口直接声明 route/static/navigation/i18n/uiSlot/queueType 契约")
+    @DisplayName("插件入口直接声明 route/static/navigation/i18n/uiSlot/downloadType 契约")
     void pluginDeclaresAllWebContributionsWithoutHostRegistryDependency() {
         DouyinPlugin plugin = new DouyinPlugin();
         List<String> adminGalleryPaths = List.of(
@@ -225,8 +215,8 @@ class DouyinPluginContributionTest {
             assertThat(i18n.baseName()).isEqualTo("i18n.web.douyin");
         });
         assertThat(plugin.uiSlots()).hasSize(6);
-        assertThat(plugin.queueTypes()).singleElement()
-                .satisfies(queueType -> assertThat(queueType.type()).isEqualTo("douyin"));
+        assertThat(plugin.downloadTypes()).singleElement()
+                .satisfies(descriptor -> assertThat(descriptor.type()).isEqualTo("douyin"));
     }
 
     private static AccessPolicy routePolicy(DouyinPlugin plugin, String path) {

@@ -5,12 +5,16 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.douyin.download.DouyinQueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -61,6 +65,18 @@ class DouyinPluginDependencyGuardTest {
                 "top.sywyar.pixivdownload.common.NetworkUtils",
                 "top.sywyar.pixivdownload.common.UuidUtils",
                 "top.sywyar.pixivdownload.setup.SetupService");
+    }
+
+    @Test
+    @DisplayName("Douyin 队列操作实现非空且由插件生命周期托管")
+    void queueOperationsArePluginManaged() {
+        assertThat(CLASSES.contain(DouyinQueueOperations.class.getName())).isTrue();
+        classes()
+                .that().areAssignableTo(QueueOperations.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(PluginManagedBean.class)
+                .because("下载类型是否在场与对应队列操作必须随同一插件生命周期发布和撤回")
+                .check(CLASSES);
     }
 
     private static Path moduleRoot() {

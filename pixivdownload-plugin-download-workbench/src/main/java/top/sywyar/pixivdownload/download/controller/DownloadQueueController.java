@@ -18,7 +18,7 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionOwner;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.RegisteredQueueType;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.RegisteredDownloadType;
 
 import java.util.Optional;
 
@@ -56,12 +56,12 @@ public class DownloadQueueController {
     @PostMapping({"/cancel/{artworkId}", "/download/cancel/{artworkId}"})
     public ResponseEntity<?> cancelDownload(@PathVariable Long artworkId,
                                             HttpServletRequest httpRequest) {
-        RegisteredQueueType descriptor = downloadExtensionRegistry
-                .resolveQueueType(LEGACY_ILLUST_QUEUE_TYPE).orElse(null);
+        RegisteredDownloadType descriptor = downloadExtensionRegistry
+                .resolveDownloadType(LEGACY_ILLUST_QUEUE_TYPE).orElse(null);
         if (descriptor == null) {
             return failure(HttpStatus.NOT_FOUND, CODE_DESCRIPTOR_NOT_FOUND);
         }
-        if (!descriptor.queueType().descriptor().queue().cancel()) {
+        if (!descriptor.descriptor().cancelSupported()) {
             return failure(HttpStatus.CONFLICT, CODE_UNSUPPORTED);
         }
         Optional<QueueOperationCommands> operation = resolveOperation(
@@ -72,10 +72,10 @@ public class DownloadQueueController {
         if (operation.isEmpty()) {
             return failure(HttpStatus.SERVICE_UNAVAILABLE, CODE_OPERATION_UNAVAILABLE);
         }
-        RegisteredQueueType confirmed = downloadExtensionRegistry
-                .resolveQueueType(LEGACY_ILLUST_QUEUE_TYPE).orElse(null);
+        RegisteredDownloadType confirmed = downloadExtensionRegistry
+                .resolveDownloadType(LEGACY_ILLUST_QUEUE_TYPE).orElse(null);
         if (!samePublication(descriptor, confirmed)
-                || !confirmed.queueType().descriptor().queue().cancel()) {
+                || !confirmed.descriptor().cancelSupported()) {
             return failure(HttpStatus.CONFLICT, CODE_DESCRIPTOR_STALE);
         }
         return cancel(LEGACY_ILLUST_QUEUE_TYPE, Long.toString(artworkId), operation.get(), httpRequest);
@@ -97,14 +97,14 @@ public class DownloadQueueController {
                 requestedOwner.pluginId(),
                 requestedOwner.packageId(),
                 requestedOwner.generation());
-        RegisteredQueueType descriptor = downloadExtensionRegistry.resolveQueueType(queueType).orElse(null);
+        RegisteredDownloadType descriptor = downloadExtensionRegistry.resolveDownloadType(queueType).orElse(null);
         if (descriptor == null) {
             return failure(HttpStatus.NOT_FOUND, CODE_DESCRIPTOR_NOT_FOUND);
         }
         if (!matches(descriptor, request.owner())) {
             return failure(HttpStatus.CONFLICT, CODE_DESCRIPTOR_STALE);
         }
-        if (!descriptor.queueType().descriptor().queue().cancel()) {
+        if (!descriptor.descriptor().cancelSupported()) {
             return failure(HttpStatus.CONFLICT, CODE_UNSUPPORTED);
         }
 
@@ -112,9 +112,9 @@ public class DownloadQueueController {
             return failure(HttpStatus.SERVICE_UNAVAILABLE, CODE_OPERATION_UNAVAILABLE);
         }
         // 覆盖 operation 捕获与首次 descriptor 校验之间 / 之后的 publication 切换。
-        RegisteredQueueType confirmed = downloadExtensionRegistry.resolveQueueType(queueType).orElse(null);
+        RegisteredDownloadType confirmed = downloadExtensionRegistry.resolveDownloadType(queueType).orElse(null);
         if (confirmed == null || !matches(confirmed, requestedOwner)
-                || !confirmed.queueType().descriptor().queue().cancel()) {
+                || !confirmed.descriptor().cancelSupported()) {
             return failure(HttpStatus.CONFLICT, CODE_DESCRIPTOR_STALE);
         }
         return cancel(queueType, request.workKey(), operation.get(), httpRequest);
@@ -147,7 +147,7 @@ public class DownloadQueueController {
         return value != null && !value.isBlank() && value.length() <= MAX_OWNER_ID_LENGTH;
     }
 
-    private boolean matches(RegisteredQueueType descriptor, QueueCancelOwner requested) {
+    private boolean matches(RegisteredDownloadType descriptor, QueueCancelOwner requested) {
         DownloadExtensionOwner current = descriptor.owner();
         return current.featurePluginId().equals(requested.pluginId())
                 && current.packageId().equals(requested.packageId())
@@ -155,7 +155,7 @@ public class DownloadQueueController {
                 && descriptor.publicationId() == requested.publicationId();
     }
 
-    private boolean samePublication(RegisteredQueueType expected, RegisteredQueueType current) {
+    private boolean samePublication(RegisteredDownloadType expected, RegisteredDownloadType current) {
         return current != null
                 && expected.owner().equals(current.owner())
                 && expected.publicationId() == current.publicationId();

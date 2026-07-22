@@ -153,8 +153,6 @@ class RegisteredPluginsTest {
         Set<String> i18nContributingPlugins = Set.of("core", "plugin-market");
         Set<String> navContributingPlugins = Set.of("core", "plugin-market");
         Set<String> staticResourceContributingPlugins = Set.of("core", "plugin-market");
-        Set<String> queueTypeContributingPlugins = Set.of();
-        Set<String> downloadTabContributingPlugins = Set.of();
         // 落点 / 入口（landing）：gallery/novel 落点随外置插件接入，
         // 锁死契约面——其它插件不得静默声明落点（避免借落点 / 导航 order 间接改变业务落点）。
         Set<String> landingContributingPlugins = Set.of();
@@ -199,18 +197,8 @@ class RegisteredPluginsTest {
                 }
                 // 油猴脚本扫描来源随外置 download-workbench 声明，内置插件均不声明。
                 assertThat(plugin.userscripts()).isEmpty();
-                // 下载队列作品类型随外置插件声明：illust 由 download-workbench 提供，novel 由 novel 提供。
-                if (queueTypeContributingPlugins.contains(plugin.id())) {
-                    assertThat(plugin.queueTypes()).isNotEmpty();
-                } else {
-                    assertThat(plugin.queueTypes()).isEmpty();
-                }
-                // 获取方式标签页：唯下载工作台声明
-                if (downloadTabContributingPlugins.contains(plugin.id())) {
-                    assertThat(plugin.downloadTabs()).isNotEmpty();
-                } else {
-                    assertThat(plugin.downloadTabs()).isEmpty();
-                }
+                // 下载类型随外置来源插件声明，内置插件不贡献。
+                assertThat(plugin.downloadTypes()).isEmpty();
                 // 落点 / 入口：内置清单中仅小说声明受邀访客落点；其余插件不得贡献落点
                 if (landingContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.landings()).isNotEmpty();

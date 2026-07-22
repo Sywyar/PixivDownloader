@@ -19,16 +19,12 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.IllustQueueOperations;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionOwner;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.RegisteredQueueType;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.RegisteredDownloadType;
 
 import java.util.List;
 import java.util.Locale;
@@ -59,8 +55,8 @@ class DownloadQueueControllerTest {
     @Mock
     private DownloadExtensionRegistry downloadExtensionRegistry;
 
-    private RegisteredQueueType illustDescriptor;
-    private RegisteredQueueType novelDescriptor;
+    private RegisteredDownloadType illustDescriptor;
+    private RegisteredDownloadType novelDescriptor;
 
     /** 用真实操作适配器（插画 + 小说）包裹 mock 执行器建注册中心，再装配控制器。 */
     private MockMvc mockMvcWith(QueueOperationRegistry registry) {
@@ -85,9 +81,9 @@ class DownloadQueueControllerTest {
         when(novelQueueOperations.queueType()).thenReturn("novel");
         illustDescriptor = descriptor("host-download", "host-download", 0L, 1L, "illust", true);
         novelDescriptor = descriptor("host-novel", "host-novel", 0L, 2L, "novel", true);
-        lenient().when(downloadExtensionRegistry.resolveQueueType("illust"))
+        lenient().when(downloadExtensionRegistry.resolveDownloadType("illust"))
                 .thenReturn(Optional.of(illustDescriptor));
-        lenient().when(downloadExtensionRegistry.resolveQueueType("novel"))
+        lenient().when(downloadExtensionRegistry.resolveDownloadType("novel"))
                 .thenReturn(Optional.of(novelDescriptor));
         mockMvc = mockMvcWith(illustAndNovelRegistry());
         clearInvocations(novelQueueOperations);
@@ -141,6 +137,53 @@ class DownloadQueueControllerTest {
     }
 
     @Test
+    @DisplayName("descriptor 未声明单项取消时拒绝请求且不触达队列实现")
+    void descriptorWithoutCancelSupportIsRejected() throws Exception {
+        RegisteredDownloadType unsupported = descriptor(
+                "host-novel", "host-novel", 0L, 3L, "novel", false);
+        when(downloadExtensionRegistry.resolveDownloadType("novel"))
+                .thenReturn(Optional.of(unsupported));
+
+        mockMvc.perform(post("/api/download/queue/novel/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cancelRequest("novel/123", unsupported))
+                        .locale(Locale.SIMPLIFIED_CHINESE))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("QUEUE_CANCEL_UNSUPPORTED"));
+
+        verifyNoInteractions(requestOwnerIdentityResolver, novelQueueOperations, artworkDownloadExecutor);
+    }
+
+    @Test
+    @DisplayName("请求携旧 generation owner 时拒绝改投当前外置操作")
+    void staleOwnerRequestCannotReachCurrentExternalOperation() throws Exception {
+        QueueOperationRegistry registry = new QueueOperationRegistry(List.of());
+        QueueOperations currentRaw = mock(QueueOperations.class);
+        QueueOperationOwner currentOperationOwner = new QueueOperationOwner(
+                "external", "external", 8L, 11L);
+        registry.registerPrepared(
+                currentOperationOwner, List.of(prepared("external-work", currentRaw)));
+        registry.resolveOwned("external-work", "external", "external", 8L).orElseThrow();
+        RegisteredDownloadType staleDescriptor = descriptor(
+                "external", "external", 7L, 21L, "external-work", true);
+        RegisteredDownloadType currentDescriptor = descriptor(
+                "external", "external", 8L, 21L, "external-work", true);
+        when(downloadExtensionRegistry.resolveDownloadType("external-work"))
+                .thenReturn(Optional.of(currentDescriptor));
+        MockMvc external = mockMvcWith(registry);
+
+        external.perform(post("/api/download/queue/external-work/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cancelRequest("stale/key", staleDescriptor)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("QUEUE_CANCEL_DESCRIPTOR_STALE"));
+
+        verifyNoInteractions(currentRaw, requestOwnerIdentityResolver);
+    }
+
+    @Test
     @DisplayName("旧 descriptor 请求跨同 generation publication replacement 时不得触达新操作")
     void staleDescriptorRequestCannotReachReplacementOperation() throws Exception {
         QueueOperationRegistry registry = new QueueOperationRegistry(List.of());
@@ -149,12 +192,12 @@ class DownloadQueueControllerTest {
         QueueOperations oldRaw = mock(QueueOperations.class);
         QueueOperations newRaw = mock(QueueOperations.class);
         registry.registerPrepared(oldOwner, List.of(prepared("external-work", oldRaw)));
-        RegisteredQueueType oldDescriptor = descriptor(
+        RegisteredDownloadType oldDescriptor = descriptor(
                 "external", "external", 7L, 20L, "external-work", true);
-        RegisteredQueueType newDescriptor = descriptor(
+        RegisteredDownloadType newDescriptor = descriptor(
                 "external", "external", 7L, 21L, "external-work", true);
         AtomicInteger reads = new AtomicInteger();
-        when(downloadExtensionRegistry.resolveQueueType("external-work")).thenAnswer(invocation -> {
+        when(downloadExtensionRegistry.resolveDownloadType("external-work")).thenAnswer(invocation -> {
             if (reads.incrementAndGet() == 1) {
                 return Optional.of(oldDescriptor);
             }
@@ -185,9 +228,9 @@ class DownloadQueueControllerTest {
         QueueOperations oldRaw = mock(QueueOperations.class);
         QueueOperations newRaw = mock(QueueOperations.class);
         registry.registerPrepared(oldOwner, List.of(prepared("external-work", oldRaw)));
-        RegisteredQueueType current = descriptor(
+        RegisteredDownloadType current = descriptor(
                 "external", "external", 7L, 40L, "external-work", true);
-        when(downloadExtensionRegistry.resolveQueueType("external-work"))
+        when(downloadExtensionRegistry.resolveDownloadType("external-work"))
                 .thenReturn(Optional.of(current));
         when(requestOwnerIdentityResolver.resolve(any())).thenAnswer(invocation -> {
             registry.unregisterPrepared(oldOwner);
@@ -214,9 +257,9 @@ class DownloadQueueControllerTest {
         QueueOperationOwner operationOwner = new QueueOperationOwner(
                 "download-workbench", "download-workbench", 9L, 50L);
         registry.registerPrepared(operationOwner, List.of(prepared("illust", externalIllust)));
-        RegisteredQueueType externalDescriptor = descriptor(
+        RegisteredDownloadType externalDescriptor = descriptor(
                 "download-workbench", "download-workbench", 9L, 60L, "illust", true);
-        when(downloadExtensionRegistry.resolveQueueType("illust"))
+        when(downloadExtensionRegistry.resolveDownloadType("illust"))
                 .thenReturn(Optional.of(externalDescriptor));
         when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
         MockMvc external = mockMvcWith(registry);
@@ -239,12 +282,12 @@ class DownloadQueueControllerTest {
         QueueOperations oldRaw = mock(QueueOperations.class);
         QueueOperations newRaw = mock(QueueOperations.class);
         registry.registerPrepared(oldOwner, List.of(prepared("illust", oldRaw)));
-        RegisteredQueueType oldDescriptor = descriptor(
+        RegisteredDownloadType oldDescriptor = descriptor(
                 "download-workbench", "download-workbench", 9L, 90L, "illust", true);
-        RegisteredQueueType newDescriptor = descriptor(
+        RegisteredDownloadType newDescriptor = descriptor(
                 "download-workbench", "download-workbench", 9L, 91L, "illust", true);
         AtomicInteger reads = new AtomicInteger();
-        when(downloadExtensionRegistry.resolveQueueType("illust")).thenAnswer(invocation -> {
+        when(downloadExtensionRegistry.resolveDownloadType("illust")).thenAnswer(invocation -> {
             if (reads.incrementAndGet() == 1) {
                 return Optional.of(oldDescriptor);
             }
@@ -267,9 +310,9 @@ class DownloadQueueControllerTest {
     @Test
     @DisplayName("当前 descriptor 缺少同 owner generation 的 operation 时返回稳定非成功机器码")
     void missingOwnedOperationReturnsUnavailableCode() throws Exception {
-        RegisteredQueueType descriptor = descriptor(
+        RegisteredDownloadType descriptor = descriptor(
                 "missing", "missing", 4L, 70L, "missing-work", true);
-        when(downloadExtensionRegistry.resolveQueueType("missing-work"))
+        when(downloadExtensionRegistry.resolveDownloadType("missing-work"))
                 .thenReturn(Optional.of(descriptor));
         MockMvc empty = mockMvcWith(new QueueOperationRegistry(List.of()));
 
@@ -358,7 +401,7 @@ class DownloadQueueControllerTest {
         return new PreparedQueueOperations(queueType, raw, commands, raw.getClass().getName());
     }
 
-    private static RegisteredQueueType descriptor(
+    private static RegisteredDownloadType descriptor(
             String pluginId,
             String packageId,
             long generation,
@@ -367,31 +410,25 @@ class DownloadQueueControllerTest {
             boolean cancel) {
         DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(
                 DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-                pluginId,
                 type,
                 "test",
                 "type.label",
                 0,
                 "download",
                 "green",
-                null,
+                "/test-download/" + type + ".js",
                 List.of(),
-                cancel ? DownloadQueueCapabilities.full() : DownloadQueueCapabilities.clearOnly(),
-                DownloadScheduleCapabilities.notSaveable(),
-                List.of(),
+                cancel,
                 List.of(),
                 List.of(),
-                "test",
-                DownloadGalleryCapabilities.none());
-        QueueTypeContribution contribution = new QueueTypeContribution(
-                pluginId, type, "test", "type.label", 0, null, descriptor);
-        return new RegisteredQueueType(
+                "test");
+        return new RegisteredDownloadType(
                 new DownloadExtensionOwner(pluginId, packageId, generation),
                 publicationId,
-                contribution);
+                descriptor);
     }
 
-    private static String cancelRequest(String workKey, RegisteredQueueType descriptor) {
+    private static String cancelRequest(String workKey, RegisteredDownloadType descriptor) {
         DownloadExtensionOwner owner = descriptor.owner();
         return "{\"workKey\":\"" + workKey + "\",\"owner\":{"
                 + "\"pluginId\":\"" + owner.featurePluginId() + "\","

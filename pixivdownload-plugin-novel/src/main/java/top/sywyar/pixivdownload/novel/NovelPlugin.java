@@ -5,20 +5,16 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -122,35 +118,29 @@ public class NovelPlugin implements PixivFeaturePlugin {
     }
 
     @Override
-    public List<QueueTypeContribution> queueTypes() {
+    public List<DownloadTypeDescriptor> downloadTypes() {
         // 小说作品类型：下载工作台队列引擎据此多态派发；行为（判重 / 载荷 / 状态轮询 / 系列合订 / 译文轮询）
-        // 由 moduleUrl 指向的小说自有行为模块在运行期注册。labelI18nKey 复用现有 kind 单选标签键
+        // 由 moduleUrl 指向的小说自有行为模块在运行期注册。displayI18nKey 复用现有 kind 单选标签键
         //（子模式单选 DOM 仍在下载页 HTML、由「类型是否启用」统一显隐；标签键位于 novel namespace 是历史现状）。
-        return List.of(new QueueTypeContribution(
-                ID, "novel", "novel", "batch.user.kind-novel", 20, "/pixiv-novel-download/novel-queue-type.js",
-                new DownloadTypeDescriptor(
-                        DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-                        ID,
-                        "novel",
-                        "novel",
-                        "batch.user.kind-novel",
-                        20,
-                        "book",
-                        "amber",
-                        "/pixiv-novel-download/novel-queue-type.js",
-                        List.of(
-                                DownloadAcquisitionMode.SINGLE_IMPORT,
-                                DownloadAcquisitionMode.USER_PROFILE,
-                                DownloadAcquisitionMode.SERIES_COLLECTION,
-                                DownloadAcquisitionMode.SEARCH,
-                                DownloadAcquisitionMode.QUICK),
-                        DownloadQueueCapabilities.clearOnly(),
-                        DownloadScheduleCapabilities.saveableSource(),
-                        List.of("novel-words"),
-                        List.of("novel-settings-card"),
-                        NOVEL_UI_SLOT_TARGETS,
-                        "novel",
-                        DownloadGalleryCapabilities.independentPageOnly())));
+        return List.of(new DownloadTypeDescriptor(
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+                "novel",
+                "novel",
+                "batch.user.kind-novel",
+                20,
+                "book",
+                "amber",
+                NOVEL_MODULE_URL,
+                List.of(
+                        DownloadAcquisitionMode.SINGLE_IMPORT,
+                        DownloadAcquisitionMode.USER_PROFILE,
+                        DownloadAcquisitionMode.SERIES_COLLECTION,
+                        DownloadAcquisitionMode.SEARCH,
+                        DownloadAcquisitionMode.QUICK),
+                false,
+                List.of("novel-words"),
+                List.of("novel-settings-card"),
+                "novel"));
     }
 
     /** 下载页 novel 队列类型行为模块的 serving URL（同时渲染下面声明的各 UI 槽位）。 */

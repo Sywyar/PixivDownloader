@@ -1,16 +1,12 @@
 package com.example.pixivdownload.downloadtype;
 
 import com.example.pixivdownload.downloadtype.schedule.ExampleScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadGalleryCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadQueueCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadScheduleCapabilities;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
-import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -85,10 +81,9 @@ public final class ExampleDownloadPlugin implements PixivFeaturePlugin {
     }
 
     @Override
-    public List<QueueTypeContribution> queueTypes() {
-        DownloadTypeDescriptor descriptor = new DownloadTypeDescriptor(
+    public List<DownloadTypeDescriptor> downloadTypes() {
+        return List.of(new DownloadTypeDescriptor(
                 DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-                ID,
                 TYPE,
                 NAMESPACE,
                 "batch.kind",
@@ -102,16 +97,10 @@ public final class ExampleDownloadPlugin implements PixivFeaturePlugin {
                         DownloadAcquisitionMode.SERIES_COLLECTION,
                         DownloadAcquisitionMode.SEARCH,
                         DownloadAcquisitionMode.QUICK),
-                DownloadQueueCapabilities.full(),
-                DownloadScheduleCapabilities.saveableSource(),
+                true,
                 List.of("example-ready-filter"),
                 List.of("example-output-setting"),
-                UI_SLOT_TARGETS,
-                NAMESPACE,
-                DownloadGalleryCapabilities.independentPageOnly(
-                        NAMESPACE, "gallery.independent-page"));
-        return List.of(new QueueTypeContribution(
-                ID, TYPE, NAMESPACE, "batch.kind", 900, TYPE_MODULE_URL, descriptor));
+                NAMESPACE));
     }
 
     @Override

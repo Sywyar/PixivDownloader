@@ -131,16 +131,14 @@ function makeSandbox() {
                 epoch: 'douyin-test-epoch',
                 revision: 1,
                 downloadTypes: [
-                    {contractVersion: 1, type: 'douyin', ownerPluginId: 'douyin', packageId: 'douyin',
-                        pluginGeneration: 3, publicationId: 9, order: 30,
+                    {contractVersion: 1, type: 'douyin', order: 30,
+                        owner: {pluginId: 'douyin', packageId: 'douyin', generation: 3, publicationId: 9},
+                        displayNamespace: 'douyin', displayI18nKey: 'batch.kind',
+                        iconKey: 'video', colorToken: 'red',
                         moduleUrl: '/pixiv-douyin-download/douyin-queue-type.js',
-                        queue: {clearAll: true, clearForOwner: true, cancel: true},
                         acquisitionModes: ['single-import', 'user', 'search', 'series', 'quick'],
-                        uiSlots: ['kind-option-user', 'kind-option-quick',
-                            'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools'],
-                        filters: []}
+                        cancelSupported: true, filters: [], settings: [], i18nNamespace: 'douyin'}
                 ],
-                tabs: [],
                 uiSlots: ['kind-option-user', 'kind-option-quick',
                     'quick-actions-bookmarks', 'quick-actions-mine', 'import-hint', 'cookie-tools']
                     .map(target => ({
@@ -275,7 +273,7 @@ function ok(label, cond) {
     ok('Douyin 类型启用后可用', qt.isTypeAvailable('douyin') === true);
     ok('后端 downloadTypes descriptor 可读取', qt.downloadTypes().some(d => d.type === 'douyin' && d.contractVersion === 1));
     ok('后端 descriptor 明确声明 Douyin 支持单项取消',
-        qt.manifestDescriptor('douyin').queue.cancel === true);
+        qt.manifestDescriptor('douyin').cancelSupported === true);
 
     ok('descriptor contractVersion=1', descriptor.contractVersion === 1);
     ok('process(item) 存在', typeof descriptor.process === 'function');

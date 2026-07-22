@@ -6,19 +6,25 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperationCommands;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.QueueOperationsCapabilityAdapter;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityDrain;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPublication;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
@@ -43,8 +49,10 @@ class PluginTemplateRuntimeRegistrationTest {
     Path temporaryDirectory;
 
     @Test
-    @DisplayName("模板只靠契约类路径注册 queue/route/static/i18n/schema 并组建子上下文")
+    @DisplayName("模板只靠契约类路径注册下载扩展、运行期队列能力、route/static/i18n/schema 并组建子上下文")
     void templatesRegisterThroughRealHostContracts() throws Exception {
+        long minimalGeneration = 3L;
+        long downloadGeneration = 7L;
         try (LoadedTemplate minimal = compileTemplate(
                 "minimal-feature-plugin",
                 "com.example.pixivdownload.minimal.ExampleMinimalPlugin",
@@ -54,14 +62,26 @@ class PluginTemplateRuntimeRegistrationTest {
                      "com.example.pixivdownload.downloadtype.ExampleDownloadPlugin",
                      "com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration")) {
             PluginRegistry plugins = new PluginRegistry(List.of());
-            plugins.register(minimal.feature(), PluginSource.EXTERNAL, minimal.classLoader());
-            plugins.register(download.feature(), PluginSource.EXTERNAL, download.classLoader());
+            plugins.register(new PluginRegistry.RegisteredPlugin(
+                    minimal.feature(), PluginSource.EXTERNAL, minimal.classLoader(),
+                    minimal.feature().id(), minimalGeneration));
+            plugins.register(new PluginRegistry.RegisteredPlugin(
+                    download.feature(), PluginSource.EXTERNAL, download.classLoader(),
+                    download.feature().id(), downloadGeneration));
 
-            QueueTypeRegistry queueTypes = new QueueTypeRegistry(plugins);
-            assertThat(queueTypes.queueTypes()).singleElement().satisfies(registered -> {
-                assertThat(registered.pluginId()).isEqualTo("example-download");
-                assertThat(registered.queueType().type()).isEqualTo("example-download");
-                assertThat(registered.queueType().descriptor().queue().cancel()).isTrue();
+            StaticResourceRegistry staticResources = new StaticResourceRegistry(plugins);
+            DownloadExtensionRegistry downloadTypes = new DownloadExtensionRegistry(
+                    plugins,
+                    staticResources,
+                    new PluginOwnedWebAssetValidator(staticResources),
+                    new WebUiSlotRegistry(plugins));
+            assertThat(downloadTypes.snapshot().downloadTypes()).singleElement().satisfies(registered -> {
+                assertThat(registered.owner().featurePluginId()).isEqualTo("example-download");
+                assertThat(registered.owner().packageId()).isEqualTo("example-download");
+                assertThat(registered.owner().generation()).isEqualTo(downloadGeneration);
+                assertThat(registered.publicationId()).isPositive();
+                assertThat(registered.descriptor().type()).isEqualTo("example-download");
+                assertThat(registered.descriptor().cancelSupported()).isTrue();
             });
 
             RouteAccessRegistry routes = new RouteAccessRegistry(plugins);
@@ -74,7 +94,6 @@ class PluginTemplateRuntimeRegistrationTest {
             assertThat(routes.isDeclared("/example-download-gallery.html")).isTrue();
             assertThat(routes.isDeclared("/api/gallery/unified/descriptors")).isFalse();
 
-            StaticResourceRegistry staticResources = new StaticResourceRegistry(plugins);
             assertThat(staticResources.resources())
                     .extracting(StaticResourceRegistry.RegisteredStaticResource::pluginId)
                     .contains("example-minimal", "example-download");
@@ -86,6 +105,15 @@ class PluginTemplateRuntimeRegistrationTest {
             DatabaseSchemaRegistry schema = new DatabaseSchemaRegistry(plugins);
             assertThat(schema.mergedSchema().tables()).containsKey("example_minimal_records");
 
+            QueueOperationRegistry operations = new QueueOperationRegistry(List.of());
+            ExternalCapabilityInvocationRegistry invocationRegistry =
+                    new ExternalCapabilityInvocationRegistry();
+            QueueOperationsCapabilityAdapter queueAdapter =
+                    new QueueOperationsCapabilityAdapter(operations, invocationRegistry);
+            PluginCapabilityContributionRegistrar capabilityRegistrar =
+                    new PluginCapabilityContributionRegistrar(
+                            List.of(queueAdapter), List.of(), List.of(queueAdapter), invocationRegistry);
+            ExternalCapabilityDrain retiredDrain;
             try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext();
                  AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
                 parent.registerBean(ObjectMapper.class, () -> new ObjectMapper());
@@ -103,19 +131,41 @@ class PluginTemplateRuntimeRegistrationTest {
                 assertThat(contributedOperations).singleElement();
                 assertThat(child.getBean("exampleDownloadController")).isNotNull();
 
-                QueueOperationRegistry operations = new QueueOperationRegistry(List.of());
-                operations.register(download.feature().id(), contributedOperations);
+                PluginCapabilityContributionRegistrar.PreparedOwner prepared =
+                        capabilityRegistrar.allocateOwner(
+                                download.feature().id(), download.feature().id(), downloadGeneration);
+                capabilityRegistrar.prepareInto(prepared, child);
+                ExternalCapabilityPublication capabilityPublication = capabilityRegistrar.publish(prepared);
+                assertThat(capabilityPublication.owner().pluginGeneration()).isEqualTo(downloadGeneration);
+                assertThat(capabilityPublication.owner().publicationId()).isPositive();
+
                 QueueOperations raw = contributedOperations.get(0);
-                QueueOperationCommands resolved = operations.resolve("example-download").orElseThrow();
+                QueueOperationRegistry.OwnedQueueCommands resolved = operations.resolveOwned(
+                        "example-download", "example-download", "example-download", downloadGeneration)
+                        .orElseThrow();
+                assertThat(resolved.owner().pluginGeneration()).isEqualTo(downloadGeneration);
+                assertThat(resolved.owner().capabilityPublicationId())
+                        .isEqualTo(capabilityPublication.owner().publicationId())
+                        .isPositive();
 
                 raw.getClass()
                         .getMethod("complete", String.class, String.class, RequestOwnerIdentity.class)
                         .invoke(raw, "100", "A", RequestOwnerIdentity.owner("owner-a"));
                 assertThat(find(raw, "100", RequestOwnerIdentity.owner("owner-a"))).isPresent();
 
-                resolved.cancel("100", "owner-a", false);
+                operations.cancel(
+                        "example-download", resolved.commands(), "100", "owner-a", false);
                 assertThat(find(raw, "100", RequestOwnerIdentity.owner("owner-a"))).isEmpty();
+
+                retiredDrain = capabilityRegistrar.withdraw(capabilityPublication).orElseThrow();
+                assertThat(retiredDrain.isDrained()).isTrue();
+                capabilityRegistrar.retireDrained(retiredDrain);
+                capabilityRegistrar.acknowledgeRetired(retiredDrain);
+                assertThat(operations.resolveOwned(
+                        "example-download", "example-download", "example-download", downloadGeneration))
+                        .isEmpty();
             }
+            assertThat(capabilityRegistrar.releaseRetirementProof(retiredDrain)).isTrue();
         }
     }
 

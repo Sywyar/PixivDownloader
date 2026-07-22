@@ -6,8 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
@@ -17,7 +17,6 @@ import java.util.HashSet;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -78,14 +77,12 @@ class ExampleDownloadPluginTest {
     }
 
     @Test
-    @DisplayName("下载类型完整声明五种取得模式和真实能力边界")
+    @DisplayName("下载类型声明五种取得模式和真实取消边界")
     void downloadTypeDeclaresStableCapabilities() {
         ExampleDownloadPlugin plugin = new ExampleDownloadPlugin();
-        var queueType = plugin.queueTypes().get(0);
-        var descriptor = queueType.descriptor();
+        var descriptor = plugin.downloadTypes().get(0);
 
-        assertEquals(ExampleDownloadPlugin.ID, queueType.pluginId());
-        assertEquals(ExampleDownloadPlugin.TYPE, queueType.type());
+        assertEquals(ExampleDownloadPlugin.TYPE, descriptor.type());
         assertEquals(1, descriptor.contractVersion());
         assertEquals(java.util.List.of(
                 DownloadAcquisitionMode.SINGLE_IMPORT,
@@ -93,17 +90,13 @@ class ExampleDownloadPluginTest {
                 DownloadAcquisitionMode.SERIES_COLLECTION,
                 DownloadAcquisitionMode.SEARCH,
                 DownloadAcquisitionMode.QUICK), descriptor.acquisitionModes());
-        assertTrue(descriptor.queue().clearAll());
-        assertTrue(descriptor.queue().clearForOwner());
-        assertTrue(descriptor.queue().cancel());
+        assertTrue(descriptor.cancelSupported());
 
         ExampleDownloadQueue queue = new ExampleDownloadQueue();
         queue.complete("100", "A", RequestOwnerIdentity.owner("owner-a"));
         queue.cancel("100", "owner-a", false);
         assertTrue(queue.find("100", RequestOwnerIdentity.owner("owner-a")).isEmpty());
-        assertTrue(descriptor.schedule().saveable());
-        assertTrue(descriptor.gallery().independentPage());
-        assertEquals("gallery.independent-page", descriptor.gallery().reasonI18nKey());
+        assertEquals(ExampleDownloadPlugin.TYPE_MODULE_URL, descriptor.moduleUrl());
     }
 
     @Test

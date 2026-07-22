@@ -598,23 +598,17 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("队列宿主操作适配器必须 @PluginManagedBean（不得根包扫描）：随贡献它的插件生命周期归属")
-    void queueOperationsMustBePluginManaged() {
-        // IllustQueueOperations（住 download 包、下载工作台贡献）/ NovelQueueOperations（住 novel 包、小说插件贡献）
-        // 这类 QueueOperations 实现必须标 @PluginManagedBean、由各自 XxxPluginConfiguration 显式装配、排除出根包扫描——
-        // 否则贡献它的插件被禁 / 卸载后，根扫描的 @Service / @Component 仍会注册适配器偷跑，破坏「缺操作即该作品类型不
-        // 参与跨类型清空」语义（与 ScheduledWorkExecutor 生命周期边界同构）。接口本身不在约束面。
-        classes()
-                .that().areAssignableTo(
+    @DisplayName("宿主生产 classpath 不得实现 QueueOperations：具体操作只归各官方外置插件")
+    void hostProductionMustNotImplementQueueOperations() {
+        // app/core-api/plugin-runtime 只承载队列契约、注册与调用设施，不拥有任何具体队列实现。下载工作台、novel、
+        // duplicate 等模块各自由模块内守卫约束其实现必须 @PluginManagedBean；这里用非空的宿主生产类全集作为检查面，
+        // 避免旧规则仅筛实现类后因 app 本就没有实现而 allowEmpty，形成无法证明任何边界的空守卫。
+        noClasses()
+                .that().resideOutsideOfPackage("top.sywyar.pixivdownload.plugin.api..")
+                .should().implement(
                         top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations.class)
-                .and().areNotInterfaces()
-                .should().beAnnotatedWith(
-                        top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
-                .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
-                .because("队列宿主操作适配器随贡献它的插件生命周期归属：必须 @PluginManagedBean 由对应 "
-                        + "XxxPluginConfiguration 显式装配、排除出根包扫描，不得用 @Service / @Component 根扫描注册，"
-                        + "否则插件禁用后仍被注册偷跑")
-                .allowEmptyShould(true)
+                .because("QueueOperations 的具体实现属于贡献它的外置插件；宿主只保留 QueueOperationRegistry，"
+                        + "不得重新拥有具体下载或扫描队列适配器")
                 .check(CLASSES);
     }
 

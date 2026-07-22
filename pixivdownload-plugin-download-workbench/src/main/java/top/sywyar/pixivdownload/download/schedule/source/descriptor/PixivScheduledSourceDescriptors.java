@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.download.schedule.source.descriptor;
 
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFrontendContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
-import top.sywyar.pixivdownload.plugin.api.web.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
