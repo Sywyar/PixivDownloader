@@ -153,22 +153,24 @@ class GuiPluginControllerTest {
                 "mail",
                 "邮件通知",
                 "Mail Notifications");
-        ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
-        WebI18nService realI18n = new WebI18nService(new WebI18nBundleRegistry(
-                new PluginRegistry(List.of()), provider(installer)));
-        AppLocaleResolver localeResolver = mock(AppLocaleResolver.class);
-        when(localeResolver.resolveLocale(any())).thenReturn(Locale.ENGLISH);
-        MockMvc mvc = MockMvcBuilders
-                .standaloneSetup(new GuiPluginController(managementService, realI18n, localeResolver))
-                .build();
-        when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
-                entry("mail", "mail", "plugin.name", "external",
-                        PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"))));
+        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins)) {
+            installer.recoverPendingTransactions();
+            WebI18nService realI18n = new WebI18nService(new WebI18nBundleRegistry(
+                    new PluginRegistry(List.of()), provider(installer)));
+            AppLocaleResolver localeResolver = mock(AppLocaleResolver.class);
+            when(localeResolver.resolveLocale(any())).thenReturn(Locale.ENGLISH);
+            MockMvc mvc = MockMvcBuilders
+                    .standaloneSetup(new GuiPluginController(managementService, realI18n, localeResolver))
+                    .build();
+            when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+                    entry("mail", "mail", "plugin.name", "external",
+                            PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"))));
 
-        mvc.perform(get("/api/gui/plugins/status"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.plugins[0].id").value("mail"))
-                .andExpect(jsonPath("$.plugins[0].name").value("Mail Notifications"));
+            mvc.perform(get("/api/gui/plugins/status"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.plugins[0].id").value("mail"))
+                    .andExpect(jsonPath("$.plugins[0].name").value("Mail Notifications"));
+        }
     }
 
     @Test

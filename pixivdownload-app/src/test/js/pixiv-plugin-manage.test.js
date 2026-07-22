@@ -13,7 +13,7 @@
  * 三、本地插件包安装（消费 POST /api/plugins/install 的 PluginInstallResponse）：
  *   A) API 层 installPackage：multipart 请求路径 / 方法 / file 字段 / allowDowngrade 默认 false；4xx 仍返回结构化体；
  *      未选文件不发请求（抛 localValidation）；拿不到结构化响应才抛 httpStatus。
- *   B) 视图模型 buildInstallResult：outcome → 色调（accepted=ok、DUPLICATE=info、拒绝/失败=bad）、字段映射。
+ *   B) 视图模型 buildInstallResult：outcome → 色调（恢复阻断优先为 bad、accepted=ok、DUPLICATE=info）、字段映射。
  *   C) 结果渲染 renderInstallResultHtml：REJECTED_EMPTY 稳定显示；事务成功显示即时激活；
  *      诊断 / 依赖列表显示且全部转义、绝不注入 HTML。
  *
@@ -72,6 +72,7 @@ ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.restartBackend === 'function'
     && typeof PM.installPackage === 'function'
     && typeof PM.buildInstallResult === 'function'
+    && typeof PM.installFeedback === 'function'
     && typeof PM.renderInstallResultHtml === 'function'
     && typeof PM.hasNavigationForPlacement === 'function');
 
@@ -249,7 +250,8 @@ function installResponse(over) {
         outcome: 'INSTALLED', accepted: true, effectiveAfterRestart: false, status: 200,
         message: 'message', pluginId: null, version: null, previousVersion: null,
         packageId: null, targetVersion: null, operation: null, runtimePhase: null,
-        updated: false, activated: false, rolledBack: false, rollbackVersion: null, transactionId: null,
+        updated: false, activated: false, recoveryBlocked: false,
+        rolledBack: false, rollbackVersion: null, transactionId: null,
         dependencies: [], unsatisfiedDependencies: [], diagnostics: []
     }, over || {});
 }
@@ -292,6 +294,16 @@ function installResponse(over) {
     const deps = PM.buildInstallResult(installResponse(
         { outcome: 'INSTALLED', unsatisfiedDependencies: ['ghost-plugin', 'other'] }));
     eq('unsatisfiedDependencies → warnings 映射', deps.warnings.length, 2);
+
+    const blockedMessage = '安装事务已阻断；请重启后完成恢复';
+    const blocked = PM.buildInstallResult(installResponse({
+        accepted: true, activated: true, recoveryBlocked: true, status: 503, message: blockedMessage
+    }));
+    ok('recoveryBlocked 字段映射', blocked.recoveryBlocked === true);
+    eq('recoveryBlocked 优先覆盖 accepted/activated 成功色调', blocked.tone, 'bad');
+    const feedback = PM.installFeedback(blocked);
+    eq('recoveryBlocked toast 使用错误色调', feedback.tone, 'error');
+    eq('recoveryBlocked toast 保留后端 message', feedback.message, blockedMessage);
 })();
 
 // —— C) renderInstallResultHtml：稳定显示 / 即时激活 / 转义 ——
@@ -306,6 +318,20 @@ const ACTIVATED_NOTE = '插件已安装并在当前进程中激活。';
     ok('REJECTED_EMPTY 渲染含稳定结果码', html.indexOf('REJECTED_EMPTY') !== -1);
     ok('REJECTED_EMPTY 渲染 bad 色调', html.indexOf('pm-install-result-box--bad') !== -1);
     ok('REJECTED_EMPTY 不渲染「重启后生效」', html.indexOf('重启后生效') === -1);
+})();
+
+// C-2c) 即使后端同时报告 accepted / activated，恢复阻断仍只渲染失败语义，不显示即时激活或绿色结果。
+(function () {
+    const backendMessage = '安装事务已阻断；请重启后完成恢复';
+    const html = PM.renderInstallResultHtml(PM.buildInstallResult(installResponse({
+        outcome: 'INSTALLED', accepted: true, activated: true, effectiveAfterRestart: true,
+        recoveryBlocked: true, status: 503, message: backendMessage
+    })));
+    ok('recoveryBlocked 结果保留后端 message', html.indexOf(backendMessage) !== -1);
+    ok('recoveryBlocked 渲染 bad 色调', html.indexOf('pm-install-result-box--bad') !== -1);
+    ok('recoveryBlocked 不渲染即时激活语义', html.indexOf(ACTIVATED_NOTE) === -1);
+    ok('recoveryBlocked 不渲染绿色成功图标', html.indexOf('fa-circle-check') === -1);
+    ok('recoveryBlocked 渲染待恢复说明', html.indexOf('恢复完成前请勿继续安装插件') !== -1);
 })();
 
 // C-2) 事务成功 → 渲染即时激活 + ok 色调 + 事务字段。
@@ -396,6 +422,16 @@ async function apiTests() {
         { outcome: 'REJECTED_EMPTY', accepted: false, effectiveAfterRestart: false, status: 400 }) };
     const rej = await PM.installPackage(fileStub, false);
     eq('installPackage 4xx 返回结构化 outcome', rej.outcome, 'REJECTED_EMPTY');
+
+    // A-3b) 503 recovery-blocked 也是已决结构化结果，必须保留后端 message 交给结果模型，不能按普通 HTTP 错误丢弃。
+    fetchCalls.length = 0;
+    const blockedMessage = '安装事务已阻断；请重启后完成恢复';
+    nextFetchResponse = { ok: false, status: 503, body: installResponse({
+        accepted: true, activated: true, recoveryBlocked: true, status: 503, message: blockedMessage
+    }) };
+    const blocked = await PM.installPackage(fileStub, false);
+    ok('installPackage 503 返回 recoveryBlocked 结构化体', blocked.recoveryBlocked === true);
+    eq('installPackage 503 保留后端 message', blocked.message, blockedMessage);
 
     // A-4) 未选文件 → 不发请求、抛 localValidation。
     fetchCalls.length = 0;

@@ -341,9 +341,10 @@
         return name.endsWith('.jar') || name.endsWith('.zip');
     }
 
-    // 安装结果色调：accepted（落盘存在）里 DUPLICATE（已存在、无改动）记为中性 info，其余（新装 / 升级 / 降级）记为
-    // 成功 ok；未 accepted（各类拒绝 / 失败）一律记为 bad。仅用于结果区的着色，不参与任何机器判别。
-    function installTone(outcome, accepted) {
+    // 安装结果色调：恢复阻断优先于 accepted（落盘存在）与 activated（运行时已加载），必须作为失败态展示；其余 accepted
+    // 结果里 DUPLICATE（已存在、无改动）记为中性 info，新装 / 升级 / 降级记为成功 ok，未 accepted 记为 bad。
+    function installTone(outcome, accepted, recoveryBlocked) {
+        if (recoveryBlocked) return 'bad';
         if (!accepted) return 'bad';
         return outcome === 'DUPLICATE' ? 'info' : 'ok';
     }
@@ -355,12 +356,14 @@
         var r = response || {};
         var outcome = r.outcome || null;
         var accepted = r.accepted === true;
+        var recoveryBlocked = r.recoveryBlocked === true;
         return {
             outcome: outcome,
             accepted: accepted,
+            recoveryBlocked: recoveryBlocked,
             effectiveAfterRestart: r.effectiveAfterRestart === true,
             status: typeof r.status === 'number' ? r.status : null,
-            tone: installTone(outcome, accepted),
+            tone: installTone(outcome, accepted, recoveryBlocked),
             message: r.message || null,
             pluginId: r.pluginId || null,
             version: r.version || null,
@@ -380,10 +383,35 @@
         };
     }
 
+    // 安装完成后的 toast 语义。恢复阻断必须先于 activated / accepted 判定，并直接保留后端按请求语言解析的 message，
+    // 避免已经进入待恢复状态的事务被绿色成功提示掩盖。
+    function installFeedback(model) {
+        var m = model || {};
+        if (m.recoveryBlocked) {
+            return {
+                message: m.message || t('install.toast.recovery-blocked', '安装事务需要在重启后恢复。'),
+                tone: 'error'
+            };
+        }
+        if (m.activated) {
+            return { message: t('install.toast.accepted', '插件已安装并激活。'), tone: 'ok' };
+        }
+        if (m.rolledBack) {
+            return { message: t('install.rollback-note', '新版本激活失败，已恢复原版本。'), tone: 'error' };
+        }
+        if (m.accepted) {
+            return { message: t('install.toast.accepted', '插件已安装。'), tone: 'ok' };
+        }
+        return {
+            message: t('install.toast.rejected', '未安装：{message}', { message: m.message || m.outcome || '' }),
+            tone: 'error'
+        };
+    }
+
     // 纯前端的本地校验提示（未选文件 / 非法选择 / 网络异常等）：与 buildInstallResult 同形态，供结果区统一渲染。
     function localInstallNotice(message, tone) {
         return {
-            outcome: null, accepted: false, effectiveAfterRestart: false, status: null,
+            outcome: null, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false, status: null,
             tone: tone || 'warn', message: message || null,
             pluginId: null, version: null, previousVersion: null, packageId: null, targetVersion: null,
             operation: null, runtimePhase: null, updated: false, transactionId: null,
@@ -417,6 +445,7 @@
         stats: stats,
         hasAcceptedExtension: hasAcceptedExtension,
         buildInstallResult: buildInstallResult,
+        installFeedback: installFeedback,
         localInstallNotice: localInstallNotice
     };
 })(window);

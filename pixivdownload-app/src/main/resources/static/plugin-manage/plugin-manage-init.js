@@ -185,16 +185,8 @@
             var response = await PM.installPackage(file, allowDowngrade);
             var model = PM.buildInstallResult(response);
             PM.showInstallResult(model);
-            if (model.activated) {
-                PM.toast(PM.t('install.toast.accepted', '插件已安装并激活。'), 'ok');
-            } else if (model.rolledBack) {
-                PM.toast(PM.t('install.rollback-note', '新版本激活失败，已恢复原版本。'), 'error');
-            } else if (model.accepted) {
-                PM.toast(PM.t('install.toast.accepted', '插件已安装。'), 'ok');
-            } else {
-                PM.toast(PM.t('install.toast.rejected', '未安装：{message}',
-                    { message: model.message || model.outcome || '' }), 'error');
-            }
+            var feedback = PM.installFeedback(model);
+            PM.toast(feedback.message, feedback.tone);
         } catch (e) {
             if (e && e.localValidation) {
                 PM.showInstallResult(PM.localInstallNotice(

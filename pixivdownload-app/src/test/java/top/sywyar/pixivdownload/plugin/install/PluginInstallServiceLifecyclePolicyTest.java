@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
-import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
@@ -27,8 +26,6 @@ import static org.mockito.Mockito.when;
 @DisplayName("插件安装报告生命周期策略语义")
 class PluginInstallServiceLifecyclePolicyTest {
 
-    @Mock
-    ExternalPluginInstaller installer;
     @Mock
     ExternalPluginLifecycleCoordinator coordinator;
     @Mock
@@ -66,8 +63,28 @@ class PluginInstallServiceLifecyclePolicyTest {
         assertThat(report.effectiveAfterRestart()).isTrue();
     }
 
+    @Test
+    @DisplayName("事务恢复被阻断时安装报告保留独立机器态")
+    void recoveryBlockedStateIsPreservedInReport() {
+        PluginDescriptor descriptor = descriptor("blocked-plugin", PluginLifecyclePolicy.HOT_RELOAD);
+        PluginInstallResult result = new PluginInstallResult(
+                PluginInstallOutcome.FAILED, descriptor, Path.of("blocked-plugin.jar"), null, List.of());
+        PluginActivationResult activation = new PluginActivationResult(
+                "tx-blocked", result, false, false, null,
+                ExternalPluginOperation.FAILED, PluginRuntimePhase.STOPPED, true);
+        Path packageFile = Path.of("blocked-plugin.jar");
+        PluginPackageOrigin origin = PluginPackageOrigin.localUpload();
+        when(coordinator.installOrUpdate(packageFile, false, origin)).thenReturn(activation);
+        when(dependencyResolver.installedProblems(descriptor)).thenReturn(List.of());
+
+        PluginInstallReport report = service().installTrustedFile(packageFile, false, origin);
+
+        assertThat(report.recoveryBlocked()).isTrue();
+        assertThat(report.effectiveAfterRestart()).isFalse();
+    }
+
     private PluginInstallService service() {
-        return new PluginInstallService(installer, coordinator, dependencyResolver);
+        return new PluginInstallService(coordinator, dependencyResolver);
     }
 
     private static PluginActivationResult activation(

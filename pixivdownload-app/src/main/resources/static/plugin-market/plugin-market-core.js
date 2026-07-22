@@ -101,6 +101,7 @@
         UNAVAILABLE:     { labelKey: 'install.state.unavailable', icon: 'ban',    variant: 'gray', disabled: true },
         // 前端本地请求态（安装 POST 在途）：不来自后端，安装结果仍以后端响应为准。
         INSTALLING:      { labelKey: 'install.state.installing', icon: 'spinner',         variant: 'primary', disabled: true },
+        RECOVERY_BLOCKED: { labelKey: 'install.state.recovery-blocked', icon: 'triangle-exclamation', variant: 'gray', disabled: true },
         PENDING_RESTART: { labelKey: 'install.state.pending-restart', icon: 'circle-check', variant: 'success-outline', disabled: true },
         ACTIVATED:       { labelKey: 'install.state.activated', icon: 'circle-check', variant: 'success-outline', disabled: true }
     };

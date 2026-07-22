@@ -8,8 +8,18 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateState;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginDirectorySessionLock;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
@@ -38,12 +48,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Properties;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * {@link PluginBootstrapSession} 单元 / 端到端探针测试：恢复事务早于 start、manager/start 只执行一次、status 正确保存、
@@ -70,6 +82,178 @@ class PluginBootstrapSessionTest {
                 tempDir.resolve("c"), PluginEnabledSnapshot.empty());
         assertThat(process.ownership()).isEqualTo(PluginBootstrapSession.Ownership.PROCESS);
         assertThat(context.ownership()).isEqualTo(PluginBootstrapSession.Ownership.CONTEXT);
+    }
+
+    @Test
+    @DisplayName("manager 构造严格晚于恢复结论：start 前不可取得，start 后保持唯一实例")
+    void managerConstructedOnlyAfterRecoveryDecision() {
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+                tempDir.resolve("deferred-manager"), PluginEnabledSnapshot.empty());
+        try {
+            assertThatThrownBy(session::manager)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("transaction recovery decision");
+
+            session.start();
+
+            assertThat(session.manager()).isSameAs(session.manager());
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
+    @DisplayName("事务恢复抛 JVM 致命错误时释放 installer 目录租约、关闭会话并原样重抛")
+    void fatalTransactionRecoveryClosesInstallerBeforeRethrow() throws Exception {
+        Path pluginsDir = tempDir.resolve("fatal-transaction-recovery");
+        Files.createDirectories(pluginsDir);
+        OutOfMemoryError fatal = new OutOfMemoryError("fatal transaction recovery");
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        PluginBootstrapSession session = new PluginBootstrapSession(
+                pluginsDir, PluginBootstrapSession.Ownership.CONTEXT, PluginEnabledSnapshot.empty(),
+                origin -> verifier, (root, resolver, installer) -> mock(PluginRuntimeManager.class),
+                installer -> {
+                    assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
+                    throw fatal;
+                });
+
+        assertThatThrownBy(session::start).isSameAs(fatal);
+
+        assertThat(session.isClosed()).isTrue();
+        assertThat(session.isStarted()).isFalse();
+        assertThatThrownBy(session::start)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("closed");
+        assertThatThrownBy(session::manager)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unavailable");
+        assertDirectoryLeaseReleased(pluginsDir);
+    }
+
+    @Test
+    @DisplayName("manager 工厂抛运行时异常时收敛为诊断且会话仍可正常关闭")
+    void managerFactoryRuntimeFailureConvergesToDiagnostics() throws Exception {
+        Path pluginsDir = tempDir.resolve("manager-factory-runtime-failure");
+        Files.createDirectories(pluginsDir);
+        IllegalStateException failure = new IllegalStateException("simulated manager factory failure");
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        PluginBootstrapSession session = new PluginBootstrapSession(
+                pluginsDir, PluginBootstrapSession.Ownership.CONTEXT, PluginEnabledSnapshot.empty(),
+                origin -> verifier, (root, resolver, installer) -> {
+                    throw failure;
+                });
+
+        assertThat(session.start()).isSameAs(session);
+
+        assertThat(session.isStarted()).isTrue();
+        assertThat(session.isClosed()).isFalse();
+        assertThat(session.status().failures()).singleElement()
+                .satisfies(item -> assertThat(item.reason()).contains("manager construction failed"));
+        assertThat(session.diagnostics()).singleElement()
+                .asString().contains("simulated manager factory failure");
+        assertThatThrownBy(session::manager)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unavailable");
+
+        session.close();
+        assertDirectoryLeaseReleased(pluginsDir);
+    }
+
+    @Test
+    @DisplayName("manager 工厂抛普通 Error 时同样收敛为诊断")
+    void managerFactoryNonFatalErrorConvergesToDiagnostics() throws Exception {
+        Path pluginsDir = tempDir.resolve("manager-factory-error");
+        Files.createDirectories(pluginsDir);
+        AssertionError failure = new AssertionError("simulated manager factory error");
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        PluginBootstrapSession session = new PluginBootstrapSession(
+                pluginsDir, PluginBootstrapSession.Ownership.CONTEXT, PluginEnabledSnapshot.empty(),
+                origin -> verifier, (root, resolver, installer) -> {
+                    throw failure;
+                });
+
+        assertThat(session.start()).isSameAs(session);
+
+        assertThat(session.isStarted()).isTrue();
+        assertThat(session.status().failures()).singleElement()
+                .satisfies(item -> assertThat(item.reason()).contains("manager construction failed"));
+        session.close();
+        assertDirectoryLeaseReleased(pluginsDir);
+    }
+
+    @Test
+    @DisplayName("manager 工厂抛 JVM 致命错误时释放目录租约并原样重抛")
+    void fatalManagerFactoryFailureClosesInstallerBeforeRethrow() throws Exception {
+        Path pluginsDir = tempDir.resolve("fatal-manager-factory");
+        Files.createDirectories(pluginsDir);
+        OutOfMemoryError fatal = new OutOfMemoryError("fatal manager factory");
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        PluginBootstrapSession session = new PluginBootstrapSession(
+                pluginsDir, PluginBootstrapSession.Ownership.CONTEXT, PluginEnabledSnapshot.empty(),
+                origin -> verifier, (root, resolver, installer) -> {
+                    throw fatal;
+                });
+
+        assertThatThrownBy(session::start).isSameAs(fatal);
+
+        assertThat(session.isClosed()).isTrue();
+        assertThat(session.isStarted()).isFalse();
+        assertThatThrownBy(session::manager)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unavailable");
+        assertDirectoryLeaseReleased(pluginsDir);
+    }
+
+    @Test
+    @DisplayName("manager 启动抛 JVM 致命错误时释放运行时与目录租约且会话不可复活")
+    void fatalManagerStartClosesSessionBeforeRethrow() throws Exception {
+        Path pluginsDir = tempDir.resolve("fatal-manager-start");
+        Files.createDirectories(pluginsDir);
+        PluginRuntimeManager runtimeManager = mock(PluginRuntimeManager.class);
+        OutOfMemoryError fatal = new OutOfMemoryError("fatal manager start");
+        when(runtimeManager.start()).thenThrow(fatal);
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        PluginBootstrapSession session = new PluginBootstrapSession(
+                pluginsDir, PluginBootstrapSession.Ownership.CONTEXT, PluginEnabledSnapshot.empty(),
+                origin -> verifier, (root, resolver, installer) -> runtimeManager);
+
+        assertThatThrownBy(session::start).isSameAs(fatal);
+
+        verify(runtimeManager).shutdown();
+        assertThat(session.isClosed()).isTrue();
+        assertThat(session.isStarted()).isFalse();
+        assertThatThrownBy(session::start)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("closed");
+        assertThatThrownBy(session::manager)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unavailable");
+        assertDirectoryLeaseReleased(pluginsDir);
+    }
+
+    @Test
+    @DisplayName("启动期清点抛 JVM 致命错误时释放已启动 manager 与目录租约并原样重抛")
+    void fatalStartupDiscoveryClosesSessionBeforeRethrow() throws Exception {
+        Path pluginsDir = tempDir.resolve("fatal-startup-discovery");
+        Files.createDirectories(pluginsDir);
+        PluginRuntimeManager runtimeManager = mock(PluginRuntimeManager.class);
+        ThreadDeath fatal = new ThreadDeath();
+        when(runtimeManager.start()).thenReturn(new PluginRuntimeStatus(
+                pluginsDir, PluginDirectoryState.EMPTY, List.of(), List.of(), List.of()));
+        when(runtimeManager.inspectPlugins()).thenThrow(fatal);
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        PluginBootstrapSession session = new PluginBootstrapSession(
+                pluginsDir, PluginBootstrapSession.Ownership.CONTEXT, PluginEnabledSnapshot.empty(),
+                origin -> verifier, (root, resolver, installer) -> runtimeManager);
+
+        assertThatThrownBy(session::start).isSameAs(fatal);
+
+        verify(runtimeManager).shutdown();
+        assertThat(session.isClosed()).isTrue();
+        assertThat(session.isStarted()).isFalse();
+        assertThat(session.startupInventory().installations()).isEmpty();
+        assertThat(session.startupDiscovery().discovered()).isEmpty();
+        assertDirectoryLeaseReleased(pluginsDir);
     }
 
     @Test
@@ -125,40 +309,253 @@ class PluginBootstrapSessionTest {
     @DisplayName("恢复待处理安装事务：start 时先恢复旧包（target 删除、backup 还原）、再扫描加载探针")
     void recoveryRunsBeforeScan() throws Exception {
         Path pluginsDir = tempDir.resolve("plugins");
-        Files.createDirectories(pluginsDir);
         stageProbeJar(pluginsDir);
-
-        // 伪造一个待恢复事务：OLD_ISOLATED——target 是不该出现的「新包」，backup 是应还原的「旧包」
-        Path txDir = pluginsDir.resolve(".staging").resolve("tx-1");
-        Path backupDir = txDir.resolve("removed");
-        Files.createDirectories(backupDir);
-        Path strayNew = pluginsDir.resolve("stray-new-package.jar");
-        Path origin = tempDir.resolve("restored-old-package.bin");
-        Path backup = backupDir.resolve("old.jar");
-        Files.writeString(strayNew, "new", StandardCharsets.UTF_8);
-        Files.writeString(backup, "old", StandardCharsets.UTF_8);
-        // 用 Properties.store 写事务清单，避免 Windows 路径反斜杠被 Properties.load 误当转义（与生产 readManifest UTF-8 对齐）。
-        Properties manifest = new Properties();
-        manifest.setProperty("state", "OLD_ISOLATED");
-        manifest.setProperty("target", strayNew.toString());
-        manifest.setProperty("backup.count", "1");
-        manifest.setProperty("backup.0.origin", origin.toString());
-        manifest.setProperty("backup.0.path", backup.toString());
-        try (java.io.Writer writer = Files.newBufferedWriter(txDir.resolve("transaction.properties"),
-                StandardCharsets.UTF_8)) {
-            manifest.store(writer, null);
+        Path oldPackage = PluginPackageFixtures.explodedZip(tempDir.resolve("recovery-old.zip"),
+                "recovery-demo", "1.0.0", "1.0", "demo.Plugin");
+        Path newPackage = PluginPackageFixtures.explodedZip(tempDir.resolve("recovery-new.zip"),
+                "recovery-demo", "2.0.0", "1.0", "demo.Plugin");
+        PreparedPluginTransaction prepared;
+        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(pluginsDir)) {
+            assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
+            installFully(installer, oldPackage);
+            prepared = installer.prepareTransaction(
+                    newPackage, false, PluginPackageOrigin.localUpload());
+            installer.commitTransaction(prepared); // NEW_PLACED：启动恢复必须回滚到旧版本
         }
 
         PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
         session.start();
 
-        // 恢复已执行：stray 新包删除、旧包还原到 origin、事务目录清理
-        assertThat(Files.exists(strayNew)).isFalse();
-        assertThat(Files.readString(origin, StandardCharsets.UTF_8)).isEqualTo("old");
-        assertThat(Files.exists(txDir)).isFalse();
+        assertThat(pluginsDir.resolve("recovery-demo-2.0.0.zip")).doesNotExist();
+        assertThat(pluginsDir.resolve("recovery-demo-1.0.0.zip")).exists();
+        assertThat(prepared.transactionDirectory()).doesNotExist();
         // 同一次 start 内扫描已执行：探针已加载启动
         assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
         session.close();
+    }
+
+    @Test
+    @DisplayName("恢复失败时保留坏事务并在 PF4J 扫描前整体 fail-closed")
+    void unresolvedRecoveryPreventsPf4jScan() throws Exception {
+        Path pluginsDir = tempDir.resolve("blocked-plugins");
+        stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("blocked-probe-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        Path transaction = pluginsDir.resolve(".staging").resolve("orphaned");
+        Path retained = transaction.resolve("removed").resolve("0-bootstrap-probe.jar");
+        Files.createDirectories(retained.getParent());
+        Files.writeString(retained, "only-copy", StandardCharsets.UTF_8);
+
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+                pluginsDir, PluginEnabledSnapshot.empty());
+        session.start();
+
+        assertThat(session.isStarted()).isTrue();
+        assertThat(session.status().hasFailures()).isTrue();
+        assertThat(session.status().loadedPluginIds()).isEmpty();
+        assertThat(session.status().startedPluginIds()).isEmpty();
+        assertThat(session.status().failures())
+                .extracting(failure -> failure.reason())
+                .anyMatch(reason -> reason.contains("MISSING_MANIFEST"));
+        assertThat(session.diagnostics()).anyMatch(diagnostic -> diagnostic.contains("MISSING_MANIFEST"));
+        assertThat(session.startupInventory().installations()).isEmpty();
+        assertThat(session.startupDiscovery().discovered()).isEmpty();
+        PluginRuntimeManager runtimeManager = session.manager();
+        assertThat(runtimeManager).isSameAs(session.manager());
+        assertThat(runtimeManager.pluginManager())
+                .as("BLOCKED 恢复报告下 manager 必须保持 inert，不得创建 PF4J manager 或扫描")
+                .isEmpty();
+        assertThat(runtimeManager.inspectPlugins().installations()).isEmpty();
+        assertThatThrownBy(runtimeManager::start)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("recovery is unsafe");
+        assertThatThrownBy(() -> runtimeManager.loadPlugin(pluginsDir.resolve("0-bootstrap-probe.jar")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("recovery is unsafe");
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
+        assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
+        Path candidate = PluginPackageFixtures.explodedZip(tempDir.resolve("blocked-install.zip"),
+                "blocked-install", "1.0.0", "1.0", "demo.Plugin");
+        assertThatThrownBy(() -> session.installer().prepareTransaction(
+                candidate, false, PluginPackageOrigin.localUpload()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("recovery is unsafe");
+        session.close();
+    }
+
+    @Test
+    @DisplayName("启动时目录缺失后晚到的不安全事务必须在显式加载前补恢复并拒绝")
+    void lateUnsafeTransactionAfterAbsentStartupBlocksExplicitLoad() throws Exception {
+        Path pluginsDir = tempDir.resolve("late-created-plugins");
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+                pluginsDir, PluginEnabledSnapshot.empty());
+        try {
+            session.start();
+            assertThat(session.status().state()).isEqualTo(PluginDirectoryState.ABSENT);
+            assertThat(session.installer().recoverySafeForRuntime()).isTrue();
+
+            Path marker = tempDir.resolve("late-created-probe-events.log");
+            Files.createFile(marker);
+            System.setProperty("bootstrap.probe.marker", marker.toString());
+            Path probeJar = stageProbeJar(pluginsDir);
+            Path retained = pluginsDir.resolve(".staging").resolve("late-orphan")
+                    .resolve("removed").resolve("evidence.jar");
+            Files.createDirectories(retained.getParent());
+            Files.writeString(retained, "only-copy", StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> session.manager().loadPlugin(probeJar))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasStackTraceContaining("recovery is unsafe");
+
+            assertThat(session.installer().recoverySafeForRuntime()).isFalse();
+            assertThat(session.installer().recoveryGateSnapshot().state())
+                    .isEqualTo(PluginRecoveryGateState.BLOCKED);
+            assertThat(session.installer().recoveryGateSnapshot().report().failures())
+                    .extracting(failure -> failure.kind().name())
+                    .containsExactly("MISSING_MANIFEST");
+            assertThat(session.manager().pluginManager()).isEmpty();
+            assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
+            assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
+    @DisplayName("启动时目录缺失后晚到的不安全事务也必须在开发目录显式加载前拒绝")
+    void lateUnsafeTransactionAfterAbsentStartupBlocksDevelopmentLoad() throws Exception {
+        Path repositoryRoot = tempDir.resolve("late-created-dev-repository");
+        Path pluginsDir = repositoryRoot.resolve("plugins");
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+                pluginsDir, PluginEnabledSnapshot.empty());
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        try {
+            session.start();
+            assertThat(session.status().state()).isEqualTo(PluginDirectoryState.ABSENT);
+
+            Path marker = tempDir.resolve("late-created-dev-probe-events.log");
+            Files.createFile(marker);
+            System.setProperty("bootstrap.probe.marker", marker.toString());
+            Path classesDirectory = stageProbeDevelopmentClasses(repositoryRoot);
+            Path retained = pluginsDir.resolve(".staging").resolve("late-dev-orphan")
+                    .resolve("removed").resolve("evidence.jar");
+            Files.createDirectories(retained.getParent());
+            Files.writeString(retained, "only-copy", StandardCharsets.UTF_8);
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, repositoryRoot.toString());
+
+            assertThatThrownBy(() -> session.manager().loadPlugin(classesDirectory))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasStackTraceContaining("recovery is unsafe");
+
+            assertThat(session.installer().recoverySafeForRuntime()).isFalse();
+            assertThat(session.manager().pluginManager()).isEmpty();
+            assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
+            assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
+        } finally {
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+            session.close();
+        }
+    }
+
+    @Test
+    @DisplayName("开发 generation 加载后晚到的不安全事务必须在显式启动入口前拒绝")
+    void lateUnsafeTransactionAfterDevelopmentLoadBlocksExplicitStart() throws Exception {
+        Path repositoryRoot = tempDir.resolve("late-created-dev-start-repository");
+        Path pluginsDir = repositoryRoot.resolve("plugins");
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+                pluginsDir, PluginEnabledSnapshot.empty());
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        try {
+            session.start();
+            assertThat(session.status().state()).isEqualTo(PluginDirectoryState.ABSENT);
+
+            Path marker = tempDir.resolve("late-created-dev-start-events.log");
+            Files.createFile(marker);
+            System.setProperty("bootstrap.probe.marker", marker.toString());
+            Path classesDirectory = stageProbeDevelopmentClasses(repositoryRoot);
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, repositoryRoot.toString());
+            session.manager().loadPlugin(classesDirectory);
+
+            Path retained = pluginsDir.resolve(".staging").resolve("late-dev-start-orphan")
+                    .resolve("removed").resolve("evidence.jar");
+            Files.createDirectories(retained.getParent());
+            Files.writeString(retained, "only-copy", StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> session.manager().startPlugin("bootstrap-probe"))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasStackTraceContaining("recovery is unsafe");
+
+            assertThat(session.installer().recoverySafeForRuntime()).isFalse();
+            assertThat(session.installer().recoveryGateSnapshot().state())
+                    .isEqualTo(PluginRecoveryGateState.BLOCKED);
+            assertThat(session.manager().packagePhases().get("bootstrap-probe"))
+                    .isEqualTo(PluginRuntimePackagePhase.LOADED);
+            assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEqualTo("load\n");
+            assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
+        } finally {
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+            session.close();
+        }
+    }
+
+    @Test
+    @DisplayName("开发模式启动前晚到的不安全事务必须补恢复并阻止插件入口启动")
+    void lateUnsafeTransactionBeforeDevelopmentStartupBlocksEntryStart() throws Exception {
+        Path repositoryRoot = tempDir.resolve("late-dev-start-repository");
+        Path pluginsDir = repositoryRoot.resolve("plugins");
+        Path marker = tempDir.resolve("late-dev-start-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        stageProbeDevelopmentClasses(repositoryRoot);
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        Path retained = pluginsDir.resolve(".staging").resolve("late-start-orphan")
+                .resolve("removed").resolve("evidence.jar");
+        PluginBootstrapSession session = new PluginBootstrapSession(
+                pluginsDir, PluginBootstrapSession.Ownership.CONTEXT, PluginEnabledSnapshot.empty(),
+                origin -> verifier, (root, resolver, installer) -> {
+                    try {
+                        Files.createDirectories(retained.getParent());
+                        Files.writeString(retained, "only-copy", StandardCharsets.UTF_8);
+                    } catch (IOException e) {
+                        throw new IllegalStateException("failed to arrange late transaction", e);
+                    }
+                    return new PluginRuntimeManager(root, resolver) {
+                        @Override
+                        protected void beforeProductionScan(Path directory) throws IOException {
+                            try {
+                                installer.prepareRuntimeScan();
+                            } catch (IllegalStateException e) {
+                                throw new IOException("plugin directory is not safe to scan", e);
+                            }
+                        }
+                    };
+                });
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, repositoryRoot.toString());
+
+            session.start();
+
+            assertThat(session.installer().recoveryGateSnapshot().state())
+                    .isEqualTo(PluginRecoveryGateState.BLOCKED);
+            assertThat(session.status().hasFailures()).isTrue();
+            assertThat(session.manager().pluginManager()).isEmpty();
+            assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
+            assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
+        } finally {
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+            session.close();
+        }
     }
 
     @Test
@@ -487,6 +884,26 @@ class PluginBootstrapSessionTest {
         }
     }
 
+    private static PluginInstallResult installFully(ExternalPluginInstaller installer, Path packagePath) {
+        PreparedPluginTransaction prepared = installer.prepareTransaction(
+                packagePath, false, PluginPackageOrigin.localUpload());
+        if (!prepared.readyToCommit()) {
+            return prepared.result();
+        }
+        CommittedPluginTransaction committed = installer.commitTransaction(prepared);
+        installer.verifyCommittedTarget(committed);
+        installer.markActivated(committed);
+        installer.completeTransaction(committed);
+        return prepared.result();
+    }
+
+    private static void assertDirectoryLeaseReleased(Path pluginsDir) throws IOException {
+        try (PluginDirectorySessionLock replacement = new PluginDirectorySessionLock(pluginsDir)) {
+            replacement.acquireForMutation();
+            assertThat(replacement.held()).isTrue();
+        }
+    }
+
     private static ReloadProbe reloadAfterReleasingSnapshot(
             PluginBootstrapSession session, Path pluginJar) {
         PluginInventory inventory = session.startupInventory();
@@ -596,6 +1013,31 @@ class PluginBootstrapSessionTest {
         return jar;
     }
 
+    private static Path stageProbeDevelopmentClasses(Path repositoryRoot) throws IOException {
+        Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
+        String properties = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
+                + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n";
+        Path sourceResources = moduleRoot.resolve("src/main/resources");
+        Files.createDirectories(sourceResources);
+        Files.writeString(sourceResources.resolve("plugin.properties"), properties, StandardCharsets.UTF_8);
+        Path classesDirectory = moduleRoot.resolve("target/classes");
+        Files.createDirectories(classesDirectory);
+        Files.writeString(classesDirectory.resolve("plugin.properties"), properties, StandardCharsets.UTF_8);
+        copyClassFile(classesDirectory, BootstrapProbePlugin.class);
+        copyClassFile(classesDirectory, BootstrapProbeFeaturePlugin.class);
+        return classesDirectory;
+    }
+
+    private static void copyClassFile(Path classesDirectory, Class<?> type) throws IOException {
+        String entry = type.getName().replace('.', '/') + ".class";
+        Path target = classesDirectory.resolve(entry);
+        Files.createDirectories(target.getParent());
+        try (InputStream in = type.getResourceAsStream("/" + entry)) {
+            assertThat(in).as("class resource must be compiled: " + type.getName()).isNotNull();
+            Files.copy(in, target);
+        }
+    }
+
     private static void writeLocalProvenance(Path pluginsDir, Path jar) throws IOException {
         VerificationResult result = new VerificationResult(VerificationStatus.UNSIGNED_ALLOWED,
                 "bootstrap-probe", "1.0.0", null, null, null, null, Instant.now(), Files.size(jar),
@@ -623,6 +1065,14 @@ class PluginBootstrapSessionTest {
             idx += token.length();
         }
         return count;
+    }
+
+    private static void restoreProperty(String name, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, previousValue);
+        }
     }
 
     private static final class SigningFixture {

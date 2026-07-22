@@ -5,6 +5,8 @@ public enum PluginTransactionState {
     PREPARED,
     OLD_ISOLATED,
     NEW_PLACED,
+    ROLLING_BACK,
+    ROLLED_BACK,
     ACTIVATED,
     COMMITTED
 }

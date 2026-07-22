@@ -18,7 +18,18 @@ public record PluginDependencyInstallResult(
         String rollbackVersion,
         String operation,
         String runtimePhase,
+        boolean recoveryBlocked,
         boolean updated) {
+
+    public PluginDependencyInstallResult(String pluginId, String version, String previousVersion,
+                                         String packageId, String targetVersion, String outcome,
+                                         boolean accepted, boolean effectiveAfterRestart,
+                                         boolean activated, boolean rolledBack, String rollbackVersion,
+                                         String operation, String runtimePhase, boolean updated) {
+        this(pluginId, version, previousVersion, packageId, targetVersion, outcome,
+                accepted, effectiveAfterRestart, activated, rolledBack, rollbackVersion,
+                operation, runtimePhase, false, updated);
+    }
 
     public static PluginDependencyInstallResult from(PluginInstallReport report) {
         return new PluginDependencyInstallResult(
@@ -35,6 +46,7 @@ public record PluginDependencyInstallResult(
                 report.rollbackVersion(),
                 report.operation() != null ? report.operation().name() : null,
                 report.runtimePhase() != null ? report.runtimePhase().name() : null,
+                report.recoveryBlocked(),
                 report.updated());
     }
 }

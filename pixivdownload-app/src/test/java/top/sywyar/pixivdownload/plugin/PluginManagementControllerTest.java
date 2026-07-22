@@ -263,6 +263,28 @@ class PluginManagementControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/plugins/install 留下恢复事务时强制返回 503 阻断机器态")
+    void installRecoveryBlockedReturns503() throws Exception {
+        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.INSTALLED, true, false, "ext-demo", "1.0.0", null,
+                List.of(), List.of(), List.of(), List.of("transaction recovery required"),
+                "tx-blocked", true, false, null,
+                ExternalPluginOperation.FAILED, PluginRuntimePhase.STARTED, true, false));
+
+        mockMvc.perform(multipart("/api/plugins/install")
+                        .file(new MockMultipartFile(
+                                "file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3})))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.outcome").value("INSTALLED"))
+                .andExpect(jsonPath("$.accepted").value(true))
+                .andExpect(jsonPath("$.activated").value(true))
+                .andExpect(jsonPath("$.recoveryBlocked").value(true))
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.transactionId").value("tx-blocked"))
+                .andExpect(jsonPath("$.message").value("localized:plugin.install.recovery-blocked"));
+    }
+
+    @Test
     @DisplayName("POST /api/plugins/install 不兼容 → 409 + 稳定 outcome（REJECTED_INCOMPATIBLE）+ 本地化 message，not accepted")
     void installIncompatibleReturns409() throws Exception {
         when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(

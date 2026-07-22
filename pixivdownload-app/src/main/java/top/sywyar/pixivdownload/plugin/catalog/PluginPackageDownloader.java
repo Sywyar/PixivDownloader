@@ -10,12 +10,10 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
-import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 
 /**
- * 受信 catalog 插件包下载器：把一个 catalog 声明的版本包 {@link PluginCatalogPackage} 经 SSRF 安全的
- * {@link PluginCatalogHttpClient} 流式下载到<b>临时文件</b>，供 {@code ExternalPluginInstaller} 校验后落盘。整个下载器及其
+ * 受信 catalog 插件包下载器：把 catalog 声明的插件版本制品 {@link PluginCatalogPackage} 经 SSRF 安全的
+ * {@link PluginCatalogHttpClient} 流式下载到<b>临时文件</b>，供统一生命周期协调器在文件事务中校验后落盘。整个下载器及其
  * 下载方法均为<b>包内受控编排能力</b>，不向其它包暴露任意仓库入口，也不接收裸 URL 字符串——下载地址只来自受信清单。
  *
  * <h2>按目标仓库装配客户端（与清单读取同源）</h2>
@@ -26,7 +24,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageInteg
  * <ul>
  *   <li>{@code direct-strict} 仓库：仅 https、拒非公网、禁重定向、不走代理。</li>
  *   <li>{@code proxy-trusted} 仓库（如内嵌官方仓库）：经应用全局代理、按内置主机白名单跟随至多一跳重定向（GitHub
- *       release 资产 CDN 即走此路）；完整性仍由 {@code ExternalPluginInstaller} 的 sha256/size 逐字节兜底。</li>
+ *       release 资产 CDN 即走此路）；完整性仍由生命周期协调器提交的文件事务逐字节兜底。</li>
  *   <li>未知策略：{@code clientFor} fail-closed 抛 {@link PluginCatalogErrorCode#PROXY_POLICY_UNSUPPORTED}、绝不静默直连。</li>
  * </ul>
  *
@@ -38,8 +36,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageInteg
  *   <li>下载流式上限 = {@code min(expectedSize, 该仓库上限)}：超过即中止、删临时文件、
  *       {@link PluginCatalogErrorCode#DOWNLOAD_TOO_LARGE}。</li>
  *   <li>下载完成<b>不</b>在此重复算哈希——把临时文件 + 来源期望（大小 / sha256 / 签名）交
- *       {@code ExternalPluginInstaller.install(temp, false, PluginPackageOrigin.forTrustedCatalog(...))}，由既有
- *       {@code PluginPackageIntegrity} 做<b>权威</b>的大小 / sha256 / 签名（fail-closed）校验，单一权威、避免重复哈希。</li>
+ *       {@code ExternalPluginLifecycleCoordinator.installOrUpdate(temp, false, origin)}，由其文件事务做<b>权威</b>的
+ *       大小 / sha256 / 签名（fail-closed）校验，单一权威、避免重复哈希。</li>
  *   <li>失败 / 异常都清理临时文件，不留半成品。</li>
  * </ul>
  */

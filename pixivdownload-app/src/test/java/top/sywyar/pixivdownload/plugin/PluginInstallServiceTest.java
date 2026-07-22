@@ -1,14 +1,25 @@
 package top.sywyar.pixivdownload.plugin;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -17,19 +28,25 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 
 /**
- * {@link PluginInstallService} 单测：上传本地包 → 临时落盘 → 委托真实 {@link ExternalPluginInstaller} 安装 →
- * 结构化 {@link PluginInstallReport}（结果分类、落盘语义、{@code effectiveAfterRestart} 重启生效边界、依赖诊断）。
- * 用真实安装器（POJO，注入 {@code @TempDir} 安装目录）而非桩，端到端覆盖「校验 + 落盘 + 重复 / 升级 / 降级」语义。
+ * {@link PluginInstallService} 单测：上传本地包 → 临时落盘 → 委托真实 {@link ExternalPluginInstaller} 与
+ * {@link ExternalPluginLifecycleCoordinator} 安装 → 结构化 {@link PluginInstallReport}（结果分类、落盘语义、
+ * 激活边界、依赖诊断）。文件事务与依赖解析使用真实实现；PF4J 与应用生命周期用桩隔离。
  */
 @DisplayName("PluginInstallService 本地插件包安装后端服务")
 class PluginInstallServiceTest {
@@ -37,22 +54,31 @@ class PluginInstallServiceTest {
     @TempDir
     Path home;
     private Path pluginsDir;
+    private ExternalPluginInstaller installer;
     private PluginInstallService service;
 
     @BeforeEach
     void setUp() {
         pluginsDir = home.resolve("plugins");
-        service = new PluginInstallService(new ExternalPluginInstaller(pluginsDir));
+        installer = new ExternalPluginInstaller(pluginsDir);
+        installer.recoverPendingTransactions();
+        service = serviceFor(installer);
+    }
+
+    @AfterEach
+    void closeInstaller() {
+        installer.close();
     }
 
     @Test
-    @DisplayName("上传合法解压目录形态 .zip：INSTALLED，accepted 且 effectiveAfterRestart（重启后生效），规范落盘")
+    @DisplayName("上传合法解压目录形态 .zip：INSTALLED，accepted 且当前 generation 已激活，规范落盘")
     void installsExplodedZip() {
         PluginInstallReport report = service.install(explodedUpload("upload.zip", "ext-demo", "1.0.0", null, null), false);
 
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(report.accepted()).isTrue();
-        assertThat(report.effectiveAfterRestart()).isTrue();
+        assertThat(report.effectiveAfterRestart()).isFalse();
+        assertThat(report.activated()).isTrue();
         assertThat(report.pluginId()).isEqualTo("ext-demo");
         assertThat(report.version()).isEqualTo("1.0.0");
         assertThat(pluginFiles()).containsExactly("ext-demo-1.0.0.zip");
@@ -210,13 +236,18 @@ class PluginInstallServiceTest {
                 PluginPackageLimits.DEFAULT_MAX_ENTRY_UNCOMPRESSED_BYTES,
                 PluginPackageLimits.DEFAULT_MAX_DESCRIPTOR_BYTES,
                 PluginPackageLimits.DEFAULT_MAX_COMPRESSION_RATIO);
-        PluginInstallService limited = new PluginInstallService(new ExternalPluginInstaller(pluginsDir, tight));
+        Path limitedPluginsDir = home.resolve("limited-plugins");
+        try (ExternalPluginInstaller limitedInstaller = new ExternalPluginInstaller(limitedPluginsDir, tight)) {
+            limitedInstaller.recoverPendingTransactions();
+            PluginInstallService limited = serviceFor(limitedInstaller);
 
-        PluginInstallReport report = limited.install(explodedUpload("big.zip", "ext", "1.0.0", null, null), false);
+            PluginInstallReport report = limited.install(
+                    explodedUpload("big.zip", "ext", "1.0.0", null, null), false);
 
-        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_TOO_LARGE);
-        assertThat(report.accepted()).isFalse();
-        assertThat(pluginFiles()).isEmpty();
+            assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_TOO_LARGE);
+            assertThat(report.accepted()).isFalse();
+            assertThat(pluginFiles(limitedPluginsDir)).isEmpty();
+        }
     }
 
     @Test
@@ -232,6 +263,30 @@ class PluginInstallServiceTest {
     }
 
     // ---------- helpers（内联构造插件包字节，不依赖 plugin-runtime 测试夹具）----------
+
+    private static PluginInstallService serviceFor(ExternalPluginInstaller installer) {
+        PluginRuntimeManager runtimeManager = mock(PluginRuntimeManager.class);
+        PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
+        RecoveryModeService recoveryModeService = mock(RecoveryModeService.class);
+        PluginDependencyResolver dependencyResolver = new PluginDependencyResolver(installer);
+        when(runtimeManager.packagePhases()).thenReturn(Map.of());
+        when(lifecycleService.phase(anyString())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(runtimeManager.loadPlugin(any(Path.class))).thenAnswer(invocation ->
+                loadedPackage(installer, invocation.getArgument(0)));
+        ExternalPluginLifecycleCoordinator coordinator = new ExternalPluginLifecycleCoordinator(
+                runtimeManager, lifecycleService, installer, recoveryModeService, dependencyResolver);
+        return new PluginInstallService(coordinator, dependencyResolver);
+    }
+
+    private static LoadedPluginPackage loadedPackage(ExternalPluginInstaller installer, Path artifact) {
+        InstalledPlugin installed = installer.listInstalled().stream()
+                .filter(candidate -> candidate.path().equals(artifact))
+                .findFirst()
+                .orElseThrow();
+        return new LoadedPluginPackage(
+                installed.id(), installed.path(), installed.version(), 1L,
+                PluginRuntimePackagePhase.LOADED, PluginInventory.empty(), List.of());
+    }
 
     private MockMultipartFile explodedUpload(String filename, String id, String version,
                                              String requires, String dependencies) {
@@ -291,10 +346,14 @@ class PluginInstallServiceTest {
     }
 
     private java.util.List<String> pluginFiles() {
-        if (!Files.isDirectory(pluginsDir)) {
+        return pluginFiles(pluginsDir);
+    }
+
+    private static List<String> pluginFiles(Path directory) {
+        if (!Files.isDirectory(directory)) {
             return java.util.List.of();
         }
-        try (var stream = Files.list(pluginsDir)) {
+        try (var stream = Files.list(directory)) {
             return stream.filter(Files::isRegularFile)
                     .map(p -> p.getFileName().toString())
                     .filter(n -> !n.startsWith("."))

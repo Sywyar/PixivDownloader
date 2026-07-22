@@ -28,10 +28,15 @@ public class PluginInstallResponseMapper {
     /** 按请求语言解析 message、按结果分类派生 HTTP 状态，构造统一的安装响应实体。 */
     public ResponseEntity<PluginInstallResponse> toResponse(PluginInstallReport report, HttpServletRequest request) {
         PluginInstallOutcome outcome = report.outcome();
-        HttpStatus httpStatus = PluginInstallOutcomeMapping.httpStatus(outcome);
+        HttpStatus httpStatus = report.recoveryBlocked()
+                ? HttpStatus.SERVICE_UNAVAILABLE
+                : PluginInstallOutcomeMapping.httpStatus(outcome);
+        String messageKey = report.recoveryBlocked()
+                ? "plugin.install.recovery-blocked"
+                : PluginInstallOutcomeMapping.messageKey(outcome);
         String fallback = report.diagnostics().isEmpty() ? outcome.name() : report.diagnostics().get(0);
         String message = messages.getOrDefault(localeResolver.resolveLocale(request),
-                PluginInstallOutcomeMapping.messageKey(outcome), fallback);
+                messageKey, fallback);
         PluginInstallResponse body = new PluginInstallResponse(
                 outcome.name(),
                 report.accepted(),
@@ -45,6 +50,7 @@ public class PluginInstallResponseMapper {
                 report.version(),
                 report.operation() != null ? report.operation().name() : null,
                 report.runtimePhase() != null ? report.runtimePhase().name() : null,
+                report.recoveryBlocked(),
                 report.updated(),
                 report.dependencies(),
                 report.unsatisfiedDependencies(),

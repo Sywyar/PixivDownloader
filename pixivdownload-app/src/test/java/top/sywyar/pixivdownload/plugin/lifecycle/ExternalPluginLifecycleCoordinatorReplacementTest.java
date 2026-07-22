@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 
@@ -29,7 +30,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -72,6 +77,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
                         PluginKind.FEATURE), retiredArtifact)));
         when(runtimeManager.packagePhases()).thenReturn(Map.of(retiredId, PluginRuntimePackagePhase.STARTED));
         when(runtimeManager.activeDependents(retiredId)).thenReturn(List.of());
+        when(lifecycleService.phase("gui-theme")).thenReturn(Optional.empty());
         when(lifecycleService.phase(retiredId)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
         when(lifecycleService.generation(retiredId)).thenReturn(Optional.of(7L));
         when(runtimeManager.unloadPlugin(retiredId)).thenReturn(
@@ -90,5 +96,59 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         order.verify(lifecycleService).unload(retiredId);
         order.verify(runtimeManager).unloadPlugin(retiredId);
         order.verify(installer).commitTransaction(prepared);
+    }
+
+    @Test
+    @DisplayName("替代插件 wrapper 已移除后卸载失败仍恢复该旧运行时代际")
+    void restoresCurrentReplacementWhenUnloadRemovedWrapperThenFailed() {
+        String retiredId = "legacy-runtime";
+        Path retiredArtifact = Path.of("plugins", "legacy-runtime-1.0.0.jar");
+        PluginDescriptor descriptor = new PluginDescriptor("replacement", "replacement", "2.0.0",
+                PluginApiRequirement.parse("1.0"), List.of(), "example.ReplacementPlugin", null,
+                "replacement.label", null, null, null, PluginKind.FEATURE, List.of(retiredId),
+                PluginLifecyclePolicy.PROCESS_RESTART);
+        PluginInstallResult result = new PluginInstallResult(PluginInstallOutcome.INSTALLED, descriptor,
+                Path.of("plugins", "replacement-2.0.0.jar"), null, List.of());
+        PreparedPluginTransaction prepared = new PreparedPluginTransaction("tx-restore-retired", result,
+                Path.of("plugins", ".staging", "tx-restore-retired"),
+                Path.of("plugins", ".staging", "tx-restore-retired", "new.jar"),
+                result.installedPath(), List.of(retiredArtifact));
+        InstalledPlugin retired = new InstalledPlugin(
+                new PluginDescriptor(retiredId, retiredId, "1.0.0", PluginApiRequirement.parse("1.0"),
+                        List.of(), "example.LegacyPlugin", null, "legacy.label", null, null, null,
+                        PluginKind.FEATURE), retiredArtifact);
+        LoadedPluginPackage reloaded = mock(LoadedPluginPackage.class);
+        when(reloaded.packageId()).thenReturn(retiredId);
+        when(installer.prepareTransaction(
+                prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
+        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(installer.listInstalled()).thenReturn(List.of(retired));
+        when(runtimeManager.packagePhases()).thenReturn(
+                Map.of(retiredId, PluginRuntimePackagePhase.STARTED),
+                Map.of(retiredId, PluginRuntimePackagePhase.STARTED),
+                Map.of(),
+                Map.of());
+        when(runtimeManager.activeDependents(retiredId)).thenReturn(List.of());
+        when(lifecycleService.phase("replacement")).thenReturn(Optional.empty());
+        when(lifecycleService.phase(retiredId)).thenReturn(
+                Optional.of(PluginRuntimePhase.STOPPED),
+                Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycleService.generation(retiredId)).thenReturn(Optional.of(7L));
+        doThrow(new AssertionError("wrapper removed before unload failure"))
+                .when(runtimeManager).unloadPlugin(retiredId);
+        when(runtimeManager.loadPlugin(retiredArtifact)).thenReturn(reloaded);
+        when(installer.discardPrepared(prepared)).thenReturn(true);
+
+        var activation = new ExternalPluginLifecycleCoordinator(
+                runtimeManager, lifecycleService, installer, recoveryModeService, dependencyResolver)
+                .installOrUpdate(prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload());
+
+        assertThat(activation.installResult().outcome()).isEqualTo(PluginInstallOutcome.FAILED);
+        verify(runtimeManager).loadPlugin(retiredArtifact);
+        verify(lifecycleService).adoptLoadedPackage(reloaded);
+        verify(runtimeManager).startPlugin(retiredId);
+        verify(lifecycleService).start(retiredId);
+        verify(installer).discardPrepared(prepared);
+        verify(installer, never()).commitTransaction(prepared);
     }
 }

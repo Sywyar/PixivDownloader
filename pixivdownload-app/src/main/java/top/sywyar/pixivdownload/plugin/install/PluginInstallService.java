@@ -11,8 +11,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
-import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
-import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,7 +29,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
  *
  * <h2>install 与运行期 load / start 的边界</h2>
  * Spring 运行时统一交给 {@link ExternalPluginLifecycleCoordinator}：安装器只负责包校验与文件事务，编排器负责静默、
- * 物理卸载、原子替换、重新加载和启动；激活失败时恢复旧包并报告回滚结果。仅兼容测试构造器会直接调用安装器。
+ * 物理卸载、原子替换、重新加载和启动；激活失败时恢复旧包并报告回滚结果。所有生产入口都必须消费该统一回执。
  *
  * <p>上传字节先写入<b>系统临时文件</b>（文件名仅取上传名的 {@code .jar} / {@code .zip} 扩展名、<b>绝不</b>用上传名做
  * 路径分量，杜绝路径穿越），交安装器后于 {@code finally} 删除临时文件；安装器从临时文件复制出规范产物到安装目录的
@@ -43,21 +41,12 @@ public class PluginInstallService {
 
     private static final Logger log = LoggerFactory.getLogger(PluginInstallService.class);
 
-    private final ExternalPluginInstaller installer;
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final PluginDependencyResolver dependencyResolver;
 
-    public PluginInstallService(ExternalPluginInstaller installer) {
-        this.installer = installer;
-        this.coordinator = null;
-        this.dependencyResolver = new PluginDependencyResolver(installer);
-    }
-
     @Autowired
-    public PluginInstallService(ExternalPluginInstaller installer,
-                                ExternalPluginLifecycleCoordinator coordinator,
+    public PluginInstallService(ExternalPluginLifecycleCoordinator coordinator,
                                 PluginDependencyResolver dependencyResolver) {
-        this.installer = installer;
         this.coordinator = coordinator;
         this.dependencyResolver = dependencyResolver;
     }
@@ -88,9 +77,8 @@ public class PluginInstallService {
                 log.error("Failed to write uploaded plugin package to temp file: {}", e.toString());
                 return terminal(PluginInstallOutcome.FAILED, "failed to stage uploaded package: " + e.getMessage());
             }
-            return coordinator != null
-                    ? toReport(coordinator.installOrUpdate(temp, allowDowngrade, PluginPackageOrigin.localUpload()))
-                    : installPrepared(temp, allowDowngrade, PluginPackageOrigin.localUpload());
+            return toReport(coordinator.installOrUpdate(
+                    temp, allowDowngrade, PluginPackageOrigin.localUpload()));
         } finally {
             deleteQuietly(temp);
         }
@@ -107,9 +95,7 @@ public class PluginInstallService {
      * @param origin         包来源 + 完整性期望（受信 catalog 携带期望大小 / sha256 / 签名）
      */
     public PluginInstallReport installTrustedFile(Path packageFile, boolean allowDowngrade, PluginPackageOrigin origin) {
-        return coordinator != null
-                ? toReport(coordinator.installOrUpdate(packageFile, allowDowngrade, origin))
-                : installPrepared(packageFile, allowDowngrade, origin);
+        return toReport(coordinator.installOrUpdate(packageFile, allowDowngrade, origin));
     }
 
     private PluginInstallReport toReport(PluginActivationResult activation) {
@@ -128,83 +114,9 @@ public class PluginInstallService {
                 declaredDependencies(descriptor), unsatisfiedDependencies(problems), problems, result.messages(),
                 activation.transactionId(), activation.activated(), activation.rolledBack(),
                 activation.rollbackVersion(), activation.operation(), activation.runtimePhase(),
+                activation.recoveryBlocked(),
                 activation.activated() && result.previousVersion() != null
                         && result.outcome() != PluginInstallOutcome.DUPLICATE);
-    }
-
-    private PluginInstallReport toReport(PluginInstallResult result) {
-        return toReport(null, result, dependencyResolver.installedProblems(result.descriptor()),
-                false, false, null, null, null, false);
-    }
-
-    private PluginInstallReport toReport(String transactionId, PluginInstallResult result,
-                                         List<PluginDependencyProblem> problems,
-                                         boolean activated, boolean rolledBack, String rollbackVersion,
-                                         top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation operation,
-                                         top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase runtimePhase,
-                                         boolean updated) {
-        PluginDescriptor descriptor = result.descriptor();
-        return new PluginInstallReport(
-                result.outcome(),
-                result.accepted(),
-                result.accepted() && result.outcome() != PluginInstallOutcome.REJECTED_DEPENDENCY,
-                result.pluginId(),
-                result.version(),
-                result.previousVersion(),
-                declaredDependencies(descriptor),
-                unsatisfiedDependencies(problems),
-                problems,
-                result.messages(),
-                transactionId,
-                activated,
-                rolledBack,
-                rollbackVersion,
-                operation != null ? operation : top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation.IDLE,
-                runtimePhase,
-                updated);
-    }
-
-    private PluginInstallReport installPrepared(Path packageFile, boolean allowDowngrade, PluginPackageOrigin origin) {
-        PreparedPluginTransaction prepared = installer.prepareTransaction(packageFile, allowDowngrade, origin);
-        PluginInstallResult result = prepared.result();
-        List<PluginDependencyProblem> problems = dependencyResolver.installedProblems(result.descriptor());
-        if (!problems.isEmpty()) {
-            installer.discardPrepared(prepared);
-            return toReport(prepared.transactionId(), dependencyRejected(result, problems), problems,
-                    false, false, null, null, null, false);
-        }
-        if (!prepared.readyToCommit()) {
-            return toReport(prepared.transactionId(), result, List.of(),
-                    false, false, null, null, null, false);
-        }
-        CommittedPluginTransaction committed = null;
-        try {
-            committed = installer.commitTransaction(prepared);
-            installer.markActivated(committed);
-            installer.completeTransaction(committed);
-            return toReport(prepared.transactionId(), result, List.of(),
-                    false, false, null, null, null, false);
-        } catch (RuntimeException failure) {
-            boolean rolledBack = committed != null && installer.rollbackTransaction(committed);
-            if (committed == null) {
-                installer.discardPrepared(prepared);
-            }
-            PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
-                    result != null ? result.descriptor() : null, null,
-                    result != null ? result.previousVersion() : null,
-                    List.of("install commit failed: " + failure.getMessage(),
-                            rolledBack ? "previous version restored" : "previous version recovery failed"));
-            return toReport(prepared.transactionId(), failed, List.of(),
-                    false, rolledBack, rolledBack && result != null ? result.previousVersion() : null,
-                    null, null, false);
-        }
-    }
-
-    private static PluginInstallResult dependencyRejected(PluginInstallResult result,
-                                                          List<PluginDependencyProblem> problems) {
-        return new PluginInstallResult(PluginInstallOutcome.REJECTED_DEPENDENCY,
-                result.descriptor(), null, result.previousVersion(),
-                problems.stream().map(PluginDependencyProblem::detail).toList());
     }
 
     /** 描述符声明的插件间依赖投影（描述符不可读时为空列表）。 */

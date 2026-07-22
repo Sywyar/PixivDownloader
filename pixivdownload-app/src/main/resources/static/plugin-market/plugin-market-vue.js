@@ -233,7 +233,7 @@
 '            <div class="pmk-section-label">{{ t(\'detail.install-result\', \'安装结果\') }}</div>',
 '            <div class="pmk-install-result"><div class="pmk-install-result-box" :class="\'pmk-install-result-box--\' + installResultFor.tone">',
 '              <div class="pmk-install-result-head">',
-'                <i class="fa-solid" :class="installResultFor.accepted ? \'fa-circle-check\' : \'fa-circle-exclamation\'"></i>',
+'                <i class="fa-solid" :class="installResultIcon(installResultFor)"></i>',
 '                <span class="pmk-install-result-msg">{{ installResultFor.message }}</span>',
 '                <span v-if="installResultFor.outcome" class="pmk-install-code">{{ installResultFor.outcome }}</span>',
 '              </div>',
@@ -380,7 +380,10 @@
                 showBody: function () { return this.masterEnabled && !!this.catalog; },
                 showVersionSelect: function () { return !!this.detail && this.detail.versions.length > 1; },
                 showDetailVerification: function () { return !!this.detail && !!this.detail.verificationBadge; },
-                showRestartHint: function () { var r = this.installResultFor; return !!r && r.accepted && r.effectiveAfterRestart; }
+                showRestartHint: function () {
+                    var r = this.installResultFor;
+                    return !!r && !r.recoveryBlocked && r.accepted && r.effectiveAfterRestart;
+                }
             },
             mounted: function () {
                 document.addEventListener('keydown', this.onKeydown);
@@ -473,10 +476,7 @@
                 cardStatus: function (card) {
                     var key = this.installKey(card.repositoryId, card.pluginId);
                     if (this.installing[key]) return 'INSTALLING';
-                    var r = this.installResults[key];
-                    if (r && r.activated) return 'ACTIVATED';
-                    if (r && r.accepted && r.effectiveAfterRestart) return 'PENDING_RESTART';
-                    return card.installStatus;
+                    return PMK.data.installResultStatus(this.installResults[key], card.installStatus);
                 },
                 cardMeta: function (card) { return PMK.installMeta(this.cardStatus(card)); },
                 // 卡片 v-if 条件走方法（同上，规避 prod 编译器成员链 && / || 静态折叠崩溃）。
@@ -512,18 +512,12 @@
                             : PMK.data.catalogError(res.body, res.httpStatus);
                         self.installResults[key] = model;
                         self.recordDependencyInstallResults(repositoryId, model);
-                        if (model.activated) {
-                            PMK.toast(self.t('install.toast.activated', '已安装并激活。'), 'ok');
-                        } else if (model.rolledBack) {
-                            PMK.toast(self.t('install.toast.rolled-back', '激活失败，已恢复原版本。'), 'error');
-                        } else if (model.accepted) {
-                            PMK.toast(self.t('install.toast.accepted', '已安装。'), 'ok');
-                        } else {
-                            PMK.toast(self.t('install.toast.rejected', '未安装：{message}', { message: model.message || model.outcome || '' }), 'error');
-                        }
+                        var feedback = PMK.data.installFeedback(model);
+                        PMK.toast(feedback.message, feedback.tone);
                     }).catch(function () {
                         self.installResults[key] = {
-                            tone: 'bad', accepted: false, effectiveAfterRestart: false, outcome: null,
+                            tone: 'bad', accepted: false, recoveryBlocked: false,
+                            effectiveAfterRestart: false, outcome: null,
                             message: self.t('error.install.generic', '安装请求失败，请重试。'), warnings: [], errors: []
                         };
                         PMK.toast(self.t('error.install.generic', '安装请求失败，请重试。'), 'error');
@@ -549,8 +543,8 @@
                     var entry = this.selectedEntry;
                     if (!entry) return 'NOT_INSTALLED';
                     var result = this.installResults[this.installKey(this.activeCatalogRepositoryId, entry.pluginId)];
-                    if (result && result.activated) return 'ACTIVATED';
-                    if (result && result.accepted && result.effectiveAfterRestart) return 'PENDING_RESTART';
+                    var resultStatus = PMK.data.installResultStatus(result, null);
+                    if (resultStatus) return resultStatus;
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
                     if (!pkg) return entry.installStatus;   // 无可安装版本制品 → 沿用后端状态（UNAVAILABLE / 已安装）
                     var verificationStatus = this.packageVerificationInstallStatus(pkg);
@@ -567,6 +561,10 @@
                 installLabelText: function (status) {
                     var meta = PMK.installMeta(status);
                     return this.t(meta.labelKey, meta.status);
+                },
+                installResultIcon: function (result) {
+                    return result && result.accepted && !result.recoveryBlocked
+                        ? 'fa-circle-check' : 'fa-circle-exclamation';
                 },
                 buildDetail: function (entry) {
                     var m = entry.market || {};

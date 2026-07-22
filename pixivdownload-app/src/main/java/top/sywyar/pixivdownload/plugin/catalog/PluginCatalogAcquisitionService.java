@@ -188,6 +188,17 @@ public class PluginCatalogAcquisitionService {
             }
             PluginInstallReport dependencyReport = installFrom(repository, manifest,
                     dependency.pluginId(), dependencyPackage.get().version(), stack, dependencyInstallResults);
+            if (dependencyReport.recoveryBlocked()) {
+                if (dependencyReport.accepted()) {
+                    dependencyInstallResults.add(PluginDependencyInstallResult.from(dependencyReport));
+                }
+                PluginDependencyProblem blocked = PluginDependencyProblem.installFailed(
+                        dependency, "RECOVERY_BLOCKED");
+                List<String> blockedDiagnostics = dependencyReport.diagnostics().isEmpty()
+                        ? List.of(blocked.detail()) : dependencyReport.diagnostics();
+                return dependencyRejected(pluginId, version, dependencies,
+                        List.of(blocked), blockedDiagnostics).withRecoveryBlocked();
+            }
             if (!dependencyReport.accepted()) {
                 if (authoritative) {
                     if (dependencyReport.dependencyProblems().isEmpty()) {

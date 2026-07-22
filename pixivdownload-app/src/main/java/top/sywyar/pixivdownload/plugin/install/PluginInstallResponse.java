@@ -24,6 +24,7 @@ import java.util.List;
  * @param targetVersion           本次事务目标版本
  * @param operation               包级操作类型
  * @param runtimePhase            响应时的运行阶段
+ * @param recoveryBlocked         本次操作是否留下必须先恢复的磁盘事务
  * @param updated                 是否已从旧版本切换到目标版本并激活
  * @param dependencies            描述符声明的插件间依赖投影（依赖诊断）
  * @param unsatisfiedDependencies 当前不可达的非可选依赖 id（机器可读摘要）
@@ -44,6 +45,7 @@ public record PluginInstallResponse(
         String targetVersion,
         String operation,
         String runtimePhase,
+        boolean recoveryBlocked,
         boolean updated,
         List<PluginDependencyView> dependencies,
         List<String> unsatisfiedDependencies,

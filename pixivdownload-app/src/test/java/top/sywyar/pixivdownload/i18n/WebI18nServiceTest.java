@@ -95,18 +95,20 @@ class WebI18nServiceTest {
                 "mail",
                 "邮件通知",
                 "Mail Notifications");
-        ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
-        WebI18nBundleRegistry registry = new WebI18nBundleRegistry(
-                new PluginRegistry(List.of()),
-                installer::listInstalled);
+        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins)) {
+            installer.recoverPendingTransactions();
+            WebI18nBundleRegistry registry = new WebI18nBundleRegistry(
+                    new PluginRegistry(List.of()),
+                    installer::listInstalled);
 
-        I18nBundleResponse zh = new WebI18nService(registry)
-                .loadBundle("mail", Locale.SIMPLIFIED_CHINESE);
-        I18nBundleResponse en = new WebI18nService(registry)
-                .loadBundle("mail", Locale.ENGLISH);
+            I18nBundleResponse zh = new WebI18nService(registry)
+                    .loadBundle("mail", Locale.SIMPLIFIED_CHINESE);
+            I18nBundleResponse en = new WebI18nService(registry)
+                    .loadBundle("mail", Locale.ENGLISH);
 
-        assertThat(zh.getMessages()).containsEntry("plugin.name", "邮件通知");
-        assertThat(en.getMessages()).containsEntry("plugin.name", "Mail Notifications");
+            assertThat(zh.getMessages()).containsEntry("plugin.name", "邮件通知");
+            assertThat(en.getMessages()).containsEntry("plugin.name", "Mail Notifications");
+        }
     }
 
     private static void writeInstalledPluginJar(Path path, String pluginId, String zhName, String enName)

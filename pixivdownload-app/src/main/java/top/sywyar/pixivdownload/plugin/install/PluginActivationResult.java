@@ -15,6 +15,7 @@ public record PluginActivationResult(
         String rollbackVersion,
         ExternalPluginOperation operation,
         PluginRuntimePhase runtimePhase,
+        boolean recoveryBlocked,
         List<PluginDependencyProblem> dependencyProblems) {
 
     public PluginActivationResult {
@@ -24,6 +25,23 @@ public record PluginActivationResult(
     public PluginActivationResult(String transactionId, PluginInstallResult installResult,
                                   boolean activated, boolean rolledBack, String rollbackVersion,
                                   ExternalPluginOperation operation, PluginRuntimePhase runtimePhase) {
-        this(transactionId, installResult, activated, rolledBack, rollbackVersion, operation, runtimePhase, List.of());
+        this(transactionId, installResult, activated, rolledBack, rollbackVersion,
+                operation, runtimePhase, false, List.of());
+    }
+
+    public PluginActivationResult(String transactionId, PluginInstallResult installResult,
+                                  boolean activated, boolean rolledBack, String rollbackVersion,
+                                  ExternalPluginOperation operation, PluginRuntimePhase runtimePhase,
+                                  List<PluginDependencyProblem> dependencyProblems) {
+        this(transactionId, installResult, activated, rolledBack, rollbackVersion,
+                operation, runtimePhase, false, dependencyProblems);
+    }
+
+    public PluginActivationResult(String transactionId, PluginInstallResult installResult,
+                                  boolean activated, boolean rolledBack, String rollbackVersion,
+                                  ExternalPluginOperation operation, PluginRuntimePhase runtimePhase,
+                                  boolean recoveryBlocked) {
+        this(transactionId, installResult, activated, rolledBack, rollbackVersion,
+                operation, runtimePhase, recoveryBlocked, List.of());
     }
 }

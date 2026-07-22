@@ -20,9 +20,12 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Spring handoff 装配测试：用真实 {@link PixivDownloadApplication.PluginBootstrapHandoffInitializer}（经
@@ -78,6 +81,45 @@ class PluginBootstrapHandoffTest {
         // PROCESS 会话在 Spring context 关闭后仍未被关闭（closeForContext 对 PROCESS 为 no-op）
         assertThat(session.isClosed()).isFalse();
         session.close();
+        assertThat(session.isClosed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("GUI handoff：恢复门封闭时核心 Spring context 仍启动并注入 inert manager")
+    void guiHandoffStartsCoreContextWhenRecoveryIsBlocked() throws Exception {
+        Path pluginsDir = tempDir.resolve("blocked-process-plugins");
+        Path retained = pluginsDir.resolve(".staging").resolve("orphaned")
+                .resolve("removed").resolve("evidence.jar");
+        Files.createDirectories(retained.getParent());
+        Files.writeString(retained, "only-copy", StandardCharsets.UTF_8);
+
+        PluginBootstrapSession session = PluginBootstrapSession.createProcess(
+                pluginsDir, PluginEnabledSnapshot.empty());
+        try {
+            session.start();
+            PluginRuntimeManager inertManager = session.manager();
+
+            assertThat(session.status().hasFailures()).isTrue();
+            assertThat(inertManager.pluginManager()).isEmpty();
+
+            try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
+                new PixivDownloadApplication.PluginBootstrapHandoffInitializer(session).initialize(ctx);
+                registerRuntimeConfig(ctx);
+                ctx.refresh();
+
+                assertThat(ctx.getBean(PluginBootstrapSession.class)).isSameAs(session);
+                assertThat(ctx.getBean(PluginRuntimeManager.class)).isSameAs(inertManager);
+                assertThat(ctx.getBean(PluginRuntimeStatus.class)).isSameAs(session.status());
+                assertThat(ctx.getBean(ExternalPluginInstaller.class)).isSameAs(session.installer());
+                assertThatThrownBy(inertManager::start)
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("recovery is unsafe");
+            }
+
+            assertThat(session.isClosed()).isFalse();
+        } finally {
+            session.close();
+        }
         assertThat(session.isClosed()).isTrue();
     }
 

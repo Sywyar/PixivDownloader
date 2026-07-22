@@ -9,7 +9,13 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginDirectorySessionLock;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.Failure;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 
 import java.nio.file.Path;
@@ -17,7 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 
 /**
  * 进程级插件运行时 bootstrap 会话：把「恢复待处理安装事务 → 构造唯一 {@link PluginRuntimeManager} → 一次启动扫描与
@@ -34,11 +39,13 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
  * ConfigFileEditor / app 业务包；启用快照由调用方传入（{@link PluginEnabledSnapshot}，纯 JDK）。PF4J 完全收口在
  * {@link PluginRuntimeManager} 内、本类不暴露任何 PF4J 类型，故 app 持有本会话不会接触 PF4J。
  *
- * <p>启动顺序固定且只执行一次：{@code recoverPendingTransactions()}（best-effort、早于扫描）→ 构造 manager →
- * {@code manager.start()}（一次扫描 + start）→ 保存 status → 一次启动期 discovery（保存不可变 startup inventory /
- * discovery 快照）。Spring 接手后<b>不得</b>再次恢复或 start。失败收敛：插件目录缺失 / 空 / 坏包 / API 不兼容 /
- * provider 抛错 / 安装事务恢复失败均收敛为 status / 诊断，不抛异常、不阻断 GUI 进入系统 LookAndFeel，也不吞掉 JVM
- * 致命 Error（不捕获 {@link Error}）。
+ * <p>启动顺序固定且只执行一次：{@code recoverPendingTransactions()}（早于扫描）→ 建立恢复结果安全门 → 构造受门禁
+ * manager → 仅在安全时执行 {@code manager.start()}（一次扫描 + start）→ 保存 status → 一次启动期 discovery（保存不可变 startup inventory /
+ * discovery 快照）。任何未安全处理的事务都会结构化收敛为 status / 诊断并<b>阻止本次 PF4J 扫描</b>；任一事务的
+ * claims 无法证明时整轮恢复在写入前停止，避免未知事务与其它事务共享目标。Spring 接手后<b>不得</b>再次恢复或 start。插件目录缺失 / 空 / 坏包 / API 不兼容 / provider 抛错
+ * 等其余失败仍收敛为 status / 诊断，不阻断 GUI 进入系统 LookAndFeel。普通 {@link Error} 与运行时异常一样隔离；
+ * {@link VirtualMachineError} / {@link ThreadDeath} 会先关闭半初始化 manager 与目录 lease，再保持原对象身份重抛，
+ * 关闭后的会话不可复活。
  * <p>启动期 inventory / discovery 快照在 {@code start()} 内一次性产出、不可变，供 Spring 刷新前的消费者读取；
  * 运行期当前 inventory / discovery 仍由 {@link PluginRuntimeConfiguration} 的 prototype Bean 从同一 manager 动态清点
  *（后端 restart 后反映装卸后的当前状态），二者不得互相替代。快照持有插件实例 / classloader 引用，<b>不得</b>无限期留在
@@ -54,9 +61,12 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private final Ownership ownership;
     private final PluginEnabledSnapshot enabledSnapshot;
     private final ExternalPluginInstaller installer;
-    private final PluginRuntimeManager manager;
+    private final RuntimeManagerFactory runtimeManagerFactory;
+    private final RecoveryOperation recoveryOperation;
     private final List<String> diagnostics = new ArrayList<>();
 
+    private volatile Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
+    private volatile PluginRuntimeManager manager;
     private volatile PluginRuntimeStatus status;
     private volatile PluginInventory startupInventory = PluginInventory.empty();
     private volatile PluginDiscoveryResult startupDiscovery = PluginDiscoveryResult.empty();
@@ -70,14 +80,33 @@ public final class PluginBootstrapSession implements AutoCloseable {
 
     private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
                                    Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
+        this(pluginsRoot, ownership, enabledSnapshot, verifierResolver,
+                RecoveryGatedPluginRuntimeManager::new);
+    }
+
+    PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
+                           Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                           RuntimeManagerFactory runtimeManagerFactory) {
+        this(pluginsRoot, ownership, enabledSnapshot, verifierResolver, runtimeManagerFactory,
+                ExternalPluginInstaller::recoverPendingTransactions);
+    }
+
+    PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
+                           Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                           RuntimeManagerFactory runtimeManagerFactory,
+                           RecoveryOperation recoveryOperation) {
         this.pluginsRoot = Objects.requireNonNull(pluginsRoot, "pluginsRoot").toAbsolutePath().normalize();
         this.ownership = Objects.requireNonNull(ownership, "ownership");
         this.enabledSnapshot = Objects.requireNonNull(enabledSnapshot, "enabledSnapshot");
         Function<PluginPackageOrigin, PluginSupplyChainVerifier> effectiveResolver =
                 Objects.requireNonNull(verifierResolver, "verifierResolver");
+        this.verifierResolver = effectiveResolver;
+        this.runtimeManagerFactory = Objects.requireNonNull(runtimeManagerFactory, "runtimeManagerFactory");
+        this.recoveryOperation = Objects.requireNonNull(recoveryOperation, "recoveryOperation");
+        PluginDirectorySessionLock directoryLock = new PluginDirectorySessionLock(this.pluginsRoot);
         this.installer = new ExternalPluginInstaller(this.pluginsRoot,
-                top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits.defaults(), effectiveResolver);
-        this.manager = new PluginRuntimeManager(this.pluginsRoot, effectiveResolver);
+                PluginPackageLimits.defaults(),
+                effectiveResolver, directoryLock);
     }
 
     /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭）。 */
@@ -117,10 +146,11 @@ public final class PluginBootstrapSession implements AutoCloseable {
     }
 
     /**
-     * 执行一次启动扫描：先恢复待处理安装事务（best-effort、早于扫描），再 {@code manager.start()}，最后做一次启动期
-     * discovery 并保存不可变 startup inventory / discovery 快照。幂等——多次调用只启动一次，Spring 接手后再次调用是
-     * no-op。{@link #close()} 后再调用显式拒绝（抛 {@link IllegalStateException}，不可复活）。任意步骤失败只记诊断、
-     * 产出降级 status / 空 discovery，不抛异常（discovery 失败也只记诊断、不阻断）。
+     * 执行一次启动扫描：先逐事务恢复待处理安装事务（早于扫描）；恢复报告安全才进入 {@code manager.start()}，否则产出
+     * fail-closed status / 空 discovery 并结束本次启动。幂等——多次调用只启动一次，Spring 接手后再次调用是 no-op。
+     * {@link #close()} 后再调用显式拒绝（抛 {@link IllegalStateException}，不可复活）。非致命失败只记诊断、不向调用方抛出；
+     * discovery 失败也只记诊断、不阻断已安全完成的 runtime start。JVM 致命错误会先关闭 manager 与目录 lease，再按原对象
+     * 身份重抛；该会话随后保持 closed，不能重试半初始化状态。
      */
     public synchronized PluginBootstrapSession start() {
         if (closed) {
@@ -129,24 +159,73 @@ public final class PluginBootstrapSession implements AutoCloseable {
         if (started) {
             return this;
         }
+        PluginTransactionRecoveryReport recoveryReport;
         try {
-            installer.recoverPendingTransactions();
-        } catch (RuntimeException e) {
-            diagnostics.add("plugin install transaction recovery failed: " + describe(e));
-            log.warn("Plugin install transaction recovery failed: {}", describe(e), e);
+            recoveryReport = recoveryOperation.recover(installer);
+        } catch (Throwable e) {
+            if (isFatal(e)) {
+                abortAfterFatalStartupFailure(null, e);
+                rethrowFatal(e);
+            }
+            recoveryReport = new PluginTransactionRecoveryReport(List.of(new Failure(
+                    "<recovery>", pluginsRoot.resolve(".staging"), FailureKind.RECOVERY_FAILED, describe(e))));
+            installer.blockRuntimeOperations(recoveryReport);
+            log.warn("Plugin install transaction recovery failed unexpectedly: {}", describe(e), e);
+            rethrowFatal(e);
+        }
+        PluginRuntimeManager runtimeManager;
+        try {
+            runtimeManager = createManagerAfterRecovery();
+        } catch (Throwable e) {
+            this.status = new PluginRuntimeStatus(pluginsRoot, PluginDirectoryState.ABSENT,
+                    List.of(), List.of(), List.of(new PluginLoadFailure(pluginsRoot.toString(),
+                    "plugin runtime manager construction failed: " + describe(e))));
+            diagnostics.add("plugin runtime manager construction failed: " + describe(e));
+            log.warn("Plugin runtime manager construction failed: {}", describe(e), e);
+            if (isFatal(e)) {
+                abortAfterFatalStartupFailure(null, e);
+                rethrowFatal(e);
+            }
+            this.started = true;
+            return this;
+        }
+        if (!recoveryReport.safeToScan()) {
+            blockScanForRecoveryFailures(recoveryReport);
+            this.started = true;
+            return this;
         }
         try {
-            this.status = manager.start();
-        } catch (RuntimeException e) {
+            this.status = runtimeManager.start();
+        } catch (Throwable e) {
             this.status = new PluginRuntimeStatus(pluginsRoot, PluginDirectoryState.ABSENT,
                     List.of(), List.of(), List.of(new PluginLoadFailure(pluginsRoot.toString(),
                     "plugin runtime start failed: " + describe(e))));
             diagnostics.add("plugin runtime start failed: " + describe(e));
             log.warn("Plugin runtime start failed: {}", describe(e), e);
+            if (isFatal(e)) {
+                abortAfterFatalStartupFailure(runtimeManager, e);
+                rethrowFatal(e);
+            }
         }
-        runStartupDiscovery();
+        runStartupDiscovery(runtimeManager);
         this.started = true;
         return this;
+    }
+
+    private void blockScanForRecoveryFailures(PluginTransactionRecoveryReport recoveryReport) {
+        List<PluginLoadFailure> failures = new ArrayList<>();
+        for (Failure failure : recoveryReport.failures()) {
+            String reason = "plugin transaction recovery failed [" + failure.kind() + "]"
+                    + " transaction=" + failure.transactionId() + ": " + failure.detail();
+            diagnostics.add(reason + " path=" + failure.transactionDirectory());
+            failures.add(new PluginLoadFailure(failure.transactionDirectory().toString(), reason));
+            log.error("{} path={}", reason, failure.transactionDirectory());
+        }
+        // 恢复失败后禁止为补状态再次触碰插件根；目录状态保守投影，结构化 report 才是权威事实。
+        this.status = new PluginRuntimeStatus(pluginsRoot, PluginDirectoryState.POPULATED,
+                List.of(), List.of(), failures);
+        this.startupInventory = PluginInventory.empty();
+        this.startupDiscovery = PluginDiscoveryResult.empty();
     }
 
     /**
@@ -154,21 +233,55 @@ public final class PluginBootstrapSession implements AutoCloseable {
      *（{@code toDiscoveryResult}），二者共用同一次 provider 调用、不重复清点。失败收敛为空 inventory / discovery + 诊断，
      * 不阻断 start。在 {@code start()} 内调用一次；幂等 start 下不会再次执行。
      */
-    private void runStartupDiscovery() {
+    private void runStartupDiscovery(PluginRuntimeManager runtimeManager) {
         try {
-            PluginInventory inventory = manager.inspectPlugins();
+            PluginInventory inventory = runtimeManager.inspectPlugins();
             this.startupInventory = inventory;
-            this.startupDiscovery = manager.toDiscoveryResult(inventory);
-        } catch (RuntimeException e) {
+            this.startupDiscovery = runtimeManager.toDiscoveryResult(inventory);
+        } catch (Throwable e) {
             this.startupInventory = PluginInventory.empty();
             this.startupDiscovery = PluginDiscoveryResult.empty();
             diagnostics.add("startup plugin discovery failed: " + describe(e));
             log.warn("Startup plugin discovery failed: {}", describe(e), e);
+            if (isFatal(e)) {
+                abortAfterFatalStartupFailure(runtimeManager, e);
+                rethrowFatal(e);
+            }
         }
     }
 
+    /** fatal 启动失败后使整个会话不可复活，不能在下一次 start() 复用半初始化 manager。 */
+    private void abortAfterFatalStartupFailure(PluginRuntimeManager runtimeManager, Throwable fatal) {
+        closed = true;
+        started = false;
+        startupInventory = PluginInventory.empty();
+        startupDiscovery = PluginDiscoveryResult.empty();
+        manager = null;
+        if (runtimeManager != null) {
+            try {
+                runtimeManager.shutdown();
+            } catch (Throwable cleanupFailure) {
+                addSuppressedSafely(fatal, cleanupFailure);
+            }
+        }
+        try {
+            installer.close();
+        } catch (Throwable closeFailure) {
+            addSuppressedSafely(fatal, closeFailure);
+        }
+    }
+
+    /**
+     * 返回恢复结论建立后构造的受门禁 manager。start 前尚无恢复结论，因此不可取得；恢复结论为 BLOCKED 时仍返回同一
+     * inert manager，供 Spring 完成核心装配，但其扫描、加载与启动操作会被恢复安全门拒绝。
+     */
     public PluginRuntimeManager manager() {
-        return manager;
+        PluginRuntimeManager current = manager;
+        if (current == null) {
+            throw new IllegalStateException("PluginRuntimeManager is unavailable until start() establishes the "
+                    + "transaction recovery decision");
+        }
+        return current;
     }
 
     public ExternalPluginInstaller installer() {
@@ -191,7 +304,11 @@ public final class PluginBootstrapSession implements AutoCloseable {
         Function<PluginPackageOrigin, PluginSupplyChainVerifier> effectiveResolver =
                 Objects.requireNonNull(verifierResolver, "verifierResolver");
         installer.updateVerifierResolver(effectiveResolver);
-        manager.updateVerifierResolver(effectiveResolver);
+        this.verifierResolver = effectiveResolver;
+        PluginRuntimeManager current = manager;
+        if (current != null) {
+            current.updateVerifierResolver(effectiveResolver);
+        }
     }
 
     public PluginEnabledSnapshot enabledSnapshot() {
@@ -284,12 +401,35 @@ public final class PluginBootstrapSession implements AutoCloseable {
         // 无条件清空启动期快照——它持有插件实例 / classloader 引用，关闭时不得残留钉住旧 generation。
         startupInventory = PluginInventory.empty();
         startupDiscovery = PluginDiscoveryResult.empty();
+        PluginRuntimeManager current = manager;
         try {
-            manager.shutdown();
+            if (current != null) {
+                current.shutdown();
+            }
         } catch (RuntimeException e) {
             diagnostics.add("plugin runtime shutdown failed: " + describe(e));
             log.warn("Plugin runtime shutdown failed: {}", describe(e), e);
+        } finally {
+            try {
+                installer.close();
+            } catch (RuntimeException e) {
+                diagnostics.add("plugin directory lock release failed: " + describe(e));
+                log.warn("Plugin directory lock release failed: {}", describe(e), e);
+            }
         }
+    }
+
+    /**
+     * 仅由同步的 start() 在 recoverPendingTransactions() 返回或收敛失败报告后调用；构造本身不触碰插件目录，后续
+     * 扫描、加载与启动是否允许均由恢复安全门决定。
+     */
+    private PluginRuntimeManager createManagerAfterRecovery() {
+        PluginRuntimeManager current = manager;
+        if (current == null) {
+            current = runtimeManagerFactory.create(pluginsRoot, verifierResolver, installer);
+            manager = current;
+        }
+        return current;
     }
 
     private static String describe(Throwable error) {
@@ -300,10 +440,108 @@ public final class PluginBootstrapSession implements AutoCloseable {
                 ? error.getClass().getName() : error.getMessage();
     }
 
+    private static void rethrowFatal(Throwable failure) {
+        if (failure instanceof VirtualMachineError virtualMachineError) {
+            throw virtualMachineError;
+        }
+        if (failure instanceof ThreadDeath threadDeath) {
+            throw threadDeath;
+        }
+    }
+
+    private static boolean isFatal(Throwable failure) {
+        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
+    }
+
+    private static void addSuppressedSafely(Throwable primary, Throwable suppressed) {
+        if (primary == null || suppressed == null || primary == suppressed) {
+            return;
+        }
+        try {
+            primary.addSuppressed(suppressed);
+        } catch (Throwable ignored) {
+            // 保留原 fatal 对象身份。
+        }
+    }
+
     private static Function<PluginPackageOrigin, PluginSupplyChainVerifier> fixedVerifier(
             PluginSupplyChainVerifier verifier) {
         PluginSupplyChainVerifier fixed = Objects.requireNonNull(verifier, "verifier");
         return origin -> fixed;
+    }
+
+    @FunctionalInterface
+    interface RuntimeManagerFactory {
+        PluginRuntimeManager create(
+                Path pluginsRoot,
+                Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                ExternalPluginInstaller installer);
+    }
+
+    @FunctionalInterface
+    interface RecoveryOperation {
+        PluginTransactionRecoveryReport recover(ExternalPluginInstaller installer);
+    }
+
+    /**
+     * 会话内 manager 的进程级恢复安全门。放在 plugin-runtime 内部，避免 manager 或 plugin-api 反向依赖 bootstrap/app；
+     * 一旦 installer 固化不安全报告，bootstrap 重入及后续显式 load/start 均 fail-closed。
+     */
+    private static final class RecoveryGatedPluginRuntimeManager extends PluginRuntimeManager {
+
+        private final ExternalPluginInstaller installer;
+
+        private RecoveryGatedPluginRuntimeManager(
+                Path pluginsRoot,
+                Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                ExternalPluginInstaller installer) {
+            super(pluginsRoot, verifierResolver);
+            this.installer = Objects.requireNonNull(installer, "installer");
+        }
+
+        @Override
+        public synchronized PluginRuntimeStatus start() {
+            requireRecoverySafe("start plugin runtime");
+            return super.start();
+        }
+
+        @Override
+        protected void beforeProductionScan(Path directory) throws java.io.IOException {
+            try {
+                installer.prepareRuntimeScan();
+            } catch (IllegalStateException e) {
+                throw new java.io.IOException("plugin directory is not safe to scan", e);
+            }
+        }
+
+        @Override
+        public synchronized LoadedPluginPackage loadPlugin(Path artifactPath) {
+            requireRecoverySafe("load plugin package");
+            return super.loadPlugin(artifactPath);
+        }
+
+        @Override
+        public synchronized LoadedPluginPackage startPlugin(String packageId) {
+            prepareRuntimeEntryStart();
+            requireRecoverySafe("start plugin package");
+            return super.startPlugin(packageId);
+        }
+
+        private void prepareRuntimeEntryStart() {
+            try {
+                installer.prepareRuntimeScan();
+            } catch (IllegalStateException e) {
+                throw new IllegalStateException("plugin directory is not safe to start", e);
+            }
+        }
+
+        private void requireRecoverySafe(String operation) {
+            if (!installer.recoverySafeForRuntime()) {
+                throw new IllegalStateException(
+                        "plugin transaction recovery is unsafe; refusing to " + operation
+                                + " until the process is restarted after recovery");
+            }
+        }
     }
 
     /** 会话所有权。 */

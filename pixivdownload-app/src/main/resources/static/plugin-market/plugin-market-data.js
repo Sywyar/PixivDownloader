@@ -226,7 +226,8 @@
     };
 
     // —— 安装结果映射（消费 POST install 的 PluginInstallResponse；纯映射、无副作用，任何字符串都不在此拼 HTML）——
-    function installTone(outcome, accepted) {
+    function installTone(outcome, accepted, recoveryBlocked) {
+        if (recoveryBlocked) return 'bad';
         if (!accepted) return 'bad';
         return outcome === 'DUPLICATE' ? 'info' : 'ok';
     }
@@ -265,15 +266,17 @@
         var r = response || {};
         var outcome = r.outcome || null;
         var accepted = r.accepted === true;
+        var recoveryBlocked = r.recoveryBlocked === true;
         return {
             outcome: outcome,
             accepted: accepted,
+            recoveryBlocked: recoveryBlocked,
             effectiveAfterRestart: r.effectiveAfterRestart === true,
             activated: r.activated === true,
             rolledBack: r.rolledBack === true,
             rollbackVersion: r.rollbackVersion || null,
             transactionId: r.transactionId || null,
-            tone: installTone(outcome, accepted),
+            tone: installTone(outcome, accepted, recoveryBlocked),
             message: r.message || outcome || null,
             pluginId: r.pluginId || null,
             version: r.version || null,
@@ -289,13 +292,47 @@
         };
     };
 
+    // Vue 主路径与命令式回退共享同一安装终态优先级，避免任一路径把待恢复事务投影成绿色成功。
+    D.installResultStatus = function (result, fallbackStatus) {
+        var r = result || {};
+        if (r.recoveryBlocked) return 'RECOVERY_BLOCKED';
+        if (r.activated) return 'ACTIVATED';
+        if (r.accepted && r.effectiveAfterRestart) return 'PENDING_RESTART';
+        return fallbackStatus;
+    };
+
+    // toast 同样由两条渲染路径共用；恢复阻断直接保留后端本地化 message，并优先于 activated / accepted。
+    D.installFeedback = function (result) {
+        var r = result || {};
+        if (r.recoveryBlocked) {
+            return {
+                message: r.message || PMK.t('install.toast.recovery-blocked', '安装事务需要在重启后恢复。'),
+                tone: 'error'
+            };
+        }
+        if (r.activated) {
+            return { message: PMK.t('install.toast.activated', '已安装并激活。'), tone: 'ok' };
+        }
+        if (r.rolledBack) {
+            return { message: PMK.t('install.toast.rolled-back', '激活失败，已恢复原版本。'), tone: 'error' };
+        }
+        if (r.accepted) {
+            return { message: PMK.t('install.toast.accepted', '已安装。'), tone: 'ok' };
+        }
+        return {
+            message: PMK.t('install.toast.rejected', '未安装：{message}', { message: r.message || r.outcome || '' }),
+            tone: 'error'
+        };
+    };
+
     // 后端 catalog 错误响应（{code, message, ...}）→ 结果区可渲染的本地化提示（按稳定 code 选 i18n 文案，回退后端 message）。
     D.catalogError = function (body, httpStatus) {
         var code = body && body.code ? body.code : null;
         var message = code ? PMK.t('error.code.' + code, (body && body.message) || code)
             : ((body && body.message) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
         return {
-            outcome: code, accepted: false, effectiveAfterRestart: false, activated: false, rolledBack: false, tone: 'bad',
+            outcome: code, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false,
+            activated: false, rolledBack: false, tone: 'bad',
             message: message, pluginId: body && body.pluginId, version: body && body.version,
             previousVersion: null, packageId: null, targetVersion: null, operation: null,
             runtimePhase: null, updated: false, errors: [], warnings: [],

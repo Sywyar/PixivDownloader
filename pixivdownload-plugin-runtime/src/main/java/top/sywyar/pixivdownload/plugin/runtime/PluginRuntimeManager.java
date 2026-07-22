@@ -121,7 +121,17 @@ public class PluginRuntimeManager {
         resetPluginManager();
 
         if (PluginDevelopmentArtifacts.enabled()) {
+            try {
+                beforeProductionScan(directory);
+            } catch (IOException | RuntimeException e) {
+                return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
+                        List.of(), List.of(), List.of(new PluginLoadFailure(directory.toString(), describe(e)))));
+            }
             return startDevelopmentMode(directory);
+        }
+        if (Files.notExists(directory, LinkOption.NOFOLLOW_LINKS)) {
+            return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
+                    List.of(), List.of(), List.of()));
         }
 
         if (Files.isRegularFile(directory, LinkOption.NOFOLLOW_LINKS)) {
@@ -130,6 +140,7 @@ public class PluginRuntimeManager {
         }
         PluginArtifactScanner.ScanResult scan;
         try {
+            beforeProductionScan(directory);
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
@@ -214,6 +225,12 @@ public class PluginRuntimeManager {
 
     /** 从明确路径加载一个插件包并创建新 generation；不会启动插件入口。 */
     public synchronized LoadedPluginPackage loadPlugin(Path artifactPath) {
+        try {
+            beforeProductionScan(pluginsRoot);
+        } catch (IOException e) {
+            throw new PluginRuntimeOperationException(
+                    "plugin directory is not safe for an artifact load", e);
+        }
         if (artifactPath == null) {
             throw new PluginRuntimeOperationException("plugin artifact not found: null");
         }
@@ -706,6 +723,11 @@ public class PluginRuntimeManager {
 
     public Path pluginsRoot() {
         return pluginsRoot;
+    }
+
+    /** Bootstrap-owned managers override this hook to establish the directory recovery gate. */
+    protected void beforeProductionScan(Path directory) throws IOException {
+        // The default manager has no bootstrap session ownership.
     }
 
     private LoadedPluginPackage snapshot(RuntimeEntry entry, boolean includeContributions) {

@@ -248,6 +248,7 @@ class PluginRequiredVerificationRecoveryTest {
                 manager.discoverFeaturePlugins(), policy);
         ExternalPluginInstaller installer = new ExternalPluginInstaller(
                 pluginsDir, PluginPackageLimits.defaults(), new PluginSupplyChainVerifier());
+        assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
         PluginStatusService statusService = new PluginStatusService(registry, manager, installer, policy);
         return new RecoveryModeService(statusService, policy);
     }

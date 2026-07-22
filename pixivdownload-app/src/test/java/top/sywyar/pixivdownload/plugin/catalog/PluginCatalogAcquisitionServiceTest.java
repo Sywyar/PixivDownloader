@@ -13,9 +13,20 @@ import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
@@ -23,14 +34,23 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * {@link PluginCatalogAcquisitionService} 单测（真实安装器 + loopback 桩，端到端）：按 id+version 选包 → 下载 → 经
@@ -45,6 +65,7 @@ class PluginCatalogAcquisitionServiceTest {
     private Path pluginsDir;
     private Path downloadTempDir;
     private HttpServer server;
+    private final List<ExternalPluginInstaller> installers = new ArrayList<>();
 
     @BeforeEach
     void setUp() throws IOException {
@@ -58,6 +79,8 @@ class PluginCatalogAcquisitionServiceTest {
         if (server != null) {
             server.stop(0);
         }
+        installers.forEach(ExternalPluginInstaller::close);
+        installers.clear();
     }
 
     @Test
@@ -104,7 +127,7 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
-    @DisplayName("正常：下载 + 完整性校验通过 → INSTALLED，accepted + effectiveAfterRestart，落盘；下载临时文件已清理")
+    @DisplayName("正常：下载 + 完整性校验通过 → INSTALLED，当前 generation 已激活并落盘；下载临时文件已清理")
     void happyInstall() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
@@ -116,7 +139,8 @@ class PluginCatalogAcquisitionServiceTest {
 
         assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(report.accepted()).isTrue();
-        assertThat(report.effectiveAfterRestart()).isTrue();
+        assertThat(report.effectiveAfterRestart()).isFalse();
+        assertThat(report.activated()).isTrue();
         assertThat(report.pluginId()).isEqualTo("ext");
         assertThat(installedFiles()).containsExactly("ext-1.0.0.zip");
         assertThat(downloadLeftovers()).as("下载临时文件应被清理").isEmpty();
@@ -144,6 +168,52 @@ class PluginCatalogAcquisitionServiceTest {
                 .extracting(PluginDependencyInstallResult::pluginId)
                 .containsExactly("beta");
         assertThat(report.unsatisfiedDependencies()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("依赖安装留下恢复事务时阻断目标下载并向顶层报告传播机器态")
+    void dependencyRecoveryBlockStopsTargetInstallAndPropagatesReceipt() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null);
+        String betaUrl = servePackage("/blocked-beta.zip", beta);
+        AtomicInteger alphaDownloads = new AtomicInteger();
+        String alphaUrl = serveCountingPackage("/blocked-alpha.zip", alpha, alphaDownloads);
+        byte[] manifestBytes = ("{\"entries\":["
+                + entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()) + ","
+                + entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0"))
+                + "]}").getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/blocked-catalog.json", manifestBytes);
+        CatalogTestSupport.serveBytes(server, "/blocked-catalog.json.sig",
+                signing.manifestSignatureBytes("configured", manifestBytes));
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/blocked-catalog.json"));
+        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
+        PluginInstallService installService = mock(PluginInstallService.class);
+        PluginDependencyResolver resolver = mock(PluginDependencyResolver.class);
+        PluginInstallReport blockedDependency = new PluginInstallReport(
+                PluginInstallOutcome.INSTALLED, true, false, "beta", "1.0.0", null,
+                List.of(), List.of(), List.of(), List.of("transaction recovery required"),
+                "tx-beta-blocked", true, false, null,
+                ExternalPluginOperation.FAILED, PluginRuntimePhase.STARTED, true, false);
+        when(installService.installTrustedFile(
+                any(Path.class), eq(false), any(PluginPackageOrigin.class))).thenReturn(blockedDependency);
+        PluginCatalogAcquisitionService service = acquisition(props, installService, resolver);
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_DEPENDENCY);
+        assertThat(report.accepted()).isFalse();
+        assertThat(report.recoveryBlocked()).isTrue();
+        assertThat(report.dependencyInstallResults()).singleElement().satisfies(dependency -> {
+            assertThat(dependency.pluginId()).isEqualTo("beta");
+            assertThat(dependency.recoveryBlocked()).isTrue();
+        });
+        assertThat(alphaDownloads).hasValue(0);
+        verify(installService, times(1)).installTrustedFile(
+                any(Path.class), eq(false), any(PluginPackageOrigin.class));
     }
 
     @Test
@@ -475,9 +545,48 @@ class PluginCatalogAcquisitionServiceTest {
         PluginPackageDownloader downloader = new PluginPackageDownloader(provider, downloadTempDir);
         ExternalPluginInstaller installer = new ExternalPluginInstaller(
                 pluginsDir, PluginPackageLimits.defaults(), PluginCatalogTrustStores.verifierResolver(registry));
-        PluginInstallService installService = new PluginInstallService(installer);
+        installer.recoverPendingTransactions();
+        installers.add(installer);
+        PluginDependencyResolver dependencyResolver = new PluginDependencyResolver(installer);
+        PluginInstallService installService = installService(installer, dependencyResolver);
         return new PluginCatalogAcquisitionService(catalogService, downloader, installService,
-                new PluginDependencyResolver(installer));
+                dependencyResolver);
+    }
+
+    private PluginCatalogAcquisitionService acquisition(
+            PluginCatalogProperties props,
+            PluginInstallService installService,
+            PluginDependencyResolver dependencyResolver) {
+        PluginCatalogClientProvider provider = policyFaithful();
+        PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
+        PluginCatalogService catalogService = new PluginCatalogService(registry, provider);
+        PluginPackageDownloader downloader = new PluginPackageDownloader(provider, downloadTempDir);
+        return new PluginCatalogAcquisitionService(
+                catalogService, downloader, installService, dependencyResolver);
+    }
+
+    private static PluginInstallService installService(
+            ExternalPluginInstaller installer, PluginDependencyResolver dependencyResolver) {
+        PluginRuntimeManager runtimeManager = mock(PluginRuntimeManager.class);
+        PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
+        RecoveryModeService recoveryModeService = mock(RecoveryModeService.class);
+        when(runtimeManager.packagePhases()).thenReturn(Map.of());
+        when(lifecycleService.phase(anyString())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(runtimeManager.loadPlugin(any(Path.class))).thenAnswer(invocation ->
+                loadedPackage(installer, invocation.getArgument(0)));
+        ExternalPluginLifecycleCoordinator coordinator = new ExternalPluginLifecycleCoordinator(
+                runtimeManager, lifecycleService, installer, recoveryModeService, dependencyResolver);
+        return new PluginInstallService(coordinator, dependencyResolver);
+    }
+
+    private static LoadedPluginPackage loadedPackage(ExternalPluginInstaller installer, Path artifact) {
+        InstalledPlugin installed = installer.listInstalled().stream()
+                .filter(candidate -> candidate.path().equals(artifact))
+                .findFirst()
+                .orElseThrow();
+        return new LoadedPluginPackage(
+                installed.id(), installed.path(), installed.version(), 1L,
+                PluginRuntimePackagePhase.LOADED, PluginInventory.empty(), List.of());
     }
 
     private static PluginCatalogClientProvider policyFaithful() {

@@ -283,12 +283,25 @@ public final class PluginProvenanceStore {
     }
 
     public void moveWithArtifact(Path sourceArtifact, Path targetArtifact, ArtifactMover mover) throws IOException {
-        Path sourceSidecar = existingSidecarPath(sourceArtifact);
+        Path sourceSidecar = existingManagedSidecarPathStrict(sourceArtifact).orElse(null);
+        Path existingTargetSidecar = existingManagedSidecarPathStrict(targetArtifact).orElse(null);
         Path targetSidecar = sidecarPath(targetArtifact);
         boolean sidecarMoved = false;
-        if (sourceSidecar != null && Files.exists(sourceSidecar)) {
-            Files.createDirectories(targetSidecar.toAbsolutePath().normalize().getParent());
+        if (sourceSidecar != null && existingTargetSidecar != null) {
+            if (!Files.isSameFile(sourceSidecar, existingTargetSidecar)) {
+                throw new IOException("target plugin provenance already exists: " + targetArtifact);
+            }
+            deleteManagedFileIfPresent(sourceSidecar);
+            sourceSidecar = sidecarPath(sourceArtifact);
+            targetSidecar = existingTargetSidecar;
+            sidecarMoved = true;
+        } else if (sourceSidecar != null) {
+            requireSafeManagedParent(targetSidecar, true);
             move(sourceSidecar, targetSidecar);
+            sidecarMoved = true;
+        } else if (existingTargetSidecar != null) {
+            sourceSidecar = sidecarPath(sourceArtifact);
+            targetSidecar = existingTargetSidecar;
             sidecarMoved = true;
         }
         try {
@@ -705,10 +718,42 @@ public final class PluginProvenanceStore {
     }
 
     private void move(Path source, Path target) throws IOException {
+        source = source.toAbsolutePath().normalize();
+        target = target.toAbsolutePath().normalize();
+        if (!requireSafeManagedParent(source, false)) {
+            throw new IOException("plugin provenance source parent is missing: " + source);
+        }
+        requireSafeManagedParent(target, true);
+        BasicFileAttributes sourceAttributes = attributesIfPresent(source);
+        if (sourceAttributes == null || sourceAttributes.isSymbolicLink() || sourceAttributes.isOther()
+                || !sourceAttributes.isRegularFile()) {
+            throw new IOException("plugin provenance source is not a plain regular file: " + source);
+        }
+        if (attributesIfPresent(target) != null) {
+            throw new java.nio.file.FileAlreadyExistsException(target.toString());
+        }
+        boolean linked = false;
         try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (java.nio.file.AtomicMoveNotSupportedException | java.nio.file.FileAlreadyExistsException e) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            // Windows 的 ATOMIC_MOVE 会隐式 REPLACE_EXISTING，无法实现事务所需的 no-clobber。
+            // 同卷 hardlink 以 CREATE_NEW 语义发布目标名，再删除源名；崩溃留下的双名字由恢复器按同一文件身份收敛。
+            Files.createLink(target, source);
+            linked = true;
+            if (!Files.isSameFile(source, target)) {
+                throw new IOException("plugin provenance hardlink did not preserve file identity");
+            }
+            Files.delete(source);
+        } catch (IOException | RuntimeException e) {
+            if (linked) {
+                try {
+                    if (attributesIfPresent(source) != null && attributesIfPresent(target) != null
+                            && Files.isSameFile(source, target)) {
+                        Files.delete(target);
+                    }
+                } catch (IOException cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
+            }
+            throw e;
         }
     }
 

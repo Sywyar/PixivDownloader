@@ -199,6 +199,28 @@ class PluginMarketControllerTest {
     }
 
     @Test
+    @DisplayName("POST install 留下恢复事务时强制返回 503 且保留阻断机器态")
+    void installRecoveryBlockedReturns503() throws Exception {
+        when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.INSTALLED, true, false, "demo", "1.0.0", null,
+                List.of(), List.of(), List.of(), List.of("transaction recovery required"),
+                "tx-market-blocked", true, false, null,
+                top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation.FAILED,
+                top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase.STARTED,
+                true, false));
+
+        mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.outcome").value("INSTALLED"))
+                .andExpect(jsonPath("$.accepted").value(true))
+                .andExpect(jsonPath("$.activated").value(true))
+                .andExpect(jsonPath("$.recoveryBlocked").value(true))
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.transactionId").value("tx-market-blocked"))
+                .andExpect(jsonPath("$.message").value("localized:plugin.install.recovery-blocked"));
+    }
+
+    @Test
     @DisplayName("POST install 完整性不符：422 + 稳定 outcome（REJECTED_INTEGRITY）（复用安装结果模型）")
     void installIntegrityRejected() throws Exception {
         when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(

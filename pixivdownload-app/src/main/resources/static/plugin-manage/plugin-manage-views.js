@@ -298,17 +298,22 @@
         }
         parts.push('</div>'); // head
 
-        // 兼容无法热加载的特殊结局；常规成功路径由 activated 明确展示。
-        if (model.effectiveAfterRestart) {
-            parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-right"></i>'
-                + E(PM.t('install.restart-note', '插件包已落盘，但当前运行时无法即时激活；请重启后确认状态。')) + '</div>');
-        }
-        if (model.activated) {
-            parts.push('<div class="pm-install-restart"><i class="fa-solid fa-circle-check"></i>'
-                + E(PM.t('install.activated-note', '插件已安装并在当前进程中激活。')) + '</div>');
-        } else if (model.rolledBack) {
-            parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-left"></i>'
-                + E(PM.t('install.rollback-note', '新版本激活失败，已恢复原版本。')) + '</div>');
+        // 恢复阻断优先于落盘 / 激活成功字段：事务恢复完成前不得渲染任何绿色成功说明。
+        if (model.recoveryBlocked) {
+            parts.push('<div class="pm-install-restart"><i class="fa-solid fa-triangle-exclamation"></i>'
+                + E(PM.t('install.recovery-blocked-note', '安装事务需要在重启后恢复；恢复完成前请勿继续安装插件。')) + '</div>');
+        } else {
+            if (model.effectiveAfterRestart) {
+                parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-right"></i>'
+                    + E(PM.t('install.restart-note', '插件包已落盘，但当前运行时无法即时激活；请重启后确认状态。')) + '</div>');
+            }
+            if (model.activated) {
+                parts.push('<div class="pm-install-restart"><i class="fa-solid fa-circle-check"></i>'
+                    + E(PM.t('install.activated-note', '插件已安装并在当前进程中激活。')) + '</div>');
+            } else if (model.rolledBack) {
+                parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-left"></i>'
+                    + E(PM.t('install.rollback-note', '新版本激活失败，已恢复原版本。')) + '</div>');
+            }
         }
 
         var meta = [];

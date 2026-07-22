@@ -30,10 +30,7 @@
     function cardStatus(card) {
         var key = installKey(card.repositoryId, card.pluginId);
         if (state.installing[key]) return 'INSTALLING';
-        var r = state.installResults[key];
-        if (r && r.activated) return 'ACTIVATED';
-        if (r && r.accepted && r.effectiveAfterRestart) return 'PENDING_RESTART';
-        return card.installStatus;
+        return PMK.data.installResultStatus(state.installResults[key], card.installStatus);
     }
 
     function installControl(card) {
@@ -287,18 +284,12 @@
                 : PMK.data.catalogError(res.body, res.httpStatus);
             state.installResults[key] = model;
             recordDependencyInstallResults(repositoryId, model);
-            var accepted = model.activated || model.accepted;
-            PMK.toast(model.activated
-                ? t('install.toast.activated', '已安装并激活。')
-                : (model.rolledBack
-                    ? t('install.toast.rolled-back', '激活失败，已恢复原版本。')
-                    : (model.accepted
-                        ? t('install.toast.accepted', '已安装。')
-                        : t('install.toast.rejected', '未安装：{message}', { message: model.message || model.outcome || '' }))),
-                accepted ? 'ok' : 'error');
+            var feedback = PMK.data.installFeedback(model);
+            PMK.toast(feedback.message, feedback.tone);
         }).catch(function () {
             state.installResults[key] = {
-                tone: 'bad', accepted: false, effectiveAfterRestart: false, outcome: null,
+                tone: 'bad', accepted: false, recoveryBlocked: false,
+                effectiveAfterRestart: false, outcome: null,
                 message: t('error.install.generic', '安装请求失败，请重试。'), warnings: [], errors: [],
                 dependencyInstallResults: []
             };
