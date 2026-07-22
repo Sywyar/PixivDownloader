@@ -4,16 +4,22 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -21,6 +27,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -33,8 +42,16 @@ class PluginApiOwnershipGuardTest {
 
     private static final String API_PREFIX = "top.sywyar.pixivdownload.plugin.api.";
     private static final String REQUEST_OWNER_RESOLVER = API_PREFIX + "web.RequestOwnerIdentityResolver";
+    private static final String HTTP_SERVLET_REQUEST = HttpServletRequest.class.getName();
     private static final Set<String> PRIMITIVE_TYPE_NAMES = Set.of(
             "boolean", "byte", "char", "short", "int", "long", "float", "double", "void"
+    );
+    private static final Set<String> APPROVED_POM_DEPENDENCIES = Set.of(
+            "jakarta.servlet:jakarta.servlet-api:provided",
+            "org.junit.jupiter:junit-jupiter:test",
+            "org.assertj:assertj-core:test",
+            "org.junit.platform:junit-platform-launcher:test",
+            "com.tngtech.archunit:archunit:test"
     );
     private static final Map<String, String> APPROVED_GUI_CONFIG_GROUPS = Map.ofEntries(
             Map.entry("SERVER", "server"),
@@ -173,6 +190,10 @@ class PluginApiOwnershipGuardTest {
     @Test
     @DisplayName("生产依赖只允许 JDK、本模块与身份解析接口的 Servlet 请求")
     void productionDependenciesStayInsideApprovedSurface() {
+        assertThat(List.of("java.sql.Connection", "java.sql.DriverManager", "javax.sql.DataSource"))
+                .as("JDBC 即使属于 JDK 命名空间也不得进入纯契约模块")
+                .noneMatch(PluginApiOwnershipGuardTest::isJdkOrPluginApi);
+
         List<String> violations = new ArrayList<>();
         Set<String> servletConsumers = new LinkedHashSet<>();
 
@@ -183,6 +204,9 @@ class PluginApiOwnershipGuardTest {
                 servletConsumers.add(origin);
                 if (!origin.equals(REQUEST_OWNER_RESOLVER)) {
                     violations.add(origin + " -> " + target + " (Servlet 例外不属于身份解析接口)");
+                }
+                if (!target.equals(HTTP_SERVLET_REQUEST)) {
+                    violations.add(origin + " -> " + target + " (Servlet 例外只允许 HttpServletRequest)");
                 }
                 return;
             }
@@ -195,6 +219,54 @@ class PluginApiOwnershipGuardTest {
                 .as("plugin-api 必须保持纯 JDK；Servlet 只允许 RequestOwnerIdentityResolver 的请求签名")
                 .isEmpty();
         assertThat(servletConsumers).containsExactly(REQUEST_OWNER_RESOLVER);
+    }
+
+    @Test
+    @DisplayName("Servlet 例外必须精确限制为身份解析方法的 HttpServletRequest 入参")
+    void servletExceptionHasExactRequestParameterShape() {
+        assertThat(Arrays.stream(RequestOwnerIdentityResolver.class.getDeclaredMethods()))
+                .isNotEmpty()
+                .allSatisfy(method -> {
+                    assertThat(method.getParameterTypes())
+                            .as(method.getName() + " 的参数")
+                            .containsExactly(HttpServletRequest.class);
+                    assertThat(method.getGenericReturnType().getTypeName())
+                            .as(method.getName() + " 的返回类型")
+                            .doesNotContain("jakarta.servlet.");
+                    assertThat(Arrays.stream(method.getExceptionTypes()).map(Class::getName).toList())
+                            .as(method.getName() + " 的异常类型")
+                            .noneMatch(name -> name.startsWith("jakarta.servlet."));
+                });
+
+        assertThat(Arrays.stream(RequestOwnerIdentityResolver.class.getDeclaredFields())
+                .map(Field::getGenericType)
+                .map(type -> type.getTypeName())
+                .toList())
+                .as("Servlet 请求不得成为身份解析接口的字段状态")
+                .noneMatch(type -> type.contains("jakarta.servlet."));
+    }
+
+    @Test
+    @DisplayName("模块 POM 只允许 provided Servlet API 与既定测试依赖")
+    void pomDependenciesHaveExactCoordinatesAndScopes() throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        var document = factory.newDocumentBuilder().parse(modulePom().toFile());
+        List<String> dependencies = new ArrayList<>();
+        var nodes = document.getElementsByTagName("dependency");
+        for (int index = 0; index < nodes.getLength(); index++) {
+            Element dependency = (Element) nodes.item(index);
+            String groupId = directChildText(dependency, "groupId");
+            String artifactId = directChildText(dependency, "artifactId");
+            String scope = directChildText(dependency, "scope");
+            dependencies.add(groupId + ":" + artifactId + ":"
+                    + (scope == null || scope.isBlank() ? "compile" : scope.trim()));
+        }
+
+        assertThat(dependencies)
+                .as("plugin-api 不得通过未使用的 POM 依赖绕过字节码纯净守卫")
+                .containsExactlyInAnyOrderElementsOf(APPROVED_POM_DEPENDENCIES);
     }
 
     @Test
@@ -228,10 +300,41 @@ class PluginApiOwnershipGuardTest {
     }
 
     private static boolean isJdkOrPluginApi(String typeName) {
+        if (typeName.startsWith("java.sql.") || typeName.startsWith("javax.sql.")) {
+            return false;
+        }
         return typeName.startsWith("java.")
                 || typeName.startsWith(API_PREFIX)
                 || typeName.startsWith("[")
                 || PRIMITIVE_TYPE_NAMES.contains(typeName);
+    }
+
+    private static Path modulePom() {
+        Path current = Path.of("").toAbsolutePath().normalize();
+        while (current != null) {
+            Path nested = current.resolve("pixivdownload-plugin-api").resolve("pom.xml");
+            if (Files.isRegularFile(nested)) {
+                return nested;
+            }
+            if (current.getFileName() != null
+                    && current.getFileName().toString().equals("pixivdownload-plugin-api")) {
+                Path direct = current.resolve("pom.xml");
+                if (Files.isRegularFile(direct)) {
+                    return direct;
+                }
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("cannot locate pixivdownload-plugin-api/pom.xml");
+    }
+
+    private static String directChildText(Element parent, String childName) {
+        for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child.getNodeType() == Node.ELEMENT_NODE && childName.equals(child.getNodeName())) {
+                return child.getTextContent().trim();
+            }
+        }
+        return null;
     }
 
     private static String listOf(Class<?> elementType) {
