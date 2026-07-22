@@ -197,7 +197,7 @@ class SchedulePluginExceptionBoundaryTest {
                 null, null, ScheduleLastOutcome.NEVER, null, null,
                 null, null, null, 0L,
                 "fixture", "fixture-policy", "account-1", "{}",
-                "fixture-reference", 1L, 1L);
+                "fixture-reference", 1L);
     }
 
     private static boolean awaitCollected(WeakReference<?> reference) {

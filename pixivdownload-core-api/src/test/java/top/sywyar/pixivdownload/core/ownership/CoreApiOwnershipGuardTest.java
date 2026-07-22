@@ -25,7 +25,6 @@ import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
@@ -104,7 +103,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("核心计划任务持久化语义", union(
                     types("top.sywyar.pixivdownload.core.schedule",
                             "ScheduleTaskDefinitionUpdate", "ScheduledPendingWork", "ScheduledTask",
-                            "ScheduledTaskCreate", "ScheduledTaskCredential", "ScheduledTaskStore"),
+                            "ScheduledTaskCreate", "ScheduledTaskStore"),
                     types("top.sywyar.pixivdownload.core.schedule.state",
                             "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
@@ -418,24 +417,19 @@ class CoreApiOwnershipGuardTest {
                         "lastOutcome", "outcomeCode", "outcomeMessage", "suspendReason", "suspendCode",
                         "suspendDetailJson", "stateVersion", "credentialPolicyOwnerPluginId", "credentialPolicyId",
                         "credentialAccountKey", "credentialPolicyStateJson", "credentialSecretReference",
-                        "credentialUpdatedTime", "createdTime"),
+                        "createdTime"),
                 List.of(Long.class, String.class, boolean.class, String.class, String.class, String.class,
                         Integer.class, String.class, String.class, String.class, Integer.class, String.class,
                         String.class, Long.class, Long.class, String.class, Integer.class, String.class, int.class,
                         ScheduleRunState.class, String.class, ScheduleLastOutcome.class, String.class, String.class,
                         ScheduleSuspendReason.class, String.class, String.class, long.class, String.class,
-                        String.class, String.class, String.class, String.class, Long.class, long.class));
+                        String.class, String.class, String.class, String.class, long.class));
         assertRecordShape(ScheduledTaskCreate.class,
                 List.of("name", "sourceType", "sourceOwnerPluginId", "definitionSchema", "definitionVersion",
                         "definitionJson", "presentationJson", "triggerKind", "intervalMinutes", "cronExpr",
                         "nextRunTime", "createdTime"),
                 List.of(String.class, String.class, String.class, String.class, int.class, String.class,
                         String.class, String.class, Integer.class, String.class, Long.class, long.class));
-        assertRecordShape(ScheduledTaskCredential.class,
-                List.of("taskId", "policyOwnerPluginId", "policyId", "accountKey", "policyStateJson",
-                        "secretReference", "updatedTime"),
-                List.of(long.class, String.class, String.class, String.class, String.class, String.class,
-                        Long.class));
         assertRecordShape(ScheduledPendingWork.class,
                 List.of("taskId", "workType", "workId", "payloadSchema", "payloadVersion", "payloadJson",
                         "relationsJson", "presentationJson", "reasonCode", "reasonDetailJson", "attempts",
@@ -583,7 +577,13 @@ class CoreApiOwnershipGuardTest {
         assertThat(Modifier.isAbstract(create.getModifiers())).isTrue();
         assertThat(Arrays.stream(ScheduledTaskStore.class.getDeclaredMethods())
                 .map(Method::getName))
-                .doesNotContain("insert");
+                .doesNotContain(
+                        "insert",
+                        "recoverInterruptedRuns",
+                        "findCredentialMetadata",
+                        "findPendingWork",
+                        "incrementPendingAttempts",
+                        "deleteAllPendingWork");
     }
 
     @Test

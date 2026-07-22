@@ -320,18 +320,19 @@ class ScheduledTaskMapperTest {
         mapper.upsertPendingWork(pending(1L, "other.work", "1", now));
 
         assertThat(mapper.listPendingWork(1L)).hasSize(6);
-        ScheduledPendingWork leadingZero = mapper.findPendingWork(1L, "fixture.work", "001");
+        ScheduledPendingWork leadingZero = pendingByKey(
+                mapper.listPendingWork(1L), "fixture.work", "001");
         assertThat(leadingZero.workId()).isEqualTo("001");
         assertThat(leadingZero.payloadJson()).isEqualTo("{\"id\":\"001\"}");
         assertThat(leadingZero.relationsJson()).isEqualTo("[{\"type\":\"author\",\"id\":\"a-1\"}]");
 
-        assertThat(mapper.incrementPendingAttempts(1L, "fixture.work", "001", 4_000L)).isEqualTo(1);
         ScheduledPendingWork refreshed = new ScheduledPendingWork(
                 1L, "fixture.work", "001", "fixture.payload", 2,
                 "{\"id\":\"001\",\"v\":2}", "[]", "{\"title\":\"new\"}",
-                "retry", "{}", 0, 9_999L, 5_000L);
+                "retry", "{}", 1, 9_999L, 5_000L);
         mapper.upsertPendingWork(refreshed);
-        ScheduledPendingWork afterConflict = mapper.findPendingWork(1L, "fixture.work", "001");
+        ScheduledPendingWork afterConflict = pendingByKey(
+                mapper.listPendingWork(1L), "fixture.work", "001");
         assertThat(afterConflict.attempts()).isEqualTo(1);
         assertThat(afterConflict.firstSeenTime()).isEqualTo(now);
         assertThat(afterConflict.payloadVersion()).isEqualTo(2);
@@ -341,13 +342,13 @@ class ScheduledTaskMapperTest {
                 1L, "fixture.work", "001", "fixture.payload", 2,
                 "{\"id\":\"001\",\"v\":3}", "[]", "{\"title\":\"newer\"}",
                 "retry-again", "{}", 3, 9_999L, 6_000L));
-        ScheduledPendingWork afterHigherAttempt =
-                mapper.findPendingWork(1L, "fixture.work", "001");
+        ScheduledPendingWork afterHigherAttempt = pendingByKey(
+                mapper.listPendingWork(1L), "fixture.work", "001");
         assertThat(afterHigherAttempt.attempts()).isEqualTo(3);
         assertThat(afterHigherAttempt.firstSeenTime()).isEqualTo(now);
 
         assertThat(mapper.deletePendingWork(1L, "fixture.work", "1")).isEqualTo(1);
-        assertThat(mapper.findPendingWork(1L, "other.work", "1")).isNotNull();
+        assertThat(pendingByKey(mapper.listPendingWork(1L), "other.work", "1")).isNotNull();
     }
 
     private ScheduledTaskInsertRow sample(String name, Long nextRunTime) {
@@ -373,5 +374,14 @@ class ScheduledTaskMapperTest {
                 "{\"id\":\"" + workId + "\"}",
                 "[{\"type\":\"author\",\"id\":\"a-1\"}]",
                 "{\"title\":\"fixture\"}", "retry", "{}", 0, now, now);
+    }
+
+    private static ScheduledPendingWork pendingByKey(List<ScheduledPendingWork> rows,
+                                                      String workType,
+                                                      String workId) {
+        return rows.stream()
+                .filter(row -> row.workType().equals(workType) && row.workId().equals(workId))
+                .findFirst()
+                .orElse(null);
     }
 }

@@ -42,7 +42,6 @@ import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
@@ -179,7 +178,6 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(ScheduledTask.class.getName())).isTrue();
         assertThat(CLASSES.contain(ScheduledTaskCreate.class.getName())).isTrue();
         assertThat(CLASSES.contain(ScheduledPendingWork.class.getName())).isTrue();
-        assertThat(CLASSES.contain(ScheduledTaskCredential.class.getName())).isTrue();
         assertThat(CLASSES.contain(ScheduleTaskDefinitionUpdate.class.getName())).isTrue();
         assertThat(CLASSES.contain(ScheduledTaskStore.class.getName())).isTrue();
         assertThat(CLASSES.contain(ScheduleLastOutcome.class.getName())).isTrue();

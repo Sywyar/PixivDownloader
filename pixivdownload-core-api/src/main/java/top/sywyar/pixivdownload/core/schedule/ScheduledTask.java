@@ -46,7 +46,6 @@ public record ScheduledTask(
         String credentialAccountKey,
         String credentialPolicyStateJson,
         String credentialSecretReference,
-        Long credentialUpdatedTime,
         long createdTime
 ) {
     public static final int LEGACY_STORAGE_VERSION = 0;

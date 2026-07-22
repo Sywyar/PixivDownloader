@@ -839,7 +839,6 @@ class ScheduleServiceDefinitionSaveTest {
                 credentialPolicyId == null ? null : "account-1",
                 credentialPolicyId == null ? null : "{}",
                 credentialSecretReference,
-                credentialSecretReference == null ? null : 900L,
                 0L);
     }
 

@@ -724,7 +724,6 @@ class ScheduleExecutorRunTimingTest {
                 hasCredential ? Long.toString(id) : null,
                 policyStateJson,
                 secretReference,
-                hasCredential ? 1L : null,
                 0L);
     }
 

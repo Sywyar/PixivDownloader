@@ -10,7 +10,6 @@ import org.apache.ibatis.annotations.Update;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
@@ -40,7 +39,7 @@ public interface ScheduledTaskMapper {
             + " c.policy_owner_plugin_id AS credentialPolicyOwnerPluginId,"
             + " c.policy_id AS credentialPolicyId, c.account_key AS credentialAccountKey,"
             + " c.policy_state_json AS credentialPolicyStateJson,"
-            + " c.secret_reference AS credentialSecretReference, c.updated_time AS credentialUpdatedTime,"
+            + " c.secret_reference AS credentialSecretReference,"
             + " t.created_time AS createdTime"
             + " FROM scheduled_tasks t"
             + " LEFT JOIN scheduled_task_credentials c ON c.task_id = t.id";
@@ -364,12 +363,10 @@ public interface ScheduledTaskMapper {
                                     @Param("newPolicyStateJson") String newPolicyStateJson,
                                     @Param("updatedTime") long updatedTime);
 
-    @Select("SELECT task_id AS taskId, policy_owner_plugin_id AS policyOwnerPluginId,"
-            + " policy_id AS policyId, account_key AS accountKey,"
-            + " policy_state_json AS policyStateJson,"
-            + " secret_reference AS secretReference, updated_time AS updatedTime"
+    @Select("SELECT policy_owner_plugin_id AS policyOwnerPluginId,"
+            + " policy_id AS policyId, policy_state_json AS policyStateJson"
             + " FROM scheduled_task_credentials WHERE task_id = #{taskId}")
-    ScheduledTaskCredential findCredentialMetadata(@Param("taskId") long taskId);
+    ScheduledCredentialBinding findCredentialBinding(@Param("taskId") long taskId);
 
     @Select("SELECT secret FROM scheduled_task_credentials WHERE task_id = #{taskId}"
             + " AND policy_owner_plugin_id = #{policyOwnerPluginId} AND policy_id = #{policyId}")
@@ -398,32 +395,9 @@ public interface ScheduledTaskMapper {
             + " presentation_json AS presentationJson, reason_code AS reasonCode,"
             + " reason_detail_json AS reasonDetailJson, attempts,"
             + " first_seen_time AS firstSeenTime, last_attempt_time AS lastAttemptTime"
-            + " FROM scheduled_task_pending_work"
-            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}")
-    ScheduledPendingWork findPendingWork(@Param("taskId") long taskId,
-                                         @Param("workType") String workType,
-                                         @Param("workId") String workId);
-
-    @Select("SELECT task_id AS taskId, work_type AS workType, work_id AS workId,"
-            + " payload_schema AS payloadSchema, payload_version AS payloadVersion,"
-            + " payload_json AS payloadJson, relations_json AS relationsJson,"
-            + " presentation_json AS presentationJson, reason_code AS reasonCode,"
-            + " reason_detail_json AS reasonDetailJson, attempts,"
-            + " first_seen_time AS firstSeenTime, last_attempt_time AS lastAttemptTime"
             + " FROM scheduled_task_pending_work WHERE task_id = #{taskId}"
             + " ORDER BY first_seen_time, work_type, work_id")
     List<ScheduledPendingWork> listPendingWork(@Param("taskId") long taskId);
-
-    @Select(value = "UPDATE scheduled_task_pending_work SET attempts = attempts + 1,"
-            + " last_attempt_time = #{now}"
-            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}"
-            + " RETURNING attempts",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Integer incrementPendingAttempts(@Param("taskId") long taskId,
-                                     @Param("workType") String workType,
-                                     @Param("workId") String workId,
-                                     @Param("now") long now);
 
     @Delete("DELETE FROM scheduled_task_pending_work"
             + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}")

@@ -22,7 +22,6 @@ import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -102,7 +101,7 @@ class ScheduledTaskStoreTest {
         assertThat(created.suspendCode()).isNull();
         assertThat(created.suspendDetailJson()).isNull();
         assertThat(created.stateVersion()).isZero();
-        assertThat(store.findCredentialMetadata(id)).isNull();
+        assertThat(created.credentialPolicyId()).isNull();
         assertThat(jdbc.queryForObject(
                 "SELECT cookie_mode FROM scheduled_tasks WHERE id = ?", String.class, id))
                 .isEqualTo("restricted");
@@ -196,8 +195,8 @@ class ScheduledTaskStoreTest {
                 "fixture-plugin", "fixture-policy", "account-7", "{}",
                 "secret-value", null, 2_000L);
         assertThat(bound).hasValue(1L);
-        ScheduledTaskCredential metadata = store.findCredentialMetadata(row.getId());
-        assertThat(metadata.policyStateJson()).isEqualTo("{}");
+        ScheduledTask metadata = store.findById(row.getId());
+        assertThat(metadata.credentialPolicyStateJson()).isEqualTo("{}");
         assertThat(metadata.toString()).doesNotContain("secret-value");
         assertThat(store.findCredentialSecret(row.getId(), "fixture-plugin", "fixture-policy"))
                 .isEqualTo("secret-value");
@@ -207,7 +206,7 @@ class ScheduledTaskStoreTest {
         assertThat(store.updateCredentialPolicyState(row.getId(), 1L,
                 "fixture-plugin", "fixture-policy", "{}", "{\"ack\":9}", 3_000L))
                 .hasValue(2L);
-        assertThat(store.findCredentialMetadata(row.getId()).policyStateJson())
+        assertThat(store.findById(row.getId()).credentialPolicyStateJson())
                 .isEqualTo("{\"ack\":9}");
         assertThat(store.findCredentialSecret(row.getId(), "fixture-plugin", "fixture-policy"))
                 .isEqualTo("secret-value");
@@ -216,7 +215,7 @@ class ScheduledTaskStoreTest {
                 "fixture-plugin", "other-policy")).isEmpty();
         assertThat(store.removeCredential(row.getId(), 2L,
                 "fixture-plugin", "fixture-policy")).hasValue(3L);
-        assertThat(store.findCredentialMetadata(row.getId())).isNull();
+        assertThat(store.findById(row.getId()).credentialPolicyId()).isNull();
         assertThat(store.findCredentialSecret(row.getId(), "fixture-plugin", "fixture-policy")).isNull();
     }
 
@@ -307,7 +306,9 @@ class ScheduledTaskStoreTest {
         assertThat(store.deleteAggregate(row.getId(), 1L)).isTrue();
         assertThat(mapper.findById(row.getId())).isNull();
         assertThat(mapper.listPendingWork(row.getId())).isEmpty();
-        assertThat(mapper.findCredentialMetadata(row.getId())).isNull();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM scheduled_task_credentials WHERE task_id = ?",
+                Integer.class, row.getId())).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM scheduled_task_pending WHERE task_id = ?", Integer.class, row.getId()))
                 .isZero();
@@ -332,7 +333,7 @@ class ScheduledTaskStoreTest {
 
         assertThat(mapper.findById(row.getId())).isNotNull();
         assertThat(mapper.listPendingWork(row.getId())).hasSize(1);
-        assertThat(mapper.findCredentialMetadata(row.getId())).isNotNull();
+        assertThat(mapper.findById(row.getId()).credentialPolicyId()).isEqualTo("fixture-policy");
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM scheduled_task_pending WHERE task_id = ?", Integer.class, row.getId()))
                 .isEqualTo(1);
@@ -364,7 +365,7 @@ class ScheduledTaskStoreTest {
         assertThat(unchanged.stateVersion()).isZero();
         assertThat(unchanged.suspendReason()).isEqualTo(ScheduleSuspendReason.CREDENTIAL);
         assertThat(unchanged.suspendCode()).isEqualTo("COOKIE_DEAD");
-        assertThat(mapper.findCredentialMetadata(row.getId())).isNull();
+        assertThat(mapper.findById(row.getId()).credentialPolicyId()).isNull();
     }
 
     @Test

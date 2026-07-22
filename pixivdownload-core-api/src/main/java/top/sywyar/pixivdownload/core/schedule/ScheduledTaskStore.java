@@ -115,9 +115,6 @@ public interface ScheduledTaskStore {
     /** 事务聚合删除任务、credential 与中性 pending；版本不匹配时什么都不删。 */
     boolean deleteAggregate(long id, long expectedStateVersion);
 
-    /** 启动恢复：把上次进程遗留的认领标为 INTERRUPTED 并立即重新到期。 */
-    int recoverInterruptedRuns(long now);
-
     OptionalLong bindCredential(long taskId,
                                 long expectedStateVersion,
                                 String policyOwnerPluginId,
@@ -141,19 +138,12 @@ public interface ScheduledTaskStore {
                                              String newPolicyStateJson,
                                              long updatedTime);
 
-    ScheduledTaskCredential findCredentialMetadata(long taskId);
-
     /** 敏感 secret 专用裸标量读取；owner/id 不匹配时返回 null。 */
     String findCredentialSecret(long taskId, String policyOwnerPluginId, String policyId);
 
     int upsertPendingWork(ScheduledPendingWork pendingWork);
 
-    ScheduledPendingWork findPendingWork(long taskId, String workType, String workId);
-
     List<ScheduledPendingWork> listPendingWork(long taskId);
-
-    /** 原子累加并返回新 attempts；行不存在时返回 null。 */
-    Integer incrementPendingAttempts(long taskId, String workType, String workId, long now);
 
     int deletePendingWork(long taskId, String workType, String workId);
 
@@ -165,6 +155,4 @@ public interface ScheduledTaskStore {
                                   long expectedStateVersion,
                                   String workType,
                                   String workId);
-
-    int deleteAllPendingWork(long taskId);
 }

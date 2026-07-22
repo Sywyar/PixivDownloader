@@ -224,7 +224,6 @@ class ScheduleServiceTest {
                 credentialBound ? accountId : null,
                 effectivePolicyState,
                 credentialBound ? "scheduled-task:" + id + ":credential" : null,
-                credentialBound ? 900L : null,
                 0L);
     }
 
@@ -674,7 +673,7 @@ class ScheduleServiceTest {
                 STATE_VERSION + 1, beforeProbe.credentialPolicyOwnerPluginId(),
                 beforeProbe.credentialPolicyId(), beforeProbe.credentialAccountKey(),
                 beforeProbe.credentialPolicyStateJson(), beforeProbe.credentialSecretReference(),
-                beforeProbe.credentialUpdatedTime(), beforeProbe.createdTime());
+                beforeProbe.createdTime());
         when(store.findById(10L)).thenReturn(beforeProbe, changed);
 
         assertThatThrownBy(() -> newService().authorizeCookie(

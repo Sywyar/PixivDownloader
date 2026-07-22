@@ -2661,7 +2661,7 @@ class ScheduleExecutionEngineTest {
                 null, null, ScheduleLastOutcome.NEVER, null, null,
                 null, null, null, 0L,
                 "fixture", POLICY, "account-1", "{}",
-                "fixture-reference", 1L, 1L);
+                "fixture-reference", 1L);
     }
 
     private static void assertTaskProxy(ScheduledNetworkRoute route) {

@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCredential;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
@@ -34,7 +33,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     @PostConstruct
     public void init() {
-        recoverInterruptedRuns(System.currentTimeMillis());
+        mapper.recoverInterruptedRuns(System.currentTimeMillis());
     }
 
     @Override
@@ -239,11 +238,6 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     }
 
     @Override
-    public int recoverInterruptedRuns(long now) {
-        return mapper.recoverInterruptedRuns(now);
-    }
-
-    @Override
     @Transactional
     public OptionalLong bindCredential(long taskId,
                                        long expectedStateVersion,
@@ -274,7 +268,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                          long expectedStateVersion,
                                          String expectedPolicyOwnerPluginId,
                                          String expectedPolicyId) {
-        ScheduledTaskCredential current = mapper.findCredentialMetadata(taskId);
+        ScheduledCredentialBinding current = mapper.findCredentialBinding(taskId);
         if (current == null
                 || !Objects.equals(current.policyOwnerPluginId(), expectedPolicyOwnerPluginId)
                 || !Objects.equals(current.policyId(), expectedPolicyId)) {
@@ -300,7 +294,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                                     String newPolicyStateJson,
                                                     long updatedTime) {
         String expected = normalizePolicyState(expectedPolicyStateJson);
-        ScheduledTaskCredential current = mapper.findCredentialMetadata(taskId);
+        ScheduledCredentialBinding current = mapper.findCredentialBinding(taskId);
         if (current == null
                 || !Objects.equals(current.policyOwnerPluginId(), expectedPolicyOwnerPluginId)
                 || !Objects.equals(current.policyId(), expectedPolicyId)
@@ -320,11 +314,6 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     }
 
     @Override
-    public ScheduledTaskCredential findCredentialMetadata(long taskId) {
-        return mapper.findCredentialMetadata(taskId);
-    }
-
-    @Override
     public String findCredentialSecret(long taskId,
                                        String policyOwnerPluginId,
                                        String policyId) {
@@ -338,21 +327,8 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     }
 
     @Override
-    public ScheduledPendingWork findPendingWork(long taskId, String workType, String workId) {
-        return mapper.findPendingWork(taskId, workType, workId);
-    }
-
-    @Override
     public List<ScheduledPendingWork> listPendingWork(long taskId) {
         return mapper.listPendingWork(taskId);
-    }
-
-    @Override
-    public Integer incrementPendingAttempts(long taskId,
-                                            String workType,
-                                            String workId,
-                                            long now) {
-        return mapper.incrementPendingAttempts(taskId, workType, workId, now);
     }
 
     @Override
@@ -372,11 +348,6 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
         }
         mapper.deletePendingWork(taskId, workType, workId);
         return OptionalLong.of(newVersion);
-    }
-
-    @Override
-    public int deleteAllPendingWork(long taskId) {
-        return mapper.deleteAllPendingWork(taskId);
     }
 
     private static OptionalLong optionalLong(Long value) {
