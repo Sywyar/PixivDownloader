@@ -153,9 +153,9 @@ class NovelBatchServiceTest {
     @Test
     @DisplayName("详情在并发软删除中缺席时跳过该小说且不读取或打包残留文件")
     void shouldSkipNovelWhoseOwnedDetailsDisappear() {
-        WorkMetadata meta = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
+        WorkMetadata meta = new WorkMetadata(7L, "Story", null, 0, false,
                 88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", "/n/7",
-                false, null, null, null, null, null, null, true);
+                false, null, null, null, null, null, true);
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
         when(novelWorkDetailsRepository.findAll(List.of(7L))).thenReturn(Map.of());
 
@@ -179,12 +179,12 @@ class NovelBatchServiceTest {
         Path folder = tempDir.resolve("novel-7");
         Files.createDirectories(folder);
         Path content = Files.writeString(folder.resolve("content.txt"), "text");
-        WorkMetadata included = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
+        WorkMetadata included = new WorkMetadata(7L, "Story", null, 0, false,
                 88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", folder.toString(),
-                false, null, null, null, null, null, null, null);
-        WorkMetadata missingDetails = new WorkMetadata(WorkType.NOVEL, 8L, "Missing", null, 0, false,
+                false, null, null, null, null, null, null);
+        WorkMetadata missingDetails = new WorkMetadata(8L, "Missing", null, 0, false,
                 89L, "Writer 2", null, null, null, List.of(), 0L, 1, "txt", "/n/8",
-                false, null, null, null, null, null, null, null);
+                false, null, null, null, null, null, null);
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L, 8L)))
                 .thenReturn(List.of(included, missingDetails));
         when(novelWorkDetailsRepository.findAll(List.of(7L, 8L))).thenReturn(Map.of(
@@ -214,9 +214,9 @@ class NovelBatchServiceTest {
         Path folder = tempDir.resolve("novel-7");
         Files.createDirectories(folder);
         Path content = Files.writeString(folder.resolve("content.txt"), "text");
-        WorkMetadata meta = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
+        WorkMetadata meta = new WorkMetadata(7L, "Story", null, 0, false,
                 88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", folder.toString(),
-                false, null, null, null, null, null, null, null);
+                false, null, null, null, null, null, null);
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
         when(novelWorkDetailsRepository.findAll(List.of(7L))).thenReturn(Map.of(
                 7L, new NovelWorkDetails(7L, 100, 200, 60, null, null, null,

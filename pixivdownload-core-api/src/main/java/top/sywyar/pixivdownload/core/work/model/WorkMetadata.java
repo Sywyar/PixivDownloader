@@ -13,7 +13,6 @@ import java.util.List;
  * <p>本类型只经默认过滤软删除的读取方法产出（软删行不可见），故不携带 deleted 标记；
  * 「曾经下载过（含软删）」判定走 {@link WorkQueryService#hasWork}。
  *
- * @param workType           媒体类型
  * @param workId             作品 id
  * @param title              标题
  * @param description        简介，可为 {@code null}
@@ -34,13 +33,11 @@ import java.util.List;
  * @param moveTime           移动时间（毫秒），可为 {@code null}
  * @param fileNameTemplateId 文件名模板 id（底层原值），可为 {@code null}
  * @param fileNameTemplate   文件名模板内容（插画侧沿用「{@code null} id 取默认模板 1」的既有规则补全）
- * @param fileAuthorNameId   文件名作者名 id，可为 {@code null}
  * @param uploadTime         Pixiv 真实上传时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
  *                           历史数据未捕获时为 {@code null}（源 illust {@code uploadDate} / novel {@code uploadTimestamp}）
  * @param isOriginal         原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）
  */
 public record WorkMetadata(
-        WorkType workType,
         long workId,
         String title,
         String description,
@@ -61,7 +58,6 @@ public record WorkMetadata(
         Long moveTime,
         Long fileNameTemplateId,
         String fileNameTemplate,
-        Long fileAuthorNameId,
         Long uploadTime,
         Boolean isOriginal) {
 

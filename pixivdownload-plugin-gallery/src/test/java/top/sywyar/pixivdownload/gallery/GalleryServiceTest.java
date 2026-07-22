@@ -78,10 +78,10 @@ class GalleryServiceTest {
     class QueryDelegationTests {
 
         private static WorkMetadata meta(long id, Long authorId, Long seriesId) {
-            return new WorkMetadata(WorkType.ARTWORK, id, "标题" + id, null, 0, false,
+            return new WorkMetadata(id, "标题" + id, null, 0, false,
                     authorId, authorId == null ? null : "作者" + authorId,
                     seriesId, null, null, List.of(), 100L, 1, "jpg", "/p/" + id,
-                    false, null, null, null, null, null, null, null);
+                    false, null, null, null, null, null, null);
         }
 
         @Test

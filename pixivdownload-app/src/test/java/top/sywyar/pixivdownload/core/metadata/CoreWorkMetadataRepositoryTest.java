@@ -70,7 +70,6 @@ class CoreWorkMetadataRepositoryTest {
 
             assertThat(found).isPresent();
             WorkMetadata meta = found.get();
-            assertThat(meta.workType()).isEqualTo(WorkType.ARTWORK);
             assertThat(meta.workId()).isEqualTo(7L);
             assertThat(meta.title()).isEqualTo("标题7");
             assertThat(meta.description()).isEqualTo("简介7");
@@ -91,7 +90,6 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.moveTime()).isEqualTo(1800L);
             assertThat(meta.fileNameTemplateId()).isEqualTo(5L);
             assertThat(meta.fileNameTemplate()).isEqualTo("{artwork_title}_p{page}");
-            assertThat(meta.fileAuthorNameId()).isEqualTo(9L);
         }
 
         @Test
@@ -224,7 +222,6 @@ class CoreWorkMetadataRepositoryTest {
 
             assertThat(found).isPresent();
             WorkMetadata meta = found.get();
-            assertThat(meta.workType()).isEqualTo(WorkType.NOVEL);
             assertThat(meta.workId()).isEqualTo(42L);
             assertThat(meta.title()).isEqualTo("小说标题42");
             assertThat(meta.description()).isEqualTo("小说简介42");
@@ -244,7 +241,6 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.moveTime()).isNull();
             assertThat(meta.fileNameTemplateId()).isEqualTo(5L);
             assertThat(meta.fileNameTemplate()).isEqualTo("{novel_title}");
-            assertThat(meta.fileAuthorNameId()).isEqualTo(9L);
         }
 
         @Test

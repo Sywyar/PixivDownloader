@@ -100,7 +100,6 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
             Long templateId = rec.fileName() == null ? DEFAULT_FILE_NAME_TEMPLATE_ID : rec.fileName();
             Long seriesId = rec.seriesId();
             out.add(new WorkMetadata(
-                    WorkType.ARTWORK,
                     rec.artworkId(),
                     rec.title(),
                     rec.description(),
@@ -121,7 +120,6 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.moveTime(),
                     rec.fileName(),
                     templates.get(templateId),
-                    rec.fileAuthorNameId(),
                     rec.uploadTime(),
                     rec.isOriginal()));
         }
@@ -173,7 +171,6 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         List<WorkMetadata> out = new ArrayList<>(records.size());
         for (NovelMetadataRow rec : records) {
             out.add(new WorkMetadata(
-                    WorkType.NOVEL,
                     rec.novelId(),
                     rec.title(),
                     rec.description(),
@@ -194,7 +191,6 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     null,
                     rec.fileName(),
                     rec.fileName() == null ? null : templates.get(rec.fileName()),
-                    rec.fileAuthorNameId(),
                     rec.uploadTime(),
                     rec.isOriginal()));
         }

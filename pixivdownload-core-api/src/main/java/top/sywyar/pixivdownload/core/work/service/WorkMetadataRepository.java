@@ -17,6 +17,7 @@ import java.util.Optional;
  * <p><b>批量契约。</b>{@link #findAll} 的行读取与各通用关联补全（作者名 / 系列标题 /
  * 标签 / 文件名模板）必须按入参整体批量执行，禁止退化为每 id 一查的 N+1。
  * 来源插件私有详情由对应 owner 在插件内部补全，不进入本中性契约。
+ * 作品类型由两个读取方法的 {@link WorkType} 入参确定，不在每条元数据中重复回传。
  */
 public interface WorkMetadataRepository {
 

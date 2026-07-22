@@ -257,10 +257,10 @@ class PixivNovelGalleryCapabilityProviderTest {
     private static WorkMetadata meta(long id, Long authorId, String authorName,
                                      Integer xRestrict, Boolean isAi, Boolean isOriginal,
                                      List<WorkTag> tags) {
-        return new WorkMetadata(WorkType.NOVEL, id, "小说" + id, "简介" + id,
+        return new WorkMetadata(id, "小说" + id, "简介" + id,
                 xRestrict, isAi, authorId, authorName, null, null, null,
                 tags, 1000L + id, 1, "txt,epub", "/n/" + id,
-                false, null, null, null, null, null,
+                false, null, null, null, null,
                 2000L + id, isOriginal);
     }
 

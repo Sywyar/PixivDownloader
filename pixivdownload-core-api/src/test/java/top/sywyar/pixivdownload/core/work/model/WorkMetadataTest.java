@@ -19,11 +19,11 @@ class WorkMetadataTest {
         assertThat(Arrays.stream(WorkMetadata.class.getRecordComponents())
                 .map(component -> component.getName()))
                 .containsExactly(
-                        "workType", "workId", "title", "description", "xRestrict", "isAi",
+                        "workId", "title", "description", "xRestrict", "isAi",
                         "authorId", "authorName", "seriesId", "seriesOrder", "seriesTitle",
                         "tags", "downloadTime", "pageCount", "extensions", "folder", "moved",
                         "moveFolder", "moveTime", "fileNameTemplateId", "fileNameTemplate",
-                        "fileAuthorNameId", "uploadTime", "isOriginal");
+                        "uploadTime", "isOriginal");
         assertThatThrownBy(() -> Class.forName(
                 "top.sywyar.pixivdownload.core.work.model.NovelWorkDetails"))
                 .isInstanceOf(ClassNotFoundException.class);
@@ -34,18 +34,18 @@ class WorkMetadataTest {
     void shouldCopyTagsDefensively() {
         List<WorkTag> mutable = new ArrayList<>();
         mutable.add(new WorkTag(1L, "tag", null));
-        WorkMetadata metadata = new WorkMetadata(WorkType.NOVEL, 1L, "标题", null, 0, false,
+        WorkMetadata metadata = new WorkMetadata(1L, "标题", null, 0, false,
                 null, null, null, null, null, mutable, 100L, 1, "txt", "/p/1",
-                false, null, null, null, null, null, null, null);
+                false, null, null, null, null, null, null);
         mutable.clear();
 
         assertThat(metadata.tags()).containsExactly(new WorkTag(1L, "tag", null));
         assertThatThrownBy(() -> metadata.tags().add(new WorkTag(2L, "x", null)))
                 .isInstanceOf(UnsupportedOperationException.class);
 
-        WorkMetadata noTags = new WorkMetadata(WorkType.ARTWORK, 2L, "标题", null, 0, false,
+        WorkMetadata noTags = new WorkMetadata(2L, "标题", null, 0, false,
                 null, null, null, null, null, null, 100L, 1, "jpg", "/p/2",
-                false, null, null, null, null, null, null, null);
+                false, null, null, null, null, null, null);
         assertThat(noTags.tags()).isEmpty();
     }
 }

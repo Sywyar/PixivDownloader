@@ -70,11 +70,11 @@ class NovelGalleryServiceTest {
     }
 
     private static WorkMetadata meta(long id, Long authorId, Long seriesId) {
-        return new WorkMetadata(WorkType.NOVEL, id, "小说" + id, null, 0, false,
+        return new WorkMetadata(id, "小说" + id, null, 0, false,
                 authorId, authorId == null ? null : "作者" + authorId,
                 seriesId, null, null, List.of(new WorkTag(21L, "魔法", "magic")),
                 100L, 1, "txt", "/n/novel-" + id,
-                false, null, null, null, null, null, null, true);
+                false, null, null, null, null, null, true);
     }
 
     private static NovelWorkDetails details(long id) {

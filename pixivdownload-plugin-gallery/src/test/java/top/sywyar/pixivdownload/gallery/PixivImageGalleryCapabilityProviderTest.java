@@ -309,10 +309,10 @@ class PixivImageGalleryCapabilityProviderTest {
     private static WorkMetadata meta(long id, Long authorId, String authorName,
                                      Integer xRestrict, Boolean isAi, List<WorkTag> tags,
                                      String extensions) {
-        return new WorkMetadata(WorkType.ARTWORK, id, "标题" + id, "简介" + id,
+        return new WorkMetadata(id, "标题" + id, "简介" + id,
                 xRestrict, isAi, authorId, authorName, null, null, null,
                 tags, 1000L + id, 2, extensions, "/p/" + id,
-                false, null, null, 1L, "{artwork_id}_p{page}", null,
+                false, null, null, 1L, "{artwork_id}_p{page}",
                 2000L + id, null);
     }
 }
