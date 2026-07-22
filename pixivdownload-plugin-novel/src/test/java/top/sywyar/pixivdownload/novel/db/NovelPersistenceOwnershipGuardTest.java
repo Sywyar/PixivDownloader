@@ -36,7 +36,8 @@ class NovelPersistenceOwnershipGuardTest {
                         NovelSeriesCatalogRow.class,
                         NovelSeriesTagRow.class,
                         NovelMapper.NovelWorkDetailsRow.class,
-                        NovelMapper.NovelWorkDetailValueRow.class);
+                        NovelMapper.NovelWorkDetailValueRow.class,
+                        NovelMapper.NovelWordCountRow.class);
         assertThat(projectResultTypes)
                 .allSatisfy(type -> assertThat(codeSourceOf(type))
                         .as(type.getName() + " 的构件 owner")

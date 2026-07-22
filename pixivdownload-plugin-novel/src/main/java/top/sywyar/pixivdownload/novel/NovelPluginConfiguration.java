@@ -382,8 +382,9 @@ public class NovelPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public NovelOwnedWorkSearch novelOwnedWorkSearch(WorkQueryService workQueryService,
-                                                     NovelDatabase novelDatabase) {
-        return new NovelOwnedWorkSearch(workQueryService, novelDatabase);
+                                                     NovelDatabase novelDatabase,
+                                                     NovelWorkDetailsRepository novelWorkDetailsRepository) {
+        return new NovelOwnedWorkSearch(workQueryService, novelDatabase, novelWorkDetailsRepository);
     }
 
     @Bean

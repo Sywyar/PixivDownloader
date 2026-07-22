@@ -11,7 +11,8 @@ import java.util.List;
  *
  * <ul>
  *   <li>{@code sort}：插画 {@code date / artworkId / imgs / status / authorId / tags / series}；
- *       小说 {@code date / novelId / wordCount / series}</li>
+ *       小说核心元数据 {@code date / novelId / series}。来源私有排序不得交给核心查询服务，
+ *       由所属插件截获并在核心中性筛选结果上完成</li>
  *   <li>{@code order}：{@code asc / desc}</li>
  *   <li>{@code searchType}：{@code all / title / author / id / authorId / desc / tag / tagExact}；
  *       来源私有字段与正文检索词不得进入本查询模型</li>

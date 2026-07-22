@@ -31,6 +31,8 @@ public interface NovelMapper {
             + " page_count AS pageCount, x_language AS xLanguage, cover_ext AS coverExt"
             + " FROM novels";
 
+    String SELECT_WORD_COUNTS = "SELECT novel_id AS novelId, word_count AS wordCount FROM novels";
+
     record NovelWorkDetailsRow(
             long novelId,
             Integer wordCount,
@@ -42,6 +44,9 @@ public interface NovelMapper {
     }
 
     record NovelWorkDetailValueRow(long novelId, String value) {
+    }
+
+    record NovelWordCountRow(long novelId, Integer wordCount) {
     }
 
     // ── 幂等数据迁移（建表 / 补列 / 索引 DDL 统一由宿主受管 schema 生命周期执行）──────
@@ -457,6 +462,15 @@ public interface NovelMapper {
             "</script>"
     })
     List<NovelWorkDetailsRow> findWorkDetailsByIds(@Param("ids") Collection<Long> ids);
+
+    @Select({
+            "<script>",
+            SELECT_WORD_COUNTS,
+            "WHERE deleted = 0 AND novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</script>"
+    })
+    List<NovelWordCountRow> findWordCountsByIds(@Param("ids") Collection<Long> ids);
 
     @Select({
             "<script>",

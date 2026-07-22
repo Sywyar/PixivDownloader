@@ -203,7 +203,7 @@ class CoreWorkMetadataRepositoryTest {
 
         private NovelMetadataRow novel(long id, boolean deleted) {
             return new NovelMetadataRow(id, "小说标题" + id, "/novels/" + id, 2, "", 1900L + id, 1, false, 88L,
-                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, true, "jpg", deleted, null);
+                    "小说简介" + id, 5L, 9L, 700L, 3L, true, "jpg", deleted, null);
         }
 
         @Test
@@ -247,7 +247,7 @@ class CoreWorkMetadataRepositoryTest {
         @DisplayName("hydrate novel upload_time 与 is_original 列投影到通用 WorkMetadata")
         void shouldHydrateNovelUploadMeta() {
             NovelMetadataRow rec = new NovelMetadataRow(42L, "n", "/n/42", 1, "txt", 1900L, 0, false, null,
-                    null, null, null, null, null, null, true, null, false, 1717000000000L);
+                    null, null, null, null, null, true, null, false, 1717000000000L);
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(rec));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
@@ -308,7 +308,7 @@ class CoreWorkMetadataRepositoryTest {
         @DisplayName("模板 id 为空时不查模板池（小说侧无「缺省取默认模板 1」规则）")
         void shouldSkipTemplateLookupWhenTemplateIdMissing() {
             NovelMetadataRow noTemplate = new NovelMetadataRow(9L, "无模板", "/novels/9", 1, "", 1900L, 0, false,
-                    null, null, null, null, null, null, null, null, null, false, null);
+                    null, null, null, null, null, null, null, null, false, null);
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(noTemplate));
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());

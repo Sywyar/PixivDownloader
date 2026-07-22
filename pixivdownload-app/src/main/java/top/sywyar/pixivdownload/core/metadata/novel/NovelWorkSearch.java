@@ -109,7 +109,6 @@ public class NovelWorkSearch {
         // 排序
         Comparator<NovelMetadataRow> cmp = switch (q.sort() == null ? "date" : q.sort()) {
             case "novelId" -> Comparator.comparingLong(NovelMetadataRow::novelId);
-            case "wordCount" -> Comparator.comparingInt(r -> r.wordCount() == null ? 0 : r.wordCount());
             case "series" -> Comparator
                     .comparingLong((NovelMetadataRow r) -> r.seriesId() == null ? Long.MAX_VALUE : r.seriesId())
                     .thenComparingLong(r -> r.seriesOrder() == null ? 0 : r.seriesOrder());

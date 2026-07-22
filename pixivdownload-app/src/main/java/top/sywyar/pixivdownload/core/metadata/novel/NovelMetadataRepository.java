@@ -38,7 +38,7 @@ public class NovelMetadataRepository {
                     + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
                     + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
                     + " series_id AS seriesId, series_order AS seriesOrder,"
-                    + " word_count AS wordCount, is_original AS isOriginal, cover_ext AS coverExt,"
+                    + " is_original AS isOriginal, cover_ext AS coverExt,"
                     + " deleted, upload_time AS uploadTime"
                     + " FROM novels";
 
@@ -114,7 +114,6 @@ public class NovelMetadataRepository {
                 getLongObj(rs, "fileAuthorNameId"),
                 getLongObj(rs, "seriesId"),
                 getLongObj(rs, "seriesOrder"),
-                getInteger(rs, "wordCount"),
                 getBoolean(rs, "isOriginal"),
                 rs.getString("coverExt"),
                 rs.getBoolean("deleted"),

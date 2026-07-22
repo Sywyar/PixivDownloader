@@ -21,7 +21,6 @@ public record NovelMetadataRow(
         Long fileAuthorNameId,
         Long seriesId,
         Long seriesOrder,
-        Integer wordCount,
         Boolean isOriginal,
         String coverExt,
         boolean deleted,
@@ -41,11 +40,9 @@ public record NovelMetadataRow(
                             Long fileAuthorNameId,
                             Long seriesId,
                             Long seriesOrder,
-                            Integer wordCount,
                             Boolean isOriginal,
                             String coverExt) {
         this(novelId, title, folder, count, extensions, time, xRestrict, isAi, authorId, description,
-                fileName, fileAuthorNameId, seriesId, seriesOrder, wordCount,
-                isOriginal, coverExt, false, null);
+                fileName, fileAuthorNameId, seriesId, seriesOrder, isOriginal, coverExt, false, null);
     }
 }

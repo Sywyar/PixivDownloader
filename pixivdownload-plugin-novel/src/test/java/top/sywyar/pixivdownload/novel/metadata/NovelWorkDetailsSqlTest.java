@@ -98,6 +98,8 @@ class NovelWorkDetailsSqlTest {
         assertThat(mapper.findWorkDetailsByIds(List.of(1L, 2L)))
                 .extracting(NovelMapper.NovelWorkDetailsRow::novelId)
                 .containsExactly(1L);
+        assertThat(mapper.findWordCountsByIds(List.of(1L, 2L)))
+                .containsExactly(new NovelMapper.NovelWordCountRow(1L, 101));
         assertThat(mapper.findNovelImageIdsByIds(List.of(1L, 2L)))
                 .extracting(NovelMapper.NovelWorkDetailValueRow::value)
                 .containsExactly("img-a", "img-b");
@@ -123,6 +125,8 @@ class NovelWorkDetailsSqlTest {
 
         assertThat(details).isEqualTo(new NovelWorkDetails(
                 3L, null, null, null, null, null, null, List.of(), List.of()));
+        assertThat(mapper.findWordCountsByIds(List.of(3L)))
+                .containsExactly(new NovelMapper.NovelWordCountRow(3L, null));
     }
 
     private void insertNovel(long id, boolean deleted) {

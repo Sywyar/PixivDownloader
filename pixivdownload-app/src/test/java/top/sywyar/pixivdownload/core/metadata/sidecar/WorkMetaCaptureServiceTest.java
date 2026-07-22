@@ -68,7 +68,7 @@ class WorkMetaCaptureServiceTest {
 
     private NovelMetadataRow novel(long id) {
         return new NovelMetadataRow(id, "n", tempDir.toString(), 1, "txt", 1000L, 0, false, null, null,
-                null, null, null, null, null, true, null);
+                null, null, null, null, true, null);
     }
 
     @Test

@@ -114,12 +114,12 @@ class NovelMetadataRepositoryTest {
                 .containsExactly(
                         "novelId", "title", "folder", "count", "extensions", "time",
                         "xRestrict", "isAi", "authorId", "description", "fileName",
-                        "fileAuthorNameId", "seriesId", "seriesOrder", "wordCount", "isOriginal",
+                        "fileAuthorNameId", "seriesId", "seriesOrder", "isOriginal",
                         "coverExt", "deleted", "uploadTime")
-                .doesNotContain("textLength", "readingTimeSeconds", "pageCount",
+                .doesNotContain("wordCount", "textLength", "readingTimeSeconds", "pageCount",
                         "xLanguage", "rawContent");
         assertThat(sqlConstant("SELECT_NOVEL_METADATA")).doesNotContainIgnoringCase(
-                "text_length", "reading_time_seconds", "page_count",
+                "word_count", "text_length", "reading_time_seconds", "page_count",
                 "x_language", "raw_content");
     }
 
@@ -160,10 +160,12 @@ class NovelMetadataRepositoryTest {
     @Test
     @DisplayName("宿主小说包只保留显式窄投影且不得持有正文或全文索引 SQL")
     void shouldKeepPluginOwnedPersistenceAndFtsOutOfHostPackage() throws IOException {
-        try (Stream<Path> sources = Files.list(hostNovelSourceRoot())) {
+        Path sourceRoot = hostNovelSourceRoot();
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
             assertThat(sources
                     .filter(path -> path.getFileName().toString().endsWith(".java"))
-                    .map(path -> path.getFileName().toString())
+                    .map(sourceRoot::relativize)
+                    .map(path -> path.toString().replace('\\', '/'))
                     .collect(java.util.stream.Collectors.toSet()))
                     .as("新增宿主小说类型必须先证明是跨作品核心窄投影；完整持久化行留在小说插件")
                     .containsExactlyInAnyOrderElementsOf(EXPECTED_HOST_NOVEL_SOURCE_FILES);
@@ -172,8 +174,15 @@ class NovelMetadataRepositoryTest {
         for (Class<?> type : HOST_NOVEL_TYPES) {
             String bytecode = new String(classBytes(type), StandardCharsets.ISO_8859_1);
             assertThat(bytecode)
-                    .as(type.getName() + " 不得读取正文列或维护小说 FTS")
-                    .doesNotContain("raw_content", "novels_fts");
+                    .as(type.getName() + " 不得读取小说插件私有详情列或维护小说 FTS")
+                    .doesNotContain(
+                            "wordCount", "word_count",
+                            "textLength", "text_length",
+                            "readingTimeSeconds", "reading_time_seconds",
+                            "pageCount", "page_count",
+                            "xLanguage", "x_language",
+                            "rawContent", "raw_content",
+                            "novels_fts");
         }
     }
 

@@ -630,6 +630,28 @@ class CoreApiOwnershipGuardTest {
     }
 
     @Test
+    @DisplayName("core-api 生产源码不得暴露小说插件私有详情字段")
+    void productionSourcesDoNotExposeNovelPrivateDetailFields() throws IOException {
+        List<String> violations = new ArrayList<>();
+        List<String> privateTerms = List.of(
+                "wordCount", "word_count", "textLength", "text_length",
+                "readingTimeSeconds", "reading_time_seconds", "xLanguage", "x_language",
+                "rawContent", "raw_content", "novels_fts");
+        for (Path source : productionSources()) {
+            String content = Files.readString(source, StandardCharsets.UTF_8);
+            for (String term : privateTerms) {
+                if (content.contains(term)) {
+                    violations.add(relativeSource(source) + " contains " + term);
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("小说完整持久化行、正文、字数与 FTS 生命周期必须留在小说插件")
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("生产源码不得声明具体插件或引擎 owner 常量")
     void productionSourcesDoNotDeclareConcreteOwnerConstants() throws IOException {
         List<String> violations = new ArrayList<>();

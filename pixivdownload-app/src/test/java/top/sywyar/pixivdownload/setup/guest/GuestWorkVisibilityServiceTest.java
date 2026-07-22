@@ -152,6 +152,6 @@ class GuestWorkVisibilityServiceTest {
         return new NovelMetadataRow(
                 42L, "title", "folder", 1, "txt", 1L,
                 xRestrict, false, authorId, "", 1L, null,
-                null, null, 10, true, null);
+                null, null, true, null);
     }
 }

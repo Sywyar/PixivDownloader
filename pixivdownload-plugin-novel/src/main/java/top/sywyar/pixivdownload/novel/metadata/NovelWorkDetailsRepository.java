@@ -22,6 +22,8 @@ import java.util.Optional;
 @Transactional(readOnly = true)
 public class NovelWorkDetailsRepository {
 
+    private static final int ID_QUERY_BATCH_SIZE = 500;
+
     private final NovelMapper novelMapper;
 
     public Optional<NovelWorkDetails> find(long novelId) {
@@ -68,6 +70,39 @@ public class NovelWorkDetailsRepository {
                     row.coverExt(),
                     imagesById.getOrDefault(id, List.of()),
                     languagesById.getOrDefault(id, List.of())));
+        }
+        return Collections.unmodifiableMap(out);
+    }
+
+    /**
+     * 批量读取未软删除小说的字数窄投影，供插件私有排序使用；按输入首次出现顺序返回，
+     * 并按 SQLite 安全参数量分批，不触发内嵌图片或译文语言查询。
+     */
+    public Map<Long, Integer> findWordCounts(Collection<Long> novelIds) {
+        List<Long> ids = normalizeIds(novelIds);
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, Integer> found = new LinkedHashMap<>();
+        for (int from = 0; from < ids.size(); from += ID_QUERY_BATCH_SIZE) {
+            int to = Math.min(from + ID_QUERY_BATCH_SIZE, ids.size());
+            List<NovelMapper.NovelWordCountRow> rows = novelMapper.findWordCountsByIds(ids.subList(from, to));
+            if (rows == null) {
+                continue;
+            }
+            for (NovelMapper.NovelWordCountRow row : rows) {
+                if (row != null) {
+                    found.put(row.novelId(), row.wordCount());
+                }
+            }
+        }
+
+        Map<Long, Integer> out = new LinkedHashMap<>();
+        for (Long id : ids) {
+            if (found.containsKey(id)) {
+                out.put(id, found.get(id));
+            }
         }
         return Collections.unmodifiableMap(out);
     }

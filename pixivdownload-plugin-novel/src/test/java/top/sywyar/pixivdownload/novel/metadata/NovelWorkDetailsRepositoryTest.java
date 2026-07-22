@@ -7,9 +7,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,6 +66,8 @@ class NovelWorkDetailsRepositoryTest {
 
         assertThat(repository.findAll(List.of())).isEmpty();
         assertThat(repository.findAll(null)).isEmpty();
+        assertThat(repository.findWordCounts(List.of())).isEmpty();
+        assertThat(repository.findWordCounts(null)).isEmpty();
         verifyNoInteractions(novelMapper);
 
         NovelWorkDetails details = new NovelWorkDetails(
@@ -72,5 +76,33 @@ class NovelWorkDetailsRepositoryTest {
         assertThat(details.translatedLanguages()).isEmpty();
         assertThatThrownBy(() -> details.embeddedImageIds().add("x"))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("字数窄投影按 SQLite 安全批次读取且不触发其它详情查询")
+    void shouldReadWordCountsInSafeBatchesWithoutHydratingOtherDetails() {
+        NovelWorkDetailsRepository repository = new NovelWorkDetailsRepository(novelMapper);
+        List<Long> ids = LongStream.rangeClosed(1, 501).boxed().toList();
+        List<Long> request = new ArrayList<>(ids);
+        request.add(1L);
+        request.add(null);
+        request.add(0L);
+        when(novelMapper.findWordCountsByIds(ids.subList(0, 500))).thenReturn(List.of(
+                new NovelMapper.NovelWordCountRow(1L, null),
+                new NovelMapper.NovelWordCountRow(500L, 5000)));
+        when(novelMapper.findWordCountsByIds(ids.subList(500, 501))).thenReturn(List.of(
+                new NovelMapper.NovelWordCountRow(501L, 5010)));
+
+        Map<Long, Integer> result = repository.findWordCounts(request);
+
+        assertThat(result.keySet()).containsExactly(1L, 500L, 501L);
+        assertThat(result.get(1L)).isNull();
+        assertThat(result.get(500L)).isEqualTo(5000);
+        assertThat(result.get(501L)).isEqualTo(5010);
+        assertThatThrownBy(() -> result.put(2L, 20))
+                .isInstanceOf(UnsupportedOperationException.class);
+        verify(novelMapper).findWordCountsByIds(ids.subList(0, 500));
+        verify(novelMapper).findWordCountsByIds(ids.subList(500, 501));
+        verifyNoMoreInteractions(novelMapper);
     }
 }
