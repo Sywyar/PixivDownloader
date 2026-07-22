@@ -4,7 +4,9 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.IndexOrigin;
@@ -15,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -45,9 +48,45 @@ public class DatabaseInitializer {
 
     @PostConstruct
     public void initialize() {
+        applySchema(contributions, mergedSchema);
+        eventPublisher.publishEvent(new DatabaseReadyEvent());
+    }
+
+    /**
+     * 幂等应用一份完整受管 schema 快照。启动期和运行期插件 schema 新代共用同一 DDL 路径；
+     * 运行期调用方必须在事务内执行，并只在事务成功后发布对应 registry 快照。
+     */
+    public synchronized SchemaApplyResult applySchema(
+            List<SchemaContribution> schemaContributions,
+            ManagedDatabaseSchema.DatabaseSchema schema) {
+        return applySchema(schemaContributions, schema, Set.of(), false);
+    }
+
+    /**
+     * 在调用方已开启的事务内应用并精确验证一个 owner 的累计 schema ledger。
+     * 验证复用 Spring 事务绑定的同一连接；任何不可安全补列或磁盘结构漂移都会抛错，使全部 DDL 回滚。
+     */
+    public synchronized SchemaApplyResult applyRuntimeOwnerSchema(
+            List<SchemaContribution> ownerContributions,
+            ManagedDatabaseSchema.DatabaseSchema ownerSchema,
+            Set<String> ownerTableNames) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("runtime owner schema must be applied inside an active transaction");
+        }
+        return applySchema(ownerContributions, ownerSchema, ownerTableNames, true);
+    }
+
+    private SchemaApplyResult applySchema(
+            List<SchemaContribution> schemaContributions,
+            ManagedDatabaseSchema.DatabaseSchema schema,
+            Set<String> ownerTableNames,
+            boolean strictRuntimeValidation) {
+        Objects.requireNonNull(schemaContributions, "schema contributions");
+        Objects.requireNonNull(schema, "schema");
+        Objects.requireNonNull(ownerTableNames, "owner table names");
         Set<String> existingTables = existingTableNames();
         int createdTables = 0;
-        for (SchemaContribution contribution : contributions) {
+        for (SchemaContribution contribution : schemaContributions) {
             for (TableSpec table : contribution.tables()) {
                 String normalizedName = ManagedDatabaseSchema.normalizeIdentifier(table.name());
                 jdbcTemplate.execute(renderCreateTable(table));
@@ -56,11 +95,25 @@ public class DatabaseInitializer {
                 }
             }
         }
-        int addedColumns = addMissingColumns();
-        int createdIndexes = createIndexes();
+        ColumnApplyResult columnResult = addMissingColumns(schema);
+        if (strictRuntimeValidation && !columnResult.skippedColumns().isEmpty()) {
+            throw new IllegalStateException("runtime owner schema contains missing columns that SQLite cannot "
+                    + "append safely: " + String.join(", ", columnResult.skippedColumns()));
+        }
+        int createdIndexes = createIndexes(schema);
+        if (strictRuntimeValidation) {
+            DatabaseSchemaInspector.SchemaComparison comparison = jdbcTemplate.execute(
+                    (ConnectionCallback<DatabaseSchemaInspector.SchemaComparison>) connection ->
+                            DatabaseSchemaInspector.compareTables(connection, schema, ownerTableNames));
+            if (comparison == null || !comparison.matches()) {
+                String summary = comparison == null ? "schema comparison returned no result" : comparison.summary(12);
+                throw new IllegalStateException("runtime owner schema does not match the physical database:\n"
+                        + summary);
+            }
+        }
         log.info(messages.getForLog("core.db.log.schema-initialized",
-                mergedSchema.tables().size(), createdTables, addedColumns, createdIndexes));
-        eventPublisher.publishEvent(new DatabaseReadyEvent());
+                schema.tables().size(), createdTables, columnResult.addedColumns(), createdIndexes));
+        return new SchemaApplyResult(createdTables, columnResult.addedColumns(), createdIndexes);
     }
 
     private Set<String> existingTableNames() {
@@ -74,9 +127,10 @@ public class DatabaseInitializer {
     }
 
     /** 旧库安全补列：受管列在磁盘上缺失且可安全追加（非主键、非「NOT NULL 无默认值」）时 ALTER 补齐。 */
-    private int addMissingColumns() {
+    private ColumnApplyResult addMissingColumns(ManagedDatabaseSchema.DatabaseSchema schema) {
         int added = 0;
-        for (ManagedDatabaseSchema.TableSpec table : mergedSchema.tables().values()) {
+        List<String> skipped = new ArrayList<>();
+        for (ManagedDatabaseSchema.TableSpec table : schema.tables().values()) {
             Set<String> actualColumns = new HashSet<>(jdbcTemplate.queryForList(
                     "SELECT lower(name) FROM pragma_table_info(?)", String.class, table.name()));
             for (ManagedDatabaseSchema.ColumnSpec column : table.columns()) {
@@ -89,6 +143,7 @@ public class DatabaseInitializer {
                     // 留给启动校验报漂移并提示人工迁移，不在这里带病硬加。
                     log.warn(messages.getForLog("core.db.log.add-column-skipped",
                             table.name(), column.name()));
+                    skipped.add(table.name() + "." + column.name());
                     continue;
                 }
                 StringBuilder ddl = new StringBuilder("ALTER TABLE ")
@@ -107,15 +162,15 @@ public class DatabaseInitializer {
                 added++;
             }
         }
-        return added;
+        return new ColumnApplyResult(added, skipped);
     }
 
     /** 显式索引幂等创建；UNIQUE 约束的自动索引随建表语句生成，旧表无法追加、不在此处理。 */
-    private int createIndexes() {
+    private int createIndexes(ManagedDatabaseSchema.DatabaseSchema schema) {
         Set<String> existingIndexes = new HashSet<>(jdbcTemplate.queryForList(
                 "SELECT lower(name) FROM sqlite_master WHERE type = 'index'", String.class));
         int created = 0;
-        for (ManagedDatabaseSchema.TableSpec table : mergedSchema.tables().values()) {
+        for (ManagedDatabaseSchema.TableSpec table : schema.tables().values()) {
             for (ManagedDatabaseSchema.IndexSpec index : table.indexes()) {
                 if (index.origin() != ManagedDatabaseSchema.IndexOrigin.CREATE_INDEX) {
                     continue;
@@ -188,5 +243,15 @@ public class DatabaseInitializer {
 
     private static String quote(String identifier) {
         return '"' + identifier.trim() + '"';
+    }
+
+    /** 本次幂等 schema 应用实际创建的对象数量。 */
+    public record SchemaApplyResult(int createdTables, int addedColumns, int createdIndexes) {
+    }
+
+    private record ColumnApplyResult(int addedColumns, List<String> skippedColumns) {
+        private ColumnApplyResult {
+            skippedColumns = List.copyOf(skippedColumns);
+        }
     }
 }

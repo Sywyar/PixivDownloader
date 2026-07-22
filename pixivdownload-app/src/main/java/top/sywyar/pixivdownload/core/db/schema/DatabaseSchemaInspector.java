@@ -11,8 +11,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -45,23 +47,55 @@ public final class DatabaseSchemaInspector {
     public static SchemaComparison compare(Connection connection,
                                            ManagedDatabaseSchema.DatabaseSchema expectedSchema) throws SQLException {
         Map<String, ManagedDatabaseSchema.TableSpec> actualTables = readActualTables(connection);
+        return compareTables(expectedSchema, actualTables, expectedSchema.tables().keySet(), true);
+    }
+
+    /**
+     * 在调用方提供的同一连接上精确比较指定 owner 的受管表；其它 owner 或未受管表不参与本次判断。
+     * 运行期插件 schema 在事务提交前使用此入口，保证 DDL 与验证观察同一事务连接。
+     */
+    public static SchemaComparison compareTables(
+            Connection connection,
+            ManagedDatabaseSchema.DatabaseSchema expectedSchema,
+            Set<String> tableNames) throws SQLException {
+        Objects.requireNonNull(connection, "connection");
+        Objects.requireNonNull(expectedSchema, "expected schema");
+        Objects.requireNonNull(tableNames, "table names");
+        Set<String> normalizedTableNames = tableNames.stream()
+                .map(ManagedDatabaseSchema::normalizeIdentifier)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (String tableName : normalizedTableNames) {
+            if (!expectedSchema.tables().containsKey(tableName)) {
+                throw new IllegalArgumentException("owner table is absent from expected schema: " + tableName);
+            }
+        }
+        return compareTables(expectedSchema, readActualTables(connection), normalizedTableNames, false);
+    }
+
+    private static SchemaComparison compareTables(
+            ManagedDatabaseSchema.DatabaseSchema expectedSchema,
+            Map<String, ManagedDatabaseSchema.TableSpec> actualTables,
+            Set<String> tableNames,
+            boolean includeUnmanagedTables) {
         List<SchemaDifference> differences = new ArrayList<>();
 
-        for (Map.Entry<String, ManagedDatabaseSchema.TableSpec> expectedEntry : expectedSchema.tables().entrySet()) {
-            String tableName = expectedEntry.getKey();
+        for (String tableName : tableNames) {
+            ManagedDatabaseSchema.TableSpec expectedTable = expectedSchema.tables().get(tableName);
             ManagedDatabaseSchema.TableSpec actualTable = actualTables.get(tableName);
             if (actualTable == null) {
                 addDifference(differences, SchemaDifferenceKind.MISSING_TABLE, tableName, null,
                         MessageBundles.get("download.db.schema.missing-table", tableName));
                 continue;
             }
-            compareTable(expectedEntry.getValue(), actualTable, differences);
+            compareTable(expectedTable, actualTable, differences);
         }
 
-        for (String actualTable : actualTables.keySet()) {
-            if (!expectedSchema.tables().containsKey(actualTable)) {
-                addDifference(differences, SchemaDifferenceKind.UNMANAGED_TABLE, actualTable, null,
-                        MessageBundles.get("download.db.schema.unmanaged-table", actualTable));
+        if (includeUnmanagedTables) {
+            for (String actualTable : actualTables.keySet()) {
+                if (!expectedSchema.tables().containsKey(actualTable)) {
+                    addDifference(differences, SchemaDifferenceKind.UNMANAGED_TABLE, actualTable, null,
+                            MessageBundles.get("download.db.schema.unmanaged-table", actualTable));
+                }
             }
         }
 

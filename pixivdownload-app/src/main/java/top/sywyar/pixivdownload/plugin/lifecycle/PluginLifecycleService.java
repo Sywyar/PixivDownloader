@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.schema.PluginSchemaLifecycle;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
@@ -116,6 +117,7 @@ public class PluginLifecycleService {
     private final PluginCapabilityContributionRegistrar capabilityContributionRegistrar;
     private final PluginRegistry pluginRegistry;
     private final PluginLifecycleState lifecycleState;
+    private final PluginSchemaLifecycle schemaLifecycle;
     private final Runnable afterCapabilityPublishReturnProbe;
     private final Runnable afterCapabilityWithdrawReturnProbe;
     private final Runnable afterCapabilityRetireReturnProbe;
@@ -129,7 +131,6 @@ public class PluginLifecycleService {
     private final Map<String, ManagedPlugin> managed = new LinkedHashMap<>();
     private volatile boolean started;
 
-    @Autowired
     public PluginLifecycleService(ApplicationContext parent,
                                   PluginRuntimeManager pluginRuntimeManager,
                                   PluginApplicationContextFactory contextFactory,
@@ -150,6 +151,32 @@ public class PluginLifecycleService {
                 capabilityContributionRegistrar,
                 pluginRegistry,
                 lifecycleState,
+                PluginSchemaLifecycle.NO_OP);
+    }
+
+    @Autowired
+    public PluginLifecycleService(ApplicationContext parent,
+                                  PluginRuntimeManager pluginRuntimeManager,
+                                  PluginApplicationContextFactory contextFactory,
+                                  PluginControllerRegistrar controllerRegistrar,
+                                  PluginWebContributionRegistrar webContributionRegistrar,
+                                  PluginScheduleContributionRegistrar scheduleContributionRegistrar,
+                                  PluginRuntimeTaskQuiescer runtimeTaskQuiescer,
+                                  PluginCapabilityContributionRegistrar capabilityContributionRegistrar,
+                                  PluginRegistry pluginRegistry,
+                                  PluginLifecycleState lifecycleState,
+                                  PluginSchemaLifecycle schemaLifecycle) {
+        this(parent,
+                pluginRuntimeManager,
+                contextFactory,
+                controllerRegistrar,
+                webContributionRegistrar,
+                scheduleContributionRegistrar,
+                runtimeTaskQuiescer,
+                capabilityContributionRegistrar,
+                pluginRegistry,
+                lifecycleState,
+                schemaLifecycle,
                 () -> {
                 },
                 () -> {
@@ -177,6 +204,40 @@ public class PluginLifecycleService {
                            Runnable afterCapabilityRetireReturnProbe,
                            Runnable afterCapabilityAcknowledgeReturnProbe,
                            Runnable afterCapabilityAcknowledgeFlagProbe) {
+        this(parent,
+                pluginRuntimeManager,
+                contextFactory,
+                controllerRegistrar,
+                webContributionRegistrar,
+                scheduleContributionRegistrar,
+                runtimeTaskQuiescer,
+                capabilityContributionRegistrar,
+                pluginRegistry,
+                lifecycleState,
+                PluginSchemaLifecycle.NO_OP,
+                afterCapabilityPublishReturnProbe,
+                afterCapabilityWithdrawReturnProbe,
+                afterCapabilityRetireReturnProbe,
+                afterCapabilityAcknowledgeReturnProbe,
+                afterCapabilityAcknowledgeFlagProbe);
+    }
+
+    PluginLifecycleService(ApplicationContext parent,
+                           PluginRuntimeManager pluginRuntimeManager,
+                           PluginApplicationContextFactory contextFactory,
+                           PluginControllerRegistrar controllerRegistrar,
+                           PluginWebContributionRegistrar webContributionRegistrar,
+                           PluginScheduleContributionRegistrar scheduleContributionRegistrar,
+                           PluginRuntimeTaskQuiescer runtimeTaskQuiescer,
+                           PluginCapabilityContributionRegistrar capabilityContributionRegistrar,
+                           PluginRegistry pluginRegistry,
+                           PluginLifecycleState lifecycleState,
+                           PluginSchemaLifecycle schemaLifecycle,
+                           Runnable afterCapabilityPublishReturnProbe,
+                           Runnable afterCapabilityWithdrawReturnProbe,
+                           Runnable afterCapabilityRetireReturnProbe,
+                           Runnable afterCapabilityAcknowledgeReturnProbe,
+                           Runnable afterCapabilityAcknowledgeFlagProbe) {
         this.parent = parent;
         this.pluginRuntimeManager = pluginRuntimeManager;
         this.contextFactory = contextFactory;
@@ -187,6 +248,7 @@ public class PluginLifecycleService {
         this.capabilityContributionRegistrar = capabilityContributionRegistrar;
         this.pluginRegistry = pluginRegistry;
         this.lifecycleState = lifecycleState;
+        this.schemaLifecycle = Objects.requireNonNull(schemaLifecycle, "schema lifecycle");
         this.afterCapabilityPublishReturnProbe = Objects.requireNonNull(
                 afterCapabilityPublishReturnProbe, "capability publish return probe");
         this.afterCapabilityWithdrawReturnProbe = Objects.requireNonNull(
@@ -417,6 +479,9 @@ public class PluginLifecycleService {
             ManagedPlugin record = new ManagedPlugin(packageId, loaded.generation(), module, registered);
             Optional<PluginRuntimePhase> previousPhase = lifecycleState.phase(packageId);
             try {
+                // schema readiness 是本 generation 可见性的前置条件：数据库事务与 owner ledger
+                // 均成功后，才允许核心 registry、managed 记录和 LOADED 阶段对其它线程可见。
+                schemaLifecycle.activate(registered);
                 pluginRegistry.register(registered);
                 managed.put(packageId, record);
                 lifecycleState.initialize(packageId, PluginRuntimePhase.LOADED);

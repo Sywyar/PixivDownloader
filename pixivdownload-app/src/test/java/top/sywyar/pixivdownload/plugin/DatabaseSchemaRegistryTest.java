@@ -16,6 +16,12 @@ import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,6 +85,169 @@ class DatabaseSchemaRegistryTest {
         registry.register("demo", contribution);
         assertThat(registry.contributions()).isEqualTo(firstContributions);
         assertThat(registry.mergedSchema()).isEqualTo(firstMerged);
+    }
+
+    @Test
+    @DisplayName("owner schema reservation 只在 publish 后原子推进累计 ledger")
+    void ownerReservationPublishesAccumulatedLedgerAtomically() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register("demo", contribution(table("demo_items",
+                col("id", "INTEGER", false, null, 1),
+                col("value", "TEXT", false, null, 0))));
+
+        SchemaContribution replacement = new SchemaContribution(
+                List.of(new TableSpec("demo_items",
+                        List.of(
+                                col("id", "INTEGER", false, null, 1),
+                                col("value", "TEXT", false, null, 0),
+                                col("category", "TEXT", false, null, 0)),
+                        List.of(new IndexSpec("idx_demo_category", IndexOrigin.CREATE_INDEX,
+                                false, List.of("category"))))),
+                List.of(),
+                List.of());
+
+        try (DatabaseSchemaRegistry.OwnerSchemaReservation reservation =
+                     registry.reserveOwnerEvolution("demo", List.of(replacement))) {
+            assertThat(registry.mergedSchema().tables().get("demo_items").columns())
+                    .extracting(ManagedDatabaseSchema.ColumnSpec::name)
+                    .containsExactly("id", "value");
+            assertThat(reservation.ownerSchema().tables().get("demo_items").columns())
+                    .extracting(ManagedDatabaseSchema.ColumnSpec::name)
+                    .containsExactly("id", "value", "category");
+            reservation.publish();
+        }
+
+        assertThat(registry.mergedSchema().tables().get("demo_items").columns())
+                .extracting(ManagedDatabaseSchema.ColumnSpec::name)
+                .containsExactly("id", "value", "category");
+    }
+
+    @Test
+    @DisplayName("owner schema 新代不得追加 SQLite 无法安全补齐的列")
+    void ownerReplacementRejectsUnsafeMissingColumn() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register("demo", contribution(
+                table("demo_items", col("id", "INTEGER", false, null, 1))));
+        SchemaContribution replacement = contribution(table("demo_items",
+                col("id", "INTEGER", false, null, 1),
+                col("required_value", "TEXT", true, null, 0)));
+
+        assertThatThrownBy(() -> {
+            try (var ignored = registry.reserveOwnerEvolution("demo", List.of(replacement))) {
+                // reservation creation itself must reject the unsafe evolution
+            }
+        })
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot safely append column")
+                .hasMessageContaining("demo_items.required_value")
+                .hasMessageContaining("demo");
+    }
+
+    @Test
+    @DisplayName("owner schema 新代不得向既有表追加 SQLite 无法 ALTER 的唯一约束")
+    void ownerReplacementRejectsNewUniqueConstraint() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register("demo", contribution(table("demo_items",
+                col("id", "INTEGER", false, null, 1),
+                col("value", "TEXT", false, null, 0))));
+        SchemaContribution replacement = new SchemaContribution(
+                List.of(new TableSpec("demo_items",
+                        List.of(
+                                col("id", "INTEGER", false, null, 1),
+                                col("value", "TEXT", false, null, 0)),
+                        List.of(new IndexSpec(null, IndexOrigin.UNIQUE_CONSTRAINT,
+                                true, List.of("value"))))),
+                List.of(),
+                List.of());
+
+        assertThatThrownBy(() -> {
+            try (var ignored = registry.reserveOwnerEvolution("demo", List.of(replacement))) {
+                // reservation creation itself must reject the unsafe evolution
+            }
+        })
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot safely append constraint")
+                .hasMessageContaining("demo_items")
+                .hasMessageContaining("demo");
+    }
+
+    @Test
+    @DisplayName("owner schema 新代不得删除或重定义既有列")
+    void ownerReplacementRejectsRedefinedColumn() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register("demo", contribution(table("demo_items",
+                col("id", "INTEGER", false, null, 1),
+                col("value", "TEXT", false, null, 0))));
+        SchemaContribution replacement = contribution(table("demo_items",
+                col("id", "INTEGER", false, null, 1),
+                col("value", "INTEGER", false, null, 0)));
+
+        assertThatThrownBy(() -> {
+            try (var ignored = registry.reserveOwnerEvolution("demo", List.of(replacement))) {
+                // reservation creation itself must reject the redefinition
+            }
+        })
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("compatible subset or safe superset")
+                .hasMessageContaining("demo");
+    }
+
+    @Test
+    @DisplayName("owner 写 reservation 覆盖 publish 并阻塞并发 registry 变更")
+    void ownerReservationPreventsStalePublish() throws Exception {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        SchemaContribution contribution = contribution(
+                table("demo_items", col("id", "INTEGER", false, null, 1)));
+        registry.register("demo", contribution);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch attempted = new CountDownLatch(1);
+        Future<?> concurrentMutation;
+        try {
+            try (DatabaseSchemaRegistry.OwnerSchemaReservation reservation =
+                         registry.reserveOwnerEvolution("demo", List.of(contribution))) {
+                concurrentMutation = executor.submit(() -> {
+                    attempted.countDown();
+                    registry.register("other", contribution(
+                            table("other_items", col("id", "INTEGER", false, null, 1))));
+                });
+                assertThat(attempted.await(1, TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> concurrentMutation.get(100, TimeUnit.MILLISECONDS))
+                        .isInstanceOf(TimeoutException.class);
+                reservation.publish();
+            }
+            concurrentMutation.get(1, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(registry.mergedSchema().tables()).containsKeys("demo_items", "other_items");
+    }
+
+    @Test
+    @DisplayName("既有表不得在运行期追加唯一显式索引")
+    void ownerEvolutionRejectsUniqueIndexOnRetainedTable() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register("demo", contribution(table("demo_items",
+                col("id", "INTEGER", false, null, 1),
+                col("value", "TEXT", false, null, 0))));
+        SchemaContribution replacement = new SchemaContribution(
+                List.of(new TableSpec("demo_items",
+                        List.of(
+                                col("id", "INTEGER", false, null, 1),
+                                col("value", "TEXT", false, null, 0)),
+                        List.of(new IndexSpec("idx_demo_value_unique", IndexOrigin.CREATE_INDEX,
+                                true, List.of("value"))))),
+                List.of(),
+                List.of());
+
+        assertThatThrownBy(() -> {
+            try (var ignored = registry.reserveOwnerEvolution("demo", List.of(replacement))) {
+                // reservation creation itself must reject the unique index
+            }
+        })
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot safely append constraint")
+                .hasMessageContaining("demo_items");
     }
 
     @Test
