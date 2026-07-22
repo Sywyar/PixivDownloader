@@ -217,6 +217,9 @@ test('计划来源 context 只通过宿主 adapter 读取并回灌取得输入',
     const context = h.sourceContext();
     const host = context.__scheduleAcquisitionHost;
 
+    assert.equal(Object.prototype.hasOwnProperty.call(context, 'editing'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(context, 'admin'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(context, 'workTypeOwnerPluginId'), false);
     assert.equal(host.input('single-import'), 'original-input');
     assert.equal(host.input('search'), null);
     assert.equal(host.restore('single-import', 'restored-input'), true);

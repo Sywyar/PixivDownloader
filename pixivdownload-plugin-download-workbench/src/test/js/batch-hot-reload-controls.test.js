@@ -780,9 +780,8 @@ ok('search submode switcher 使用稳定 root 事件委托',
         name: 'Legacy user',
         kind: 'illust'
     });
-    const legacy = h.sandbox.window.PixivBatch.modes.quick.quickScheduleSource();
-    ok('owner 未贡献二层来源时保留既有 Pixiv 用户回退',
-        legacy.sourceType === 'user-new' && legacy.source.userId === 'legacy-user');
+    const unsupported = h.sandbox.window.PixivBatch.modes.quick.quickScheduleSource();
+    ok('owner 未贡献二层来源时宿主不猜测具体来源', unsupported === null);
 }
 
 const runtimeListeners = new Map();

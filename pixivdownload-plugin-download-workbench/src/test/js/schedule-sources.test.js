@@ -155,6 +155,11 @@ test('来源 manifest 声明的模式与模块共同决定可调用行为', asyn
 test('取得输入与回灌 helper 绑定 owner publication 并在失活后拒绝调用', async () => {
     let leasedContext = null;
     const restores = [];
+    const quickSource = {
+        sourceType: 'source-a',
+        source: {id: 'quick-1'},
+        metadata: ['stable']
+    };
     const host = {
         input(mode) {
             assert.equal(mode, 'single-import');
@@ -192,7 +197,11 @@ test('取得输入与回灌 helper 绑定 owner publication 并在失活后拒�
     const runtime = harness([manifest(1, [first]), manifest(2, [second])], installers);
     const context = {
         mode: 'single-import',
+        editingSourceType: 'source-a',
         workTypes: ['work-a'],
+        admin: true,
+        unknownHostState: {secret: 'must-not-cross'},
+        quickSource,
         __scheduleAcquisitionHost: host
     };
 
@@ -201,12 +210,32 @@ test('取得输入与回灌 helper 绑定 owner publication 并在失活后拒�
     assert.equal(captured.params.input, 'https://example.invalid/work/456 | title');
     assert.equal(Object.prototype.hasOwnProperty.call(leasedContext,
         '__scheduleAcquisitionHost'), false);
+    assert.deepEqual(Object.keys(leasedContext).sort(), [
+        'acquisitionInput', 'mode', 'quickSource', 'restoreAcquisition'
+    ]);
+    assert.notEqual(leasedContext.quickSource, quickSource);
+    assert.deepEqual(JSON.parse(JSON.stringify(leasedContext.quickSource)), quickSource);
+    assert.equal(Object.isFrozen(leasedContext.quickSource), true);
+    assert.equal(Object.isFrozen(leasedContext.quickSource.source), true);
+    assert.equal(Object.isFrozen(leasedContext.quickSource.metadata), true);
+    assert.throws(() => { leasedContext.quickSource.source.id = 'forged'; },
+        /read only|Cannot assign/i);
+    assert.throws(() => leasedContext.quickSource.metadata.push('forged'),
+        /not extensible|Cannot add property/i);
+    assert.equal(quickSource.source.id, 'quick-1');
     assert.throws(() => leasedContext.acquisitionInput('search'),
         /acquisition mode is unavailable/);
     assert.deepEqual(JSON.parse(JSON.stringify(runtime.restoreTask({
         sourceType: 'source-a'
     }, context))), {mode: 'single-import'});
     assert.deepEqual(restores, [{mode: 'single-import', value: 'restored-value'}]);
+
+    const cyclicQuickSource = {sourceType: 'source-a'};
+    cyclicQuickSource.self = cyclicQuickSource;
+    runtime.captureForMode('single-import', Object.assign({}, context, {
+        quickSource: cyclicQuickSource
+    }));
+    assert.equal(leasedContext.quickSource, null);
 
     const oldContext = leasedContext;
     await runtime.refresh(false);
@@ -411,6 +440,18 @@ test('来源别名与其它 canonical 来源冲突时拒绝整个 manifest', asy
         manifest(1, [source({legacyAliases: ['source-b'], frontend: null}), sourceB])
     ], new Map());
     await assert.rejects(runtime.refresh(false), /conflicting schedule source alias/);
+});
+
+test('同一 owner publication 的来源模块拒绝不一致 activation token', async () => {
+    const sourceB = source({
+        sourceType: 'source-b',
+        activationToken: 'activation-b'
+    });
+    const runtime = harness([manifest(1, [source(), sourceB])], new Map());
+    await runtime.refresh(false);
+    assert.equal(runtime.isAvailable('source-a'), false);
+    assert.equal(runtime.isAvailable('source-b'), false);
+    assert.equal(runtime.descriptor('source-a').sourceType, 'source-a');
 });
 
 test('publication 切换会撤销旧 handler 并丢弃旧异步结果', async () => {

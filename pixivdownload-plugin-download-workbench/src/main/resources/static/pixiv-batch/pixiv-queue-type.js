@@ -335,6 +335,33 @@
             return bt('quick.schedule.source.self', '我自己（账号 {uid}）', {uid});
         }
 
+        function followingQuickScheduleSource(context) {
+            const inner = context && context.inner && typeof context.inner === 'object'
+                ? context.inner : null;
+            if (!inner || inner.type !== 'following-user' || !inner.userId) return null;
+            const kind = window.PixivBatch.queueTypes.resolveTypeForMode(inner.kind, 'quick');
+            if (!kind) return null;
+            return scheduleSource('user-new', 'USER_NEW', {userId: String(inner.userId)}, kind,
+                bt('quick.schedule.source.user', '画师 {name}（ID {id}）', {
+                    name: inner.name || inner.userId,
+                    id: inner.userId
+                }));
+        }
+
+        function collectionQuickScheduleSource(context) {
+            const inner = context && context.inner && typeof context.inner === 'object'
+                ? context.inner : null;
+            if (!inner || inner.type !== 'collection' || !inner.id) return null;
+            return Object.assign(
+                scheduleSource('collection', 'COLLECTION',
+                    {collectionId: String(inner.id)}, 'mixed',
+                    bt('quick.schedule.source.collection', '珍藏集 {name}（ID {id}）', {
+                        name: inner.name || inner.id,
+                        id: inner.id
+                    })),
+                {workTypes: ['illust', 'novel']});
+        }
+
         const descriptor = {
             process: processIllustItem,
             queueTags: pixivQueueTags,
@@ -576,7 +603,8 @@
                                     rest: ctx.rest, offset: ctx.offset, limit: ctx.limit
                                 });
                             },
-                            load: requirePixivQuickSession(() => loadQuickFollowing('show', 0))
+                            load: requirePixivQuickSession(() => loadQuickFollowing('show', 0)),
+                            scheduleSource: followingQuickScheduleSource
                         },
                         'my-following-hide': {
                             viewType: 'following-list', kind: type, userWorkTypes: ['illust', 'novel'],
@@ -585,7 +613,8 @@
                                     rest: ctx.rest, offset: ctx.offset, limit: ctx.limit
                                 });
                             },
-                            load: requirePixivQuickSession(() => loadQuickFollowing('hide', 0))
+                            load: requirePixivQuickSession(() => loadQuickFollowing('hide', 0)),
+                            scheduleSource: followingQuickScheduleSource
                         },
                         'my-following-new': {
                             viewType: 'works-list', kind: type, pageSize: QUICK_PAGE_SIZE_ILLUST,
@@ -606,7 +635,8 @@
                                 return pixivMePageRequest(
                                     `collection/${encodeURIComponent(collectionId)}/works`);
                             },
-                            load: requirePixivQuickSession(() => loadQuickCollections())
+                            load: requirePixivQuickSession(() => loadQuickCollections()),
+                            scheduleSource: collectionQuickScheduleSource
                         }
                     }
                 }

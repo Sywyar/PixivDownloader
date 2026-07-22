@@ -69,7 +69,7 @@ window.PixivBatch.scheduleSources = (function () {
 
     function ownerIdentity(epoch, source) {
         return [epoch, source.ownerPluginId, source.packageId,
-            source.pluginGeneration, source.publicationId].join(':');
+            source.pluginGeneration, source.publicationId, source.activationToken].join(':');
     }
 
     function normalizePresentation(raw) {
@@ -237,7 +237,7 @@ window.PixivBatch.scheduleSources = (function () {
             const existing = groups.get(key);
             if (existing) {
                 if (existing.ownerIdentity !== ownerIdentity(manifest.epoch, source)) {
-                    throw new Error('schedule source module spans multiple owners');
+                    throw new Error('schedule source module spans multiple owner activations');
                 }
                 existing.sources.push(source);
                 return;
@@ -583,16 +583,36 @@ window.PixivBatch.scheduleSources = (function () {
         }
     }
 
+    function freezeJsonValue(value) {
+        if (!value || typeof value !== 'object') return value;
+        if (Array.isArray(value)) {
+            value.forEach(freezeJsonValue);
+            return Object.freeze(value);
+        }
+        Object.keys(value).forEach(key => freezeJsonValue(value[key]));
+        return Object.freeze(value);
+    }
+
+    function quickSourceSnapshot(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        try {
+            const json = JSON.stringify(value);
+            if (!json || json.length > 131072) return null;
+            const copy = JSON.parse(json);
+            return copy && typeof copy === 'object' && !Array.isArray(copy)
+                ? freezeJsonValue(copy) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function scopedSourceContext(entry, context) {
         const raw = context && typeof context === 'object' ? context : {};
         const host = raw.__scheduleAcquisitionHost;
-        const out = {};
-        Object.keys(raw).forEach(key => {
-            if (key !== '__scheduleAcquisitionHost'
-                    && key !== 'acquisitionInput' && key !== 'restoreAcquisition') {
-                out[key] = raw[key];
-            }
-        });
+        const out = {
+            mode: text(raw.mode),
+            quickSource: quickSourceSnapshot(raw.quickSource)
+        };
         const acquisitionMode = value => {
             assertEntryCurrent(entry);
             const mode = normalizeAcquisitionMode(text(value) || text(raw.mode));

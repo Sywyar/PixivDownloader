@@ -107,12 +107,6 @@
         };
     }
 
-    function hasDouyinWork(context) {
-        const values = context && Array.isArray(context.workTypes)
-            ? context.workTypes : [context && context.workType];
-        return values.some(value => String(value || '').trim() === WORK_TYPE);
-    }
-
     function parseUserId(raw) {
         const value = String(raw || '').trim();
         if (/^[A-Za-z0-9._-]{6,256}$/.test(value)) return value;
@@ -178,7 +172,6 @@
             const quick = normalizedQuickSource(context);
             return !!quick && quick.sourceType === sourceType;
         }
-        if (!hasDouyinWork(context)) return false;
         if (sourceType === SOURCE.USER) {
             const input = document.getElementById('user-id-input');
             return context.mode === 'user' && state.settings.userKind === WORK_TYPE

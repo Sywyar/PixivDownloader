@@ -371,30 +371,6 @@
             });
             if (contributed) return contributed;
         }
-        // 二层钻取：关注画师 → USER_NEW；珍藏集 → COLLECTION（含各类型混合）
-        if (quickInner.open) {
-            if (quickInner.type === 'following-user' && quickInner.userId) {
-                return {
-                    sourceType: 'user-new',
-                    type: 'USER_NEW',
-                    source: {userId: String(quickInner.userId)},
-                    kind: window.PixivBatch.queueTypes.resolveTypeForMode(quickInner.kind, 'quick'),
-                    label: bt('quick.schedule.source.user', '画师 {name}（ID {id}）',
-                        {name: quickInner.name || quickInner.userId, id: quickInner.userId})
-                };
-            }
-            if (quickInner.type === 'collection' && quickInner.id) {
-                return {
-                    sourceType: 'collection',
-                    type: 'COLLECTION',
-                    source: {collectionId: String(quickInner.id)},
-                    kind: 'mixed',
-                    label: bt('quick.schedule.source.collection', '珍藏集 {name}（ID {id}）',
-                        {name: quickInner.name || quickInner.id, id: quickInner.id})
-                };
-            }
-            return null;
-        }
         return null;
     }
 

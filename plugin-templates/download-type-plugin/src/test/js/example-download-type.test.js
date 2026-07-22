@@ -378,7 +378,6 @@ test('schedule module registers the declared source and captures an opaque id', 
     assert.equal(registered.type, 'example-download.ids');
     const context = {
         mode: 'single-import',
-        workType: 'example-download',
         acquisitionInput(mode) {
             assert.equal(mode, 'single-import');
             return 'https://example.invalid/work/456 | title';

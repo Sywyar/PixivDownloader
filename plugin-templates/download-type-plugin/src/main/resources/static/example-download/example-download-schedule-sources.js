@@ -44,8 +44,7 @@
         if (!declared) return;
         api.registerSource(SOURCE_TYPE, {
             matches: function (context) {
-                return context && context.mode === 'single-import'
-                    && context.workType === TYPE && !!inputFromContext(context);
+                return context && context.mode === 'single-import' && !!inputFromContext(context);
             },
             capture: function (context) {
                 var id = inputFromContext(context);

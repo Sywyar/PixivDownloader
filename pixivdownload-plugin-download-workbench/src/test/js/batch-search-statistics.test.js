@@ -61,7 +61,8 @@ function pixivDescriptor() {
                     const registration = initializer(context);
                     descriptor = registration && registration.descriptor;
                     return true;
-                }
+                },
+                resolveTypeForMode(kind) { return kind == null ? null : String(kind); }
             }
         },
         addEventListener() {},
@@ -146,6 +147,34 @@ test('Pixiv 行为模块按媒体与取得来源贡献队列标签', () => {
         {sourceType: 'collection'}, {illustType: 1});
     assert.strictEqual(merged.typeData.sourceType, 'collection');
     assert.strictEqual(merged.typeData.illustType, 1);
+});
+
+test('Pixiv 行为模块拥有二层快捷计划来源映射', () => {
+    const actions = pixivDescriptor().acquisition.quick.actions;
+    const followingIllust = actions['my-following-show'].scheduleSource({
+        inner: {type: 'following-user', userId: '42', name: 'Painter', kind: 'illust'}
+    });
+    const followingNovel = actions['my-following-hide'].scheduleSource({
+        inner: {type: 'following-user', userId: '43', name: 'Writer', kind: 'novel'}
+    });
+    const collection = actions['my-collections'].scheduleSource({
+        inner: {type: 'collection', id: '77', name: 'Mixed collection'}
+    });
+
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(followingIllust)), {
+        sourceType: 'user-new', type: 'USER_NEW', source: {userId: '42'},
+        kind: 'illust', label: '画师 Painter（ID 42）'
+    });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(followingNovel)), {
+        sourceType: 'user-new', type: 'USER_NEW', source: {userId: '43'},
+        kind: 'novel', label: '画师 Writer（ID 43）'
+    });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(collection)), {
+        sourceType: 'collection', type: 'COLLECTION', source: {collectionId: '77'},
+        kind: 'mixed', label: '珍藏集 Mixed collection（ID 77）', workTypes: ['illust', 'novel']
+    });
+    assert.strictEqual(actions['my-following-show'].scheduleSource({inner: null}), null);
+    assert.strictEqual(actions['my-collections'].scheduleSource({inner: null}), null);
 });
 
 test('Pixiv 各取得入口在顶层携带原始数字取消键', () => {

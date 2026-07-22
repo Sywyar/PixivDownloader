@@ -105,17 +105,12 @@
         }
         workTypes = Array.from(new Set(workTypes.map(value => String(value || '').trim()).filter(Boolean)));
         const firstType = workTypes[0] || null;
-        const manifest = firstType && qt && typeof qt.manifestDescriptor === 'function'
-            ? qt.manifestDescriptor(firstType) : null;
         return Object.freeze({
             mode: state.mode,
             quickSource: quickSource || null,
-            editing: scheduleEditingId != null,
             editingSourceType: scheduleEditingToken ? scheduleEditingToken.sourceType : null,
             workType: firstType,
             workTypes: Object.freeze(workTypes),
-            workTypeOwnerPluginId: manifest && manifest.owner ? manifest.owner.pluginId : null,
-            admin: !!isAdmin,
             __scheduleAcquisitionHost: Object.freeze({
                 input: scheduleAcquisitionInput,
                 restore: restoreScheduleAcquisition
