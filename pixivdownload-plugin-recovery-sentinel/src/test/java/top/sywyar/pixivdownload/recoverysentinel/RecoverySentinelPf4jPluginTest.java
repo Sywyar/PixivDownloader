@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>{@link PixivPluginProvider#featurePlugins()} 暴露最小功能插件 {@link RecoverySentinelPlugin}
  *       （id {@code recovery-sentinel}）；</li>
  *   <li>该功能插件<b>不贡献任何东西</b>
- *       （route / static / i18n / navigation / schema / 维护任务 / 调度来源 / 队列 / 标签页 / 落点 全部为空）。</li>
+ *       （route / static / i18n / navigation / schema / 调度来源 / 队列 / 标签页 / 落点 全部为空）。</li>
  * </ul>
  * 这些是核心据以加载 / 校验 / 接入外置 recovery-sentinel 插件并用其验证恢复模式的契约面。
  */
@@ -72,7 +72,7 @@ class RecoverySentinelPf4jPluginTest {
     }
 
     @Test
-    @DisplayName("recovery-sentinel 不贡献任何 route / static / i18n / navigation / schema / 维护任务 / 调度来源 / 队列 / 标签页 / 落点")
+    @DisplayName("recovery-sentinel 不贡献任何 route / static / i18n / navigation / schema / 调度来源 / 队列 / 标签页 / 落点")
     void sentinelContributesNothing() {
         RecoverySentinelPlugin sentinel = new RecoverySentinelPlugin();
         assertThat(sentinel.routes()).isEmpty();
@@ -80,7 +80,6 @@ class RecoverySentinelPf4jPluginTest {
         assertThat(sentinel.i18n()).isEmpty();
         assertThat(sentinel.navigation()).isEmpty();
         assertThat(sentinel.schema()).isEmpty();
-        assertThat(sentinel.maintenanceTasks()).isEmpty();
         assertThat(sentinel.scheduledSourceDescriptors()).isEmpty();
         assertThat(sentinel.downloadTypes()).isEmpty();
         assertThat(sentinel.startupRoutes()).isEmpty();

@@ -13,13 +13,24 @@ import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.maintenance.MaintenanceTaskRegistry;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -32,11 +43,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -85,6 +91,12 @@ class DuplicateExternalPluginBootContextTest {
     private WebI18nBundleRegistry webI18nBundleRegistry;
     @Autowired
     private QueueOperationRegistry queueOperationRegistry;
+    @Autowired
+    private MaintenanceTaskRegistry maintenanceTaskRegistry;
+    @Autowired
+    private PluginLifecycleService pluginLifecycleService;
+    @Autowired
+    private ExternalPluginLifecycleCoordinator lifecycleCoordinator;
     @Autowired
     private ExternalPluginContextManager externalPluginContextManager;
     @Autowired
@@ -177,10 +189,63 @@ class DuplicateExternalPluginBootContextTest {
         assertThat(child.getBeanNamesForType(controllerClass)).isNotEmpty();
         assertThat(child.getBeanNamesForType(backfillClass)).isNotEmpty();
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
+        MessageResolver pluginMessages = child.getBean("duplicatePluginMessages", MessageResolver.class);
+        assertThat(pluginMessages.get(Locale.SIMPLIFIED_CHINESE, "duplicate.error.scope.invalid"))
+                .isEqualTo("重复范围必须是 cross-artwork 或 all");
+        assertThat(pluginMessages.get(Locale.ENGLISH, "duplicate.error.scope.invalid"))
+                .isEqualTo("Duplicate scope must be cross-artwork or all");
         assertThat(duplicateGroupsHandlerBean()).isSameAs(child.getBean(controllerClass));
         assertThat(queueOperationRegistry.operationsForOwner("duplicate"))
                 .extracting(QueueOperationRegistry.OwnedQueueOperations::queueType)
                 .containsExactly("duplicate-scan");
+        assertThat(maintenanceTaskRegistry.tasks())
+                .extracting(MaintenanceTask::name)
+                .contains("duplicate-hash-backfill");
+    }
+
+    @Test
+    @DisplayName("duplicate 维护任务随 stop 撤回、start 恢复，并在物理 reload 后只保留新 publication")
+    void duplicateMaintenancePublicationFollowsExternalLifecycle() {
+        assertThat(pluginLifecycleService.phase("duplicate")).contains(PluginRuntimePhase.STARTED);
+        long initialGeneration = pluginLifecycleService.generation("duplicate").orElseThrow();
+        ConfigurableApplicationContext initialContext =
+                externalPluginContextManager.contextFor("duplicate").orElseThrow();
+        List<MaintenanceTask> initialTasks = duplicateMaintenanceTasks();
+        assertThat(initialTasks).singleElement();
+
+        lifecycleCoordinator.stop("duplicate");
+
+        assertThat(pluginLifecycleService.phase("duplicate")).contains(PluginRuntimePhase.STOPPED);
+        assertThat(initialContext.isActive()).isFalse();
+        assertThat(externalPluginContextManager.contextFor("duplicate")).isEmpty();
+        assertThat(duplicateMaintenanceTasks()).isEmpty();
+
+        lifecycleCoordinator.start("duplicate");
+
+        assertThat(pluginLifecycleService.phase("duplicate")).contains(PluginRuntimePhase.STARTED);
+        assertThat(pluginLifecycleService.generation("duplicate")).contains(initialGeneration);
+        ConfigurableApplicationContext restartedContext =
+                externalPluginContextManager.contextFor("duplicate").orElseThrow();
+        List<MaintenanceTask> restartedTasks = duplicateMaintenanceTasks();
+        assertThat(restartedContext).isNotSameAs(initialContext);
+        assertThat(restartedTasks).singleElement().isNotSameAs(initialTasks.get(0));
+
+        lifecycleCoordinator.reload("duplicate");
+
+        assertThat(pluginLifecycleService.phase("duplicate")).contains(PluginRuntimePhase.STARTED);
+        assertThat(pluginLifecycleService.generation("duplicate").orElseThrow()).isGreaterThan(initialGeneration);
+        assertThat(restartedContext.isActive()).isFalse();
+        assertThat(externalPluginContextManager.contextFor("duplicate").orElseThrow())
+                .isNotSameAs(restartedContext);
+        assertThat(duplicateMaintenanceTasks()).singleElement()
+                .isNotSameAs(restartedTasks.get(0))
+                .isNotSameAs(initialTasks.get(0));
+    }
+
+    private List<MaintenanceTask> duplicateMaintenanceTasks() {
+        return maintenanceTaskRegistry.tasks().stream()
+                .filter(task -> "duplicate-hash-backfill".equals(task.name()))
+                .toList();
     }
 
     private Object duplicateGroupsHandlerBean() {

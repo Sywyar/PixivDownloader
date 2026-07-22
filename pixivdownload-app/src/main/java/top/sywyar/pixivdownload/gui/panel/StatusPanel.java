@@ -639,12 +639,11 @@ public class StatusPanel extends JPanel {
         return secs > 0L ? minutes + "m" + secs + "s" : minutes + "m";
     }
 
-    private static String maintenanceTaskLabel(String code) {
+    static String maintenanceTaskLabel(String code) {
         return switch (code) {
             case "database-optimize" -> message("gui.maintenance.task.database-optimize");
             case "guest-invite-cleanup" -> message("gui.maintenance.task.guest-invite-cleanup");
-            case "duplicate-hash-backfill" -> message("gui.maintenance.task.duplicate-hash-backfill");
-            default -> code;
+            default -> message("gui.maintenance.task.other", code);
         };
     }
 

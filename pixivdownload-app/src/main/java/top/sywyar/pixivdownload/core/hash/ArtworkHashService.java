@@ -66,7 +66,7 @@ public class ArtworkHashService {
                     persistArtworkHashes(artwork.artworkId(), results, now));
             written = count == null ? 0 : count;
         } catch (Exception e) {
-            log.warn(messages.getForLog("duplicate.log.hash.artwork-failed",
+            log.warn(messages.getForLog("core.hash.log.artwork-failed",
                     artwork.artworkId(), e.getMessage()), e);
         }
         return written;
@@ -96,18 +96,18 @@ public class ArtworkHashService {
         try {
             ArtworkFileLocator.LocatedArtworkFile source = artworkFileLocator.resolveHashSourceFile(artwork, page);
             if (source == null) {
-                log.warn(messages.getForLog("duplicate.log.hash.source-missing", artwork.artworkId(), page));
+                log.warn(messages.getForLog("core.hash.log.source-missing", artwork.artworkId(), page));
                 return new PageHashResult(page, null, null);
             }
             Optional<ImageHasher.Hashes> hashes = ImageHasher.hash(source.file().toPath());
             if (hashes.isEmpty()) {
-                log.warn(messages.getForLog("duplicate.log.hash.decode-failed",
+                log.warn(messages.getForLog("core.hash.log.decode-failed",
                         artwork.artworkId(), page, source.file().getAbsolutePath()));
                 return new PageHashResult(page, null, null);
             }
             return new PageHashResult(page, source.extension(), hashes.get());
         } catch (Exception e) {
-            log.warn(messages.getForLog("duplicate.log.hash.page-failed",
+            log.warn(messages.getForLog("core.hash.log.page-failed",
                     artwork.artworkId(), page, e.getMessage()), e);
             return new PageHashResult(page, null, null);
         }

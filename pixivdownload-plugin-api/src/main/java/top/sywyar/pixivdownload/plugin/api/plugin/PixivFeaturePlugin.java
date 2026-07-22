@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
@@ -22,14 +21,12 @@ import java.util.List;
 
 /**
  * 功能插件主接口。插件通过本接口向宿主声明需要统一合并的信息
- * （schema、路由、i18n、导航、静态资源、维护任务归属等）。业务 Bean 的配置类由装配方显式提供：
+ * （schema、路由、i18n、导航、静态资源等）。业务 Bean 的配置类由装配方显式提供：
  * 外置插件经 {@link PixivPluginProvider#configurationClasses()} 声明，内置插件由宿主配置类装配，
  * 都不通过本接口返回。
  * <p>
  * 实现类不得携带任何 Spring 注解（插件实例可能由非 Spring 的插件管理器创建），
  * 由每插件一个的 {@code XxxPluginConfiguration} 以 {@code @Bean} 形式提供。
- * <p>
- * 维护任务实现由插件配置装配为 Bean，任务类型的 owner 则经 {@link #maintenanceTasks()} 声明。
  */
 public interface PixivFeaturePlugin {
 
@@ -206,12 +203,4 @@ public interface PixivFeaturePlugin {
         return List.of();
     }
 
-    /**
-     * 插件声明其拥有的维护任务类型。维护协调器据此把交互 / 聚合 / 展示型维护任务归属到插件——
-     * 插件被禁用时跳过它声明的任务；不被任何插件声明的维护任务视为核心任务、始终执行。
-     * 维护任务实现仍由各插件的 {@code XxxPluginConfiguration} 装配为 Bean，本方法只声明归属关系。
-     */
-    default List<Class<? extends MaintenanceTask>> maintenanceTasks() {
-        return List.of();
-    }
 }

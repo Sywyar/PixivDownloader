@@ -34,13 +34,17 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.quiesce.PluginRuntimeTaskQuiescer;
+import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
 /**
@@ -136,28 +140,54 @@ class ExternalPluginContextManagerTest {
                 return modules;
             }
         };
+        List<DiscoveredFeaturePlugin> discovered = modules.stream()
+                .map(module -> new DiscoveredFeaturePlugin(
+                        module.sourcePluginId(), new FixturePlugin(module.sourcePluginId()), module.classLoader()))
+                .toList();
+        PluginRegistry pluginRegistry = new PluginRegistry(
+                List.of(), new PluginToggleProperties(), new PluginDiscoveryResult(discovered, List.of()));
+        RouteAccessRegistry routes = new RouteAccessRegistry(pluginRegistry);
         PluginControllerRegistrar controllerRegistrar = new PluginControllerRegistrar(
-                new PluginAwareRequestMappingHandlerMapping(), new RouteAccessRegistry(new PluginRegistry(List.of())));
-        PluginRegistry empty = new PluginRegistry(List.of());
-        UserscriptRegistry userscripts = new UserscriptRegistry(empty);
+                new PluginAwareRequestMappingHandlerMapping(), routes);
+        StaticResourceRegistry statics = new StaticResourceRegistry(pluginRegistry);
+        WebUiSlotRegistry slots = new WebUiSlotRegistry(pluginRegistry);
+        UserscriptRegistry userscripts = new UserscriptRegistry(pluginRegistry);
         ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
+        DownloadExtensionRegistry downloads = new DownloadExtensionRegistry(
+                pluginRegistry, statics, new PluginOwnedWebAssetValidator(statics), slots);
         PluginWebContributionRegistrar webRegistrar = new PluginWebContributionRegistrar(
-                new RouteAccessRegistry(empty), new StaticResourceRegistry(empty),
-                new WebI18nBundleRegistry(empty), new NavigationRegistry(empty),
-                new WebUiSlotRegistry(empty), userscripts, scripts);
+                routes, statics, new WebI18nBundleRegistry(pluginRegistry), new NavigationRegistry(pluginRegistry),
+                slots, userscripts, scripts, pluginRegistry, downloads);
         PluginScheduleContributionRegistrar scheduleRegistrar =
                 ScheduleCapabilityRegistryTestAccess.registrar(
                         new ScheduleCapabilityRegistry(), (reservation, adapter) ->
                         new LegacyScheduledTaskMigrationService.OwnerMigrationReport(
-                                "unused", 0, 0, 0, 0), empty);
+                                "unused", 0, 0, 0, 0), pluginRegistry);
         PluginCapabilityContributionRegistrar capabilityRegistrar = new PluginCapabilityContributionRegistrar(List.of());
         PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
         QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
         PluginRuntimeTaskQuiescer taskQuiescer =
                 new PluginRuntimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry);
         return new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                controllerRegistrar, webRegistrar, scheduleRegistrar, taskQuiescer, capabilityRegistrar, empty,
+                controllerRegistrar, webRegistrar, scheduleRegistrar, taskQuiescer, capabilityRegistrar, pluginRegistry,
                 new PluginLifecycleState());
+    }
+
+    private record FixturePlugin(String id) implements PixivFeaturePlugin {
+        @Override
+        public String displayName() {
+            return "plugin.name";
+        }
+
+        @Override
+        public String description() {
+            return "plugin.summary";
+        }
+
+        @Override
+        public PluginKind kind() {
+            return PluginKind.FEATURE;
+        }
     }
 
     interface CoreApiService {

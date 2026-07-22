@@ -546,7 +546,7 @@ public class PluginRegistry implements SmartLifecycle {
         return state.installed();
     }
 
-    /** 返回被禁用（安装但未进入活动快照）的插件。供维护任务按归属跳过禁用插件的任务等场景使用。 */
+    /** 返回被禁用（安装但未进入活动快照）的插件，供状态与诊断投影使用。 */
     public List<PixivFeaturePlugin> disabledPlugins() {
         RegistryState currentState = state;
         List<RegisteredPlugin> activeNow = currentState.active();

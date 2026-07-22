@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.core.gallery.runtime.GalleryCapabilityRegistry;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
@@ -102,6 +103,8 @@ class NovelPluginDisabledContextTest {
     @Autowired
     private PluginRegistry pluginRegistry;
     @Autowired
+    private PluginLifecycleService pluginLifecycleService;
+    @Autowired
     private NavigationRegistry navigationRegistry;
     @Autowired
     private RouteAccessRegistry routeAccessRegistry;
@@ -131,6 +134,9 @@ class NovelPluginDisabledContextTest {
                 .filteredOn(registered -> registered.id().equals("novel"))
                 .singleElement()
                 .satisfies(registered -> assertThat(registered.source()).isEqualTo(PluginSource.EXTERNAL));
+        assertThat(pluginLifecycleService.managedPluginIds()).doesNotContain("novel");
+        assertThat(pluginLifecycleService.contextFor("novel")).isEmpty();
+        assertThat(pluginLifecycleService.phase("novel")).isEmpty();
     }
 
     @Test

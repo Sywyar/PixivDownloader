@@ -75,7 +75,7 @@ class PixivFeaturePluginDefaultsTest {
 
         assertThat(methodNames)
                 .contains("downloadTypes")
-                .doesNotContain("required", "queueTypes", "downloadTabs");
+                .doesNotContain("required", "queueTypes", "downloadTabs", "maintenanceTasks");
         assertThat(PixivFeaturePlugin.class.getDeclaredMethod("downloadTypes").getGenericReturnType().getTypeName())
                 .isEqualTo("java.util.List<top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor>");
     }

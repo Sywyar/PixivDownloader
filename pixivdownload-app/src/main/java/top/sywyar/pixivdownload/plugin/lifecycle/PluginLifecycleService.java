@@ -202,9 +202,9 @@ public class PluginLifecycleService {
     // ---- 启动期接入 / 关闭期收尾（由 ExternalPluginContextManager 驱动）----
 
     /**
-     * 启动期为全部已发现的外置插件建立服务足迹。声明了配置类的插件包建子 context 并动态注册其 controller；
-     * web 贡献（route / static / i18n / navigation / userscript）已在各下游注册中心<b>构造期</b>从
-     * {@link PluginRegistry} 活动快照接入，本方法不重复接入。单个插件接入失败被隔离、不致核心壳启动失败。
+     * 启动期只为核心注册中心活动快照中的外置插件建立服务足迹。声明了配置类的活动插件包建立子 context，
+     * 再由同一 owner/generation 动态发布 controller、Web、计划及 child-context 能力；无配置类插件仍发布其
+     * feature 元数据 contribution。单个插件接入失败被隔离，不致核心壳启动失败。
      */
     public void startAll() {
         synchronized (lock) {
@@ -215,15 +215,20 @@ public class PluginLifecycleService {
             // 1) 有子 context 装配定义的外置插件包（来自发现桥接清点）：建子 context + 注册 controller。
             for (PluginContextModule module : pluginRuntimeManager.inspectContextModules()) {
                 String pluginId = module.sourcePluginId();
+                PluginRegistry.RegisteredPlugin registered = findRegistered(external, pluginId);
+                if (registered == null) {
+                    log.debug("Skipping inactive external plugin context module '{}'.", pluginId);
+                    continue;
+                }
                 if (managed.containsKey(pluginId)) {
                     log.warn("Duplicate plugin context module for '{}' - keeping the first, skipping.", pluginId);
                     continue;
                 }
-                ManagedPlugin record = new ManagedPlugin(pluginId, module, findRegistered(external, pluginId));
+                ManagedPlugin record = new ManagedPlugin(pluginId, module, registered);
                 managed.put(pluginId, record);
                 bringUpFromBoot(record);
             }
-            // 2) 没有子 context 的纯贡献外置插件：仍需在最终 bring-up 点发布其纯元数据 schedule 能力。
+            // 2) 没有子 context 的纯贡献外置插件：仍由最终 bring-up 点动态发布 feature 元数据 contribution。
             for (PluginRegistry.RegisteredPlugin rp : external) {
                 if (managed.containsKey(rp.id())) {
                     continue;

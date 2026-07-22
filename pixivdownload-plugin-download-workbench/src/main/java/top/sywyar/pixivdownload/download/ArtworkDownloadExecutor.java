@@ -317,7 +317,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             try {
                 artworkHashService.recordArtworkHashes(pixivDatabase.getArtwork(artworkId));
             } catch (Exception e) {
-                log.warn(logMessage("duplicate.log.hash.artwork-failed", artworkId, e.getMessage()), e);
+                log.warn(logMessage("core.hash.log.artwork-failed", artworkId, e.getMessage()), e);
             }
 
             // 更新下载状态为完成。放在后置动作之后，确保最终事件包含收藏/收藏夹结果。

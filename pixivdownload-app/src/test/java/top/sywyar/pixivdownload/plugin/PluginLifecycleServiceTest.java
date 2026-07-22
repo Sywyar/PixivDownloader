@@ -24,6 +24,9 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.maintenance.MaintenanceTaskRegistry;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
@@ -41,6 +44,8 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityDrain;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.MaintenanceTaskCapabilityAdapter;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityPublication;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestGenerationDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
@@ -61,6 +66,8 @@ import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
@@ -1743,6 +1750,47 @@ class PluginLifecycleServiceTest {
     }
 
     @Test
+    @DisplayName("已安装但禁用的外置插件不建立子 context，也不发布未条件化维护任务")
+    void disabledExternalPluginDoesNotPublishUnconditionalMaintenanceTask() {
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            String pluginId = "ext-disabled";
+            RecordingPlugin plugin = new RecordingPlugin(pluginId);
+            PluginToggleProperties toggles = new PluginToggleProperties();
+            toggles.setEnabled(pluginId, false);
+            PluginRegistry pluginRegistry = new PluginRegistry(
+                    List.of(), toggles,
+                    new PluginDiscoveryResult(List.of(new DiscoveredFeaturePlugin(
+                            pluginId, plugin, getClass().getClassLoader())), List.of()));
+            PluginContextModule module = new PluginContextModule(
+                    pluginId, getClass().getClassLoader(), List.of(UnconditionalMaintenanceConfig.class));
+            MaintenanceTask coreTask = maintenanceTask("core-maintenance");
+            MaintenanceTaskRegistry taskRegistry = new MaintenanceTaskRegistry(List.of(coreTask));
+            ExternalCapabilityInvocationRegistry invocationRegistry = new ExternalCapabilityInvocationRegistry();
+            MaintenanceTaskCapabilityAdapter maintenanceAdapter =
+                    new MaintenanceTaskCapabilityAdapter(taskRegistry, invocationRegistry);
+            PluginCapabilityContributionRegistrar capabilityRegistrar =
+                    new PluginCapabilityContributionRegistrar(
+                            List.of(), List.of(), List.of(maintenanceAdapter), invocationRegistry);
+            PluginLifecycleService service = realService(
+                    parent, List.of(module), pluginRegistry, capabilityRegistrar);
+
+            assertThat(pluginRegistry.allRegisteredPlugins())
+                    .extracting(PluginRegistry.RegisteredPlugin::id)
+                    .containsExactly(pluginId);
+            assertThat(pluginRegistry.registeredPlugins()).isEmpty();
+
+            service.startAll();
+
+            assertThat(service.managedPluginIds()).isEmpty();
+            assertThat(service.contextFor(pluginId)).isEmpty();
+            assertThat(service.phase(pluginId)).isEmpty();
+            assertThat(taskRegistry.tasks()).extracting(MaintenanceTask::name)
+                    .containsExactly("core-maintenance");
+        }
+    }
+
+    @Test
     @DisplayName("stop 撤回 schedule publication：来源与执行器均不再解析，残留任务数据保留")
     void stopUnregistersScheduleContributions() {
         try (ScheduleHarness h = new ScheduleHarness()) {
@@ -1907,13 +1955,26 @@ class PluginLifecycleServiceTest {
     // ============================ 夹具 ============================
 
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
-        PluginRegistry pluginRegistry = new PluginRegistry(List.of());
+        List<DiscoveredFeaturePlugin> discovered = modules.stream()
+                .map(module -> new DiscoveredFeaturePlugin(
+                        module.sourcePluginId(), new RecordingPlugin(module.sourcePluginId()), module.classLoader()))
+                .toList();
+        PluginRegistry pluginRegistry = new PluginRegistry(
+                List.of(), new PluginToggleProperties(), new PluginDiscoveryResult(discovered, List.of()));
+        return realService(parent, modules, pluginRegistry, capabilityRegistrar());
+    }
+
+    private static PluginLifecycleService realService(
+            ApplicationContext parent,
+            List<PluginContextModule> modules,
+            PluginRegistry pluginRegistry,
+            PluginCapabilityContributionRegistrar capabilityRegistrar) {
         PluginScheduleContributionRegistrar scheduleRegistrar = emptyScheduleRegistrar(pluginRegistry);
         PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
         QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
         return new PluginLifecycleService(parent, runtimeReturning(modules), new PluginApplicationContextFactory(),
-                emptyControllerRegistrar(), emptyWebRegistrar(), scheduleRegistrar,
-                runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry), capabilityRegistrar(),
+                emptyControllerRegistrar(pluginRegistry), emptyWebRegistrar(pluginRegistry), scheduleRegistrar,
+                runtimeTaskQuiescer(scheduleRegistrar, streamRegistry, queueRegistry), capabilityRegistrar,
                 pluginRegistry, new PluginLifecycleState());
     }
 
@@ -1971,19 +2032,35 @@ class PluginLifecycleServiceTest {
         };
     }
 
-    private static PluginControllerRegistrar emptyControllerRegistrar() {
+    private static PluginControllerRegistrar emptyControllerRegistrar(PluginRegistry pluginRegistry) {
         return new PluginControllerRegistrar(new PluginAwareRequestMappingHandlerMapping(),
-                new RouteAccessRegistry(new PluginRegistry(List.of())));
+                new RouteAccessRegistry(pluginRegistry));
     }
 
-    private static PluginWebContributionRegistrar emptyWebRegistrar() {
-        PluginRegistry empty = new PluginRegistry(List.of());
-        UserscriptRegistry userscripts = new UserscriptRegistry(empty);
+    private static PluginWebContributionRegistrar emptyWebRegistrar(PluginRegistry pluginRegistry) {
+        RouteAccessRegistry routes = new RouteAccessRegistry(pluginRegistry);
+        StaticResourceRegistry statics = new StaticResourceRegistry(pluginRegistry);
+        WebUiSlotRegistry slots = new WebUiSlotRegistry(pluginRegistry);
+        UserscriptRegistry userscripts = new UserscriptRegistry(pluginRegistry);
         ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
+        DownloadExtensionRegistry downloads = new DownloadExtensionRegistry(
+                pluginRegistry, statics, new PluginOwnedWebAssetValidator(statics), slots);
         return new PluginWebContributionRegistrar(
-                new RouteAccessRegistry(empty), new StaticResourceRegistry(empty),
-                new WebI18nBundleRegistry(empty), new NavigationRegistry(empty),
-                new WebUiSlotRegistry(empty), userscripts, scripts);
+                routes, statics, new WebI18nBundleRegistry(pluginRegistry), new NavigationRegistry(pluginRegistry),
+                slots, userscripts, scripts, pluginRegistry, downloads);
+    }
+
+    private static MaintenanceTask maintenanceTask(String name) {
+        return new MaintenanceTask() {
+            @Override
+            public String name() {
+                return name;
+            }
+
+            @Override
+            public void execute(MaintenanceContext context) {
+            }
+        };
     }
 
     /** 记录 start() / stop() 调用次数的功能插件夹具（验证生命周期被调、幂等，{@code failStart} 可令 start() 抛异常）。 */
@@ -2219,6 +2296,14 @@ class PluginLifecycleServiceTest {
         @Bean
         PluginBean pluginBean(CoreApiService coreService) {
             return new PluginBean(coreService);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class UnconditionalMaintenanceConfig {
+        @Bean
+        MaintenanceTask externalMaintenanceTask() {
+            return maintenanceTask("external-maintenance");
         }
     }
 
