@@ -6,10 +6,14 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -20,11 +24,15 @@ import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegis
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionPublication;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DrilldownRegistry;
+import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
@@ -39,7 +47,8 @@ import java.util.ResourceBundle;
 import java.util.function.Supplier;
 
 /**
- * 外置插件 web 贡献（route / static / i18n / navigation / ui-slot / userscript）与下载扩展 publication
+ * 外置插件 web 贡献（route / static / i18n / navigation / startup-route / landing / page-section /
+ * drilldown / ui-slot / userscript）与下载扩展 publication
  * 的统一注册 / 注销入口。把一个插件向这些下游的接入收口到一处，供 {@link ExternalPluginContextManager} 在外置插件子
  * {@code ApplicationContext} 关闭、或子 context 建立 / controller 注册失败时按 pluginId 一次性撤销其全部 web 贡献。
  *
@@ -47,18 +56,18 @@ import java.util.function.Supplier;
  * 多数下游注册中心在<b>构造期</b>已从 {@link PluginRegistry} 的活动快照收集贡献；路由注册中心只直接聚合内置路由，
  * 外置路由由本类在同一启动准备快照中先发布请求 owner、再携 exact owner 接入。本类的 {@code register} 用于
  * <b>先 {@link #unregister} 后再注册</b>的可逆链路——把同一插件的
- * 六类 web 贡献与下载扩展按与构造期一致的口径重新接入，使「注册 → 注销 → 再注册」后各注册中心快照与首次一致。插件 getter、
+ * 十类 web 贡献与下载扩展按与构造期一致的口径重新接入，使「注册 → 注销 → 再注册」后各注册中心快照与首次一致。插件 getter、
  * 资源解析与 owner-local 校验先在所有 registrar 锁外完成；最终提交按
  * {@code PluginRegistry → Web registrar → downstream registry} 固定锁序执行。任一下游拒绝都尝试回滚；
  * 若回滚本身在完成删除前报错，保留 provisional 句柄与逐步清理进度，由生命周期在 QUIESCED 安全态重试，
  * 不会丢失残留足迹的 recovery token。
  *
  * <h2>注销方向（{@link #unregister}）</h2>
- * 先精确撤回新请求准入并确认在途请求已经排空，再撤回下载 publication，随后按 pluginId 从六类注册中心逐一注销
+ * 先精确撤回新请求准入并确认在途请求已经排空，再撤回下载 publication，随后按 pluginId 从十类注册中心逐一注销
  * （各注册中心对未注册过的 pluginId 静默返回，故幂等），最后
  * <b>清该插件 classloader 的 {@link ResourceBundle} 缓存</b>（避免注销后仍按旧 classloader 读到陈旧 i18n），
  * 并刷新 {@link ScriptRegistry}（其聚合的脚本列表 / 内容来源随 {@link UserscriptRegistry} 快照重算，使被注销插件
- * 的油猴脚本不再残留）。注销后六类 web 快照与下载扩展快照都不含该插件；查询期静态资源映射会感知快照变化并回收处理器，
+ * 的油猴脚本不再残留）。注销后十类 web 快照与下载扩展快照都不含该插件；查询期静态资源映射会感知快照变化并回收处理器，
  * 路由注销后 {@code AuthFilter} 也会对其 URL「未声明即 404」（与插件禁用语义一致）。
  *
  * <p>本类只管理请求准入租约，不触碰鉴权与请求分发表 handler（前者由 {@code AuthFilter} 按
@@ -74,6 +83,10 @@ public class PluginWebContributionRegistrar {
     private final StaticResourceRegistry staticResourceRegistry;
     private final WebI18nBundleRegistry webI18nBundleRegistry;
     private final NavigationRegistry navigationRegistry;
+    private final StartupRouteRegistry startupRouteRegistry;
+    private final LandingRegistry landingRegistry;
+    private final PageSectionRegistry pageSectionRegistry;
+    private final DrilldownRegistry drilldownRegistry;
     private final WebUiSlotRegistry webUiSlotRegistry;
     private final UserscriptRegistry userscriptRegistry;
     private final ScriptRegistry scriptRegistry;
@@ -99,6 +112,10 @@ public class PluginWebContributionRegistrar {
         STATIC_RESOURCE,
         WEB_I18N,
         NAVIGATION,
+        STARTUP_ROUTE,
+        LANDING,
+        PAGE_SECTION,
+        DRILLDOWN,
         UI_SLOT,
         USERSCRIPT,
         RESOURCE_BUNDLE,
@@ -172,6 +189,10 @@ public class PluginWebContributionRegistrar {
             List<StaticResourceContribution> staticResources,
             List<I18nContribution> i18n,
             List<NavigationContribution> navigation,
+            List<StartupRouteContribution> startupRoutes,
+            List<LandingContribution> landings,
+            List<PageSectionContribution> pageSections,
+            List<DrilldownContribution> drilldowns,
             List<WebUiSlotContribution> uiSlots,
             List<UserscriptContribution> userscripts,
             List<DownloadTypeDescriptor> downloadTypes) {
@@ -239,11 +260,19 @@ public class PluginWebContributionRegistrar {
                                           ScriptRegistry scriptRegistry,
                                           PluginRegistry pluginRegistry,
                                           DownloadExtensionRegistry downloadExtensionRegistry,
-                                          PluginRequestLeaseRegistry requestLeaseRegistry) {
+                                          PluginRequestLeaseRegistry requestLeaseRegistry,
+                                          StartupRouteRegistry startupRouteRegistry,
+                                          LandingRegistry landingRegistry,
+                                          PageSectionRegistry pageSectionRegistry,
+                                          DrilldownRegistry drilldownRegistry) {
         this.routeAccessRegistry = routeAccessRegistry;
         this.staticResourceRegistry = staticResourceRegistry;
         this.webI18nBundleRegistry = webI18nBundleRegistry;
         this.navigationRegistry = navigationRegistry;
+        this.startupRouteRegistry = startupRouteRegistry;
+        this.landingRegistry = landingRegistry;
+        this.pageSectionRegistry = pageSectionRegistry;
+        this.drilldownRegistry = drilldownRegistry;
         this.webUiSlotRegistry = webUiSlotRegistry;
         this.userscriptRegistry = userscriptRegistry;
         this.scriptRegistry = scriptRegistry;
@@ -264,6 +293,26 @@ public class PluginWebContributionRegistrar {
                 }
             }
         }
+    }
+
+    /** 兼容显式构造 registrar 的测试，并为新增 registry 复用同一 PluginRegistry 启动快照。 */
+    public PluginWebContributionRegistrar(RouteAccessRegistry routeAccessRegistry,
+                                          StaticResourceRegistry staticResourceRegistry,
+                                          WebI18nBundleRegistry webI18nBundleRegistry,
+                                          NavigationRegistry navigationRegistry,
+                                          WebUiSlotRegistry webUiSlotRegistry,
+                                          UserscriptRegistry userscriptRegistry,
+                                          ScriptRegistry scriptRegistry,
+                                          PluginRegistry pluginRegistry,
+                                          DownloadExtensionRegistry downloadExtensionRegistry,
+                                          PluginRequestLeaseRegistry requestLeaseRegistry) {
+        this(routeAccessRegistry, staticResourceRegistry, webI18nBundleRegistry,
+                navigationRegistry, webUiSlotRegistry, userscriptRegistry, scriptRegistry,
+                pluginRegistry, downloadExtensionRegistry, requestLeaseRegistry,
+                new StartupRouteRegistry(registryOrEmpty(pluginRegistry)),
+                new LandingRegistry(registryOrEmpty(pluginRegistry)),
+                new PageSectionRegistry(registryOrEmpty(pluginRegistry)),
+                new DrilldownRegistry(registryOrEmpty(pluginRegistry)));
     }
 
     /** 兼容显式构造 registrar 的测试；生产装配额外注入请求租约 registry。 */
@@ -291,7 +340,32 @@ public class PluginWebContributionRegistrar {
                                           ScriptRegistry scriptRegistry) {
         this(routeAccessRegistry, staticResourceRegistry, webI18nBundleRegistry,
                 navigationRegistry, webUiSlotRegistry, userscriptRegistry, scriptRegistry,
-                null, null, null);
+                null, null, null,
+                new StartupRouteRegistry(registryOrEmpty(null)),
+                new LandingRegistry(registryOrEmpty(null)),
+                new PageSectionRegistry(registryOrEmpty(null)),
+                new DrilldownRegistry(registryOrEmpty(null)));
+    }
+
+    /** 兼容需要观测全部 web registry、但不接入 PluginRegistry/download publication 的独立测试。 */
+    public PluginWebContributionRegistrar(RouteAccessRegistry routeAccessRegistry,
+                                          StaticResourceRegistry staticResourceRegistry,
+                                          WebI18nBundleRegistry webI18nBundleRegistry,
+                                          NavigationRegistry navigationRegistry,
+                                          WebUiSlotRegistry webUiSlotRegistry,
+                                          UserscriptRegistry userscriptRegistry,
+                                          ScriptRegistry scriptRegistry,
+                                          StartupRouteRegistry startupRouteRegistry,
+                                          LandingRegistry landingRegistry,
+                                          PageSectionRegistry pageSectionRegistry,
+                                          DrilldownRegistry drilldownRegistry) {
+        this(routeAccessRegistry, staticResourceRegistry, webI18nBundleRegistry,
+                navigationRegistry, webUiSlotRegistry, userscriptRegistry, scriptRegistry,
+                null, null, null, startupRouteRegistry, landingRegistry, pageSectionRegistry, drilldownRegistry);
+    }
+
+    private static PluginRegistry registryOrEmpty(PluginRegistry pluginRegistry) {
+        return pluginRegistry == null ? new PluginRegistry(List.of()) : pluginRegistry;
     }
 
     private BootServingSnapshot prepareBootServing(
@@ -383,7 +457,7 @@ public class PluginWebContributionRegistrar {
     }
 
     /**
-     * 按与各注册中心构造期一致的口径接入一个插件的六类 web 贡献与下载扩展（仅接入非空贡献），
+     * 按与各注册中心构造期一致的口径接入一个插件的十类 web 贡献与下载扩展（仅接入非空贡献），
      * 随后刷新 {@link ScriptRegistry}。
      * 任一注册中心抛出（重复 id / 前缀 / namespace / 路由 / 槽位冲突）即回滚本次已接入足迹；
      * 回滚未完成时保留可重试句柄。
@@ -482,6 +556,22 @@ public class PluginWebContributionRegistrar {
                     registration.requireCleanup(CleanupStep.NAVIGATION);
                     navigationRegistry.register(pluginId, contributions.navigation());
                 }
+                if (!contributions.startupRoutes().isEmpty()) {
+                    registration.requireCleanup(CleanupStep.STARTUP_ROUTE);
+                    startupRouteRegistry.register(pluginId, contributions.startupRoutes());
+                }
+                if (!contributions.landings().isEmpty()) {
+                    registration.requireCleanup(CleanupStep.LANDING);
+                    landingRegistry.register(pluginId, contributions.landings());
+                }
+                if (!contributions.pageSections().isEmpty()) {
+                    registration.requireCleanup(CleanupStep.PAGE_SECTION);
+                    pageSectionRegistry.register(pluginId, contributions.pageSections());
+                }
+                if (!contributions.drilldowns().isEmpty()) {
+                    registration.requireCleanup(CleanupStep.DRILLDOWN);
+                    drilldownRegistry.register(pluginId, contributions.drilldowns());
+                }
                 if (!contributions.uiSlots().isEmpty()) {
                     registration.requireCleanup(CleanupStep.UI_SLOT);
                     webUiSlotRegistry.register(pluginId, contributions.uiSlots());
@@ -539,6 +629,13 @@ public class PluginWebContributionRegistrar {
         List<I18nContribution> i18n = readPluginList(pluginId, "i18n", plugin::i18n);
         List<NavigationContribution> navigation =
                 readPluginList(pluginId, "navigation", plugin::navigation);
+        List<StartupRouteContribution> startupRoutes =
+                readPluginList(pluginId, "startupRoutes", plugin::startupRoutes);
+        List<LandingContribution> landings = readPluginList(pluginId, "landings", plugin::landings);
+        List<PageSectionContribution> pageSections =
+                readPluginList(pluginId, "pageSections", plugin::pageSections);
+        List<DrilldownContribution> drilldowns =
+                readPluginList(pluginId, "drilldowns", plugin::drilldowns);
         List<WebUiSlotContribution> uiSlots = readPluginList(pluginId, "uiSlots", plugin::uiSlots);
         List<UserscriptContribution> userscripts =
                 readPluginList(pluginId, "userscripts", plugin::userscripts);
@@ -546,7 +643,8 @@ public class PluginWebContributionRegistrar {
                 ? List.of()
                 : readPluginList(pluginId, "downloadTypes", plugin::downloadTypes);
         return new ContributionSnapshot(
-                routes, staticResources, i18n, navigation, uiSlots, userscripts, downloadTypes);
+                routes, staticResources, i18n, navigation, startupRoutes, landings, pageSections, drilldowns,
+                uiSlots, userscripts, downloadTypes);
     }
 
     private static <T> List<T> readPluginList(
@@ -642,7 +740,7 @@ public class PluginWebContributionRegistrar {
     }
 
     /**
-     * 精确撤回下载 publication 后，按 pluginId 注销一个插件的六类 web 贡献（幂等），清其 classloader 的
+     * 精确撤回下载 publication 后，按 pluginId 注销一个插件的十类 web 贡献（幂等），清其 classloader 的
      * {@link ResourceBundle} 缓存并刷新 {@link ScriptRegistry}。统一卸载流程会对每个外置插件调用，故对未注册过的
      * pluginId 静默完成。
      *
@@ -745,6 +843,18 @@ public class PluginWebContributionRegistrar {
         cleanupFailure = cleanupStep(
                 registration, CleanupStep.NAVIGATION,
                 () -> navigationRegistry.unregister(pluginId), cleanupFailure, pluginId, "navigation");
+        cleanupFailure = cleanupStep(
+                registration, CleanupStep.STARTUP_ROUTE,
+                () -> startupRouteRegistry.unregister(pluginId), cleanupFailure, pluginId, "startup-route");
+        cleanupFailure = cleanupStep(
+                registration, CleanupStep.LANDING,
+                () -> landingRegistry.unregister(pluginId), cleanupFailure, pluginId, "landing");
+        cleanupFailure = cleanupStep(
+                registration, CleanupStep.PAGE_SECTION,
+                () -> pageSectionRegistry.unregister(pluginId), cleanupFailure, pluginId, "page-section");
+        cleanupFailure = cleanupStep(
+                registration, CleanupStep.DRILLDOWN,
+                () -> drilldownRegistry.unregister(pluginId), cleanupFailure, pluginId, "drilldown");
         cleanupFailure = cleanupStep(
                 registration, CleanupStep.UI_SLOT,
                 () -> webUiSlotRegistry.unregister(pluginId), cleanupFailure, pluginId, "ui-slot");

@@ -8,10 +8,16 @@ import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
+import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -20,10 +26,14 @@ import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DrilldownRegistry;
+import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
@@ -36,6 +46,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -56,10 +67,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link PluginWebContributionRegistrar} 单测：验证把一个插件的六类 web 贡献
- * （route / static / i18n / navigation / ui-slot / userscript）与下载扩展按精确 owner 统一接入 / 撤销，且
+ * {@link PluginWebContributionRegistrar} 单测：验证把一个插件的十类 web 贡献
+ * （route / static / i18n / navigation / startup-route / landing / page-section / drilldown / ui-slot /
+ * userscript）与下载扩展按精确 owner 统一接入 / 撤销，且
  * <ul>
- *   <li>注销后六类 web 快照与下载扩展快照均无残留，i18n bundle 与脚本层也随之刷新无残留；</li>
+ *   <li>注销后十类 web 快照与下载扩展快照均无残留，i18n bundle 与脚本层也随之刷新无残留；</li>
  *   <li>注销后路由「未声明」——即 {@code AuthFilter} 对其 URL「未声明即 404」（静态资源回收靠此、与禁用语义一致）；</li>
  *   <li>「注册 → 注销 → 再注册」后各注册中心快照与首次一致；</li>
  *   <li>冲突（i18n namespace 重复 / ui-slot slotId 重复）在注册期 fail-fast，且本插件已接入的其它注册中心全部回滚（原子）；</li>
@@ -74,8 +86,8 @@ class PluginWebContributionRegistrarTest {
     private static final ClassLoader CL = PluginWebContributionRegistrarTest.class.getClassLoader();
 
     @Test
-    @DisplayName("register 把六类贡献接入各注册中心（classloader-aware），ScriptRegistry 刷新出脚本")
-    void registerExposesAllSixContributions() {
+    @DisplayName("register 把十类贡献接入各注册中心（classloader-aware），ScriptRegistry 刷新出脚本")
+    void registerExposesAllTenContributions() {
         Harness h = emptyHarness();
 
         h.registrar.register(external(new WebDemoPlugin()));
@@ -109,7 +121,7 @@ class PluginWebContributionRegistrarTest {
     }
 
     @Test
-    @DisplayName("unregister 后六类快照与脚本层均无残留；路由「未声明」即 AuthFilter 404")
+    @DisplayName("unregister 后十类快照与脚本层均无残留；路由「未声明」即 AuthFilter 404")
     void unregisterLeavesNoResidueAndStaticBecomesUndeclared() {
         Harness h = emptyHarness();
         PluginRegistry.RegisteredPlugin registered = external(new WebDemoPlugin());
@@ -147,6 +159,50 @@ class PluginWebContributionRegistrarTest {
 
         h.registrar.register(firstRegistration);
         assertThat(Fingerprint.of(h)).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("启动落点、业务落点、页面区块和下钻随外置 serving 撤回并可重新注册")
+    void lifecycleRegistriesWithdrawAndReRegisterWithoutResidue() {
+        PluginRegistry.RegisteredPlugin registered = external(
+                new LifecycleWebPlugin("lifecycle-web", "lifecycle-web.section"), "lifecycle-web", 1L);
+        LifecycleHarness h = bootLifecycleHarness(registered);
+
+        PluginWebContributionHandle first = h.registrar.currentHandle(registered).orElseThrow();
+
+        assertLifecycleContributions(h, "lifecycle-web", true);
+
+        h.registrar.unregister(first);
+
+        assertLifecycleContributions(h, "lifecycle-web", false);
+
+        PluginWebContributionHandle second = h.registrar.register(registered);
+
+        assertThat(second).isNotSameAs(first);
+        assertLifecycleContributions(h, "lifecycle-web", true);
+
+        h.registrar.unregister(second);
+        assertLifecycleContributions(h, "lifecycle-web", false);
+    }
+
+    @Test
+    @DisplayName("页面区块冲突会回滚此前接入的启动落点与业务落点")
+    void lifecycleRegistryConflictRollsBackEarlierContributions() {
+        Harness h = emptyHarness();
+        h.pageSections.register("existing", List.of(lifecycleSection("existing", "shared.section")));
+
+        assertThatThrownBy(() -> h.registrar.register(external(
+                new LifecycleWebPlugin("lifecycle-failure", "shared.section"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("shared.section");
+
+        assertLifecycleContributions(h, "lifecycle-failure", false);
+        assertThat(h.pageSections.sections())
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.pluginId()).isEqualTo("existing");
+                    assertThat(section.section().id()).isEqualTo("shared.section");
+                });
     }
 
     @Test
@@ -728,10 +784,45 @@ class PluginWebContributionRegistrarTest {
         assertThat(downloads.snapshot().revision()).isZero();
     }
 
+    private static void assertLifecycleContributions(Harness h, String pluginId, boolean expected) {
+        assertLifecycleContributions(
+                h.startup, h.landing, h.pageSections, h.drilldowns, pluginId, expected);
+    }
+
+    private static void assertLifecycleContributions(LifecycleHarness h, String pluginId, boolean expected) {
+        assertLifecycleContributions(
+                h.startup, h.landing, h.pageSections, h.drilldowns, pluginId, expected);
+    }
+
+    private static void assertLifecycleContributions(
+            StartupRouteRegistry startup,
+            LandingRegistry landing,
+            PageSectionRegistry pageSections,
+            DrilldownRegistry drilldowns,
+            String pluginId,
+            boolean expected) {
+        assertThat(startup.startupRoutes().stream().anyMatch(item -> item.pluginId().equals(pluginId)))
+                .isEqualTo(expected);
+        assertThat(landing.landings().stream().anyMatch(item -> item.pluginId().equals(pluginId)))
+                .isEqualTo(expected);
+        assertThat(pageSections.sections().stream().anyMatch(item -> item.pluginId().equals(pluginId)))
+                .isEqualTo(expected);
+        assertThat(drilldowns.drilldowns().stream().anyMatch(item -> item.pluginId().equals(pluginId)))
+                .isEqualTo(expected);
+    }
+
+    private static PageSectionContribution lifecycleSection(String pluginId, String sectionId) {
+        return new PageSectionContribution(
+                pluginId, sectionId, "lifecycle.sections", "lifecycle", "section.title",
+                null, null, null, null, null, null, AccessPolicy.ADMIN, 10);
+    }
+
     // --- 夹具 ---
 
     private record Harness(RouteAccessRegistry route, StaticResourceRegistry staticRes,
                            WebI18nBundleRegistry i18n, NavigationRegistry nav, WebUiSlotRegistry uiSlot,
+                           StartupRouteRegistry startup, LandingRegistry landing,
+                           PageSectionRegistry pageSections, DrilldownRegistry drilldowns,
                            UserscriptRegistry userscripts, ScriptRegistry scripts,
                            PluginWebContributionRegistrar registrar) {
     }
@@ -744,17 +835,30 @@ class PluginWebContributionRegistrarTest {
                                    PluginWebContributionRegistrar registrar) {
     }
 
+    private record LifecycleHarness(StartupRouteRegistry startup,
+                                    LandingRegistry landing,
+                                    PageSectionRegistry pageSections,
+                                    DrilldownRegistry drilldowns,
+                                    PluginWebContributionRegistrar registrar) {
+    }
+
     private static Harness harness(PluginRegistry base) {
         RouteAccessRegistry route = new RouteAccessRegistry(base);
         StaticResourceRegistry staticRes = new AutoRegisteringStaticResourceRegistry(base);
         WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(base);
         NavigationRegistry nav = new NavigationRegistry(base);
         WebUiSlotRegistry uiSlot = new WebUiSlotRegistry(base);
+        StartupRouteRegistry startup = new StartupRouteRegistry(base);
+        LandingRegistry landing = new LandingRegistry(base);
+        PageSectionRegistry pageSections = new PageSectionRegistry(base);
+        DrilldownRegistry drilldowns = new DrilldownRegistry(base);
         UserscriptRegistry userscripts = new UserscriptRegistry(base);
         ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
         PluginWebContributionRegistrar registrar = new PluginWebContributionRegistrar(
-                route, staticRes, i18n, nav, uiSlot, userscripts, scripts);
-        return new Harness(route, staticRes, i18n, nav, uiSlot, userscripts, scripts, registrar);
+                route, staticRes, i18n, nav, uiSlot, userscripts, scripts,
+                startup, landing, pageSections, drilldowns);
+        return new Harness(route, staticRes, i18n, nav, uiSlot, startup, landing, pageSections, drilldowns,
+                userscripts, scripts, registrar);
     }
 
     private static Harness emptyHarness() {
@@ -781,6 +885,29 @@ class PluginWebContributionRegistrarTest {
 
     private static DownloadHarness downloadHarness() {
         return downloadHarness(new PluginRegistry(List.of()));
+    }
+
+    private static LifecycleHarness bootLifecycleHarness(PluginRegistry.RegisteredPlugin registered) {
+        PluginRegistry plugins = new PluginRegistry(List.of());
+        plugins.register(registered);
+        RouteAccessRegistry route = new RouteAccessRegistry(plugins);
+        StaticResourceRegistry staticResources = new StaticResourceRegistry(plugins);
+        WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(plugins);
+        NavigationRegistry navigation = new NavigationRegistry(plugins);
+        WebUiSlotRegistry uiSlots = new WebUiSlotRegistry(plugins);
+        UserscriptRegistry userscripts = new UserscriptRegistry(plugins);
+        ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
+        StartupRouteRegistry startup = new StartupRouteRegistry(plugins);
+        LandingRegistry landing = new LandingRegistry(plugins);
+        PageSectionRegistry pageSections = new PageSectionRegistry(plugins);
+        DrilldownRegistry drilldowns = new DrilldownRegistry(plugins);
+        DownloadExtensionRegistry downloads = new DownloadExtensionRegistry(
+                plugins, staticResources, new PluginOwnedWebAssetValidator(staticResources));
+        PluginWebContributionRegistrar registrar = new PluginWebContributionRegistrar(
+                route, staticResources, i18n, navigation, uiSlots, userscripts, scripts,
+                plugins, downloads, new PluginRequestLeaseRegistry(),
+                startup, landing, pageSections, drilldowns);
+        return new LifecycleHarness(startup, landing, pageSections, drilldowns, registrar);
     }
 
     private static DownloadHarness downloadHarness(PluginRegistry plugins) {
@@ -817,10 +944,11 @@ class PluginWebContributionRegistrarTest {
                 plugin, PluginSource.EXTERNAL, CL, packageId, generation);
     }
 
-    /** 六类注册中心快照 + 脚本层的稳定投影，用于「注册 → 注销 → 再注册」一致性与「内置不变」断言。 */
+    /** 十类注册中心快照 + 脚本层的稳定投影，用于「注册 → 注销 → 再注册」一致性与「内置不变」断言。 */
     private record Fingerprint(List<String> routes, List<String> staticPrefixes, List<String> namespaces,
-                              List<String> navIds, List<String> uiSlotIds, List<String> userscriptPatterns,
-                              List<String> scriptIds) {
+                              List<String> navIds, List<String> startupPaths, List<String> landingIds,
+                              List<String> pageSectionIds, List<String> drilldownIds, List<String> uiSlotIds,
+                              List<String> userscriptPatterns, List<String> scriptIds) {
 
         static Fingerprint of(Harness h) {
             return new Fingerprint(
@@ -828,13 +956,49 @@ class PluginWebContributionRegistrarTest {
                     h.staticRes.resources().stream().map(s -> s.contribution().publicPathPrefix()).sorted().toList(),
                     h.i18n.bundles().stream().map(b -> b.contribution().namespace()).sorted().toList(),
                     h.nav.navigation().stream().map(n -> n.navigation().id()).sorted().toList(),
+                    h.startup.startupRoutes().stream().map(s -> s.route().path()).sorted().toList(),
+                    h.landing.landings().stream().map(l -> l.landing().id()).sorted().toList(),
+                    h.pageSections.sections().stream().map(s -> s.section().id()).sorted().toList(),
+                    h.drilldowns.drilldowns().stream().map(d -> d.drilldown().id()).sorted().toList(),
                     h.uiSlot.slots().stream().map(s -> s.slot().slotId()).sorted().toList(),
                     h.userscripts.userscripts().stream().map(u -> u.contribution().classpathPattern()).sorted().toList(),
                     h.scripts.getScripts().stream().map(s -> s.id()).sorted().toList());
         }
 
         static Fingerprint empty() {
-            return new Fingerprint(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+            return new Fingerprint(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.of(), List.of(), List.of(), List.of());
+        }
+    }
+
+    /** 覆盖四类此前只在启动期聚合、现在必须随外置 serving 可逆接入的 web 贡献。 */
+    private record LifecycleWebPlugin(String id, String sectionId) implements PixivFeaturePlugin {
+        @Override public String displayName() { return "lifecycle.plugin.name"; }
+        @Override public String description() { return "lifecycle.plugin.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+
+        @Override
+        public List<StartupRouteContribution> startupRoutes() {
+            return List.of(new StartupRouteContribution(
+                    id, "/" + id + ".html", 10, Set.of(StartupRouteContext.SOLO)));
+        }
+
+        @Override
+        public List<LandingContribution> landings() {
+            return List.of(new LandingContribution(
+                    id, id + ".landing", Audience.INVITED_GUEST, "/" + id + ".html", 10));
+        }
+
+        @Override
+        public List<PageSectionContribution> pageSections() {
+            return List.of(lifecycleSection(id, sectionId));
+        }
+
+        @Override
+        public List<DrilldownContribution> drilldowns() {
+            return List.of(new DrilldownContribution(
+                    id, id + ".drilldown", "lifecycle.drilldown", "/" + id + ".html?work={id}",
+                    AccessPolicy.ADMIN, 10));
         }
     }
 
