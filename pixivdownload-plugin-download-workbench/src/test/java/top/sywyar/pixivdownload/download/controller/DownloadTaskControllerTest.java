@@ -11,9 +11,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import top.sywyar.pixivdownload.GlobalExceptionHandler;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
@@ -34,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(MockitoExtension.class)
 @DisplayName("DownloadTaskController 单元测试")
 class DownloadTaskControllerTest {
-    private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
+    private static final MessageResolver MESSAGES = WorkbenchTestMessages.messages();
 
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -59,10 +58,8 @@ class DownloadTaskControllerTest {
                 .thenReturn(RequestOwnerIdentity.adminScope());
         DownloadTaskController controller = new DownloadTaskController(
                 artworkDownloadExecutor, applicationModeProvider, requestOwnerIdentityResolver,
-                visitorDownloadQuotaService, multiModeSettings, pixivDatabase, APP_MESSAGES);
-        mockMvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
-                .build();
+                visitorDownloadQuotaService, multiModeSettings, pixivDatabase, MESSAGES);
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
     // ========== POST /api/download/pixiv ==========

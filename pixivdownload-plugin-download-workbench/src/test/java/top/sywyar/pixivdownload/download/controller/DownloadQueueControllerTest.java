@@ -9,14 +9,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationCommands;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationOwner;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry.PreparedQueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.IllustQueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
@@ -44,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(MockitoExtension.class)
 @DisplayName("DownloadQueueController 单元测试")
 class DownloadQueueControllerTest {
-    private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
+    private static final MessageResolver MESSAGES = WorkbenchTestMessages.messages();
 
     @Mock
     private ArtworkDownloadExecutor artworkDownloadExecutor;
@@ -62,10 +61,8 @@ class DownloadQueueControllerTest {
     private MockMvc mockMvcWith(QueueOperationRegistry registry) {
         DownloadQueueController controller =
                 new DownloadQueueController(
-                        registry, downloadExtensionRegistry, requestOwnerIdentityResolver, APP_MESSAGES);
-        return MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
-                .build();
+                        registry, downloadExtensionRegistry, requestOwnerIdentityResolver, MESSAGES);
+        return MockMvcBuilders.standaloneSetup(controller).build();
     }
 
     private QueueOperationRegistry illustAndNovelRegistry() {

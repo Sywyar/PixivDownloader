@@ -26,7 +26,7 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
@@ -725,7 +725,7 @@ class ScheduleServiceTest {
         assertThatThrownBy(() -> newService().authorizeCookie(
                 12L, cookie, ACTIVATION_TOKEN))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
 
         verify(credentialBindingLease, never()).probe(anyString());
         verify(store, never()).bindCredential(

@@ -12,6 +12,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
+import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 
 import java.util.List;
@@ -41,7 +42,8 @@ class ScheduleControllerTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new ScheduleController(scheduleService)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(
+                new ScheduleController(scheduleService, WorkbenchTestMessages.messages())).build();
         objectMapper = new ObjectMapper();
     }
 

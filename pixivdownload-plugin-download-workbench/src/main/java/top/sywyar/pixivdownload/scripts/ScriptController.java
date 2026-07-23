@@ -8,13 +8,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 
 /**
@@ -29,7 +32,7 @@ public class ScriptController {
 
     private final ScriptRegistry scriptRegistry;
     private final RateLimitService rateLimitService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     /**
      * 返回可安装的脚本列表及当前请求的 host（用于前端提示 @connect 将指向的地址）。
@@ -174,6 +177,11 @@ public class ScriptController {
                 .replaceQuery(null)
                 .build()
                 .toUriString();
+    }
+
+    @ExceptionHandler(LocalizedException.class)
+    public ResponseEntity<ErrorResponse> handleLocalized(LocalizedException failure, Locale locale) {
+        return WorkbenchErrorResponses.localized(failure, messages, locale);
     }
 
     private String message(String code, Object... args) {

@@ -17,15 +17,14 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.i18n.AppLocale;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 
 import javax.crypto.Cipher;
@@ -65,7 +64,7 @@ public class SSEController {
 
     private final TaskScheduler taskScheduler;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    private final AppMessages messages;
+    private final MessageResolver messages;
     private final PluginStreamRegistry pluginStreamRegistry;
     private final ExecutorService sseProgressExecutor;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -83,7 +82,7 @@ public class SSEController {
 
     public SSEController(TaskScheduler taskScheduler,
                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                         AppMessages messages,
+                         MessageResolver messages,
                          PluginStreamRegistry pluginStreamRegistry) {
         this.taskScheduler = taskScheduler;
         this.requestOwnerIdentityResolver = requestOwnerIdentityResolver;
@@ -795,7 +794,7 @@ public class SSEController {
     }
 
     private Locale currentRequestLocale() {
-        return AppLocale.normalize(LocaleContextHolder.getLocale());
+        return messages.normalizeLocale(LocaleContextHolder.getLocale());
     }
 
     private String artworkSubscriptionKey(Long artworkId, String ownerUuid, boolean admin) {

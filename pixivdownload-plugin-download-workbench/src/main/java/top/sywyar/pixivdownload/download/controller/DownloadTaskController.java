@@ -5,22 +5,28 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.AlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.download.response.QuotaExceededResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
+import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+
+import java.util.Locale;
 
 @RestController
 @RequestMapping("/api")
@@ -33,7 +39,7 @@ public class DownloadTaskController {
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final MultiModeSettings multiModeSettings;
     private final PixivDatabase pixivDatabase;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     @PostMapping("/download/pixiv")
     public ResponseEntity<?> downloadPixivImages(
@@ -44,7 +50,7 @@ public class DownloadTaskController {
             request.setOther(new DownloadRequest.Other());
         }
         ArtworkDownloadExecutor.validateUserDownloadFolder(request.getOther());
-        // SSRF 防护：同步校验所有下载 URL，非法 URL 抛出 LocalizedException（由全局处理器返回 400）
+        // SSRF 防护：同步校验所有下载 URL，非法 URL 由本插件的异常投影返回 400。
         if (request.getOther().isUgoira() && request.getOther().getUgoiraZipUrl() != null) {
             ArtworkDownloadExecutor.validatePixivUrl(request.getOther().getUgoiraZipUrl());
         } else {
@@ -119,5 +125,10 @@ public class DownloadTaskController {
         if ("multi".equals(mode) && !isAdmin) {
             other.setCollectionId(null);
         }
+    }
+
+    @ExceptionHandler(LocalizedException.class)
+    public ResponseEntity<ErrorResponse> handleLocalized(LocalizedException failure, Locale locale) {
+        return WorkbenchErrorResponses.localized(failure, messages, locale);
     }
 }

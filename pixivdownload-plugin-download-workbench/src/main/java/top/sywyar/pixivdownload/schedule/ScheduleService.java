@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
@@ -120,7 +120,7 @@ public class ScheduleService {
     public ScheduleTaskView create(ScheduleTaskRequest req) {
         if (req.getExpectedStateVersion() != null) {
             throw LocalizedException.badRequest(
-                    "schedule.error.definition-invalid",
+                    "schedule.error.create-state-version",
                     "创建计划任务时不能携带任务状态版本");
         }
         SchedulePlanningLease planning = preparePlanningLease(req);
@@ -284,7 +284,7 @@ public class ScheduleService {
         requireNotBusy(task);
         if (cookie == null || cookie.isBlank()) {
             throw LocalizedException.badRequest(
-                    "schedule.error.cookie-invalid", "Cookie 无效或为空");
+                    "schedule.error.cookie-empty", "Cookie 无效或为空");
         }
         String trimmed = cookie.trim();
         try (ScheduleCredentialBindingLease binding =
@@ -360,7 +360,7 @@ public class ScheduleService {
                  | ScheduleExecutorUnavailableException
                  | ScheduleDefinitionException failure) {
             throw LocalizedException.badRequest(
-                    "schedule.error.source-unavailable",
+                    "schedule.error.execution-capability-unavailable",
                     "计划任务来源或执行能力当前不可用");
         } catch (ScheduledExecutionException failure) {
             throw LocalizedException.badRequest(
@@ -380,7 +380,7 @@ public class ScheduleService {
         }
         if (task.credentialPolicyId() == null) {
             throw LocalizedException.badRequest(
-                    "schedule.error.source-unavailable", "计划任务凭证策略当前不可用");
+                    "schedule.error.credential-policy-unavailable", "计划任务凭证策略当前不可用");
         }
         requireChanged(store.removeCredential(
                 id, task.stateVersion(), task.credentialPolicyOwnerPluginId(),
@@ -568,7 +568,7 @@ public class ScheduleService {
         ScheduledTask task = requireExisting(id);
         if (task.suspendReason() != null) {
             throw LocalizedException.badRequest(
-                    "schedule.error.run-suspended", "任务已处于暂停或挂起状态");
+                    "schedule.error.already-suspended", "任务已处于暂停或挂起状态");
         }
         if (!isBusy(task)) {
             throw LocalizedException.badRequest(
@@ -648,7 +648,7 @@ public class ScheduleService {
         for (ScheduledTask task : tasks) {
             if (task.runState() != null) {
                 throw LocalizedException.badRequest(
-                        "schedule.error.busy", "账号下仍有任务正在取消收尾，请稍后重试");
+                        "schedule.error.account-busy", "账号下仍有任务正在取消收尾，请稍后重试");
             }
             String oldState = task.credentialPolicyStateJson() == null
                     ? persistenceCodec.encodePolicyState(null)
@@ -753,7 +753,7 @@ public class ScheduleService {
     private void requirePixivTask(ScheduledTask task) {
         if (!DownloadWorkbenchPlugin.ID.equals(task.sourceOwnerPluginId())) {
             throw LocalizedException.badRequest(
-                    "schedule.error.source-unavailable", "该任务不使用 Pixiv 凭证策略");
+                    "schedule.error.credential-policy-not-used", "该任务不使用 Pixiv 凭证策略");
         }
     }
 
@@ -778,7 +778,7 @@ public class ScheduleService {
         Long expectedStateVersion = req.getExpectedStateVersion();
         if (expectedStateVersion == null || expectedStateVersion < 0) {
             throw LocalizedException.badRequest(
-                    "schedule.error.definition-invalid",
+                    "schedule.error.expected-state-version",
                     "编辑计划任务时必须携带有效的任务状态版本");
         }
         return expectedStateVersion;
@@ -823,21 +823,21 @@ public class ScheduleService {
         if (!Objects.equals(req.getActivationToken(), planning.activationToken())) {
             throw new LocalizedException(
                     HttpStatus.CONFLICT,
-                    "schedule.error.concurrent-change",
+                    "schedule.error.source-publication-changed",
                     "计划任务来源已刷新，请重新加载后重试");
         }
         String ownerPluginId = planning.owner().featurePluginId();
         if (existingOwnerPluginId != null
                 && !existingOwnerPluginId.equals(ownerPluginId)) {
             throw LocalizedException.badRequest(
-                    "schedule.error.source-unavailable", "不能把计划任务改为其它来源 owner");
+                    "schedule.error.source-owner-change-forbidden", "不能把计划任务改为其它来源 owner");
         }
 
         ScheduledSourceDescriptor descriptor = planning.descriptor().orElse(null);
         ScheduledSourceExecutor sourceExecutor = planning.sourceExecutor().orElse(null);
         if (descriptor == null || sourceExecutor == null) {
             throw LocalizedException.badRequest(
-                    "schedule.error.source-unavailable", "计划任务来源当前不可用于创建或修改");
+                    "schedule.error.source-write-unavailable", "计划任务来源当前不可用于创建或修改");
         }
 
         try {
@@ -1027,7 +1027,7 @@ public class ScheduleService {
                         resolved.credentialPolicyOwnerPluginId())
                 || !Objects.equals(task.credentialPolicyId(), resolved.credentialPolicyId())) {
             throw LocalizedException.badRequest(
-                    "schedule.error.definition-invalid",
+                    "schedule.error.credential-policy-changed",
                     "当前任务已绑定不同的凭证策略，请先解除凭证或重新创建任务");
         }
     }

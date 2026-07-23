@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
@@ -142,7 +142,7 @@ public class ScheduleHostPluginConfiguration {
                                              ScheduleRunState runState,
                                              ObjectMapper objectMapper,
                                              NotificationService notificationService,
-                                             AppMessages messages,
+                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                              WebI18nBundleRegistry webI18nBundleRegistry,
                                              UserDisplayNameProvider userDisplayNameProvider,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
@@ -178,7 +178,9 @@ public class ScheduleHostPluginConfiguration {
     }
 
     @Bean
-    public ScheduleController scheduleController(ScheduleService scheduleService) {
-        return new ScheduleController(scheduleService);
+    public ScheduleController scheduleController(
+            ScheduleService scheduleService,
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new ScheduleController(scheduleService, messages);
     }
 }

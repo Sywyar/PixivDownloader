@@ -37,9 +37,9 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.io.ByteArrayInputStream;
@@ -61,7 +61,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ArtworkDownloadExecutor 单元测试")
 class ArtworkDownloadExecutorTest {
-    private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
+    private static final MessageResolver MESSAGES = WorkbenchTestMessages.messages();
 
     @TempDir
     Path tempDir;
@@ -116,7 +116,7 @@ class ArtworkDownloadExecutorTest {
                 pixivBookmarkActions, ugoiraService,
                 authorService, collectionDownloadRootResolver, workCollectionMembership,
                 mangaSeriesService, artworkHashService,
-                workMetadataCapture, downloadStatisticsService, downloadedArtworkService, APP_MESSAGES);
+                workMetadataCapture, downloadStatisticsService, downloadedArtworkService, MESSAGES);
     }
 
     @Nested
@@ -262,8 +262,9 @@ class ArtworkDownloadExecutorTest {
             other.setUsername(username);
 
             assertThatThrownBy(() -> ArtworkDownloadExecutor.validateUserDownloadFolder(other))
-                    .isInstanceOf(LocalizedException.class)
-                    .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
+                    .isInstanceOf(top.sywyar.pixivdownload.i18n.LocalizedException.class)
+                    .satisfies(error -> assertThat(
+                            ((top.sywyar.pixivdownload.i18n.LocalizedException) error).getMessageCode())
                             .isEqualTo("download.path.segment.invalid"));
         }
 
@@ -358,7 +359,7 @@ class ArtworkDownloadExecutorTest {
             assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(
                     "http://i.pximg.net/img/12345.jpg"
             )).isInstanceOf(LocalizedException.class)
-              .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
+              .satisfies(error -> assertThat(((LocalizedException) error).messageCode())
                       .isEqualTo("download.url.https-only"))
               .hasMessageContaining("只允许 HTTPS 协议");
         }
@@ -374,7 +375,7 @@ class ArtworkDownloadExecutorTest {
         void shouldRejectNonPixivDomain(String url) {
             assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(url))
                     .isInstanceOf(LocalizedException.class)
-                    .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
+                    .satisfies(error -> assertThat(((LocalizedException) error).messageCode())
                             .isEqualTo("download.url.host.not-allowed"))
                     .hasMessageContaining("域名不在白名单内");
         }
@@ -385,7 +386,7 @@ class ArtworkDownloadExecutorTest {
             assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(
                     "ftp://i.pximg.net/img.jpg"
             )).isInstanceOf(LocalizedException.class)
-              .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
+              .satisfies(error -> assertThat(((LocalizedException) error).messageCode())
                       .isEqualTo("download.url.https-only"))
               .hasMessageContaining("只允许 HTTPS 协议");
         }
@@ -396,7 +397,7 @@ class ArtworkDownloadExecutorTest {
             assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(
                     "not a url at all %%"
             )).isInstanceOf(LocalizedException.class)
-              .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
+              .satisfies(error -> assertThat(((LocalizedException) error).messageCode())
                       .isEqualTo("download.url.invalid"));
         }
 
@@ -731,27 +732,27 @@ class ArtworkDownloadExecutorTest {
             DownloadStatus status = new DownloadStatus(1L, "test", 5);
 
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.pending");
-            assertThat(APP_MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("等待开始");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("等待开始");
 
             status.setCurrentImageIndex(2);
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.in-progress");
-            assertThat(APP_MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("下载中 (3/5)");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("下载中 (3/5)");
 
             status.setCompleted(true);
             status.setSuccessCount(5);
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.completed");
-            assertThat(APP_MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("已完成 (5/5)");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("已完成 (5/5)");
 
             status.setCompleted(false);
             status.setCancelled(true);
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.cancelled");
-            assertThat(APP_MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("已取消");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("已取消");
 
             status.setCancelled(false);
             status.setFailed(true);
             status.setErrorMessage("网络超时");
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.failed");
-            assertThat(APP_MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("失败: 网络超时");
+            assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("失败: 网络超时");
         }
     }
 

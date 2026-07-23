@@ -47,7 +47,8 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivSeriesSch
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserRequestScheduledSourceExecutor;
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
@@ -74,6 +75,14 @@ public class DownloadWorkbenchPluginConfiguration {
         return new DownloadWorkbenchPlugin();
     }
 
+    @Bean("downloadWorkbenchMessages")
+    public MessageResolver downloadWorkbenchMessages(MessageResolver messages) {
+        return ResourceBundleMessageResolver.of(
+                messages,
+                DownloadWorkbenchPlugin.class.getClassLoader(),
+                "i18n.workbench.messages");
+    }
+
     @Bean
     public PixivFetchService pixivFetchService(@Qualifier("restTemplate") RestTemplate restTemplate,
                                                ObjectMapper objectMapper) {
@@ -82,7 +91,7 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public UgoiraService ugoiraService(@Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                                       AppMessages messages) {
+                                       @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new UgoiraService(downloadRestTemplate, messages);
     }
 
@@ -104,7 +113,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            WorkMetadataCapture workMetadataCapture,
                                                            DownloadStatisticsService downloadStatisticsService,
                                                            DownloadedArtworkService downloadedArtworkService,
-                                                           AppMessages messages) {
+                                                           @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
                 visitorDownloadQuotaService,
                 downloadRestTemplate, taskScheduler, downloadTaskExecutor,
@@ -247,7 +256,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                          VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                          MultiModeSettings multiModeSettings,
                                                          PixivDatabase pixivDatabase,
-                                                         AppMessages messages) {
+                                                         @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadTaskController(artworkDownloadExecutor, applicationModeProvider,
                 requestOwnerIdentityResolver, visitorDownloadQuotaService,
                 multiModeSettings, pixivDatabase, messages);
@@ -257,7 +266,7 @@ public class DownloadWorkbenchPluginConfiguration {
     public DownloadQueueController downloadQueueController(QueueOperationRegistry queueOperationRegistry,
                                                            DownloadExtensionRegistry downloadExtensionRegistry,
                                                            RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                           AppMessages messages) {
+                                                           @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadQueueController(
                 queueOperationRegistry, downloadExtensionRegistry, requestOwnerIdentityResolver, messages);
     }
@@ -270,21 +279,21 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public ScriptController scriptController(ScriptRegistry scriptRegistry,
                                              RateLimitService rateLimitService,
-                                             AppMessages messages) {
+                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new ScriptController(scriptRegistry, rateLimitService, messages);
     }
 
     @Bean
     public DownloadStatusController downloadStatusController(ArtworkDownloadExecutor artworkDownloadExecutor,
                                                              RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                             AppMessages messages) {
+                                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadStatusController(artworkDownloadExecutor, requestOwnerIdentityResolver, messages);
     }
 
     @Bean
     public SSEController sseController(@Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                        RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                       AppMessages messages,
+                                       @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                        PluginStreamRegistry pluginStreamRegistry) {
         return new SSEController(taskScheduler, requestOwnerIdentityResolver, messages, pluginStreamRegistry);
     }
@@ -298,7 +307,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                      UserQuotaService userQuotaService,
                                                      MultiModeSettings multiModeSettings,
                                                      WorkVisibilityService workVisibilityService,
-                                                     AppMessages messages) {
+                                                     @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new PixivProxyController(objectMapper, restTemplate, pixivFetchService,
                 applicationModeProvider, requestOwnerIdentityResolver,
                 userQuotaService, multiModeSettings, workVisibilityService, messages);

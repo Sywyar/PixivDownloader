@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +16,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
+import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
@@ -28,6 +33,7 @@ import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -45,6 +51,7 @@ import java.util.Map;
 public class ScheduleController {
 
     private final ScheduleService scheduleService;
+    private final MessageResolver messages;
 
     @GetMapping("/sources")
     public ResponseEntity<ScheduleSourceManifestView> sources() {
@@ -165,5 +172,10 @@ public class ScheduleController {
             @Valid @RequestBody SchedulePendingDeleteRequest request) {
         scheduleService.clearPending(id, request.getWorkType(), request.getWorkId());
         return Map.of("success", true);
+    }
+
+    @ExceptionHandler(LocalizedException.class)
+    public ResponseEntity<ErrorResponse> handleLocalized(LocalizedException failure, Locale locale) {
+        return WorkbenchErrorResponses.localized(failure, messages, locale);
     }
 }

@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -30,10 +30,10 @@ import java.util.zip.ZipInputStream;
 public class UgoiraService {
 
     private final RestTemplate downloadRestTemplate;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     public UgoiraService(@Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                         AppMessages messages) {
+                         MessageResolver messages) {
         this.downloadRestTemplate = downloadRestTemplate;
         this.messages = messages;
     }

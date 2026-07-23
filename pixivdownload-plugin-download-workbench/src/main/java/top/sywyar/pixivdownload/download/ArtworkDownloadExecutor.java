@@ -34,9 +34,8 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.io.*;
@@ -79,7 +78,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private final WorkMetadataCapture workMetadataCapture;
     private final DownloadStatisticsService downloadStatisticsService;
     private final DownloadedArtworkService downloadedArtworkService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     // 存储下载状态
     private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
@@ -102,7 +101,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    WorkMetadataCapture workMetadataCapture,
                                    DownloadStatisticsService downloadStatisticsService,
                                    DownloadedArtworkService downloadedArtworkService,
-                                   AppMessages messages) {
+                                   MessageResolver messages) {
         this.downloadSettings = downloadSettings;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
@@ -943,16 +942,16 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private String resolveStatusErrorMessage(Exception error) {
         if (error instanceof LocalizedException localized) {
-            return MessageBundles.getOrDefault(
+            return messages.getOrDefault(
                     Locale.getDefault(),
-                    localized.getMessageCode(),
-                    localized.getDefaultMessage(),
-                    localized.getMessageArgs()
+                    localized.messageCode(),
+                    localized.defaultMessage(),
+                    localized.messageArgs()
             );
         }
         String message = error.getMessage();
         if (message == null || message.isBlank()) {
-            return MessageBundles.get("error.unexpected");
+            return messages.get(Locale.getDefault(), "error.unexpected");
         }
         return message;
     }

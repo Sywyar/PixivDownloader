@@ -9,7 +9,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
@@ -62,7 +62,7 @@ class ScheduleHostPluginConfigurationTest {
                 runState,
                 objectMapper,
                 mock(NotificationService.class),
-                mock(AppMessages.class),
+                mock(MessageResolver.class),
                 mock(WebI18nBundleRegistry.class),
                 mock(UserDisplayNameProvider.class),
                 executionEngine);

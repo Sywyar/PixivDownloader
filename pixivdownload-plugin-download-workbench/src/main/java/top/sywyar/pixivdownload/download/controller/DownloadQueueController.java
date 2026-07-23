@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationCommands;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationUnavailableException;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionOwner;
@@ -50,7 +50,7 @@ public class DownloadQueueController {
     private final QueueOperationRegistry queueOperationRegistry;
     private final DownloadExtensionRegistry downloadExtensionRegistry;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     /** 旧插画数字 URL 兼容入口：仅定向 illust 队列。 */
     @PostMapping({"/cancel/{artworkId}", "/download/cancel/{artworkId}"})

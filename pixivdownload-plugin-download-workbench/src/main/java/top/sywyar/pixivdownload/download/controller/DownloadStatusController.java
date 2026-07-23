@@ -11,9 +11,9 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.response.ActiveDownloadResponse;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.DownloadStatusResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
@@ -27,7 +27,7 @@ public class DownloadStatusController {
 
     private final ArtworkDownloadExecutor artworkDownloadExecutor;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    private final AppMessages messages;
+    private final MessageResolver messages;
 
     @GetMapping("/download/status")
     public ResponseEntity<DownloadResponse> getStatus() {

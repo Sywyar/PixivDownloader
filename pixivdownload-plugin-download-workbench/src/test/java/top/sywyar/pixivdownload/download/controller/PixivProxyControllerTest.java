@@ -21,12 +21,11 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
-import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
@@ -50,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PixivProxyController 单元测试")
 class PixivProxyControllerTest {
-    private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
+    private static final MessageResolver MESSAGES = WorkbenchTestMessages.messages();
     private static final WorkVisibilityScope VISIBILITY_SCOPE = WorkVisibilityScope.unrestricted();
 
     private MockMvc mockMvc;
@@ -77,10 +76,9 @@ class PixivProxyControllerTest {
         PixivProxyController controller = new PixivProxyController(
                 objectMapper, restTemplate, pixivFetchService, applicationModeProvider,
                 requestOwnerIdentityResolver, userQuotaService,
-                multiModeSettings, workVisibilityService, APP_MESSAGES);
+                multiModeSettings, workVisibilityService, MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
-                .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
     }
 

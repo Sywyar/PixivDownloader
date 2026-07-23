@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
@@ -77,7 +77,7 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private top.sywyar.pixivdownload.core.notification.NotificationService notificationService;
     @Mock
-    private AppMessages appMessages;
+    private MessageResolver messages;
     @Mock
     private WebI18nBundleRegistry webI18nBundleRegistry;
     @Mock
@@ -638,7 +638,7 @@ class ScheduleExecutorRunTimingTest {
                 localRunState,
                 objectMapper,
                 notificationService,
-                appMessages,
+                messages,
                 webI18nBundleRegistry,
                 userDisplayNameProvider,
                 engine);

@@ -4,8 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.i18n.AppLocale;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.notification.NotificationService;
@@ -60,7 +59,7 @@ public class ScheduleExecutor {
     private final ScheduleRunState runState;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
     private final WebI18nBundleRegistry webI18nBundleRegistry;
     private final UserDisplayNameProvider userDisplayNameProvider;
     private final ScheduleExecutionEngine scheduleExecutionEngine;
@@ -71,7 +70,7 @@ public class ScheduleExecutor {
             ScheduleRunState runState,
             ObjectMapper objectMapper,
             NotificationService notificationService,
-            AppMessages messages,
+            MessageResolver messages,
             WebI18nBundleRegistry webI18nBundleRegistry,
             UserDisplayNameProvider userDisplayNameProvider,
             ScheduleExecutionEngine scheduleExecutionEngine) {
@@ -809,7 +808,7 @@ public class ScheduleExecutor {
     /** 过度访问：冻结同账号所有非挂起态任务 + 发 overuse-paused 通知（邮件 + 推送）。 */
     private void handleOveruse(ScheduledTask task, OveruseWarningException e) {
         String accountId = task.credentialAccountKey();
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         List<ScheduledTask> affected = collectFreezableTasks(task, accountId);
         int frozen = Math.max(1, affected.size());
         Map<String, String> ph = new LinkedHashMap<>();
@@ -830,7 +829,7 @@ public class ScheduleExecutor {
      * 模板 / 推送文案改为固定的「恢复方式：需重新授权 Cookie」行。
      */
     private void handleSuspend(ScheduledTask task, ScheduleSuspendException e, long triggerTime) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
@@ -866,7 +865,7 @@ public class ScheduleExecutor {
 
     /** 单个 pending-exhausted 事件的邮件 + 推送通知，best-effort、不影响调度。 */
     private void notifyPendingExhausted(ScheduledTask task, PendingExhaustedNotification event, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
@@ -896,7 +895,7 @@ public class ScheduleExecutor {
 
     /** cookie 失效但任务无需 cookie → 已自动清除失效快照、降级匿名续跑且运行成功：发一次降级通知（best-effort）。 */
     private void notifyDegradedAnonymous(ScheduledTask task, int completed, long triggerTime, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("completed", String.valueOf(completed));
         ph.put("trigger_time", formatTime(triggerTime));
@@ -906,7 +905,7 @@ public class ScheduleExecutor {
 
     /** 运行成功且本轮有新下载：发摘要通知（best-effort）。 */
     private void notifyRunSummary(ScheduledTask task, int completed, long triggerTime, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("completed", String.valueOf(completed));
         ph.put("trigger_time", formatTime(triggerTime));
@@ -916,7 +915,7 @@ public class ScheduleExecutor {
 
     /** 整轮运行失败（状态由非 ERROR 转入 ERROR）：发失败通知（best-effort）。errorExcerpt 已脱敏、不含凭证。 */
     private void notifyRunFailure(ScheduledTask task, String errorExcerpt, long triggerTime, Long nextRun) {
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("trigger_time", formatTime(triggerTime));
         ph.put("next_run_time", formatTime(nextRun));
@@ -958,12 +957,12 @@ public class ScheduleExecutor {
             String name = t.name() == null ? "-" : t.name();
             // tasks_list_md 仅供推送（Markdown）消费，mail 用 tasks_list_html：md 分支对任务名做 Markdown
             // 字面转义，避免名字里的 * / _ 等被推送通道渲染器吞掉（与标量占位符在 PushMessageFactory 处一致）。
-            String item = messages.get(locale, "mail.template.overuse-paused.task-item",
+            String item = messages.get(locale, "schedule.notification.overuse-paused.task-item",
                     html ? escapeHtml(name) : escapeMarkdownLiteral(name), t.id());
             lines.add(html ? item : "- " + item);
         }
         if (tasks.size() > limit) {
-            String more = messages.get(locale, "mail.template.overuse-paused.task-more", tasks.size());
+            String more = messages.get(locale, "schedule.notification.overuse-paused.task-more", tasks.size());
             lines.add(html ? more : "- " + more);
         }
         return String.join(html ? "<br>" : "\n", lines);
@@ -1010,10 +1009,10 @@ public class ScheduleExecutor {
 
     private String workKindLabel(Locale locale, String workType) {
         if (PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(workType)) {
-            return messages.get(locale, "mail.template.pending-exhausted.kind.novel");
+            return messages.get(locale, "schedule.notification.pending-exhausted.kind.novel");
         }
         if (PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST.equals(workType)) {
-            return messages.get(locale, "mail.template.pending-exhausted.kind.illust");
+            return messages.get(locale, "schedule.notification.pending-exhausted.kind.illust");
         }
         return displayToken(workType);
     }
@@ -1021,10 +1020,10 @@ public class ScheduleExecutor {
     /** 触发方式的本地化标签：{@code interval} → 「每 N 分钟」、{@code cron} → 「Cron：表达式」。 */
     private String triggerLabel(Locale locale, String triggerKind, Integer intervalMinutes, String cronExpr) {
         if (ScheduledTask.TRIGGER_CRON.equals(triggerKind)) {
-            return messages.get(locale, "mail.template.common.trigger.cron", cronExpr == null ? "-" : cronExpr);
+            return messages.get(locale, "schedule.notification.common.trigger.cron", cronExpr == null ? "-" : cronExpr);
         }
         // 传 String 而非 Integer：避免 MessageFormat 对 ≥1000 的分钟数插入千分位分隔符（如 1,440）。
-        return messages.get(locale, "mail.template.common.trigger.interval",
+        return messages.get(locale, "schedule.notification.common.trigger.interval",
                 intervalMinutes == null ? "-" : String.valueOf(intervalMinutes));
     }
 
@@ -1085,7 +1084,7 @@ public class ScheduleExecutor {
      */
     private void sendNotification(NotificationScenario scenario, Map<String, String> placeholders) {
         // 调度器无 HTTP 上下文，locale 显式取 JVM 系统语言归一值。
-        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Locale locale = messages.normalizeLocale(Locale.getDefault());
         // 问候语称呼：用户设了称呼用称呼，否则回退本地化的「管理员」。邮件模板共用，统一在此补齐。
         placeholders.putIfAbsent("username", greetingName(locale));
         notificationService.notify(scenario, locale, placeholders);
@@ -1097,7 +1096,7 @@ public class ScheduleExecutor {
         if (displayName != null && !displayName.isBlank()) {
             return displayName;
         }
-        return messages.get(locale, "mail.template.placeholder.administrator");
+        return messages.get(locale, "schedule.notification.placeholder.administrator");
     }
 
     private static String formatTime(long epochMs) {

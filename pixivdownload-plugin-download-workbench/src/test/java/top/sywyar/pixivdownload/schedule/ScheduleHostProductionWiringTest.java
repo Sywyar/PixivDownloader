@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
@@ -49,7 +49,7 @@ class ScheduleHostProductionWiringTest {
                             ScheduleRunState.class,
                             ObjectMapper.class,
                             NotificationService.class,
-                            AppMessages.class,
+                            MessageResolver.class,
                             WebI18nBundleRegistry.class,
                             UserDisplayNameProvider.class,
                             ScheduleExecutionEngine.class);
@@ -80,7 +80,7 @@ class ScheduleHostProductionWiringTest {
                 new ScheduleRunState(),
                 objectMapper,
                 mock(NotificationService.class),
-                mock(AppMessages.class),
+                mock(MessageResolver.class),
                 mock(WebI18nBundleRegistry.class),
                 mock(UserDisplayNameProvider.class),
                 engine);

@@ -12,7 +12,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
@@ -22,14 +22,14 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.download.response.*;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.quota.response.ProxyRateLimitResponse;
+import top.sywyar.pixivdownload.download.response.ProxyRateLimitResponse;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import org.springframework.web.util.UriComponentsBuilder;
@@ -57,7 +57,18 @@ public class PixivProxyController {
     private final UserQuotaService userQuotaService;
     private final MultiModeSettings multiModeSettings;
     private final WorkVisibilityService workVisibilityService;
-    private final AppMessages messages;
+    private final MessageResolver messages;
+
+    /** 插件控制器自行投影预期的参数/安全拒绝，不依赖宿主全局异常处理器。 */
+    @ExceptionHandler({IllegalArgumentException.class, SecurityException.class})
+    public ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException failure) {
+        String detail = failure.getMessage();
+        if (detail == null || detail.isBlank()) {
+            detail = messages.get("error.request.param.invalid");
+        }
+        log.warn(messages.getForLog("workbench.log.request.failed", detail));
+        return ResponseEntity.badRequest().body(new ErrorResponse(detail));
+    }
 
     /**
      * 多人模式访问控制：

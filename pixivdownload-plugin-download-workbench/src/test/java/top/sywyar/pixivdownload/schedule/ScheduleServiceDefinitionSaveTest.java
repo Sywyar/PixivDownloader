@@ -27,7 +27,7 @@ import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledSourceSupport;
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
@@ -329,7 +329,7 @@ class ScheduleServiceDefinitionSaveTest {
 
         assertThatThrownBy(() -> service(registry).create(request))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
         assertThat(prepareCalled).isFalse();
         verify(store, never()).create(any(ScheduledTaskCreate.class));
     }
@@ -425,7 +425,7 @@ class ScheduleServiceDefinitionSaveTest {
         assertThatThrownBy(() -> service(registry).update(
                 46L, updateRequest(fixture.activationToken(), 7L)))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
 
         assertThat(prepareCalled).isTrue();
         verify(store, never()).updateDefinition(any(Long.class), any(Long.class), any());
@@ -445,7 +445,7 @@ class ScheduleServiceDefinitionSaveTest {
         assertThatThrownBy(() -> service(registry).update(
                 47L, updateRequest(fixture.activationToken(), 7L)))
                 .isInstanceOfSatisfying(LocalizedException.class, failure ->
-                        assertThat(failure.getStatus()).isEqualTo(HttpStatus.CONFLICT));
+                        assertThat(failure.status()).isEqualTo(HttpStatus.CONFLICT));
 
         assertThat(prepareCalled).isFalse();
         verify(store, never()).updateDefinition(any(Long.class), any(Long.class), any());

@@ -16,9 +16,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
@@ -63,7 +63,7 @@ class SSEControllerTest {
     @BeforeEach
     void setUp() {
         pluginStreamRegistry = new PluginStreamRegistry();
-        controller = new SSEController(taskScheduler, requestOwnerIdentityResolver, TestI18nBeans.appMessages(),
+        controller = new SSEController(taskScheduler, requestOwnerIdentityResolver, WorkbenchTestMessages.messages(),
                 pluginStreamRegistry);
         lenient().when(requestOwnerIdentityResolver.resolve(any()))
                 .thenReturn(RequestOwnerIdentity.adminScope());
