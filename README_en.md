@@ -21,8 +21,8 @@
 
 ## Features
 
-> [!NOTE]
-> Official plugins still run as separate PF4J JARs. The Windows installer pre-stages every user-facing official plugin except `douyin` at build time; the full-offline package also carries `douyin`.
+> [!WARNING]
+> **Items marked with `*` are not yet available in the stable release (nightly build only)**
 
 - One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
 - Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
@@ -35,8 +35,8 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- Plugin management page: a card list showing every plugin with status, source, version, dependencies, and activation policy; external plugins can hot-reload or guide a backend/app restart as declared
-- Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI
+- `*` Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins (Not yet launched)
+- `*` Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI (Not yet launched)
 - Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
@@ -68,27 +68,13 @@ Download the latest version from [Releases](../../releases):
 
 | Type                                | Description                                                         |
 |-------------------------------------|---------------------------------------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall and optional FFmpeg; pre-stages every user-facing official plugin except `douyin` |
-| `PixivDownload-*-full-offline.zip`  | Full offline package, requires Java 17+; includes the core shell and every user-facing official plugin, including `douyin` |
-
-### Packages and official plugins
-
-Current builds use external plugins:
-
-- `download-workbench` is the required external plugin. It provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The Windows installer and full-offline package bundle it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path and only exposes login, plugin management, and repair/install entry points.
-- `stats`, `duplicate`, `gallery`, `novel`, `tts`, `ai`, `push`, `mail`, `gui-theme`, and `notification` are default-installed plugins. Their separate external JARs are pre-staged into `plugins/` for the Windows installer and default portable build; they are not merged into the core boot JAR.
-- `douyin` is currently the only official plugin that is not installed by default. It can be installed on demand from the plugin marketplace, while the full-offline package also carries it.
-- GitHub Releases provide only the Windows installer and the full-offline package. The standalone core shell JAR and default downloader package are still used by build / recovery flows, but are not published as normal download assets.
-- The Windows installer's plugin-selection page is temporarily skipped, while its catalog projection, download, verification, and installation logic remains in place. The full-offline package adds `douyin` and all files needed for offline verification to the default pre-staged set.
-- Missing or disabling `duplicate` does not affect image Hash writes after downloads and does not delete historical Hash data.
-- Missing or disabling `gallery` only removes the local gallery, artwork detail pages, display APIs, navigation, and related static resources. The download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, and local resource index remain intact.
-- Missing or disabling `novel` removes novel downloading, the Pixiv novel proxy, core novel APIs, scheduled novel runner, translation / merge / body-save entry points, the novel gallery, novel reader, navigation, static resources, and i18n. Historical novel bodies, translation state, narration data, compiled outputs, and metadata are retained and become readable again after reinstalling the plugin.
-- When TTS / AI / push / mail plugins are missing, the corresponding capability is unavailable or skipped; there is no fallback implementation inside the core.
+| `PixivDownload-vX.X.X.jar`          | Universal JAR, requires Java 17+                                    |
+| `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install |
 
 ### Run
 
 ```bash
-# Start from the full-offline package after extraction
+# Start from JAR
 java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
 
 # Start from Windows EXE
@@ -135,17 +121,24 @@ configuration, and development guides.**
 
 ---
 
-## Multi-mode Deployment Risks
+## Additional Notes
 
-In multi mode, all Pixiv requests still leave through the deployment server's shared egress IP. Separate cookies isolate account sessions, not IP-level risk. High concurrency or request rates may cause Pixiv to restrict an account or the egress IP. Use this mode only in a trusted, small-scale environment, enable per-user quotas and rate limits, choose conservative download intervals, and monitor server logs. Do not expose an unrestricted public download service.
+Honestly, I don't really recommend the multi mode of this tool, because all requests go through the server's network IP.
+Even with different cookies, a large number of requests could lead to IP bans. I'm considering adding a login mechanism
+to multi mode, but that goes against the project's original intention of simplicity. For now, I'll just continue
+refining this project.
 
-## Related Projects
+## Friend Links
 
 **[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
+If you prefer simplicity and don't want to rely on a backend program, give this script a try.
 
-For a browser-script workflow that does not require deploying a separate backend, consider this project:
+Features:
 
-- Rich filtering options
-- Browser helpers such as ad removal, quick bookmarking, and an image viewer
-- No separate backend deployment
-- Multiple languages
+- Many filtering options
+- Useful auxiliary features like ad removal, quick bookmark, image viewer mode, etc.
+  `(can also serve as a Pixiv helper plugin?)`
+- Download doesn't depend on third-party tools `(the biggest difference from this project! Easy installation!)`
+- Supports multiple languages
+
+## Development Plan
