@@ -37,37 +37,17 @@ public final class DouyinApiUriBuilder {
     }
 
     private static LinkedHashMap<String, String> defaultQuery(String cookie) {
+        // 只保留标识「抖音 Web 应用」所需的最小客户端身份参数；不伪造任何浏览器/设备/运行环境指纹。
+        // 受签名保护的端点需由 DouyinSignedUriBuilder 注入的真实签名器才能通过服务端验签。
         LinkedHashMap<String, String> params = new LinkedHashMap<>();
         params.put("device_platform", "webapp");
         params.put("aid", "6383");
-        params.put("channel", "channel_pc_web");
-        params.put("update_version_code", "170400");
-        params.put("pc_client_type", "1");
-        params.put("pc_libra_divert", "Windows");
         params.put("version_code", "290100");
         params.put("version_name", "29.1.0");
-        params.put("cookie_enabled", "true");
-        params.put("screen_width", "1536");
-        params.put("screen_height", "864");
-        params.put("browser_language", "zh-CN");
-        params.put("browser_platform", "Win32");
-        params.put("browser_name", "Chrome");
-        params.put("browser_version", "139.0.0.0");
-        params.put("browser_online", "true");
-        params.put("engine_name", "Blink");
-        params.put("engine_version", "139.0.0.0");
-        params.put("os_name", "Windows");
-        params.put("os_version", "10");
-        params.put("cpu_core_num", "16");
-        params.put("device_memory", "8");
-        params.put("platform", "PC");
-        params.put("downlink", "10");
-        params.put("effective_type", "4g");
-        params.put("round_trip_time", "200");
-        params.put("support_h265", "1");
-        params.put("support_dash", "1");
-        params.put("uifid", "");
-        params.put("msToken", DouyinMsToken.ensure(cookie));
+        String msToken = DouyinMsToken.ensure(cookie);
+        if (!msToken.isEmpty()) {
+            params.put("msToken", msToken);
+        }
         return params;
     }
 

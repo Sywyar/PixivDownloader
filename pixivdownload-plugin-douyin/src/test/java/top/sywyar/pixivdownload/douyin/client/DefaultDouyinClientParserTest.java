@@ -327,8 +327,8 @@ class DefaultDouyinClientParserTest {
     }
 
     @Test
-    @DisplayName("生产调用在连续请求中复用生成的 msToken 并同步发送 Cookie")
-    void reusesGeneratedMsTokenInQueryAndCookieHeaders() throws Exception {
+    @DisplayName("生产调用在连续请求中透传 Cookie 中的 msToken 并同步发送 Cookie")
+    void forwardsRealMsTokenInQueryAndCookieHeaders() throws Exception {
         FakeRestTemplate rest = new FakeRestTemplate();
         rest.enqueue(200, "{\"aweme_list\":[],\"has_more\":0,\"max_cursor\":\"0\"}");
         rest.enqueue(200, "{\"aweme_list\":[],\"has_more\":0,\"max_cursor\":\"0\"}");
@@ -336,17 +336,18 @@ class DefaultDouyinClientParserTest {
         var client = new DefaultDouyinClient(parser, rest,
                 (input, cookie) -> parser.parse(input).orElseThrow());
 
-        client.listUserWorksPage("sec-user", "0", 1, "ttwid=tt");
-        client.listUserWorksPage("sec-user", "0", 1, "ttwid=tt");
+        client.listUserWorksPage("sec-user", "0", 1, "ttwid=tt; msToken=real-token");
+        client.listUserWorksPage("sec-user", "0", 1, "ttwid=tt; msToken=real-token");
 
         String firstToken = queryValue(rest.requests().get(0), "msToken");
         String secondToken = queryValue(rest.requests().get(1), "msToken");
-        assertThat(firstToken.equals(secondToken)).isTrue();
+        assertThat(firstToken).isEqualTo("real-token");
+        assertThat(secondToken).isEqualTo("real-token");
         boolean cookiesMatch = rest.cookies().size() == 2
                 && rest.cookies().get(0) != null
                 && rest.cookies().get(1) != null
-                && rest.cookies().get(0).endsWith("msToken=" + firstToken)
-                && rest.cookies().get(1).endsWith("msToken=" + firstToken);
+                && rest.cookies().get(0).endsWith("msToken=real-token")
+                && rest.cookies().get(1).endsWith("msToken=real-token");
         assertThat(cookiesMatch).isTrue();
     }
 
@@ -1104,7 +1105,7 @@ class DefaultDouyinClientParserTest {
         });
         assertThat(rest.methods()).containsExactly(HttpMethod.POST);
         assertThat(rest.cookies()).singleElement().satisfies(cookie ->
-                assertThat(cookie).contains("sessionid=test", "msToken="));
+                assertThat(cookie).contains("sessionid=test"));
     }
 
     @Test
@@ -1299,7 +1300,7 @@ class DefaultDouyinClientParserTest {
                         "version_code=170400", "a_bogus=");
         assertThat(rest.methods()).containsExactly(HttpMethod.GET, HttpMethod.GET);
         assertThat(rest.cookies()).allSatisfy(cookie ->
-                assertThat(cookie).contains("sessionid=test", "msToken="));
+                assertThat(cookie).contains("sessionid=test"));
     }
 
     @Test

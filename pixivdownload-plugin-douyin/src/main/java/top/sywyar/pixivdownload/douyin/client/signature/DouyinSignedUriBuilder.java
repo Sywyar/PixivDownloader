@@ -1,31 +1,31 @@
 package top.sywyar.pixivdownload.douyin.client.signature;
 
-import top.sywyar.pixivdownload.douyin.client.DouyinRequestHeaders;
 import top.sywyar.pixivdownload.douyin.client.api.DouyinApiUriBuilder;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
+/**
+ * 抖音 Web API 请求的签名接缝（seam）。
+ *
+ * <p>本类只负责「在什么位置、以什么顺序把签名挂到请求上」，不包含任何反爬签名算法实现。
+ * 默认签名器 {@link #stubSigner()} 仅附加一个非功能的占位参数，便于示例端到端跑通装配与错误分类，
+ * 但它无法通过抖音服务端验签——服务端会按「需要签名」处理，{@code DefaultDouyinClient} 随后回退到
+ * 不需签名的公开作品页路径。</p>
+ *
+ * <p>如需启用受签名保护的高吞吐端点（用户主页列表、搜索、收藏等），请通过构造器注入自行实现的
+ * {@code aBogusSigner} / {@code xBogusSigner}（例如在私有构建中提供真实签名器）；此仓库不分发此类实现。</p>
+ */
 public class DouyinSignedUriBuilder {
 
-    private static final int MAX_GENERATED_TOKEN_CONTEXTS = 32;
+    /** 占位签名值，明确表示「未配置真实签名器」，服务端会拒绝。 */
+    static final String STUB_SIGNATURE = "stub-signer-not-configured";
 
     private final UnaryOperator<String> aBogusSigner;
     private final Function<String, URI> xBogusSigner;
     private final DouyinApiUriBuilder apiUriBuilder;
-    private final Map<String, String> generatedTokens = new LinkedHashMap<>(16, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-            return size() > MAX_GENERATED_TOKEN_CONTEXTS;
-        }
-    };
 
     public DouyinSignedUriBuilder() {
         this(defaultABogusSigner(), defaultXBogusSigner(), new DouyinApiUriBuilder());
@@ -70,35 +70,24 @@ public class DouyinSignedUriBuilder {
     private String requestCookie(String cookie) {
         String normalized = cookie == null ? "" : cookie.trim();
         var existing = DouyinMsToken.fromCookie(normalized);
-        if (existing.isPresent()) {
-            return DouyinMsToken.withToken(normalized, existing.get());
-        }
-        String key = credentialKey(normalized);
-        String token;
-        synchronized (generatedTokens) {
-            token = generatedTokens.computeIfAbsent(key, ignored -> DouyinMsToken.fallback());
-        }
-        return DouyinMsToken.withToken(normalized, token);
-    }
-
-    private static String credentialKey(String cookie) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(cookie.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is unavailable", e);
-        }
+        return existing.isPresent()
+                ? DouyinMsToken.withToken(normalized, existing.get())
+                : normalized;
     }
 
     private static UnaryOperator<String> defaultABogusSigner() {
-        DouyinABogusSigner signer = new DouyinABogusSigner(DouyinRequestHeaders.USER_AGENT);
-        return signer::signQuery;
+        return stubSigner();
     }
 
     private static Function<String, URI> defaultXBogusSigner() {
-        DouyinXBogusSigner signer = new DouyinXBogusSigner(DouyinRequestHeaders.USER_AGENT);
-        return url -> URI.create(signer.sign(url).url());
+        return url -> URI.create(url + (url.contains("?") ? "&" : "?") + "X-Bogus=" + STUB_SIGNATURE);
+    }
+
+    static UnaryOperator<String> stubSigner() {
+        return query -> {
+            String q = query == null ? "" : query;
+            return q + (q.isEmpty() ? "" : "&") + "a_bogus=" + STUB_SIGNATURE;
+        };
     }
 
     public record SignedRequest(URI uri, String cookie) {

@@ -4,19 +4,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Pattern;
-import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("DouyinSignedUriBuilder 示例项目签名请求")
 class DouyinSignedUriBuilderTest {
-
-    private static final Pattern MS_TOKEN = Pattern.compile("(?:^|&)msToken=([^&]+)");
 
     @Test
     @DisplayName("a_bogus 成功时不会预生成或发送 X-Bogus")
@@ -93,6 +87,19 @@ class DouyinSignedUriBuilderTest {
     }
 
     @Test
+    @DisplayName("默认签名器只附加非功能占位参数，便于示例端到端跑通装配")
+    void defaultSignerAppendsStubSignature() {
+        var request = new DouyinSignedUriBuilder().request(
+                "/aweme/v1/web/aweme/detail/", Map.of("aweme_id", "7351"),
+                "msToken=fromCookie; ttwid=tt");
+
+        assertThat(request.uri().getRawQuery())
+                .contains("aweme_id=7351", "msToken=fromCookie")
+                .contains("a_bogus=" + DouyinSignedUriBuilder.STUB_SIGNATURE)
+                .doesNotContain("X-Bogus=");
+    }
+
+    @Test
     @DisplayName("签名覆盖最终编码后的完整查询参数")
     void signsFinalEncodedQuery() {
         var uri = new DouyinSignedUriBuilder().api(
@@ -106,66 +113,26 @@ class DouyinSignedUriBuilderTest {
     }
 
     @Test
-    @DisplayName("生成的 msToken 同时进入签名查询与请求 Cookie")
-    void keepsGeneratedMsTokenConsistentWithRequestCookie() {
+    @DisplayName("Cookie 中的 msToken 同时进入请求查询与请求 Cookie")
+    void keepsRealMsTokenConsistentBetweenQueryAndCookie() {
         var request = new DouyinSignedUriBuilder().request(
-                "/aweme/v1/web/aweme/detail/", Map.of("aweme_id", "7351"), "ttwid=tt");
-        String token = tokenFromQuery(request.uri().getRawQuery());
+                "/aweme/v1/web/aweme/detail/", Map.of("aweme_id", "7351"),
+                "ttwid=tt; msToken=real-token");
 
-        assertThat(token).hasSize(184).endsWith("==");
-        boolean cookieHasToken = java.util.Arrays.stream(request.cookie().split(";"))
-                .map(String::trim)
-                .anyMatch(part -> part.equals("msToken=" + token));
-        assertThat(cookieHasToken).isTrue();
+        assertThat(request.uri().getRawQuery())
+                .contains("msToken=real-token", "a_bogus=");
+        assertThat(request.cookie()).isEqualTo("ttwid=tt; msToken=real-token");
     }
 
     @Test
-    @DisplayName("同一缺少 msToken 的凭证在连续与并发请求中复用同一会话 token")
-    void reusesGeneratedMsTokenAcrossRequests() {
-        var builder = new DouyinSignedUriBuilder(
-                query -> query + "&a_bogus=test",
-                url -> {
-                    throw new AssertionError("X-Bogus must remain lazy");
-                });
-
-        var tokens = IntStream.range(0, 24)
-                .parallel()
-                .mapToObj(index -> builder.request(
-                        "/aweme/v1/web/aweme/post/",
-                        Map.of("sec_user_id", "user", "max_cursor", index),
-                        "ttwid=tt; sessionid=session"))
-                .map(request -> tokenFromQuery(request.uri().getRawQuery()))
-                .toList();
-
-        assertThat(tokens.stream().distinct().count()).isOne();
-    }
-
-    @Test
-    @DisplayName("空或重复的 msToken Cookie 会被替换为唯一会话 token")
-    void replacesEmptyAndDuplicateMsTokenCookieParts() {
+    @DisplayName("空 msToken 不会被伪造填充，请求也不注入令牌")
+    void leavesBlankMsTokenUnfabricated() {
         var request = new DouyinSignedUriBuilder().request(
-                "/aweme/v1/web/aweme/detail/",
-                Map.of("aweme_id", "7351"),
+                "/aweme/v1/web/aweme/detail/", Map.of("aweme_id", "7351"),
                 "msToken=; ttwid=tt; MSTOKEN=");
-        String token = tokenFromQuery(request.uri().getRawQuery());
-        long tokenParts = java.util.Arrays.stream(request.cookie().split(";"))
-                .map(String::trim)
-                .filter(part -> part.regionMatches(true, 0, "msToken=", 0, "msToken=".length()))
-                .count();
 
-        assertThat(tokenParts).isOne();
-        boolean cookieHasToken = java.util.Arrays.stream(request.cookie().split(";"))
-                .map(String::trim)
-                .anyMatch(part -> part.equals("msToken=" + token));
-        assertThat(cookieHasToken).isTrue();
-        assertThat(request.cookie().contains("msToken=;")).isFalse();
-    }
-
-    private static String tokenFromQuery(String query) {
-        var matcher = MS_TOKEN.matcher(query);
-        if (!matcher.find()) {
-            throw new AssertionError("msToken query parameter is missing");
-        }
-        return URLDecoder.decode(matcher.group(1), StandardCharsets.UTF_8);
+        assertThat(request.uri().getRawQuery())
+                .contains("aweme_id=7351", "a_bogus=")
+                .doesNotContain("msToken=");
     }
 }

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Local pre-push guard. Delegates to the shared signature guard so the same
+# check runs locally and in CI. Activate with:  git config core.hooksPath scripts/hooks
+exec bash "$(git rev-parse --show-toplevel)/scripts/hooks/pre-push-guard.sh"

@@ -38,6 +38,19 @@ jobs:
       - name: Run Java tests
         run: mvn -B -ntp test -Dexec.skip=true
 
+  signature-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Reject reverse-engineered Douyin signature code
+        run: bash scripts/hooks/pre-push-guard.sh
+
   javascript-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10

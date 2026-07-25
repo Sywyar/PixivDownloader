@@ -1,22 +1,26 @@
 package top.sywyar.pixivdownload.douyin.client.signature;
 
-import java.security.SecureRandom;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.regex.Pattern;
 
+/**
+ * 透传用户登录态里已有的抖音 msToken。
+ *
+ * <p>msToken 是抖音服务端下发的请求级凭据，本示例只负责把它从用户 Cookie 原样带回到请求查询与请求 Cookie，
+ * 不生成、不伪造任何令牌。缺 msToken 时请求照常发出（不注入该参数），由服务端按其策略处理。</p>
+ */
 public final class DouyinMsToken {
 
     private static final Pattern COOKIE_PART = Pattern.compile("\\s*;\\s*");
-    private static final String TOKEN_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private DouyinMsToken() {
     }
 
+    /** 返回用户 Cookie 里的 msToken；没有则返回空串（不伪造）。 */
     public static String ensure(String cookie) {
-        return fromCookie(cookie).orElseGet(DouyinMsToken::fallback);
+        return fromCookie(cookie).orElse("");
     }
 
     static String withToken(String cookie, String token) {
@@ -63,14 +67,5 @@ public final class DouyinMsToken {
             }
         }
         return Optional.empty();
-    }
-
-    static String fallback() {
-        StringBuilder token = new StringBuilder(184);
-        for (int i = 0; i < 182; i++) {
-            token.append(TOKEN_CHARS.charAt(RANDOM.nextInt(TOKEN_CHARS.length())));
-        }
-        token.append("==");
-        return token.toString();
     }
 }
