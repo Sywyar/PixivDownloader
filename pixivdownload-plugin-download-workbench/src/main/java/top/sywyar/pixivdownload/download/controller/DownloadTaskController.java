@@ -50,7 +50,7 @@ public class DownloadTaskController {
         if (request.getOther() == null) {
             request.setOther(new DownloadRequest.Other());
         }
-        ArtworkDownloadExecutor.validateUserDownloadFolder(request.getOther());
+        artworkDownloadExecutor.validateUserDownloadFolder(request.getOther());
         // SSRF 防护：同步校验所有下载 URL，非法 URL 由本插件的异常投影返回 400。
         if (request.getOther().isUgoira() && request.getOther().getUgoiraZipUrl() != null) {
             ArtworkDownloadExecutor.validatePixivUrl(request.getOther().getUgoiraZipUrl());

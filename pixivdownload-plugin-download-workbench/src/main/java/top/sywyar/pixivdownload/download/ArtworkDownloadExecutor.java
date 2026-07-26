@@ -8,17 +8,18 @@ import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
-import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
@@ -31,12 +32,13 @@ import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
-import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
-import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.io.IOException;
 import java.net.URI;
@@ -65,22 +67,23 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private final DownloadSettings downloadSettings;
     private final ApplicationEventPublisher eventPublisher;
-    private final PixivDatabase pixivDatabase;
+    private final ArtworkDownloadHistory artworkDownloadHistory;
+    private final ArtworkDownloadLookup artworkDownloadLookup;
+    private final ArtworkDownloadStatistics artworkDownloadStatistics;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final PixivImageDownloader pixivImageDownloader;
     private final TaskScheduler taskScheduler;
     private final TaskExecutor downloadTaskExecutor;
     private final PixivBookmarkActions pixivBookmarkActions;
     private final UgoiraService ugoiraService;
-    private final AuthorService authorService;
+    private final AuthorObservationService authorObservationService;
+    private final ArtworkAuthorLookup artworkAuthorLookup;
+    private final DownloadPathGuard downloadPathGuard;
     private final CollectionDownloadRootResolver collectionDownloadRootResolver;
     private final WorkCollectionMembership workCollectionMembership;
-    private final MangaSeriesService mangaSeriesService;
+    private final ArtworkSeriesObserver artworkSeriesObserver;
     private final ArtworkHashIndexMaintenance artworkHashIndexMaintenance;
     private final WorkMetadataCapture workMetadataCapture;
-    private final WorkFileNameCatalog workFileNameCatalog;
-    private final DownloadStatisticsService downloadStatisticsService;
-    private final DownloadedArtworkService downloadedArtworkService;
     private final MessageResolver messages;
 
     // 存储下载状态
@@ -89,41 +92,43 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     public ArtworkDownloadExecutor(DownloadSettings downloadSettings,
                                    ApplicationEventPublisher eventPublisher,
-                                   PixivDatabase pixivDatabase,
+                                   ArtworkDownloadHistory artworkDownloadHistory,
+                                   ArtworkDownloadLookup artworkDownloadLookup,
+                                   ArtworkDownloadStatistics artworkDownloadStatistics,
                                    @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
                                    PixivImageDownloader pixivImageDownloader,
                                    @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                    @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                    PixivBookmarkActions pixivBookmarkActions,
                                    UgoiraService ugoiraService,
-                                   AuthorService authorService,
+                                   AuthorObservationService authorObservationService,
+                                   ArtworkAuthorLookup artworkAuthorLookup,
+                                   DownloadPathGuard downloadPathGuard,
                                    CollectionDownloadRootResolver collectionDownloadRootResolver,
                                    WorkCollectionMembership workCollectionMembership,
-                                   MangaSeriesService mangaSeriesService,
+                                   ArtworkSeriesObserver artworkSeriesObserver,
                                    ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                    WorkMetadataCapture workMetadataCapture,
-                                   WorkFileNameCatalog workFileNameCatalog,
-                                   DownloadStatisticsService downloadStatisticsService,
-                                   DownloadedArtworkService downloadedArtworkService,
                                    MessageResolver messages) {
         this.downloadSettings = downloadSettings;
         this.eventPublisher = eventPublisher;
-        this.pixivDatabase = pixivDatabase;
+        this.artworkDownloadHistory = artworkDownloadHistory;
+        this.artworkDownloadLookup = artworkDownloadLookup;
+        this.artworkDownloadStatistics = artworkDownloadStatistics;
         this.visitorDownloadQuotaService = visitorDownloadQuotaService;
         this.pixivImageDownloader = pixivImageDownloader;
         this.taskScheduler = taskScheduler;
         this.downloadTaskExecutor = downloadTaskExecutor;
         this.pixivBookmarkActions = pixivBookmarkActions;
         this.ugoiraService = ugoiraService;
-        this.authorService = authorService;
+        this.authorObservationService = authorObservationService;
+        this.artworkAuthorLookup = artworkAuthorLookup;
+        this.downloadPathGuard = downloadPathGuard;
         this.collectionDownloadRootResolver = collectionDownloadRootResolver;
         this.workCollectionMembership = workCollectionMembership;
-        this.mangaSeriesService = mangaSeriesService;
+        this.artworkSeriesObserver = artworkSeriesObserver;
         this.artworkHashIndexMaintenance = artworkHashIndexMaintenance;
         this.workMetadataCapture = workMetadataCapture;
-        this.workFileNameCatalog = workFileNameCatalog;
-        this.downloadStatisticsService = downloadStatisticsService;
-        this.downloadedArtworkService = downloadedArtworkService;
         this.messages = messages;
     }
 
@@ -184,7 +189,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             Path downloadRoot = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
             Path downloadPath = downloadRoot;
             if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
-                downloadPath = downloadPath.resolve(SafePathSegment.requireSafeDirectoryName(other.getUsername()));
+                downloadPath = downloadPath.resolve(requireSafeDirectoryName(other.getUsername()));
 
                 if (other.getXRestrict() == 2) {
                     downloadPath = downloadPath.resolve("R18G");
@@ -193,7 +198,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                 }
             }
             downloadPath = downloadPath.resolve(folderName).normalize();
-            ensureWithinDownloadRoot(downloadRoot, downloadPath);
+            requireWithinDownloadRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
@@ -285,10 +290,10 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             // 记录下载信息
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
                     successCount.get(), other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
-                    fileNamePlan.templateId(), fileNamePlan.recordTime(), fileNamePlan.fileAuthorNameId(),
+                    fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
                     other.getSeriesId(), other.getSeriesOrder());
 
-            downloadStatisticsService.recordStatistics(successCount.get());
+            recordDownloadStatistics(successCount.get());
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
 
@@ -368,14 +373,28 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         return defaultRoot;
     }
 
-    public static void validateUserDownloadFolder(DownloadRequest.Other other) {
+    public void validateUserDownloadFolder(DownloadRequest.Other other) {
         if (other != null && other.isUserDownload() && other.getUsername() != null) {
-            SafePathSegment.requireSafeDirectoryName(other.getUsername());
+            requireSafeDirectoryName(other.getUsername());
         }
     }
 
-    private void ensureWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
-        if (!downloadPath.startsWith(downloadRoot)) {
+    private String requireSafeDirectoryName(String value) {
+        try {
+            return downloadPathGuard.requireSafeDirectoryName(value);
+        } catch (DownloadPathRejectedException rejected) {
+            throw LocalizedException.badRequest(
+                    "download.path.segment.invalid",
+                    "Unsafe download subdirectory: {0}",
+                    value
+            );
+        }
+    }
+
+    private void requireWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
+        try {
+            downloadPathGuard.requireWithinRoot(downloadRoot, downloadPath);
+        } catch (DownloadPathRejectedException rejected) {
             throw LocalizedException.badRequest(
                     "download.path.segment.invalid",
                     "Unsafe download subdirectory: {0}",
@@ -799,16 +818,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
-        long templateId = workFileNameCatalog.getOrCreateTemplateId(template);
-        if (templateId <= 0) {
-            templateId = PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID;
-        }
         long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
-        long recordTime = preferredTime > 0 ? pixivDatabase.getUniqueTime(preferredTime) : pixivDatabase.getUniqueTime();
+        long recordTime = artworkDownloadHistory.allocateRecordTime(preferredTime);
         String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
-        long fileAuthorNameId = sanitizedAuthorName.isEmpty()
-                ? 0L
-                : workFileNameCatalog.getOrCreateAuthorNameId(sanitizedAuthorName);
         List<String> computed = PixivWorkFileNameFormatter.formatAll(
                 template,
                 artworkId,
@@ -824,32 +836,49 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         if (!provided.isEmpty() && !provided.equals(computed)) {
             log.debug(logMessage("download.log.filename-mismatch", artworkId));
         }
-        return new FileNamePlan(templateId, recordTime, fileAuthorNameId, provided.equals(computed) ? provided : computed);
+        return new FileNamePlan(
+                template,
+                recordTime,
+                sanitizedAuthorName.isEmpty() ? null : sanitizedAuthorName,
+                provided.equals(computed) ? provided : computed);
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
                                 int count, int xRestrict, boolean isAi, Long authorId, String description, List<WorkTag> tags,
-                                long fileNameId, long recordTime, long fileAuthorNameId,
+                                String fileNameTemplate, long recordTime, String normalizedAuthorName,
                                 Long seriesId, Long seriesOrder) {
+        artworkDownloadHistory.record(new ArtworkDownloadCompletion(
+                artworkId,
+                title,
+                Path.of(folderPath).toAbsolutePath(),
+                count,
+                fileExtensions,
+                recordTime,
+                xRestrict,
+                isAi,
+                authorId,
+                PixivDescriptionHtml.normalizeLinks(description),
+                fileNameTemplate,
+                normalizedAuthorName,
+                seriesId,
+                seriesOrder,
+                tags
+        ));
+    }
+
+    private void recordDownloadStatistics(int imageCount) {
         try {
-            pixivDatabase.insertArtwork(
-                    artworkId, title,
-                    Path.of(folderPath).toAbsolutePath().toString(),
-                    count, String.join(",", fileExtensions), recordTime, xRestrict, isAi, authorId,
-                    PixivDescriptionHtml.normalizeLinks(description), fileNameId,
-                    fileAuthorNameId > 0 ? fileAuthorNameId : null,
-                    seriesId, seriesOrder
-            );
-            pixivDatabase.saveArtworkTags(artworkId, tags == null ? null : tags.stream()
-                    .filter(Objects::nonNull)
-                    .map(tag -> new TagDto(tag.tagId(), tag.name(), tag.translatedName()))
-                    .toList());
+            artworkDownloadStatistics.recordCompleted(imageCount);
         } catch (Exception e) {
-            log.error(logMessage("download.log.record-history.failed", e.getMessage()), e);
+            log.warn(logMessage("download.log.statistics.failed", e.getMessage()), e);
         }
     }
 
-    private record FileNamePlan(long templateId, long recordTime, long fileAuthorNameId, List<String> baseNames) {
+    private record FileNamePlan(
+            String template,
+            long recordTime,
+            String normalizedAuthorName,
+            List<String> baseNames) {
         String baseName(int page) {
             if (page >= 0 && page < baseNames.size()) {
                 return baseNames.get(page);
@@ -877,10 +906,10 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private void recordAuthorInfo(Long artworkId, DownloadRequest.Other other, String cookie) {
         try {
             if (other != null && other.getAuthorId() != null) {
-                authorService.observe(other.getAuthorId(), other.getAuthorName());
+                authorObservationService.observe(other.getAuthorId(), other.getAuthorName());
                 return;
             }
-            authorService.asyncLookupMissing(artworkId, cookie);
+            artworkAuthorLookup.resolveMissing(artworkId, cookie);
         } catch (Exception e) {
             log.warn(logMessage("download.log.record-author.failed", id(artworkId)), e);
         }
@@ -888,30 +917,19 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private void recordSeriesInfo(Long artworkId, DownloadRequest.Other other, String cookie) {
         try {
-            if (other != null && other.getSeriesId() != null && other.getSeriesId() > 0) {
-                // 前端/脚本若一并送来了系列简介或封面 URL，按 observeWithMetadata 流程顺带补齐；
-                // 否则退回到原来仅 upsert 标题/作者的 observe()。
-                boolean hasRichMeta = (other.getSeriesDescription() != null && !other.getSeriesDescription().isBlank())
-                        || (other.getSeriesCoverUrl() != null && !other.getSeriesCoverUrl().isBlank());
-                if (hasRichMeta) {
-                    mangaSeriesService.observeWithMetadata(
-                            other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId(),
-                            other.getSeriesDescription(), other.getSeriesCoverUrl(), cookie);
-                } else {
-                    mangaSeriesService.observe(other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId());
-                }
-                return;
-            }
             // Pixiv 系列几乎只挂在漫画 (illustType == 1) 上。当前端已经知道作品类型时，
             // 避免对插画/动图也发一次 /ajax/illust/{id} —— 批量下载时 N 张作品 = N 次额外请求很容易被限流。
             // illustType 为空（旧前端 / 未传）才回退到代理查询。
             Integer illustType = other == null ? null : other.getIllustType();
-            if (illustType != null && illustType != 1) {
-                pixivDatabase.updateSeriesInfo(artworkId,
-                        MangaSeriesService.NO_SERIES_SENTINEL, MangaSeriesService.NO_SERIES_SENTINEL);
-                return;
-            }
-            mangaSeriesService.asyncLookupMissingSeries(artworkId, cookie);
+            artworkSeriesObserver.observe(new ArtworkSeriesObservation(
+                    artworkId,
+                    illustType == null || illustType == 1,
+                    other == null ? null : other.getSeriesId(),
+                    other == null ? null : other.getSeriesTitle(),
+                    other == null ? null : other.getAuthorId(),
+                    other == null ? null : other.getSeriesDescription(),
+                    other == null ? null : other.getSeriesCoverUrl()
+            ), cookie);
         } catch (Exception e) {
             log.warn(logMessage("download.log.record-series.failed", id(artworkId)), e);
         }
@@ -919,7 +937,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     @Override
     public boolean isArtworkDownloaded(long artworkId, boolean verifyFiles) {
-        return downloadedArtworkService.getDownloadedRecord(artworkId, verifyFiles) != null;
+        return artworkDownloadLookup.isDownloaded(artworkId, verifyFiles);
     }
 
     /**

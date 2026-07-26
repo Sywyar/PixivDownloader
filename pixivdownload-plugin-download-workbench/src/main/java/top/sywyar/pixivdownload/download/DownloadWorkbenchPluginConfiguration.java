@@ -9,19 +9,22 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
-import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
@@ -30,7 +33,6 @@ import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
-import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
@@ -59,7 +61,6 @@ import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
-import top.sywyar.pixivdownload.series.MangaSeriesService;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
@@ -101,31 +102,33 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public ArtworkDownloadExecutor artworkDownloadExecutor(DownloadSettings downloadSettings,
                                                            ApplicationEventPublisher eventPublisher,
-                                                           PixivDatabase pixivDatabase,
+                                                           ArtworkDownloadHistory artworkDownloadHistory,
+                                                           ArtworkDownloadLookup artworkDownloadLookup,
+                                                           ArtworkDownloadStatistics artworkDownloadStatistics,
                                                            VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                            PixivImageDownloader pixivImageDownloader,
                                                            @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                                            @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                                            PixivBookmarkActions pixivBookmarkActions,
                                                            UgoiraService ugoiraService,
-                                                           AuthorService authorService,
+                                                           AuthorObservationService authorObservationService,
+                                                           ArtworkAuthorLookup artworkAuthorLookup,
+                                                           DownloadPathGuard downloadPathGuard,
                                                            CollectionDownloadRootResolver collectionDownloadRootResolver,
                                                            WorkCollectionMembership workCollectionMembership,
-                                                           MangaSeriesService mangaSeriesService,
+                                                           ArtworkSeriesObserver artworkSeriesObserver,
                                                            ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                                            WorkMetadataCapture workMetadataCapture,
-                                                           WorkFileNameCatalog workFileNameCatalog,
-                                                           DownloadStatisticsService downloadStatisticsService,
-                                                           DownloadedArtworkService downloadedArtworkService,
                                                            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
+        return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
+                artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
                 pixivImageDownloader, taskScheduler, downloadTaskExecutor,
-                pixivBookmarkActions, ugoiraService, authorService,
+                pixivBookmarkActions, ugoiraService, authorObservationService,
+                artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
-                mangaSeriesService, artworkHashIndexMaintenance, workMetadataCapture,
-                workFileNameCatalog,
-                downloadStatisticsService, downloadedArtworkService, messages);
+                artworkSeriesObserver, artworkHashIndexMaintenance, workMetadataCapture,
+                messages);
     }
 
     @Bean
