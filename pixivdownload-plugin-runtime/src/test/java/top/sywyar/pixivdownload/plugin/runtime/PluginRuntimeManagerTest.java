@@ -16,11 +16,17 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -35,8 +41,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -49,8 +59,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 
 /**
  * PF4J 运行时管理封装的诊断边界测试：覆盖「插件目录不存在 / 空目录 / 含坏包」三类，
@@ -75,6 +88,7 @@ class PluginRuntimeManagerTest {
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
 
         LoadedPluginPackage loaded = manager.loadPlugin(jar);
+        assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isFalse();
         assertThat(loaded.inventory().installations()).singleElement()
                 .satisfies(installation -> assertThat(installation.descriptor().lifecyclePolicy())
                         .isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART));
@@ -102,6 +116,9 @@ class PluginRuntimeManagerTest {
 
         manager.loadPlugin(jar);
         manager.startPlugin(PROBE_ID);
+        Path firstPf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                .getPluginPath().toAbsolutePath().normalize();
+        Path firstWorkspace = firstPf4jPath.getParent();
         manager.inspectPlugins();
         manager.inspectContextModules();
         manager.discoverFeaturePlugins();
@@ -113,16 +130,22 @@ class PluginRuntimeManagerTest {
 
         manager.stopPlugin(PROBE_ID);
         manager.startPlugin(PROBE_ID);
+        assertThat(manager.pluginManager().orElseThrow().getPlugin(PROBE_ID).getPluginPath()
+                .toAbsolutePath().normalize()).isEqualTo(firstPf4jPath);
         manager.inspectPlugins();
         assertThat(invokeInt(firstProvider, "featurePluginCalls")).isEqualTo(1);
         assertThat(invokeInt(firstProvider, "configurationClassesCalls")).isEqualTo(1);
 
         manager.stopPlugin(PROBE_ID);
         manager.unloadPlugin(PROBE_ID);
+        assertThat(firstWorkspace).doesNotExist();
         manager.loadPlugin(jar);
         manager.startPlugin(PROBE_ID);
+        Path secondPf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                .getPluginPath().toAbsolutePath().normalize();
         Object secondProvider = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID).getPlugin();
         assertThat(secondProvider).isNotSameAs(firstProvider);
+        assertThat(secondPf4jPath).isNotEqualTo(firstPf4jPath);
         assertThat(manager.generation(PROBE_ID).orElseThrow()).isGreaterThan(firstGeneration);
         assertThat(invokeInt(secondProvider, "featurePluginCalls")).isEqualTo(1);
         assertThat(invokeInt(secondProvider, "configurationClassesCalls")).isEqualTo(1);
@@ -302,6 +325,41 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("失败 load 后无法枚举 wrapper 时同一 manager 后续启动不得清理未知 snapshot")
+    void unknownWrapperInspectionKeepsAbandonedWorkspaceCleanupUnsafe() throws Exception {
+        Path plugins = tempDir.resolve("plugins-unknown-wrapper-inspection");
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginProvenanceStore provenanceStore = new PluginProvenanceStore(plugins);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        PluginManager faulting = mock(PluginManager.class);
+        AtomicReference<Path> attemptedLoadPath = new AtomicReference<>();
+        when(faulting.getPlugins()).thenReturn(List.of())
+                .thenThrow(new AssertionError("wrapper inspection unavailable"));
+        doAnswer(invocation -> {
+            attemptedLoadPath.set(invocation.getArgument(0));
+            throw new AssertionError("load failed after unknown mutation");
+        }).when(faulting).loadPlugin(any(Path.class));
+        replacePluginManager(manager, faulting);
+
+        assertThatThrownBy(() -> manager.loadPlugin(jar))
+                .isInstanceOf(top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException.class)
+                .hasCauseInstanceOf(AssertionError.class);
+        Path retainedWorkspace = attemptedLoadPath.get().toAbsolutePath().normalize().getParent();
+        assertThat(retainedWorkspace).exists();
+
+        manager.shutdown();
+        provenanceStore.delete(jar);
+        Files.delete(jar);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.state()).isEqualTo(PluginDirectoryState.EMPTY);
+        assertThat(retainedWorkspace).exists();
+    }
+
+    @Test
     @DisplayName("shutdown 的 stop 抛非 fatal Error 后仍继续 unload")
     void shutdownContinuesUnloadAfterNonFatalStopError() throws Exception {
         PluginRuntimeManager manager = new PluginRuntimeManager(tempDir.resolve("plugins"));
@@ -436,6 +494,7 @@ class PluginRuntimeManagerTest {
             assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
             assertThat(status.failures()).isEmpty();
             assertThat(manager.artifactPath(PROBE_ID)).contains(classesDirectory.toAbsolutePath().normalize());
+            assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isTrue();
             assertThat(pf4jPath).startsWith(repositoryRoot.resolve("target/pixivdownload-plugin-dev-runtime")
                     .toAbsolutePath().normalize());
             developmentSessionRoot = pf4jPath.getParent();
@@ -461,7 +520,9 @@ class PluginRuntimeManagerTest {
             long firstGeneration = manager.generation(PROBE_ID).orElseThrow();
 
             manager.unloadPlugin(PROBE_ID);
+            assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isFalse();
             LoadedPluginPackage reloaded = manager.loadPlugin(classesDirectory);
+            assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isTrue();
             manager.startPlugin(PROBE_ID);
             ClassLoader reloadedClassLoader = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginClassLoader();
@@ -655,8 +716,7 @@ class PluginRuntimeManagerTest {
     void startupOrdersRootArtifactsByTransitiveDependencies() throws IOException {
         Path plugins = tempDir.resolve("ordered-root-artifacts");
         Files.createDirectories(plugins);
-        Path mail = plugins.resolve("mail-1.0.0.jar");
-        writeDependencyOrderProbeJar(mail, "mail",
+        writeDependencyOrderProbeJar(plugins.resolve("mail-1.0.0.jar"), "mail",
                 List.of(new PluginDependencyRef("notification", "1.0", false)));
         writeDependencyOrderProbeJar(plugins.resolve("notification-1.0.0.jar"), "notification",
                 List.of(new PluginDependencyRef("base", "1.0", false)));
@@ -779,6 +839,111 @@ class PluginRuntimeManagerTest {
         PluginRuntimeStatus status = manager.start();
 
         assertThat(manager.status()).contains(status);
+    }
+
+    @Test
+    @DisplayName("启动复验写回失败仍保留绑定当前字节的结构化 HASH_MISMATCH")
+    void startupRetainsHashMismatchWhenProvenanceWriteBackFails() throws IOException {
+        Path plugins = tempDir.resolve("startup-verification-write-failure");
+        Path artifact = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "installed-bytes");
+        writeCatalogProvenance(plugins, artifact, PROBE_ID, PROBE_VERSION);
+        writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "changed-current-bytes");
+        long currentSize = Files.size(artifact);
+        String currentSha256 = PluginPackageIntegrity.sha256Hex(artifact);
+        PluginRuntimeManager manager = new FailingProvenanceWritePluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).isEmpty();
+        assertThat(status.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.source()).isEqualTo(artifact.getFileName().toString());
+            assertThat(failure.reason()).contains("HASH_MISMATCH");
+        });
+        assertThat(status.verifications()).singleElement().satisfies(snapshot -> {
+            assertThat(snapshot.artifactPath()).isEqualTo(artifact.toAbsolutePath().normalize());
+            assertThat(snapshot.pluginId()).isEqualTo(PROBE_ID);
+            assertThat(snapshot.version()).isEqualTo(PROBE_VERSION);
+            assertThat(snapshot.artifactSizeBytes()).isEqualTo(currentSize);
+            assertThat(snapshot.artifactSha256()).isEqualTo(currentSha256);
+            assertThat(snapshot.result().status()).isEqualTo(VerificationStatus.HASH_MISMATCH);
+            assertThat(snapshot.binds(artifact, PROBE_ID, PROBE_VERSION, currentSize, currentSha256)).isTrue();
+            assertThat(snapshot.binds(artifact.resolveSibling("replacement.jar"),
+                    PROBE_ID, PROBE_VERSION, currentSize, currentSha256)).isFalse();
+            assertThat(snapshot.binds(artifact, "replacement", PROBE_VERSION,
+                    currentSize, currentSha256)).isFalse();
+            assertThat(snapshot.binds(artifact, PROBE_ID, "2.0.0",
+                    currentSize, currentSha256)).isFalse();
+            assertThat(snapshot.binds(artifact, PROBE_ID, PROBE_VERSION,
+                    currentSize, "f".repeat(64))).isFalse();
+        });
+        assertThat(new PluginProvenanceStore(plugins).read(artifact)).hasValueSatisfying(
+                provenance -> assertThat(provenance.offlineStatus()).isNull());
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("运行期重新加载会用最新结构化复验替换同路径启动快照")
+    void runtimeReloadRetainsLatestVerificationWhenProvenanceWriteBackFails() throws IOException {
+        Path plugins = tempDir.resolve("runtime-verification-write-failure");
+        Path artifact = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "startup-bytes");
+        writeLocalProvenance(plugins, artifact);
+        String startupSha256 = PluginPackageIntegrity.sha256Hex(artifact);
+        PluginRuntimeManager manager = new FailingProvenanceWritePluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus started = manager.start();
+        assertThat(started.verifications()).singleElement().satisfies(snapshot -> {
+            assertThat(snapshot.artifactSha256()).isEqualTo(startupSha256);
+            assertThat(snapshot.result().status()).isEqualTo(VerificationStatus.UNSIGNED_ALLOWED);
+        });
+        manager.stopPlugin(PROBE_ID);
+        manager.unloadPlugin(PROBE_ID);
+        writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "changed-runtime-bytes");
+        long changedSize = Files.size(artifact);
+        String changedSha256 = PluginPackageIntegrity.sha256Hex(artifact);
+
+        assertThatThrownBy(() -> manager.loadPlugin(artifact))
+                .isInstanceOf(PluginRuntimeOperationException.class)
+                .hasMessageContaining("HASH_MISMATCH");
+
+        PluginRuntimeStatus afterReload = manager.status().orElseThrow();
+        assertThat(afterReload.verifications()).singleElement().satisfies(snapshot -> {
+            assertThat(snapshot.artifactPath()).isEqualTo(artifact.toAbsolutePath().normalize());
+            assertThat(snapshot.artifactSha256()).isEqualTo(changedSha256);
+            assertThat(snapshot.artifactSha256()).isNotEqualTo(startupSha256);
+            assertThat(snapshot.result().status()).isEqualTo(VerificationStatus.HASH_MISMATCH);
+            assertThat(snapshot.binds(
+                    artifact, PROBE_ID, PROBE_VERSION, changedSize, changedSha256)).isTrue();
+        });
+        assertThat(new PluginProvenanceStore(plugins).read(artifact)).hasValueSatisfying(
+                provenance -> assertThat(provenance.offlineStatus()).isNull());
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("运行期复验尚未产出结果就失败时会失效同路径旧快照")
+    void runtimeReloadInvalidatesOldVerificationBeforeReadingProvenance() throws IOException {
+        Path plugins = tempDir.resolve("runtime-invalid-provenance");
+        Path artifact = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "same-bytes");
+        writeLocalProvenance(plugins, artifact);
+        PluginProvenanceStore provenanceStore = new PluginProvenanceStore(plugins);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus started = manager.start();
+        assertThat(started.verifications()).singleElement();
+        manager.stopPlugin(PROBE_ID);
+        manager.unloadPlugin(PROBE_ID);
+        Files.writeString(provenanceStore.sidecarPath(artifact), "broken=provenance\n",
+                StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> manager.loadPlugin(artifact))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("plugin provenance is invalid");
+
+        assertThat(manager.status().orElseThrow().verifications()).isEmpty();
+        manager.shutdown();
     }
 
     @Test
@@ -959,10 +1124,388 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("启动整轮递归 entry 累计超限后不再读取或验证后续候选")
+    void startupStopsPreparingCandidatesAfterCumulativeEntryBudgetExceeded() throws IOException {
+        Path plugins = tempDir.resolve("startup-entry-budget");
+        Files.createDirectories(plugins);
+        Path first = plugins.resolve("alpha.jar");
+        Path second = plugins.resolve("beta.jar");
+        Path third = plugins.resolve("gamma.jar");
+        writeDependencyOrderProbeJar(first, "alpha", List.of());
+        writeDependencyOrderProbeJar(second, "beta", List.of());
+        writeDependencyOrderProbeJar(third, "gamma", List.of());
+        writeLocalProvenance(plugins, first, "alpha", PROBE_VERSION);
+        writeLocalProvenance(plugins, second, "beta", PROBE_VERSION);
+        writeLocalProvenance(plugins, third, "gamma", PROBE_VERSION);
+        PluginPackageVerifier.VerificationUsage firstUsage = PluginPackageVerifier.verifyAndMeasure(
+                first, PluginPackageLimits.defaults());
+        PluginPackageVerifier.VerificationUsage secondUsage = PluginPackageVerifier.verifyAndMeasure(
+                second, PluginPackageLimits.defaults());
+        PluginPackageVerifier.VerificationUsage thirdUsage = PluginPackageVerifier.verifyAndMeasure(
+                third, PluginPackageLimits.defaults());
+        int entryBudget = firstUsage.entryCount() + secondUsage.entryCount() - 1;
+        long byteBudget = firstUsage.totalUncompressedBytes() + secondUsage.totalUncompressedBytes()
+                + thirdUsage.totalUncompressedBytes();
+        CountingPluginRuntimeManager manager = new CountingPluginRuntimeManager(
+                plugins, entryBudget, byteBudget);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).containsExactly("alpha");
+        assertThat(status.failures()).hasSize(2)
+                .extracting(PluginLoadFailure::source)
+                .containsExactly("beta.jar", "gamma.jar");
+        assertThat(status.failures())
+                .allSatisfy(failure -> assertThat(failure.reason())
+                        .contains("cumulative resource budget exceeded"));
+        assertThat(manager.provenanceReadCount()).isEqualTo(2);
+        assertThat(manager.packageVerificationCount()).isEqualTo(2);
+        assertThat(manager.verificationLimits()).hasSize(2);
+        assertThat(manager.verificationLimits().get(1).maxEntries())
+                .isEqualTo(secondUsage.entryCount() - 1);
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("启动扫描会扣除 MALFORMED 候选的实际用量并在累计预算耗尽后停止")
+    void startupChargesMalformedCandidateUsageBeforeStopping() throws IOException {
+        Path plugins = tempDir.resolve("startup-malformed-budget");
+        Files.createDirectories(plugins);
+        Path malformed = plugins.resolve("alpha-malformed.jar");
+        writeDependencyOrderProbeJarWithPrivateLibrary(
+                malformed, "alpha", "not-a-jar".getBytes(StandardCharsets.UTF_8));
+
+        assertFailedCandidateConsumesStartupBudget(
+                plugins, malformed, PluginPackageException.Reason.MALFORMED,
+                "nested plugin jar is malformed");
+    }
+
+    @Test
+    @DisplayName("启动扫描会扣除 TOO_LARGE 候选的实际用量并在累计预算耗尽后停止")
+    void startupChargesTooLargeCandidateUsageBeforeStopping() throws IOException {
+        Path plugins = tempDir.resolve("startup-too-large-budget");
+        Files.createDirectories(plugins);
+        Path tooLarge = plugins.resolve("alpha-too-large.jar");
+        writeDependencyOrderProbeJarWithPrivateLibrary(
+                tooLarge, "alpha", privateLibraryBytes(new byte[256 * 1024]));
+
+        assertFailedCandidateConsumesStartupBudget(
+                plugins, tooLarge, PluginPackageException.Reason.TOO_LARGE,
+                "compression ratio too high");
+    }
+
+    @Test
+    @DisplayName("启动扫描会扣除归档读取失败前的实际用量并在累计预算耗尽后停止")
+    void startupChargesReadFailureUsageBeforeStopping() throws IOException {
+        Path plugins = tempDir.resolve("startup-read-failure-budget");
+        Files.createDirectories(plugins);
+        Path readFailure = plugins.resolve("alpha-read-failure.jar");
+        writeDependencyOrderProbeJarWithPrivateLibrary(
+                readFailure, "alpha", corruptedPrivateLibraryBytes());
+
+        assertFailedCandidateConsumesStartupBudget(
+                plugins, readFailure, PluginPackageException.Reason.MALFORMED,
+                "not a valid zip package");
+    }
+
+    @Test
+    @DisplayName("启动整轮两个包的实际解压字节累计超限时只准入预算内候选")
+    void startupRejectsSecondPackageWhenCumulativeUncompressedBudgetExceeded() throws IOException {
+        Path plugins = tempDir.resolve("startup-byte-budget");
+        Files.createDirectories(plugins);
+        Path first = plugins.resolve("alpha.jar");
+        Path second = plugins.resolve("beta.jar");
+        writeDependencyOrderProbeJar(first, "alpha", List.of());
+        writeDependencyOrderProbeJar(second, "beta", List.of());
+        writeLocalProvenance(plugins, first, "alpha", PROBE_VERSION);
+        writeLocalProvenance(plugins, second, "beta", PROBE_VERSION);
+        PluginPackageVerifier.VerificationUsage firstUsage = PluginPackageVerifier.verifyAndMeasure(
+                first, PluginPackageLimits.defaults());
+        PluginPackageVerifier.VerificationUsage secondUsage = PluginPackageVerifier.verifyAndMeasure(
+                second, PluginPackageLimits.defaults());
+        int entryBudget = firstUsage.entryCount() + secondUsage.entryCount();
+        long byteBudget = firstUsage.totalUncompressedBytes()
+                + secondUsage.totalUncompressedBytes() - 1L;
+        CountingPluginRuntimeManager manager = new CountingPluginRuntimeManager(
+                plugins, entryBudget, byteBudget);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).containsExactly("alpha");
+        assertThat(status.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.source()).isEqualTo("beta.jar");
+            assertThat(failure.reason()).contains("cumulative resource budget exceeded");
+        });
+        assertThat(manager.verificationLimits()).hasSize(2);
+        assertThat(manager.verificationLimits().get(1).maxTotalUncompressedBytes())
+                .isEqualTo(secondUsage.totalUncompressedBytes() - 1L);
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("启动 provenance 累计预算为后续候选下发剩余上限且耗尽后不再打开文件")
+    void startupRejectsSecondPackageWhenCumulativeProvenanceBudgetExceeded() throws IOException {
+        Path plugins = tempDir.resolve("startup-provenance-budget");
+        Files.createDirectories(plugins);
+        Path first = plugins.resolve("alpha.jar");
+        Path second = plugins.resolve("beta.jar");
+        Path third = plugins.resolve("gamma.jar");
+        writeDependencyOrderProbeJar(first, "alpha", List.of());
+        writeDependencyOrderProbeJar(second, "beta", List.of());
+        writeDependencyOrderProbeJar(third, "gamma", List.of());
+        writeLocalProvenance(plugins, first, "alpha", PROBE_VERSION);
+        writeLocalProvenance(plugins, second, "beta", PROBE_VERSION);
+        writeLocalProvenance(plugins, third, "gamma", PROBE_VERSION);
+        PluginProvenanceStore provenanceStore = new PluginProvenanceStore(plugins);
+        long firstSidecarBytes = provenanceStore.measureManagedSidecarStrict(first).orElseThrow().byteCount();
+        long secondSidecarBytes = provenanceStore.measureManagedSidecarStrict(second).orElseThrow().byteCount();
+        CountingPluginRuntimeManager manager = new CountingPluginRuntimeManager(
+                plugins,
+                PluginRuntimeManager.MAX_STARTUP_VERIFICATION_ENTRIES,
+                PluginRuntimeManager.MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES,
+                firstSidecarBytes + secondSidecarBytes - 1L);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).containsExactly("alpha");
+        assertThat(status.failures()).hasSize(2)
+                .extracting(PluginLoadFailure::source)
+                .containsExactly("beta.jar", "gamma.jar");
+        assertThat(status.failures()).allSatisfy(failure -> assertThat(failure.reason())
+                .contains("provenance sidecar cumulative byte budget exceeded"));
+        assertThat(manager.provenanceReadCount()).isEqualTo(2);
+        assertThat(manager.packageVerificationCount()).isEqualTo(1);
+        assertThat(manager.provenanceReadLimits()).containsExactly(
+                firstSidecarBytes + secondSidecarBytes - 1L,
+                secondSidecarBytes - 1L);
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("启动会扣除无效 provenance 的实际读取字节并在累计耗尽后停止")
+    void startupChargesInvalidProvenanceBytesBeforeStopping() throws IOException {
+        Path plugins = tempDir.resolve("startup-invalid-provenance-budget");
+        Files.createDirectories(plugins);
+        Path first = plugins.resolve("alpha.jar");
+        Path second = plugins.resolve("beta.jar");
+        Path third = plugins.resolve("gamma.jar");
+        writeDependencyOrderProbeJar(first, "alpha", List.of());
+        writeDependencyOrderProbeJar(second, "beta", List.of());
+        writeDependencyOrderProbeJar(third, "gamma", List.of());
+        PluginProvenanceStore provenanceStore = new PluginProvenanceStore(plugins);
+        byte[] invalidProvenance = {(byte) 0xC3, (byte) 0x28};
+        Path invalidSidecar = provenanceStore.sidecarPath(first);
+        Files.createDirectories(invalidSidecar.getParent());
+        Files.write(invalidSidecar, invalidProvenance);
+        writeLocalProvenance(plugins, second, "beta", PROBE_VERSION);
+        writeLocalProvenance(plugins, third, "gamma", PROBE_VERSION);
+        long secondSidecarBytes = provenanceStore.measureManagedSidecarStrict(second).orElseThrow().byteCount();
+        long provenanceBudget = invalidProvenance.length + secondSidecarBytes - 1L;
+        CountingPluginRuntimeManager manager = new CountingPluginRuntimeManager(
+                plugins,
+                PluginRuntimeManager.MAX_STARTUP_VERIFICATION_ENTRIES,
+                PluginRuntimeManager.MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES,
+                provenanceBudget);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).isEmpty();
+        assertThat(status.failures()).satisfiesExactly(
+                failure -> {
+                    assertThat(failure.source()).isEqualTo("alpha.jar");
+                    assertThat(failure.reason()).contains("plugin provenance is invalid");
+                },
+                failure -> {
+                    assertThat(failure.source()).isEqualTo("beta.jar");
+                    assertThat(failure.reason()).contains("provenance sidecar cumulative byte budget exceeded");
+                },
+                failure -> {
+                    assertThat(failure.source()).isEqualTo("gamma.jar");
+                    assertThat(failure.reason()).contains("provenance sidecar cumulative byte budget exceeded");
+                });
+        assertThat(manager.provenanceReadCount()).isEqualTo(2);
+        assertThat(manager.packageVerificationCount()).isZero();
+        assertThat(manager.provenanceReadLimits()).containsExactly(
+                provenanceBudget, secondSidecarBytes - 1L);
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("启动兼容读取会接受等价 provenance 双副本并收敛旧位置")
+    void startupAcceptsEquivalentCurrentAndLegacyProvenanceCopies() throws IOException {
+        Path plugins = tempDir.resolve("startup-equivalent-provenance-copies");
+        Files.createDirectories(plugins);
+        Path artifact = plugins.resolve("alpha.jar");
+        writeDependencyOrderProbeJar(artifact, "alpha", List.of());
+        writeLocalProvenance(plugins, artifact, "alpha", PROBE_VERSION);
+        PluginProvenanceStore provenanceStore = new PluginProvenanceStore(plugins);
+        Path current = provenanceStore.sidecarPath(artifact);
+        Path legacy = provenanceStore.managedSidecarPaths(artifact).stream()
+                .filter(path -> !path.equals(current))
+                .findFirst()
+                .orElseThrow();
+        Files.copy(current, legacy);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).containsExactly("alpha");
+        assertThat(status.failures()).isEmpty();
+        assertThat(current).exists();
+        assertThat(legacy).doesNotExist();
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("单个候选 provenance 文件形态错误不会阻断后续有效插件")
+    void startupIsolatesProvenanceIoFailureToCurrentCandidate() throws IOException {
+        Path plugins = tempDir.resolve("startup-provenance-io-isolation");
+        Files.createDirectories(plugins);
+        Path invalid = plugins.resolve("alpha.jar");
+        Path valid = plugins.resolve("beta.jar");
+        writeDependencyOrderProbeJar(invalid, "alpha", List.of());
+        writeDependencyOrderProbeJar(valid, "beta", List.of());
+        PluginProvenanceStore provenanceStore = new PluginProvenanceStore(plugins);
+        Path invalidSidecar = provenanceStore.sidecarPath(invalid);
+        Files.createDirectories(invalidSidecar.getParent());
+        Files.createDirectory(invalidSidecar);
+        writeLocalProvenance(plugins, valid, "beta", PROBE_VERSION);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).containsExactly("beta");
+        assertThat(status.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.source()).isEqualTo("alpha.jar");
+            assertThat(failure.reason()).contains("not a regular file");
+        });
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("同一插件换用新 artifact 路径复验时替换旧路径快照")
+    void runtimeVerificationReplacesPriorArtifactPathForSamePlugin() throws IOException {
+        Path plugins = tempDir.resolve("runtime-verification-path-replacement");
+        Files.createDirectories(plugins);
+        Path first = plugins.resolve("alpha-1.0.0.jar");
+        Path replacement = plugins.resolve("alpha-2.0.0.jar");
+        writeDependencyOrderProbeJarWithMarker(first, "alpha", "first");
+        writeLocalProvenance(plugins, first, "alpha", PROBE_VERSION);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+        assertThat(manager.start().verifications()).singleElement()
+                .extracting(PluginRuntimeVerificationSnapshot::artifactPath)
+                .isEqualTo(first.toAbsolutePath().normalize());
+        manager.stopPlugin("alpha");
+        manager.unloadPlugin("alpha");
+        writeDependencyOrderProbeJarWithMarker(replacement, "alpha", "replacement");
+        writeLocalProvenance(plugins, replacement, "alpha", PROBE_VERSION);
+
+        manager.loadPlugin(replacement);
+
+        assertThat(manager.status().orElseThrow().verifications()).singleElement()
+                .extracting(PluginRuntimeVerificationSnapshot::artifactPath)
+                .isEqualTo(replacement.toAbsolutePath().normalize());
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("启动扫描遇同 plugin id 的两份 artifact 时两份都不加载")
+    void startupRejectsEveryArtifactWithDuplicatePluginId() throws IOException {
+        Path plugins = tempDir.resolve("startup-duplicate-id");
+        Files.createDirectories(plugins);
+        Path first = plugins.resolve("a-base.jar");
+        Path second = plugins.resolve("b-base.jar");
+        writeDependencyOrderProbeJar(first, "base", List.of());
+        writeDependencyOrderProbeJar(second, "base", List.of());
+        writeLocalProvenance(plugins, first, "base", PROBE_VERSION);
+        writeLocalProvenance(plugins, second, "base", PROBE_VERSION);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        PluginRuntimeStatus status = manager.start();
+
+        assertThat(status.loadedPluginIds()).isEmpty();
+        assertThat(status.startedPluginIds()).isEmpty();
+        assertThat(status.failures()).hasSize(2)
+                .allSatisfy(failure -> assertThat(failure.reason()).contains("duplicate plugin id base"));
+        assertThat(manager.pluginManager()).isEmpty();
+        manager.shutdown();
+    }
+
+    @Test
     @DisplayName("构造参数为 null 时立即抛出")
     void nullRootRejected() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new PluginRuntimeManager(null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private void assertFailedCandidateConsumesStartupBudget(
+            Path plugins,
+            Path failedCandidate,
+            PluginPackageException.Reason expectedReason,
+            String expectedFailureFragment) throws IOException {
+        Path second = plugins.resolve("beta.jar");
+        Path third = plugins.resolve("gamma.jar");
+        writeDependencyOrderProbeJar(second, "beta", List.of());
+        writeDependencyOrderProbeJar(third, "gamma", List.of());
+        writeLocalProvenance(plugins, failedCandidate, "alpha", PROBE_VERSION);
+        writeLocalProvenance(plugins, second, "beta", PROBE_VERSION);
+        writeLocalProvenance(plugins, third, "gamma", PROBE_VERSION);
+        PluginPackageVerifier.VerificationUsage failedUsage = failedVerificationUsage(
+                failedCandidate, expectedReason, expectedFailureFragment);
+        PluginPackageVerifier.VerificationUsage secondUsage = PluginPackageVerifier.verifyAndMeasure(
+                second, PluginPackageLimits.defaults());
+        PluginPackageVerifier.VerificationUsage thirdUsage = PluginPackageVerifier.verifyAndMeasure(
+                third, PluginPackageLimits.defaults());
+        int entryBudget = failedUsage.entryCount() + secondUsage.entryCount() - 1;
+        long byteBudget = failedUsage.totalUncompressedBytes()
+                + secondUsage.totalUncompressedBytes()
+                + thirdUsage.totalUncompressedBytes()
+                + 1L;
+        CountingPluginRuntimeManager manager = new CountingPluginRuntimeManager(
+                plugins, entryBudget, byteBudget);
+        try {
+            PluginRuntimeStatus status = manager.start();
+
+            assertThat(status.loadedPluginIds()).isEmpty();
+            assertThat(status.failures()).satisfiesExactly(
+                    failure -> {
+                        assertThat(failure.source()).isEqualTo(failedCandidate.getFileName().toString());
+                        assertThat(failure.reason()).contains(expectedFailureFragment);
+                    },
+                    failure -> {
+                        assertThat(failure.source()).isEqualTo("beta.jar");
+                        assertThat(failure.reason()).contains("cumulative resource budget exceeded");
+                    },
+                    failure -> {
+                        assertThat(failure.source()).isEqualTo("gamma.jar");
+                        assertThat(failure.reason()).contains("cumulative resource budget exceeded");
+                    });
+            assertThat(manager.provenanceReadCount()).isEqualTo(2);
+            assertThat(manager.packageVerificationCount()).isEqualTo(2);
+            assertThat(manager.verificationLimits()).hasSize(2);
+            assertThat(manager.verificationLimits().get(0).maxEntries()).isEqualTo(entryBudget);
+            assertThat(manager.verificationLimits().get(1).maxEntries())
+                    .isEqualTo(secondUsage.entryCount() - 1);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    private static PluginPackageVerifier.VerificationUsage failedVerificationUsage(
+            Path artifact,
+            PluginPackageException.Reason expectedReason,
+            String expectedFailureFragment) {
+        PluginPackageException failure = org.assertj.core.api.Assertions.catchThrowableOfType(
+                () -> PluginPackageVerifier.verifyAndMeasure(artifact, PluginPackageLimits.defaults()),
+                PluginPackageException.class);
+        assertThat(failure).isNotNull();
+        assertThat(failure.reason()).isEqualTo(expectedReason);
+        assertThat(failure).hasMessageContaining(expectedFailureFragment);
+        assertThat(failure.hasVerificationUsage()).isTrue();
+        assertThat(failure.consumedEntries()).isPositive();
+        assertThat(failure.consumedUncompressedBytes()).isPositive();
+        return new PluginPackageVerifier.VerificationUsage(
+                failure.consumedEntries(), failure.consumedUncompressedBytes());
     }
 
     private static void writeProbeJar(Path jar, boolean privateLib) throws IOException {
@@ -1002,6 +1545,36 @@ class PluginRuntimeManagerTest {
             addDependencyOrderDescriptor(zos, pluginId, dependencies);
             addClassEntry(zos, DependencyOrderProbePlugin.class, "");
             addClassEntry(zos, DependencyOrderProbeFeaturePlugin.class, "");
+        }
+    }
+
+    private static void writeDependencyOrderProbeJarWithMarker(
+            Path jar, String pluginId, String marker) throws IOException {
+        Files.createDirectories(jar.getParent());
+        try (OutputStream out = Files.newOutputStream(jar);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
+            addDependencyOrderDescriptor(zos, pluginId, List.of());
+            addClassEntry(zos, DependencyOrderProbePlugin.class, "");
+            addClassEntry(zos, DependencyOrderProbeFeaturePlugin.class, "");
+            zos.putNextEntry(new ZipEntry("verification-marker.txt"));
+            zos.write(marker.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+    }
+
+    private static void writeDependencyOrderProbeJarWithPrivateLibrary(
+            Path jar,
+            String pluginId,
+            byte[] privateLibrary) throws IOException {
+        Files.createDirectories(jar.getParent());
+        try (OutputStream out = Files.newOutputStream(jar);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
+            addDependencyOrderDescriptor(zos, pluginId, List.of());
+            addClassEntry(zos, DependencyOrderProbePlugin.class, "");
+            addClassEntry(zos, DependencyOrderProbeFeaturePlugin.class, "");
+            zos.putNextEntry(new ZipEntry("lib/private-lib.jar"));
+            zos.write(privateLibrary);
+            zos.closeEntry();
         }
     }
 
@@ -1140,6 +1713,56 @@ class PluginRuntimeManagerTest {
         }
     }
 
+    private static byte[] privateLibraryBytes(byte[] payload) throws IOException {
+        try (var out = new ByteArrayOutputStream();
+             var zos = new ZipOutputStream(out)) {
+            zos.putNextEntry(new ZipEntry("private/payload.bin"));
+            zos.write(payload);
+            zos.closeEntry();
+            zos.finish();
+            return out.toByteArray();
+        }
+    }
+
+    private static byte[] corruptedPrivateLibraryBytes() throws IOException {
+        byte[] payload = "corrupted-private-library".getBytes(StandardCharsets.UTF_8);
+        byte[] archive;
+        try (var out = new ByteArrayOutputStream();
+             var zos = new ZipOutputStream(out)) {
+            CRC32 crc = new CRC32();
+            crc.update(payload);
+            ZipEntry entry = new ZipEntry("private/payload.bin");
+            entry.setMethod(ZipEntry.STORED);
+            entry.setSize(payload.length);
+            entry.setCompressedSize(payload.length);
+            entry.setCrc(crc.getValue());
+            zos.putNextEntry(entry);
+            zos.write(payload);
+            zos.closeEntry();
+            zos.finish();
+            archive = out.toByteArray();
+        }
+        int payloadOffset = indexOf(archive, payload);
+        if (payloadOffset < 0) {
+            throw new IOException("failed to locate stored private-library payload");
+        }
+        archive[payloadOffset] ^= 0x01;
+        return archive;
+    }
+
+    private static int indexOf(byte[] haystack, byte[] needle) {
+        outer:
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
+    }
+
     private static void writeLocalProvenance(Path pluginsDir, Path artifact) throws IOException {
         writeLocalProvenance(pluginsDir, artifact, PROBE_ID, PROBE_VERSION);
     }
@@ -1150,6 +1773,32 @@ class PluginRuntimeManagerTest {
                 pluginId, version, null, null, null, null, Instant.now(), Files.size(artifact),
                 PluginPackageIntegrity.sha256Hex(artifact), "UNSIGNED_ALLOWED");
         new PluginProvenanceStore(pluginsDir).write(artifact, PluginPackageOrigin.localUpload(), result);
+    }
+
+    private static void writeCatalogProvenance(
+            Path pluginsDir, Path artifact, String pluginId, String version) throws IOException {
+        long size = Files.size(artifact);
+        String sha256 = PluginPackageIntegrity.sha256Hex(artifact);
+        SignatureMetadata signature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "test-key", "c2ln");
+        PluginProvenanceRecord provenance = new PluginProvenanceRecord(
+                PluginPackageSource.MARKET_CATALOG,
+                "test-repository",
+                false,
+                size,
+                sha256,
+                size,
+                sha256,
+                signature,
+                VerificationStatus.VERIFIED,
+                signature.keyId(),
+                "Test Publisher",
+                "Test Trust",
+                Instant.now(),
+                null,
+                null,
+                "VERIFIED");
+        new PluginProvenanceStore(pluginsDir).write(artifact, provenance);
     }
 
     private static void writeProbeSourceDescriptor(Path moduleRoot) throws IOException {
@@ -1166,6 +1815,76 @@ class PluginRuntimeManagerTest {
             System.clearProperty(name);
         } else {
             System.setProperty(name, previousValue);
+        }
+    }
+
+    private static final class CountingPluginRuntimeManager extends PluginRuntimeManager {
+
+        private final AtomicInteger provenanceReadCount = new AtomicInteger();
+        private final AtomicInteger packageVerificationCount = new AtomicInteger();
+        private final List<Long> provenanceReadLimits = new ArrayList<>();
+        private final List<PluginPackageLimits> verificationLimits = new ArrayList<>();
+
+        private CountingPluginRuntimeManager(Path pluginsRoot,
+                                             int maximumStartupVerificationEntries,
+                                             long maximumStartupVerificationUncompressedBytes) {
+            this(pluginsRoot, maximumStartupVerificationEntries,
+                    maximumStartupVerificationUncompressedBytes,
+                    PluginRuntimeManager.MAX_STARTUP_PROVENANCE_BYTES);
+        }
+
+        private CountingPluginRuntimeManager(Path pluginsRoot,
+                                             int maximumStartupVerificationEntries,
+                                             long maximumStartupVerificationUncompressedBytes,
+                                             long maximumStartupProvenanceBytes) {
+            super(pluginsRoot, maximumStartupVerificationEntries,
+                    maximumStartupVerificationUncompressedBytes, maximumStartupProvenanceBytes);
+        }
+
+        @Override
+        Optional<PluginProvenanceStore.MeasuredProvenance> readMeasuredStartupProvenance(
+                Path artifactPath,
+                long maximumBytes) throws IOException {
+            provenanceReadCount.incrementAndGet();
+            provenanceReadLimits.add(maximumBytes);
+            return super.readMeasuredStartupProvenance(artifactPath, maximumBytes);
+        }
+
+        @Override
+        PluginPackageVerifier.VerificationUsage verifyAndMeasureProductionPackage(
+                Path frozenArtifact,
+                PluginPackageLimits limits) {
+            packageVerificationCount.incrementAndGet();
+            verificationLimits.add(limits);
+            return super.verifyAndMeasureProductionPackage(frozenArtifact, limits);
+        }
+
+        private int provenanceReadCount() {
+            return provenanceReadCount.get();
+        }
+
+        private int packageVerificationCount() {
+            return packageVerificationCount.get();
+        }
+
+        private List<Long> provenanceReadLimits() {
+            return List.copyOf(provenanceReadLimits);
+        }
+
+        private List<PluginPackageLimits> verificationLimits() {
+            return List.copyOf(verificationLimits);
+        }
+    }
+
+    private static final class FailingProvenanceWritePluginRuntimeManager extends PluginRuntimeManager {
+
+        private FailingProvenanceWritePluginRuntimeManager(Path pluginsRoot) {
+            super(pluginsRoot);
+        }
+
+        @Override
+        void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
+            throw new IOException("simulated provenance write-back failure");
         }
     }
 }

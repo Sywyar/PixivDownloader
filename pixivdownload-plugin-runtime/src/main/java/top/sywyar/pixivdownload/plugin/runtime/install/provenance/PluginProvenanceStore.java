@@ -153,6 +153,50 @@ public final class PluginProvenanceStore {
         }
     }
 
+    /**
+     * 启动复验使用的兼容计量读取：在剩余累计预算内读取，并保留正常启动收敛等价
+     * current/legacy 双副本的语义。结构错误只拒绝当前 artifact；所有实际读取失败都携带已消费字节数。
+     */
+    public Optional<MeasuredProvenance> readMeasuredCompatible(Path artifact, long maximumBytes)
+            throws IOException {
+        if (maximumBytes < 0L) {
+            throw new IllegalArgumentException("maximumBytes must not be negative");
+        }
+        List<Path> existing = existingManagedSidecars(artifact);
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+        Path current = sidecarPath(artifact).toAbsolutePath().normalize();
+        Path legacy = legacySidecarPath(artifact).toAbsolutePath().normalize();
+        if (existing.size() == 1) {
+            Path selected = existing.get(0);
+            MeasuredProvenance measured = readMeasuredRecord(selected, maximumBytes);
+            if (selected.equals(legacy) && !legacy.equals(current)) {
+                migrateLegacy(artifact, legacy);
+            } else {
+                deleteLegacyIfSuperseded(artifact, selected);
+            }
+            return Optional.of(measured);
+        }
+
+        MeasuredProvenance currentMeasured = readMeasuredRecord(current, maximumBytes);
+        long remainingBytes = maximumBytes - currentMeasured.byteCount();
+        MeasuredProvenance legacyMeasured;
+        try {
+            legacyMeasured = readMeasuredRecord(legacy, remainingBytes);
+        } catch (IOException failure) {
+            throw includePriorReadBytes(failure, currentMeasured.byteCount());
+        }
+        long totalBytes = Math.addExact(currentMeasured.byteCount(), legacyMeasured.byteCount());
+        if (!currentMeasured.record().equals(legacyMeasured.record())) {
+            throw new InvalidProvenanceException(
+                    "plugin provenance current and legacy copies differ: " + artifact,
+                    totalBytes, null);
+        }
+        deleteLegacyIfSuperseded(artifact, current);
+        return Optional.of(new MeasuredProvenance(currentMeasured.record(), totalBytes));
+    }
+
     /** 只读投影使用的严格计量读取：不迁移 legacy、不删除副本，双副本直接拒绝。 */
     public Optional<MeasuredProvenance> readMeasuredStrict(Path artifact) throws IOException {
         return readMeasuredStrict(artifact, MAX_RECOVERY_SIDECAR_BYTES);
@@ -175,6 +219,49 @@ public final class PluginProvenanceStore {
             throw new InvalidProvenanceException(
                     "plugin provenance is invalid: " + selected.get(), bytes.length, e);
         }
+    }
+
+    private static MeasuredProvenance readMeasuredRecord(Path sidecar, long maximumBytes)
+            throws IOException {
+        byte[] bytes = readSidecarBytesStrictly(sidecar, maximumBytes);
+        try {
+            return new MeasuredProvenance(readStrictRecord(bytes), bytes.length);
+        } catch (IOException | RuntimeException e) {
+            throw new InvalidProvenanceException(
+                    "plugin provenance is invalid: " + sidecar, bytes.length, e);
+        }
+    }
+
+    private static IOException includePriorReadBytes(IOException failure, long priorBytes) {
+        long totalBytes;
+        try {
+            totalBytes = Math.addExact(priorBytes, measuredFailureBytes(failure));
+        } catch (ArithmeticException overflow) {
+            totalBytes = Long.MAX_VALUE;
+        }
+        if (failure instanceof ReadBudgetExceededException) {
+            return new ReadBudgetExceededException(failure.getMessage(), totalBytes);
+        }
+        if (failure instanceof InvalidProvenanceException) {
+            return new InvalidProvenanceException(failure.getMessage(), totalBytes, failure);
+        }
+        if (failure instanceof ProvenanceReadException) {
+            return new ProvenanceReadException(failure.getMessage(), totalBytes, failure);
+        }
+        return new ProvenanceReadException(failure.getMessage(), totalBytes, failure);
+    }
+
+    private static long measuredFailureBytes(IOException failure) {
+        if (failure instanceof ReadBudgetExceededException measured) {
+            return measured.byteCount();
+        }
+        if (failure instanceof InvalidProvenanceException measured) {
+            return measured.byteCount();
+        }
+        if (failure instanceof ProvenanceReadException measured) {
+            return measured.byteCount();
+        }
+        return 0L;
     }
 
     private PluginProvenanceRecord readStrictRecord(Path sidecar) throws IOException {
@@ -217,11 +304,26 @@ public final class PluginProvenanceStore {
         }
         java.util.Set<OpenOption> options = java.util.Set.of(
                 StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
-        byte[] bytes;
+        int readLimit = (int) effectiveMaximum + 1;
+        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(readLimit, 8 * 1024));
+        long bytesRead = 0L;
         try (SeekableByteChannel channel = Files.newByteChannel(sidecar, options);
              InputStream input = Channels.newInputStream(channel)) {
-            bytes = input.readNBytes((int) effectiveMaximum + 1);
+            byte[] buffer = new byte[Math.min(readLimit, 8 * 1024)];
+            while (bytesRead < readLimit) {
+                int requested = (int) Math.min(buffer.length, readLimit - bytesRead);
+                int read = input.read(buffer, 0, requested);
+                if (read < 0) {
+                    break;
+                }
+                output.write(buffer, 0, read);
+                bytesRead += read;
+            }
+        } catch (IOException e) {
+            throw new ProvenanceReadException(
+                    "failed while reading plugin provenance: " + sidecar, bytesRead, e);
         }
+        byte[] bytes = output.toByteArray();
         if (bytes.length > effectiveMaximum && effectiveMaximum < MAX_RECOVERY_SIDECAR_BYTES) {
             throw new ReadBudgetExceededException(
                     "plugin provenance exceeds the remaining read budget", bytes.length);
@@ -404,7 +506,9 @@ public final class PluginProvenanceStore {
                 throw new IOException("plugin provenance is not a regular file: " + normalized);
             }
             if (attributes.size() > MAX_RECOVERY_SIDECAR_BYTES) {
-                throw new IOException("plugin provenance exceeds the recovery size limit: " + normalized);
+                throw new ReadBudgetExceededException(
+                        "plugin provenance exceeds the recovery size limit: " + normalized,
+                        0L);
             }
             existing.add(normalized);
         }
@@ -776,7 +880,7 @@ public final class PluginProvenanceStore {
 
         public MeasuredProvenance {
             record = Objects.requireNonNull(record, "record");
-            if (byteCount < 0L || byteCount > MAX_RECOVERY_SIDECAR_BYTES) {
+            if (byteCount < 0L || byteCount > MAX_RECOVERY_SIDECAR_BYTES * 2L) {
                 throw new IllegalArgumentException("sidecar byte count is outside the supported range");
             }
         }
@@ -799,6 +903,19 @@ public final class PluginProvenanceStore {
         private final long byteCount;
 
         public InvalidProvenanceException(String message, long byteCount, Throwable cause) {
+            super(message, cause);
+            this.byteCount = byteCount;
+        }
+
+        public long byteCount() {
+            return byteCount;
+        }
+    }
+
+    public static final class ProvenanceReadException extends IOException {
+        private final long byteCount;
+
+        public ProvenanceReadException(String message, long byteCount, Throwable cause) {
             super(message, cause);
             this.byteCount = byteCount;
         }

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 
 /**
  * 一次插件运行时扫描 / 加载的结果快照（不可变）。核心壳与后续流程据此判断：
@@ -16,13 +17,23 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
  * @param loadedPluginIds  成功加载的外置插件 id（含已启动与启动失败者）
  * @param startedPluginIds 成功启动的外置插件 id（{@code loadedPluginIds} 的子集）
  * @param failures         加载 / 启动失败的诊断条目（坏包被隔离捕获、不致命）
+ * @param verifications    当前运行时对各冻结 artifact 字节保留的最新结构化离线复验结果
  */
 public record PluginRuntimeStatus(
         Path directory,
         PluginDirectoryState state,
         List<String> loadedPluginIds,
         List<String> startedPluginIds,
-        List<PluginLoadFailure> failures) {
+        List<PluginLoadFailure> failures,
+        List<PluginRuntimeVerificationSnapshot> verifications) {
+
+    public PluginRuntimeStatus(Path directory,
+                               PluginDirectoryState state,
+                               List<String> loadedPluginIds,
+                               List<String> startedPluginIds,
+                               List<PluginLoadFailure> failures) {
+        this(directory, state, loadedPluginIds, startedPluginIds, failures, List.of());
+    }
 
     public PluginRuntimeStatus {
         Objects.requireNonNull(directory, "directory");
@@ -30,6 +41,7 @@ public record PluginRuntimeStatus(
         loadedPluginIds = List.copyOf(loadedPluginIds);
         startedPluginIds = List.copyOf(startedPluginIds);
         failures = List.copyOf(failures);
+        verifications = List.copyOf(verifications);
     }
 
     /** 插件目录是否存在且为目录（{@link PluginDirectoryState#ABSENT} 取反）。 */

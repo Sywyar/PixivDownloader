@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
@@ -29,7 +30,9 @@ import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -53,6 +56,7 @@ import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 
 /**
  * PF4J 外置插件物理生命周期封装。启动扫描与运行期变更共用单包 load/start/stop/unload 原语，
@@ -66,6 +70,10 @@ public class PluginRuntimeManager {
     private static final String ANSI_RED_BOLD = "\u001B[1;31m";
     private static final String ANSI_RESET = "\u001B[0m";
     private static final PluginPackageLimits PRODUCTION_PACKAGE_LIMITS = PluginPackageLimits.defaults();
+    static final int MAX_STARTUP_VERIFICATION_ENTRIES = 32_000;
+    static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 384L * 1024L * 1024L;
+    static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
+    private static final int MAX_RUNTIME_VERIFICATION_SNAPSHOTS = MAX_STARTUP_VERIFICATION_ENTRIES;
 
     private final Path pluginsRoot;
     private final PluginRuntimeLayout layout;
@@ -73,6 +81,9 @@ public class PluginRuntimeManager {
     private PluginArtifactVerificationService verificationService;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private final PluginProvenanceStore provenanceStore;
+    private final int maximumStartupVerificationEntries;
+    private final long maximumStartupVerificationUncompressedBytes;
+    private final long maximumStartupProvenanceBytes;
     private final Map<String, RuntimeEntry> entries = new LinkedHashMap<>();
     private final Map<String, Long> generations = new LinkedHashMap<>();
     private final Set<PluginArtifactSnapshot> unconfirmedProductionSnapshots =
@@ -81,9 +92,28 @@ public class PluginRuntimeManager {
     private volatile PluginManager pluginManager;
     private volatile PluginRuntimeStatus status;
     private PluginDevelopmentArtifacts.DevelopmentCacheSession developmentCacheSession;
+    private boolean abandonedWorkspaceCleanupCompleted;
+    private boolean abandonedWorkspaceCleanupSafe = true;
 
     public PluginRuntimeManager(Path pluginsRoot) {
         this(pluginsRoot, new PluginSupplyChainVerifier());
+    }
+
+    PluginRuntimeManager(Path pluginsRoot,
+                         int maximumStartupVerificationEntries,
+                         long maximumStartupVerificationUncompressedBytes) {
+        this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
+                maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes,
+                MAX_STARTUP_PROVENANCE_BYTES);
+    }
+
+    PluginRuntimeManager(Path pluginsRoot,
+                         int maximumStartupVerificationEntries,
+                         long maximumStartupVerificationUncompressedBytes,
+                         long maximumStartupProvenanceBytes) {
+        this(pluginsRoot, fixedVerifier(new PluginSupplyChainVerifier()),
+                maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes,
+                maximumStartupProvenanceBytes);
     }
 
     public PluginRuntimeManager(Path pluginsRoot, PluginSupplyChainVerifier verifier) {
@@ -92,8 +122,29 @@ public class PluginRuntimeManager {
 
     public PluginRuntimeManager(Path pluginsRoot,
                                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
+        this(pluginsRoot, verifierResolver, MAX_STARTUP_VERIFICATION_ENTRIES,
+                MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES, MAX_STARTUP_PROVENANCE_BYTES);
+    }
+
+    PluginRuntimeManager(Path pluginsRoot,
+                         Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                         int maximumStartupVerificationEntries,
+                         long maximumStartupVerificationUncompressedBytes) {
+        this(pluginsRoot, verifierResolver, maximumStartupVerificationEntries,
+                maximumStartupVerificationUncompressedBytes, MAX_STARTUP_PROVENANCE_BYTES);
+    }
+
+    PluginRuntimeManager(Path pluginsRoot,
+                         Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
+                         int maximumStartupVerificationEntries,
+                         long maximumStartupVerificationUncompressedBytes,
+                         long maximumStartupProvenanceBytes) {
         if (pluginsRoot == null) {
             throw new IllegalArgumentException("pluginsRoot must not be null");
+        }
+        if (maximumStartupVerificationEntries <= 0 || maximumStartupVerificationUncompressedBytes <= 0L
+                || maximumStartupProvenanceBytes <= 0L) {
+            throw new IllegalArgumentException("startup verification budgets must be positive");
         }
         this.pluginsRoot = pluginsRoot;
         this.layout = new PluginRuntimeLayout(pluginsRoot);
@@ -101,6 +152,9 @@ public class PluginRuntimeManager {
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
         this.provenanceStore = new PluginProvenanceStore(layout);
+        this.maximumStartupVerificationEntries = maximumStartupVerificationEntries;
+        this.maximumStartupVerificationUncompressedBytes = maximumStartupVerificationUncompressedBytes;
+        this.maximumStartupProvenanceBytes = maximumStartupProvenanceBytes;
     }
 
     /** 由宿主在配置解析后刷新统一验签门面；必须发生在后续 load 原语进入 PF4J 前。 */
@@ -129,26 +183,28 @@ public class PluginRuntimeManager {
             }
             return startDevelopmentMode(directory);
         }
-        if (Files.notExists(directory, LinkOption.NOFOLLOW_LINKS)) {
-            return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
-                    List.of(), List.of(), List.of()));
-        }
 
-        if (Files.isRegularFile(directory, LinkOption.NOFOLLOW_LINKS)) {
-            return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
-                    List.of(), List.of(), List.of()));
-        }
         PluginArtifactScanner.ScanResult scan;
         try {
+            BasicFileAttributes rootAttributes = attributesIfPresent(directory);
+            if (rootAttributes == null) {
+                return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
+                        List.of(), List.of(), List.of()));
+            }
+            if (!rootAttributes.isDirectory()
+                    && !rootAttributes.isSymbolicLink() && !rootAttributes.isOther()) {
+                return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
+                        List.of(), List.of(), List.of()));
+            }
+            if (rootAttributes.isSymbolicLink() || rootAttributes.isOther()) {
+                throw new IOException("plugins root must be a plain directory: " + directory);
+            }
             beforeProductionScan(directory);
+            cleanupAbandonedProductionWorkspaces();
             scan = PluginArtifactScanner.scan(directory);
         } catch (IOException | RuntimeException e) {
             return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
                     List.of(), List.of(), List.of(new PluginLoadFailure(directory.toString(), describe(e)))));
-        }
-        if (!scan.rootPresent()) {
-            return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.ABSENT,
-                    List.of(), List.of(), List.of()));
         }
         List<Path> candidates = scan.candidates();
         if (candidates.isEmpty()) {
@@ -158,17 +214,59 @@ public class PluginRuntimeManager {
 
         List<PreparedProductionArtifact> preparedCandidates = new ArrayList<>(candidates.size());
         List<PluginLoadFailure> failures = new ArrayList<>();
+        List<PluginRuntimeVerificationSnapshot> verifications = new ArrayList<>(candidates.size());
+        StartupVerificationBudget startupVerificationBudget = new StartupVerificationBudget(
+                maximumStartupVerificationEntries, maximumStartupVerificationUncompressedBytes);
+        StartupProvenanceBudget startupProvenanceBudget = new StartupProvenanceBudget(
+                maximumStartupProvenanceBytes);
         try {
-            // 在任何插件代码进入 PF4J 前冻结并校验本轮全部候选，后续依赖排序与加载只消费私有快照。
             for (Path candidate : candidates) {
                 try {
-                    preparedCandidates.add(prepareProductionArtifact(candidate));
-                } catch (RuntimeException e) {
+                    if (startupVerificationBudget.exhausted()) {
+                        PluginLoadFailure failure = new PluginLoadFailure(candidate.getFileName().toString(),
+                                "startup plugin verification cumulative resource budget exceeded");
+                        failures.add(failure);
+                        log.error("Failed to prepare plugin package {}: {}",
+                                candidate.getFileName(), failure.reason());
+                        continue;
+                    }
+                    if (startupProvenanceBudget.exhausted()) {
+                        PluginLoadFailure failure = new PluginLoadFailure(candidate.getFileName().toString(),
+                                "startup plugin provenance sidecar cumulative byte budget exceeded");
+                        failures.add(failure);
+                        log.error("Failed to prepare plugin package {}: {}",
+                                candidate.getFileName(), failure.reason());
+                        continue;
+                    }
+                    Optional<PluginProvenanceStore.MeasuredProvenance> measuredProvenance;
+                    try {
+                        measuredProvenance = readMeasuredStartupProvenance(
+                                candidate, startupProvenanceBudget.remainingBytes());
+                    } catch (PluginProvenanceStore.ReadBudgetExceededException failure) {
+                        startupProvenanceBudget.consumeFailure(failure.byteCount(), failure);
+                        throw failure;
+                    } catch (PluginProvenanceStore.InvalidProvenanceException failure) {
+                        startupProvenanceBudget.consumeFailure(failure.byteCount(), failure);
+                        throw failure;
+                    } catch (PluginProvenanceStore.ProvenanceReadException failure) {
+                        startupProvenanceBudget.consumeFailure(failure.byteCount(), failure);
+                        throw failure;
+                    } catch (IOException | RuntimeException failure) {
+                        throw failure;
+                    }
+                    long candidateProvenanceBytes = measuredProvenance
+                            .map(PluginProvenanceStore.MeasuredProvenance::byteCount)
+                            .orElse(0L);
+                    startupProvenanceBudget.consume(candidateProvenanceBytes);
+                    PreparedProductionArtifact prepared = prepareProductionArtifact(candidate,
+                            measuredProvenance.map(PluginProvenanceStore.MeasuredProvenance::record),
+                            startupVerificationBudget, verifications);
+                    preparedCandidates.add(prepared);
+                } catch (IOException | RuntimeException e) {
                     PluginLoadFailure failure = new PluginLoadFailure(
                             candidate.getFileName().toString(), describe(e));
                     failures.add(failure);
-                    log.error("Failed to prepare plugin package {}: {}",
-                            candidate.getFileName(), failure.reason());
+                    log.error("Failed to prepare plugin package {}: {}", candidate.getFileName(), failure.reason());
                 }
             }
             PluginArtifactLoadPlan loadPlan = PluginArtifactLoadPlan.createInspected(preparedCandidates.stream()
@@ -220,7 +318,7 @@ public class PluginRuntimeManager {
                 log.error("Failed to start plugin package {}: {}", packageId, describe(e));
             }
         }
-        return cache(buildStatus(directory, failures));
+        return cache(buildStatus(directory, failures, verifications));
     }
 
     /** 从明确路径加载一个插件包并创建新 generation；不会启动插件入口。 */
@@ -231,11 +329,14 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException(
                     "plugin directory is not safe for an artifact load", e);
         }
-        if (artifactPath == null) {
-            throw new PluginRuntimeOperationException("plugin artifact not found: null");
-        }
-        if (PluginDevelopmentArtifacts.enabled() && Files.isDirectory(artifactPath)) {
+        if (PluginDevelopmentArtifacts.enabled() && artifactPath != null && Files.isDirectory(artifactPath)) {
             return loadDevelopmentPlugin(artifactPath);
+        }
+        try {
+            cleanupAbandonedProductionWorkspaces();
+        } catch (RuntimeException e) {
+            throw new PluginRuntimeOperationException(
+                    "plugin directory is not safe for a production artifact load", e);
         }
         PreparedProductionArtifact prepared = prepareProductionArtifact(artifactPath);
         try {
@@ -597,6 +698,12 @@ public class PluginRuntimeManager {
         return entry == null ? Optional.empty() : Optional.of(entry.artifactPath);
     }
 
+    /** 当前已加载 generation 是否来自显式插件开发模式。 */
+    public synchronized boolean isDevelopmentArtifact(String packageId) {
+        RuntimeEntry entry = entries.get(packageId);
+        return entry != null && entry.productionSnapshot == null;
+    }
+
     /** 当前已加载 generation 的纯值描述符；停止服务不移除，物理卸载时随 runtime entry 一并释放。 */
     public synchronized Optional<PluginDescriptor> loadedDescriptor(String packageId) {
         RuntimeEntry entry = entries.get(packageId);
@@ -710,6 +817,7 @@ public class PluginRuntimeManager {
         List<RuntimeEntry> previousEntries = List.copyOf(entries.values());
         List<PluginArtifactSnapshot> previousUnconfirmedSnapshots =
                 List.copyOf(unconfirmedProductionSnapshots);
+        boolean cleanupWasSafe = abandonedWorkspaceCleanupSafe;
         pluginManager = null;
         developmentCacheSession = null;
         entries.clear();
@@ -717,17 +825,14 @@ public class PluginRuntimeManager {
         status = null;
         boolean released = previous == null || bestEffortStopAndUnload(previous, "shutdown");
         unconfirmedProductionSnapshots.clear();
+        abandonedWorkspaceCleanupCompleted = false;
+        abandonedWorkspaceCleanupSafe = cleanupWasSafe && released;
         closeProductionSnapshots(previousEntries, previousUnconfirmedSnapshots, released, "shutdown");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "shutdown");
     }
 
     public Path pluginsRoot() {
         return pluginsRoot;
-    }
-
-    /** Bootstrap-owned managers override this hook to establish the directory recovery gate. */
-    protected void beforeProductionScan(Path directory) throws IOException {
-        // The default manager has no bootstrap session ownership.
     }
 
     private LoadedPluginPackage snapshot(RuntimeEntry entry, boolean includeContributions) {
@@ -739,6 +844,11 @@ public class PluginRuntimeManager {
         }
         return new LoadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation,
                 entry.phase, inventory, modules);
+    }
+
+    /** bootstrap 子类可在扫描或任意单包加载（含开发目录）触碰 entry 前取得并复核跨进程目录租约。 */
+    protected void beforeProductionScan(Path directory) throws IOException {
+        // 默认 manager 没有 bootstrap 会话所有权；生产会话子类覆写。
     }
 
     /**
@@ -813,11 +923,39 @@ public class PluginRuntimeManager {
     private PreparedProductionArtifact prepareProductionArtifact(Path artifactPath) {
         Path attemptedPath = Objects.requireNonNull(artifactPath, "artifactPath")
                 .toAbsolutePath().normalize();
+        List<PluginRuntimeVerificationSnapshot> latestVerification = new ArrayList<>(1);
+        try {
+            return prepareProductionArtifact(
+                    attemptedPath, provenanceStore.read(attemptedPath), null, latestVerification);
+        } finally {
+            retainLatestRuntimeVerifications(attemptedPath, latestVerification);
+        }
+    }
+
+    private PreparedProductionArtifact prepareProductionArtifact(
+            Path artifactPath,
+            Optional<PluginProvenanceRecord> preReadProvenance,
+            StartupVerificationBudget startupVerificationBudget,
+            List<PluginRuntimeVerificationSnapshot> startupVerifications) {
+        PluginPackageLimits verificationLimits = startupVerificationBudget == null
+                ? PRODUCTION_PACKAGE_LIMITS
+                : startupVerificationBudget.remainingLimits(PRODUCTION_PACKAGE_LIMITS);
         PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
-                layout, attemptedPath, PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes());
+                layout, artifactPath, PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes());
         try {
             Path frozenArtifact = snapshot.snapshotArtifact();
-            PluginPackageVerifier.verify(frozenArtifact, PRODUCTION_PACKAGE_LIMITS);
+            PluginPackageVerifier.VerificationUsage verificationUsage;
+            try {
+                verificationUsage = verifyAndMeasureProductionPackage(frozenArtifact, verificationLimits);
+            } catch (PluginPackageException failure) {
+                if (startupVerificationBudget != null) {
+                    startupVerificationBudget.consumeFailure(failure);
+                }
+                throw failure;
+            }
+            if (startupVerificationBudget != null) {
+                startupVerificationBudget.consume(verificationUsage);
+            }
             PluginPackageInspection inspection = PluginPackageReader.inspect(
                     frozenArtifact, PRODUCTION_PACKAGE_LIMITS);
             if (inspection.innerJarEntry() != null) {
@@ -825,12 +963,23 @@ public class PluginRuntimeManager {
                         "installed plugin package must be canonical and cannot contain an inner plugin jar: "
                                 + snapshot.originalArtifact());
             }
-            PluginProvenanceRecord provenance = provenanceStore.read(snapshot.originalArtifact()).orElse(null);
+            PluginProvenanceRecord provenance = Objects.requireNonNull(
+                    preReadProvenance, "preReadProvenance").orElse(null);
             VerificationResult result = verificationService.verifyInstalled(
                     frozenArtifact, inspection.descriptor(), provenance);
+            if (startupVerifications != null) {
+                startupVerifications.add(new PluginRuntimeVerificationSnapshot(
+                        snapshot.originalArtifact(),
+                        inspection.descriptor().id(),
+                        inspection.descriptor().version(),
+                        result.sizeBytes(),
+                        result.sha256(),
+                        provenance,
+                        result));
+            }
             try {
                 if (provenance != null) {
-                    provenanceStore.write(snapshot.originalArtifact(), provenance.withOfflineResult(
+                    persistOfflineVerification(snapshot.originalArtifact(), provenance.withOfflineResult(
                             result, inspection.descriptor().id(), inspection.descriptor().version()));
                 }
             } catch (IOException e) {
@@ -851,6 +1000,22 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException(
                     "failed to prepare plugin artifact " + snapshot.originalArtifact(), failure);
         }
+    }
+
+    Optional<PluginProvenanceStore.MeasuredProvenance> readMeasuredStartupProvenance(
+            Path artifactPath,
+            long maximumBytes) throws IOException {
+        return provenanceStore.readMeasuredCompatible(artifactPath, maximumBytes);
+    }
+
+    void persistOfflineVerification(Path artifactPath, PluginProvenanceRecord provenance) throws IOException {
+        provenanceStore.write(artifactPath, provenance);
+    }
+
+    PluginPackageVerifier.VerificationUsage verifyAndMeasureProductionPackage(
+            Path frozenArtifact,
+            PluginPackageLimits limits) {
+        return PluginPackageVerifier.verifyAndMeasure(frozenArtifact, limits);
     }
 
     private LoadedPluginPackage loadPreparedProductionArtifact(PreparedProductionArtifact prepared) {
@@ -874,11 +1039,68 @@ public class PluginRuntimeManager {
     }
 
     private PluginRuntimeStatus buildStatus(Path directory, List<PluginLoadFailure> failures) {
+        return buildStatus(directory, failures, List.of());
+    }
+
+    private PluginRuntimeStatus buildStatus(
+            Path directory,
+            List<PluginLoadFailure> failures,
+            List<PluginRuntimeVerificationSnapshot> verifications) {
         List<String> loaded = List.copyOf(entries.keySet());
         List<String> started = entries.values().stream()
                 .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
                 .map(entry -> entry.packageId).toList();
-        return new PluginRuntimeStatus(directory, PluginDirectoryState.POPULATED, loaded, started, failures);
+        return new PluginRuntimeStatus(
+                directory, PluginDirectoryState.POPULATED, loaded, started, failures, verifications);
+    }
+
+    /**
+     * 运行期 load / reload 也会重新执行离线复验；其结构化结果必须替换同一安装路径的启动快照。
+     * 这样即使 sidecar 写回失败，管理面也不会把旧启动结论当成最新验证事实。
+     */
+    private void retainLatestRuntimeVerifications(
+            Path attemptedPath,
+            List<PluginRuntimeVerificationSnapshot> latest) {
+        Set<Path> replacedPaths = new LinkedHashSet<>();
+        Set<String> replacedPluginIds = new LinkedHashSet<>();
+        if (attemptedPath != null) {
+            replacedPaths.add(attemptedPath.toAbsolutePath().normalize());
+        }
+        if (latest != null) {
+            replacedPaths.addAll(latest.stream()
+                .map(PluginRuntimeVerificationSnapshot::artifactPath)
+                .toList());
+            replacedPluginIds.addAll(latest.stream()
+                    .map(PluginRuntimeVerificationSnapshot::pluginId)
+                    .toList());
+        }
+        if (replacedPaths.isEmpty() && replacedPluginIds.isEmpty()) {
+            return;
+        }
+        PluginRuntimeStatus current = status;
+        List<PluginRuntimeVerificationSnapshot> merged = new ArrayList<>();
+        if (current != null) {
+            current.verifications().stream()
+                    .filter(snapshot -> !replacedPaths.contains(snapshot.artifactPath())
+                            && !replacedPluginIds.contains(snapshot.pluginId()))
+                    .forEach(merged::add);
+        }
+        if (latest != null) {
+            merged.addAll(latest);
+        }
+        if (merged.size() > MAX_RUNTIME_VERIFICATION_SNAPSHOTS) {
+            merged.subList(0, merged.size() - MAX_RUNTIME_VERIFICATION_SNAPSHOTS).clear();
+        }
+        if (current == null) {
+            if (merged.isEmpty()) {
+                return;
+            }
+            status = buildStatus(pluginsRoot.toAbsolutePath().normalize(), List.of(), merged);
+            return;
+        }
+        status = new PluginRuntimeStatus(
+                current.directory(), current.state(), current.loadedPluginIds(), current.startedPluginIds(),
+                current.failures(), merged);
     }
 
     private void refreshStatus() {
@@ -892,7 +1114,8 @@ public class PluginRuntimeManager {
         this.status = new PluginRuntimeStatus(directory, state,
                 List.copyOf(entries.keySet()), entries.values().stream()
                 .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
-                .map(entry -> entry.packageId).toList(), List.of());
+                .map(entry -> entry.packageId).toList(), List.of(),
+                status != null ? status.verifications() : List.of());
     }
 
     private synchronized void resetPluginManager() {
@@ -901,11 +1124,14 @@ public class PluginRuntimeManager {
         List<RuntimeEntry> previousEntries = List.copyOf(entries.values());
         List<PluginArtifactSnapshot> previousUnconfirmedSnapshots =
                 List.copyOf(unconfirmedProductionSnapshots);
+        boolean cleanupWasSafe = abandonedWorkspaceCleanupSafe;
         pluginManager = null;
         developmentCacheSession = null;
         entries.clear();
         boolean released = previous == null || bestEffortStopAndUnload(previous, "reset");
         unconfirmedProductionSnapshots.clear();
+        abandonedWorkspaceCleanupCompleted = false;
+        abandonedWorkspaceCleanupSafe = cleanupWasSafe && released;
         closeProductionSnapshots(previousEntries, previousUnconfirmedSnapshots, released, "reset");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "reset");
     }
@@ -913,6 +1139,18 @@ public class PluginRuntimeManager {
     private PluginRuntimeStatus cache(PluginRuntimeStatus value) {
         this.status = value;
         return value;
+    }
+
+    private void cleanupAbandonedProductionWorkspaces() {
+        if (abandonedWorkspaceCleanupCompleted) {
+            return;
+        }
+        if (!abandonedWorkspaceCleanupSafe || !entries.isEmpty()) {
+            log.warn("Skipping abandoned plugin artifact workspace cleanup because wrapper release is unconfirmed");
+            return;
+        }
+        PluginArtifactSnapshot.cleanupAbandonedWorkspaces(layout);
+        abandonedWorkspaceCleanupCompleted = true;
     }
 
     private static boolean bestEffortStopAndUnload(PluginManager manager, String action) {
@@ -948,7 +1186,7 @@ public class PluginRuntimeManager {
         try {
             if (!manager.getPlugins().isEmpty()) {
                 releasedCleanly = false;
-                log.warn("Plugin wrappers remain after runtime {}; development cache session will be retained",
+                log.warn("Plugin wrappers remain after runtime {}; owned artifact workspaces will be retained",
                         action);
             }
         } catch (Throwable failure) {
@@ -1050,6 +1288,7 @@ public class PluginRuntimeManager {
     private void retainUnconfirmedProductionSnapshot(PluginArtifactSnapshot snapshot) {
         if (snapshot != null) {
             unconfirmedProductionSnapshots.add(snapshot);
+            abandonedWorkspaceCleanupSafe = false;
         }
     }
 
@@ -1214,6 +1453,14 @@ public class PluginRuntimeManager {
         }
     }
 
+    private static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
+        try {
+            return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        } catch (NoSuchFileException e) {
+            return null;
+        }
+    }
+
     private static String describe(Throwable error) {
         if (error == null) {
             return "unknown error";
@@ -1226,6 +1473,10 @@ public class PluginRuntimeManager {
             PluginSupplyChainVerifier verifier) {
         PluginSupplyChainVerifier fixed = Objects.requireNonNull(verifier, "verifier");
         return origin -> fixed;
+    }
+
+    private static boolean wouldExceed(long consumed, long additional, long maximum) {
+        return additional < 0L || consumed < 0L || consumed > maximum || additional > maximum - consumed;
     }
 
     private static final class PreparedProductionArtifact implements AutoCloseable {
@@ -1275,6 +1526,114 @@ public class PluginRuntimeManager {
             PluginArtifactSnapshot current = snapshot;
             snapshot = null;
             closeProductionSnapshot(current);
+        }
+    }
+
+    private static final class StartupVerificationBudget {
+        private final int maximumEntries;
+        private final long maximumUncompressedBytes;
+        private long consumedEntries;
+        private long consumedUncompressedBytes;
+        private boolean exhausted;
+
+        private StartupVerificationBudget(int maximumEntries, long maximumUncompressedBytes) {
+            this.maximumEntries = maximumEntries;
+            this.maximumUncompressedBytes = maximumUncompressedBytes;
+        }
+
+        private void consume(PluginPackageVerifier.VerificationUsage usage) {
+            consume(usage, null);
+        }
+
+        private void consumeFailure(PluginPackageException failure) {
+            if (!failure.hasVerificationUsage()) {
+                exhausted = true;
+                return;
+            }
+            consume(new PluginPackageVerifier.VerificationUsage(
+                    failure.consumedEntries(), failure.consumedUncompressedBytes()), failure);
+        }
+
+        private void consume(PluginPackageVerifier.VerificationUsage usage, Throwable cause) {
+            boolean exceedsBudget = wouldExceed(consumedEntries, usage.entryCount(), maximumEntries)
+                    || wouldExceed(consumedUncompressedBytes, usage.totalUncompressedBytes(),
+                    maximumUncompressedBytes);
+            consumedEntries += usage.entryCount();
+            consumedUncompressedBytes += usage.totalUncompressedBytes();
+            exhausted = exhausted || exceedsBudget
+                    || consumedEntries >= maximumEntries
+                    || consumedUncompressedBytes >= maximumUncompressedBytes;
+            if (exceedsBudget) {
+                throw new PluginRuntimeOperationException(
+                        "startup plugin verification cumulative resource budget exceeded", cause);
+            }
+        }
+
+        private PluginPackageLimits remainingLimits(PluginPackageLimits packageLimits) {
+            if (exhausted()) {
+                throw new PluginRuntimeOperationException(
+                        "startup plugin verification cumulative resource budget exceeded");
+            }
+            int remainingEntries = (int) Math.min(
+                    packageLimits.maxEntries(), maximumEntries - consumedEntries);
+            long remainingUncompressedBytes = Math.min(
+                    packageLimits.maxTotalUncompressedBytes(),
+                    maximumUncompressedBytes - consumedUncompressedBytes);
+            return new PluginPackageLimits(
+                    packageLimits.maxArchiveBytes(),
+                    remainingEntries,
+                    remainingUncompressedBytes,
+                    Math.min(packageLimits.maxEntryUncompressedBytes(), remainingUncompressedBytes),
+                    packageLimits.maxDescriptorBytes(),
+                    packageLimits.maxCompressionRatio());
+        }
+
+        private boolean exhausted() {
+            return exhausted;
+        }
+    }
+
+    private static final class StartupProvenanceBudget {
+        private final long maximumBytes;
+        private long consumedBytes;
+        private boolean exhausted;
+
+        private StartupProvenanceBudget(long maximumBytes) {
+            this.maximumBytes = maximumBytes;
+        }
+
+        private void consume(long byteCount) {
+            consume(byteCount, null);
+        }
+
+        private void consumeFailure(long byteCount, Throwable cause) {
+            consume(byteCount, cause);
+        }
+
+        private void consume(long byteCount, Throwable cause) {
+            boolean exceedsBudget = wouldExceed(consumedBytes, byteCount, maximumBytes);
+            if (byteCount < 0L || consumedBytes > Long.MAX_VALUE - byteCount) {
+                consumedBytes = Long.MAX_VALUE;
+            } else {
+                consumedBytes += byteCount;
+            }
+            exhausted = exhausted || exceedsBudget || consumedBytes >= maximumBytes;
+            if (exceedsBudget) {
+                throw new PluginRuntimeOperationException(
+                        "startup plugin provenance sidecar cumulative byte budget exceeded", cause);
+            }
+        }
+
+        private long remainingBytes() {
+            if (exhausted()) {
+                throw new PluginRuntimeOperationException(
+                        "startup plugin provenance sidecar cumulative byte budget exceeded");
+            }
+            return maximumBytes - consumedBytes;
+        }
+
+        private boolean exhausted() {
+            return exhausted;
         }
     }
 

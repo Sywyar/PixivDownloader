@@ -5,9 +5,11 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.DirectoryStream;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
@@ -70,6 +72,56 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         }
     }
 
+    /**
+     * 在 bootstrap 已取得插件目录 lease、完成事务恢复且尚无活动 generation 时清理崩溃遗留 workspace。
+     * marker 只授权清理，绝不授权复用或加载其中内容。
+     */
+    public static void cleanupAbandonedWorkspaces(PluginRuntimeLayout layout) {
+        Objects.requireNonNull(layout, "layout");
+        Path pluginsRoot = layout.pluginsRoot().toAbsolutePath().normalize();
+        Path runtimeRoot = layout.runtimeDirectory().toAbsolutePath().normalize();
+        try {
+            requirePlainDirectory(pluginsRoot, "plugins root");
+            if (!Objects.equals(runtimeRoot.getParent(), pluginsRoot)) {
+                throw new IOException("plugin runtime directory is not a direct child of the plugins root");
+            }
+            BasicFileAttributes runtimeAttributes = attributesIfPresent(runtimeRoot);
+            if (runtimeAttributes == null) {
+                return;
+            }
+            requirePlainDirectory(runtimeRoot, "plugin runtime directory");
+            int inspected = 0;
+            try (DirectoryStream<Path> children = Files.newDirectoryStream(runtimeRoot)) {
+                for (Path child : children) {
+                    if (++inspected > MAX_WORKSPACE_ENTRIES) {
+                        throw new IOException("plugin runtime directory exceeds the supported entry count");
+                    }
+                    Path normalized = child.toAbsolutePath().normalize();
+                    if (!Objects.equals(normalized.getParent(), runtimeRoot)
+                            || !normalized.getFileName().toString().startsWith(WORKSPACE_PREFIX)) {
+                        continue;
+                    }
+                    BasicFileAttributes attributes = attributesIfPresent(normalized);
+                    if (attributes == null) {
+                        continue;
+                    }
+                    if (attributes.isSymbolicLink() || attributes.isOther() || !attributes.isDirectory()) {
+                        log.warn("Retaining unsafe abandoned plugin artifact workspace candidate {}", normalized);
+                        continue;
+                    }
+                    if (hasOwnedMarker(normalized)) {
+                        deleteWorkspaceQuietly(normalized);
+                    } else {
+                        log.warn("Retaining unowned plugin artifact workspace candidate {}", normalized);
+                    }
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            throw new PluginRuntimeOperationException(
+                    "failed to clean abandoned plugin artifact workspaces under " + runtimeRoot, e);
+        }
+    }
+
     public Path originalArtifact() {
         return originalArtifact;
     }
@@ -124,6 +176,21 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
             properties.store(out, "PixivDownloader private plugin runtime workspace");
         }
+    }
+
+    private static boolean hasOwnedMarker(Path workspace) throws IOException {
+        Path marker = workspace.resolve(OWNER_MARKER);
+        BasicFileAttributes attributes = attributesIfPresent(marker);
+        if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
+                || !attributes.isRegularFile() || attributes.size() > 64L * 1024L) {
+            return false;
+        }
+        Properties properties = new Properties();
+        try (InputStream in = Files.newInputStream(marker, LinkOption.NOFOLLOW_LINKS)) {
+            properties.load(in);
+        }
+        return "1".equals(properties.getProperty("formatVersion"))
+                && workspace.getFileName().toString().equals(properties.getProperty("workspace.name"));
     }
 
     private static void copyBoundedNoFollow(Path source, Path target, long maximumBytes) throws IOException {
