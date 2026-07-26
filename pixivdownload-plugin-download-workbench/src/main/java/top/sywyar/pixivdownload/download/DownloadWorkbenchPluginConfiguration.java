@@ -32,6 +32,7 @@ import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
@@ -57,7 +58,6 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
@@ -306,14 +306,12 @@ public class DownloadWorkbenchPluginConfiguration {
     public PixivProxyController pixivProxyController(ObjectMapper objectMapper,
                                                      @Qualifier("restTemplate") RestTemplate restTemplate,
                                                      PixivFetchService pixivFetchService,
-                                                     ApplicationModeProvider applicationModeProvider,
+                                                     PixivProxyAccessPolicy pixivProxyAccessPolicy,
                                                      RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                     UserQuotaService userQuotaService,
-                                                     MultiModeSettings multiModeSettings,
                                                      WorkVisibilityService workVisibilityService,
                                                      @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new PixivProxyController(objectMapper, restTemplate, pixivFetchService,
-                applicationModeProvider, requestOwnerIdentityResolver,
-                userQuotaService, multiModeSettings, workVisibilityService, messages);
+                pixivProxyAccessPolicy, requestOwnerIdentityResolver,
+                workVisibilityService, messages);
     }
 }

@@ -76,6 +76,18 @@ class PixivProxyAccessGuardTest {
     }
 
     @Test
+    @DisplayName("multi 游客已有 owner 且配额允许时放行并恰好预留一次")
+    void shouldAllowExistingOwnerAfterSingleQuotaReservation() {
+        when(setupService.getMode()).thenReturn("multi");
+        when(userQuotaService.checkAndReserveProxy("owner-1")).thenReturn(true);
+
+        PixivProxyAccessDecision decision = policy.evaluate("owner-1", false);
+
+        assertThat(decision.outcome()).isEqualTo(PixivProxyAccessOutcome.ALLOWED);
+        verify(userQuotaService).checkAndReserveProxy("owner-1");
+    }
+
+    @Test
     @DisplayName("multi 游客配额耗尽时返回稳定限流详情")
     void shouldReturnRateLimitDetailsWhenQuotaIsExhausted() {
         when(setupService.getMode()).thenReturn("multi");

@@ -41,7 +41,9 @@ class DownloadWorkbenchDependencyGuardTest {
             "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
             "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
             "top.sywyar.pixivdownload.core.notification.NotificationService",
+            "top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard",
             "top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry",
+            "top.sywyar.pixivdownload.quota.UserQuotaService",
             "top.sywyar.pixivdownload.setup.SetupService",
             "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard");
     private static final DescribedPredicate<JavaClass> HOST_BOUNDARY_IMPLEMENTATION =
@@ -170,11 +172,11 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("下载工作台不得依赖宿主运行路径、配置、i18n、通知、setup 与访客守卫实现")
+    @DisplayName("下载工作台不得依赖宿主路径、配置、i18n、通知、代理访问、setup 与访客守卫实现")
     void workbenchDoesNotDependOnHostBoundaryImplementations() {
         noClasses()
                 .should().dependOnClassesThat(HOST_BOUNDARY_IMPLEMENTATION)
-                .because("外置插件只能依赖稳定路径、设置、身份、i18n、通知端口与 WorkVisibilityService")
+                .because("外置插件只能依赖稳定路径、设置、身份、i18n、通知、代理访问端口与 WorkVisibilityService")
                 .check(CLASSES);
     }
 

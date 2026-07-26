@@ -15,22 +15,20 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.download.response.ProxyRateLimitResponse;
-import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -52,10 +50,8 @@ public class PixivProxyController {
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
     private final PixivFetchService pixivFetchService;
-    private final ApplicationModeProvider applicationModeProvider;
+    private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    private final UserQuotaService userQuotaService;
-    private final MultiModeSettings multiModeSettings;
     private final WorkVisibilityService workVisibilityService;
     private final MessageResolver messages;
 
@@ -71,33 +67,21 @@ public class PixivProxyController {
     }
 
     /**
-     * 多人模式访问控制：
-     * - 要求 UUID 已存在（cookie 或 X-User-UUID 请求头），不接受自动生成的匿名访问
-     * - 在 resetPeriodHours 窗口内最多 maxArtworks 次代理请求
+     * 多人模式访问控制：判定与配额预留统一交给宿主代理访问策略端口，
      * 返回 null 表示校验通过；返回 ResponseEntity 表示应直接返回该错误。
-     * solo 模式已由 AuthFilter 完成认证，直接返回 null。
      */
     private ResponseEntity<?> checkMultiModeAccess(HttpServletRequest request) {
-        if (!"multi".equals(applicationModeProvider.getMode())) {
-            return null; // solo 模式，AuthFilter 已验证 session
-        }
-        RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
-        if (identity.admin()) {
-            return null; // multi 模式下管理员不受代理请求限制
-        }
-        Optional<String> existingOwnerUuid = requestOwnerIdentityResolver.resolveExistingOwnerUuid(request);
-        if (existingOwnerUuid.isEmpty()) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.user-uuid.missing")));
-        }
-        String uuid = existingOwnerUuid.orElseThrow();
-        if (!userQuotaService.checkAndReserveProxy(uuid)) {
-            int max = multiModeSettings.getMaxProxyRequests();
-            int hours = multiModeSettings.getResetPeriodHours();
-            return ResponseEntity.status(429).body(new ProxyRateLimitResponse(
-                    messages.get("pixiv.proxy.rate-limit.exceeded", hours, max),
-                    max, hours));
-        }
-        return null;
+        PixivProxyAccessDecision decision = pixivProxyAccessPolicy.evaluate(
+                requestOwnerIdentityResolver.resolveExistingOwnerUuid(request).orElse(null),
+                requestOwnerIdentityResolver.isAdminAuthenticated(request));
+        return switch (decision.outcome()) {
+            case ALLOWED -> null;
+            case OWNER_REQUIRED -> ResponseEntity.status(401)
+                    .body(new ErrorResponse(decision.errorMessage()));
+            case RATE_LIMITED -> ResponseEntity.status(429)
+                    .body(new ProxyRateLimitResponse(
+                            decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
+        };
     }
 
     /**
@@ -363,13 +347,8 @@ public class PixivProxyController {
     }
 
     private int resolveSearchFillLimitPage(HttpServletRequest request) {
-        if (!"multi".equals(applicationModeProvider.getMode())) {
-            return 0;
-        }
-        if (requestOwnerIdentityResolver.resolve(request).admin()) {
-            return 0;
-        }
-        return Math.max(0, multiModeSettings.getLimitPage());
+        return pixivProxyAccessPolicy.resolveSearchFillLimitPage(
+                requestOwnerIdentityResolver.isAdminAuthenticated(request));
     }
 
     /**

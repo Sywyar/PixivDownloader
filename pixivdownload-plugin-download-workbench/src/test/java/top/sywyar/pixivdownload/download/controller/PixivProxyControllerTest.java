@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -22,23 +21,21 @@ import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
+import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.net.URI;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -61,28 +58,31 @@ class PixivProxyControllerTest {
     @Mock
     private PixivAjaxClient pixivAjaxClient;
     @Mock
-    private ApplicationModeProvider applicationModeProvider;
+    private PixivProxyAccessPolicy pixivProxyAccessPolicy;
     @Mock
     private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     @Mock
-    private UserQuotaService userQuotaService;
-    @Mock
     private WorkVisibilityService workVisibilityService;
-
-    @Mock
-    private MultiModeSettings multiModeSettings;
 
     @BeforeEach
     void setUp() {
+        // 默认按放行策略执行（等价 solo / 管理员场景）；多人模式判定由具体用例覆盖 stub。
+        lenient().when(pixivProxyAccessPolicy.evaluate(any(), anyBoolean()))
+                .thenReturn(allowedDecision());
+        lenient().when(pixivProxyAccessPolicy.resolveSearchFillLimitPage(anyBoolean()))
+                .thenReturn(0);
         PixivFetchService pixivFetchService =
                 new PixivFetchService(pixivAjaxClient, objectMapper);
         PixivProxyController controller = new PixivProxyController(
-                objectMapper, restTemplate, pixivFetchService, applicationModeProvider,
-                requestOwnerIdentityResolver, userQuotaService,
-                multiModeSettings, workVisibilityService, MESSAGES);
+                objectMapper, restTemplate, pixivFetchService, pixivProxyAccessPolicy,
+                requestOwnerIdentityResolver, workVisibilityService, MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
                 .build();
+    }
+
+    private static PixivProxyAccessDecision allowedDecision() {
+        return new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0);
     }
 
     // ========== GET /api/pixiv/search ==========
@@ -90,11 +90,6 @@ class PixivProxyControllerTest {
     @Nested
     @DisplayName("GET /api/pixiv/search")
     class SearchTests {
-
-        @BeforeEach
-        void setUpSoloMode() {
-            lenient().when(applicationModeProvider.getMode()).thenReturn("solo");
-        }
 
         private static final String PIXIV_SEARCH_RESPONSE = """
                 {
@@ -360,76 +355,78 @@ class PixivProxyControllerTest {
         }
     }
 
-    // ========== 多人模式访问控制 ==========
+    // ========== 代理访问控制 ==========
 
     @Nested
-    @DisplayName("多人模式访问控制 (checkMultiModeAccess)")
-    class MultiModeAccessTests {
-
-        @BeforeEach
-        void setUpMultiMode() {
-            when(applicationModeProvider.getMode()).thenReturn("multi");
-            lenient().when(requestOwnerIdentityResolver.resolve(any()))
-                    .thenReturn(RequestOwnerIdentity.owner("generated-owner"));
-        }
+    @DisplayName("代理访问策略")
+    class ProxyAccessTests {
 
         @Test
-        @DisplayName("缺少 UUID（cookie/header 都无）应返回 401")
-        void shouldReturn401WhenUuidMissing() throws Exception {
+        @DisplayName("策略要求现有 owner UUID 时保持 401 error 响应形状")
+        void shouldReturnOwnerRequiredResponse() throws Exception {
             when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.empty());
+            when(pixivProxyAccessPolicy.evaluate(isNull(), eq(false))).thenReturn(
+                    new PixivProxyAccessDecision(
+                            PixivProxyAccessOutcome.OWNER_REQUIRED, "缺少用户 UUID", 0, 0));
 
             mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isUnauthorized())
-                    .andExpect(jsonPath("$.error").value(containsString("UUID")));
+                    .andExpect(jsonPath("$.error").value("缺少用户 UUID"))
+                    .andExpect(jsonPath("$.maxRequests").doesNotExist());
 
-            verify(userQuotaService, never()).checkAndReserveProxy(any());
+            verify(pixivProxyAccessPolicy).evaluate(isNull(), eq(false));
+            verify(requestOwnerIdentityResolver, never()).resolve(any());
+            verifyNoInteractions(pixivAjaxClient);
         }
 
         @Test
-        @DisplayName("UUID 已存在但代理请求超额应返回 429 + 提示")
-        void shouldReturn429WhenProxyQuotaExceeded() throws Exception {
-            String uuid = UUID.randomUUID().toString();
-            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(uuid));
+        @DisplayName("策略判定配额耗尽时保持 429 限流详情响应形状")
+        void shouldReturnRateLimitResponse() throws Exception {
+            String uuid = "owner-1";
             when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.of(uuid));
-            when(multiModeSettings.getMaxProxyRequests()).thenReturn(20);
-            when(multiModeSettings.getResetPeriodHours()).thenReturn(24);
-            when(userQuotaService.checkAndReserveProxy(uuid)).thenReturn(false);
+            when(pixivProxyAccessPolicy.evaluate(uuid, false)).thenReturn(
+                    new PixivProxyAccessDecision(
+                            PixivProxyAccessOutcome.RATE_LIMITED, "请求次数已达上限", 20, 24));
 
-            mockMvc.perform(get("/api/pixiv/user/9999/artworks")
-                            .cookie(new Cookie("pixiv_user_id", uuid)))
+            mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.error").value("请求次数已达上限"))
                     .andExpect(jsonPath("$.maxRequests").value(20))
                     .andExpect(jsonPath("$.windowHours").value(24));
+
+            verify(pixivProxyAccessPolicy).evaluate(uuid, false);
+            verifyNoInteractions(pixivAjaxClient);
         }
 
         @Test
-        @DisplayName("多人模式下管理员应跳过代理请求限流")
-        void shouldBypassProxyLimitForAdmin() throws Exception {
-            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
+        @DisplayName("已认证管理员由稳定策略放行且不生成 owner 身份")
+        void shouldPassAuthenticatedAdminToAccessPolicy() throws Exception {
+            when(requestOwnerIdentityResolver.isAdminAuthenticated(any())).thenReturn(true);
+            when(pixivProxyAccessPolicy.evaluate(isNull(), eq(true))).thenReturn(allowedDecision());
             when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
                     .thenReturn("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}");
 
             mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isOk());
 
-            verify(userQuotaService, never()).checkAndReserveProxy(any());
+            verify(pixivProxyAccessPolicy).evaluate(isNull(), eq(true));
+            verify(requestOwnerIdentityResolver, never()).resolve(any());
         }
 
         @Test
-        @DisplayName("UUID 合法且未超额应放行并消费一次代理配额")
-        void shouldReserveProxyQuotaAndPassThrough() throws Exception {
-            String uuid = UUID.randomUUID().toString();
-            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(uuid));
+        @DisplayName("现有 owner UUID 由稳定策略放行后继续代理请求")
+        void shouldPassExistingOwnerToAccessPolicy() throws Exception {
+            String uuid = "owner-1";
             when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.of(uuid));
-            when(userQuotaService.checkAndReserveProxy(uuid)).thenReturn(true);
+            when(pixivProxyAccessPolicy.evaluate(uuid, false)).thenReturn(allowedDecision());
             when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
                     .thenReturn("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}");
 
-            mockMvc.perform(get("/api/pixiv/user/9999/artworks")
-                            .cookie(new Cookie("pixiv_user_id", uuid)))
+            mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isOk());
 
-            verify(userQuotaService).checkAndReserveProxy(uuid);
+            verify(pixivProxyAccessPolicy).evaluate(uuid, false);
+            verify(pixivAjaxClient).get(any(URI.class), nullable(String.class));
         }
     }
 
@@ -438,11 +435,6 @@ class PixivProxyControllerTest {
     @Nested
     @DisplayName("GET /api/pixiv/search/range")
     class SearchRangeTests {
-
-        @BeforeEach
-        void setUpSoloMode() {
-            when(applicationModeProvider.getMode()).thenReturn("solo");
-        }
 
         private static final String PIXIV_SEARCH_RESPONSE = """
                 {
@@ -470,7 +462,7 @@ class PixivProxyControllerTest {
                 """;
 
         @Test
-        @DisplayName("按页码范围抓取并跨页去重，solo 模式不限页数")
+        @DisplayName("稳定策略不设补页上限时按页码范围抓取并跨页去重")
         void shouldFetchRangeAndDedupe() throws Exception {
             when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
                     .thenReturn(PIXIV_SEARCH_RESPONSE);
@@ -490,14 +482,15 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.items", hasSize(1)))
                     .andExpect(jsonPath("$.items[0].id").value("123456"))
                     .andExpect(jsonPath("$.items[0].tags[0]").value("TagA"));
+
+            verify(pixivProxyAccessPolicy).resolveSearchFillLimitPage(false);
         }
 
         @Test
-        @DisplayName("multi 模式管理员不受 limitPage 限制")
-        void shouldNotLimitRangePagesForMultiModeAdmin() throws Exception {
-            reset(applicationModeProvider, requestOwnerIdentityResolver);
-            when(applicationModeProvider.getMode()).thenReturn("multi");
-            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
+        @DisplayName("已认证管理员按稳定策略不受补页上限限制")
+        void shouldNotLimitRangePagesForAuthenticatedAdmin() throws Exception {
+            when(requestOwnerIdentityResolver.isAdminAuthenticated(any())).thenReturn(true);
+            when(pixivProxyAccessPolicy.resolveSearchFillLimitPage(true)).thenReturn(0);
             when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
                     .thenReturn(PIXIV_SEARCH_RESPONSE);
 
@@ -512,7 +505,29 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.limitPage").value(0));
 
             verify(pixivAjaxClient, times(3)).get(any(URI.class), nullable(String.class));
-            verify(userQuotaService, never()).checkAndReserveProxy(any());
+            verify(pixivProxyAccessPolicy).resolveSearchFillLimitPage(true);
+            verify(requestOwnerIdentityResolver, never()).resolve(any());
+        }
+
+        @Test
+        @DisplayName("游客补页范围受稳定策略返回的页数上限约束")
+        void shouldCapRangePagesUsingAccessPolicy() throws Exception {
+            when(pixivProxyAccessPolicy.resolveSearchFillLimitPage(false)).thenReturn(2);
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
+
+            mockMvc.perform(get("/api/pixiv/search/range")
+                            .param("word", "初音ミク")
+                            .param("startPage", "1")
+                            .param("endPage", "3"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.requestedPages").value(3))
+                    .andExpect(jsonPath("$.acceptedPages").value(2))
+                    .andExpect(jsonPath("$.fetchedPages").value(2))
+                    .andExpect(jsonPath("$.limitPage").value(2));
+
+            verify(pixivAjaxClient, times(2)).get(any(URI.class), nullable(String.class));
+            verify(pixivProxyAccessPolicy).resolveSearchFillLimitPage(false);
         }
 
         @Test
@@ -534,11 +549,6 @@ class PixivProxyControllerTest {
     @Nested
     @DisplayName("GET /api/pixiv/artwork/{id}/meta")
     class ArtworkMetaTests {
-
-        @BeforeEach
-        void setUpSoloMode() {
-            when(applicationModeProvider.getMode()).thenReturn("solo");
-        }
 
         @Test
         @DisplayName("应返回 xRestrict / bookmarkCount / description / tags 等扩展字段")
