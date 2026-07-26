@@ -20,7 +20,8 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -35,7 +36,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
-import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleCredentialCircuitOpenException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionControlException;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
@@ -75,11 +75,11 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private ScheduledTaskStore store;
     @Mock
-    private top.sywyar.pixivdownload.core.notification.NotificationService notificationService;
+    private NotificationDispatcher notificationDispatcher;
     @Mock
     private MessageResolver messages;
     @Mock
-    private WebI18nBundleRegistry webI18nBundleRegistry;
+    private NamespaceMessageResolver namespaceMessageResolver;
     @Mock
     private UserDisplayNameProvider userDisplayNameProvider;
 
@@ -244,7 +244,7 @@ class ScheduleExecutorRunTimingTest {
                 eq(7L), eq(2L), eq(ScheduleSuspendReason.CREDENTIAL), eq("COOKIE_DEAD"), eq("{}"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
-        verify(notificationService).notify(
+        verify(notificationDispatcher).notify(
                 eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
         assertThat(placeholders.getValue()).doesNotContainKey("next_run_time");
     }
@@ -302,7 +302,7 @@ class ScheduleExecutorRunTimingTest {
                 .isEqualTo("pixiv.illust.access-unavailable");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
-        verify(notificationService).notify(
+        verify(notificationDispatcher).notify(
                 eq(NotificationScenario.CIRCUIT_BREAKER), any(), placeholders.capture());
         assertThat(placeholders.getValue())
                 .containsEntry("consecutive_failures", "5")
@@ -354,7 +354,7 @@ class ScheduleExecutorRunTimingTest {
         assertThat(completion.checkpointJson()).isNull();
         verify(store, never()).removeCredential(
                 eq(11L), anyLong(), anyString(), anyString());
-        verify(notificationService, never()).notify(
+        verify(notificationDispatcher, never()).notify(
                 eq(NotificationScenario.DEGRADED_ANONYMOUS), any(), any());
     }
 
@@ -380,7 +380,7 @@ class ScheduleExecutorRunTimingTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
-        verify(notificationService, times(3)).notify(
+        verify(notificationDispatcher, times(3)).notify(
                 eq(NotificationScenario.PENDING_EXHAUSTED), any(), placeholders.capture());
         assertThat(placeholders.getAllValues().get(0))
                 .containsEntry("work_id", "video:abc/1")
@@ -404,20 +404,14 @@ class ScheduleExecutorRunTimingTest {
         when(engine.execute(eq(task), any())).thenThrow(new ScheduleExecutionControlException(
                 ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL,
                 "COOKIE_DEAD", 0L, ScheduledGuardEvidence.empty()));
-        WebI18nBundleRegistry.RegisteredBundle bundle = new WebI18nBundleRegistry.RegisteredBundle(
-                "fixture",
-                new I18nContribution("fixture", "i18n.web.fixture"),
-                Map.of(
-                        "en-US", Map.of("source.label", "Fixture source"),
-                        "zh-CN", Map.of("source.label", "Fixture source")),
-                null);
-        when(webI18nBundleRegistry.resolve("fixture")).thenReturn(bundle);
+        when(namespaceMessageResolver.resolve(eq("fixture"), any(), eq("source.label")))
+                .thenReturn(Optional.of("Fixture source"));
 
         genericExecutor(engine).runTaskAndRecord(task);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
-        verify(notificationService).notify(
+        verify(notificationDispatcher).notify(
                 eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
         assertThat(placeholders.getValue()).containsEntry("task_type", "Fixture source");
     }
@@ -637,9 +631,9 @@ class ScheduleExecutorRunTimingTest {
                 registry,
                 localRunState,
                 objectMapper,
-                notificationService,
+                notificationDispatcher,
                 messages,
-                webI18nBundleRegistry,
+                namespaceMessageResolver,
                 userDisplayNameProvider,
                 engine);
     }

@@ -243,8 +243,9 @@ class ScheduleRunnerLeaseTest {
         });
         ScheduleExecutor executor = new ScheduleExecutor(
                 store, registry, runState, new com.fasterxml.jackson.databind.ObjectMapper(),
-                mock(top.sywyar.pixivdownload.core.notification.NotificationService.class),
-                mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), null,
+                mock(top.sywyar.pixivdownload.notification.NotificationDispatcher.class),
+                mock(top.sywyar.pixivdownload.i18n.MessageResolver.class),
+                mock(top.sywyar.pixivdownload.i18n.NamespaceMessageResolver.class),
                 mock(top.sywyar.pixivdownload.setup.UserDisplayNameProvider.class),
                 mock(top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine.class)) {
             @Override

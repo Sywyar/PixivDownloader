@@ -15,8 +15,8 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegis
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
-import top.sywyar.pixivdownload.core.notification.NotificationService;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
@@ -141,14 +141,14 @@ public class ScheduleHostPluginConfiguration {
                                              ScheduleCapabilityRegistry scheduleCapabilityRegistry,
                                              ScheduleRunState runState,
                                              ObjectMapper objectMapper,
-                                             NotificationService notificationService,
+                                             NotificationDispatcher notificationDispatcher,
                                              @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
-                                             WebI18nBundleRegistry webI18nBundleRegistry,
+                                             NamespaceMessageResolver namespaceMessageResolver,
                                              UserDisplayNameProvider userDisplayNameProvider,
                                              ScheduleExecutionEngine scheduleExecutionEngine) {
         return new ScheduleExecutor(
                 store, scheduleCapabilityRegistry, runState, objectMapper,
-                notificationService, messages, webI18nBundleRegistry,
+                notificationDispatcher, messages, namespaceMessageResolver,
                 userDisplayNameProvider, scheduleExecutionEngine);
     }
 

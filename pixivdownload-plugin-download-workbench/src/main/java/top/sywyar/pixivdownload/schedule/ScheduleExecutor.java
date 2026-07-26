@@ -5,9 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
-import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
@@ -58,9 +58,9 @@ public class ScheduleExecutor {
     private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
     private final ScheduleRunState runState;
     private final ObjectMapper objectMapper;
-    private final NotificationService notificationService;
+    private final NotificationDispatcher notificationDispatcher;
     private final MessageResolver messages;
-    private final WebI18nBundleRegistry webI18nBundleRegistry;
+    private final NamespaceMessageResolver namespaceMessageResolver;
     private final UserDisplayNameProvider userDisplayNameProvider;
     private final ScheduleExecutionEngine scheduleExecutionEngine;
 
@@ -69,9 +69,9 @@ public class ScheduleExecutor {
             ScheduleCapabilityRegistry scheduleCapabilityRegistry,
             ScheduleRunState runState,
             ObjectMapper objectMapper,
-            NotificationService notificationService,
+            NotificationDispatcher notificationDispatcher,
             MessageResolver messages,
-            WebI18nBundleRegistry webI18nBundleRegistry,
+            NamespaceMessageResolver namespaceMessageResolver,
             UserDisplayNameProvider userDisplayNameProvider,
             ScheduleExecutionEngine scheduleExecutionEngine) {
         this.store = Objects.requireNonNull(store, "store");
@@ -79,9 +79,11 @@ public class ScheduleExecutor {
                 scheduleCapabilityRegistry, "scheduleCapabilityRegistry");
         this.runState = Objects.requireNonNull(runState, "runState");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
-        this.notificationService = Objects.requireNonNull(notificationService, "notificationService");
+        this.notificationDispatcher = Objects.requireNonNull(
+                notificationDispatcher, "notificationDispatcher");
         this.messages = Objects.requireNonNull(messages, "messages");
-        this.webI18nBundleRegistry = webI18nBundleRegistry;
+        this.namespaceMessageResolver = Objects.requireNonNull(
+                namespaceMessageResolver, "namespaceMessageResolver");
         this.userDisplayNameProvider = Objects.requireNonNull(
                 userDisplayNameProvider, "userDisplayNameProvider");
         this.scheduleExecutionEngine = Objects.requireNonNull(
@@ -987,20 +989,14 @@ public class ScheduleExecutor {
             }
             String namespace = descriptor.presentation().displayNamespace();
             String key = descriptor.presentation().displayNameKey();
-            if (webI18nBundleRegistry != null) {
-                try {
-                    WebI18nBundleRegistry.RegisteredBundle bundle =
-                            webI18nBundleRegistry.resolve(namespace);
-                    if (bundle != null) {
-                        String label = bundle.load(locale).get(key);
-                        if (label != null && !label.isBlank()) {
-                            return label;
-                        }
-                    }
-                } catch (RuntimeException failure) {
-                    log.debug("Scheduled source {} display label could not be resolved from namespace {}",
-                            sourceType, namespace, failure);
+            try {
+                String label = namespaceMessageResolver.resolve(namespace, locale, key).orElse(null);
+                if (label != null && !label.isBlank()) {
+                    return label;
                 }
+            } catch (RuntimeException failure) {
+                log.debug("Scheduled source {} display label could not be resolved from namespace {}",
+                        sourceType, namespace, failure);
             }
             String fallback = messages.getOrDefault(locale, key, key);
             return fallback == null || fallback.isBlank() ? key : fallback;
@@ -1080,14 +1076,14 @@ public class ScheduleExecutor {
 
     /**
      * 统一触发一个通知场景：扇出给所有介质（邮件 + 推送），全程 best-effort——
-     * {@link NotificationService} 对每个介质各自隔离，绝不影响调度。
+     * {@link NotificationDispatcher} 的宿主实现对每个介质各自隔离，绝不影响调度。
      */
     private void sendNotification(NotificationScenario scenario, Map<String, String> placeholders) {
         // 调度器无 HTTP 上下文，locale 显式取 JVM 系统语言归一值。
         Locale locale = messages.normalizeLocale(Locale.getDefault());
         // 问候语称呼：用户设了称呼用称呼，否则回退本地化的「管理员」。邮件模板共用，统一在此补齐。
         placeholders.putIfAbsent("username", greetingName(locale));
-        notificationService.notify(scenario, locale, placeholders);
+        notificationDispatcher.notify(scenario, locale, placeholders);
     }
 
     /** 邮件问候称呼：用户自定义称呼优先，否则回退本地化默认「管理员 / administrator」。 */

@@ -45,6 +45,8 @@ import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
@@ -92,7 +94,8 @@ class CoreApiOwnershipGuardTest {
                             "RuntimePathProvider"),
                     types("top.sywyar.pixivdownload.core.db.pathprefix", "StoredPathCodec"),
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
-                    types("top.sywyar.pixivdownload.i18n", "MessageResolver", "ResourceBundleMessageResolver"),
+                    types("top.sywyar.pixivdownload.i18n",
+                            "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver"),
                     types("top.sywyar.pixivdownload.setup", "ApplicationModeProvider", "UserDisplayNameProvider"),
                     types("top.sywyar.pixivdownload.web", "LocalRequestTrust"))),
             Map.entry("AI 调用稳定契约", union(
@@ -173,7 +176,8 @@ class CoreApiOwnershipGuardTest {
             Map.entry("核心统计只读语义", types("top.sywyar.pixivdownload.core.stats",
                     "StatsAggregates", "StatsQueryStore")),
             Map.entry("中性通知场景", types("top.sywyar.pixivdownload.notification",
-                    "NotificationConfigKeys", "NotificationScenario", "NotificationSeverity", "NotificationSink")),
+                    "NotificationConfigKeys", "NotificationDispatcher", "NotificationScenario",
+                    "NotificationSeverity", "NotificationSink")),
             Map.entry("推送共享协议与纯转换", types("top.sywyar.pixivdownload.push",
                     "PushChannel", "PushChannelSettings", "PushChannelType", "PushDispatcher", "PushFormat",
                     "PushFormatConverter", "PushLevel", "PushMessage", "PushResult", "RenderedMessage")),
@@ -614,6 +618,12 @@ class CoreApiOwnershipGuardTest {
                         "public abstract transient getOrDefault(java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
                         "public abstract transient getOrDefault(java.util.Locale,java.lang.String,java.lang.String,[Ljava.lang.Object;):java.lang.String",
                         "public normalizeLocale(java.util.Locale):java.util.Locale");
+        assertThat(publicDeclaredMethodSignatures(NamespaceMessageResolver.class))
+                .containsExactly(
+                        "public abstract resolve(java.lang.String,java.util.Locale,java.lang.String):java.util.Optional");
+        assertThat(publicDeclaredMethodSignatures(NotificationDispatcher.class))
+                .containsExactly(
+                        "public abstract notify(top.sywyar.pixivdownload.notification.NotificationScenario,java.util.Locale,java.util.Map):void");
     }
 
     @Test

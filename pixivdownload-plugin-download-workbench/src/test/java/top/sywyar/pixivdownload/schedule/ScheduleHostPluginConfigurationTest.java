@@ -6,11 +6,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
-import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
@@ -61,9 +61,9 @@ class ScheduleHostPluginConfigurationTest {
                 registry,
                 runState,
                 objectMapper,
-                mock(NotificationService.class),
+                mock(NotificationDispatcher.class),
                 mock(MessageResolver.class),
-                mock(WebI18nBundleRegistry.class),
+                mock(NamespaceMessageResolver.class),
                 mock(UserDisplayNameProvider.class),
                 executionEngine);
         ScheduleService service = configuration.scheduleService(

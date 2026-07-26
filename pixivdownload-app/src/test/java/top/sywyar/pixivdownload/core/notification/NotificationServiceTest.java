@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.StaticMessageSource;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
@@ -84,7 +85,7 @@ class NotificationServiceTest {
     @DisplayName("默认全部启用：场景会扇出到所有介质")
     void enabledByDefaultDeliversToAllSinks() {
         RecordingSink sink = new RecordingSink();
-        NotificationService service = new NotificationService(new NotificationSinkRegistry(List.of(sink)),
+        NotificationDispatcher service = new NotificationService(new NotificationSinkRegistry(List.of(sink)),
                 new NotificationConfig(), testMessages());
 
         service.notify(NotificationScenario.RUN_SUMMARY, Locale.SIMPLIFIED_CHINESE, Map.of());

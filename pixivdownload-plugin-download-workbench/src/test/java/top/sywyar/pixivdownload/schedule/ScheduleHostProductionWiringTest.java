@@ -5,12 +5,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import org.springframework.test.util.ReflectionTestUtils;
-import top.sywyar.pixivdownload.core.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
@@ -48,9 +48,9 @@ class ScheduleHostProductionWiringTest {
                             ScheduleCapabilityRegistry.class,
                             ScheduleRunState.class,
                             ObjectMapper.class,
-                            NotificationService.class,
+                            NotificationDispatcher.class,
                             MessageResolver.class,
-                            WebI18nBundleRegistry.class,
+                            NamespaceMessageResolver.class,
                             UserDisplayNameProvider.class,
                             ScheduleExecutionEngine.class);
                 });
@@ -79,9 +79,9 @@ class ScheduleHostProductionWiringTest {
                 registry,
                 new ScheduleRunState(),
                 objectMapper,
-                mock(NotificationService.class),
+                mock(NotificationDispatcher.class),
                 mock(MessageResolver.class),
-                mock(WebI18nBundleRegistry.class),
+                mock(NamespaceMessageResolver.class),
                 mock(UserDisplayNameProvider.class),
                 engine);
     }
