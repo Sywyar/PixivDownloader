@@ -28,6 +28,9 @@ import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
@@ -165,6 +168,9 @@ class CoreApiOwnershipGuardTest {
                             "PixivProxyAccessOutcome", "PixivProxyAccessPolicy"),
                     types("top.sywyar.pixivdownload.core.pixiv.filename",
                             "PixivWorkFileNameFormatter"),
+                    types("top.sywyar.pixivdownload.core.pixiv.thumbnail",
+                            "PixivThumbnailFetcher", "PixivThumbnailFetchException",
+                            "PixivThumbnailFailure"),
                     types("top.sywyar.pixivdownload.core.time", "EpochMillisNormalizer"),
                     types("top.sywyar.pixivdownload.core.work",
                             "WorkActionResult"),
@@ -254,6 +260,8 @@ class CoreApiOwnershipGuardTest {
     private static final Map<String, List<String>> APPROVED_ENUM_CONSTANTS_BY_TYPE = Map.ofEntries(
             Map.entry("top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
                     List.of("MANAGED", "BUNDLED", "SYSTEM", "FALLBACK")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",
+                    List.of("INVALID_TARGET", "HTTP_STATUS", "TRANSPORT")),
             Map.entry("top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetType",
                     List.of("AUTHOR", "TAG")),
             Map.entry("top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendHook",
@@ -607,6 +615,12 @@ class CoreApiOwnershipGuardTest {
                         "public abstract bookmarkNovel(java.lang.Long,java.lang.String):top.sywyar.pixivdownload.core.work.WorkActionResult");
         assertThat(publicDeclaredMethodSignatures(PixivImageDownloader.class))
                 .containsExactly("public abstract download(java.net.URI,java.net.URI,java.nio.file.Path,java.lang.String,top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver):boolean");
+        assertThat(publicDeclaredMethodSignatures(PixivThumbnailFetcher.class))
+                .containsExactly("public abstract fetch(java.net.URI):[B");
+        assertThat(publicDeclaredMethodSignatures(PixivThumbnailFetchException.class))
+                .containsExactlyInAnyOrder(
+                        "public failure():top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure",
+                        "public statusCode():int");
         assertThat(publicDeclaredMethodSignatures(FfmpegCommandResolver.class))
                 .containsExactly("public abstract resolve():top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand");
         assertThat(publicDeclaredMethodSignatures(ResolvedFfmpegCommand.class))

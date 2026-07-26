@@ -42,6 +42,7 @@ class DownloadWorkbenchDependencyGuardTest {
             "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
             "top.sywyar.pixivdownload.core.notification.NotificationService",
             "top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard",
+            "top.sywyar.pixivdownload.core.pixiv.PixivThumbnailFetchService",
             "top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation",
             "top.sywyar.pixivdownload.ffmpeg.FfmpegLocator",
             "top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry",
@@ -79,15 +80,15 @@ class DownloadWorkbenchDependencyGuardTest {
                             || className.startsWith("top.sywyar.pixivdownload.scripts.UserscriptRegistry");
                 }
             };
-    private static final Set<String> UGOIRA_HOST_TRANSPORT_IMPLEMENTATIONS = Set.of(
+    private static final Set<String> DIRECT_PIXIV_TRANSPORT_IMPLEMENTATIONS = Set.of(
             "org.springframework.http.client.ClientHttpResponse",
             "org.springframework.web.client.RestTemplate",
             "top.sywyar.pixivdownload.common.PixivRequestHeaders");
-    private static final DescribedPredicate<JavaClass> UGOIRA_HOST_TRANSPORT_IMPLEMENTATION =
-            new DescribedPredicate<>("host Pixiv image transport implementation") {
+    private static final DescribedPredicate<JavaClass> DIRECT_PIXIV_TRANSPORT_IMPLEMENTATION =
+            new DescribedPredicate<>("direct Pixiv transport implementation") {
                 @Override
                 public boolean test(JavaClass javaClass) {
-                    return UGOIRA_HOST_TRANSPORT_IMPLEMENTATIONS.contains(javaClass.getFullName());
+                    return DIRECT_PIXIV_TRANSPORT_IMPLEMENTATIONS.contains(javaClass.getFullName());
                 }
             };
 
@@ -185,12 +186,11 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("Ugoira 下载必须通过稳定图片传输端口")
-    void ugoiraUsesStablePixivImageTransport() {
+    @DisplayName("下载工作台的 Pixiv 传输必须通过稳定宿主端口")
+    void pixivTransfersUseStableHostPorts() {
         noClasses()
-                .that().haveFullyQualifiedName("top.sywyar.pixivdownload.download.UgoiraService")
-                .should().dependOnClassesThat(UGOIRA_HOST_TRANSPORT_IMPLEMENTATION)
-                .because("Ugoira 只拥有重试、进度、取消和临时文件语义，请求头与 HTTP 转换归宿主图片传输端口")
+                .should().dependOnClassesThat(DIRECT_PIXIV_TRANSPORT_IMPLEMENTATION)
+                .because("插件只拥有请求编排与 HTTP 投影，请求头、目标校验和具体客户端转换归宿主稳定端口")
                 .check(CLASSES);
     }
 

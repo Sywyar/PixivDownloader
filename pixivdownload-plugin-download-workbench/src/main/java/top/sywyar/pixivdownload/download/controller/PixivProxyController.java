@@ -6,21 +6,21 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -48,7 +48,7 @@ import java.util.concurrent.TimeUnit;
 public class PixivProxyController {
 
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate;
+    private final PixivThumbnailFetcher pixivThumbnailFetcher;
     private final PixivFetchService pixivFetchService;
     private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
@@ -64,6 +64,29 @@ public class PixivProxyController {
         }
         log.warn(messages.getForLog("workbench.log.request.failed", detail));
         return ResponseEntity.badRequest().body(new ErrorResponse(detail));
+    }
+
+    /** 缩略图端口失败由插件按既有 HTTP 语义投影，不依赖宿主实现层异常处理器。 */
+    @ExceptionHandler(PixivThumbnailFetchException.class)
+    public ResponseEntity<ErrorResponse> handleThumbnailFetch(PixivThumbnailFetchException failure) {
+        return switch (failure.failure()) {
+            case INVALID_TARGET -> thumbnailFailureResponse(
+                    HttpStatus.BAD_REQUEST,
+                    messages.get("pixiv.proxy.thumbnail-url.host.invalid"));
+            case HTTP_STATUS -> thumbnailFailureResponse(
+                    HttpStatus.BAD_GATEWAY,
+                    failure.statusCode() == 401 || failure.statusCode() == 403
+                            ? messages.get("pixiv.proxy.thumbnail.upstream.unauthorized")
+                            : messages.get("pixiv.proxy.thumbnail.upstream.failed", failure.statusCode()));
+            case TRANSPORT -> thumbnailFailureResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    messages.get("pixiv.proxy.thumbnail.transport.failed"));
+        };
+    }
+
+    private ResponseEntity<ErrorResponse> thumbnailFailureResponse(HttpStatus responseStatus, String detail) {
+        log.warn(messages.getForLog("workbench.log.request.failed", detail));
+        return ResponseEntity.status(responseStatus).body(new ErrorResponse(detail));
     }
 
     /**
@@ -728,26 +751,10 @@ public class PixivProxyController {
         } catch (IllegalArgumentException e) {
             throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.invalid"));
         }
-        // pximg.net 子域服务作品缩略图；embed.pixiv.net 服务珍藏集封面缩略图。两者均为 Pixiv 固定 CDN。
-        // 仅允许 https，避免被诱导明文出站；缩略图只需 Pixiv Referer，绝不携带任何用户 Cookie（PHPSESSID 不应外泄到 CDN）。
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        boolean allowed = "https".equalsIgnoreCase(scheme)
-                && host != null
-                && (host.endsWith(".pximg.net") || host.equals("embed.pixiv.net"));
-        if (!allowed) {
-            throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.host.invalid"));
-        }
-        byte[] bytes = proxyGetBytes(url, null);
+        byte[] bytes = pixivThumbnailFetcher.fetch(uri);
         HttpHeaders responseHeaders = new HttpHeaders();
         responseHeaders.setCacheControl(CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic());
         return ResponseEntity.ok().headers(responseHeaders).body(bytes);
-    }
-
-    private byte[] proxyGetBytes(String url, String cookie) {
-        HttpEntity<Void> entity = new HttpEntity<>(PixivRequestHeaders.image(cookie));
-        ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
-        return response.getBody() != null ? response.getBody() : new byte[0];
     }
 
     // ── /me 端点：基于 cookie 解析当前用户 uid，代理「我的」书签 / 关注 / 珍藏集 ─────────────

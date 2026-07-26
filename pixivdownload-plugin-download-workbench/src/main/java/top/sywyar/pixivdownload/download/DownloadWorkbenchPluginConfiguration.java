@@ -8,13 +8,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
@@ -306,13 +306,13 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public PixivProxyController pixivProxyController(ObjectMapper objectMapper,
-                                                     @Qualifier("restTemplate") RestTemplate restTemplate,
+                                                     PixivThumbnailFetcher pixivThumbnailFetcher,
                                                      PixivFetchService pixivFetchService,
                                                      PixivProxyAccessPolicy pixivProxyAccessPolicy,
                                                      RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                      WorkVisibilityService workVisibilityService,
                                                      @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new PixivProxyController(objectMapper, restTemplate, pixivFetchService,
+        return new PixivProxyController(objectMapper, pixivThumbnailFetcher, pixivFetchService,
                 pixivProxyAccessPolicy, requestOwnerIdentityResolver,
                 workVisibilityService, messages);
     }

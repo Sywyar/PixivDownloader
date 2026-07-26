@@ -9,22 +9,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.support.WebDataBinderFactory;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
@@ -54,7 +49,7 @@ class PixivProxyControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
-    private RestTemplate restTemplate;
+    private PixivThumbnailFetcher pixivThumbnailFetcher;
     @Mock
     private PixivAjaxClient pixivAjaxClient;
     @Mock
@@ -74,7 +69,7 @@ class PixivProxyControllerTest {
         PixivFetchService pixivFetchService =
                 new PixivFetchService(pixivAjaxClient, objectMapper);
         PixivProxyController controller = new PixivProxyController(
-                objectMapper, restTemplate, pixivFetchService, pixivProxyAccessPolicy,
+                objectMapper, pixivThumbnailFetcher, pixivFetchService, pixivProxyAccessPolicy,
                 requestOwnerIdentityResolver, workVisibilityService, MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
@@ -181,7 +176,7 @@ class PixivProxyControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value("Conflicting acquisition credential headers"));
 
-            verifyNoInteractions(pixivAjaxClient, restTemplate);
+            verifyNoInteractions(pixivAjaxClient, pixivThumbnailFetcher);
         }
 
         @Test
@@ -264,94 +259,6 @@ class PixivProxyControllerTest {
                         return s.contains("order=date_d") && s.contains("mode=all") && s.contains("p=1");
                     }),
                     nullable(String.class));
-        }
-    }
-
-    // ========== GET /api/pixiv/thumbnail-proxy ==========
-
-    @Nested
-    @DisplayName("GET /api/pixiv/thumbnail-proxy")
-    class ThumbnailProxyTests {
-
-        private static final byte[] DUMMY_IMAGE = new byte[]{(byte) 0xFF, (byte) 0xD8, 0x01, 0x02};
-        private static final String VALID_URL =
-                "https://i.pximg.net/c/250x250_80_a2/img-master/img/2024/01/01/123456_p0_master1200.jpg";
-
-        @Test
-        @DisplayName("合法 pximg.net URL 应代理图片并返回 200")
-        void shouldProxyValidPximgUrl() throws Exception {
-            when(restTemplate.exchange(eq(VALID_URL), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(new ResponseEntity<>(DUMMY_IMAGE, HttpStatus.OK));
-
-            mockMvc.perform(get("/api/pixiv/thumbnail-proxy").param("url", VALID_URL))
-                    .andExpect(status().isOk())
-                    .andExpect(header().string("Cache-Control", containsString("max-age")));
-        }
-
-        @Test
-        @DisplayName("非 pximg.net 域名应返回 400（SSRF 防护）")
-        void shouldRejectNonPximgUrl() throws Exception {
-            mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
-                            .param("url", "https://evil.com/malicious.jpg"))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("pximg.net")));
-        }
-
-        @Test
-        @DisplayName("格式错误的 URL 应返回 400")
-        void shouldRejectMalformedUrl() throws Exception {
-            mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
-                            .param("url", "not a valid url !!##"))
-                    .andExpect(status().isBadRequest());
-        }
-
-        @Test
-        @DisplayName("i.pximg.net 子域名应被允许")
-        void shouldAllowPximgSubdomain() throws Exception {
-            String subdomainUrl = "https://i.pximg.net/img-original/img/2024/01/01/123456_p0.jpg";
-            when(restTemplate.exchange(eq(subdomainUrl), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(new ResponseEntity<>(DUMMY_IMAGE, HttpStatus.OK));
-
-            mockMvc.perform(get("/api/pixiv/thumbnail-proxy").param("url", subdomainUrl))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @DisplayName("pixiv.net 域名（非 pximg.net）应返回 400")
-        void shouldRejectPixivNetDomain() throws Exception {
-            mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
-                            .param("url", "https://www.pixiv.net/some/image.jpg"))
-                    .andExpect(status().isBadRequest());
-        }
-
-        @Test
-        @DisplayName("http 协议的 pximg.net URL 应返回 400（仅允许 https）")
-        void shouldRejectHttpScheme() throws Exception {
-            mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
-                            .param("url", "http://i.pximg.net/img-original/img/2024/01/01/123456_p0.jpg"))
-                    .andExpect(status().isBadRequest());
-        }
-
-        @Test
-        @DisplayName("即便客户端传 X-Pixiv-Cookie，也不会把 Cookie 转发给 pximg.net")
-        void shouldNotForwardCookieToCdn() throws Exception {
-            when(restTemplate.exchange(eq(VALID_URL), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(new ResponseEntity<>(DUMMY_IMAGE, HttpStatus.OK));
-
-            mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
-                            .param("url", VALID_URL)
-                            .header("X-Pixiv-Cookie", "PHPSESSID=12345_secret; other=value"))
-                    .andExpect(status().isOk());
-
-            verify(restTemplate).exchange(
-                    eq(VALID_URL),
-                    eq(HttpMethod.GET),
-                    argThat(entity -> entity != null
-                            && entity.getHeaders() != null
-                            && !entity.getHeaders().containsKey("Cookie")
-                            && PixivRequestHeaders.USER_AGENT.equals(
-                                    entity.getHeaders().getFirst(HttpHeaders.USER_AGENT))),
-                    eq(byte[].class));
         }
     }
 
@@ -540,7 +447,7 @@ class PixivProxyControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").isNotEmpty());
 
-            verifyNoInteractions(pixivAjaxClient, restTemplate);
+            verifyNoInteractions(pixivAjaxClient, pixivThumbnailFetcher);
         }
     }
 

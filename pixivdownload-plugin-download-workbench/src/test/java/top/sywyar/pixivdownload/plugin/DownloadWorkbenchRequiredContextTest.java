@@ -85,6 +85,10 @@ class DownloadWorkbenchRequiredContextTest {
         }
         assertThat(registry.isDeclared("/api/schedule/tasks")).isTrue();
         assertThat(registry.isDeclared("/api/sse/close/123")).isTrue();
+        RouteAccessRegistry.RegisteredRoute thumbnailRoute =
+                registry.resolve("/api/pixiv/thumbnail-proxy", HttpMethod.GET).orElseThrow();
+        assertThat(thumbnailRoute.pluginId()).isEqualTo(DownloadWorkbenchPlugin.ID);
+        assertThat(thumbnailRoute.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR);
         assertThat(registry.isDeclared("/api/pixiv/user/100/artworks")).isTrue();
         assertThat(registry.isDeclared("/api/pixiv/user/100/illust-cards")).isTrue();
         assertThat(registry.isDeclared("/api/pixiv/me/illust-bookmarks")).isTrue();

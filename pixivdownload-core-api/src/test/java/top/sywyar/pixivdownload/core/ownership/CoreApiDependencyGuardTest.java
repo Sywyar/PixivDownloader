@@ -38,6 +38,9 @@ import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
+import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
@@ -291,6 +294,9 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(LocalRequestTrust.class.getName())).isTrue();
         assertThat(CLASSES.contain(FfmpegCommandResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(ResolvedFfmpegCommand.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivThumbnailFetcher.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivThumbnailFetchException.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PixivThumbnailFailure.class.getName())).isTrue();
     }
 
     @Test
