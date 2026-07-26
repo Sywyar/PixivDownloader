@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -35,9 +36,13 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageFormat
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginDirectorySessionLock;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 
@@ -409,6 +414,121 @@ class ExternalPluginInstallerTest {
 
         assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
         assertThat(pluginFiles()).isEmpty();
+    }
+
+    // ---------- 管理快照原子性与 provenance 累计预算 ----------
+
+    @Test
+    @DisplayName("管理快照从 artifact 枚举到 provenance 读取持续持锁并阻塞并发删除")
+    void managementSnapshotHoldsInstallerLockAcrossArtifactAndProvenance() throws Exception {
+        installer.close();
+        CountDownLatch snapshotPaused = new CountDownLatch(1);
+        CountDownLatch releaseSnapshot = new CountDownLatch(1);
+        try (ExternalPluginInstaller snapshotInstaller = new ExternalPluginInstaller(pluginsDir) {
+            @Override
+            void beforeManagementProvenanceSnapshot() {
+                snapshotPaused.countDown();
+                try {
+                    if (!releaseSnapshot.await(10, TimeUnit.SECONDS)) {
+                        throw new AssertionError("timed out waiting to release management snapshot");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("management snapshot wait interrupted", e);
+                }
+            }
+        }) {
+            assertThat(snapshotInstaller.recoverPendingTransactions().safeToScan()).isTrue();
+            PluginInstallResult installed = installFully(snapshotInstaller,
+                    exploded("atomic-snapshot", "1.0.0"), false, PluginPackageOrigin.localUpload());
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            Future<InstalledPluginInventorySnapshot> snapshot = null;
+            Future<Boolean> removal = null;
+            try {
+                snapshot = pool.submit(() -> snapshotInstaller.snapshotInstalledWithProvenance(10, 1L << 20));
+                assertThat(snapshotPaused.await(10, TimeUnit.SECONDS)).isTrue();
+                removal = pool.submit(() -> snapshotInstaller.removeInstalled("atomic-snapshot"));
+
+                Future<Boolean> pendingRemoval = removal;
+                assertThatThrownBy(() -> pendingRemoval.get(200, TimeUnit.MILLISECONDS))
+                        .isInstanceOf(TimeoutException.class);
+
+                releaseSnapshot.countDown();
+                InstalledPluginInventorySnapshot frozen =
+                        snapshot.get(10, TimeUnit.SECONDS);
+                assertThat(frozen.entries()).singleElement().satisfies(entry -> {
+                    assertThat(entry.plugin().path()).isEqualTo(installed.installedPath());
+                    assertThat(entry.provenanceState())
+                            .isEqualTo(ProvenanceSnapshotState.PRESENT);
+                });
+                assertThat(removal.get(10, TimeUnit.SECONDS)).isTrue();
+                assertThat(installed.installedPath()).doesNotExist();
+            } finally {
+                releaseSnapshot.countDown();
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("损坏 provenance 的实际字节计入累计预算且后续记录不再读取")
+    void malformedProvenanceConsumesManagementSnapshotBudget() throws Exception {
+        PluginInstallResult first = installFully(exploded("a-invalid", "1.0.0"));
+        installFully(exploded("b-after-invalid", "1.0.0"));
+        PluginProvenanceStore store = new PluginProvenanceStore(pluginsDir);
+        byte[] malformed = ("formatVersion=1\nunknown=" + "x".repeat(256) + "\n")
+                .getBytes(StandardCharsets.UTF_8);
+        Files.write(store.sidecarPath(first.installedPath()), malformed);
+
+        InstalledPluginInventorySnapshot snapshot =
+                installer.snapshotInstalledWithProvenance(10, malformed.length);
+
+        assertThat(snapshot.budgetExhausted()).isTrue();
+        assertThat(snapshot.entries()).extracting(InstalledPluginSnapshot::provenanceState)
+                .containsExactly(
+                        ProvenanceSnapshotState.INVALID,
+                        ProvenanceSnapshotState.BUDGET_EXHAUSTED);
+    }
+
+    @Test
+    @DisplayName("单条严格 provenance 状态不确定时只拒绝当前条目并继续投影后续插件")
+    void ambiguousProvenanceDoesNotExhaustLaterManagementSnapshots() throws Exception {
+        PluginInstallResult first = installFully(exploded("a-ambiguous", "1.0.0"));
+        installFully(exploded("b-valid", "1.0.0"));
+        PluginProvenanceStore store = new PluginProvenanceStore(pluginsDir);
+        Path current = store.sidecarPath(first.installedPath());
+        Path legacy = store.managedSidecarPaths(first.installedPath()).stream()
+                .filter(path -> !path.equals(current))
+                .findFirst()
+                .orElseThrow();
+        Files.copy(current, legacy);
+
+        InstalledPluginInventorySnapshot snapshot =
+                installer.snapshotInstalledWithProvenance(10, 1L << 20);
+
+        assertThat(snapshot.budgetExhausted()).isFalse();
+        assertThat(snapshot.entries()).extracting(InstalledPluginSnapshot::provenanceState)
+                .containsExactly(
+                        ProvenanceSnapshotState.INVALID,
+                        ProvenanceSnapshotState.PRESENT);
+    }
+
+    @Test
+    @DisplayName("单个 provenance 超过硬上限后预算熔断并跳过后续记录")
+    void oversizedProvenanceExhaustsManagementSnapshotBudget() throws Exception {
+        PluginInstallResult first = installFully(exploded("a-oversized", "1.0.0"));
+        installFully(exploded("b-after-oversized", "1.0.0"));
+        PluginProvenanceStore store = new PluginProvenanceStore(pluginsDir);
+        Files.write(store.sidecarPath(first.installedPath()), new byte[(1 << 20) + 1]);
+
+        InstalledPluginInventorySnapshot snapshot =
+                installer.snapshotInstalledWithProvenance(10, 8L << 20);
+
+        assertThat(snapshot.budgetExhausted()).isTrue();
+        assertThat(snapshot.entries()).extracting(InstalledPluginSnapshot::provenanceState)
+                .containsExactly(
+                        ProvenanceSnapshotState.INVALID,
+                        ProvenanceSnapshotState.BUDGET_EXHAUSTED);
     }
 
     // ---------- 并发安装串行化 ----------

@@ -178,7 +178,7 @@ class PluginMarketControllerTest {
                 .withDependencyInstallResults(List.of(new PluginDependencyInstallResult(
                         "beta", "1.0.0", null, "beta", "1.0.0",
                         "INSTALLED", true, false, true, false, null,
-                        "INSTALLING", "STARTED", false)));
+                        "INSTALLING", "STARTED", false, false)));
         when(marketService.install("official", "demo", "1.0.0")).thenReturn(report);
 
         mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
@@ -195,7 +195,8 @@ class PluginMarketControllerTest {
                 .andExpect(jsonPath("$.dependencyInstallResults[0].activated").value(true))
                 .andExpect(jsonPath("$.dependencyInstallResults[0].rolledBack").value(false))
                 .andExpect(jsonPath("$.dependencyInstallResults[0].operation").value("INSTALLING"))
-                .andExpect(jsonPath("$.dependencyInstallResults[0].runtimePhase").value("STARTED"));
+                .andExpect(jsonPath("$.dependencyInstallResults[0].runtimePhase").value("STARTED"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].recoveryBlocked").value(false));
     }
 
     @Test

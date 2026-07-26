@@ -23,9 +23,9 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRemovalAttempt;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
-import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
-import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -39,8 +39,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -64,6 +64,61 @@ class ExternalPluginLifecycleCoordinatorTest {
     RecoveryModeService recoveryModeService;
     @Mock
     PluginDependencyResolver dependencyResolver;
+
+    @Test
+    @DisplayName("服务重启启动失败后立即刷新恢复模式投影且不覆盖主失败")
+    void restartStartFailureRefreshesRecoveryProjection() {
+        String pluginId = "restart-failure-plugin";
+        PluginDescriptor descriptor = descriptor(pluginId);
+        PluginLifecycleException startFailure = new PluginLifecycleException("restart start failed");
+        IllegalStateException refreshFailure = new IllegalStateException("recovery refresh failed");
+        when(dependencyResolver.activationDescriptor(pluginId)).thenReturn(Optional.of(descriptor));
+        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
+        doThrow(startFailure).when(runtimeManager).startPlugin(pluginId);
+        doThrow(refreshFailure).when(recoveryModeService).refresh();
+
+        assertThatThrownBy(() -> coordinator().restart(pluginId))
+                .isSameAs(startFailure)
+                .satisfies(thrown -> assertThat(thrown.getSuppressed()).contains(refreshFailure));
+
+        verify(recoveryModeService).refresh();
+        verify(lifecycleService, times(2)).stop(pluginId);
+        verify(runtimeManager, times(2)).stopPlugin(pluginId);
+    }
+
+    @Test
+    @DisplayName("重载失败且新代清退未确认时不把仍驻留的新代当作旧代码启动")
+    void reloadCleanupFailureDoesNotStartRetainedNewGenerationAsOldCode() {
+        String pluginId = "reload-cleanup-plugin";
+        Path artifact = Path.of("plugins", "reload-cleanup-plugin.jar");
+        PluginDescriptor descriptor = descriptor(pluginId);
+        LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
+        UnloadedPluginPackage unloaded = new UnloadedPluginPackage(
+                pluginId, artifact, "1.0.0", 1L);
+        PluginLifecycleException startFailure = new PluginLifecycleException("new generation start failed");
+        AssertionError cleanupFailure = new AssertionError("new generation unload was not confirmed");
+        when(dependencyResolver.activationDescriptor(pluginId)).thenReturn(Optional.of(descriptor));
+        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.of(artifact));
+        when(runtimeManager.packagePhases()).thenReturn(
+                Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
+        when(runtimeManager.activeDependents(pluginId)).thenReturn(List.of());
+        when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
+        when(lifecycleService.generation(pluginId)).thenReturn(Optional.of(1L));
+        when(runtimeManager.unloadPlugin(pluginId)).thenReturn(unloaded).thenThrow(cleanupFailure);
+        when(runtimeManager.loadPlugin(artifact)).thenReturn(loaded);
+        when(loaded.packageId()).thenReturn(pluginId);
+        doThrow(startFailure).when(runtimeManager).startPlugin(pluginId);
+
+        assertThatThrownBy(() -> coordinator().reload(pluginId))
+                .isSameAs(startFailure)
+                .satisfies(thrown -> assertThat(thrown.getSuppressed()).contains(cleanupFailure));
+
+        verify(runtimeManager).loadPlugin(artifact);
+        verify(runtimeManager, times(2)).unloadPlugin(pluginId);
+        verify(lifecycleService, never()).start(pluginId);
+    }
 
     @Test
     @DisplayName("进程重启策略安装只提交文件并延迟运行期激活")
@@ -154,10 +209,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
         when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
-        when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
-            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
-            return committed;
-        });
+        when(installer.commitTransaction(prepared)).thenReturn(committed);
         when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
 
@@ -219,9 +271,12 @@ class ExternalPluginLifecycleCoordinatorTest {
         ExternalPluginLifecycleCoordinator coordinator = coordinator();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
+            assertThat(coordinator.lifecycleMutationEpoch()).isZero();
             Future<PluginActivationResult> first = executor.submit(() ->
                     coordinator.installOrUpdate(firstPackage, false, origin));
             awaitLatch(prepareEntered, "first prepare entry");
+            long activeEpoch = coordinator.lifecycleMutationEpoch();
+            assertThat(activeEpoch).isOdd();
 
             assertThatThrownBy(() -> coordinator.installOrUpdate(secondPackage, false, origin))
                     .isInstanceOfSatisfying(ClassifiedPluginLifecycleException.class, failure ->
@@ -231,6 +286,9 @@ class ExternalPluginLifecycleCoordinatorTest {
             releasePrepare.countDown();
             assertThat(first.get(5, TimeUnit.SECONDS).installResult().outcome())
                     .isEqualTo(PluginInstallOutcome.REJECTED_MALFORMED);
+            assertThat(coordinator.lifecycleMutationEpoch())
+                    .isEven()
+                    .isGreaterThan(activeEpoch);
             verify(installer, times(1)).prepareTransaction(firstPackage, false, origin);
             verify(installer, never()).prepareTransaction(secondPackage, false, origin);
             verify(installer, never()).commitTransaction(any(PreparedPluginTransaction.class));
@@ -431,7 +489,8 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         doThrow(new AssertionError("post-terminal refresh failed")).when(recoveryModeService).refresh();
 
-        PluginActivationResult activation = coordinator().installOrUpdate(
+        ExternalPluginLifecycleCoordinator coordinator = coordinator();
+        PluginActivationResult activation = coordinator.installOrUpdate(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload());
 
         assertThat(activation.installResult().accepted()).isTrue();
@@ -617,16 +676,9 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
         when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
-        when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
-            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
-            return committed;
-        });
+        when(installer.commitTransaction(prepared)).thenReturn(committed);
         doThrow(new AssertionError("load failed after commit")).when(runtimeManager).loadPlugin(target);
-        when(installer.rollbackTransaction(same(committed))).thenAnswer(invocation -> {
-            committed.confirmDurableState(CommittedPluginTransaction.DurableState.ROLLED_BACK);
-            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.ROLLED_BACK);
-            return true;
-        });
+        when(installer.rollbackTransaction(same(committed))).thenReturn(true);
         ExternalPluginLifecycleCoordinator coordinator = coordinator();
 
         PluginActivationResult activation = coordinator.installOrUpdate(
@@ -637,60 +689,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         verify(installer).rollbackTransaction(same(committed));
         assertThat(coordinator.operation(pluginId)).hasValueSatisfying(snapshot ->
                 assertThat(snapshot.operation()).isEqualTo(ExternalPluginOperation.IDLE));
-    }
-
-    @Test
-    @DisplayName("新 generation 无法确认物理清退时延后磁盘回滚并返回恢复阻断")
-    void unconfirmedCurrentGenerationCleanupDefersRollbackUntilRestart() {
-        String pluginId = "cleanup-blocked-plugin";
-        Path staged = Path.of("plugins", ".staging", "tx-cleanup-blocked", "new.jar");
-        Path target = Path.of("plugins", "cleanup-blocked-plugin.jar");
-        PluginDescriptor descriptor = descriptor(pluginId);
-        PluginInstallResult result = new PluginInstallResult(
-                PluginInstallOutcome.INSTALLED, descriptor, target, null, List.of());
-        PreparedPluginTransaction prepared = new PreparedPluginTransaction(
-                "tx-cleanup-blocked", result, staged.getParent(), staged, target, List.of());
-        CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
-        LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
-        AssertionError activationFailure = new AssertionError("activation receipt failed");
-        AssertionError unloadFailure = new AssertionError("current generation unload was not confirmed");
-        when(loaded.packageId()).thenReturn(pluginId);
-        when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
-        when(runtimeManager.packagePhases()).thenReturn(
-                Map.of(),
-                Map.of(pluginId, PluginRuntimePackagePhase.STARTED),
-                Map.of(pluginId, PluginRuntimePackagePhase.STARTED),
-                Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
-        when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
-            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
-            return committed;
-        });
-        when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
-        when(lifecycleService.phase(pluginId)).thenReturn(
-                Optional.of(PluginRuntimePhase.STARTED),
-                Optional.of(PluginRuntimePhase.STOPPED),
-                Optional.of(PluginRuntimePhase.STOPPED));
-        when(lifecycleService.managedPluginIds()).thenReturn(java.util.Set.of(pluginId));
-        when(runtimeManager.activeDependents(pluginId)).thenReturn(List.of());
-        when(lifecycleService.generation(pluginId)).thenReturn(Optional.of(9L));
-        doThrow(unloadFailure).when(runtimeManager).unloadPlugin(pluginId);
-        doThrow(activationFailure).when(installer).markActivated(committed);
-
-        ExternalPluginLifecycleCoordinator coordinator = coordinator();
-        PluginActivationResult activation = coordinator.installOrUpdate(
-                staged, false, PluginPackageOrigin.localUpload());
-
-        assertThat(activation.installResult().outcome()).isEqualTo(PluginInstallOutcome.FAILED);
-        assertThat(activation.activated()).isFalse();
-        assertThat(activation.rolledBack()).isFalse();
-        assertThat(activation.recoveryBlocked()).isTrue();
-        verify(installer).deferRollbackUntilRestart(committed, activationFailure);
-        verify(installer, never()).rollbackTransaction(committed);
-        verify(lifecycleService).load(pluginId);
-        assertThat(coordinator.operation(pluginId)).hasValueSatisfying(snapshot ->
-                assertThat(snapshot.operation()).isEqualTo(ExternalPluginOperation.FAILED));
     }
 
     @Test
@@ -734,6 +732,65 @@ class ExternalPluginLifecycleCoordinatorTest {
     }
 
     @Test
+    @DisplayName("新代清退未确认时仍回滚公开安装文件且不制造磁盘恢复阻断")
+    void unconfirmedCurrentGenerationCleanupStillRollsBackPublicArtifact() {
+        String pluginId = "snapshot-cleanup-plugin";
+        Path staged = Path.of("plugins", ".staging", "tx-snapshot-cleanup", "new.jar");
+        Path target = Path.of("plugins", "snapshot-cleanup-plugin.jar");
+        PluginDescriptor descriptor = descriptor(pluginId);
+        PluginInstallResult result = new PluginInstallResult(
+                PluginInstallOutcome.INSTALLED, descriptor, target, null, List.of());
+        PreparedPluginTransaction prepared = new PreparedPluginTransaction(
+                "tx-snapshot-cleanup", result, staged.getParent(), staged, target, List.of());
+        CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
+        LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
+        when(loaded.packageId()).thenReturn(pluginId);
+        when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
+        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(runtimeManager.packagePhases()).thenReturn(
+                Map.of(),
+                Map.of(pluginId, PluginRuntimePackagePhase.STARTED),
+                Map.of(pluginId, PluginRuntimePackagePhase.STARTED),
+                Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
+        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
+        when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
+            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
+            return committed;
+        });
+        when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
+        when(lifecycleService.phase(pluginId)).thenReturn(
+                Optional.of(PluginRuntimePhase.STARTED),
+                Optional.of(PluginRuntimePhase.STOPPED),
+                Optional.of(PluginRuntimePhase.STOPPED));
+        when(lifecycleService.managedPluginIds()).thenReturn(java.util.Set.of(pluginId));
+        when(runtimeManager.activeDependents(pluginId)).thenReturn(List.of());
+        when(lifecycleService.generation(pluginId)).thenReturn(Optional.of(9L));
+        doThrow(new AssertionError("private generation unload was not confirmed"))
+                .when(runtimeManager).unloadPlugin(pluginId);
+        doThrow(new AssertionError("activation receipt failed")).when(installer).markActivated(committed);
+        when(installer.rollbackTransaction(committed)).thenAnswer(invocation -> {
+            committed.confirmDurableState(CommittedPluginTransaction.DurableState.ROLLED_BACK);
+            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.ROLLED_BACK);
+            return true;
+        });
+
+        PluginActivationResult activation = coordinator().installOrUpdate(
+                staged, false, PluginPackageOrigin.localUpload());
+
+        assertThat(activation.installResult().outcome()).isEqualTo(PluginInstallOutcome.FAILED);
+        assertThat(activation.activated()).isFalse();
+        assertThat(activation.rolledBack()).isFalse();
+        assertThat(activation.rollbackVersion()).isNull();
+        assertThat(activation.installResult().messages())
+                .contains("previous version recovery failed");
+        assertThat(activation.recoveryBlocked()).isFalse();
+        InOrder order = inOrder(runtimeManager, installer);
+        order.verify(runtimeManager).unloadPlugin(pluginId);
+        order.verify(installer).rollbackTransaction(committed);
+        verify(runtimeManager).loadPlugin(target);
+    }
+
+    @Test
     @DisplayName("普通 activation 失败的事务回滚 ThreadDeath 成为主失败并保留原失败")
     void fatalActivationCleanupOverridesOrdinaryFailure() {
         String pluginId = "dev-plugin";
@@ -770,29 +827,25 @@ class ExternalPluginLifecycleCoordinatorTest {
     }
 
     @Test
-    @DisplayName("激活事务已退役后完成调用抛 fatal 时保留新代且不再回滚")
+    @DisplayName("激活事务已退役后 complete 抛 fatal 时保留新代且原对象重抛")
     void fatalAfterRetiredActivationDoesNotRollbackCommittedGeneration() {
-        String pluginId = "retired-fatal-plugin";
-        Path staged = Path.of("plugins", ".staging", "tx-retired-fatal", "new.jar");
-        Path target = Path.of("plugins", "retired-fatal-plugin.jar");
-        PluginDescriptor descriptor = descriptor(pluginId);
-        PluginInstallResult result = new PluginInstallResult(
-                PluginInstallOutcome.INSTALLED, descriptor, target, null, List.of());
-        PreparedPluginTransaction prepared = new PreparedPluginTransaction(
-                "tx-retired-fatal", result, staged.getParent(), staged, target, List.of());
+        PreparedPluginTransaction prepared = acceptedTransaction(
+                "tx-retired-fatal", "retired-fatal-plugin", PluginLifecyclePolicy.HOT_RELOAD);
         CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
         LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
         TestVirtualMachineError fatal = new TestVirtualMachineError("fatal after transaction retirement");
+        String pluginId = prepared.result().pluginId();
         when(loaded.packageId()).thenReturn(pluginId);
-        when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(installer.prepareTransaction(
+                prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
+        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
         when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
         });
-        when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
+        when(runtimeManager.loadPlugin(prepared.target())).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         doAnswer(invocation -> {
             committed.confirmDurableState(CommittedPluginTransaction.DurableState.ACTIVATED);
@@ -805,7 +858,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         }).when(installer).completeTransaction(committed);
 
         assertThatThrownBy(() -> coordinator().installOrUpdate(
-                staged, false, PluginPackageOrigin.localUpload()))
+                prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload()))
                 .isSameAs(fatal);
 
         assertThat(committed.durableState())
@@ -816,28 +869,24 @@ class ExternalPluginLifecycleCoordinatorTest {
     }
 
     @Test
-    @DisplayName("已激活事务无法完成退役时返回恢复阻断且不回滚新代")
+    @DisplayName("已提交事务无法退役时返回恢复阻断机器态且不回滚已激活新代")
     void committedCleanupFailureReturnsRecoveryBlockedReceipt() {
-        String pluginId = "retirement-blocked-plugin";
-        Path staged = Path.of("plugins", ".staging", "tx-retirement-blocked", "new.jar");
-        Path target = Path.of("plugins", "retirement-blocked-plugin.jar");
-        PluginDescriptor descriptor = descriptor(pluginId);
-        PluginInstallResult result = new PluginInstallResult(
-                PluginInstallOutcome.INSTALLED, descriptor, target, null, List.of());
-        PreparedPluginTransaction prepared = new PreparedPluginTransaction(
-                "tx-retirement-blocked", result, staged.getParent(), staged, target, List.of());
+        PreparedPluginTransaction prepared = acceptedTransaction(
+                "tx-cleanup-blocked", "cleanup-blocked-plugin", PluginLifecyclePolicy.HOT_RELOAD);
         CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
         LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
+        String pluginId = prepared.result().pluginId();
         when(loaded.packageId()).thenReturn(pluginId);
-        when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
+        when(installer.prepareTransaction(
+                prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
+        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
         when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
         });
-        when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
+        when(runtimeManager.loadPlugin(prepared.target())).thenReturn(loaded);
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         doAnswer(invocation -> {
             committed.confirmDurableState(CommittedPluginTransaction.DurableState.ACTIVATED);
@@ -848,10 +897,10 @@ class ExternalPluginLifecycleCoordinatorTest {
             committed.markRecoveryBlocked();
             throw new AssertionError("transaction retirement blocked");
         }).when(installer).completeTransaction(committed);
-        ExternalPluginLifecycleCoordinator coordinator = coordinator();
 
+        ExternalPluginLifecycleCoordinator coordinator = coordinator();
         PluginActivationResult activation = coordinator.installOrUpdate(
-                staged, false, PluginPackageOrigin.localUpload());
+                prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload());
 
         assertThat(activation.activated()).isTrue();
         assertThat(activation.rolledBack()).isFalse();
@@ -928,11 +977,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         String pluginId = "forget-error-plugin";
         Path previousArtifact = Path.of("plugins", "forget-error-plugin.jar");
         configureLoadedRemoval(pluginId, previousArtifact);
-        when(installer.removeInstalled(any(PluginRemovalAttempt.class))).thenAnswer(invocation -> {
-            PluginRemovalAttempt attempt = invocation.getArgument(0);
-            attempt.confirm(PluginRemovalAttempt.Outcome.REMOVED);
-            return true;
-        });
+        confirmDurableRemoval();
         doThrow(new AssertionError("forget installation failed"))
                 .when(lifecycleService).forgetInstallation(pluginId);
         ExternalPluginLifecycleCoordinator coordinator = coordinator();
@@ -954,11 +999,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         String pluginId = "remove-refresh-error-plugin";
         Path previousArtifact = Path.of("plugins", "remove-refresh-error-plugin.jar");
         configureLoadedRemoval(pluginId, previousArtifact);
-        when(installer.removeInstalled(any(PluginRemovalAttempt.class))).thenAnswer(invocation -> {
-            PluginRemovalAttempt attempt = invocation.getArgument(0);
-            attempt.confirm(PluginRemovalAttempt.Outcome.REMOVED);
-            return true;
-        });
+        confirmDurableRemoval();
         doThrow(new AssertionError("post-removal refresh failed")).when(recoveryModeService).refresh();
         ExternalPluginLifecycleCoordinator coordinator = coordinator();
 
@@ -1015,6 +1056,26 @@ class ExternalPluginLifecycleCoordinatorTest {
                 assertThat(snapshot.operation()).isEqualTo(ExternalPluginOperation.FAILED));
     }
 
+    private void assertPreparedInstallFailureDiscards(
+            PreparedPluginTransaction prepared, AssertionError failure) {
+        when(installer.discardPrepared(prepared)).thenAnswer(invocation -> {
+            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.DISCARDED);
+            return true;
+        });
+        ExternalPluginLifecycleCoordinator coordinator = coordinator();
+
+        assertThatThrownBy(() -> coordinator.installOrUpdate(
+                prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload()))
+                .isInstanceOf(PluginLifecycleException.class)
+                .hasCause(failure);
+
+        verify(installer).discardPrepared(prepared);
+        verify(installer, never()).commitTransaction(any(PreparedPluginTransaction.class));
+        verify(installer, never()).rollbackTransaction(any(CommittedPluginTransaction.class));
+        assertThat(coordinator.operation(prepared.result().pluginId())).hasValueSatisfying(snapshot ->
+                assertThat(snapshot.operation()).isEqualTo(ExternalPluginOperation.IDLE));
+    }
+
     private void configureLoadedRemoval(String pluginId, Path previousArtifact) {
         when(runtimeManager.packagePhases()).thenReturn(
                 Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
@@ -1024,6 +1085,14 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(lifecycleService.generation(pluginId)).thenReturn(Optional.of(7L));
         when(runtimeManager.unloadPlugin(pluginId)).thenReturn(new UnloadedPluginPackage(
                 pluginId, previousArtifact, "1.0.0", 7L));
+    }
+
+    private void confirmDurableRemoval() {
+        when(installer.removeInstalled(any(PluginRemovalAttempt.class))).thenAnswer(invocation -> {
+            PluginRemovalAttempt attempt = invocation.getArgument(0);
+            attempt.confirm(PluginRemovalAttempt.Outcome.REMOVED);
+            return true;
+        });
     }
 
     private void verifyOldRuntimeWasNotRestored(String pluginId) {
@@ -1053,26 +1122,6 @@ class ExternalPluginLifecycleCoordinatorTest {
                 PluginApiRequirement.unspecified(), List.of(), "example.Plugin", null,
                 "plugin.label", null, null, null, PluginKind.FEATURE, replacements,
                 PluginLifecyclePolicy.HOT_RELOAD);
-    }
-
-    private void assertPreparedInstallFailureDiscards(
-            PreparedPluginTransaction prepared, AssertionError failure) {
-        when(installer.discardPrepared(prepared)).thenAnswer(invocation -> {
-            prepared.confirmCommitState(PreparedPluginTransaction.CommitState.DISCARDED);
-            return true;
-        });
-        ExternalPluginLifecycleCoordinator coordinator = coordinator();
-
-        assertThatThrownBy(() -> coordinator.installOrUpdate(
-                prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload()))
-                .isInstanceOf(PluginLifecycleException.class)
-                .hasCause(failure);
-
-        verify(installer).discardPrepared(prepared);
-        verify(installer, never()).commitTransaction(any(PreparedPluginTransaction.class));
-        verify(installer, never()).rollbackTransaction(any(CommittedPluginTransaction.class));
-        assertThat(coordinator.operation(prepared.result().pluginId())).hasValueSatisfying(snapshot ->
-                assertThat(snapshot.operation()).isEqualTo(ExternalPluginOperation.IDLE));
     }
 
     private static PreparedPluginTransaction acceptedTransaction(

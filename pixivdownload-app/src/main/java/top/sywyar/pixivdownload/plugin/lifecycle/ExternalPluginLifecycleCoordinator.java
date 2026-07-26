@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import top.sywyar.pixivdownload.plugin.install.PluginActivationResult;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem;
@@ -29,8 +30,8 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
- * 外置插件全部运行期写动作的唯一编排入口。固定顺序为应用足迹清退、PF4J 物理生命周期、代际替换；
- * 进程级写预约保护跨包依赖与替代关系，packageId 锁进一步固定目标包与被替代包的提交窗口。
+ * 外置插件全部运行期写动作的唯一编排入口。固定顺序为应用足迹清退、PF4J 物理生命周期、代际替换，
+ * 并以 packageId 锁阻止同包动作交错。
  */
 @Service
 public class ExternalPluginLifecycleCoordinator {
@@ -47,6 +48,8 @@ public class ExternalPluginLifecycleCoordinator {
      * 其它启停、卸载和删除动作走同一预约，避免依赖或旧 artifact 在检查与激活之间变化。
      */
     private final ReentrantLock lifecycleMutationLock = new ReentrantLock();
+    /** 偶数表示稳定快照，奇数表示有生命周期写事务；管理读模型用作跨组件 seqlock。 */
+    private final AtomicLong lifecycleMutationEpoch = new AtomicLong();
     private final Map<String, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final Map<String, ExternalPluginOperationSnapshot> operations = new ConcurrentHashMap<>();
 
@@ -105,8 +108,16 @@ public class ExternalPluginLifecycleCoordinator {
     public void restart(String packageId) {
         withLock(packageId, ExternalPluginOperation.UPDATING, () -> {
             requireActivationDependencies(packageId);
-            stopExclusive(packageId);
-            startExclusive(packageId);
+            try {
+                stopExclusive(packageId);
+                startExclusive(packageId);
+            } catch (Throwable failure) {
+                DeferredFailure failures = new DeferredFailure(failure);
+                refreshRecoveryModeSafely(failures);
+                throw propagateFailure(
+                        "failed to restart plugin '" + packageId + "'", failures.primary());
+            }
+            recoveryModeService.refresh();
             return null;
         });
     }
@@ -179,16 +190,28 @@ public class ExternalPluginLifecycleCoordinator {
         return Optional.ofNullable(operations.get(packageId));
     }
 
+    /** 管理读模型的跨组件一致性版本；奇数时不得发布来源证明结论。 */
+    public long lifecycleMutationEpoch() {
+        return lifecycleMutationEpoch.get();
+    }
+
     /** 统一的本地/市场安装更新事务；全局写预约从安全校验前持续到提交或回滚终态。 */
     public PluginActivationResult installOrUpdate(Path packageFile, boolean allowDowngrade,
                                                   PluginPackageOrigin origin) {
+        boolean outermostMutation = !lifecycleMutationLock.isHeldByCurrentThread();
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "another plugin lifecycle mutation is already in progress");
         }
+        if (outermostMutation) {
+            lifecycleMutationEpoch.incrementAndGet();
+        }
         try {
             return installOrUpdateExclusive(packageFile, allowDowngrade, origin);
         } finally {
+            if (outermostMutation) {
+                lifecycleMutationEpoch.incrementAndGet();
+            }
             lifecycleMutationLock.unlock();
         }
     }
@@ -357,23 +380,16 @@ public class ExternalPluginLifecycleCoordinator {
             boolean safeToCompensate = committed != null
                     || prepared.commitState() != PreparedPluginTransaction.CommitState.UNSAFE;
             boolean currentGenerationCleared = true;
-            if (committed != null && safeToCompensate) {
+            if (runtimeMutationStarted && committed != null && safeToCompensate) {
                 currentGenerationCleared = cleanupCurrentGeneration(packageId, failures);
             }
-            boolean rollbackDeferred = committed != null && !currentGenerationCleared;
-            boolean filesRestored;
-            if (committed == null) {
-                filesRestored = recoverPreparedTransaction(prepared, failures);
-            } else if (rollbackDeferred) {
-                deferRollbackUntilRestartSafely(committed, failures);
-                filesRestored = false;
-            } else {
-                filesRestored = rollbackTransactionSafely(committed, failures);
-            }
-            boolean runtimeRestored = true;
+            boolean filesRestored = committed == null
+                    ? recoverPreparedTransaction(prepared, failures)
+                    : rollbackTransactionSafely(committed, failures);
+            boolean runtimeRestored = currentGenerationCleared;
             if (committed == null && runtimeMutationStarted && wasLoaded && filesRestored) {
                 runtimeRestored = restoreUnchangedOld(packageId, true, previousArtifact, failures);
-            } else if (committed != null && wasLoaded && filesRestored) {
+            } else if (committed != null && wasLoaded && filesRestored && currentGenerationCleared) {
                 Path restoreArtifact = previousArtifact;
                 if (restoreArtifact == null) {
                     try {
@@ -404,8 +420,7 @@ public class ExternalPluginLifecycleCoordinator {
             }
             refreshRecoveryModeSafely(failures);
             rethrowFatal(failures.primary());
-            boolean recoveryBlocked = markRecoveryBlockedIfNeeded(
-                    packageId, prepared, committed, rollbackDeferred);
+            boolean recoveryBlocked = markRecoveryBlockedIfNeeded(packageId, prepared, committed);
             return new PluginActivationResult(prepared.transactionId(), failed, false, rolledBack,
                     rolledBack ? previousVersion : null, operationFor(prepared.result()),
                     currentPhase(packageId), recoveryBlocked);
@@ -420,16 +435,7 @@ public class ExternalPluginLifecycleCoordinator {
             String packageId,
             PreparedPluginTransaction prepared,
             CommittedPluginTransaction committed) {
-        return markRecoveryBlockedIfNeeded(packageId, prepared, committed, false);
-    }
-
-    private boolean markRecoveryBlockedIfNeeded(
-            String packageId,
-            PreparedPluginTransaction prepared,
-            CommittedPluginTransaction committed,
-            boolean explicitlyBlocked) {
-        boolean blocked = explicitlyBlocked
-                || prepared.commitState() == PreparedPluginTransaction.CommitState.UNSAFE
+        boolean blocked = prepared.commitState() == PreparedPluginTransaction.CommitState.UNSAFE
                 || committed != null && committed.recoveryBlocked();
         if (blocked) {
             operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
@@ -573,6 +579,7 @@ public class ExternalPluginLifecycleCoordinator {
             return !runtimeManager.packagePhases().containsKey(packageId);
         } catch (Throwable cleanupFailure) {
             failures.record(cleanupFailure);
+            // 回滚路径继续尝试恢复文件，最终结果会标记恢复失败。
             return false;
         }
     }
@@ -770,15 +777,6 @@ public class ExternalPluginLifecycleCoordinator {
         }
     }
 
-    private void deferRollbackUntilRestartSafely(
-            CommittedPluginTransaction committed, DeferredFailure failures) {
-        try {
-            installer.deferRollbackUntilRestart(committed, failures.primary());
-        } catch (Throwable deferFailure) {
-            failures.record(deferFailure);
-        }
-    }
-
     private boolean recoverPreparedTransaction(
             PreparedPluginTransaction prepared, DeferredFailure failures) {
         return switch (prepared.commitState()) {
@@ -889,9 +887,13 @@ public class ExternalPluginLifecycleCoordinator {
 
     private <T> T withLock(String packageId, ExternalPluginOperation operation,
                            String transactionId, Operation<T> action) {
+        boolean outermostMutation = !lifecycleMutationLock.isHeldByCurrentThread();
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "another plugin lifecycle mutation is already in progress");
+        }
+        if (outermostMutation) {
+            lifecycleMutationEpoch.incrementAndGet();
         }
         try {
             ReentrantLock lock = locks.computeIfAbsent(packageId, ignored -> new ReentrantLock());
@@ -920,6 +922,9 @@ public class ExternalPluginLifecycleCoordinator {
                 lock.unlock();
             }
         } finally {
+            if (outermostMutation) {
+                lifecycleMutationEpoch.incrementAndGet();
+            }
             lifecycleMutationLock.unlock();
         }
     }

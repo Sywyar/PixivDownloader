@@ -54,6 +54,9 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspec
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginDirectorySessionLock;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
@@ -872,26 +875,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     transaction.prepared().transactionId(), e.toString());
             rethrowIfError(e);
             return false;
-        } finally {
-            installLock.unlock();
-        }
-    }
-
-    /**
-     * 调用方无法确认当前 generation 已物理清退时，不得在存活进程内继续回滚磁盘文件。保留
-     * {@code NEW_PLACED} 恢复清单、封闭本进程后续插件写入与加载，并把实际回滚留给下次启动扫描前恢复。
-     */
-    public void deferRollbackUntilRestart(CommittedPluginTransaction transaction, Throwable failure) {
-        Objects.requireNonNull(transaction, "transaction");
-        Objects.requireNonNull(failure, "failure");
-        installLock.lock();
-        try {
-            if (transaction.durableState() != CommittedPluginTransaction.DurableState.NEW_PLACED) {
-                throw new IllegalStateException("only a NEW_PLACED plugin transaction can defer rollback");
-            }
-            transaction.markRecoveryBlocked();
-            blockAfterPublishedFailure(transaction.prepared().transactionDirectory(),
-                    FailureKind.RECOVERY_FAILED, failure);
         } finally {
             installLock.unlock();
         }
@@ -1780,7 +1763,113 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
     }
 
+    /**
+     * 在同一 installer 锁域内冻结可见 artifact 与其严格 provenance 结果，供管理读模型避免
+     * “旧 artifact 路径 + 新 sidecar”之类 SAFE 状态内的跨事务混合快照。
+     */
+    public InstalledPluginInventorySnapshot snapshotInstalledWithProvenance(
+            int maximumRecords, long maximumBytes) {
+        if (maximumRecords <= 0 || maximumBytes < 0L) {
+            throw new IllegalArgumentException("management provenance limits are invalid");
+        }
+        installLock.lock();
+        try {
+            if (!acquireDirectorySessionLockIfPresent()) {
+                return new InstalledPluginInventorySnapshot(List.of(), false);
+            }
+            requireRecoverySafe("snapshot installed plugins with provenance");
+            List<InspectedInstalledArtifact> installed = inspectInstalledArtifactsExclusive();
+            beforeManagementProvenanceSnapshot();
+            List<InstalledPluginSnapshot> entries = new ArrayList<>(installed.size());
+            int records = 0;
+            long bytes = 0L;
+            boolean exhausted = false;
+            for (InspectedInstalledArtifact inspected : installed) {
+                InstalledPlugin plugin = inspected.plugin();
+                if (exhausted || records >= maximumRecords) {
+                    exhausted = true;
+                    entries.add(new InstalledPluginSnapshot(
+                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                            ProvenanceSnapshotState.BUDGET_EXHAUSTED, null, 0L));
+                    continue;
+                }
+                records++;
+                long remainingBytes = maximumBytes - bytes;
+                try {
+                    var measured = provenanceStore.readMeasuredStrict(plugin.path(), remainingBytes);
+                    if (measured.isEmpty()) {
+                        entries.add(new InstalledPluginSnapshot(
+                                plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                                ProvenanceSnapshotState.ABSENT, null, 0L));
+                        continue;
+                    }
+                    PluginProvenanceStore.MeasuredProvenance present = measured.orElseThrow();
+                    bytes = addManagementSnapshotBytes(bytes, present.byteCount(), maximumBytes);
+                    entries.add(new InstalledPluginSnapshot(
+                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                            ProvenanceSnapshotState.PRESENT, present.record(), present.byteCount()));
+                } catch (PluginProvenanceStore.ReadBudgetExceededException budgetFailure) {
+                    exhausted = true;
+                    ProvenanceSnapshotState state = budgetFailure.byteCount() <= 0L
+                            ? ProvenanceSnapshotState.INVALID
+                            : ProvenanceSnapshotState.BUDGET_EXHAUSTED;
+                    entries.add(new InstalledPluginSnapshot(
+                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                            state, null, 0L));
+                } catch (PluginProvenanceStore.InvalidProvenanceException invalidProvenance) {
+                    try {
+                        bytes = addManagementSnapshotBytes(
+                                bytes, invalidProvenance.byteCount(), maximumBytes);
+                    } catch (ArithmeticException overflow) {
+                        exhausted = true;
+                    }
+                    entries.add(new InstalledPluginSnapshot(
+                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                            ProvenanceSnapshotState.INVALID, null, 0L));
+                } catch (PluginProvenanceStore.ProvenanceReadException readFailure) {
+                    try {
+                        bytes = addManagementSnapshotBytes(
+                                bytes, readFailure.byteCount(), maximumBytes);
+                    } catch (ArithmeticException overflow) {
+                        exhausted = true;
+                    }
+                    entries.add(new InstalledPluginSnapshot(
+                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                            ProvenanceSnapshotState.INVALID, null, 0L));
+                } catch (IOException invalidProvenance) {
+                    entries.add(new InstalledPluginSnapshot(
+                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                            ProvenanceSnapshotState.INVALID, null, 0L));
+                } catch (IllegalStateException | ArithmeticException invalidProvenance) {
+                    exhausted = true;
+                    entries.add(new InstalledPluginSnapshot(
+                            plugin, inspected.artifactSizeBytes(), inspected.artifactSha256(),
+                            ProvenanceSnapshotState.INVALID, null, 0L));
+                }
+            }
+            return new InstalledPluginInventorySnapshot(entries, exhausted);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    private static long addManagementSnapshotBytes(
+            long consumedBytes, long candidateBytes, long maximumBytes) {
+        if (consumedBytes < 0L
+                || consumedBytes > maximumBytes
+                || candidateBytes < 0L
+                || candidateBytes > maximumBytes - consumedBytes) {
+            throw new ArithmeticException("management provenance read budget exceeded");
+        }
+        return consumedBytes + candidateBytes;
+    }
+
     private List<InstalledPlugin> listInstalledExclusive() {
+        return inspectInstalledArtifactsExclusive().stream()
+                .map(InspectedInstalledArtifact::plugin).toList();
+    }
+
+    private List<InspectedInstalledArtifact> inspectInstalledArtifactsExclusive() {
         Path pluginsRoot = pluginsDir.toAbsolutePath().normalize();
         try {
             PluginArtifactScanner.ScanResult scan = PluginArtifactScanner.scan(pluginsRoot);
@@ -1788,12 +1877,31 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 return List.of();
             }
             assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
-            List<InstalledPlugin> result = new ArrayList<>(scan.candidates().size());
+            List<InspectedInstalledArtifact> result = new ArrayList<>(scan.candidates().size());
+            RecoveryBudget inventoryBudget = new RecoveryBudget();
             for (Path path : scan.candidates()) {
                 try {
-                    PluginPackageInspection inspection = PluginPackageReader.inspect(path, limits);
-                    result.add(new InstalledPlugin(inspection.descriptor(), path));
-                } catch (PluginPackageException e) {
+                    BasicFileAttributes before = Files.readAttributes(
+                            path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                    if (before.isSymbolicLink() || before.isOther() || !before.isRegularFile()
+                            || before.size() <= 0L || before.size() > limits.maxArchiveBytes()) {
+                        log.warn("Skipping plugin package outside the supported file shape or size: {}",
+                                path.getFileName());
+                        continue;
+                    }
+                    CleanupIdentity identity = cleanupIdentity(before);
+                    String digest = PluginPackageIntegrity.sha256Hex(path);
+                    PluginPackageInspection inspection = inventoryBudget.inspectArchive(path, digest, limits);
+                    BasicFileAttributes after = Files.readAttributes(
+                            path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                    if (after.isSymbolicLink() || after.isOther() || !after.isRegularFile()
+                            || after.size() != before.size()
+                            || !identity.equals(cleanupIdentity(after))) {
+                        throw new IOException("installed plugin artifact changed during inventory: " + path);
+                    }
+                    result.add(new InspectedInstalledArtifact(
+                            new InstalledPlugin(inspection.descriptor(), path), before.size(), digest));
+                } catch (PluginPackageException | IOException e) {
                     log.warn("Skipping unreadable plugin package {}: {}", path.getFileName(), e.getMessage());
                 }
             }
@@ -3832,6 +3940,20 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
     }
 
+    private record InspectedInstalledArtifact(
+            InstalledPlugin plugin,
+            long artifactSizeBytes,
+            String artifactSha256) {
+
+        private InspectedInstalledArtifact {
+            plugin = Objects.requireNonNull(plugin, "plugin");
+            if (artifactSizeBytes <= 0L) {
+                throw new IllegalArgumentException("installed artifact size must be positive");
+            }
+            artifactSha256 = Objects.requireNonNull(artifactSha256, "artifactSha256");
+        }
+    }
+
     private record ReadManifest(Properties properties, long byteCount) {
 
         private ReadManifest {
@@ -3994,6 +4116,11 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
     /** 包级测试接缝：证明累计预算熔断后不会继续打开后续恢复清单。 */
     void beforeRecoveryManifestRead(Path manifest) {
+        // 生产实现无动作。
+    }
+
+    /** 包级测试接缝：证明管理快照在 artifact 枚举与 provenance 读取之间持续持有 installer 锁。 */
+    void beforeManagementProvenanceSnapshot() {
         // 生产实现无动作。
     }
 

@@ -170,45 +170,6 @@ class ExternalPluginTransactionTest {
     }
 
     @Test
-    @DisplayName("当前 generation 无法确认清退时保留 NEW_PLACED 并由下次启动恢复旧包")
-    void deferredRollbackBlocksCurrentProcessAndRecoversOnRestart() {
-        Path plugins = temp.resolve("plugins-deferred-rollback");
-        ExternalPluginInstaller installer = newInstaller(plugins);
-        installFully(installer, packageFile("deferred-old.zip", "1.0.0"));
-        PreparedPluginTransaction prepared = installer.prepareTransaction(
-                packageFile("deferred-new.zip", "2.0.0"), false,
-                PluginPackageOrigin.localUpload());
-        CommittedPluginTransaction committed = installer.commitTransaction(prepared);
-
-        installer.deferRollbackUntilRestart(
-                committed, new IllegalStateException("current generation cleanup is unconfirmed"));
-
-        assertThat(committed.recoveryBlocked()).isTrue();
-        assertThat(committed.durableState())
-                .isEqualTo(CommittedPluginTransaction.DurableState.NEW_PLACED);
-        assertThat(installer.recoveryGateSnapshot().state())
-                .isEqualTo(PluginRecoveryGateState.BLOCKED);
-        assertThat(prepared.transactionDirectory()).exists();
-        assertThat(plugins.resolve("demo-1.0.0.zip")).doesNotExist();
-        assertThat(plugins.resolve("demo-2.0.0.zip")).exists();
-        assertThatThrownBy(installer::listInstalled)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("recovery is unsafe");
-
-        installer.close();
-        ExternalPluginInstaller restarted = new ExternalPluginInstaller(plugins);
-        installers.add(restarted);
-        PluginTransactionRecoveryReport recovery = restarted.recoverPendingTransactions();
-
-        assertThat(recovery.safeToScan()).isTrue();
-        assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
-        assertThat(sidecar(plugins, plugins.resolve("demo-1.0.0.zip"))).exists();
-        assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
-        assertThat(sidecar(plugins, plugins.resolve("demo-2.0.0.zip"))).doesNotExist();
-        assertThat(prepared.transactionDirectory()).doesNotExist();
-    }
-
-    @Test
     @DisplayName("ACTIVATED 崩溃恢复保留新包并清理 backup")
     void recoverActivatedCommitsNew() {
         Path plugins = temp.resolve("plugins-recover-new");
