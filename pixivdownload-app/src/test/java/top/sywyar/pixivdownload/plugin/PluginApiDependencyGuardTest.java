@@ -571,10 +571,10 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("下载队列控制器不得直接依赖具体作品类型下载服务：取消 / 清空只经核心队列宿主注册中心 QueueOperationRegistry")
+    @DisplayName("下载队列控制器不得直接依赖具体作品类型下载服务：取消 / 清空只经稳定下载控制面")
     void downloadQueueControllerDoesNotDependOnConcreteDownloadServices() {
-        // 跨类型 cancel / clear 已收口为核心队列宿主注册中心 QueueOperationRegistry（按 queueType 解析操作适配器）。
-        // DownloadQueueController 只依赖该核心注册中心与中性 QueueOperations 契约，不得直接 import 任一具体作品类型
+        // 跨类型 cancel / clear 已收口为 plugin-api DownloadControlPlane；app adapter 内部按 queueType 协调
+        // descriptor 与命令 publication。DownloadQueueController 只依赖稳定控制面，不得直接 import 任一具体作品类型
         // 下载实现——插画 ArtworkDownloadExecutor（同插件、但仍属具体实现）与小说 NovelDownloadService（跨插件反向耦合）
         // 都在禁用面内；插画 / 小说各经其 XxxPluginConfiguration 显式装配一个 QueueOperations 适配器贡献给注册中心。
         // 仅针对该控制器：同包其它下载控制器（DownloadStatusController / DownloadTaskController 依赖插画执行器、
@@ -585,15 +585,15 @@ class PluginApiDependencyGuardTest {
                 .should().dependOnClassesThat()
                 .haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
-                .because("下载队列控制器的跨类型取消 / 清空经核心队列宿主注册中心 QueueOperationRegistry "
-                        + "+ 中性契约 QueueOperations 多态派发，不得直接依赖插画下载执行器")
+                .because("下载队列控制器的跨类型取消 / 清空经稳定 DownloadControlPlane 多态派发，"
+                        + "不得直接依赖插画下载执行器")
                 .check(importDownloadWorkbenchClasses());
         noClasses()
                 .that().haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
                 .should().dependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.novel.download..")
-                .because("下载队列控制器不得反向依赖小说下载实现；小说只经 QueueOperations 贡献能力")
+                .because("下载队列控制器不得反向依赖小说下载实现；小说只经稳定队列契约贡献能力")
                 .check(importDownloadWorkbenchClasses());
     }
 

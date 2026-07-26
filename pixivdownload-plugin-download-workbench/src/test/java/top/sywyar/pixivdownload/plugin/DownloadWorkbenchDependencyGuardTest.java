@@ -51,6 +51,19 @@ class DownloadWorkbenchDependencyGuardTest {
                     return HOST_BOUNDARY_IMPLEMENTATIONS.contains(javaClass.getFullName());
                 }
             };
+    private static final DescribedPredicate<JavaClass> HOST_DOWNLOAD_CONTROL_IMPLEMENTATION =
+            new DescribedPredicate<>("host download control implementation") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    String className = javaClass.getFullName();
+                    return className.startsWith(
+                            "top.sywyar.pixivdownload.core.download.control.")
+                            || className.startsWith(
+                            "top.sywyar.pixivdownload.core.download.queue.")
+                            || className.startsWith(
+                            "top.sywyar.pixivdownload.plugin.registry.DownloadExtension");
+                }
+            };
 
     @Test
     @DisplayName("download 包不得依赖 novel 包")
@@ -123,7 +136,16 @@ class DownloadWorkbenchDependencyGuardTest {
                 .that().haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
                 .should().dependOnClassesThat(CONCRETE_DOWNLOAD_SERVICE)
-                .because("下载队列控制器的跨类型取消 / 清空只能经核心 QueueOperationRegistry + QueueOperations")
+                .because("下载队列控制器的跨类型取消 / 清空只能经稳定 DownloadControlPlane")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载工作台不得依赖宿主队列命令与扩展 registry 实现")
+    void workbenchUsesStableDownloadControlPlane() {
+        noClasses()
+                .should().dependOnClassesThat(HOST_DOWNLOAD_CONTROL_IMPLEMENTATION)
+                .because("descriptor 快照、currentness 与队列命令对象身份由宿主 DownloadControlPlane adapter 维护")
                 .check(CLASSES);
     }
 
@@ -217,4 +239,5 @@ class DownloadWorkbenchDependencyGuardTest {
                 .withImportOption(new ImportOption.DoNotIncludeTests())
                 .importPath(classesDir);
     }
+
 }

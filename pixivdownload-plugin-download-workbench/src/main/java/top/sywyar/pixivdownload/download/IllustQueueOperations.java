@@ -11,8 +11,8 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
  * {@link #cancel}；清空 / 按 owner 清空委托执行器既有方法。
  *
  * <p>随下载工作台插件生命周期归属（{@code @PluginManagedBean}，由 {@code DownloadWorkbenchPluginConfiguration} 显式装配、
- * 排除出根包扫描），经 {@link top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry} 注册。下载工作台是必选
- * 插件、恒在场，故插画队列操作恒可解析。
+ * 排除出根包扫描），由宿主运行时注册并通过稳定下载控制面提供调用。下载工作台正常 serving 时，
+ * 插画队列操作随其当前 publication 可解析。
  */
 @PluginManagedBean
 @RequiredArgsConstructor

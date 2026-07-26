@@ -14,7 +14,7 @@ import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
-import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
@@ -55,7 +55,6 @@ import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
-import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.quota.RateLimitService;
@@ -271,17 +270,16 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public DownloadQueueController downloadQueueController(QueueOperationRegistry queueOperationRegistry,
-                                                           DownloadExtensionRegistry downloadExtensionRegistry,
+    public DownloadQueueController downloadQueueController(DownloadControlPlane downloadControlPlane,
                                                            RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadQueueController(
-                queueOperationRegistry, downloadExtensionRegistry, requestOwnerIdentityResolver, messages);
+                downloadControlPlane, requestOwnerIdentityResolver, messages);
     }
 
     @Bean
-    public DownloadExtensionController downloadExtensionController(DownloadExtensionRegistry extensionRegistry) {
-        return new DownloadExtensionController(extensionRegistry);
+    public DownloadExtensionController downloadExtensionController(DownloadControlPlane downloadControlPlane) {
+        return new DownloadExtensionController(downloadControlPlane);
     }
 
     @Bean
