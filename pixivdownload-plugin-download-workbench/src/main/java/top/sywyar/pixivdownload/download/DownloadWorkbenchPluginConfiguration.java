@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
@@ -92,9 +93,10 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public UgoiraService ugoiraService(@Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+    public UgoiraService ugoiraService(PixivImageDownloader pixivImageDownloader,
+                                       FfmpegCommandResolver ffmpegCommandResolver,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new UgoiraService(downloadRestTemplate, messages);
+        return new UgoiraService(pixivImageDownloader, ffmpegCommandResolver, messages);
     }
 
     @Bean

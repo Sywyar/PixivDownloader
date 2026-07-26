@@ -17,6 +17,8 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
@@ -93,6 +95,8 @@ class CoreApiOwnershipGuardTest {
                             "OutboundProxyEndpoint", "OutboundProxyOverride", "OutboundProxySettings",
                             "RuntimePathProvider"),
                     types("top.sywyar.pixivdownload.core.db.pathprefix", "StoredPathCodec"),
+                    types("top.sywyar.pixivdownload.core.ffmpeg",
+                            "FfmpegCommandResolver", "ResolvedFfmpegCommand"),
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
                     types("top.sywyar.pixivdownload.i18n",
                             "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver"),
@@ -198,6 +202,7 @@ class CoreApiOwnershipGuardTest {
             "top.sywyar.pixivdownload.core.work.query.SeriesNeighbors$Neighbor",
             "top.sywyar.pixivdownload.core.work.query.WorkQuery$Builder",
             "top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
+            "top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
             "top.sywyar.pixivdownload.push.PushResult$Status"
     );
 
@@ -247,6 +252,8 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Map<String, List<String>> APPROVED_ENUM_CONSTANTS_BY_TYPE = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
+                    List.of("MANAGED", "BUNDLED", "SYSTEM", "FALLBACK")),
             Map.entry("top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetType",
                     List.of("AUTHOR", "TAG")),
             Map.entry("top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendHook",
@@ -440,6 +447,9 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(NarrationVoiceRequest.class,
                 List.of("text", "controlInstruction", "delivery", "referenceVoice"),
                 List.of(String.class, String.class, String.class, NarrationReferenceVoice.class));
+        assertRecordShape(ResolvedFfmpegCommand.class,
+                List.of("command", "source"),
+                List.of(String.class, ResolvedFfmpegCommand.Source.class));
         assertRecordShape(ScheduledTask.class,
                 List.of("id", "name", "enabled", "sourceType", "sourceOwnerPluginId", "definitionSchema",
                         "definitionVersion", "definitionJson", "presentationJson", "triggerKind", "intervalMinutes",
@@ -597,6 +607,15 @@ class CoreApiOwnershipGuardTest {
                         "public abstract bookmarkNovel(java.lang.Long,java.lang.String):top.sywyar.pixivdownload.core.work.WorkActionResult");
         assertThat(publicDeclaredMethodSignatures(PixivImageDownloader.class))
                 .containsExactly("public abstract download(java.net.URI,java.net.URI,java.nio.file.Path,java.lang.String,top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver):boolean");
+        assertThat(publicDeclaredMethodSignatures(FfmpegCommandResolver.class))
+                .containsExactly("public abstract resolve():top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand");
+        assertThat(publicDeclaredMethodSignatures(ResolvedFfmpegCommand.class))
+                .containsExactlyInAnyOrder(
+                        "public command():java.lang.String",
+                        "public final equals(java.lang.Object):boolean",
+                        "public final hashCode():int",
+                        "public source():top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
+                        "public final toString():java.lang.String");
         assertThat(publicDeclaredMethodSignatures(PixivImageTransferObserver.class))
                 .containsExactlyInAnyOrder(
                         "public checkCancelled():void",

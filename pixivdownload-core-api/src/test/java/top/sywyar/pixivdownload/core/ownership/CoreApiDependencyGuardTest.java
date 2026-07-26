@@ -21,6 +21,8 @@ import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
 import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
 import top.sywyar.pixivdownload.core.gallery.GalleryWorkProvider;
 import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendContribution;
@@ -114,6 +116,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.artwork..",
                         "top.sywyar.pixivdownload.core.collection..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
+                        "top.sywyar.pixivdownload.core.ffmpeg..",
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
                         "top.sywyar.pixivdownload.core.pixiv..",
@@ -286,6 +289,8 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(AcquisitionCredentialResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(ApplicationModeProvider.class.getName())).isTrue();
         assertThat(CLASSES.contain(LocalRequestTrust.class.getName())).isTrue();
+        assertThat(CLASSES.contain(FfmpegCommandResolver.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ResolvedFfmpegCommand.class.getName())).isTrue();
     }
 
     @Test

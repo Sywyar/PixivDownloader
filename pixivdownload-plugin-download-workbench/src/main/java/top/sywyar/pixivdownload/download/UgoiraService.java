@@ -1,18 +1,16 @@
 package top.sywyar.pixivdownload.download;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation;
-import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
+import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
+import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.io.*;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -29,12 +27,17 @@ import java.util.zip.ZipInputStream;
 @Service
 public class UgoiraService {
 
-    private final RestTemplate downloadRestTemplate;
+    private static final URI DEFAULT_PIXIV_REFERER = URI.create("https://www.pixiv.net/");
+
+    private final PixivImageDownloader pixivImageDownloader;
+    private final FfmpegCommandResolver ffmpegCommandResolver;
     private final MessageResolver messages;
 
-    public UgoiraService(@Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+    public UgoiraService(PixivImageDownloader pixivImageDownloader,
+                         FfmpegCommandResolver ffmpegCommandResolver,
                          MessageResolver messages) {
-        this.downloadRestTemplate = downloadRestTemplate;
+        this.pixivImageDownloader = pixivImageDownloader;
+        this.ffmpegCommandResolver = ffmpegCommandResolver;
         this.messages = messages;
     }
 
@@ -215,19 +218,27 @@ public class UgoiraService {
     }
 
     /**
-     * 自动检测 ffmpeg 路径：优先 PATH，其次应用根目录（jpackage 打包场景）。
+     * 从宿主取得 FFmpeg 命令并记录已探测来源。
      */
-    private String detectFfmpegCommand() {
-        var installation = FfmpegLocator.locate();
-        if (installation.isPresent()) {
-            FfmpegInstallation ffmpegInstallation = installation.get();
+    String detectFfmpegCommand() {
+        ResolvedFfmpegCommand resolved = ffmpegCommandResolver.resolve();
+        if (resolved.source() != ResolvedFfmpegCommand.Source.FALLBACK) {
             log.info(message("ugoira.log.ffmpeg.detected",
-                    message(ffmpegInstallation.sourceMessageCode()), ffmpegInstallation.ffmpegPath()));
-            return ffmpegInstallation.ffmpegPath().toString();
+                    message(ffmpegSourceMessageCode(resolved.source())), resolved.command()));
+            return resolved.command();
         }
 
         log.warn(message("ugoira.log.ffmpeg.missing"));
-        return FfmpegLocator.fallbackCommand();
+        return resolved.command();
+    }
+
+    private String ffmpegSourceMessageCode(ResolvedFfmpegCommand.Source source) {
+        return switch (source) {
+            case MANAGED -> "ffmpeg.source.managed";
+            case BUNDLED -> "ffmpeg.source.bundled";
+            case SYSTEM -> "ffmpeg.source.system";
+            case FALLBACK -> throw new IllegalArgumentException("fallback command has no detected source");
+        };
     }
 
     private boolean runFfmpeg(Long artworkId, List<Map.Entry<String, Path>> orderedFrames,
@@ -347,62 +358,74 @@ public class UgoiraService {
         return true;
     }
 
-    private boolean downloadZip(String url, Path path, String referer, String cookie,
-                                 int outerAttempt, int outerMaxAttempts,
-                                 Consumer<UgoiraProgress> progressListener,
-                                 BooleanSupplier cancellationRequested) {
+    boolean downloadZip(String url, Path path, String referer, String cookie,
+                        int outerAttempt, int outerMaxAttempts,
+                        Consumer<UgoiraProgress> progressListener,
+                        BooleanSupplier cancellationRequested) {
         int maxRetries = 3;
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             ensureNotCancelled(cancellationRequested);
             try {
-                Boolean success = downloadRestTemplate.execute(url, HttpMethod.GET,
-                        request -> PixivRequestHeaders.applyImage(request.getHeaders(), referer, cookie),
-                        (ClientHttpResponse response) -> {
-                            if (!response.getStatusCode().is2xxSuccessful()) {
-                                log.error(message("ugoira.log.http-error", response.getStatusCode(), url));
-                                return false;
+                URI source = URI.create(url);
+                URI refererUri = referer == null || referer.isBlank()
+                        ? DEFAULT_PIXIV_REFERER
+                        : URI.create(referer);
+                long[] totalBytes = {0L};
+                long[] downloadedBytes = {0L};
+                int[] lastProgress = {-1};
+                long[] lastBytes = {0L};
+                long[] lastAt = {0L};
+                boolean success = pixivImageDownloader.download(
+                        source,
+                        refererUri,
+                        path,
+                        cookie,
+                        new PixivImageTransferObserver() {
+                            @Override
+                            public void checkCancelled() {
+                                ensureNotCancelled(cancellationRequested);
                             }
-                            long totalBytes = response.getHeaders().getContentLength();
-                            long[] downloadedBytes = {0L};
-                            int[] lastProgress = {-1};
-                            long[] lastBytes = {0L};
-                            long[] lastAt = {0L};
-                            try (InputStream in = response.getBody();
-                                 FileOutputStream out = new FileOutputStream(path.toFile())) {
-                                byte[] buf = new byte[8192];
-                                int len;
-                                while ((len = in.read(buf)) != -1) {
-                                    ensureNotCancelled(cancellationRequested);
-                                    out.write(buf, 0, len);
-                                    downloadedBytes[0] += len;
-                                    Integer progress = totalBytes > 0
-                                            ? Math.min(99, (int) (downloadedBytes[0] * 100 / totalBytes))
-                                            : null;
-                                    if (shouldEmitByteProgress(progress, downloadedBytes[0], lastProgress, lastBytes, lastAt)) {
-                                        publishProgress(progressListener, UgoiraProgress.builder()
-                                                .phase(UgoiraProgress.PHASE_ZIP)
-                                                .status(UgoiraProgress.STATUS_RUNNING)
-                                                .attempt(outerAttempt)
-                                                .maxAttempts(outerMaxAttempts)
-                                                .zipDownloadedBytes(downloadedBytes[0])
-                                                .zipTotalBytes(totalBytes > 0 ? totalBytes : null)
-                                                .zipProgress(progress)
-                                                .build());
-                                    }
+
+                            @Override
+                            public void onContentLength(long contentLength) {
+                                totalBytes[0] = contentLength;
+                            }
+
+                            @Override
+                            public void onBytesTransferred(long transferredBytes) {
+                                if (transferredBytes <= 0) {
+                                    return;
+                                }
+                                downloadedBytes[0] = transferredBytes;
+                                Integer progress = totalBytes[0] > 0
+                                        ? Math.min(99, (int) (transferredBytes * 100 / totalBytes[0]))
+                                        : null;
+                                if (shouldEmitByteProgress(
+                                        progress, transferredBytes, lastProgress, lastBytes, lastAt)) {
+                                    publishProgress(progressListener, UgoiraProgress.builder()
+                                            .phase(UgoiraProgress.PHASE_ZIP)
+                                            .status(UgoiraProgress.STATUS_RUNNING)
+                                            .attempt(outerAttempt)
+                                            .maxAttempts(outerMaxAttempts)
+                                            .zipDownloadedBytes(transferredBytes)
+                                            .zipTotalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
+                                            .zipProgress(progress)
+                                            .build());
                                 }
                             }
-                            publishProgress(progressListener, UgoiraProgress.builder()
-                                    .phase(UgoiraProgress.PHASE_ZIP)
-                                    .status(UgoiraProgress.STATUS_COMPLETED)
-                                    .attempt(outerAttempt)
-                                    .maxAttempts(outerMaxAttempts)
-                                    .zipDownloadedBytes(downloadedBytes[0])
-                                    .zipTotalBytes(totalBytes > 0 ? totalBytes : null)
-                                    .zipProgress(100)
-                                    .build());
-                            return true;
                         });
-                if (Boolean.TRUE.equals(success)) return true;
+                if (success) {
+                    publishProgress(progressListener, UgoiraProgress.builder()
+                            .phase(UgoiraProgress.PHASE_ZIP)
+                            .status(UgoiraProgress.STATUS_COMPLETED)
+                            .attempt(outerAttempt)
+                            .maxAttempts(outerMaxAttempts)
+                            .zipDownloadedBytes(downloadedBytes[0])
+                            .zipTotalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
+                            .zipProgress(100)
+                            .build());
+                    return true;
+                }
             } catch (CancellationException e) {
                 throw e;
             } catch (Exception e) {
@@ -436,7 +459,7 @@ public class UgoiraService {
         }
     }
 
-    private void sleepCancellable(long millis, BooleanSupplier cancellationRequested) {
+    void sleepCancellable(long millis, BooleanSupplier cancellationRequested) {
         long deadline = System.currentTimeMillis() + Math.max(0L, millis);
         while (true) {
             ensureNotCancelled(cancellationRequested);

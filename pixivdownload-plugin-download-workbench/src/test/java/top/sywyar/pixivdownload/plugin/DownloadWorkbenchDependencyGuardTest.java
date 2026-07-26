@@ -42,6 +42,8 @@ class DownloadWorkbenchDependencyGuardTest {
             "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
             "top.sywyar.pixivdownload.core.notification.NotificationService",
             "top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard",
+            "top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation",
+            "top.sywyar.pixivdownload.ffmpeg.FfmpegLocator",
             "top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry",
             "top.sywyar.pixivdownload.quota.UserQuotaService",
             "top.sywyar.pixivdownload.setup.SetupService",
@@ -75,6 +77,17 @@ class DownloadWorkbenchDependencyGuardTest {
                             || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptRegistry")
                             || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptResource")
                             || className.startsWith("top.sywyar.pixivdownload.scripts.UserscriptRegistry");
+                }
+            };
+    private static final Set<String> UGOIRA_HOST_TRANSPORT_IMPLEMENTATIONS = Set.of(
+            "org.springframework.http.client.ClientHttpResponse",
+            "org.springframework.web.client.RestTemplate",
+            "top.sywyar.pixivdownload.common.PixivRequestHeaders");
+    private static final DescribedPredicate<JavaClass> UGOIRA_HOST_TRANSPORT_IMPLEMENTATION =
+            new DescribedPredicate<>("host Pixiv image transport implementation") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    return UGOIRA_HOST_TRANSPORT_IMPLEMENTATIONS.contains(javaClass.getFullName());
                 }
             };
 
@@ -172,11 +185,21 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("下载工作台不得依赖宿主路径、配置、i18n、通知、代理访问、setup 与访客守卫实现")
+    @DisplayName("Ugoira 下载必须通过稳定图片传输端口")
+    void ugoiraUsesStablePixivImageTransport() {
+        noClasses()
+                .that().haveFullyQualifiedName("top.sywyar.pixivdownload.download.UgoiraService")
+                .should().dependOnClassesThat(UGOIRA_HOST_TRANSPORT_IMPLEMENTATION)
+                .because("Ugoira 只拥有重试、进度、取消和临时文件语义，请求头与 HTTP 转换归宿主图片传输端口")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载工作台不得依赖宿主路径、配置、i18n、通知、FFmpeg、代理访问、setup 与访客守卫实现")
     void workbenchDoesNotDependOnHostBoundaryImplementations() {
         noClasses()
                 .should().dependOnClassesThat(HOST_BOUNDARY_IMPLEMENTATION)
-                .because("外置插件只能依赖稳定路径、设置、身份、i18n、通知、代理访问端口与 WorkVisibilityService")
+                .because("外置插件只能依赖稳定路径、设置、身份、i18n、通知、FFmpeg、代理访问端口与 WorkVisibilityService")
                 .check(CLASSES);
     }
 
