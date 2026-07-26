@@ -4,16 +4,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.task.TaskExecutor;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
-import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
@@ -26,19 +22,23 @@ import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
-import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
-import java.io.*;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -61,11 +61,13 @@ import java.util.function.Consumer;
 @Service
 public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
+    private static final URI DEFAULT_PIXIV_REFERER = URI.create("https://www.pixiv.net/");
+
     private final DownloadSettings downloadSettings;
     private final ApplicationEventPublisher eventPublisher;
     private final PixivDatabase pixivDatabase;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
-    private final RestTemplate downloadRestTemplate;
+    private final PixivImageDownloader pixivImageDownloader;
     private final TaskScheduler taskScheduler;
     private final TaskExecutor downloadTaskExecutor;
     private final PixivBookmarkActions pixivBookmarkActions;
@@ -74,8 +76,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private final CollectionDownloadRootResolver collectionDownloadRootResolver;
     private final WorkCollectionMembership workCollectionMembership;
     private final MangaSeriesService mangaSeriesService;
-    private final ArtworkHashService artworkHashService;
+    private final ArtworkHashIndexMaintenance artworkHashIndexMaintenance;
     private final WorkMetadataCapture workMetadataCapture;
+    private final WorkFileNameCatalog workFileNameCatalog;
     private final DownloadStatisticsService downloadStatisticsService;
     private final DownloadedArtworkService downloadedArtworkService;
     private final MessageResolver messages;
@@ -88,7 +91,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    ApplicationEventPublisher eventPublisher,
                                    PixivDatabase pixivDatabase,
                                    @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
-                                   @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+                                   PixivImageDownloader pixivImageDownloader,
                                    @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                    @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                    PixivBookmarkActions pixivBookmarkActions,
@@ -97,8 +100,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    CollectionDownloadRootResolver collectionDownloadRootResolver,
                                    WorkCollectionMembership workCollectionMembership,
                                    MangaSeriesService mangaSeriesService,
-                                   ArtworkHashService artworkHashService,
+                                   ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                    WorkMetadataCapture workMetadataCapture,
+                                   WorkFileNameCatalog workFileNameCatalog,
                                    DownloadStatisticsService downloadStatisticsService,
                                    DownloadedArtworkService downloadedArtworkService,
                                    MessageResolver messages) {
@@ -106,7 +110,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
         this.visitorDownloadQuotaService = visitorDownloadQuotaService;
-        this.downloadRestTemplate = downloadRestTemplate;
+        this.pixivImageDownloader = pixivImageDownloader;
         this.taskScheduler = taskScheduler;
         this.downloadTaskExecutor = downloadTaskExecutor;
         this.pixivBookmarkActions = pixivBookmarkActions;
@@ -115,8 +119,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         this.collectionDownloadRootResolver = collectionDownloadRootResolver;
         this.workCollectionMembership = workCollectionMembership;
         this.mangaSeriesService = mangaSeriesService;
-        this.artworkHashService = artworkHashService;
+        this.artworkHashIndexMaintenance = artworkHashIndexMaintenance;
         this.workMetadataCapture = workMetadataCapture;
+        this.workFileNameCatalog = workFileNameCatalog;
         this.downloadStatisticsService = downloadStatisticsService;
         this.downloadedArtworkService = downloadedArtworkService;
         this.messages = messages;
@@ -314,7 +319,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             }
 
             try {
-                artworkHashService.recordArtworkHashes(pixivDatabase.getArtwork(artworkId));
+                artworkHashIndexMaintenance.rebuildArtwork(artworkId);
             } catch (Exception e) {
                 log.warn(logMessage("core.hash.log.artwork-failed", artworkId, e.getMessage()), e);
             }
@@ -403,87 +408,91 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             while (retryCount < maxRetries) {
                 ensureNotCancelled(cancellationRequested);
                 try {
-                    Boolean success = downloadRestTemplate.execute(imageUrl, HttpMethod.GET,
-                            request -> PixivRequestHeaders.applyImage(request.getHeaders(), referer, cookie),
-                            (ClientHttpResponse response) -> {
-                                if (!response.getStatusCode().is2xxSuccessful()) {
-                                    log.error(logMessage("download.log.http-error", response.getStatusCode(), imageUrl));
-                                    return false;
+                    long[] totalBytes = {0L};
+                    long[] downloadedBytes = {0L};
+                    int[] lastProgress = {-1};
+                    long[] lastBytes = {0L};
+                    long[] lastAt = {0L};
+                    URI refererUri = StringUtils.hasText(referer)
+                            ? URI.create(referer)
+                            : DEFAULT_PIXIV_REFERER;
+                    boolean success = pixivImageDownloader.download(
+                            URI.create(imageUrl), refererUri, tempPath, cookie,
+                            new PixivImageTransferObserver() {
+                                @Override
+                                public void checkCancelled() {
+                                    ensureNotCancelled(cancellationRequested);
                                 }
-                                long totalBytes = response.getHeaders().getContentLength();
-                                long[] downloadedBytes = {0L};
-                                int[] lastProgress = {-1};
-                                long[] lastBytes = {0L};
-                                long[] lastAt = {0L};
-                                publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                        .status(ImageDownloadProgress.STATUS_RUNNING)
-                                        .imageNumber(imageNumber)
-                                        .totalImages(totalImages)
-                                        .downloadedBytes(0L)
-                                        .totalBytes(totalBytes > 0 ? totalBytes : null)
-                                        .progress(totalBytes > 0 ? 0 : null)
-                                        .build());
-                                try (InputStream inputStream = response.getBody();
-                                     FileOutputStream outputStream = new FileOutputStream(tempPath.toFile())) {
-                                    byte[] buffer = new byte[4096];
-                                    int bytesRead;
-                                    while ((bytesRead = inputStream.read(buffer)) != -1) {
-                                        ensureNotCancelled(cancellationRequested);
-                                        outputStream.write(buffer, 0, bytesRead);
-                                        downloadedBytes[0] += bytesRead;
-                                        Integer progress = totalBytes > 0
-                                                ? Math.min(99, (int) (downloadedBytes[0] * 100 / totalBytes))
-                                                : null;
-                                        if (shouldEmitImageByteProgress(
-                                                progress, downloadedBytes[0], lastProgress, lastBytes, lastAt)) {
-                                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                                    .status(ImageDownloadProgress.STATUS_RUNNING)
-                                                    .imageNumber(imageNumber)
-                                                    .totalImages(totalImages)
-                                                    .downloadedBytes(downloadedBytes[0])
-                                                    .totalBytes(totalBytes > 0 ? totalBytes : null)
-                                                    .progress(progress)
-                                                    .build());
-                                        }
+
+                                @Override
+                                public void onContentLength(long contentLength) {
+                                    totalBytes[0] = contentLength;
+                                    lastProgress[0] = contentLength > 0 ? 0 : -1;
+                                    lastAt[0] = System.currentTimeMillis();
+                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                            .status(ImageDownloadProgress.STATUS_RUNNING)
+                                            .imageNumber(imageNumber)
+                                            .totalImages(totalImages)
+                                            .downloadedBytes(0L)
+                                            .totalBytes(contentLength > 0 ? contentLength : null)
+                                            .progress(contentLength > 0 ? 0 : null)
+                                            .build());
+                                }
+
+                                @Override
+                                public void onBytesTransferred(long transferredBytes) {
+                                    downloadedBytes[0] = transferredBytes;
+                                    Integer progress = totalBytes[0] > 0
+                                            ? Math.min(99, (int) (transferredBytes * 100 / totalBytes[0]))
+                                            : null;
+                                    if (shouldEmitImageByteProgress(
+                                            progress, transferredBytes, lastProgress, lastBytes, lastAt)) {
+                                        publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                                .status(ImageDownloadProgress.STATUS_RUNNING)
+                                                .imageNumber(imageNumber)
+                                                .totalImages(totalImages)
+                                                .downloadedBytes(transferredBytes)
+                                                .totalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
+                                                .progress(progress)
+                                                .build());
                                     }
                                 }
-                                if (imageNumber < totalImages) {
-                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                            });
+                    if (success) {
+                        if (imageNumber < totalImages) {
+                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
                                             .status(ImageDownloadProgress.STATUS_RUNNING)
                                             .imageNumber(imageNumber + 1)
                                             .totalImages(totalImages)
                                             .downloadedBytes(0L)
                                             .progress(0)
                                             .build());
-                                } else {
-                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                        } else {
+                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
                                             .status(ImageDownloadProgress.STATUS_COMPLETED)
                                             .imageNumber(imageNumber)
                                             .totalImages(totalImages)
                                             .downloadedBytes(downloadedBytes[0])
-                                            .totalBytes(totalBytes > 0 ? totalBytes : null)
+                                            .totalBytes(totalBytes[0] > 0 ? totalBytes[0] : null)
                                             .progress(100)
                                             .build());
-                                }
-                                return true;
-                            }, new Object[]{});
-
-                    if (Boolean.TRUE.equals(success)) {
+                        }
                         Files.move(tempPath, filePath, StandardCopyOption.REPLACE_EXISTING);
                         return true;
                     }
                     retryCount++;
+                    logAndBackoffBeforeRetry(
+                            imageUrl,
+                            messages.get("download.image.transfer-unsuccessful"),
+                            retryCount,
+                            maxRetries,
+                            cancellationRequested);
                 } catch (CancellationException e) {
                     throw e;
                 } catch (Exception e) {
                     retryCount++;
-                    log.error(logMessage("download.log.retry", imageUrl, e.getMessage(), retryCount, maxRetries));
-
-                    if (retryCount < maxRetries) {
-                        sleepCancellable(2000L * retryCount, cancellationRequested);
-                    } else {
-                        log.error(logMessage("download.log.retry.exhausted", imageUrl));
-                    }
+                    logAndBackoffBeforeRetry(
+                            imageUrl, e.getMessage(), retryCount, maxRetries, cancellationRequested);
                 }
             }
             publishImageProgress(progressListener, ImageDownloadProgress.builder()
@@ -499,6 +508,20 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             } catch (IOException ex) {
                 log.warn(logMessage("download.log.temp-cleanup.failed", tempPath, ex.getMessage()));
             }
+        }
+    }
+
+    private void logAndBackoffBeforeRetry(
+            String imageUrl,
+            String reason,
+            int retryCount,
+            int maxRetries,
+            BooleanSupplier cancellationRequested) {
+        log.error(logMessage("download.log.retry", imageUrl, reason, retryCount, maxRetries));
+        if (retryCount < maxRetries) {
+            sleepCancellable(2000L * retryCount, cancellationRequested);
+        } else {
+            log.error(logMessage("download.log.retry.exhausted", imageUrl));
         }
     }
 
@@ -776,14 +799,16 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
-        long templateId = pixivDatabase.getOrCreateFileNameTemplateId(template);
+        long templateId = workFileNameCatalog.getOrCreateTemplateId(template);
         if (templateId <= 0) {
             templateId = PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID;
         }
         long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
         long recordTime = preferredTime > 0 ? pixivDatabase.getUniqueTime(preferredTime) : pixivDatabase.getUniqueTime();
         String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
-        long fileAuthorNameId = sanitizedAuthorName.isEmpty() ? 0L : pixivDatabase.getOrCreateFileAuthorNameId(sanitizedAuthorName);
+        long fileAuthorNameId = sanitizedAuthorName.isEmpty()
+                ? 0L
+                : workFileNameCatalog.getOrCreateAuthorNameId(sanitizedAuthorName);
         List<String> computed = PixivWorkFileNameFormatter.formatAll(
                 template,
                 artworkId,
@@ -803,7 +828,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
-                                int count, int xRestrict, boolean isAi, Long authorId, String description, List<TagDto> tags,
+                                int count, int xRestrict, boolean isAi, Long authorId, String description, List<WorkTag> tags,
                                 long fileNameId, long recordTime, long fileAuthorNameId,
                                 Long seriesId, Long seriesOrder) {
         try {
@@ -815,7 +840,10 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                     fileAuthorNameId > 0 ? fileAuthorNameId : null,
                     seriesId, seriesOrder
             );
-            pixivDatabase.saveArtworkTags(artworkId, tags);
+            pixivDatabase.saveArtworkTags(artworkId, tags == null ? null : tags.stream()
+                    .filter(Objects::nonNull)
+                    .map(tag -> new TagDto(tag.tagId(), tag.name(), tag.translatedName()))
+                    .toList());
         } catch (Exception e) {
             log.error(logMessage("download.log.record-history.failed", e.getMessage()), e);
         }

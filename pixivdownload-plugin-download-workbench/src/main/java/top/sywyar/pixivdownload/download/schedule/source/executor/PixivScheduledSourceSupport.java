@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.download.schedule.source.executor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.schedule.network.PixivScheduledRouteScope;
 import top.sywyar.pixivdownload.download.schedule.source.definition.PixivScheduledDefinitionValidator;
@@ -24,8 +26,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
-
-import org.springframework.web.client.RestClientException;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -546,7 +546,14 @@ public final class PixivScheduledSourceSupport {
         } catch (PixivFetchService.PixivFetchException ignored) {
             throw failure(ScheduledFailure.Category.CREDENTIAL_INVALID,
                     "schedule.pixiv.discovery-credential-invalid");
-        } catch (IOException | RestClientException ignored) {
+        } catch (PixivAjaxException ignored) {
+            if (ignored.failure() == PixivAjaxFailure.INVALID_TARGET) {
+                throw failure(ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.pixiv.discovery-definition-invalid");
+            }
+            throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
+                    "schedule.pixiv.discovery-network-failed");
+        } catch (IOException ignored) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
                     "schedule.pixiv.discovery-network-failed");
         } catch (IllegalArgumentException ignored) {

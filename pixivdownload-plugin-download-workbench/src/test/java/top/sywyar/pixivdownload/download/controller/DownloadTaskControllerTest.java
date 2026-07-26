@@ -13,7 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -47,7 +47,7 @@ class DownloadTaskControllerTest {
     @Mock
     private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock
-    private PixivDatabase pixivDatabase;
+    private WorkQueryService workQueryService;
 
     @Mock
     private MultiModeSettings multiModeSettings;
@@ -58,7 +58,7 @@ class DownloadTaskControllerTest {
                 .thenReturn(RequestOwnerIdentity.adminScope());
         DownloadTaskController controller = new DownloadTaskController(
                 artworkDownloadExecutor, applicationModeProvider, requestOwnerIdentityResolver,
-                visitorDownloadQuotaService, multiModeSettings, pixivDatabase, MESSAGES);
+                visitorDownloadQuotaService, multiModeSettings, workQueryService, MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 

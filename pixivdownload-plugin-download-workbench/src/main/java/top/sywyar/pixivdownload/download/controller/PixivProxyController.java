@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
@@ -249,7 +249,7 @@ public class PixivProxyController {
         }
     }
 
-    private static List<TagDto> extractTags(JsonNode body) {
+    private static List<WorkTag> extractTags(JsonNode body) {
         JsonNode tagsArr = body.path("tags").path("tags");
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
             tagsArr = body.path("tags");
@@ -257,7 +257,7 @@ public class PixivProxyController {
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
             return List.of();
         }
-        List<TagDto> out = new ArrayList<>();
+        List<WorkTag> out = new ArrayList<>();
         for (JsonNode t : tagsArr) {
             String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
             if (name.isEmpty()) continue;
@@ -267,7 +267,7 @@ public class PixivProxyController {
                 String en = translation.path("en").asText("");
                 if (!en.isEmpty()) translated = en;
             }
-            out.add(new TagDto(name, translated));
+            out.add(new WorkTag(null, name, translated));
         }
         return out;
     }

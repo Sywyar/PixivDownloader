@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule.snapshot;
 
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
 
@@ -68,15 +68,15 @@ public final class ScheduleWorkFilter {
         return true;
     }
 
-    private static List<String> tagTokens(List<TagDto> tags) {
+    private static List<String> tagTokens(List<WorkTag> tags) {
         List<String> tokens = new ArrayList<>();
         if (tags == null) return tokens;
-        for (TagDto tag : tags) {
-            if (tag.getName() != null && !tag.getName().isBlank()) {
-                tokens.add(tag.getName().toLowerCase(Locale.ROOT));
+        for (WorkTag tag : tags) {
+            if (tag.name() != null && !tag.name().isBlank()) {
+                tokens.add(tag.name().toLowerCase(Locale.ROOT));
             }
-            if (tag.getTranslatedName() != null && !tag.getTranslatedName().isBlank()) {
-                tokens.add(tag.getTranslatedName().toLowerCase(Locale.ROOT));
+            if (tag.translatedName() != null && !tag.translatedName().isBlank()) {
+                tokens.add(tag.translatedName().toLowerCase(Locale.ROOT));
             }
         }
         return tokens;

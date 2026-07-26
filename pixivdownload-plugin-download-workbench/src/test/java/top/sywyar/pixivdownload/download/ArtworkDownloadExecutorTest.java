@@ -7,20 +7,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.task.TaskExecutor;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.ResponseExtractor;
-import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
@@ -28,13 +23,18 @@ import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
+import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
-import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
@@ -42,7 +42,8 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
-import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -52,6 +53,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.*;
@@ -75,7 +77,7 @@ class ArtworkDownloadExecutorTest {
     @Mock
     private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock
-    private RestTemplate downloadRestTemplate;
+    private PixivImageDownloader pixivImageDownloader;
     @Mock
     private TaskScheduler taskScheduler;
     @Mock
@@ -91,9 +93,11 @@ class ArtworkDownloadExecutorTest {
     @Mock
     private MangaSeriesService mangaSeriesService;
     @Mock
-    private ArtworkHashService artworkHashService;
+    private ArtworkHashIndexMaintenance artworkHashIndexMaintenance;
     @Mock
     private WorkMetadataCapture workMetadataCapture;
+    @Mock
+    private WorkFileNameCatalog workFileNameCatalog;
     @Mock
     private DownloadStatisticsService downloadStatisticsService;
     @Mock
@@ -112,11 +116,27 @@ class ArtworkDownloadExecutorTest {
 
     private ArtworkDownloadExecutor newExecutor(TaskExecutor taskExecutor) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
-                visitorDownloadQuotaService, downloadRestTemplate, taskScheduler, taskExecutor,
+                visitorDownloadQuotaService, pixivImageDownloader, taskScheduler, taskExecutor,
                 pixivBookmarkActions, ugoiraService,
                 authorService, collectionDownloadRootResolver, workCollectionMembership,
-                mangaSeriesService, artworkHashService,
-                workMetadataCapture, downloadStatisticsService, downloadedArtworkService, MESSAGES);
+                mangaSeriesService, artworkHashIndexMaintenance,
+                workMetadataCapture, workFileNameCatalog,
+                downloadStatisticsService, downloadedArtworkService, MESSAGES);
+    }
+
+    private void stubSuccessfulImageDownload(String sourceUrl, byte[] payload) throws Exception {
+        when(pixivImageDownloader.download(
+                eq(URI.create(sourceUrl)), any(URI.class), any(Path.class), nullable(String.class), any()))
+                .thenAnswer(invocation -> {
+                    Path target = invocation.getArgument(2);
+                    PixivImageTransferObserver observer = invocation.getArgument(4);
+                    observer.checkCancelled();
+                    observer.onContentLength(payload.length);
+                    observer.onBytesTransferred(0L);
+                    Files.write(target, payload);
+                    observer.onBytesTransferred(payload.length);
+                    return true;
+                });
     }
 
     @Nested
@@ -774,17 +794,7 @@ class ArtworkDownloadExecutorTest {
         @DisplayName("下载成功后最终文件就位且不残留 .part")
         void shouldRenamePartToFinalAndLeaveNoTempFile() throws Exception {
             byte[] payload = {1, 2, 3, 4, 5};
-            when(downloadRestTemplate.execute(eq(IMAGE_URL), eq(HttpMethod.GET), any(), any()))
-                    .thenAnswer(invocation -> {
-                        ResponseExtractor<Boolean> extractor = invocation.getArgument(3);
-                        ClientHttpResponse response = mock(ClientHttpResponse.class);
-                        lenient().when(response.getStatusCode()).thenReturn(HttpStatus.OK);
-                        HttpHeaders headers = new HttpHeaders();
-                        headers.setContentLength(payload.length);
-                        lenient().when(response.getHeaders()).thenReturn(headers);
-                        lenient().when(response.getBody()).thenReturn(new ByteArrayInputStream(payload));
-                        return extractor.extractData(response);
-                    });
+            stubSuccessfulImageDownload(IMAGE_URL, payload);
 
             artworkDownloadExecutor.downloadImages(12345L, "title", List.of(IMAGE_URL),
                     "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
@@ -797,6 +807,114 @@ class ArtworkDownloadExecutorTest {
                 assertThat(finalFile.getFileName().toString()).doesNotEndWith(".part");
                 assertThat(Files.readAllBytes(finalFile)).containsExactly(payload);
             }
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = "   ")
+        @DisplayName("空 Referer 应回退到 Pixiv 首页")
+        void shouldFallbackToPixivHomeForBlankReferer(String referer) throws Exception {
+            byte[] payload = {6, 7, 8};
+            stubSuccessfulImageDownload(IMAGE_URL, payload);
+
+            boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(
+                    22345L, "title", List.of(IMAGE_URL), referer,
+                    new DownloadRequest.Other(), null, null);
+
+            assertThat(succeeded).isTrue();
+            verify(pixivImageDownloader).download(
+                    eq(URI.create(IMAGE_URL)),
+                    eq(URI.create("https://www.pixiv.net/")),
+                    any(Path.class), isNull(), any());
+        }
+
+        @Test
+        @DisplayName("图片端口返回失败后应退避并重试")
+        void shouldRetryWhenImagePortReturnsFalse() throws Exception {
+            byte[] payload = {9, 10};
+            AtomicInteger attempts = new AtomicInteger();
+            when(pixivImageDownloader.download(
+                    eq(URI.create(IMAGE_URL)), any(URI.class), any(Path.class),
+                    nullable(String.class), any()))
+                    .thenAnswer(invocation -> {
+                        if (attempts.incrementAndGet() == 1) {
+                            return false;
+                        }
+                        Path target = invocation.getArgument(2);
+                        Files.write(target, payload);
+                        return true;
+                    });
+
+            boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(
+                    32345L, "title", List.of(IMAGE_URL), "https://www.pixiv.net/",
+                    new DownloadRequest.Other(), null, null);
+
+            assertThat(succeeded).isTrue();
+            assertThat(attempts).hasValue(2);
+        }
+
+        @Test
+        @DisplayName("图片端口抛出瞬时异常后应重试并成功")
+        void shouldRetryAfterTransientImagePortException() throws Exception {
+            byte[] payload = {11, 12};
+            AtomicInteger attempts = new AtomicInteger();
+            when(pixivImageDownloader.download(
+                    eq(URI.create(IMAGE_URL)), any(URI.class), any(Path.class),
+                    nullable(String.class), any()))
+                    .thenAnswer(invocation -> {
+                        if (attempts.incrementAndGet() == 1) {
+                            throw new IOException("transient");
+                        }
+                        Path target = invocation.getArgument(2);
+                        Files.write(target, payload);
+                        return true;
+                    });
+
+            boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(
+                    42345L, "title", List.of(IMAGE_URL), "https://www.pixiv.net/",
+                    new DownloadRequest.Other(), null, null);
+
+            assertThat(succeeded).isTrue();
+            assertThat(attempts).hasValue(2);
+        }
+    }
+
+    @Nested
+    @DisplayName("下载历史兼容容错")
+    class DownloadHistoryCompatibilityTests {
+
+        @BeforeEach
+        void setupDownloadPath() {
+            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
+                    .thenReturn(1);
+            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("标签列表中的 null 元素应被忽略且保留其它标签")
+        void shouldIgnoreNullTagElements() {
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setUgoira(true);
+            other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
+            other.setUgoiraDelays(List.of(100));
+            other.setTags(java.util.Arrays.asList(
+                    null, new WorkTag(7L, "tag", "translated")));
+
+            artworkDownloadExecutor.downloadImages(
+                    52345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+                    "https://www.pixiv.net/", other, null, null);
+
+            org.mockito.ArgumentCaptor<List<TagDto>> tags =
+                    org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(pixivDatabase).saveArtworkTags(eq(52345L), tags.capture());
+            assertThat(tags.getValue()).singleElement().satisfies(tag -> {
+                assertThat(tag.getTagId()).isEqualTo(7L);
+                assertThat(tag.getName()).isEqualTo("tag");
+                assertThat(tag.getTranslatedName()).isEqualTo("translated");
+            });
         }
     }
 
@@ -811,29 +929,15 @@ class ArtworkDownloadExecutorTest {
 
         @Test
         @DisplayName("有图片下载失败时不写下载历史且状态标记为失败")
-        void shouldNotRecordHistoryWhenAnyImageFails() {
+        void shouldNotRecordHistoryWhenAnyImageFails() throws Exception {
             lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
             lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(false);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000200L);
             byte[] payload = {1, 2, 3};
-            when(downloadRestTemplate.execute(eq(OK_URL), eq(HttpMethod.GET), any(), any()))
-                    .thenAnswer(invocation -> {
-                        ResponseExtractor<Boolean> extractor = invocation.getArgument(3);
-                        ClientHttpResponse response = mock(ClientHttpResponse.class);
-                        lenient().when(response.getStatusCode()).thenReturn(HttpStatus.OK);
-                        HttpHeaders headers = new HttpHeaders();
-                        headers.setContentLength(payload.length);
-                        lenient().when(response.getHeaders()).thenReturn(headers);
-                        lenient().when(response.getBody()).thenReturn(new ByteArrayInputStream(payload));
-                        return extractor.extractData(response);
-                    });
-            when(downloadRestTemplate.execute(eq(FAIL_URL), eq(HttpMethod.GET), any(), any()))
-                    .thenAnswer(invocation -> {
-                        ResponseExtractor<Boolean> extractor = invocation.getArgument(3);
-                        ClientHttpResponse response = mock(ClientHttpResponse.class);
-                        lenient().when(response.getStatusCode()).thenReturn(HttpStatus.NOT_FOUND);
-                        return extractor.extractData(response);
-                    });
+            stubSuccessfulImageDownload(OK_URL, payload);
+            when(pixivImageDownloader.download(
+                    eq(URI.create(FAIL_URL)), any(URI.class), any(Path.class), nullable(String.class), any()))
+                    .thenReturn(false);
 
             boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(67890L, "title",
                     List.of(OK_URL, FAIL_URL), "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);

@@ -24,10 +24,13 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
+import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
+import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
@@ -84,9 +87,9 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public PixivFetchService pixivFetchService(@Qualifier("restTemplate") RestTemplate restTemplate,
+    public PixivFetchService pixivFetchService(PixivAjaxClient pixivAjaxClient,
                                                ObjectMapper objectMapper) {
-        return new PixivFetchService(restTemplate, objectMapper);
+        return new PixivFetchService(pixivAjaxClient, objectMapper);
     }
 
     @Bean
@@ -100,7 +103,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            ApplicationEventPublisher eventPublisher,
                                                            PixivDatabase pixivDatabase,
                                                            VisitorDownloadQuotaService visitorDownloadQuotaService,
-                                                           @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+                                                           PixivImageDownloader pixivImageDownloader,
                                                            @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                                            @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                                            PixivBookmarkActions pixivBookmarkActions,
@@ -109,31 +112,33 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            CollectionDownloadRootResolver collectionDownloadRootResolver,
                                                            WorkCollectionMembership workCollectionMembership,
                                                            MangaSeriesService mangaSeriesService,
-                                                           ArtworkHashService artworkHashService,
+                                                           ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                                            WorkMetadataCapture workMetadataCapture,
+                                                           WorkFileNameCatalog workFileNameCatalog,
                                                            DownloadStatisticsService downloadStatisticsService,
                                                            DownloadedArtworkService downloadedArtworkService,
                                                            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher, pixivDatabase,
                 visitorDownloadQuotaService,
-                downloadRestTemplate, taskScheduler, downloadTaskExecutor,
+                pixivImageDownloader, taskScheduler, downloadTaskExecutor,
                 pixivBookmarkActions, ugoiraService, authorService,
                 collectionDownloadRootResolver, workCollectionMembership,
-                mangaSeriesService, artworkHashService, workMetadataCapture,
+                mangaSeriesService, artworkHashIndexMaintenance, workMetadataCapture,
+                workFileNameCatalog,
                 downloadStatisticsService, downloadedArtworkService, messages);
     }
 
     @Bean
     public PixivScheduledIllustWorkExecutor pixivScheduledIllustWorkExecutor(
             PixivFetchService pixivFetchService,
-            PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
+            PixivScheduledLocalWorkLookup localWorkLookup,
             WorkMetadataCapture workMetadataCapture,
             PixivSchedulePersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             DownloadSettings downloadSettings) {
         return new PixivScheduledIllustWorkExecutor(
-                pixivFetchService, pixivDatabase, artworkDownloader, workMetadataCapture,
+                pixivFetchService, artworkDownloader, localWorkLookup, workMetadataCapture,
                 persistenceCodec, objectMapper, downloadSettings);
     }
 
@@ -155,7 +160,6 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public PixivScheduledLocalWorkLookup pixivScheduledLocalWorkLookup(
-            PixivDatabase pixivDatabase,
             ArtworkDownloader artworkDownloader,
             WorkQueryService workQueryService) {
         return (key, download) -> {
@@ -167,13 +171,14 @@ public class DownloadWorkbenchPluginConfiguration {
             }
             if (download.redownloadDeleted()) {
                 return download.verifyFiles()
-                        ? !pixivDatabase.isArtworkDeleted(id)
+                        ? (!workQueryService.hasWork(WorkType.ARTWORK, id)
+                        || workQueryService.hasActiveWork(WorkType.ARTWORK, id))
                         && artworkDownloader.isArtworkDownloaded(id, true)
-                        : pixivDatabase.hasActiveArtwork(id);
+                        : workQueryService.hasActiveWork(WorkType.ARTWORK, id);
             }
             return download.verifyFiles()
                     ? artworkDownloader.isArtworkDownloaded(id, true)
-                    : pixivDatabase.hasArtwork(id);
+                    : workQueryService.hasWork(WorkType.ARTWORK, id);
         };
     }
 
@@ -255,11 +260,11 @@ public class DownloadWorkbenchPluginConfiguration {
                                                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                          VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                          MultiModeSettings multiModeSettings,
-                                                         PixivDatabase pixivDatabase,
+                                                         WorkQueryService workQueryService,
                                                          @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadTaskController(artworkDownloadExecutor, applicationModeProvider,
                 requestOwnerIdentityResolver, visitorDownloadQuotaService,
-                multiModeSettings, pixivDatabase, messages);
+                multiModeSettings, workQueryService, messages);
     }
 
     @Bean

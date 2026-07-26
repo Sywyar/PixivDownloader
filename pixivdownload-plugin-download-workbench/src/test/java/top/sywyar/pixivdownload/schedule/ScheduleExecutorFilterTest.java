@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Download;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot.Filters;
@@ -29,7 +29,7 @@ class ScheduleExecutorFilterTest {
 
     private static PixivFetchService.ArtworkMeta artwork(int illustType, int xRestrict, boolean ai,
                                                          int bookmarkCount, int pageCount, List<String> tags) {
-        List<TagDto> tagDtos = tags.stream().map(t -> new TagDto(t, null)).toList();
+        List<WorkTag> tagDtos = tags.stream().map(t -> new WorkTag(null, t, null)).toList();
         return new PixivFetchService.ArtworkMeta(illustType, "t", xRestrict, ai, 1L, "a", null, null,
                 bookmarkCount, pageCount, tagDtos, "", null);
     }

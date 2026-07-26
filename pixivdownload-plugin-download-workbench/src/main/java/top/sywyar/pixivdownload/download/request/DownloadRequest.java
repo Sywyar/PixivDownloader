@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
 
@@ -41,7 +41,7 @@ public class DownloadRequest {
         private boolean bookmark;
         private Long collectionId;
         private String description;
-        private List<TagDto> tags;
+        private List<WorkTag> tags;
         private String fileNameTemplate;
         private List<String> fileNames;
         /** Filename template timestamp, in epoch milliseconds. */

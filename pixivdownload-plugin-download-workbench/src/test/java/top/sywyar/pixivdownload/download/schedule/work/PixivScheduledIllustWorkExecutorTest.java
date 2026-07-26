@@ -12,18 +12,17 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledLocalWorkLookup;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
@@ -39,7 +38,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,9 +67,9 @@ class PixivScheduledIllustWorkExecutorTest {
     @Mock
     private PixivFetchService fetchService;
     @Mock
-    private PixivDatabase pixivDatabase;
-    @Mock
     private ArtworkDownloader artworkDownloader;
+    @Mock
+    private PixivScheduledLocalWorkLookup localWorkLookup;
     @Mock
     private WorkMetadataCapture workMetadataCapture;
 
@@ -109,8 +107,39 @@ class PixivScheduledIllustWorkExecutorTest {
         }
 
         assertThat(fixture.credential().lastCopy()).isNull();
-        verifyNoInteractions(fetchService, pixivDatabase, artworkDownloader,
+        verifyNoInteractions(fetchService, localWorkLookup, artworkDownloader,
                 workMetadataCapture);
+    }
+
+    @ParameterizedTest(name = "redownloadDeleted={0}, verifyFiles={1}")
+    @CsvSource({
+            "false, false",
+            "false, true",
+            "true, false",
+            "true, true"
+    })
+    @DisplayName("四种删除重下与文件校验组合均委托统一本地作品判重端口")
+    void delegatesAllAlreadyCompletedCombinationsToLocalLookup(
+            boolean redownloadDeleted,
+            boolean verifyFiles) throws Exception {
+        ScheduledTaskDefinition task = task("""
+                {"kind":"illust","source":{"seriesId":"42"},"filters":{},
+                 "download":{"redownloadDeleted":%s,"verifyFiles":%s}}
+                """.formatted(redownloadDeleted, verifyFiles));
+        when(localWorkLookup.isAlreadyCompleted(eq(new ScheduledWorkKey("illust", "123")), any()))
+                .thenReturn(true);
+
+        ScheduledWorkResult result = executor().execute(
+                work("123"), context(task, ScheduledNetworkRoute.direct()).context());
+
+        assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.ALREADY_COMPLETED);
+        verifyNoInteractions(fetchService, workMetadataCapture);
+        verify(localWorkLookup).isAlreadyCompleted(
+                eq(new ScheduledWorkKey("illust", "123")),
+                org.mockito.ArgumentMatchers.argThat(download ->
+                        download.redownloadDeleted() == redownloadDeleted
+                                && download.verifyFiles() == verifyFiles));
+        verifyNoInteractions(artworkDownloader);
     }
 
     @ParameterizedTest(name = "HTTP {0} 归类为作品不存在")
@@ -294,7 +323,7 @@ class PixivScheduledIllustWorkExecutorTest {
     void mapsCompleteArtworkAndDownloadFieldsToBlockingRequest() throws Exception {
         JsonNode artworkBody = objectMapper.createObjectNode().put("kind", "artwork");
         JsonNode pagesBody = objectMapper.createArrayNode().addObject().put("page", 0);
-        List<TagDto> tags = List.of(new TagDto("标签", "tag"));
+        List<WorkTag> tags = List.of(new WorkTag(null, "标签", "tag"));
         List<String> imageUrls = List.of(
                 "https://i.pximg.net/original-0.jpg",
                 "https://i.pximg.net/original-1.jpg");
@@ -521,8 +550,8 @@ class PixivScheduledIllustWorkExecutorTest {
     private PixivScheduledIllustWorkExecutor executor() {
         return new PixivScheduledIllustWorkExecutor(
                 fetchService,
-                pixivDatabase,
                 artworkDownloader,
+                localWorkLookup,
                 workMetadataCapture,
                 new PixivSchedulePersistenceCodec(objectMapper),
                 objectMapper,
@@ -595,13 +624,8 @@ class PixivScheduledIllustWorkExecutorTest {
                 List.of());
     }
 
-    private static HttpClientErrorException httpFailure(int status) {
-        return HttpClientErrorException.create(
-                HttpStatus.valueOf(status),
-                "",
-                HttpHeaders.EMPTY,
-                new byte[0],
-                StandardCharsets.UTF_8);
+    private static PixivAjaxException httpFailure(int status) {
+        return new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, status);
     }
 
     private static void assertProxyScope() {

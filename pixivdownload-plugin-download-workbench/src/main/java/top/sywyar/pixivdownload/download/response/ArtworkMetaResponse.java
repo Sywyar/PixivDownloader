@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download.response;
 
-import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
 
@@ -14,7 +14,7 @@ public record ArtworkMetaResponse(
         Long authorId,
         String authorName,
         String description,
-        List<TagDto> tags,
+        List<WorkTag> tags,
         Long seriesId,
         Long seriesOrder,
         String seriesTitle

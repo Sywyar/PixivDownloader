@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
@@ -38,7 +39,7 @@ public class DownloadTaskController {
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final MultiModeSettings multiModeSettings;
-    private final PixivDatabase pixivDatabase;
+    private final WorkQueryService workQueryService;
     private final MessageResolver messages;
 
     @PostMapping("/download/pixiv")
@@ -62,7 +63,7 @@ public class DownloadTaskController {
         if ("multi".equals(mode)) {
             String pdMode = multiModeSettings.getPostDownloadMode();
             if ("never-delete".equals(pdMode) || "timed-delete".equals(pdMode)) {
-                if (pixivDatabase.hasActiveArtwork(request.getArtworkId())) {
+                if (workQueryService.hasActiveWork(WorkType.ARTWORK, request.getArtworkId())) {
                     return ResponseEntity.ok(new AlreadyDownloadedResponse(
                             true, true, messages.get("download.already-downloaded")));
                 }

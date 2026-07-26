@@ -23,6 +23,7 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
@@ -58,6 +59,8 @@ class PixivProxyControllerTest {
     @Mock
     private RestTemplate restTemplate;
     @Mock
+    private PixivAjaxClient pixivAjaxClient;
+    @Mock
     private ApplicationModeProvider applicationModeProvider;
     @Mock
     private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
@@ -72,7 +75,7 @@ class PixivProxyControllerTest {
     @BeforeEach
     void setUp() {
         PixivFetchService pixivFetchService =
-                new PixivFetchService(restTemplate, objectMapper);
+                new PixivFetchService(pixivAjaxClient, objectMapper);
         PixivProxyController controller = new PixivProxyController(
                 objectMapper, restTemplate, pixivFetchService, applicationModeProvider,
                 requestOwnerIdentityResolver, userQuotaService,
@@ -121,8 +124,8 @@ class PixivProxyControllerTest {
         @Test
         @DisplayName("合法参数应返回搜索结果")
         void shouldReturnSearchResults() throws Exception {
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
 
             mockMvc.perform(get("/api/pixiv/search")
                             .param("word", "初音ミク")
@@ -148,33 +151,29 @@ class PixivProxyControllerTest {
         @Test
         @DisplayName("通用取得凭证应作为 Pixiv Cookie 转发")
         void shouldForwardGenericAcquisitionCredential() throws Exception {
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
 
             mockMvc.perform(get("/api/pixiv/search")
                             .param("word", "miku")
                             .header(AcquisitionCredentialResolver.HEADER_NAME, " generic-cookie "))
                     .andExpect(status().isOk());
 
-            verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET),
-                    argThat((org.springframework.http.HttpEntity<?> entity) -> "generic-cookie".equals(
-                            entity.getHeaders().getFirst(HttpHeaders.COOKIE))), eq(byte[].class));
+            verify(pixivAjaxClient).get(any(URI.class), eq("generic-cookie"));
         }
 
         @Test
         @DisplayName("旧 Pixiv 凭证头仍应作为 Cookie 转发")
         void shouldForwardLegacyPixivCredential() throws Exception {
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
 
             mockMvc.perform(get("/api/pixiv/search")
                             .param("word", "miku")
                             .header("X-Pixiv-Cookie", " legacy-cookie "))
                     .andExpect(status().isOk());
 
-            verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET),
-                    argThat((org.springframework.http.HttpEntity<?> entity) -> "legacy-cookie".equals(
-                            entity.getHeaders().getFirst(HttpHeaders.COOKIE))), eq(byte[].class));
+            verify(pixivAjaxClient).get(any(URI.class), eq("legacy-cookie"));
         }
 
         @Test
@@ -187,7 +186,7 @@ class PixivProxyControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value("Conflicting acquisition credential headers"));
 
-            verifyNoInteractions(restTemplate);
+            verifyNoInteractions(pixivAjaxClient, restTemplate);
         }
 
         @Test
@@ -226,8 +225,8 @@ class PixivProxyControllerTest {
             String errorResponse = """
                     {"error": true, "message": "Rate limit exceeded", "body": []}
                     """;
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(errorResponse.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(errorResponse);
 
             mockMvc.perform(get("/api/pixiv/search").param("word", "src/main/test"))
                     .andExpect(status().isBadRequest())
@@ -237,39 +236,39 @@ class PixivProxyControllerTest {
         @Test
         @DisplayName("含空格 / % 的关键词只能被编码一次（防 UriComponentsBuilder 二次编码）")
         void shouldEncodeWordExactlyOnce() throws Exception {
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
 
             // 空格单次编码为 %20、二次编码为 %2520；字面 % 单次为 %25、二次为 %2525。
             mockMvc.perform(get("/api/pixiv/search").param("word", "blue archive 100%"))
                     .andExpect(status().isOk());
 
-            verify(restTemplate).exchange(
+            verify(pixivAjaxClient).get(
                     argThat((URI uri) -> {
                         String s = uri.toString();
                         return s.contains("%20") && !s.contains("%2520")     // 空格只编码一次
                                 && s.contains("100%25") && !s.contains("100%2525"); // % 只编码一次
                     }),
-                    eq(HttpMethod.GET), any(), eq(byte[].class));
+                    nullable(String.class));
         }
 
         @Test
         @DisplayName("默认参数时应使用 date_d 排序和 all 模式")
         void shouldUseDefaultParameters() throws Exception {
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
 
             mockMvc.perform(get("/api/pixiv/search").param("word", "miku"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.page").value(1));
 
             // Verify the URI sent to Pixiv contains default params
-            verify(restTemplate).exchange(
+            verify(pixivAjaxClient).get(
                     argThat((URI uri) -> {
                         String s = uri.toString();
                         return s.contains("order=date_d") && s.contains("mode=all") && s.contains("p=1");
                     }),
-                    eq(HttpMethod.GET), any(), eq(byte[].class));
+                    nullable(String.class));
         }
     }
 
@@ -407,8 +406,8 @@ class PixivProxyControllerTest {
         @DisplayName("多人模式下管理员应跳过代理请求限流")
         void shouldBypassProxyLimitForAdmin() throws Exception {
             when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
-            when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}");
 
             mockMvc.perform(get("/api/pixiv/user/9999/artworks"))
                     .andExpect(status().isOk());
@@ -423,8 +422,8 @@ class PixivProxyControllerTest {
             when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.owner(uuid));
             when(requestOwnerIdentityResolver.resolveExistingOwnerUuid(any())).thenReturn(Optional.of(uuid));
             when(userQuotaService.checkAndReserveProxy(uuid)).thenReturn(true);
-            when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn("{\"error\":false,\"body\":{\"illusts\":{},\"manga\":{}}}");
 
             mockMvc.perform(get("/api/pixiv/user/9999/artworks")
                             .cookie(new Cookie("pixiv_user_id", uuid)))
@@ -473,8 +472,8 @@ class PixivProxyControllerTest {
         @Test
         @DisplayName("按页码范围抓取并跨页去重，solo 模式不限页数")
         void shouldFetchRangeAndDedupe() throws Exception {
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
 
             mockMvc.perform(get("/api/pixiv/search/range")
                             .param("word", "初音ミク")
@@ -499,8 +498,8 @@ class PixivProxyControllerTest {
             reset(applicationModeProvider, requestOwnerIdentityResolver);
             when(applicationModeProvider.getMode()).thenReturn("multi");
             when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
+                    .thenReturn(PIXIV_SEARCH_RESPONSE);
 
             mockMvc.perform(get("/api/pixiv/search/range")
                             .param("word", "初音ミク")
@@ -512,7 +511,7 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.fetchedPages").value(3))
                     .andExpect(jsonPath("$.limitPage").value(0));
 
-            verify(restTemplate, times(3)).exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class));
+            verify(pixivAjaxClient, times(3)).get(any(URI.class), nullable(String.class));
             verify(userQuotaService, never()).checkAndReserveProxy(any());
         }
 
@@ -526,7 +525,7 @@ class PixivProxyControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").isNotEmpty());
 
-            verifyNoInteractions(restTemplate);
+            verifyNoInteractions(pixivAjaxClient, restTemplate);
         }
     }
 
@@ -565,8 +564,7 @@ class PixivProxyControllerTest {
                       }
                     }
                     """;
-            when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(body.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class))).thenReturn(body);
 
             mockMvc.perform(get("/api/pixiv/artwork/12345/meta"))
                     .andExpect(status().isOk())
@@ -601,8 +599,7 @@ class PixivProxyControllerTest {
                       }
                     }
                     """;
-            when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                    .thenReturn(ResponseEntity.ok(body.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(pixivAjaxClient.get(any(URI.class), nullable(String.class))).thenReturn(body);
 
             mockMvc.perform(get("/api/pixiv/artwork/12345/meta"))
                     .andExpect(status().isOk())
