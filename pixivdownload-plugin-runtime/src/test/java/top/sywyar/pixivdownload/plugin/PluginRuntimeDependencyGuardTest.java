@@ -20,8 +20,10 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 /**
  * plugin-runtime 边界守卫：证明本模块是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接——
  * 承载 {@link ConditionalOnPluginEnabled} / {@link OnPluginEnabledCondition} / {@link PluginToggleProperties}
- * 三件套与 {@code plugin.runtime} 子包（{@link PluginRuntimeManager} 目录定位 / 加载 / 启动 / 诊断，
- * {@link PixivPluginDiscoveryBridge} 把外置插件的 PixivFeaturePlugin 暴露给核心）。允许 Spring（条件 / 环境 /
+ * 三件套、{@code plugin.runtime} 子包（{@link PluginRuntimeManager} 目录定位 / 加载 / 启动 / 诊断，
+ * {@link PixivPluginDiscoveryBridge} 把外置插件的 PixivFeaturePlugin 暴露给核心）
+ * 以及计划能力租约 / 迁移协议（{@code core.schedule.capability} / {@code core.schedule.migration}；
+ * 保留原 FQN 供宿主 registrar 与工作台消费）。允许 Spring（条件 / 环境 /
  * {@code @ConfigurationProperties} 绑定）、PF4J、slf4j、<b>plugin-api</b>（发现桥接产出 PixivFeaturePlugin 需跨边界
  * 共享契约）与 JDK，但<b>零 app / 具体插件类反向依赖</b>，尤其<b>不得回指组合根 {@code BuiltInPlugins} /
  * 运行时 {@code PluginRegistry} / {@code CorePlugin}</b>（它们与本模块共享拆分包
@@ -30,7 +32,8 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
  * <p>本守卫在 {@code pixivdownload-plugin-runtime} 模块内自包含运行：{@link ClassFileImporter} 扫描本模块 main
  * classpath 上的 {@code top.sywyar.pixivdownload..} 类。本模块编译期依赖 plugin-api 后，plugin-api 的契约类也会落到
  * classpath、被一并导入；签名模块也会随统一验签依赖进入 classpath。故各规则的<b>主语集合显式限定</b>为本模块自身的
- * {@code plugin} / {@code plugin.runtime} 类，不把 plugin-api / 签名模块自己的依赖面误算进本模块。app 的
+ * {@code plugin} / {@code plugin.runtime} / {@code core.schedule.capability} /
+ * {@code core.schedule.migration} 类，不把 plugin-api / 签名模块自己的依赖面误算进本模块。app 的
  * {@code PluginApiDependencyGuardTest}、core-api 的 {@code CoreApiDependencyGuardTest} 各自从自己模块的 classpath
  * 断言，与本守卫正交。
  */
@@ -45,20 +48,26 @@ class PluginRuntimeDependencyGuardTest {
     void pluginRuntimeIsSelfContained() {
         classes()
                 .that().resideInAnyPackage("top.sywyar.pixivdownload.plugin",
-                        "top.sywyar.pixivdownload.plugin.runtime..")
+                        "top.sywyar.pixivdownload.plugin.runtime..",
+                        "top.sywyar.pixivdownload.core.schedule.capability..",
+                        "top.sywyar.pixivdownload.core.schedule.migration..")
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.plugin",
                         "top.sywyar.pixivdownload.plugin.runtime..",
                         "top.sywyar.pixivdownload.plugin.api..",
                         "top.sywyar.pixivdownload.plugin.signature",
+                        "top.sywyar.pixivdownload.core.schedule.capability..",
+                        "top.sywyar.pixivdownload.core.schedule.migration..",
                         "java..", "org.springframework..", "org.pf4j..", "org.slf4j..")
                 .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接 / "
-                        + "描述符 / 兼容性 / 状态模型：只能依赖 JDK、Spring（条件 / 绑定）、PF4J（PluginManager 等）、slf4j、"
+                        + "描述符 / 兼容性 / 状态模型 / 计划能力租约与迁移协议：只能依赖 JDK、Spring（条件 / 绑定）、"
+                        + "PF4J（PluginManager 等）、slf4j、"
                         + "plugin-api（跨插件契约，发现桥接产出 PixivFeaturePlugin、兼容判定委托 PluginApiVersion）与自身包 "
                         + "top.sywyar.pixivdownload.plugin（三件套）/ top.sywyar.pixivdownload.plugin.runtime..（PF4J 封装 + "
-                        + "发现桥接 + descriptor / status 子包），不得依赖任何 app 业务包或具体插件实现包（本规则主语已排除 "
-                        + "plugin.api / plugin.signature 自身，只约束本模块的 plugin / plugin.runtime 类）")
+                        + "发现桥接 + descriptor / status 子包）/ core.schedule.capability / core.schedule.migration，"
+                        + "不得依赖任何 app 业务包或具体插件实现包（本规则主语已排除 plugin.api / plugin.signature 自身，"
+                        + "只约束本模块拥有的运行时类）")
                 .check(CLASSES);
     }
 
@@ -195,5 +204,22 @@ class PluginRuntimeDependencyGuardTest {
                 .isTrue();
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 应包含计划能力租约、迁移协议与生命周期准入视图")
+    void pluginRuntimeContainsScheduleRuntimeBoundary() {
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry.class.getName()))
+                .isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain.class.getName()))
+                .isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationAdapter.class.getName()))
+                .isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission.class.getName()))
+                .isTrue();
     }
 }

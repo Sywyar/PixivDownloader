@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -203,8 +203,8 @@ public class ScheduleCapabilityRegistry {
 
     /** Production admission follows the same lifecycle STARTED barrier as plugin HTTP serving. */
     @Autowired
-    public ScheduleCapabilityRegistry(PluginLifecycleState lifecycleState) {
-        this(lifecycleState::acceptsNewRequests, () -> {
+    public ScheduleCapabilityRegistry(PluginLifecycleAdmission lifecycleAdmission) {
+        this(lifecycleAdmission::acceptsNewRequests, () -> {
         }, () -> {
         }, () -> {
         }, () -> {

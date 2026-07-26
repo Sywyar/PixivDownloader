@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -21,7 +22,7 @@ import java.util.stream.Collectors;
  * classloader 泄漏点。
  */
 @Component
-public class PluginLifecycleState {
+public class PluginLifecycleState implements PluginLifecycleAdmission {
 
     private final Map<String, PluginRuntimePhase> phases = new ConcurrentHashMap<>();
 
@@ -71,6 +72,7 @@ public class PluginLifecycleState {
     }
 
     /** 该插件当前是否接收新请求（{@link PluginRuntimePhase#STARTED}）。未知插件视为不接收。 */
+    @Override
     public boolean acceptsNewRequests(String pluginId) {
         PluginRuntimePhase phase = phases.get(pluginId);
         return phase != null && phase.acceptsNewRequests();

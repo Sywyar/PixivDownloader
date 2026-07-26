@@ -26,8 +26,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 
 import java.util.ArrayList;
 import java.lang.reflect.Modifier;
@@ -249,9 +247,9 @@ class ScheduleCapabilityRegistryTest {
     @Test
     @DisplayName("插件进入 STARTED 前计划能力不可取得，启动后才开放租约")
     void lifecycleAdmissionBlocksPlanningBeforeStarted() {
-        PluginLifecycleState lifecycle = new PluginLifecycleState();
-        lifecycle.initialize("activation-feature", PluginRuntimePhase.LOADED);
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry(lifecycle);
+        AtomicBoolean started = new AtomicBoolean();
+        ScheduleCapabilityRegistry registry =
+                new ScheduleCapabilityRegistry(ignored -> started.get());
         ScheduleCapabilityOwner owner = owner("activation-feature", "activation-package", 1L);
         Fixture fixture = completeFixture(owner, COMPLETE_SOURCE, COMPLETE_ALIAS,
                 COMPLETE_WORK, COMPLETE_POLICY, COMPLETE_GUARD);
@@ -259,7 +257,7 @@ class ScheduleCapabilityRegistryTest {
         publish(registry, fixture.bundle());
 
         assertThat(registry.prepareSource(COMPLETE_SOURCE)).isEmpty();
-        lifecycle.transition("activation-feature", PluginRuntimePhase.STARTED);
+        started.set(true);
         SchedulePlanningLease planning = registry.prepareSource(COMPLETE_SOURCE).orElseThrow();
         try (planning) {
             assertThat(registry.activate(planning)).isTrue();
