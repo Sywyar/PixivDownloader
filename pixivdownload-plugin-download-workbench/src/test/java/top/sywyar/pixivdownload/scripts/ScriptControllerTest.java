@@ -9,10 +9,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
-import top.sywyar.pixivdownload.quota.RateLimitService;
+import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptArtifact;
+import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.hamcrest.Matchers.*;
 import static org.mockito.Mockito.*;
@@ -26,10 +26,7 @@ class ScriptControllerTest {
     private MockMvc mockMvc;
 
     @Mock
-    private ScriptRegistry scriptRegistry;
-
-    @Mock
-    private RateLimitService rateLimitService;
+    private UserscriptCatalog userscriptCatalog;
 
     private static final String SCRIPT_CONTENT =
             """
@@ -44,47 +41,44 @@ class ScriptControllerTest {
                     // ==/UserScript==
                     (function(){'use strict';})();""";
 
-    private static final ScriptResource SAMPLE_RESOURCE = new ScriptResource(
+    private static final UserscriptArtifact SAMPLE_ARTIFACT = new UserscriptArtifact(
             "test-script",
             "Test Script",
-            "test.user.js",
             "Test",
-            "1.0.0"
+            "1.0.0",
+            SCRIPT_CONTENT
     );
 
     @BeforeEach
     void setUp() {
-        when(rateLimitService.isAllowed(any())).thenReturn(true);
         ScriptController controller = new ScriptController(
-                scriptRegistry,
-                rateLimitService,
+                userscriptCatalog,
                 WorkbenchTestMessages.messages()
-        ) {
-            @Override
-            protected String loadScriptContent(String fileName) {
-                return SCRIPT_CONTENT;
-            }
-        };
+        );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
     @Test
     @DisplayName("GET /api/scripts 返回非空列表，含预期 id")
     void listScripts_returnsExpectedId() throws Exception {
-        when(scriptRegistry.getScripts()).thenReturn(List.of(SAMPLE_RESOURCE));
+        when(userscriptCatalog.scripts()).thenReturn(List.of(SAMPLE_ARTIFACT));
 
         mockMvc.perform(get("/api/scripts"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scripts", hasSize(1)))
                 .andExpect(jsonPath("$.scripts[0].id", is("test-script")))
                 .andExpect(jsonPath("$.scripts[0].displayName", is("Test Script")))
+                .andExpect(jsonPath("$.scripts[0].content").doesNotExist())
                 .andExpect(jsonPath("$.detectedHost").exists());
+
+        verify(userscriptCatalog).scripts();
+        verifyNoMoreInteractions(userscriptCatalog);
     }
 
     @Test
     @DisplayName("GET /api/scripts/{id}/install 返回 200，Content-Type application/javascript，含脚本标记")
     void installScript_returnsJavascript() throws Exception {
-        when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
+        when(userscriptCatalog.scripts()).thenReturn(List.of(SAMPLE_ARTIFACT));
 
         mockMvc.perform(get("/api/scripts/test-script/install"))
                 .andExpect(status().isOk())
@@ -95,7 +89,7 @@ class ScriptControllerTest {
     @Test
     @DisplayName("?raw=true 时 Content-Type 为 text/plain; charset=UTF-8")
     void installScript_rawParam_returnsTextPlain() throws Exception {
-        when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
+        when(userscriptCatalog.scripts()).thenReturn(List.of(SAMPLE_ARTIFACT));
 
         mockMvc.perform(get("/api/scripts/test-script/install").param("raw", "true"))
                 .andExpect(status().isOk())
@@ -104,9 +98,9 @@ class ScriptControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/scripts/{id}?raw=true returns source without .user.js suffix")
+    @DisplayName("GET /api/scripts/{id}?raw=true 无 .user.js 后缀时返回源码")
     void viewScriptSource_withoutUserJsSuffix_returnsTextPlain() throws Exception {
-        when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
+        when(userscriptCatalog.scripts()).thenReturn(List.of(SAMPLE_ARTIFACT));
 
         mockMvc.perform(get("/api/scripts/test-script").param("raw", "true"))
                 .andExpect(status().isOk())
@@ -117,7 +111,7 @@ class ScriptControllerTest {
     @Test
     @DisplayName("非 localhost 请求：YOUR_SERVER_HOST、updateURL 和 downloadURL 被替换")
     void installScript_nonLocalhost_replacesHost() throws Exception {
-        when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
+        when(userscriptCatalog.scripts()).thenReturn(List.of(SAMPLE_ARTIFACT));
 
         mockMvc.perform(get("/api/scripts/test-script/install")
                         .with(req -> {
@@ -137,7 +131,7 @@ class ScriptControllerTest {
     @Test
     @DisplayName("localhost 请求：保留 YOUR_SERVER_HOST，使用本机 updateURL")
     void installScript_localhost_keepsPlaceholder() throws Exception {
-        when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
+        when(userscriptCatalog.scripts()).thenReturn(List.of(SAMPLE_ARTIFACT));
 
         mockMvc.perform(get("/api/scripts/test-script/install")
                         .with(req -> {
@@ -156,7 +150,7 @@ class ScriptControllerTest {
     @Test
     @DisplayName("未知 id 返回 404")
     void installScript_unknownId_returns404() throws Exception {
-        when(scriptRegistry.findById("no-such-id")).thenReturn(Optional.empty());
+        when(userscriptCatalog.scripts()).thenReturn(List.of());
 
         mockMvc.perform(get("/api/scripts/no-such-id/install"))
                 .andExpect(status().isNotFound());

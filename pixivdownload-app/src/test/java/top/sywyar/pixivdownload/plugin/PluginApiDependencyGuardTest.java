@@ -598,6 +598,49 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("下载工作台脚本入口不得依赖宿主扫描实现或重复调用游客限流器")
+    void downloadWorkbenchUsesStableUserscriptCatalog() {
+        DescribedPredicate<JavaClass> hostUserscriptImplementation =
+                new DescribedPredicate<>("host userscript implementation or visitor rate limiter") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        String className = javaClass.getFullName();
+                        return className.equals("top.sywyar.pixivdownload.quota.RateLimitService")
+                                || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptRegistry")
+                                || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptResource")
+                                || className.startsWith("top.sywyar.pixivdownload.scripts.UserscriptRegistry");
+                    }
+                };
+
+        noClasses()
+                .should().dependOnClassesThat(hostUserscriptImplementation)
+                .because("工作台只消费 plugin-api UserscriptCatalog；扫描、物化与游客 UUID 限流归宿主")
+                .check(importDownloadWorkbenchClasses());
+    }
+
+    @Test
+    @DisplayName("宿主脚本物化实现不得编码下载工作台私有文件名或派生安装 id")
+    void hostUserscriptMaterializerDoesNotOwnPluginScriptIdentity() throws IOException {
+        Path source = Path.of(
+                "pixivdownload-app/src/main/java/top/sywyar/pixivdownload/scripts/ScriptRegistry.java");
+        if (!Files.exists(source)) {
+            source = Path.of("src/main/java/top/sywyar/pixivdownload/scripts/ScriptRegistry.java");
+        }
+
+        assertThat(Files.readString(source, StandardCharsets.UTF_8))
+                .doesNotContain(
+                        "FILENAME_TO_ID",
+                        "deriveId(",
+                        "Pixiv All-in-One.user.js",
+                        "Pixiv 单作品图片下载器(Java后端版).user.js",
+                        "Pixiv 单作品图片下载器(Local Download).user.js",
+                        "Pixiv User 批量下载器(User Batch).user.js",
+                        "Pixiv 页面批量下载器(Page Scrape).user.js",
+                        "Pixiv URL 批量导入单作品下载器(URL Batch).user.js",
+                        "Pixiv 体验增强工具箱(Toolbox).user.js");
+    }
+
+    @Test
     @DisplayName("宿主生产 classpath 不得实现 QueueOperations：具体操作只归各官方外置插件")
     void hostProductionMustNotImplementQueueOperations() {
         // app/core-api/plugin-runtime 只承载队列契约、注册与调用设施，不拥有任何具体队列实现。下载工作台、novel、

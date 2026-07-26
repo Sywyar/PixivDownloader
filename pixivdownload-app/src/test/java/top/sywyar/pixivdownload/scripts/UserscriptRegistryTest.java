@@ -26,8 +26,8 @@ class UserscriptRegistryTest {
         return new UserscriptRegistry(new PluginRegistry(List.of()));
     }
 
-    private static UserscriptContribution uscript(String pattern) {
-        return new UserscriptContribution(pattern);
+    private static UserscriptContribution uscript(String id, String resource) {
+        return new UserscriptContribution(id, resource);
     }
 
     @Test
@@ -42,7 +42,8 @@ class UserscriptRegistryTest {
     @DisplayName("register → unregister → 再 register 后快照与首次注册一致（可逆性）")
     void registerUnregisterRoundTrip() {
         UserscriptRegistry registry = emptyRegistry();
-        List<UserscriptContribution> items = List.of(uscript("classpath:/x/*.user.js"));
+        List<UserscriptContribution> items =
+                List.of(uscript("demo", "classpath:/x/demo.user.js"));
         registry.register("demo", CL, items);
         List<UserscriptRegistry.RegisteredUserscript> first = registry.userscripts();
         registry.unregister("demo");
@@ -63,56 +64,96 @@ class UserscriptRegistryTest {
     @DisplayName("同一 pluginId 重复注册立即抛出")
     void duplicatePluginRegistrationRejected() {
         UserscriptRegistry registry = emptyRegistry();
-        registry.register("demo", CL, List.of(uscript("classpath:/a/*.user.js")));
-        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript("classpath:/b/*.user.js"))))
+        registry.register("demo", CL, List.of(uscript("a", "classpath:/a/a.user.js")));
+        assertThatThrownBy(() -> registry.register(
+                "demo", CL, List.of(uscript("b", "classpath:/b/b.user.js"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("demo");
     }
 
     @Test
-    @DisplayName("扫描模式全局冲突立即抛出（跨插件指向同一模式）")
-    void duplicatePatternAcrossPluginsRejected() {
+    @DisplayName("稳定脚本 id 全局冲突立即抛出")
+    void duplicateIdAcrossPluginsRejected() {
         UserscriptRegistry registry = emptyRegistry();
-        registry.register("a", CL, List.of(uscript("classpath:/shared/*.user.js")));
-        assertThatThrownBy(() -> registry.register("b", CL, List.of(uscript("classpath:/shared/*.user.js"))))
+        registry.register("a", CL, List.of(uscript("shared", "classpath:/a/shared.user.js")));
+        assertThatThrownBy(() -> registry.register(
+                "b", CL, List.of(uscript("shared", "classpath:/b/shared.user.js"))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("classpath:/shared/*.user.js")
+                .hasMessageContaining("shared")
                 .hasMessageContaining("b");
     }
 
     @Test
-    @DisplayName("同一插件内扫描模式重复也立即抛出")
-    void duplicatePatternWithinPluginRejected() {
+    @DisplayName("不同插件可以采用相同的内部资源路径")
+    void sameResourceLayoutAcrossPluginsAllowed() {
         UserscriptRegistry registry = emptyRegistry();
-        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
-                uscript("classpath:/dup/*.user.js"),
-                uscript("classpath:/dup/*.user.js"))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("classpath:/dup/*.user.js");
+        registry.register("a", CL, List.of(uscript("a", "classpath:/scripts/main.user.js")));
+        registry.register("b", CL, List.of(uscript("b", "classpath:/scripts/main.user.js")));
+
+        assertThat(registry.userscripts())
+                .extracting(registered -> registered.contribution().id())
+                .containsExactly("a", "b");
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / 扫描模式非空")
+    @DisplayName("同一插件内精确资源重复立即抛出")
+    void duplicateResourceWithinPluginRejected() {
+        UserscriptRegistry registry = emptyRegistry();
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
+                uscript("first", "classpath:/dup/shared.user.js"),
+                uscript("second", "classpath:/dup/shared.user.js"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("classpath:/dup/shared.user.js");
+    }
+
+    @Test
+    @DisplayName("非法输入拒绝：owner、稳定 id 与精确 classpath 资源均须合法")
     void invalidInputRejected() {
         UserscriptRegistry registry = emptyRegistry();
-        assertThatThrownBy(() -> registry.register(" ", CL, List.of(uscript("classpath:/a/*.user.js"))))
+        assertThatThrownBy(() -> registry.register(
+                " ", CL, List.of(uscript("a", "classpath:/a/a.user.js"))))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> registry.register("demo", null, List.of(uscript("classpath:/a/*.user.js"))))
+        assertThatThrownBy(() -> registry.register(
+                "demo", null, List.of(uscript("a", "classpath:/a/a.user.js"))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", CL, List.of()))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript(" "))))
+        assertThatThrownBy(() -> registry.register(
+                "demo", CL, List.of(uscript(" ", "classpath:/a/a.user.js"))))
                 .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> registry.register(
+                "demo", CL, List.of(uscript("A/unsafe", "classpath:/a/a.user.js"))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(uscript("a", " "))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> registry.register(
+                "demo", CL, List.of(uscript("a", "classpath:/a/*.user.js"))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("资源路径必须是规范精确路径且批次后项非法时不发布前项")
+    void nonCanonicalResourceRejectsWholeBatch() {
+        UserscriptRegistry registry = emptyRegistry();
+
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
+                uscript("first", "classpath:/scripts/first.user.js"),
+                uscript("alias", "classpath:/scripts/./first.user.js"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("exact classpath resource");
+        assertThat(registry.userscripts())
+                .as("整批校验完成前不得发布任何部分声明")
+                .isEmpty();
     }
 
     @Test
     @DisplayName("userscripts() 返回不可变快照，外部不可修改")
     void snapshotIsImmutable() {
         UserscriptRegistry registry = emptyRegistry();
-        registry.register("demo", CL, List.of(uscript("classpath:/a/*.user.js")));
+        registry.register("demo", CL, List.of(uscript("a", "classpath:/a/a.user.js")));
         List<UserscriptRegistry.RegisteredUserscript> userscripts = registry.userscripts();
         assertThatThrownBy(() -> userscripts.add(new UserscriptRegistry.RegisteredUserscript(
-                "x", uscript("classpath:/x/*.user.js"), CL)))
+                "x", uscript("x", "classpath:/x/x.user.js"), CL)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
@@ -165,7 +206,8 @@ class UserscriptRegistryTest {
         @Override public String description() { return "ext-script.summary"; }
         @Override public PluginKind kind() { return PluginKind.FEATURE; }
         @Override public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution("classpath:/ext-script/*.user.js"));
+            return List.of(new UserscriptContribution(
+                    "external", "classpath:/ext-script/external.user.js"));
         }
     }
 }

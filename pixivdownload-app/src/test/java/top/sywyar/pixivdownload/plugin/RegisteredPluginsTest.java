@@ -195,7 +195,7 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.staticResources()).isEmpty();
                 }
-                // 油猴脚本扫描来源随外置 download-workbench 声明，内置插件均不声明。
+                // 油猴脚本精确资源随外置 download-workbench 声明，内置插件均不声明。
                 assertThat(plugin.userscripts()).isEmpty();
                 // 下载类型随外置来源插件声明，内置插件不贡献。
                 assertThat(plugin.downloadTypes()).isEmpty();

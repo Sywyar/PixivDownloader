@@ -64,6 +64,17 @@ class DownloadWorkbenchDependencyGuardTest {
                             "top.sywyar.pixivdownload.plugin.registry.DownloadExtension");
                 }
             };
+    private static final DescribedPredicate<JavaClass> HOST_USERSCRIPT_IMPLEMENTATION =
+            new DescribedPredicate<>("host userscript implementation or visitor rate limiter") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    String className = javaClass.getFullName();
+                    return className.equals("top.sywyar.pixivdownload.quota.RateLimitService")
+                            || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptRegistry")
+                            || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptResource")
+                            || className.startsWith("top.sywyar.pixivdownload.scripts.UserscriptRegistry");
+                }
+            };
 
     @Test
     @DisplayName("download 包不得依赖 novel 包")
@@ -146,6 +157,15 @@ class DownloadWorkbenchDependencyGuardTest {
         noClasses()
                 .should().dependOnClassesThat(HOST_DOWNLOAD_CONTROL_IMPLEMENTATION)
                 .because("descriptor 快照、currentness 与队列命令对象身份由宿主 DownloadControlPlane adapter 维护")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载工作台脚本入口只消费稳定目录且不自行重复限流")
+    void workbenchUsesStableUserscriptCatalog() {
+        noClasses()
+                .should().dependOnClassesThat(HOST_USERSCRIPT_IMPLEMENTATION)
+                .because("脚本扫描、资源物化与游客 UUID 限流归宿主；工作台只消费 UserscriptCatalog")
                 .check(CLASSES);
     }
 

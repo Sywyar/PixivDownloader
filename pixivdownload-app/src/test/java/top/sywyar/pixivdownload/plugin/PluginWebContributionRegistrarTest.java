@@ -116,8 +116,8 @@ class PluginWebContributionRegistrarTest {
                 .filter(u -> u.pluginId().equals("web-demo")).findFirst().orElseThrow();
         assertThat(userscript.classLoader()).isSameAs(CL);
 
-        // userscript 来源接入后 ScriptRegistry 经声明方 classloader 扫到本插件的脚本（注册的脚本来源被刷新）。
-        assertThat(h.scripts.getScripts()).anyMatch(s -> s.id().equals("sample-plugin"));
+        // userscript 声明接入后 ScriptRegistry 经声明方 classloader 物化本插件脚本（已注册声明被刷新）。
+        assertThat(h.scripts.scripts()).anyMatch(s -> s.id().equals("sample-plugin"));
     }
 
     @Test
@@ -141,7 +141,7 @@ class PluginWebContributionRegistrarTest {
         assertThat(h.uiSlot.slots()).noneMatch(s -> s.pluginId().equals("web-demo"));
         assertThat(h.userscripts.userscripts()).noneMatch(u -> u.pluginId().equals("web-demo"));
         // 脚本层刷新：被注销插件的油猴脚本不再残留
-        assertThat(h.scripts.getScripts()).noneMatch(s -> s.id().equals("sample-plugin"));
+        assertThat(h.scripts.scripts()).noneMatch(s -> s.id().equals("sample-plugin"));
     }
 
     @Test
@@ -247,14 +247,14 @@ class PluginWebContributionRegistrarTest {
     void builtInContributionsUnaffected() {
         Harness h = harness(new PluginRegistry(BuiltInPlugins.createAll()));
         Fingerprint builtIn = Fingerprint.of(h);
-        int builtInScripts = h.scripts.getScripts().size();
+        int builtInScripts = h.scripts.scripts().size();
         PluginRegistry.RegisteredPlugin registered = external(new WebDemoPlugin());
 
         PluginWebContributionHandle handle = h.registrar.register(registered);
         h.registrar.unregister(handle);
 
         assertThat(Fingerprint.of(h)).isEqualTo(builtIn);
-        assertThat(h.scripts.getScripts()).hasSize(builtInScripts);
+        assertThat(h.scripts.scripts()).hasSize(builtInScripts);
     }
 
     @Test
@@ -948,7 +948,7 @@ class PluginWebContributionRegistrarTest {
     private record Fingerprint(List<String> routes, List<String> staticPrefixes, List<String> namespaces,
                               List<String> navIds, List<String> startupPaths, List<String> landingIds,
                               List<String> pageSectionIds, List<String> drilldownIds, List<String> uiSlotIds,
-                              List<String> userscriptPatterns, List<String> scriptIds) {
+                              List<String> userscriptDeclarations, List<String> scriptIds) {
 
         static Fingerprint of(Harness h) {
             return new Fingerprint(
@@ -961,8 +961,11 @@ class PluginWebContributionRegistrarTest {
                     h.pageSections.sections().stream().map(s -> s.section().id()).sorted().toList(),
                     h.drilldowns.drilldowns().stream().map(d -> d.drilldown().id()).sorted().toList(),
                     h.uiSlot.slots().stream().map(s -> s.slot().slotId()).sorted().toList(),
-                    h.userscripts.userscripts().stream().map(u -> u.contribution().classpathPattern()).sorted().toList(),
-                    h.scripts.getScripts().stream().map(s -> s.id()).sorted().toList());
+                    h.userscripts.userscripts().stream()
+                            .map(u -> u.contribution().id() + "|" + u.contribution().classpathResource())
+                            .sorted()
+                            .toList(),
+                    h.scripts.scripts().stream().map(s -> s.id()).sorted().toList());
         }
 
         static Fingerprint empty() {
@@ -1055,7 +1058,8 @@ class PluginWebContributionRegistrarTest {
 
         @Override
         public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution("classpath:/test-userscripts/*.user.js"));
+            return List.of(new UserscriptContribution(
+                    "sample-plugin", "classpath:/test-userscripts/sample-plugin.user.js"));
         }
     }
 

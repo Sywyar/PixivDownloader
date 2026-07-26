@@ -401,8 +401,8 @@ class PluginClassLoaderLeakProbeTest {
         assertThat(navigation.navigation()).anyMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts())
                 .anyMatch(u -> u.pluginId().equals(PLUGIN_ID) && u.classLoader() == probeCl);
-        assertThat(scripts.readContent("sample-plugin.user.js"))
-                .contains("Sample Plugin Userscript");
+        assertThat(scripts.scripts()).singleElement()
+                .satisfies(script -> assertThat(script.content()).contains("Sample Plugin Userscript"));
         var workHandle = schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE).orElseThrow();
         ScheduleSingleCapabilityLease<ScheduledWorkExecutor> workLease =
                 schedule.prepareAcquire(workHandle).orElseThrow();
@@ -414,9 +414,7 @@ class PluginClassLoaderLeakProbeTest {
 
         // —— 注销（与生命周期 teardown 等价的注册中心注销路径）——
         web.unregister(webHandle); // 精确 serving 注销 + ResourceBundle.clearCache(probeCl) + scriptRegistry.refresh
-        assertThat(scripts.getScripts()).isEmpty();
-        assertThatThrownBy(() -> scripts.readContent("sample-plugin.user.js"))
-                .isInstanceOf(IOException.class);
+        assertThat(scripts.scripts()).isEmpty();
         ScheduleGenerationDrain drain =
                 ScheduleCapabilityRegistryTestAccess.withdraw(schedule, publication).orElseThrow();
         assertThat(schedule.snapshotView().owners()).isEmpty();
@@ -443,7 +441,7 @@ class PluginClassLoaderLeakProbeTest {
         assertThat(i18n.resolve(NAMESPACE)).isNull();
         assertThat(navigation.navigation()).noneMatch(n -> n.pluginId().equals(PLUGIN_ID));
         assertThat(userscripts.userscripts()).noneMatch(u -> u.pluginId().equals(PLUGIN_ID));
-        assertThat(scripts.getScripts()).isEmpty();
+        assertThat(scripts.scripts()).isEmpty();
         assertThat(schedule.snapshotView().owners()).isEmpty();
         assertThat(schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE)).isEmpty();
         assertThat(streams.activeStreamCount(PLUGIN_ID)).isZero();
@@ -461,7 +459,7 @@ class PluginClassLoaderLeakProbeTest {
                 + ", i18n=" + (i18n.resolve(NAMESPACE) != null)
                 + ", nav=" + navigation.navigation().stream().anyMatch(n -> n.pluginId().equals(PLUGIN_ID))
                 + ", userscript=" + userscripts.userscripts().stream().anyMatch(u -> u.pluginId().equals(PLUGIN_ID))
-                + ", scriptSnapshot=" + scripts.getScripts().size()
+                + ", scriptSnapshot=" + scripts.scripts().size()
                 + ", scheduleOwners=" + schedule.snapshotView().owners().size()
                 + ", work=" + schedule.resolveWorkExecutor(COMPOSITE_WORK_TYPE).isPresent()
                 + ", stream=" + streams.activeStreamCount(PLUGIN_ID)
@@ -516,7 +514,8 @@ class PluginClassLoaderLeakProbeTest {
 
         @Override
         public List<UserscriptContribution> userscripts() {
-            return List.of(new UserscriptContribution("classpath:/test-userscripts/*.user.js"));
+            return List.of(new UserscriptContribution(
+                    "sample-plugin", "classpath:/test-userscripts/sample-plugin.user.js"));
         }
 
     }

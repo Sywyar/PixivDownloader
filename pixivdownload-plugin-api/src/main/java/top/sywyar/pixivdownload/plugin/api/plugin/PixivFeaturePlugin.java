@@ -185,7 +185,7 @@ public interface PixivFeaturePlugin {
         return List.of();
     }
 
-    /** 插件声明的油猴脚本扫描来源（由分发该脚本的插件声明）。 */
+    /** 插件声明的稳定油猴脚本 id 与精确 classpath 资源（由分发该脚本的插件声明）。 */
     default List<UserscriptContribution> userscripts() {
         return List.of();
     }

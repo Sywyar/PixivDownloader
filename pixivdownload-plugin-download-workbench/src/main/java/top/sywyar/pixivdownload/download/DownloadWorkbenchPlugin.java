@@ -144,9 +144,20 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<UserscriptContribution> userscripts() {
-        // 油猴脚本分发归下载工作台：ScriptRegistry 经声明方 ClassLoader 扫描此模式，
-        // 不再做全局 classpath 扫描假设（物理拆分为插件 jar 后脚本随插件 ClassLoader 解析）。
-        return List.of(new UserscriptContribution("classpath:/static/userscripts/*.user.js"));
+        // 稳定安装 id 与精确资源均归下载工作台声明；宿主只经本插件 ClassLoader 物化目录，
+        // 不按这些私有文件名写分支。
+        return List.of(
+                userscript("all-in-one", "Pixiv All-in-One.user.js"),
+                userscript("artwork-java", "Pixiv 单作品图片下载器(Java后端版).user.js"),
+                userscript("artwork-local", "Pixiv 单作品图片下载器(Local Download).user.js"),
+                userscript("user-batch", "Pixiv User 批量下载器(User Batch).user.js"),
+                userscript("page-batch", "Pixiv 页面批量下载器(Page Scrape).user.js"),
+                userscript("import-batch", "Pixiv URL 批量导入单作品下载器(URL Batch).user.js"),
+                userscript("experience-toolbox", "Pixiv 体验增强工具箱(Toolbox).user.js"));
+    }
+
+    private static UserscriptContribution userscript(String id, String fileName) {
+        return new UserscriptContribution(id, "classpath:/static/userscripts/" + fileName);
     }
 
     @Override

@@ -10,6 +10,8 @@ import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivSchedul
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -73,6 +75,14 @@ class DownloadWorkbenchRequiredContextTest {
         assertThat(registry.isDeclared("/api/download/extensions")).isTrue();
         assertThat(registry.isDeclared("/api/scripts")).isTrue();
         assertThat(registry.isDeclared("/api/scripts/pixiv-batch.user.js")).isTrue();
+        for (String path : List.of(
+                "/api/scripts",
+                "/api/scripts/pixiv-batch.user.js")) {
+            RouteAccessRegistry.RegisteredRoute resolved =
+                    registry.resolve(path, HttpMethod.GET).orElseThrow();
+            assertThat(resolved.pluginId()).isEqualTo(DownloadWorkbenchPlugin.ID);
+            assertThat(resolved.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR);
+        }
         assertThat(registry.isDeclared("/api/schedule/tasks")).isTrue();
         assertThat(registry.isDeclared("/api/sse/close/123")).isTrue();
         assertThat(registry.isDeclared("/api/pixiv/user/100/artworks")).isTrue();
@@ -102,8 +112,15 @@ class DownloadWorkbenchRequiredContextTest {
                 .extracting(i18n -> i18n.namespace() + "|" + i18n.baseName())
                 .containsExactly("batch|i18n.web.batch", "userscript|i18n.web.userscript");
         assertThat(plugin.userscripts())
-                .extracting(script -> script.classpathPattern())
-                .containsExactly("classpath:/static/userscripts/*.user.js");
+                .extracting(script -> script.id() + "|" + script.classpathResource())
+                .containsExactly(
+                        "all-in-one|classpath:/static/userscripts/Pixiv All-in-One.user.js",
+                        "artwork-java|classpath:/static/userscripts/Pixiv 单作品图片下载器(Java后端版).user.js",
+                        "artwork-local|classpath:/static/userscripts/Pixiv 单作品图片下载器(Local Download).user.js",
+                        "user-batch|classpath:/static/userscripts/Pixiv User 批量下载器(User Batch).user.js",
+                        "page-batch|classpath:/static/userscripts/Pixiv 页面批量下载器(Page Scrape).user.js",
+                        "import-batch|classpath:/static/userscripts/Pixiv URL 批量导入单作品下载器(URL Batch).user.js",
+                        "experience-toolbox|classpath:/static/userscripts/Pixiv 体验增强工具箱(Toolbox).user.js");
     }
 
     @Test

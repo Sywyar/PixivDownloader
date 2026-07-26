@@ -2,36 +2,28 @@ package top.sywyar.pixivdownload.scripts;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
-import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
-import top.sywyar.pixivdownload.download.web.LocalizedException;
-import top.sywyar.pixivdownload.quota.RateLimitService;
+import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptArtifact;
+import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Matcher;
 
 /**
  * 下载工作台插件的油猴脚本分发接口。
- * 路由由 download-workbench 贡献，随插件启停注册 / 注销；以客户端 IP 为 key 复用 RateLimitService 做分钟窗口速率限制。
+ * 路由由 download-workbench 贡献，随插件启停注册 / 注销；游客限流由宿主鉴权过滤器统一执行。
  */
 @RestController
 @RequestMapping("/api/scripts")
-@Slf4j
 @RequiredArgsConstructor
 public class ScriptController {
 
-    private final ScriptRegistry scriptRegistry;
-    private final RateLimitService rateLimitService;
+    private final UserscriptCatalog userscriptCatalog;
     private final MessageResolver messages;
 
     /**
@@ -39,13 +31,12 @@ public class ScriptController {
      */
     @GetMapping
     public ScriptListResponse listScripts(HttpServletRequest request) {
-        checkRateLimit(request);
         String host = request.getServerName();
-        List<ScriptListResponse.ScriptItem> items = scriptRegistry.getScripts().stream()
+        List<ScriptListResponse.ScriptItem> items = userscriptCatalog.scripts().stream()
                 .map(s -> new ScriptListResponse.ScriptItem(
                         s.id(),
-                        messages.getOrDefault(s.displayNameCode(), s.displayName()),
-                        messages.getOrDefault(s.descriptionCode(), s.description()),
+                        messages.getOrDefault(displayNameCode(s.id()), s.displayName()),
+                        messages.getOrDefault(descriptionCode(s.id()), s.description()),
                         s.version()
                 ))
                 .toList();
@@ -87,20 +78,15 @@ public class ScriptController {
 
     private ResponseEntity<byte[]> serveScript(String id, boolean raw, HttpServletRequest request) {
 
-        checkRateLimit(request);
-        ScriptResource resource = scriptRegistry.findById(id).orElse(null);
-        if (resource == null) {
+        UserscriptArtifact artifact = userscriptCatalog.scripts().stream()
+                .filter(script -> script.id().equals(id))
+                .findFirst()
+                .orElse(null);
+        if (artifact == null) {
             return ResponseEntity.notFound().build();
         }
 
-        String content;
-        try {
-            content = loadScriptContent(resource.fileName());
-        } catch (IOException e) {
-            log.error(message("script.log.content.read.failed", resource.fileName()), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-
+        String content = artifact.content();
         String host = request.getServerName();
         String installUrl = buildInstallUrl(id, request);
         content = applyInstallReplacements(content, host, installUrl);
@@ -119,30 +105,6 @@ public class ScriptController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + id + ".user.js\"")
                 .header("X-Content-Type-Options", "nosniff")
                 .body(content.getBytes(StandardCharsets.UTF_8));
-    }
-
-    /**
-     * 经 {@link ScriptRegistry} 读取脚本文件内容（解析经声明方插件的 ClassLoader）。
-     * protected 以便测试时覆盖。
-     */
-    protected String loadScriptContent(String fileName) throws IOException {
-        return scriptRegistry.readContent(fileName);
-    }
-
-    /**
-     * 以客户端 IP 为 key 检查速率限制，超出时抛出 429。
-     * 复用 RateLimitService 的分钟窗口逻辑；limit <= 0 时自动放行。
-     */
-    private void checkRateLimit(HttpServletRequest request) {
-        String ip = request.getRemoteAddr();
-        if (!rateLimitService.isAllowed(ip)) {
-            log.warn(message("script.log.rate-limit.exceeded", ip));
-            throw new LocalizedException(
-                    HttpStatus.TOO_MANY_REQUESTS,
-                    "auth.too-many-requests",
-                    "请求过于频繁，请稍后再试"
-            );
-        }
     }
 
     /**
@@ -179,12 +141,11 @@ public class ScriptController {
                 .toUriString();
     }
 
-    @ExceptionHandler(LocalizedException.class)
-    public ResponseEntity<ErrorResponse> handleLocalized(LocalizedException failure, Locale locale) {
-        return WorkbenchErrorResponses.localized(failure, messages, locale);
+    private static String displayNameCode(String id) {
+        return "script.meta." + id + ".name";
     }
 
-    private String message(String code, Object... args) {
-        return messages.getForLog(code, args);
+    private static String descriptionCode(String id) {
+        return "script.meta." + id + ".description";
     }
 }

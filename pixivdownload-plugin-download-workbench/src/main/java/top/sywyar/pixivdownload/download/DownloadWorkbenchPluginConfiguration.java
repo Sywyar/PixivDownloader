@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
@@ -57,9 +58,7 @@ import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
-import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.scripts.ScriptController;
-import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
@@ -283,10 +282,9 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public ScriptController scriptController(ScriptRegistry scriptRegistry,
-                                             RateLimitService rateLimitService,
+    public ScriptController scriptController(UserscriptCatalog userscriptCatalog,
                                              @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new ScriptController(scriptRegistry, rateLimitService, messages);
+        return new ScriptController(userscriptCatalog, messages);
     }
 
     @Bean

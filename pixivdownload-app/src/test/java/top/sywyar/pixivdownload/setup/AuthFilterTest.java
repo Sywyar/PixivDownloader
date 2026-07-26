@@ -26,11 +26,13 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.TestGalleryPlugin;
 import top.sywyar.pixivdownload.plugin.TestNovelGalleryPlugin;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -94,6 +96,30 @@ class AuthFilterTest {
         return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
                 localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider,
                 new RouteAccessRegistry(registry), new StartupRouteRegistry(registry), new LandingRegistry(registry));
+    }
+
+    private AuthFilter authFilterWithUserscriptRoute() {
+        RouteAccessRegistry routes =
+                new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        routes.register("download-workbench",
+                List.of(WebRouteContribution.visitor("/api/scripts**")));
+        return new AuthFilter(
+                setupService,
+                staticResourceRateLimitService,
+                rateLimitService,
+                localeResolver,
+                appMessages,
+                maintenanceProvider,
+                guestInviteService,
+                guiTokenProvider,
+                routes);
+    }
+
+    private static GuestInviteSession userscriptGuest() {
+        return new GuestInviteSession(
+                1L, "invite-code", true, false, false,
+                true, Set.of(), true, Set.of(),
+                true, Set.of(), true, Set.of());
     }
 
     // ========== 静态资源 IP 限流 ==========
@@ -989,6 +1015,109 @@ class AuthFilterTest {
 
             verify(rateLimitService, never()).isAllowed(any());
             verify(filterChain).doFilter(request, response);
+        }
+    }
+
+    @Nested
+    @DisplayName("油猴脚本入口身份与限流")
+    class UserscriptAccessTests {
+
+        private static final String VISITOR_UUID =
+                "11111111-1111-1111-1111-111111111111";
+
+        @BeforeEach
+        void setupUserscriptRoute() {
+            authFilter = authFilterWithUserscriptRoute();
+            when(setupService.isSetupComplete()).thenReturn(true);
+            request.setMethod("GET");
+            request.setRequestURI("/api/scripts/test.user.js");
+            request.setRemoteAddr("192.168.1.100");
+        }
+
+        @Test
+        @DisplayName("multi 游客按 UUID 恰好计数一次后放行")
+        void multiVisitorUsesOneUuidRateLimitBucket() throws Exception {
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowed(VISITOR_UUID)).thenReturn(true);
+            request.setCookies(new Cookie("pixiv_user_id", VISITOR_UUID));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verify(rateLimitService).isAllowed(VISITOR_UUID);
+            verifyNoMoreInteractions(rateLimitService);
+        }
+
+        @Test
+        @DisplayName("multi 游客 UUID 超限时返回 429")
+        void multiVisitorRateLimitExceededReturns429() throws Exception {
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowed(VISITOR_UUID)).thenReturn(false);
+            request.setCookies(new Cookie("pixiv_user_id", VISITOR_UUID));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(429);
+            verify(filterChain, never()).doFilter(request, response);
+            verify(rateLimitService).isAllowed(VISITOR_UUID);
+            verifyNoMoreInteractions(rateLimitService);
+        }
+
+        @Test
+        @DisplayName("multi 管理员访问脚本入口不消耗游客限额")
+        void multiAdminSkipsVisitorRateLimit() throws Exception {
+            when(setupService.getMode()).thenReturn("multi");
+            when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+            request.setCookies(
+                    new Cookie("pixiv_session", "valid-token"),
+                    new Cookie("pixiv_user_id", VISITOR_UUID));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verifyNoInteractions(rateLimitService);
+        }
+
+        @Test
+        @DisplayName("solo 已登录管理员访问脚本入口不消耗游客限额")
+        void soloAdminSkipsVisitorRateLimit() throws Exception {
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession("valid-token")).thenReturn(true);
+            request.setCookies(new Cookie("pixiv_session", "valid-token"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verifyNoInteractions(rateLimitService);
+        }
+
+        @Test
+        @DisplayName("solo 未登录访问脚本入口返回 401 且不消耗游客限额")
+        void soloAnonymousReturns401WithoutRateLimit() throws Exception {
+            when(setupService.getMode()).thenReturn("solo");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+            verifyNoInteractions(rateLimitService);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"solo", "multi"})
+        @DisplayName("邀请访客访问 VISITOR 脚本入口返回 403 且不触发任何限流桶")
+        void invitedGuestIsForbiddenWithoutRateLimit(String mode) throws Exception {
+            when(setupService.getMode()).thenReturn(mode);
+            when(guestInviteService.resolveByCode("invite-code"))
+                    .thenReturn(Optional.of(userscriptGuest()));
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+            verifyNoInteractions(rateLimitService);
+            verify(guestInviteService, never()).recordHit(anyLong());
         }
     }
 
