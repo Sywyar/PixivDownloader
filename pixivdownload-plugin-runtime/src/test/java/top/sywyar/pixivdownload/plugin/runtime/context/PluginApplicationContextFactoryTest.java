@@ -11,11 +11,17 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,7 +34,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("每外置插件子 ApplicationContext 工厂")
 class PluginApplicationContextFactoryTest {
 
-    private final PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+    private final PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+    private final PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
+    private final PluginApplicationContextFactory factory =
+            new PluginApplicationContextFactory(streamRegistry, taskRegistry);
 
     @Test
     @DisplayName("插件配置类在子 context 中实例化 Bean，并注入父 context 暴露的核心服务接口；插件 Bean 不在父 context")
@@ -91,8 +100,10 @@ class PluginApplicationContextFactoryTest {
     @Test
     @DisplayName("owner 属性源只进入对应插件子 context 且不进入父 context")
     void scopedPropertiesRemainInsideMatchingChildContext() {
-        PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(owner ->
-                Map.of("fixture.owner", owner));
+        PluginApplicationContextFactory scopedFactory = new PluginApplicationContextFactory(
+                owner -> Map.of("fixture.owner", owner),
+                streamRegistry,
+                taskRegistry);
         try (AnnotationConfigApplicationContext parent =
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
             ConfigurableApplicationContext first = scopedFactory.create(parent, new PluginContextModule(
@@ -103,6 +114,99 @@ class PluginApplicationContextFactoryTest {
                 assertThat(first.getEnvironment().getProperty("fixture.owner")).isEqualTo("first");
                 assertThat(second.getEnvironment().getProperty("fixture.owner")).isEqualTo("second");
                 assertThat(parent.getEnvironment().getProperty("fixture.owner")).isNull();
+            } finally {
+                first.close();
+                second.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("工厂构造器必须显式接收共享推流与后台任务注册中心且不存在隐式新建入口")
+    void factoryRequiresExplicitSharedRuntimeRegistries() {
+        assertThat(Arrays.stream(PluginApplicationContextFactory.class.getConstructors())
+                .map(constructor -> List.of(constructor.getParameterTypes()))
+                .toList())
+                .containsExactlyInAnyOrder(
+                        List.of(PluginStreamRegistry.class, PluginRuntimeTaskRegistry.class),
+                        List.of(PluginContextPropertySourceProvider.class,
+                                PluginStreamRegistry.class,
+                                PluginRuntimeTaskRegistry.class));
+    }
+
+    @Test
+    @DisplayName("每个子 context 在 refresh 前获得本地 owner-scoped registrar 且同 token 跨 owner 隔离")
+    void injectsOwnerScopedStreamRegistrarBeforeRefresh() {
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext first = factory.create(parent, new PluginContextModule(
+                    "first", getClass().getClassLoader(), List.of(StreamPluginConfig.class)));
+            ConfigurableApplicationContext second = factory.create(parent, new PluginContextModule(
+                    "second", getClass().getClassLoader(), List.of(StreamPluginConfig.class)));
+            try {
+                PluginStreamRegistrar firstRegistrar = first.getBean(PluginStreamRegistrar.class);
+                PluginStreamRegistrar secondRegistrar = second.getBean(PluginStreamRegistrar.class);
+
+                assertThat(first.getBean(StreamPluginBean.class).streamRegistrar()).isSameAs(firstRegistrar);
+                assertThat(second.getBean(StreamPluginBean.class).streamRegistrar()).isSameAs(secondRegistrar);
+                assertThat(firstRegistrar).isNotSameAs(secondRegistrar);
+                assertThat(parent.getBeanNamesForType(PluginStreamRegistrar.class)).isEmpty();
+
+                AtomicInteger firstCloses = new AtomicInteger();
+                AtomicInteger secondCloses = new AtomicInteger();
+                firstRegistrar.register("same-token", firstCloses::incrementAndGet);
+                secondRegistrar.register("same-token", secondCloses::incrementAndGet);
+
+                assertThat(streamRegistry.activeStreamCount("first")).isOne();
+                assertThat(streamRegistry.activeStreamCount("second")).isOne();
+                assertThat(streamRegistry.closeForPlugin("first")).isOne();
+                assertThat(firstCloses).hasValue(1);
+                assertThat(secondCloses).hasValue(0);
+                assertThat(streamRegistry.activeStreamCount("second")).isOne();
+                assertThat(streamRegistry.closeForPlugin("second")).isOne();
+                assertThat(secondCloses).hasValue(1);
+            } finally {
+                first.close();
+                second.close();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("每个子 context 在 refresh 前获得本地 owner-scoped 后台任务 registrar")
+    void injectsOwnerScopedRuntimeTaskRegistrarBeforeRefresh() {
+        try (AnnotationConfigApplicationContext parent =
+                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            ConfigurableApplicationContext first = factory.create(parent, new PluginContextModule(
+                    "first-task-owner", getClass().getClassLoader(), List.of(TaskPluginConfig.class)));
+            ConfigurableApplicationContext second = factory.create(parent, new PluginContextModule(
+                    "second-task-owner", getClass().getClassLoader(), List.of(TaskPluginConfig.class)));
+            try {
+                PluginRuntimeTaskRegistrar firstRegistrar = first.getBean(PluginRuntimeTaskRegistrar.class);
+                PluginRuntimeTaskRegistrar secondRegistrar = second.getBean(PluginRuntimeTaskRegistrar.class);
+
+                assertThat(first.getBean(TaskPluginBean.class).taskRegistrar()).isSameAs(firstRegistrar);
+                assertThat(second.getBean(TaskPluginBean.class).taskRegistrar()).isSameAs(secondRegistrar);
+                assertThat(firstRegistrar).isNotSameAs(secondRegistrar);
+                assertThat(parent.getBeanNamesForType(PluginRuntimeTaskRegistrar.class)).isEmpty();
+
+                var firstTask = firstRegistrar.registerOneShot(() -> {
+                });
+                var secondTask = secondRegistrar.registerOneShot(() -> {
+                });
+                assertThat(taskRegistry.activeTaskCount("first-task-owner")).isOne();
+                assertThat(taskRegistry.activeTaskCount("second-task-owner")).isOne();
+                var firstTaskDrain = taskRegistry.prepareQuiesce("first-task-owner");
+                assertThat(firstTaskDrain.isDrained()).isFalse();
+                taskRegistry.cancelQuiescedTasks("first-task-owner", firstTaskDrain);
+                firstTask.run();
+                assertThat(firstTaskDrain.isDrained()).isTrue();
+                assertThat(taskRegistry.activeTaskCount("second-task-owner")).isOne();
+                var secondTaskDrain = taskRegistry.prepareQuiesce("second-task-owner");
+                assertThat(secondTaskDrain.isDrained()).isFalse();
+                taskRegistry.cancelQuiescedTasks("second-task-owner", secondTaskDrain);
+                secondTask.run();
+                assertThat(secondTaskDrain.isDrained()).isTrue();
             } finally {
                 first.close();
                 second.close();
@@ -210,6 +314,46 @@ class PluginApplicationContextFactoryTest {
         @Bean
         PluginBean pluginBean(CoreApiService coreService) {
             return new PluginBean(coreService);
+        }
+    }
+
+    static final class StreamPluginBean {
+        private final PluginStreamRegistrar streamRegistrar;
+
+        StreamPluginBean(PluginStreamRegistrar streamRegistrar) {
+            this.streamRegistrar = streamRegistrar;
+        }
+
+        PluginStreamRegistrar streamRegistrar() {
+            return streamRegistrar;
+        }
+    }
+
+    static final class TaskPluginBean {
+        private final PluginRuntimeTaskRegistrar taskRegistrar;
+
+        TaskPluginBean(PluginRuntimeTaskRegistrar taskRegistrar) {
+            this.taskRegistrar = taskRegistrar;
+        }
+
+        PluginRuntimeTaskRegistrar taskRegistrar() {
+            return taskRegistrar;
+        }
+    }
+
+    @Configuration
+    static class StreamPluginConfig {
+        @Bean
+        StreamPluginBean streamPluginBean(PluginStreamRegistrar streamRegistrar) {
+            return new StreamPluginBean(streamRegistrar);
+        }
+    }
+
+    @Configuration
+    static class TaskPluginConfig {
+        @Bean
+        TaskPluginBean taskPluginBean(PluginRuntimeTaskRegistrar taskRegistrar) {
+            return new TaskPluginBean(taskRegistrar);
         }
     }
 

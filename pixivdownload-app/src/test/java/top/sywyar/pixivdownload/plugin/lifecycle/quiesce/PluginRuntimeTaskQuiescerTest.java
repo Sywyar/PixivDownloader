@@ -10,7 +10,9 @@ import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPubli
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthority;
 import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAuthorityTestAccess;
 
@@ -22,6 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -50,7 +53,7 @@ class PluginRuntimeTaskQuiescerTest {
         when(queues.operationsForOwner("ext-demo"))
                 .thenReturn(List.of(owned("ext-illust", operations)));
         when(operations.prepareQuiesce("ext-illust")).thenReturn(queueDrain);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(registrar, streams, queues);
         List<QueueDrain> persisted = new ArrayList<>();
 
         PluginRuntimeTaskQuiescer.QuiesceResult result = quiescer.withdrawSchedule(AUTHORITY, publication);
@@ -71,6 +74,56 @@ class PluginRuntimeTaskQuiescerTest {
     }
 
     @Test
+    @DisplayName("先保存 owner 精确后台任务 drain 再取消且恢复时重开 admission")
+    void savesExactRuntimeTaskDrainBeforeCancellationAndResumes() {
+        PluginRuntimeTaskRegistry tasks = mock(PluginRuntimeTaskRegistry.class);
+        PluginRuntimeTaskDrain drain = mock(PluginRuntimeTaskDrain.class);
+        PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
+        QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
+        when(tasks.prepareQuiesce("ext-demo")).thenReturn(drain);
+        when(drain.ownerPluginId()).thenReturn("ext-demo");
+        when(drain.generation()).thenReturn(17L);
+        when(queues.operationsForOwner("ext-demo")).thenReturn(List.of());
+        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+                mock(PluginScheduleContributionRegistrar.class), streams, queues, tasks);
+        List<PluginRuntimeTaskDrain> persisted = new ArrayList<>();
+
+        quiescer.prepareRuntimeTaskDrain("ext-demo", null, persisted::add);
+        assertThat(persisted).containsExactly(drain);
+        quiescer.quiesceAfterScheduleWithdrawal("ext-demo", drain, List.of());
+        quiescer.resumeTasks("ext-demo");
+
+        InOrder order = inOrder(tasks, streams, queues);
+        order.verify(tasks).prepareQuiesce("ext-demo");
+        order.verify(tasks).cancelQuiescedTasks("ext-demo", drain);
+        order.verify(streams).closeForPlugin("ext-demo");
+        order.verify(queues).operationsForOwner("ext-demo");
+        order.verify(tasks).resume("ext-demo");
+    }
+
+    @Test
+    @DisplayName("后台任务已保存 drain 的重试必须保持同一 owner generation")
+    void persistedRuntimeTaskDrainRejectsReplacementGeneration() {
+        PluginRuntimeTaskRegistry tasks = mock(PluginRuntimeTaskRegistry.class);
+        PluginRuntimeTaskDrain expected = taskDrain("ext-demo", 18L);
+        PluginRuntimeTaskDrain replacement = taskDrain("ext-demo", 19L);
+        when(tasks.prepareQuiesce("ext-demo")).thenReturn(replacement);
+        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+                mock(PluginScheduleContributionRegistrar.class),
+                mock(PluginStreamRegistry.class),
+                mock(QueueOperationRegistry.class),
+                tasks);
+
+        assertThatThrownBy(() ->
+                quiescer.prepareRuntimeTaskDrain("ext-demo", expected, ignored -> {
+                }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("generation changed");
+
+        verify(tasks, never()).cancelQuiescedTasks(any(), any());
+    }
+
+    @Test
     @DisplayName("publication 撤回异常不可吞且不得越过安全门")
     void withdrawalFailureIsSafetyCritical() {
         PluginScheduleContributionRegistrar registrar = mock(PluginScheduleContributionRegistrar.class);
@@ -79,7 +132,7 @@ class PluginRuntimeTaskQuiescerTest {
         ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
         doThrow(new IllegalStateException("withdraw failed"))
                 .when(registrar).withdraw(AUTHORITY, publication);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(registrar, streams, queues);
 
         assertThatThrownBy(() -> quiescer.withdrawSchedule(AUTHORITY, publication))
                 .isInstanceOf(IllegalStateException.class)
@@ -94,7 +147,7 @@ class PluginRuntimeTaskQuiescerTest {
         PluginScheduleContributionRegistrar registrar = mock(PluginScheduleContributionRegistrar.class);
         ScheduleCapabilityPublication publication = mock(ScheduleCapabilityPublication.class);
         when(registrar.withdraw(AUTHORITY, publication)).thenReturn(Optional.empty());
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 registrar, mock(PluginStreamRegistry.class), mock(QueueOperationRegistry.class));
 
         assertThatThrownBy(() -> quiescer.withdrawSchedule(AUTHORITY, publication))
@@ -116,7 +169,7 @@ class PluginRuntimeTaskQuiescerTest {
         when(broken.prepareQuiesce("broken")).thenReturn(brokenDrain);
         when(healthy.prepareQuiesce("healthy")).thenReturn(healthyDrain);
         doThrow(new IllegalStateException("queue failed")).when(broken).cancelQuiescedTasks();
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), streams, queues);
         List<QueueDrain> persisted = new ArrayList<>();
         quiescer.prepareQueueDrains("ext-demo", persisted, persisted::add);
@@ -141,7 +194,7 @@ class PluginRuntimeTaskQuiescerTest {
                 .thenReturn(List.of(owned("first", first), owned("second", second)));
         when(first.prepareQuiesce("first")).thenReturn(firstDrain);
         when(second.prepareQuiesce("second")).thenThrow(fatal).thenReturn(secondDrain);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), mock(PluginStreamRegistry.class), queues);
         List<QueueDrain> persisted = new ArrayList<>();
 
@@ -164,7 +217,7 @@ class PluginRuntimeTaskQuiescerTest {
         when(queues.operationsForOwner("ext-demo"))
                 .thenReturn(List.of(owned("ext-illust", operations)));
         when(operations.prepareQuiesce("ext-illust")).thenReturn(replacement);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), mock(PluginStreamRegistry.class), queues);
 
         assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(expected)))
@@ -186,7 +239,7 @@ class PluginRuntimeTaskQuiescerTest {
         when(queues.operationsForOwner("ext-demo"))
                 .thenReturn(List.of(owned("ext-illust", operations)));
         when(operations.prepareQuiesce("ext-illust")).thenReturn(drain);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), streams, queues);
 
         assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(drain)))
@@ -207,7 +260,7 @@ class PluginRuntimeTaskQuiescerTest {
         when(queues.operationsForOwner("ext-demo"))
                 .thenReturn(List.of(owned("ext-illust", operations)));
         when(operations.prepareQuiesce("ext-illust")).thenReturn(drain);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), streams, queues);
 
         assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(drain)))
@@ -230,7 +283,7 @@ class PluginRuntimeTaskQuiescerTest {
                 .thenReturn(List.of(owned("ext-illust", operations)));
         when(operations.prepareQuiesce("ext-illust")).thenReturn(drain);
         doThrow(queueFatal).when(operations).cancelQuiescedTasks();
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), streams, queues);
 
         assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(drain)))
@@ -251,7 +304,7 @@ class PluginRuntimeTaskQuiescerTest {
         when(queues.operationsForOwner("ext-demo"))
                 .thenReturn(List.of(owned("sync-probe", operations)));
         when(operations.prepareQuiesce("sync-probe")).thenReturn(invalid);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), mock(PluginStreamRegistry.class), queues);
         List<QueueDrain> persisted = new ArrayList<>();
 
@@ -281,7 +334,7 @@ class PluginRuntimeTaskQuiescerTest {
         QueueOperationRegistry queues = new QueueOperationRegistry(List.of());
         queues.register("ext-demo", List.of(operations));
         getterUnavailable.set(true);
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), mock(PluginStreamRegistry.class), queues);
         List<QueueDrain> drains = new ArrayList<>();
 
@@ -303,7 +356,7 @@ class PluginRuntimeTaskQuiescerTest {
         PluginStreamRegistry streams = mock(PluginStreamRegistry.class);
         QueueOperationRegistry queues = mock(QueueOperationRegistry.class);
         when(queues.operationsForOwner("ext-demo")).thenReturn(List.of());
-        PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(registrar, streams, queues);
+        PluginRuntimeTaskQuiescer quiescer = taskQuiescer(registrar, streams, queues);
         List<QueueDrain> persisted = new ArrayList<>();
 
         assertThat(quiescer.withdrawSchedule(AUTHORITY, null).scheduleDrain()).isEmpty();
@@ -322,6 +375,14 @@ class PluginRuntimeTaskQuiescerTest {
         return operations;
     }
 
+    private static PluginRuntimeTaskQuiescer taskQuiescer(
+            PluginScheduleContributionRegistrar registrar,
+            PluginStreamRegistry streams,
+            QueueOperationRegistry queues) {
+        return new PluginRuntimeTaskQuiescer(
+                registrar, streams, queues, new PluginRuntimeTaskRegistry());
+    }
+
     private static OwnedQueueOperations owned(String queueType, QueueOperations operations) {
         return new OwnedQueueOperations(queueType, operations);
     }
@@ -329,6 +390,13 @@ class PluginRuntimeTaskQuiescerTest {
     private static QueueDrain queueDrain(String queueType, long generation) {
         QueueDrain drain = mock(QueueDrain.class);
         when(drain.queueType()).thenReturn(queueType);
+        when(drain.generation()).thenReturn(generation);
+        return drain;
+    }
+
+    private static PluginRuntimeTaskDrain taskDrain(String pluginId, long generation) {
+        PluginRuntimeTaskDrain drain = mock(PluginRuntimeTaskDrain.class);
+        when(drain.ownerPluginId()).thenReturn(pluginId);
         when(drain.generation()).thenReturn(generation);
         return drain;
     }

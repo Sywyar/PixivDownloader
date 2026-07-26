@@ -5,17 +5,30 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -66,6 +79,14 @@ class PluginRuntimeBootContextTest {
     private PluginBootstrapSession pluginBootstrapSession;
     @Autowired
     private ExternalPluginInstaller externalPluginInstaller;
+    @Autowired
+    private ApplicationContext applicationContext;
+    @Autowired
+    private PluginApplicationContextFactory pluginApplicationContextFactory;
+    @Autowired
+    private PluginStreamRegistry pluginStreamRegistry;
+    @Autowired
+    private PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry;
 
     @Test
     @DisplayName("无 plugins/ 目录：上下文照常加载，运行时状态报告 ABSENT、零加载、零失败、未创建目录")
@@ -95,6 +116,57 @@ class PluginRuntimeBootContextTest {
         assertThat(externalPluginInstaller).isSameAs(pluginBootstrapSession.installer());
         // ABSENT 目录零加载、不构造 PF4J 实例——只扫描一次、无第二套 classloader
         assertThat(pluginRuntimeManager.pluginManager()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("子上下文只取得 owner-scoped 推流端口且与生命周期清退器共享全局注册状态")
+    void childContextUsesTheHostStreamRegistry() {
+        String pluginId = "stream-wiring-probe";
+        AtomicBoolean closed = new AtomicBoolean(false);
+        try (ConfigurableApplicationContext child = pluginApplicationContextFactory.create(
+                applicationContext,
+                new PluginContextModule(pluginId, getClass().getClassLoader(), List.of()))) {
+            PluginStreamRegistrar registrar = child.getBean(PluginStreamRegistrar.class);
+
+            registrar.register("connection", () -> closed.set(true));
+
+            assertThat(registrar.acceptsNewStreams()).isTrue();
+            assertThat(pluginStreamRegistry.activeStreamCount(pluginId)).isOne();
+            assertThat(pluginStreamRegistry.closeForPlugin(pluginId)).isOne();
+            assertThat(closed).isTrue();
+            assertThat(pluginStreamRegistry.activeStreamCount(pluginId)).isZero();
+        } finally {
+            pluginStreamRegistry.resume(pluginId);
+        }
+    }
+
+    @Test
+    @DisplayName("子上下文只取得 owner-scoped 后台任务端口且与生命周期共享全局代际状态")
+    void childContextUsesTheHostRuntimeTaskRegistry() {
+        String pluginId = "task-wiring-probe";
+        AtomicBoolean invoked = new AtomicBoolean(false);
+        try (ConfigurableApplicationContext child = pluginApplicationContextFactory.create(
+                applicationContext,
+                new PluginContextModule(pluginId, getClass().getClassLoader(), List.of()))) {
+            PluginRuntimeTaskRegistrar registrar = child.getBean(PluginRuntimeTaskRegistrar.class);
+            PluginRuntimeTask task = registrar.registerOneShot(() -> invoked.set(true));
+            FutureTask<Void> cancellation = new FutureTask<>(task, null);
+            task.bindCancellation(cancellation);
+
+            assertThat(registrar.acceptsNewTasks()).isTrue();
+            assertThat(pluginRuntimeTaskRegistry.activeTaskCount(pluginId)).isOne();
+            PluginRuntimeTaskDrain drain = pluginRuntimeTaskRegistry.prepareQuiesce(pluginId);
+            pluginRuntimeTaskRegistry.cancelQuiescedTasks(pluginId, drain);
+
+            assertThat(drain.ownerPluginId()).isEqualTo(pluginId);
+            assertThat(drain.generation()).isPositive();
+            assertThat(drain.isDrained()).isTrue();
+            assertThat(pluginRuntimeTaskRegistry.acceptsNewTasks(pluginId)).isFalse();
+            task.run();
+            assertThat(invoked).isFalse();
+        } finally {
+            pluginRuntimeTaskRegistry.resume(pluginId);
+        }
     }
 
     @Test

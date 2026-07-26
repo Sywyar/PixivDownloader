@@ -9,6 +9,8 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.StandardEnvironment;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.util.Map;
 import java.util.Objects;
@@ -33,22 +35,32 @@ import java.util.Objects;
  *       自动装配、不向父 context 的请求分发 / 注册中心注册任何东西。</li>
  * </ul>
  *
- * <p>本类是无状态 POJO（不带 Spring 注解），由核心壳侧装配为 Bean 并按外置插件生命周期调用。它<b>不</b>持有所创建
+ * <p>本类是不带 Spring 注解的宿主装配 POJO，持有子 context 创建所需的属性源与宿主运行时设施，但<b>不</b>持有所创建
  * 子 context 的引用，生命周期（持有 / 关闭）由调用方（核心壳侧的子 context 管理器）负责。
  */
 public final class PluginApplicationContextFactory {
 
     private static final Logger log = LoggerFactory.getLogger(PluginApplicationContextFactory.class);
+    private static final String PLUGIN_STREAM_REGISTRAR_BEAN_NAME = "pluginStreamRegistrar";
+    private static final String PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME = "pluginRuntimeTaskRegistrar";
     public static final String SCOPED_PROPERTY_SOURCE_PREFIX = "pixivdownloadPluginScoped:";
 
     private final PluginContextPropertySourceProvider propertySourceProvider;
+    private final PluginStreamRegistry pluginStreamRegistry;
+    private final PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry;
 
-    public PluginApplicationContextFactory() {
-        this(PluginContextPropertySourceProvider.EMPTY);
+    public PluginApplicationContextFactory(PluginStreamRegistry pluginStreamRegistry,
+                                           PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
+        this(PluginContextPropertySourceProvider.EMPTY, pluginStreamRegistry, pluginRuntimeTaskRegistry);
     }
 
-    public PluginApplicationContextFactory(PluginContextPropertySourceProvider propertySourceProvider) {
+    public PluginApplicationContextFactory(PluginContextPropertySourceProvider propertySourceProvider,
+                                           PluginStreamRegistry pluginStreamRegistry,
+                                           PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
         this.propertySourceProvider = Objects.requireNonNull(propertySourceProvider, "propertySourceProvider");
+        this.pluginStreamRegistry = Objects.requireNonNull(pluginStreamRegistry, "pluginStreamRegistry");
+        this.pluginRuntimeTaskRegistry =
+                Objects.requireNonNull(pluginRuntimeTaskRegistry, "pluginRuntimeTaskRegistry");
     }
 
     /**
@@ -74,6 +86,13 @@ public final class PluginApplicationContextFactory {
         child.setParent(parent);
         replaceScopedPropertySource(child.getEnvironment(), module.sourcePluginId(),
                 propertySourceProvider.propertiesFor(module.sourcePluginId()));
+        // owner 由宿主固化：插件只得到当前 child context 本地的 owner-scoped registrar，父 context 不暴露它。
+        child.getBeanFactory().registerSingleton(
+                PLUGIN_STREAM_REGISTRAR_BEAN_NAME,
+                pluginStreamRegistry.registrarForPlugin(module.sourcePluginId()));
+        child.getBeanFactory().registerSingleton(
+                PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME,
+                pluginRuntimeTaskRegistry.registrarForPlugin(module.sourcePluginId()));
         child.register(PluginContextInfrastructureConfiguration.class);
         for (Class<?> configurationClass : module.configurationClasses()) {
             child.register(configurationClass);

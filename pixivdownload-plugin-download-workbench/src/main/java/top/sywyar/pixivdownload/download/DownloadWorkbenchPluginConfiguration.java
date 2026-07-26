@@ -17,6 +17,8 @@ import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
@@ -57,7 +59,6 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserReque
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -300,8 +301,14 @@ public class DownloadWorkbenchPluginConfiguration {
     public SSEController sseController(@Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                        RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
-                                       PluginStreamRegistry pluginStreamRegistry) {
-        return new SSEController(taskScheduler, requestOwnerIdentityResolver, messages, pluginStreamRegistry);
+                                       PluginStreamRegistrar pluginStreamRegistrar,
+                                       PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar) {
+        return new SSEController(
+                taskScheduler,
+                requestOwnerIdentityResolver,
+                messages,
+                pluginStreamRegistrar,
+                pluginRuntimeTaskRegistrar);
     }
 
     @Bean

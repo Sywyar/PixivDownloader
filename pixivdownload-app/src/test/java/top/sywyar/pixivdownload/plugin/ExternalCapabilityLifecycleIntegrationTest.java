@@ -18,7 +18,8 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionReg
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.ExternalRuntimeCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PluginCapabilityContributionAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PushChannelCapabilityAdapter;
@@ -95,8 +96,10 @@ class ExternalCapabilityLifecycleIntegrationTest {
                     mock(PluginScheduleContributionRegistrar.class);
             when(scheduleRegistrar.register(any(), same(registered), any())).thenReturn(Optional.empty());
             QueueOperationRegistry queueRegistry = new QueueOperationRegistry(List.of());
+            PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+            PluginRuntimeTaskRegistry taskRegistry = new PluginRuntimeTaskRegistry();
             PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
-                    scheduleRegistrar, new PluginStreamRegistry(), queueRegistry);
+                    scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry);
 
             ExternalCapabilityInvocationRegistry invocationRegistry =
                     new ExternalCapabilityInvocationRegistry();
@@ -121,7 +124,7 @@ class ExternalCapabilityLifecycleIntegrationTest {
 
             PluginLifecycleState lifecycleState = new PluginLifecycleState();
             PluginLifecycleService service = new PluginLifecycleService(
-                    parent, runtime, new PluginApplicationContextFactory(),
+                    parent, runtime, new PluginApplicationContextFactory(streamRegistry, taskRegistry),
                     mock(PluginControllerRegistrar.class), webRegistrar, scheduleRegistrar,
                     quiescer, capabilityRegistrar, pluginRegistry, lifecycleState);
             service.startAll();

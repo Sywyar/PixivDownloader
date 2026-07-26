@@ -22,6 +22,8 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
@@ -114,7 +116,9 @@ class RuntimeConfigReloadServiceTest {
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.setEnvironment(parentEnvironment);
             parent.refresh();
-            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginApplicationContextFactory factory =
+                    new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
             PluginContextModule module = new PluginContextModule(
                     "fixture", getClass().getClassLoader(), List.of(FixtureGuestInviteConfiguration.class));
             var child = factory.create(parent, module);
@@ -154,7 +158,9 @@ class RuntimeConfigReloadServiceTest {
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.setEnvironment(parentEnvironment);
             parent.refresh();
-            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginApplicationContextFactory factory =
+                    new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
             PluginContextModule module = new PluginContextModule(
                     "fixture", getClass().getClassLoader(), List.of(FixtureGuestInviteConfiguration.class));
             var child = factory.create(parent, module);
@@ -233,7 +239,9 @@ class RuntimeConfigReloadServiceTest {
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.setEnvironment(environment);
             parent.refresh();
-            PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+            PluginApplicationContextFactory factory =
+                    new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
             PluginContextModule module = new PluginContextModule(
                     "fixture", getClass().getClassLoader(), List.of(FixturePluginConfiguration.class));
             var firstChild = factory.create(parent, module);

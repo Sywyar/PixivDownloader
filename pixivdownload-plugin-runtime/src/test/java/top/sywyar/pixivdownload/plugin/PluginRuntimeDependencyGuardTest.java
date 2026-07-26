@@ -16,6 +16,10 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
+
+import java.lang.reflect.Modifier;
 
 /**
  * plugin-runtime 边界守卫：证明本模块是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接——
@@ -88,6 +92,52 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention.class.getName()))
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 推流注册中心只依赖稳定 stream 契约、slf4j 与 JDK")
+    void pluginRuntimeStreamRegistryStaysAtStableContractBoundary() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.stream..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin.runtime.stream..",
+                        "top.sywyar.pixivdownload.plugin.api.stream..",
+                        "java..", "org.slf4j..")
+                .because("全局推流注册中心属于 plugin-runtime 宿主设施；插件只经 plugin-api 的 owner-scoped "
+                        + "registrar 登记，注册中心不得反向依赖 app、具体插件或 Spring 组件扫描")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(PluginStreamRegistry.class.getName())).isTrue();
+        assertThat(Modifier.isFinal(PluginStreamRegistry.class.getModifiers()))
+                .as("生命周期测试需要用受控子类观察 close 顺序")
+                .isFalse();
+        assertThat(PluginStreamRegistry.class.getDeclaredAnnotations())
+                .as("注册中心由 app 组合根显式装配，runtime 不得自行组件扫描")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 后台任务注册中心只依赖稳定 task 契约与 JDK")
+    void pluginRuntimeTaskRegistryStaysAtStableContractBoundary() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.task..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin.runtime.task..",
+                        "top.sywyar.pixivdownload.plugin.api.task..",
+                        "java..")
+                .because("全局后台任务注册中心属于 plugin-runtime 父加载器设施；插件只经 plugin-api 的 "
+                        + "owner-scoped registrar 登记包装器，注册中心不得反向依赖 app、具体插件或 Spring")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(PluginRuntimeTaskRegistry.class.getName())).isTrue();
+        assertThat(Modifier.isFinal(PluginRuntimeTaskRegistry.class.getModifiers()))
+                .as("app 生命周期测试需要用受控子类观察清退顺序")
+                .isFalse();
+        assertThat(PluginRuntimeTaskRegistry.class.getDeclaredAnnotations())
+                .as("注册中心由 app 组合根显式装配，runtime 不得自行组件扫描")
+                .isEmpty();
     }
 
     @Test

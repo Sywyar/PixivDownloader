@@ -1,22 +1,22 @@
-package top.sywyar.pixivdownload.plugin;
+package top.sywyar.pixivdownload.plugin.runtime.stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStream;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 
 /**
- * 插件推流宿主注册中心测试：按 pluginId 注册 / 注销可关闭推流、{@code closeForPlugin} 关闭并清退（不残留引用、
- * 隔离单个回调异常、只作用于目标插件），以及关闭回调反向触发 {@code unregister} 的安全 no-op。
+ * 插件推流宿主注册中心测试：插件只经 owner-scoped registrar 注册 / 注销可关闭推流；宿主
+ * {@code closeForPlugin} 关闭并清退且不残留引用，同时保留并发、失败重试与致命错误语义。
  */
 @DisplayName("插件推流宿主注册中心")
 class PluginStreamRegistryTest {
@@ -36,54 +36,56 @@ class PluginStreamRegistryTest {
     }
 
     @Test
-    @DisplayName("register + closeForPlugin：关闭该插件全部推流，返回关闭数，且不再残留引用")
+    @DisplayName("owner-scoped register + closeForPlugin 关闭全部推流且不残留引用")
     void closeForPluginClosesAllAndClearsRefs() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
-        RecordingStream a = new RecordingStream();
-        RecordingStream b = new RecordingStream();
-        registry.register("ext-demo", "s1", a);
-        registry.register("ext-demo", "s2", b);
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
+        RecordingStream first = new RecordingStream();
+        RecordingStream second = new RecordingStream();
+        streams.register("s1", first);
+        streams.register("s2", second);
         assertThat(registry.activeStreamCount("ext-demo")).isEqualTo(2);
 
         int closed = registry.closeForPlugin("ext-demo");
 
         assertThat(closed).isEqualTo(2);
-        assertThat(a.closedCount).isEqualTo(1);
-        assertThat(b.closedCount).isEqualTo(1);
-        // 关闭后不残留任何回调引用（连接不成为泄漏点）
+        assertThat(first.closedCount).isEqualTo(1);
+        assertThat(second.closedCount).isEqualTo(1);
         assertThat(registry.activeStreamCount("ext-demo")).isZero();
     }
 
     @Test
-    @DisplayName("unregister 摘除推流：closeForPlugin 不再触达它，且不调用其关闭回调")
+    @DisplayName("owner-scoped unregister 摘除推流且不触发关闭回调")
     void unregisterDetachesStream() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
-        RecordingStream a = new RecordingStream();
-        registry.register("ext-demo", "s1", a);
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
+        RecordingStream stream = new RecordingStream();
+        streams.register("s1", stream);
 
-        registry.unregister("ext-demo", "s1");
+        streams.unregister("s1");
         assertThat(registry.activeStreamCount("ext-demo")).isZero();
 
         assertThat(registry.closeForPlugin("ext-demo")).isZero();
-        assertThat(a.closedCount).isZero(); // 注销不触发关闭回调
+        assertThat(stream.closedCount).isZero();
     }
 
     @Test
     @DisplayName("普通失败不妨碍其它流关闭且失败项保留到重试成功")
     void closeForPluginRetainsOnlyFailingStreamForRetry() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         RecordingStream failing = new RecordingStream();
         failing.fail = true;
         RecordingStream healthy = new RecordingStream();
-        registry.register("ext-demo", "bad", failing);
-        registry.register("ext-demo", "good", healthy);
+        streams.register("bad", failing);
+        streams.register("good", healthy);
 
         assertThatThrownBy(() -> registry.closeForPlugin("ext-demo"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("boom-close");
 
-        assertThat(failing.closedCount).isEqualTo(1); // 被调用过并保留
-        assertThat(healthy.closedCount).isEqualTo(1); // 不受影响
+        assertThat(failing.closedCount).isEqualTo(1);
+        assertThat(healthy.closedCount).isEqualTo(1);
         assertThat(registry.activeStreamCount("ext-demo")).isEqualTo(1);
 
         failing.fail = false;
@@ -91,7 +93,7 @@ class PluginStreamRegistryTest {
 
         assertThat(closed).isEqualTo(1);
         assertThat(failing.closedCount).isEqualTo(2);
-        assertThat(healthy.closedCount).isEqualTo(1); // 成功项不重复关闭
+        assertThat(healthy.closedCount).isEqualTo(1);
         assertThat(registry.activeStreamCount("ext-demo")).isZero();
     }
 
@@ -99,20 +101,21 @@ class PluginStreamRegistryTest {
     @DisplayName("致命失败按原对象延后重抛且其它流仍会尝试关闭")
     void fatalFailureKeepsIdentityAfterClosingOtherStreams() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         IllegalStateException ordinary = new IllegalStateException("ordinary-first");
         OutOfMemoryError fatal = new OutOfMemoryError("stream-fatal");
         AtomicInteger ordinaryCalls = new AtomicInteger();
         AtomicInteger fatalCalls = new AtomicInteger();
         RecordingStream healthy = new RecordingStream();
-        registry.register("ext-demo", "ordinary", () -> {
+        streams.register("ordinary", () -> {
             ordinaryCalls.incrementAndGet();
             throw ordinary;
         });
-        registry.register("ext-demo", "fatal", () -> {
+        streams.register("fatal", () -> {
             fatalCalls.incrementAndGet();
             throw fatal;
         });
-        registry.register("ext-demo", "healthy", healthy);
+        streams.register("healthy", healthy);
 
         assertThatThrownBy(() -> registry.closeForPlugin("ext-demo")).isSameAs(fatal);
 
@@ -124,36 +127,38 @@ class PluginStreamRegistryTest {
     }
 
     @Test
-    @DisplayName("closeForPlugin 只作用于目标插件：其它插件的推流不受影响")
+    @DisplayName("closeForPlugin 只作用于目标 owner 的推流")
     void closeForPluginAffectsOnlyTargetPlugin() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
-        RecordingStream mine = new RecordingStream();
-        RecordingStream other = new RecordingStream();
-        registry.register("ext-demo", "s1", mine);
-        registry.register("ext-other", "s1", other);
+        PluginStreamRegistrar mine = registry.registrarForPlugin("ext-demo");
+        PluginStreamRegistrar otherOwner = registry.registrarForPlugin("ext-other");
+        RecordingStream mineStream = new RecordingStream();
+        RecordingStream otherStream = new RecordingStream();
+        mine.register("same-token", mineStream);
+        otherOwner.register("same-token", otherStream);
 
         registry.closeForPlugin("ext-demo");
 
-        assertThat(mine.closedCount).isEqualTo(1);
-        assertThat(other.closedCount).isZero();
+        assertThat(mineStream.closedCount).isEqualTo(1);
+        assertThat(otherStream.closedCount).isZero();
         assertThat(registry.activeStreamCount("ext-other")).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("关闭回调反向 unregister 自身：作用于已摘下的快照，安全 no-op、不重复关闭")
+    @DisplayName("关闭回调反向 unregister 自身时安全且不重复关闭")
     void reentrantUnregisterDuringCloseIsSafe() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         AtomicInteger closes = new AtomicInteger();
-        // 模拟 SSEController：关闭回调里反过来调 unregister（真实链路是 emitter.complete → onCompletion → unregister）
-        registry.register("ext-demo", "s1", () -> {
+        streams.register("s1", () -> {
             closes.incrementAndGet();
-            registry.unregister("ext-demo", "s1");
+            streams.unregister("s1");
         });
 
         int closed = registry.closeForPlugin("ext-demo");
 
         assertThat(closed).isEqualTo(1);
-        assertThat(closes.get()).isEqualTo(1); // 只关闭一次
+        assertThat(closes.get()).isEqualTo(1);
         assertThat(registry.activeStreamCount("ext-demo")).isZero();
     }
 
@@ -161,18 +166,19 @@ class PluginStreamRegistryTest {
     @DisplayName("关闭 admission 后迟到注册立即关闭，失败项阻断 resume 并可重试")
     void lateRegistrationClosesImmediatelyAndPendingFailureBlocksResume() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         registry.closeForPlugin("ext-demo");
-        assertThat(registry.acceptsNewStreams("ext-demo")).isFalse();
+        assertThat(streams.acceptsNewStreams()).isFalse();
         RecordingStream healthyLate = new RecordingStream();
 
-        registry.register("ext-demo", "late-ok", healthyLate);
+        streams.register("late-ok", healthyLate);
 
         assertThat(healthyLate.closedCount).isEqualTo(1);
         assertThat(registry.activeStreamCount("ext-demo")).isZero();
 
         RecordingStream failingLate = new RecordingStream();
         failingLate.fail = true;
-        assertThatThrownBy(() -> registry.register("ext-demo", "late-failed", failingLate))
+        assertThatThrownBy(() -> streams.register("late-failed", failingLate))
                 .isInstanceOf(RuntimeException.class);
         assertThat(registry.activeStreamCount("ext-demo")).isEqualTo(1);
         assertThatThrownBy(() -> registry.resume("ext-demo"))
@@ -182,23 +188,24 @@ class PluginStreamRegistryTest {
         failingLate.fail = false;
         assertThat(registry.closeForPlugin("ext-demo")).isEqualTo(1);
         registry.resume("ext-demo");
-        assertThat(registry.acceptsNewStreams("ext-demo")).isTrue();
+        assertThat(streams.acceptsNewStreams()).isTrue();
     }
 
     @Test
     @DisplayName("关闭 callback 重入 unregister 后抛错仍恢复精确 token 供重试")
     void reentrantUnregisterThenFailureIsRestoredForRetry() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         AtomicBoolean fail = new AtomicBoolean(true);
         AtomicInteger closes = new AtomicInteger();
         PluginStream stream = () -> {
             closes.incrementAndGet();
-            registry.unregister("ext-demo", "exact-token");
+            streams.unregister("exact-token");
             if (fail.get()) {
                 throw new IllegalStateException("close-after-unregister");
             }
         };
-        registry.register("ext-demo", "exact-token", stream);
+        streams.register("exact-token", stream);
 
         assertThatThrownBy(() -> registry.closeForPlugin("ext-demo"))
                 .isInstanceOf(IllegalStateException.class)
@@ -217,18 +224,12 @@ class PluginStreamRegistryTest {
     @DisplayName("迟到注册与 quiesce 线性化后不会留下未关闭流")
     void lateRegisterLinearizesWithQuiesce() throws Exception {
         PluginStreamRegistry registry = new PluginStreamRegistry();
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         CountDownLatch closeEntered = new CountDownLatch(1);
         CountDownLatch releaseClose = new CountDownLatch(1);
-        registry.register("ext-demo", "existing", () -> {
+        streams.register("existing", () -> {
             closeEntered.countDown();
-            try {
-                if (!releaseClose.await(5, TimeUnit.SECONDS)) {
-                    throw new AssertionError("timed out waiting to release close");
-                }
-            } catch (InterruptedException failure) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError("stream close interrupted");
-            }
+            await(releaseClose);
         });
         AtomicReference<Throwable> closeFailure = new AtomicReference<>();
         Thread closer = new Thread(() -> {
@@ -242,28 +243,29 @@ class PluginStreamRegistryTest {
         assertThat(closeEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
         RecordingStream late = new RecordingStream();
-        Thread register = new Thread(() -> registry.register("ext-demo", "late", late),
+        Thread register = new Thread(() -> streams.register("late", late),
                 "plugin-stream-late-register");
         register.start();
         releaseClose.countDown();
-        closer.join(5000);
-        register.join(5000);
+        closer.join(5_000L);
+        register.join(5_000L);
 
         assertThat(closer.isAlive()).isFalse();
         assertThat(register.isAlive()).isFalse();
         assertThat(closeFailure.get()).isNull();
         assertThat(late.closedCount).isEqualTo(1);
         assertThat(registry.activeStreamCount("ext-demo")).isZero();
-        assertThat(registry.acceptsNewStreams("ext-demo")).isFalse();
+        assertThat(streams.acceptsNewStreams()).isFalse();
     }
 
     @Test
     @DisplayName("关闭会等待并观察并发迟到注册的失败回调")
     void closeWaitsForAndObservesConcurrentLateRegistrationFailure() throws Exception {
         PluginStreamRegistry registry = new PluginStreamRegistry();
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
         CountDownLatch existingCloseEntered = new CountDownLatch(1);
         CountDownLatch releaseExistingClose = new CountDownLatch(1);
-        registry.register("ext-demo", "existing", () -> {
+        streams.register("existing", () -> {
             existingCloseEntered.countDown();
             await(releaseExistingClose);
         });
@@ -285,7 +287,7 @@ class PluginStreamRegistryTest {
         AtomicReference<Throwable> registerFailure = new AtomicReference<>();
         Thread register = new Thread(() -> {
             try {
-                registry.register("ext-demo", "late", () -> {
+                streams.register("late", () -> {
                     lateCloseEntered.countDown();
                     await(releaseLateClose);
                     throw lateFailure;
@@ -312,16 +314,21 @@ class PluginStreamRegistryTest {
     }
 
     @Test
-    @DisplayName("空白 / null 入参与未注册插件：静默忽略，closeForPlugin 返回 0")
-    void blankAndUnknownInputsAreIgnored() {
+    @DisplayName("空白 token 与 null 回调静默忽略，空白 owner 不能创建登记入口")
+    void blankTokensAreIgnoredAndBlankOwnerIsRejected() {
         PluginStreamRegistry registry = new PluginStreamRegistry();
-        registry.register(null, "s1", () -> { });
-        registry.register("ext-demo", " ", () -> { });
-        registry.register("ext-demo", "s1", null);
+        PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
+        streams.register(" ", () -> {
+        });
+        streams.register("s1", null);
 
         assertThat(registry.activeStreamCount("ext-demo")).isZero();
         assertThat(registry.closeForPlugin("ghost")).isZero();
-        registry.unregister("ghost", "s1"); // 不抛
+        streams.unregister("unknown");
+        assertThatThrownBy(() -> registry.registrarForPlugin(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> registry.registrarForPlugin(" "))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private static void await(CountDownLatch latch) {

@@ -16,21 +16,22 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
-import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
-import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
-import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
-import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -45,10 +46,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @RestController
@@ -59,35 +61,33 @@ public class SSEController {
     private static final int GCM_TAG_BITS = 128;
     private static final long CLOSE_TOKEN_MAX_AGE_MILLIS = Duration.ofHours(25).toMillis();
 
-    /** 下载进度 SSE 推流随下载工作台插件运行期归属：该插件 quiesce / 卸载时其全部连接由生命周期服务统一关闭。 */
-    private static final String STREAM_OWNER_PLUGIN_ID = DownloadWorkbenchPlugin.ID;
-
     private final TaskScheduler taskScheduler;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final MessageResolver messages;
-    private final PluginStreamRegistry pluginStreamRegistry;
+    private final PluginStreamRegistrar pluginStreamRegistrar;
+    private final PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar;
     private final ExecutorService sseProgressExecutor;
     private final SecureRandom secureRandom = new SecureRandom();
     private final byte[] closeTokenKey = new byte[32];
 
     private final ConcurrentHashMap<String, ArtworkSubscription> emitters = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ScheduledFuture<?>> heartbeatTasks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, PluginRuntimeTask> heartbeatTasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AggregatedSubscription> aggregatedEmitters = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ScheduledFuture<?>> aggregatedHeartbeats = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, PluginRuntimeTask> aggregatedHeartbeats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, PendingProgress> pendingProgress = new ConcurrentHashMap<>();
-    private final AtomicBoolean progressFlushRunning = new AtomicBoolean(false);
-    private final AtomicBoolean backgroundDrainRegistered = new AtomicBoolean(false);
-    private final QueueTaskTracker backgroundTasks = new QueueTaskTracker("download-workbench-sse");
-    private final String backgroundStreamToken = "sse-background:" + UUID.randomUUID();
+    private final Object progressFlushMonitor = new Object();
+    private ProgressFlushHandle progressFlushHandle;
 
     public SSEController(TaskScheduler taskScheduler,
                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                          MessageResolver messages,
-                         PluginStreamRegistry pluginStreamRegistry) {
+                         PluginStreamRegistrar pluginStreamRegistrar,
+                         PluginRuntimeTaskRegistrar pluginRuntimeTaskRegistrar) {
         this.taskScheduler = taskScheduler;
         this.requestOwnerIdentityResolver = requestOwnerIdentityResolver;
         this.messages = messages;
-        this.pluginStreamRegistry = pluginStreamRegistry;
+        this.pluginStreamRegistrar = pluginStreamRegistrar;
+        this.pluginRuntimeTaskRegistrar = pluginRuntimeTaskRegistrar;
         this.secureRandom.nextBytes(closeTokenKey);
         this.sseProgressExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "sse-progress-flush");
@@ -98,31 +98,26 @@ public class SSEController {
 
     @PreDestroy
     public void shutdownProgressExecutor() {
+        Throwable failure = cancelBackgroundTasks();
+        pendingProgress.clear();
+        sseProgressExecutor.shutdownNow();
+        boolean interrupted = false;
         try {
-            quiesceBackgroundTasks();
-        } catch (Throwable failure) {
-            log.warn("SSE background task cleanup failed during context close (failureType={})",
-                    failure.getClass().getName());
-        } finally {
-            pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, backgroundStreamToken);
-            sseProgressExecutor.shutdownNow();
-            boolean interrupted = false;
-            try {
-                while (!sseProgressExecutor.isTerminated()) {
-                    try {
-                        if (sseProgressExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
-                            break;
-                        }
-                    } catch (InterruptedException failure) {
-                        interrupted = true;
+            while (!sseProgressExecutor.isTerminated()) {
+                try {
+                    if (sseProgressExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                        break;
                     }
-                }
-            } finally {
-                if (interrupted) {
-                    Thread.currentThread().interrupt();
+                } catch (InterruptedException interruptedFailure) {
+                    interrupted = true;
                 }
             }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
+        rethrowBackgroundFailure(failure);
     }
 
     private record ArtworkSubscription(SseEmitter emitter, Long artworkId, String ownerUuid,
@@ -144,9 +139,10 @@ public class SSEController {
 
     private record CloseTokenPayload(String connectionId, String ownerUuid, boolean admin, long issuedAtMillis) {}
 
+    private record ProgressFlushHandle(PluginRuntimeTask task, Future<?> cancellation) {}
+
     @GetMapping(value = "/download/{artworkId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter createSSEConnection(@PathVariable Long artworkId, HttpServletRequest request) {
-        ensureBackgroundDrainRegistered();
         SseEmitter emitter = new SseEmitter(300_000L);
         RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(request);
         boolean admin = identity.admin();
@@ -157,8 +153,6 @@ public class SSEController {
         ArtworkSubscription subscription = new ArtworkSubscription(
                 emitter, artworkId, ownerUuid, admin, currentRequestLocale(), streamToken);
         emitters.put(subscriptionKey, subscription);
-        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, streamToken,
-                () -> closeArtworkStreamUnavailable(subscriptionKey, subscription));
 
         emitter.onCompletion(() -> {
             cleanupArtworkEmitter(subscriptionKey, subscription);
@@ -172,25 +166,33 @@ public class SSEController {
             cleanupArtworkEmitter(subscriptionKey, subscription);
             log.debug(logMessage("sse.log.connection.error", id(artworkId), e.getMessage()));
         });
+        pluginStreamRegistrar.register(streamToken, unavailableStream(
+                emitter,
+                messages.get(subscription.locale(), "plugin.unavailable.quiesced")));
 
         if (!sendStatusUpdate(subscriptionKey)) {
             cleanupArtworkEmitter(subscriptionKey, subscription);
             return emitter;
         }
 
-        ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(
-                () -> runTrackedBackground(() -> {
-                    if (isEmitterValid(subscriptionKey, subscription) && !sendEvent(emitter, SseEmitter.event()
-                            .id(String.valueOf(System.currentTimeMillis()))
-                            .name("heartbeat")
-                            .data("ping"))) {
-                        cleanupArtworkEmitter(subscriptionKey, subscription);
-                    }
-                }), Duration.ofSeconds(30));
-        heartbeatTasks.put(subscriptionKey, heartbeat);
-        if (!isEmitterValid(subscriptionKey, subscription)
-                && heartbeatTasks.remove(subscriptionKey, heartbeat)) {
-            heartbeat.cancel(false);
+        try {
+            if (!scheduleHeartbeat(subscriptionKey, heartbeatTasks, () -> {
+                if (isEmitterValid(subscriptionKey, subscription) && !sendEvent(emitter, SseEmitter.event()
+                        .id(String.valueOf(System.currentTimeMillis()))
+                        .name("heartbeat")
+                        .data("ping"))) {
+                    cleanupArtworkEmitter(subscriptionKey, subscription);
+                }
+            })) {
+                cleanupArtworkEmitter(subscriptionKey, subscription);
+                return emitter;
+            }
+        } catch (RuntimeException | Error failure) {
+            cleanupArtworkEmitter(subscriptionKey, subscription);
+            throw failure;
+        }
+        if (!isEmitterValid(subscriptionKey, subscription)) {
+            cancelHeartbeat(subscriptionKey);
         }
 
         return emitter;
@@ -198,7 +200,6 @@ public class SSEController {
 
     @GetMapping(value = "/download", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter createAggregatedSSEConnection(HttpServletRequest request) {
-        ensureBackgroundDrainRegistered();
         SseEmitter emitter = new SseEmitter(86_400_000L);
         String connectionId = UUID.randomUUID().toString();
         String streamToken = "aggregated:" + connectionId;
@@ -208,8 +209,6 @@ public class SSEController {
         AggregatedSubscription subscription = new AggregatedSubscription(
                 emitter, ownerUuid, admin, currentRequestLocale(), streamToken);
         aggregatedEmitters.put(connectionId, subscription);
-        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, streamToken,
-                () -> closeAggregatedStreamUnavailable(connectionId, subscription));
 
         emitter.onCompletion(() -> {
             cleanupAggregatedEmitter(connectionId, subscription);
@@ -223,6 +222,9 @@ public class SSEController {
             cleanupAggregatedEmitter(connectionId, subscription);
             log.debug(logMessage("sse.log.aggregated.error", connectionId, e.getMessage()));
         });
+        pluginStreamRegistrar.register(streamToken, unavailableStream(
+                emitter,
+                messages.get(subscription.locale(), "plugin.unavailable.quiesced")));
 
         String closeToken = createAggregatedCloseToken(connectionId, ownerUuid, admin, System.currentTimeMillis());
         if (!sendEvent(emitter, SseEmitter.event()
@@ -234,22 +236,26 @@ public class SSEController {
             return emitter;
         }
 
-        ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(
-                () -> runTrackedBackground(() -> {
-                    AggregatedSubscription sub = aggregatedEmitters.get(connectionId);
-                    if (sub != null && !sendEvent(sub.emitter(), SseEmitter.event()
-                            .id(String.valueOf(System.currentTimeMillis()))
-                            .name("heartbeat")
-                            .data("ping"))) {
-                        cleanupAggregatedEmitter(connectionId, subscription);
-                    }
-                }), Duration.ofSeconds(30));
-        aggregatedHeartbeats.put(connectionId, heartbeat);
+        try {
+            if (!scheduleHeartbeat(connectionId, aggregatedHeartbeats, () -> {
+                AggregatedSubscription sub = aggregatedEmitters.get(connectionId);
+                if (sub != null && !sendEvent(sub.emitter(), SseEmitter.event()
+                        .id(String.valueOf(System.currentTimeMillis()))
+                        .name("heartbeat")
+                        .data("ping"))) {
+                    cleanupAggregatedEmitter(connectionId, subscription);
+                }
+            })) {
+                cleanupAggregatedEmitter(connectionId, subscription);
+                return emitter;
+            }
+        } catch (RuntimeException | Error failure) {
+            cleanupAggregatedEmitter(connectionId, subscription);
+            throw failure;
+        }
         if (aggregatedEmitters.get(connectionId) != subscription) {
             // The connection was already closed while the scheduler was returning its handle.
-            if (aggregatedHeartbeats.remove(connectionId, heartbeat)) {
-                heartbeat.cancel(false);
-            }
+            cancelAggregatedHeartbeat(connectionId);
         }
 
         return emitter;
@@ -295,13 +301,13 @@ public class SSEController {
     }
 
     private void cancelHeartbeat(String subscriptionKey) {
-        ScheduledFuture<?> task = heartbeatTasks.remove(subscriptionKey);
-        if (task != null) task.cancel(false);
+        PluginRuntimeTask task = heartbeatTasks.remove(subscriptionKey);
+        if (task != null) task.cancel();
     }
 
     private void cancelAggregatedHeartbeat(String connectionId) {
-        ScheduledFuture<?> task = aggregatedHeartbeats.remove(connectionId);
-        if (task != null) task.cancel(false);
+        PluginRuntimeTask task = aggregatedHeartbeats.remove(connectionId);
+        if (task != null) task.cancel();
     }
 
     private void cleanupArtworkEmitter(String subscriptionKey) {
@@ -383,7 +389,7 @@ public class SSEController {
 
     private void unregisterPluginStream(String streamToken) {
         if (streamToken != null) {
-            pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, streamToken);
+            pluginStreamRegistrar.unregister(streamToken);
         }
     }
 
@@ -426,101 +432,119 @@ public class SSEController {
     }
 
     private void scheduleProgressFlush() {
-        if (!progressFlushRunning.compareAndSet(false, true)) {
-            return;
-        }
-        QueueTaskTracker.Task tracked = null;
-        try {
-            ensureBackgroundDrainRegistered();
-            tracked = backgroundTasks.prepareQueued("progress-flush");
-            tracked.bind(this::flushPendingProgress);
-            sseProgressExecutor.execute(tracked);
-        } catch (QueueNotAcceptingException failure) {
-            progressFlushRunning.set(false);
-            pendingProgress.clear();
-        } catch (RejectedExecutionException e) {
-            if (tracked != null) {
-                tracked.rejectSubmission();
+        synchronized (progressFlushMonitor) {
+            if (progressFlushHandle != null && !progressFlushHandle.cancellation().isDone()) {
+                return;
             }
-            progressFlushRunning.set(false);
-            log.warn("SSE progress flush task rejected: {}", e.getMessage());
+            progressFlushHandle = null;
+            if (!pluginRuntimeTaskRegistrar.acceptsNewTasks()) {
+                pendingProgress.clear();
+                return;
+            }
+            PluginRuntimeTask task = null;
+            try {
+                task = pluginRuntimeTaskRegistrar.registerOneShot(this::flushPendingProgress);
+                FutureTask<Void> cancellation = new FutureTask<>(task, null);
+                progressFlushHandle = new ProgressFlushHandle(task, cancellation);
+                task.bindCancellation(cancellation);
+                sseProgressExecutor.execute(cancellation);
+            } catch (PluginRuntimeTaskRejectedException failure) {
+                progressFlushHandle = null;
+                pendingProgress.clear();
+            } catch (RejectedExecutionException failure) {
+                progressFlushHandle = null;
+                if (task != null) {
+                    try {
+                        task.cancel();
+                    } catch (Throwable cancellationFailure) {
+                        rethrowBackgroundFailure(mergeBackgroundFailure(failure, cancellationFailure));
+                    }
+                }
+                log.warn("SSE progress flush task rejected: {}", failure.getMessage());
+            } catch (RuntimeException | Error failure) {
+                progressFlushHandle = null;
+                Throwable combinedFailure = failure;
+                if (task != null) {
+                    try {
+                        task.cancel();
+                    } catch (Throwable cancellationFailure) {
+                        combinedFailure = mergeBackgroundFailure(combinedFailure, cancellationFailure);
+                    }
+                }
+                rethrowBackgroundFailure(combinedFailure);
+            }
+        }
+    }
+
+    private boolean scheduleHeartbeat(
+            String taskKey,
+            ConcurrentHashMap<String, PluginRuntimeTask> tasks,
+            Runnable delegate) {
+        PluginRuntimeTask task;
+        ScheduledFuture<?> cancellation = null;
+        try {
+            task = pluginRuntimeTaskRegistrar.registerPeriodic(delegate);
+        } catch (PluginRuntimeTaskRejectedException ignored) {
+            return false;
+        }
+
+        tasks.put(taskKey, task);
+        try {
+            cancellation = taskScheduler.scheduleAtFixedRate(
+                    task, Duration.ofSeconds(30));
+            if (cancellation == null) {
+                throw new RejectedExecutionException("SSE heartbeat scheduler returned no cancellation handle");
+            }
+            task.bindCancellation(cancellation);
+            return true;
         } catch (RuntimeException | Error failure) {
-            if (tracked != null) {
-                tracked.rejectSubmission();
+            tasks.remove(taskKey, task);
+            Throwable combinedFailure = failure;
+            try {
+                task.cancel();
+            } catch (Throwable cancellationFailure) {
+                combinedFailure = mergeBackgroundFailure(combinedFailure, cancellationFailure);
             }
-            progressFlushRunning.set(false);
-            throw failure;
-        }
-    }
-
-    private void ensureBackgroundDrainRegistered() {
-        if (!backgroundDrainRegistered.compareAndSet(false, true)) {
-            return;
-        }
-        try {
-            pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, backgroundStreamToken, () -> {
-                quiesceBackgroundTasks();
-                backgroundDrainRegistered.set(false);
-            });
-        } catch (Throwable failure) {
-            if (pluginStreamRegistry.acceptsNewStreams(STREAM_OWNER_PLUGIN_ID)) {
-                backgroundDrainRegistered.set(false);
+            if (cancellation == null) {
+                try {
+                    task.discardUnsubmitted();
+                } catch (Throwable discardFailure) {
+                    combinedFailure = mergeBackgroundFailure(combinedFailure, discardFailure);
+                }
             }
-            rethrowBackgroundFailure(failure);
+            rethrowBackgroundFailure(combinedFailure);
+            return false;
         }
     }
 
-    private void runTrackedBackground(Runnable action) {
-        QueueTaskTracker.Task tracked;
-        try {
-            tracked = backgroundTasks.beginRunning("heartbeat");
-        } catch (QueueNotAcceptingException ignored) {
-            return;
-        }
-        try {
-            action.run();
-        } finally {
-            tracked.completeRunning();
-        }
-    }
-
-    private void quiesceBackgroundTasks() {
-        QueueGenerationDrain drain = backgroundTasks.prepareQuiesce();
-        Throwable failure = cancelScheduledBackgroundTasks();
-        pendingProgress.clear();
-        try {
-            backgroundTasks.cancelQuiescedTasks();
-        } catch (Throwable cancellationFailure) {
-            failure = mergeBackgroundFailure(failure, cancellationFailure);
-        }
-        boolean interrupted = false;
-        while (!drain.isDrained()) {
-            if (!drain.awaitDrained()) {
-                interrupted |= Thread.interrupted();
-            }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
-        rethrowBackgroundFailure(failure);
-    }
-
-    private Throwable cancelScheduledBackgroundTasks() {
+    private Throwable cancelBackgroundTasks() {
         Throwable failure = null;
-        for (var entry : List.copyOf(heartbeatTasks.entrySet())) {
+        ProgressFlushHandle progressFlush;
+        synchronized (progressFlushMonitor) {
+            progressFlush = progressFlushHandle;
+            progressFlushHandle = null;
+        }
+        if (progressFlush != null) {
             try {
-                entry.getValue().cancel(false);
-                heartbeatTasks.remove(entry.getKey(), entry.getValue());
-            } catch (Throwable cancelFailure) {
-                failure = mergeBackgroundFailure(failure, cancelFailure);
+                progressFlush.task().cancel();
+            } catch (Throwable cancellationFailure) {
+                failure = mergeBackgroundFailure(failure, cancellationFailure);
             }
         }
-        for (var entry : List.copyOf(aggregatedHeartbeats.entrySet())) {
+        failure = cancelBackgroundTasks(heartbeatTasks, failure);
+        return cancelBackgroundTasks(aggregatedHeartbeats, failure);
+    }
+
+    private static Throwable cancelBackgroundTasks(
+            ConcurrentHashMap<String, PluginRuntimeTask> tasks,
+            Throwable currentFailure) {
+        Throwable failure = currentFailure;
+        for (var entry : List.copyOf(tasks.entrySet())) {
             try {
-                entry.getValue().cancel(false);
-                aggregatedHeartbeats.remove(entry.getKey(), entry.getValue());
-            } catch (Throwable cancelFailure) {
-                failure = mergeBackgroundFailure(failure, cancelFailure);
+                entry.getValue().cancel();
+                tasks.remove(entry.getKey(), entry.getValue());
+            } catch (Throwable cancellationFailure) {
+                failure = mergeBackgroundFailure(failure, cancellationFailure);
             }
         }
         return failure;
@@ -583,7 +607,9 @@ public class SSEController {
                 }
             }
         } finally {
-            progressFlushRunning.set(false);
+            synchronized (progressFlushMonitor) {
+                progressFlushHandle = null;
+            }
             if (!pendingProgress.isEmpty()) {
                 scheduleProgressFlush();
             }
@@ -629,7 +655,7 @@ public class SSEController {
         }
     }
 
-    private boolean sendEvent(SseEmitter emitter, SseEmitter.SseEventBuilder event) {
+    private static boolean sendEvent(SseEmitter emitter, SseEmitter.SseEventBuilder event) {
         try {
             emitter.send(event);
             return true;
@@ -638,14 +664,14 @@ public class SSEController {
         }
     }
 
-    private boolean sendClosingEvent(SseEmitter emitter, String id) {
+    private static boolean sendClosingEvent(SseEmitter emitter, String id) {
         return sendEvent(emitter, SseEmitter.event()
                 .id(String.valueOf(System.currentTimeMillis()))
                 .name("sse-closing")
                 .data(id));
     }
 
-    private void completeEmitter(SseEmitter emitter) {
+    private static void completeEmitter(SseEmitter emitter) {
         try {
             emitter.complete();
         } catch (IllegalStateException ignored) {
@@ -654,54 +680,30 @@ public class SSEController {
     }
 
     /**
-     * 由 {@link PluginStreamRegistry#closeForPlugin} 调用（拥有它的插件 quiesce / 卸载时）：向作品级客户端发
-     * 「插件不可用」事件后关闭其连接。通知发送只是 best-effort；即使客户端已断开导致 send 失败，也必须 complete
-     * 传输句柄并取消 heartbeat，使承载该请求的异步 lease 能真实退出。complete 触发的 unregister 与注册中心关闭锁可重入。
+     * 构造宿主关闭回调。回调只弱引用传输句柄并捕获已本地化文案；连接 map、heartbeat future、controller、
+     * 消息解析器和插件上下文都由 emitter 自身的完成回调清理，不进入宿主注册中心的强引用链。
+     * 客户端已断开导致的 send 失败视为传输已关闭，仍完成 emitter，避免宿主误保留回调等待重试。
      */
-    private void closeArtworkStreamUnavailable(String subscriptionKey) {
-        ArtworkSubscription subscription = emitters.get(subscriptionKey);
-        if (subscription != null) {
-            closeArtworkStreamUnavailable(subscriptionKey, subscription);
-        }
+    private static PluginStream unavailableStream(SseEmitter emitter, String unavailableMessage) {
+        WeakReference<SseEmitter> emitterReference = new WeakReference<>(emitter);
+        return () -> {
+            SseEmitter activeEmitter = emitterReference.get();
+            if (activeEmitter == null) {
+                return;
+            }
+            try {
+                sendUnavailableEvent(activeEmitter, unavailableMessage);
+            } finally {
+                completeEmitter(activeEmitter);
+            }
+        };
     }
 
-    private void closeArtworkStreamUnavailable(
-            String subscriptionKey, ArtworkSubscription subscription) {
-        cancelHeartbeat(subscriptionKey);
-        emitters.remove(subscriptionKey, subscription);
-        unregisterPluginStream(subscription.streamToken());
-        try {
-            sendUnavailableEvent(subscription.emitter(), subscription.locale());
-        } finally {
-            completeEmitter(subscription.emitter());
-        }
-    }
-
-    /** 同 {@link #closeArtworkStreamUnavailable}，作用于聚合连接。 */
-    private void closeAggregatedStreamUnavailable(String connectionId) {
-        AggregatedSubscription subscription = aggregatedEmitters.get(connectionId);
-        if (subscription != null) {
-            closeAggregatedStreamUnavailable(connectionId, subscription);
-        }
-    }
-
-    private void closeAggregatedStreamUnavailable(
-            String connectionId, AggregatedSubscription sub) {
-        cancelAggregatedHeartbeat(connectionId);
-        aggregatedEmitters.remove(connectionId, sub);
-        unregisterPluginStream(sub.streamToken());
-        try {
-            sendUnavailableEvent(sub.emitter(), sub.locale());
-        } finally {
-            completeEmitter(sub.emitter());
-        }
-    }
-
-    private boolean sendUnavailableEvent(SseEmitter emitter, Locale locale) {
+    private static boolean sendUnavailableEvent(SseEmitter emitter, String unavailableMessage) {
         return sendEvent(emitter, SseEmitter.event()
                 .id(String.valueOf(System.currentTimeMillis()))
                 .name("plugin-unavailable")
-                .data(messages.get(locale, "plugin.unavailable.quiesced")));
+                .data(unavailableMessage));
     }
 
     private boolean shouldDeliverToSubscription(AggregatedSubscription sub, String eventOwnerUuid) {

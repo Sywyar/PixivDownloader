@@ -44,6 +44,8 @@ import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
@@ -353,7 +355,9 @@ class PluginRequestDrainLifecycleIntegrationTest {
                     any(), nullable(ScheduleCapabilityPublication.class)))
                     .thenReturn(new PluginRuntimeTaskQuiescer.QuiesceResult(Optional.empty()));
             service = new PluginLifecycleService(
-                    mock(ApplicationContext.class), runtime, new PluginApplicationContextFactory(),
+                    mock(ApplicationContext.class), runtime,
+                    new PluginApplicationContextFactory(
+                            new PluginStreamRegistry(), new PluginRuntimeTaskRegistry()),
                     mock(PluginControllerRegistrar.class), webRegistrar,
                     mock(PluginScheduleContributionRegistrar.class), quiescer,
                     mock(PluginCapabilityContributionRegistrar.class), pluginRegistry, lifecycleState);

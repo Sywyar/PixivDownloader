@@ -91,6 +91,21 @@ class DownloadWorkbenchDependencyGuardTest {
                     return DIRECT_PIXIV_TRANSPORT_IMPLEMENTATIONS.contains(javaClass.getFullName());
                 }
             };
+    private static final DescribedPredicate<JavaClass> HOST_LIFECYCLE_IMPLEMENTATION =
+            new DescribedPredicate<>("host plugin stream or runtime-task implementation") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    String className = javaClass.getFullName();
+                    return className.equals(
+                            "top.sywyar.pixivdownload.plugin.lifecycle.PluginStream")
+                            || className.equals(
+                            "top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry")
+                            || className.startsWith(
+                            "top.sywyar.pixivdownload.plugin.runtime.stream.")
+                            || className.startsWith(
+                            "top.sywyar.pixivdownload.plugin.runtime.task.");
+                }
+            };
 
     @Test
     @DisplayName("download 包不得依赖 novel 包")
@@ -182,6 +197,33 @@ class DownloadWorkbenchDependencyGuardTest {
         noClasses()
                 .should().dependOnClassesThat(HOST_USERSCRIPT_IMPLEMENTATION)
                 .because("脚本扫描、资源物化与游客 UUID 限流归宿主；工作台只消费 UserscriptCatalog")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载工作台 SSE 只通过 owner-scoped 稳定端口登记推流与后台任务")
+    void workbenchUsesStableStreamAndRuntimeTaskRegistrars() {
+        noClasses()
+                .should().dependOnClassesThat(HOST_LIFECYCLE_IMPLEMENTATION)
+                .because("插件只取得由宿主盖章 owner 的稳定 registrar，不得依赖 app/runtime 生命周期实现")
+                .check(CLASSES);
+
+        classes()
+                .that().haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.download.controller.SSEController")
+                .should().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar")
+                .because("SSE 生命周期注册必须经 plugin-api 的 owner-scoped 稳定端口")
+                .check(CLASSES);
+
+        classes()
+                .that().haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.download.controller.SSEController")
+                .should().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar")
+                .because("heartbeat 与进度任务必须由宿主 owner-scoped 包装器承载并参与 quiesce drain")
                 .check(CLASSES);
     }
 

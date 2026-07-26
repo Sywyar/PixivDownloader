@@ -119,6 +119,11 @@ class PluginApiOwnershipGuardTest {
                     "SchemaContribution", "TableSpec")),
             Map.entry("维护任务协议", types(API_PREFIX + "maintenance",
                     "MaintenanceContext", "MaintenanceProgressReporter", "MaintenanceTask")),
+            Map.entry("插件推流生命周期协议", types(API_PREFIX + "stream",
+                    "PluginStream", "PluginStreamRegistrar")),
+            Map.entry("插件运行期后台任务协议", types(API_PREFIX + "task",
+                    "PluginRuntimeTask", "PluginRuntimeTaskDrain", "PluginRuntimeTaskRegistrar",
+                    "PluginRuntimeTaskRejectedException")),
             Map.entry("计划任务协议", union(
                     types(API_PREFIX + "schedule.credential",
                             "ScheduledCredentialBindResult", "ScheduledCredentialContext",
@@ -149,17 +154,19 @@ class PluginApiOwnershipGuardTest {
                     "QueueTaskTracker"))
     );
 
-    private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.of(
-            "插件入口、版本与生命周期", 5,
-            "GUI 纯数据 contribution", 30,
-            "Web 与请求身份协议", 19,
-            "油猴脚本宿主目录协议", 2,
-            "下载类型描述协议", 2,
-            "下载宿主控制协议", 7,
-            "插件自有 schema 声明", 7,
-            "维护任务协议", 3,
-            "计划任务协议", 42,
-            "队列生命周期协议", 5
+    private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
+            Map.entry("插件入口、版本与生命周期", 5),
+            Map.entry("GUI 纯数据 contribution", 30),
+            Map.entry("Web 与请求身份协议", 19),
+            Map.entry("油猴脚本宿主目录协议", 2),
+            Map.entry("下载类型描述协议", 2),
+            Map.entry("下载宿主控制协议", 7),
+            Map.entry("插件自有 schema 声明", 7),
+            Map.entry("维护任务协议", 3),
+            Map.entry("插件推流生命周期协议", 2),
+            Map.entry("插件运行期后台任务协议", 4),
+            Map.entry("计划任务协议", 42),
+            Map.entry("队列生命周期协议", 5)
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(

@@ -46,7 +46,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
@@ -390,7 +390,7 @@ class PluginClassLoaderLeakProbeTest {
                 owner, List.of(), List.of(), List.of(workExecutor), List.of(), List.of());
         ScheduleCapabilityPublication publication =
                 ScheduleCapabilityRegistryTestAccess.publish(schedule, bundle);
-        streams.register(PLUGIN_ID, "conn-1", () -> { /* no-op close */ });
+        streams.registrarForPlugin(PLUGIN_ID).register("conn-1", () -> { /* no-op close */ });
 
         // —— 接入后（确定性）：各注册中心暴露该插件；i18n / userscript 已从来源 loader 物化为宿主值 ——
         assertThat(routes.routes()).anyMatch(r -> r.pluginId().equals(PLUGIN_ID));

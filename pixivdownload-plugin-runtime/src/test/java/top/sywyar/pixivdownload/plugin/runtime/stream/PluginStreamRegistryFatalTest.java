@@ -1,7 +1,8 @@
-package top.sywyar.pixivdownload.plugin.lifecycle;
+package top.sywyar.pixivdownload.plugin.runtime.stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -23,8 +24,9 @@ class PluginStreamRegistryFatalTest {
                     throw failure;
                 }
             });
+            PluginStreamRegistrar streams = registry.registrarForPlugin("ext-demo");
             AtomicInteger closes = new AtomicInteger();
-            registry.register("ext-demo", "stream", closes::incrementAndGet);
+            streams.register("stream", closes::incrementAndGet);
 
             assertThat(catchThrowable(() -> registry.closeForPlugin("ext-demo"))).isSameAs(expected);
             assertThat(closes).hasValue(0);

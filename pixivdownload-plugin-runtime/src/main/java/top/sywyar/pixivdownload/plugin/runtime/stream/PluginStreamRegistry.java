@@ -1,33 +1,34 @@
-package top.sywyar.pixivdownload.plugin.lifecycle;
+package top.sywyar.pixivdownload.plugin.runtime.stream;
 
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 插件长连接服务端推流（SSE 等）宿主注册中心（核心 owned）。按 pluginId 跟踪当前活动的可关闭推流，供
- * {@link PluginLifecycleService} 在插件 quiesce / 卸载时统一主动关闭并通知客户端「插件不可用」——与队列宿主
- * 注册中心 {@code QueueOperationRegistry}（在途下载任务）并列，构成「按 pluginId / queueType 关联在途运行期资源」
- * 的宿主侧入口。
+ * 插件长连接服务端推流的宿主注册中心。注册中心按可信 plugin id 跟踪当前活动的可关闭推流，供宿主在插件
+ * quiesce / 卸载时统一主动关闭；插件子 context 只获得由 {@link #registrarForPlugin(String)} 创建的 owner-scoped
+ * {@link PluginStreamRegistrar}，不能自报或切换 owner。
  *
- * <p>注册中心持有 {@link PluginStream} 关闭回调 + 字符串键（pluginId / stream token）。回调可能捕获 child controller，
- * 因此 {@link #closeForPlugin} 成功关闭后必须立即移除；失败项只为安全重试而暂时保留，生命周期在它们清零前不得关闭
- * child context。stream token 必须标识单个物理连接，不能用作品 id 等会被并发连接复用的逻辑键。
+ * <p>注册中心只持有 {@link PluginStream} 关闭回调与字符串键。成功关闭后立即移除回调；失败项只为安全重试而保留，
+ * 宿主在它们清零前不得关闭对应 child context。stream token 必须标识单个物理连接，不能使用会被并发连接复用的逻辑键。
  *
- * <p>每个 pluginId 有独立宿主锁与 admission 状态。{@link #closeForPlugin} 在线性化点先禁止后续注册，再逐个关闭；
- * 与它竞态的 {@link #register} 要么先进入活动集合并被本次 close 看见，要么观察到 admission 已关闭并立即关闭新流。
- * 关闭失败的迟到流同样保留供重试。{@link #resume} 只在没有失败残留时重新开放 admission，避免新 serving 与旧连接混代。
+ * <p>每个 plugin id 有独立宿主锁与 admission 状态。{@link #closeForPlugin(String)} 在线性化点先禁止后续注册，再逐个
+ * 关闭；竞态注册要么先进入活动集合并被本次 close 看见，要么观察到 admission 已关闭并立即关闭新流。关闭失败的迟到流
+ * 同样保留供重试。{@link #resume(String)} 只在没有失败残留时重新开放 admission，避免新 serving 与旧连接混代。
  */
-@Slf4j
-@Component
 public class PluginStreamRegistry {
 
-    /** pluginId → 宿主 admission / callback 状态；状态只含核心字符串与传输回调。 */
+    private static final Logger log = LoggerFactory.getLogger(PluginStreamRegistry.class);
+
+    /** pluginId → 宿主 admission / callback 状态；状态只含宿主字符串与传输关闭回调。 */
     private final Map<String, StreamState> byPlugin = new ConcurrentHashMap<>();
     private final Runnable closeClaimProbe;
 
@@ -37,7 +38,43 @@ public class PluginStreamRegistry {
     }
 
     PluginStreamRegistry(Runnable closeClaimProbe) {
-        this.closeClaimProbe = java.util.Objects.requireNonNull(closeClaimProbe, "stream close claim probe");
+        this.closeClaimProbe = Objects.requireNonNull(closeClaimProbe, "stream close claim probe");
+    }
+
+    /**
+     * 为可信插件 owner 创建专属登记入口。返回对象只保存本注册中心和固定 plugin id，不保存插件实例、classloader
+     * 或 child context；同一 owner 可创建多个等价入口。
+     *
+     * @param pluginId 宿主已验证的插件 id
+     * @return 固定绑定该 owner 的推流登记入口
+     */
+    public PluginStreamRegistrar registrarForPlugin(String pluginId) {
+        return new ScopedPluginStreamRegistrar(this, requirePluginId(pluginId));
+    }
+
+    private static final class ScopedPluginStreamRegistrar implements PluginStreamRegistrar {
+        private final PluginStreamRegistry registry;
+        private final String pluginId;
+
+        private ScopedPluginStreamRegistrar(PluginStreamRegistry registry, String pluginId) {
+            this.registry = registry;
+            this.pluginId = pluginId;
+        }
+
+        @Override
+        public void register(String streamToken, PluginStream stream) {
+            registry.register(pluginId, streamToken, stream);
+        }
+
+        @Override
+        public void unregister(String streamToken) {
+            registry.unregister(pluginId, streamToken);
+        }
+
+        @Override
+        public boolean acceptsNewStreams() {
+            return registry.acceptsNewStreams(pluginId);
+        }
     }
 
     private static final class StreamState {
@@ -49,24 +86,20 @@ public class PluginStreamRegistry {
         int concurrentCloseSuccesses;
     }
 
-    /**
-     * 注册一条隶属 {@code pluginId} 的可关闭推流。{@code streamId} 在该插件内唯一标识此流（如 SSE 订阅键 /
-     * 连接 id），供 {@link #unregister} 在正常完成时摘除。任一入参空白 / 回调为空时静默忽略。
-     */
-    public void register(String pluginId, String streamId, PluginStream stream) {
-        if (isBlank(pluginId) || isBlank(streamId) || stream == null) {
+    private void register(String pluginId, String streamToken, PluginStream stream) {
+        if (isBlank(pluginId) || isBlank(streamToken) || stream == null) {
             return;
         }
         StreamState state = byPlugin.computeIfAbsent(pluginId, ignored -> new StreamState());
         synchronized (state) {
-            PluginStream existing = state.streams.get(streamId);
+            PluginStream existing = state.streams.get(streamToken);
             if (existing != null && existing != stream) {
                 throw new IllegalStateException("duplicate plugin stream token: "
-                        + pluginId + "/" + streamId);
+                        + pluginId + "/" + streamToken);
             }
             if (state.accepting) {
                 if (existing == null) {
-                    state.streams.put(streamId, stream);
+                    state.streams.put(streamToken, stream);
                 }
                 return;
             }
@@ -78,14 +111,14 @@ public class PluginStreamRegistry {
         try {
             stream.closeUnavailable();
             synchronized (state) {
-                state.streams.remove(streamId, stream);
+                state.streams.remove(streamToken, stream);
                 if (state.closeInProgress) {
                     state.concurrentCloseSuccesses++;
                 }
             }
         } catch (Throwable failure) {
             synchronized (state) {
-                state.streams.putIfAbsent(streamId, stream);
+                state.streams.putIfAbsent(streamToken, stream);
                 if (state.closeInProgress) {
                     state.concurrentCloseFailures.add(failure);
                 }
@@ -99,15 +132,14 @@ public class PluginStreamRegistry {
         }
     }
 
-    /** 摘除某插件下的指定流（客户端正常完成 / 断开 / 显式关闭时调用）；不触发关闭回调。未注册过静默返回。 */
-    public void unregister(String pluginId, String streamId) {
-        if (isBlank(pluginId) || isBlank(streamId)) {
+    private void unregister(String pluginId, String streamToken) {
+        if (isBlank(pluginId) || isBlank(streamToken)) {
             return;
         }
         StreamState state = byPlugin.get(pluginId);
         if (state != null) {
             synchronized (state) {
-                state.streams.remove(streamId);
+                state.streams.remove(streamToken);
             }
         }
     }
@@ -206,8 +238,13 @@ public class PluginStreamRegistry {
         return closed;
     }
 
-    /** 某插件当前活动推流数（只读观测）。 */
+    /**
+     * 某插件当前活动推流数（只读观测）。
+     */
     public int activeStreamCount(String pluginId) {
+        if (isBlank(pluginId)) {
+            return 0;
+        }
         StreamState state = byPlugin.get(pluginId);
         if (state == null) {
             return 0;
@@ -217,8 +254,13 @@ public class PluginStreamRegistry {
         }
     }
 
-    /** 指定插件当前是否允许注册新推流。 */
+    /**
+     * 指定插件当前是否允许注册新推流。
+     */
     public boolean acceptsNewStreams(String pluginId) {
+        if (isBlank(pluginId)) {
+            return true;
+        }
         StreamState state = byPlugin.get(pluginId);
         if (state == null) {
             return true;
@@ -268,6 +310,14 @@ public class PluginStreamRegistry {
             throw error;
         }
         throw new IllegalStateException("plugin stream close failed", failure);
+    }
+
+    private static String requirePluginId(String pluginId) {
+        Objects.requireNonNull(pluginId, "pluginId");
+        if (pluginId.isBlank()) {
+            throw new IllegalArgumentException("pluginId must not be blank");
+        }
+        return pluginId;
     }
 
     private static boolean isBlank(String value) {

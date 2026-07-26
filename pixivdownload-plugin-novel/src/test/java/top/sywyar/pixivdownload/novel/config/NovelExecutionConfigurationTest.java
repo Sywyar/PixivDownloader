@@ -7,6 +7,8 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.util.List;
 import java.util.Map;
@@ -34,7 +36,9 @@ class NovelExecutionConfigurationTest {
     void childContextOwnsAndDestroysConfiguredExecutors() {
         PluginApplicationContextFactory factory = new PluginApplicationContextFactory(owner -> Map.of(
                 NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY, "3",
-                NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY, "4"));
+                NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY, "4"),
+                new PluginStreamRegistry(),
+                new PluginRuntimeTaskRegistry());
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.refresh();
             ConfigurableApplicationContext child = factory.create(parent, new PluginContextModule(
@@ -69,7 +73,9 @@ class NovelExecutionConfigurationTest {
     @DisplayName("禁用 novel 时子上下文不创建执行设置和线程池")
     void disabledPluginHasNoExecutionBeans() {
         PluginApplicationContextFactory factory = new PluginApplicationContextFactory(owner -> Map.of(
-                "plugins.novel.enabled", "false"));
+                "plugins.novel.enabled", "false"),
+                new PluginStreamRegistry(),
+                new PluginRuntimeTaskRegistry());
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
             parent.refresh();
             try (ConfigurableApplicationContext child = factory.create(parent, new PluginContextModule(
