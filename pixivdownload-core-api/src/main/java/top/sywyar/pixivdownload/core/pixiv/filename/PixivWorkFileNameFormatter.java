@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.work;
+package top.sywyar.pixivdownload.core.pixiv.filename;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,7 +13,6 @@ import java.util.regex.Pattern;
 public final class PixivWorkFileNameFormatter {
 
     public static final String DEFAULT_TEMPLATE = "{artwork_id}_p{page}";
-    public static final long DEFAULT_TEMPLATE_ID = 1L;
 
     private static final int MAX_BASENAME_LENGTH = 180;
     private static final Pattern VARIABLE_PATTERN = Pattern.compile(

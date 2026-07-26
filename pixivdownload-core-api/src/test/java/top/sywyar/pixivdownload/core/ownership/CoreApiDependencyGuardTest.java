@@ -51,7 +51,7 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.core.stats.StatsAggregates;
 import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
@@ -61,6 +61,7 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
@@ -223,6 +224,7 @@ class CoreApiDependencyGuardTest {
     void coreApiContainsSharedPureValuesAndResolvers() {
         assertThat(CLASSES.contain(WorkActionResult.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivWorkFileNameFormatter.class.getName())).isTrue();
+        assertThat(CLASSES.contain(WorkFileNameTemplateRef.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivCookieUserResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivCoverUrlResolver.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivDescriptionHtml.class.getName())).isTrue();

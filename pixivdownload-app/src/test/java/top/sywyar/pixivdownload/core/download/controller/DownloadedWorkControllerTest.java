@@ -148,7 +148,8 @@ class DownloadedWorkControllerTest {
 
         verify(pixivDatabase).getArtworks(List.of(1L, 2L, 3L));
         verify(pixivDatabase).getArtworkTags(List.of(1L, 2L));
-        verify(pixivDatabase).getFileNameTemplates(Set.of(1L));
+        verify(pixivDatabase).getFileNameTemplates(
+                Set.of(PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID));
         verify(pixivDatabase, never()).getArtworkTags(anyLong());
         verify(pixivDatabase, never()).getFileNameTemplate(anyLong());
         verify(downloadedArtworkService, never()).getDownloadedRecord(anyLong());

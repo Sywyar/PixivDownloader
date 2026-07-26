@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;

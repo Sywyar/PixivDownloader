@@ -260,7 +260,7 @@ class PixivNovelGalleryCapabilityProviderTest {
         return new WorkMetadata(id, "小说" + id, "简介" + id,
                 xRestrict, isAi, authorId, authorName, null, null, null,
                 tags, 1000L + id, 1, "txt,epub", "/n/" + id,
-                false, null, null, null, null,
+                false, null, null, null,
                 2000L + id, isOriginal);
     }
 

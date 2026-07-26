@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;

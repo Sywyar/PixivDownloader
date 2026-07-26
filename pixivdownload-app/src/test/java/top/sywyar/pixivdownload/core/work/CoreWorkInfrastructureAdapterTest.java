@@ -29,14 +29,16 @@ class CoreWorkInfrastructureAdapterTest {
         when(pixivDatabase.upsertTagAndGetId("tag", "translation")).thenReturn(7L);
         when(pixivDatabase.upsertTagAndGetId("missing", null)).thenReturn(null);
         when(pixivDatabase.getOrCreateFileNameTemplateId("{artwork_id}")).thenReturn(11L);
-        when(pixivDatabase.getOrCreateFileNameTemplateId(null)).thenReturn(1L);
+        when(pixivDatabase.getOrCreateFileNameTemplateId(null))
+                .thenReturn(PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID);
         when(pixivDatabase.getOrCreateFileAuthorNameId("Writer")).thenReturn(13L);
         when(pixivDatabase.getOrCreateFileAuthorNameId("")).thenReturn(0L);
 
         assertThat(adapter.getOrCreateTagId("tag", "translation")).isEqualTo(7L);
         assertThat(adapter.getOrCreateTagId("missing", null)).isNull();
         assertThat(adapter.getOrCreateTemplateId("{artwork_id}")).isEqualTo(11L);
-        assertThat(adapter.getOrCreateTemplateId(null)).isEqualTo(1L);
+        assertThat(adapter.getOrCreateTemplateId(null))
+                .isEqualTo(PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID);
         assertThat(adapter.getOrCreateAuthorNameId("Writer")).isEqualTo(13L);
         assertThat(adapter.getOrCreateAuthorNameId("")).isZero();
 

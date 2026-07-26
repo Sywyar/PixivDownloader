@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -318,7 +318,9 @@ public class DownloadedWorkController {
     }
 
     private long resolveFileNameId(ArtworkRecord artwork) {
-        return artwork.fileName() == null ? 1L : artwork.fileName();
+        return artwork.fileName() == null
+                ? PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID
+                : artwork.fileName();
     }
 
     private Map<Long, String> resolveAuthorNames(Collection<ArtworkRecord> artworks) {

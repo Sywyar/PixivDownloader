@@ -11,7 +11,7 @@ import org.sqlite.SQLiteConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.File;

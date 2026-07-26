@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
 import top.sywyar.pixivdownload.core.work.query.TagOption;
 import top.sywyar.pixivdownload.core.work.query.TagQuery;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
@@ -150,11 +151,14 @@ public class GalleryService {
 
     private static GalleryArtworkResponse toArtworkResponse(WorkMetadata meta) {
         Long seriesId = meta.seriesId();
+        WorkFileNameTemplateRef fileNameTemplateRef = meta.fileNameTemplateRef();
         return new GalleryArtworkResponse(
                 meta.workId(), meta.title(), meta.folder(), meta.pageCount(), meta.extensions(),
                 meta.downloadTime(), meta.moved(), meta.moveFolder(), meta.moveTime(),
                 meta.xRestrict(), meta.isAi(), meta.authorId(), meta.authorName(),
-                meta.description(), meta.fileNameTemplateId(), meta.fileNameTemplate(),
+                meta.description(),
+                fileNameTemplateRef == null ? null : fileNameTemplateRef.catalogKey(),
+                fileNameTemplateRef == null ? null : fileNameTemplateRef.template(),
                 toTagResponses(meta.tags()), seriesId == null || seriesId <= 0 ? null : seriesId,
                 meta.seriesOrder(), meta.seriesTitle(), false);
     }

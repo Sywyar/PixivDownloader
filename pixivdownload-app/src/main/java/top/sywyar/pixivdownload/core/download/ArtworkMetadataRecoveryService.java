@@ -128,7 +128,7 @@ public class ArtworkMetadataRecoveryService {
     /**
      * DB 无记录但 {@code {rootFolder}/{artworkId}/} 下有匹配默认模板的图片时，补登记为裸记录
      * （title/作者等留空），使后续读取面把它视为已下载。仅识别符合默认文件名模板
-     * {@code {artwork_id}_p{page}.{ext}} 的文件 —— 恢复出的记录会以 DEFAULT_TEMPLATE_ID 写回 DB，
+     * {@code {artwork_id}_p{page}.{ext}} 的文件 —— 恢复出的记录会以默认模板目录键写回 DB，
      * 只有匹配该模板的文件才能被后续 resolveImageFile 查到。
      */
     public ArtworkRecord findArtworkOnDisk(Long artworkId) {

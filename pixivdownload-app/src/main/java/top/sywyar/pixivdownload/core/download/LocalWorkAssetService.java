@@ -7,7 +7,7 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;

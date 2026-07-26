@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
 import top.sywyar.pixivdownload.core.work.model.PagedResult;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkSummary;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -312,7 +313,8 @@ class PixivImageGalleryCapabilityProviderTest {
         return new WorkMetadata(id, "标题" + id, "简介" + id,
                 xRestrict, isAi, authorId, authorName, null, null, null,
                 tags, 1000L + id, 2, extensions, "/p/" + id,
-                false, null, null, 1L, "{artwork_id}_p{page}",
+                false, null, null,
+                new WorkFileNameTemplateRef(1L, "{artwork_id}_p{page}"),
                 2000L + id, null);
     }
 }

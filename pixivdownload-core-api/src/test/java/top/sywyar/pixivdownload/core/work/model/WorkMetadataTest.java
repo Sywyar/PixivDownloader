@@ -22,7 +22,7 @@ class WorkMetadataTest {
                         "workId", "title", "description", "xRestrict", "isAi",
                         "authorId", "authorName", "seriesId", "seriesOrder", "seriesTitle",
                         "tags", "downloadTime", "pageCount", "extensions", "folder", "moved",
-                        "moveFolder", "moveTime", "fileNameTemplateId", "fileNameTemplate",
+                        "moveFolder", "moveTime", "fileNameTemplateRef",
                         "uploadTime", "isOriginal");
         assertThatThrownBy(() -> Class.forName(
                 "top.sywyar.pixivdownload.core.work.model.NovelWorkDetails"))
@@ -36,7 +36,7 @@ class WorkMetadataTest {
         mutable.add(new WorkTag(1L, "tag", null));
         WorkMetadata metadata = new WorkMetadata(1L, "标题", null, 0, false,
                 null, null, null, null, null, mutable, 100L, 1, "txt", "/p/1",
-                false, null, null, null, null, null, null);
+                false, null, null, null, null, null);
         mutable.clear();
 
         assertThat(metadata.tags()).containsExactly(new WorkTag(1L, "tag", null));
@@ -45,7 +45,19 @@ class WorkMetadataTest {
 
         WorkMetadata noTags = new WorkMetadata(2L, "标题", null, 0, false,
                 null, null, null, null, null, null, 100L, 1, "jpg", "/p/2",
-                false, null, null, null, null, null, null);
+                false, null, null, null, null, null);
         assertThat(noTags.tags()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("文件名模板引用仅暴露不透明目录键与解析结果")
+    void shouldExposeTemplateAsOpaqueReference() {
+        WorkFileNameTemplateRef ref = new WorkFileNameTemplateRef(5L, "{artwork_title}");
+
+        assertThat(Arrays.stream(WorkFileNameTemplateRef.class.getRecordComponents())
+                .map(component -> component.getName()))
+                .containsExactly("catalogKey", "template");
+        assertThat(ref.catalogKey()).isEqualTo(5L);
+        assertThat(ref.template()).isEqualTo("{artwork_title}");
     }
 }

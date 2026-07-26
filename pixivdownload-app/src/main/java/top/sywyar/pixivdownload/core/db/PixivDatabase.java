@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
-import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
+import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.util.Collection;
@@ -21,6 +21,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Repository
 @RequiredArgsConstructor
 public class PixivDatabase {
+
+    /** SQLite 文件名模板目录中默认模板的固定种子行。 */
+    public static final long DEFAULT_FILE_NAME_TEMPLATE_ID = 1L;
 
     private final PixivMapper pixivMapper;
     private final AppMessages messages;
@@ -110,7 +113,7 @@ public class PixivDatabase {
                               String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
                               String description) {
         insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, isAi,
-                authorId, description, PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID);
+                authorId, description, DEFAULT_FILE_NAME_TEMPLATE_ID);
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
@@ -134,7 +137,7 @@ public class PixivDatabase {
         String normalized = PixivWorkFileNameFormatter.normalizeTemplate(template);
         pixivMapper.insertFileNameTemplateIfAbsent(normalized);
         Long id = pixivMapper.findFileNameTemplateId(normalized);
-        return id == null ? PixivWorkFileNameFormatter.DEFAULT_TEMPLATE_ID : id;
+        return id == null ? DEFAULT_FILE_NAME_TEMPLATE_ID : id;
     }
 
     public String getFileNameTemplate(long id) {

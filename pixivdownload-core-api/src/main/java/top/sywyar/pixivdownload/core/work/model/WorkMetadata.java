@@ -31,11 +31,11 @@ import java.util.List;
  * @param moved              是否已移动（小说侧无移动语义，恒为 {@code false}）
  * @param moveFolder         移动目标目录，可为 {@code null}
  * @param moveTime           移动时间（毫秒），可为 {@code null}
- * @param fileNameTemplateId 文件名模板 id（底层原值），可为 {@code null}
- * @param fileNameTemplate   文件名模板内容（插画侧沿用「{@code null} id 取默认模板 1」的既有规则补全）
- * @param uploadTime         Pixiv 真实上传时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
- *                           历史数据未捕获时为 {@code null}（源 illust {@code uploadDate} / novel {@code uploadTimestamp}）
- * @param isOriginal         原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）
+ * @param fileNameTemplateRef 文件名模板的中性引用，可为 {@code null}；目录键只是不透明兼容值。
+ *                            插画来源未保存目录键时仍可携带已解析的默认模板，小说来源不补默认模板
+ * @param uploadTime          Pixiv 真实上传时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
+ *                            历史数据未捕获时为 {@code null}（源 illust {@code uploadDate} / novel {@code uploadTimestamp}）
+ * @param isOriginal          原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）
  */
 public record WorkMetadata(
         long workId,
@@ -56,8 +56,7 @@ public record WorkMetadata(
         boolean moved,
         String moveFolder,
         Long moveTime,
-        Long fileNameTemplateId,
-        String fileNameTemplate,
+        WorkFileNameTemplateRef fileNameTemplateRef,
         Long uploadTime,
         Boolean isOriginal) {
 

@@ -117,7 +117,7 @@ class PixivDatabaseTest {
             assertThat(record.isAi()).isTrue();
             assertThat(record.authorId()).isEqualTo(888L);
             assertThat(record.description()).isEqualTo("desc");
-            assertThat(record.fileName()).isEqualTo(1L);
+            assertThat(record.fileName()).isEqualTo(PixivDatabase.DEFAULT_FILE_NAME_TEMPLATE_ID);
         }
 
         @Test

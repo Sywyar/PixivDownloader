@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.work;
+package top.sywyar.pixivdownload.core.pixiv.filename;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
