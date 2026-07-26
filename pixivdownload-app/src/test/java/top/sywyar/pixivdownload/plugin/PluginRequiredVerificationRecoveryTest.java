@@ -10,8 +10,6 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
-import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
@@ -85,7 +83,7 @@ class PluginRequiredVerificationRecoveryTest {
         PluginRuntimeManager manager = start(scenario, signing.verifier());
         try {
             assertThat(manager.status().orElseThrow().startedPluginIds()).contains(PLUGIN_ID);
-            RecoveryModeService recovery = recovery(manager, scenario.pluginsDir(), REQUIRED_POLICY);
+            RecoveryModeService recovery = recovery(manager, REQUIRED_POLICY);
             assertThat(recovery.isActive()).isFalse();
 
             PluginProvenanceRecord provenance =
@@ -157,7 +155,7 @@ class PluginRequiredVerificationRecoveryTest {
             assertThat(Files.readString(scenario.marker(), StandardCharsets.UTF_8))
                     .as("验签失败必须发生在 PF4J 创建 classloader / 构造插件实例前")
                     .isEmpty();
-            RecoveryModeService recovery = recovery(manager, scenario.pluginsDir(), REQUIRED_POLICY);
+            RecoveryModeService recovery = recovery(manager, REQUIRED_POLICY);
             assertThat(recovery.isActive()).isTrue();
             assertThat(recovery.decision().firstReason().orElseThrow().pluginId()).isEqualTo(PLUGIN_ID);
 
@@ -193,7 +191,7 @@ class PluginRequiredVerificationRecoveryTest {
             assertThat(manager.status().orElseThrow().startedPluginIds()).doesNotContain(PLUGIN_ID);
             assertThat(manager.status().orElseThrow().hasFailures()).isTrue();
             assertThat(Files.readString(scenario.marker(), StandardCharsets.UTF_8)).isEmpty();
-            RecoveryModeService recovery = recovery(manager, scenario.pluginsDir(), RequiredPluginPolicy.empty());
+            RecoveryModeService recovery = recovery(manager, RequiredPluginPolicy.empty());
             assertThat(recovery.isActive()).isFalse();
         } finally {
             manager.shutdown();
@@ -228,7 +226,7 @@ class PluginRequiredVerificationRecoveryTest {
             assertThat(Files.readString(scenario.marker(), StandardCharsets.UTF_8))
                     .as("验签失败必须发生在 PF4J 创建 classloader / 构造插件实例前")
                     .isEmpty();
-            RecoveryModeService recovery = recovery(manager, scenario.pluginsDir(), policy);
+            RecoveryModeService recovery = recovery(manager, policy);
             assertThat(recovery.isActive()).isTrue();
             assertThat(recovery.decision().firstReason().orElseThrow().pluginId()).isEqualTo(PLUGIN_ID);
         } finally {
@@ -242,14 +240,15 @@ class PluginRequiredVerificationRecoveryTest {
         return manager;
     }
 
-    private static RecoveryModeService recovery(PluginRuntimeManager manager, Path pluginsDir,
-                                                RequiredPluginPolicy policy) {
+    private static RecoveryModeService recovery(PluginRuntimeManager manager, RequiredPluginPolicy policy) {
         PluginRegistry registry = new PluginRegistry(List.of(), new PluginToggleProperties(),
                 manager.discoverFeaturePlugins(), policy);
-        ExternalPluginInstaller installer = new ExternalPluginInstaller(
-                pluginsDir, PluginPackageLimits.defaults(), new PluginSupplyChainVerifier());
-        assertThat(installer.recoverPendingTransactions().safeToScan()).isTrue();
-        PluginStatusService statusService = new PluginStatusService(registry, manager, installer, policy);
+        PluginStatusService statusService = new PluginStatusService(
+                registry,
+                manager::inspectPlugins,
+                List::of,
+                manager::loadedDescriptors,
+                policy);
         return new RecoveryModeService(statusService, policy);
     }
 
@@ -302,15 +301,6 @@ class PluginRequiredVerificationRecoveryTest {
         new PluginProvenanceStore(scenario.pluginsDir()).write(scenario.jar(), origin, result);
     }
 
-    private static void tamperArtifactWithoutChangingSize(Path artifact) throws IOException {
-        byte[] bytes = Files.readAllBytes(artifact);
-        int commentOffset = bytes.length - ZIP_COMMENT.length();
-        assertThat(new String(bytes, commentOffset, ZIP_COMMENT.length(), StandardCharsets.UTF_8))
-                .isEqualTo(ZIP_COMMENT);
-        bytes[bytes.length - 1] = '1';
-        Files.write(artifact, bytes);
-    }
-
     private static void addClassEntry(ZipOutputStream zos, Class<?> type) throws IOException {
         String entry = type.getName().replace('.', '/') + ".class";
         byte[] bytes;
@@ -321,6 +311,15 @@ class PluginRequiredVerificationRecoveryTest {
         zos.putNextEntry(new ZipEntry(entry));
         zos.write(bytes);
         zos.closeEntry();
+    }
+
+    private static void tamperArtifactWithoutChangingSize(Path artifact) throws IOException {
+        byte[] bytes = Files.readAllBytes(artifact);
+        int commentOffset = bytes.length - ZIP_COMMENT.length();
+        assertThat(new String(bytes, commentOffset, ZIP_COMMENT.length(), StandardCharsets.UTF_8))
+                .isEqualTo(ZIP_COMMENT);
+        bytes[bytes.length - 1] = '1';
+        Files.write(artifact, bytes);
     }
 
     private record Scenario(Path pluginsDir, Path jar, Path marker) {

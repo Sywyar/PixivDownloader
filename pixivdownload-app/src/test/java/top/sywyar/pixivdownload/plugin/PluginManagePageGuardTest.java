@@ -101,7 +101,7 @@ class PluginManagePageGuardTest {
         assertThat(core).as("验签展示只消费后端 verification 投影").contains("entry.verification");
         assertThat(core).as("验签状态映射覆盖关键稳定状态")
                 .contains("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "UNVERIFIED_LOCAL",
-                        "INVALID_SIGNATURE", "UNKNOWN_KEY");
+                        "INVALID_SIGNATURE", "UNKNOWN_KEY", "IO_ERROR", "PROVENANCE_INVALID");
         assertThat(core).as("插件管理页不得按 sha256/keyId/repositoryId 自行推断可信状态")
                 .doesNotContain("sha256")
                 .doesNotContain("keyId")
@@ -147,7 +147,8 @@ class PluginManagePageGuardTest {
                 "lifecycle.hot-reload", "lifecycle.backend-restart", "lifecycle.process-restart",
                 "toggle.saved.enabled", "toggle.saved.disabled", "toggle.failed",
                 "restart.backend.message", "restart.backend.confirm", "restart.backend.later",
-                "restart.process.message", "restart.process.done"}) {
+                "restart.process.message", "restart.process.done",
+                "verification.io-error", "verification.provenance-invalid"}) {
             assertThat(zh.getProperty(key)).as("中文文案 " + key).isNotBlank();
             assertThat(en.getProperty(key)).as("英文文案 " + key).isNotBlank();
         }

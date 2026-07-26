@@ -6,8 +6,11 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
@@ -47,6 +50,8 @@ public class PluginStatusService {
     private final Supplier<PluginInventory> pluginInventory;
     private final Supplier<List<InstalledPlugin>> installedArtifacts;
     private final Supplier<Map<String, PluginDescriptor>> loadedDescriptors;
+    private final Supplier<PluginRecoveryGateSnapshot> recoveryGate;
+    private final Supplier<List<PluginRuntimeVerificationSnapshot>> runtimeVerifications;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final PluginStatusEvaluator evaluator = new PluginStatusEvaluator();
 
@@ -67,10 +72,35 @@ public class PluginStatusService {
                                Supplier<List<InstalledPlugin>> installedArtifacts,
                                Supplier<Map<String, PluginDescriptor>> loadedDescriptors,
                                RequiredPluginPolicy requiredPluginPolicy) {
+        this(pluginRegistry, pluginInventory, installedArtifacts, loadedDescriptors,
+                () -> PluginRecoveryGateSnapshot.safe(PluginTransactionRecoveryReport.success()),
+                List::of,
+                requiredPluginPolicy);
+    }
+
+    public PluginStatusService(PluginRegistry pluginRegistry,
+                               Supplier<PluginInventory> pluginInventory,
+                               Supplier<List<InstalledPlugin>> installedArtifacts,
+                               Supplier<Map<String, PluginDescriptor>> loadedDescriptors,
+                               Supplier<PluginRecoveryGateSnapshot> recoveryGate,
+                               RequiredPluginPolicy requiredPluginPolicy) {
+        this(pluginRegistry, pluginInventory, installedArtifacts, loadedDescriptors, recoveryGate,
+                List::of, requiredPluginPolicy);
+    }
+
+    public PluginStatusService(PluginRegistry pluginRegistry,
+                               Supplier<PluginInventory> pluginInventory,
+                               Supplier<List<InstalledPlugin>> installedArtifacts,
+                               Supplier<Map<String, PluginDescriptor>> loadedDescriptors,
+                               Supplier<PluginRecoveryGateSnapshot> recoveryGate,
+                               Supplier<List<PluginRuntimeVerificationSnapshot>> runtimeVerifications,
+                               RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
         this.pluginInventory = pluginInventory;
         this.installedArtifacts = installedArtifacts;
         this.loadedDescriptors = loadedDescriptors;
+        this.recoveryGate = recoveryGate;
+        this.runtimeVerifications = runtimeVerifications;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
@@ -83,11 +113,16 @@ public class PluginStatusService {
         this.pluginInventory = runtimeManager::inspectPlugins;
         this.installedArtifacts = installer::listInstalled;
         this.loadedDescriptors = runtimeManager::loadedDescriptors;
+        this.recoveryGate = installer::recoveryGateSnapshot;
+        this.runtimeVerifications = () -> runtimeManager.status()
+                .map(status -> status.verifications())
+                .orElseGet(List::of);
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
     /** 计算当前插件状态报告。每次调用按当前注册中心 / 清点快照重新评估。 */
     public PluginStatusReport report() {
+        PluginRecoveryGateSnapshot recovery = recoveryGate.get();
         Set<String> activeIds = pluginRegistry.registeredPlugins().stream()
                 .map(PluginRegistry.RegisteredPlugin::id)
                 .collect(Collectors.toSet());
@@ -101,6 +136,19 @@ public class PluginStatusService {
                 observed.add(new ObservedPlugin(
                         PluginDescriptor.forBuiltIn(registered.plugin(), registered.id()), base));
             }
+        }
+        if (!recovery.safeToScan()) {
+            PluginStatusReport builtIns = evaluator.evaluate(observed, RequiredPluginPolicy.empty());
+            List<PluginDiagnostic> diagnostics = new ArrayList<>(builtIns.diagnostics());
+            List<String> messages = recovery.report().failures().stream()
+                    .map(PluginStatusService::recoveryFailureMessage)
+                    .toList();
+            if (messages.isEmpty()) {
+                messages = List.of("plugin transaction recovery has not completed");
+            }
+            diagnostics.add(new PluginDiagnostic("plugin-runtime", PluginStatus.FAILED,
+                    null, true, messages));
+            return new PluginStatusReport(diagnostics);
         }
         // 外置插件：取清点结果的描述符与基线状态（不兼容条目原样保留，由评估器判 INCOMPATIBLE）。
         PluginInventory inventory = pluginInventory.get();
@@ -131,6 +179,21 @@ public class PluginStatusService {
                     requiredPluginPolicy.isRequired(failure.source()), List.of(failure.reason())));
         }
         return new PluginStatusReport(diagnostics);
+    }
+
+    public PluginRecoveryGateSnapshot recoveryGateSnapshot() {
+        return recoveryGate.get();
+    }
+
+    /** 当前 runtime 为各安装路径保留的最新结构化离线复验事实；不读取或解析失败原因文本。 */
+    public List<PluginRuntimeVerificationSnapshot> runtimeVerificationSnapshots() {
+        List<PluginRuntimeVerificationSnapshot> snapshots = runtimeVerifications.get();
+        return snapshots == null ? List.of() : List.copyOf(snapshots);
+    }
+
+    private static String recoveryFailureMessage(PluginTransactionRecoveryReport.Failure failure) {
+        return failure.kind() + " transaction=" + failure.transactionId()
+                + " path=" + failure.transactionDirectory() + ": " + failure.detail();
     }
 
     private static PluginStatus externalBaseStatus(PluginInstallation installation, Set<String> activeIds) {

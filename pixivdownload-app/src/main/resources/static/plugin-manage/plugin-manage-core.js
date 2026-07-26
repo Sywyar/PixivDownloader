@@ -147,6 +147,8 @@
         REVOKED_KEY: { key: 'verification.revoked-key', tone: 'bad' },
         INVALID_SIGNATURE: { key: 'verification.invalid-signature', tone: 'bad' },
         HASH_MISMATCH: { key: 'verification.hash-mismatch', tone: 'bad' },
+        IO_ERROR: { key: 'verification.io-error', tone: 'bad' },
+        PROVENANCE_INVALID: { key: 'verification.provenance-invalid', tone: 'bad' },
         NOT_INSTALLED: { key: 'verification.not-installed', tone: 'idle' }
     };
 

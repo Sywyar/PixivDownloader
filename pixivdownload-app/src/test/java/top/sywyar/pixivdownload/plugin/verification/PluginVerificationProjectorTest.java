@@ -5,13 +5,16 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
 import java.time.Instant;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -109,6 +112,86 @@ class PluginVerificationProjectorTest {
     }
 
     @Test
+    @DisplayName("provenance：离线文件读取失败投影为稳定失败状态")
+    void offlineIoErrorProjectsStableFailureStatus() {
+        PluginProvenanceRecord record = provenance(
+                PluginPackageSource.MARKET_CATALOG, true,
+                VerificationStatus.VERIFIED, VerificationStatus.IO_ERROR, "ARTIFACT_IO_ERROR");
+
+        PluginVerificationView view = PluginVerificationProjector.fromProvenance(record);
+
+        assertThat(view.status()).isEqualTo(PluginVerificationProjector.IO_ERROR);
+        assertThat(view.offlineReverifySuccess()).isFalse();
+        assertThat(view.diagnosticCode()).isEqualTo("ARTIFACT_IO_ERROR");
+    }
+
+    @Test
+    @DisplayName("runtime 当前字节复验优先投影且保留 provenance 信任标签")
+    void runtimeVerificationProjectsLatestResultWithProvenanceLabels() {
+        PluginProvenanceRecord record = provenance(
+                PluginPackageSource.MARKET_CATALOG, true,
+                VerificationStatus.VERIFIED, null, "VERIFIED");
+        VerificationResult result = new VerificationResult(
+                VerificationStatus.HASH_MISMATCH,
+                "demo",
+                "1.0.0",
+                null,
+                null,
+                null,
+                null,
+                Instant.parse("2026-07-01T00:02:00Z"),
+                456L,
+                "b".repeat(64),
+                "SHA256_MISMATCH");
+        PluginRuntimeVerificationSnapshot snapshot = new PluginRuntimeVerificationSnapshot(
+                Path.of("plugins", "demo.jar"), "demo", "1.0.0",
+                result.sizeBytes(), result.sha256(), record, result);
+
+        PluginVerificationView view = PluginVerificationProjector.fromRuntimeVerification(snapshot);
+
+        assertThat(view.status()).isEqualTo(PluginVerificationProjector.HASH_MISMATCH);
+        assertThat(view.source()).isEqualTo("official");
+        assertThat(view.keyId()).isEqualTo("test-key");
+        assertThat(view.publisher()).isEqualTo("Test Publisher");
+        assertThat(view.trustLabel()).isEqualTo("Test Trust");
+        assertThat(view.lastVerifiedAt()).isEqualTo("2026-07-01T00:02:00Z");
+        assertThat(view.offlineReverifySuccess()).isFalse();
+        assertThat(view.diagnosticCode()).isEqualTo("SHA256_MISMATCH");
+        assertThat(snapshot.matchesProvenance(record)).isTrue();
+        assertThat(snapshot.matchesProvenance(
+                record.withOfflineResult(result, "demo", "1.0.0"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("runtime 缺少 provenance 时保持未知来源而不降格为本地上传")
+    void runtimeVerificationWithoutProvenanceKeepsUnknownSource() {
+        VerificationResult result = new VerificationResult(
+                VerificationStatus.SIGNATURE_REQUIRED,
+                "demo",
+                "1.0.0",
+                null,
+                null,
+                null,
+                null,
+                Instant.parse("2026-07-01T00:02:00Z"),
+                123L,
+                ARTIFACT_SHA256,
+                "SIGNATURE_REQUIRED");
+        PluginRuntimeVerificationSnapshot snapshot = new PluginRuntimeVerificationSnapshot(
+                Path.of("plugins", "demo.jar"), "demo", "1.0.0",
+                result.sizeBytes(), result.sha256(), null, result);
+
+        PluginVerificationView view = PluginVerificationProjector.fromRuntimeVerification(snapshot);
+
+        assertThat(view.status()).isEqualTo(PluginVerificationProjector.SIGNATURE_REQUIRED);
+        assertThat(view.source()).isEqualTo("unknown");
+        assertThat(view.offlineReverifySuccess()).isFalse();
+        assertThat(view.diagnosticCode()).isEqualTo("SIGNATURE_REQUIRED");
+        assertThat(PluginVerificationProjector.fromProvenance(null))
+                .isEqualTo(PluginVerificationProjector.missingProvenance());
+    }
+
+    @Test
     @DisplayName("provenance：离线 INVALID_SIGNATURE 优先覆盖安装时 VERIFIED")
     void offlineInvalidSignatureOverridesInstalledVerified() {
         PluginProvenanceRecord record = provenance(
@@ -138,6 +221,27 @@ class PluginVerificationProjectorTest {
         assertThat(view.status()).isEqualTo(PluginVerificationProjector.UNSIGNED_ALLOWED);
         assertThat(view.source()).isEqualTo("local");
         assertThat(view.offlineReverifySuccess()).isTrue();
+    }
+
+    @Test
+    @DisplayName("provenance：防御性拒绝跨来源成功状态")
+    void rejectsCrossSourceSuccessStates() {
+        assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
+                PluginPackageSource.LOCAL_UPLOAD,
+                VerificationStatus.VERIFIED,
+                null)).isFalse();
+        assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
+                PluginPackageSource.LOCAL_UPLOAD,
+                VerificationStatus.UNSIGNED_ALLOWED,
+                VerificationStatus.VERIFIED)).isFalse();
+        assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
+                PluginPackageSource.MARKET_CATALOG,
+                VerificationStatus.UNSIGNED_ALLOWED,
+                null)).isFalse();
+        assertThat(PluginVerificationProjector.hasCompatibleStatusSemantics(
+                PluginPackageSource.MARKET_CATALOG,
+                VerificationStatus.VERIFIED,
+                VerificationStatus.UNSIGNED_ALLOWED)).isFalse();
     }
 
     private static PluginCatalogPackage pkg(SignatureMetadata signature) {

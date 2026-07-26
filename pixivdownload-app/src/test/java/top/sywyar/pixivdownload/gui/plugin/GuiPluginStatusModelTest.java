@@ -43,7 +43,8 @@ class GuiPluginStatusModelTest {
         String body = "{\"recoveryMode\":false,\"plugins\":[{"
                 + "\"id\":\"stats\",\"name\":\"Statistics\",\"source\":\"external\","
                 + "\"status\":\"STARTED\",\"runtimePhase\":\"STARTED\",\"managed\":true,"
-                + "\"required\":false,\"version\":\"1.0.0\"}]}";
+                + "\"required\":false,\"version\":\"1.0.0\","
+                + "\"verification\":{\"status\":\"PROVENANCE_INVALID\"}}]}";
 
         GuiPluginStatusModel model = GuiPluginStatusModel.fromResponse(true, 200, body);
 
@@ -58,6 +59,7 @@ class GuiPluginStatusModelTest {
         assertThat(row.managed()).isTrue();
         assertThat(row.required()).isFalse();
         assertThat(row.version()).isEqualTo("1.0.0");
+        assertThat(row.verificationStatus()).isEqualTo("PROVENANCE_INVALID");
     }
 
     @Test
@@ -139,5 +141,10 @@ class GuiPluginStatusModelTest {
 
         assertThat(GuiPluginStatusModel.phaseLabel("QUIESCED")).isNotBlank().isNotEqualTo("QUIESCED");
         assertThat(GuiPluginStatusModel.phaseLabel(null)).isEmpty();
+
+        assertThat(GuiPluginStatusModel.verificationLabel("PROVENANCE_INVALID"))
+                .isNotBlank().isNotEqualTo("PROVENANCE_INVALID");
+        assertThat(GuiPluginStatusModel.verificationLabel("IO_ERROR"))
+                .isNotBlank().isNotEqualTo("IO_ERROR");
     }
 }

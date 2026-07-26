@@ -2,17 +2,40 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -22,9 +45,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
@@ -32,6 +57,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementException;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
 /**
  * {@link PluginManagementService} 单测：读模型合并（来源 / 受管 / 阶段 / 必选 / 可用动词）与运行期动词前置守卫
@@ -54,7 +80,30 @@ class PluginManagementServiceTest {
                                                    PluginLifecycleService lifecycle,
                                                    RequiredPluginPolicy policy,
                                                    RecoveryModeService recovery) {
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
         return new PluginManagementService(status, lifecycle, policy, recovery);
+    }
+
+    private static PluginManagementService service(PluginStatusService status,
+                                                   PluginLifecycleService lifecycle,
+                                                   RequiredPluginPolicy policy,
+                                                   RecoveryModeService recovery,
+                                                   PluginToggleProperties toggles) {
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        return new PluginManagementService(status, lifecycle, policy, recovery, toggles);
+    }
+
+    private static PluginRecoveryGateSnapshot safeRecoveryGate() {
+        return PluginRecoveryGateSnapshot.safe(PluginTransactionRecoveryReport.success());
+    }
+
+    private static PluginRecoveryGateSnapshot blockedRecoveryGate() {
+        return PluginRecoveryGateSnapshot.blocked(new PluginTransactionRecoveryReport(List.of(
+                new PluginTransactionRecoveryReport.Failure(
+                        "tx-broken",
+                        Path.of("plugins", ".staging", "tx-broken"),
+                        PluginTransactionRecoveryReport.FailureKind.RECOVERY_FAILED,
+                        "transaction recovery failed"))));
     }
 
     @Test
@@ -207,6 +256,534 @@ class PluginManagementServiceTest {
     }
 
     @Test
+    @DisplayName("list() 隔离损坏 provenance：坏项标记 PROVENANCE_INVALID，好项仍保留有效投影")
+    void malformedProvenanceIsIsolatedPerPlugin(@TempDir Path tempDir) throws Exception {
+        String malformedId = "malformed-ext";
+        String validId = "valid-ext";
+        Path pluginsDir = tempDir.resolve("plugins");
+        Files.createDirectories(pluginsDir);
+        Path malformedArtifact = pluginsDir.resolve("malformed-ext-1.0.0.jar");
+        Path validArtifact = pluginsDir.resolve("valid-ext-1.0.0.jar");
+        Files.writeString(malformedArtifact, "malformed artifact", StandardCharsets.UTF_8);
+        Files.writeString(validArtifact, "valid artifact", StandardCharsets.UTF_8);
+
+        PluginProvenanceStore store = new PluginProvenanceStore(pluginsDir);
+        Files.createDirectories(store.sidecarPath(malformedArtifact).getParent());
+        Files.writeString(store.sidecarPath(malformedArtifact),
+                "formatVersion=broken\n", StandardCharsets.UTF_8);
+        store.write(validArtifact, PluginPackageOrigin.localUpload(), new VerificationResult(
+                VerificationStatus.UNSIGNED_ALLOWED,
+                validId,
+                "1.0.0",
+                null,
+                null,
+                null,
+                null,
+                Instant.parse("2026-07-22T00:00:00Z"),
+                Files.size(validArtifact),
+                PluginPackageIntegrity.sha256Hex(validArtifact),
+                "UNSIGNED_ALLOWED"));
+
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(malformedId, PluginStatus.STARTED,
+                        descriptor(malformedId, PluginKind.FEATURE), false, List.of()),
+                new PluginDiagnostic(validId, PluginStatus.STARTED,
+                        descriptor(validId, PluginKind.FEATURE), false, List.of()))));
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(malformedId, validId));
+        when(lifecycle.phase(malformedId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.phase(validId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.artifactPath(malformedId)).thenReturn(Optional.of(malformedArtifact));
+        when(lifecycle.artifactPath(validId)).thenReturn(Optional.of(validArtifact));
+
+        PluginProvenanceRecord validProvenance = store.read(validArtifact).orElseThrow();
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(descriptor(malformedId, PluginKind.FEATURE), malformedArtifact),
+                                Files.size(malformedArtifact), PluginPackageIntegrity.sha256Hex(malformedArtifact),
+                                ProvenanceSnapshotState.INVALID, null, 0L),
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(descriptor(validId, PluginKind.FEATURE), validArtifact),
+                                Files.size(validArtifact), PluginPackageIntegrity.sha256Hex(validArtifact),
+                                ProvenanceSnapshotState.PRESENT,
+                                validProvenance, Files.size(store.sidecarPath(validArtifact)))), false));
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status,
+                lifecycle,
+                RequiredPluginPolicy.empty(),
+                recovery,
+                coordinator,
+                installer,
+                new PluginToggleProperties())
+                .list();
+
+        assertThat(entry(report, malformedId).verification().status())
+                .isEqualTo(PluginVerificationProjector.PROVENANCE_INVALID);
+        assertThat(entry(report, validId).verification().status())
+                .isEqualTo(PluginVerificationProjector.UNSIGNED_ALLOWED);
+        assertThat(report.plugins()).extracting(PluginManagementService.PluginManagementEntry::id)
+                .containsExactly(malformedId, validId);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("活动生产插件未出现在安装快照时来源证明 fail-closed")
+    void activeProductionArtifactMissingFromInstalledSnapshotFailsClosed(boolean budgetExhausted) {
+        PluginDescriptor descriptor = descriptor(EXTERNAL_ID, PluginKind.FEATURE);
+        Path artifact = Path.of("plugins", "demo-ext-1.0.0.jar").toAbsolutePath().normalize();
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.artifactPath(EXTERNAL_ID)).thenReturn(Optional.of(artifact));
+        when(lifecycle.isDevelopmentArtifact(EXTERNAL_ID)).thenReturn(false);
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(), budgetExhausted));
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(entry(report, EXTERNAL_ID).verification().status())
+                .isEqualTo(PluginVerificationProjector.PROVENANCE_INVALID);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("显式开发 generation 无论安装目录是否残留同 id 包都保持本地未验证投影")
+    void developmentArtifactOutsideInstalledSnapshotRemainsUnverifiedLocal(boolean staleInstalledArtifact) {
+        PluginDescriptor descriptor = descriptor(EXTERNAL_ID, PluginKind.FEATURE);
+        Path classes = Path.of("pixivdownload-plugin-demo-ext", "target", "classes")
+                .toAbsolutePath().normalize();
+        Path staleArtifact = Path.of("plugins", "demo-ext-0.9.0.jar").toAbsolutePath().normalize();
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.artifactPath(EXTERNAL_ID)).thenReturn(Optional.of(classes));
+        when(lifecycle.isDevelopmentArtifact(EXTERNAL_ID)).thenReturn(true);
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(staleInstalledArtifact
+                        ? List.of(new InstalledPluginSnapshot(
+                                new InstalledPlugin(descriptor, staleArtifact),
+                                1L, "a".repeat(64),
+                                ProvenanceSnapshotState.ABSENT,
+                                null, 0L))
+                        : List.of(), false));
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(entry(report, EXTERNAL_ID).verification().status())
+                .isEqualTo(PluginVerificationProjector.UNVERIFIED_LOCAL);
+    }
+
+    @Test
+    @DisplayName("安装快照的 provenance 读取预算耗尽时失效关闭")
+    void provenanceBudgetExhaustionFailsClosed() {
+        PluginDescriptor descriptor = descriptor(EXTERNAL_ID, PluginKind.FEATURE);
+        Path artifact = Path.of("plugins", "demo-ext-1.0.0.jar").toAbsolutePath().normalize();
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.artifactPath(EXTERNAL_ID)).thenReturn(Optional.of(artifact));
+        when(lifecycle.isDevelopmentArtifact(EXTERNAL_ID)).thenReturn(false);
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(descriptor, artifact),
+                                1L, "a".repeat(64),
+                                ProvenanceSnapshotState.BUDGET_EXHAUSTED,
+                                null, 0L)), true));
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(entry(report, EXTERNAL_ID).verification().status())
+                .isEqualTo(PluginVerificationProjector.PROVENANCE_INVALID);
+    }
+
+    @Test
+    @DisplayName("本次启动复验精确绑定当前字节时优先于写回失败遗留的旧 provenance")
+    void currentRuntimeVerificationOverridesStalePersistedBinding() {
+        String pluginId = "changed-current-ext";
+        PluginDescriptor descriptor = descriptor(pluginId, PluginKind.FEATURE);
+        Path artifact = Path.of("plugins", pluginId + "-1.0.0.jar").toAbsolutePath().normalize();
+        PluginProvenanceRecord oldBinding = new PluginProvenanceRecord(
+                top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD,
+                null, false, null, null, 1L, "a".repeat(64), null,
+                VerificationStatus.UNSIGNED_ALLOWED, null, null, null,
+                Instant.parse("2026-07-22T00:00:00Z"), null, null, "UNSIGNED_ALLOWED");
+        VerificationResult currentResult = new VerificationResult(
+                VerificationStatus.HASH_MISMATCH,
+                pluginId,
+                descriptor.version(),
+                null,
+                null,
+                null,
+                null,
+                Instant.parse("2026-07-22T00:01:00Z"),
+                2L,
+                "b".repeat(64),
+                "SHA256_MISMATCH");
+        PluginRuntimeVerificationSnapshot runtimeVerification = new PluginRuntimeVerificationSnapshot(
+                artifact, pluginId, descriptor.version(), currentResult.sizeBytes(), currentResult.sha256(),
+                oldBinding, currentResult);
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(pluginId, PluginStatus.INSTALLED, descriptor, false, List.of()))));
+        when(status.runtimeVerificationSnapshots()).thenReturn(List.of(runtimeVerification));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of());
+        when(lifecycle.phase(pluginId)).thenReturn(Optional.empty());
+        when(lifecycle.artifactPath(pluginId)).thenReturn(Optional.empty());
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(descriptor, artifact),
+                                2L, "b".repeat(64),
+                                ProvenanceSnapshotState.PRESENT,
+                                oldBinding, 128L)), false));
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(entry(report, pluginId).verification().status())
+                .isEqualTo(PluginVerificationProjector.HASH_MISMATCH);
+        assertThat(entry(report, pluginId).verification().diagnosticCode())
+                .isEqualTo("SHA256_MISMATCH");
+    }
+
+    @Test
+    @DisplayName("同字节 sidecar 信任语义变化或损坏时不得复用旧 runtime 绿灯")
+    void currentProvenanceStateGatesExactRuntimeVerification() {
+        String changedId = "changed-trust-ext";
+        String invalidId = "invalid-trust-ext";
+        PluginDescriptor changedDescriptor = descriptor(changedId, PluginKind.FEATURE);
+        PluginDescriptor invalidDescriptor = descriptor(invalidId, PluginKind.FEATURE);
+        Path changedArtifact = Path.of("plugins", changedId + "-1.0.0.jar").toAbsolutePath().normalize();
+        Path invalidArtifact = Path.of("plugins", invalidId + "-1.0.0.jar").toAbsolutePath().normalize();
+        long size = 7L;
+        String sha256 = "c".repeat(64);
+        SignatureMetadata signature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "old-key", "c2ln");
+        PluginProvenanceRecord oldCatalogBinding = new PluginProvenanceRecord(
+                PluginPackageSource.MARKET_CATALOG,
+                "old-repository",
+                false,
+                size,
+                sha256,
+                size,
+                sha256,
+                signature,
+                VerificationStatus.VERIFIED,
+                signature.keyId(),
+                "Old Publisher",
+                "Old Trust",
+                Instant.parse("2026-07-22T00:00:00Z"),
+                null,
+                null,
+                "VERIFIED");
+        PluginProvenanceRecord forgedCatalogBinding = new PluginProvenanceRecord(
+                PluginPackageSource.MARKET_CATALOG,
+                "forged-repository",
+                true,
+                size,
+                sha256,
+                size,
+                sha256,
+                signature,
+                VerificationStatus.VERIFIED,
+                signature.keyId(),
+                "Forged Publisher",
+                "Forged Trust",
+                Instant.parse("2026-07-22T00:02:00Z"),
+                null,
+                null,
+                "VERIFIED");
+        VerificationResult oldVerifiedResult = new VerificationResult(
+                VerificationStatus.VERIFIED,
+                changedId,
+                changedDescriptor.version(),
+                signature.keyId(),
+                "Old Publisher",
+                "Old Trust",
+                null,
+                Instant.parse("2026-07-22T00:01:00Z"),
+                size,
+                sha256,
+                "VERIFIED");
+        VerificationResult invalidVerifiedResult = new VerificationResult(
+                VerificationStatus.VERIFIED,
+                invalidId,
+                invalidDescriptor.version(),
+                signature.keyId(),
+                "Old Publisher",
+                "Old Trust",
+                null,
+                Instant.parse("2026-07-22T00:01:00Z"),
+                size,
+                sha256,
+                "VERIFIED");
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(changedId, PluginStatus.INSTALLED,
+                        changedDescriptor, false, List.of()),
+                new PluginDiagnostic(invalidId, PluginStatus.INSTALLED,
+                        invalidDescriptor, false, List.of()))));
+        when(status.runtimeVerificationSnapshots()).thenReturn(List.of(
+                new PluginRuntimeVerificationSnapshot(
+                        changedArtifact, changedId, changedDescriptor.version(), size, sha256,
+                        oldCatalogBinding, oldVerifiedResult),
+                new PluginRuntimeVerificationSnapshot(
+                        invalidArtifact, invalidId, invalidDescriptor.version(), size, sha256,
+                        oldCatalogBinding, invalidVerifiedResult)));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of());
+        when(lifecycle.phase(changedId)).thenReturn(Optional.empty());
+        when(lifecycle.phase(invalidId)).thenReturn(Optional.empty());
+        when(lifecycle.artifactPath(changedId)).thenReturn(Optional.empty());
+        when(lifecycle.artifactPath(invalidId)).thenReturn(Optional.empty());
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(changedDescriptor, changedArtifact),
+                                size, sha256,
+                                ProvenanceSnapshotState.PRESENT,
+                                forgedCatalogBinding, 128L),
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(invalidDescriptor, invalidArtifact),
+                                size, sha256,
+                                ProvenanceSnapshotState.INVALID,
+                                null, 0L)), false));
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(entry(report, changedId).verification().status())
+                .isEqualTo(PluginVerificationProjector.PROVENANCE_INVALID);
+        assertThat(entry(report, invalidId).verification().status())
+                .isEqualTo(PluginVerificationProjector.PROVENANCE_INVALID);
+    }
+
+    @Test
+    @DisplayName("同路径同版本 ABA 发生时丢弃旧 provenance 快照")
+    void lifecycleMutationEpochRejectsSamePathSameVersionAba() {
+        PluginDescriptor descriptor = descriptor(EXTERNAL_ID, PluginKind.FEATURE);
+        Path artifact = Path.of("plugins", "demo-ext-1.0.0.jar").toAbsolutePath().normalize();
+        PluginProvenanceRecord provenance = new PluginProvenanceRecord(
+                top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD,
+                null, false, null, null, 1L, "a".repeat(64), null,
+                VerificationStatus.UNSIGNED_ALLOWED, null, null, null,
+                Instant.parse("2026-07-22T00:00:00Z"), null, null, "UNSIGNED_ALLOWED");
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.artifactPath(EXTERNAL_ID)).thenReturn(Optional.of(artifact));
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L, 2L, 3L);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(descriptor, artifact),
+                                1L, "a".repeat(64),
+                                ProvenanceSnapshotState.PRESENT,
+                                provenance, 128L)), false));
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(report.plugins()).isEmpty();
+        assertThat(report.recoveryMode()).isFalse();
+        assertThat(report.transactionRecovery().state()).isEqualTo("UNCHECKED");
+        assertThat(report.transactionRecovery().safeToScan()).isFalse();
+        verify(installer, times(1)).snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L);
+        verify(lifecycle, times(1)).phase(EXTERNAL_ID);
+        verify(lifecycle, times(1)).generation(EXTERNAL_ID);
+        verify(coordinator, times(1)).operation(EXTERNAL_ID);
+    }
+
+    @Test
+    @DisplayName("管理读取中恢复门转为 BLOCKED 时丢弃异常快照并按新门重建")
+    void recoveryGateTransitionDuringStatusReadRetriesWithoutServerError() {
+        PluginRecoveryGateSnapshot safe = safeRecoveryGate();
+        PluginRecoveryGateSnapshot blocked = blockedRecoveryGate();
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safe, blocked);
+        when(status.report())
+                .thenThrow(new IllegalStateException("runtime scan blocked during status read"))
+                .thenReturn(new PluginStatusReport(List.of(new PluginDiagnostic(
+                        "plugin-runtime", PluginStatus.FAILED, null, true,
+                        List.of("transaction recovery failed")))));
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        when(recovery.isActive()).thenReturn(true);
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(report.recoveryMode()).isTrue();
+        assertThat(report.transactionRecovery().state()).isEqualTo("BLOCKED");
+        assertThat(report.transactionRecovery().safeToScan()).isFalse();
+        assertThat(report.plugins()).isEmpty();
+        verify(status, times(2)).report();
+        verify(installer, never()).snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L);
+    }
+
+    @Test
+    @DisplayName("生命周期 epoch 持续为奇数时直接返回无运行期读取的保守快照")
+    void oddLifecycleMutationEpochSkipsAllMutableReads() {
+        PluginDescriptor descriptor = descriptor(EXTERNAL_ID, PluginKind.FEATURE);
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, descriptor, false, List.of()))));
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(1L);
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(report.transactionRecovery().state()).isEqualTo("UNCHECKED");
+        assertThat(report.transactionRecovery().safeToScan()).isFalse();
+        assertThat(report.plugins()).isEmpty();
+        verify(status, never()).report();
+        verify(installer, never()).snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L);
+        verify(lifecycle, never()).managedPluginIds();
+        verify(lifecycle, never()).phase(EXTERNAL_ID);
+        verify(lifecycle, never()).generation(EXTERNAL_ID);
+        verify(coordinator, never()).operation(EXTERNAL_ID);
+    }
+
+    @Test
+    @DisplayName("来源证明必须绑定当前 artifact 字节且活动代必须有运行时路径")
+    void provenanceRequiresCurrentBytesAndActiveRuntimePath() {
+        String changedId = "changed-bytes-ext";
+        String missingPathId = "missing-runtime-path-ext";
+        PluginDescriptor changedDescriptor = descriptor(changedId, PluginKind.FEATURE);
+        PluginDescriptor missingPathDescriptor = descriptor(missingPathId, PluginKind.FEATURE);
+        Path changedPath = Path.of("plugins", changedId + "-1.0.0.jar").toAbsolutePath().normalize();
+        Path missingPath = Path.of("plugins", missingPathId + "-1.0.0.jar").toAbsolutePath().normalize();
+        PluginProvenanceRecord oldBinding = new PluginProvenanceRecord(
+                top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource.LOCAL_UPLOAD,
+                null, false, null, null, 1L, "a".repeat(64), null,
+                VerificationStatus.UNSIGNED_ALLOWED, null, null, null,
+                Instant.parse("2026-07-22T00:00:00Z"), null, null, "UNSIGNED_ALLOWED");
+        VerificationResult staleResult = new VerificationResult(
+                VerificationStatus.HASH_MISMATCH,
+                changedId,
+                changedDescriptor.version(),
+                null,
+                null,
+                null,
+                null,
+                Instant.parse("2026-07-22T00:01:00Z"),
+                1L,
+                "c".repeat(64),
+                "SHA256_MISMATCH");
+        PluginRuntimeVerificationSnapshot staleRuntimeVerification =
+                new PluginRuntimeVerificationSnapshot(
+                        changedPath, changedId, changedDescriptor.version(),
+                        staleResult.sizeBytes(), staleResult.sha256(), oldBinding, staleResult);
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        RecoveryModeService recovery = mock(RecoveryModeService.class);
+        ExternalPluginLifecycleCoordinator coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
+        when(status.recoveryGateSnapshot()).thenReturn(safeRecoveryGate());
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(changedId, PluginStatus.STARTED, changedDescriptor, false, List.of()),
+                new PluginDiagnostic(missingPathId, PluginStatus.STARTED,
+                        missingPathDescriptor, false, List.of()))));
+        when(status.runtimeVerificationSnapshots()).thenReturn(List.of(staleRuntimeVerification));
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(changedId, missingPathId));
+        when(lifecycle.phase(changedId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.phase(missingPathId)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
+        when(lifecycle.artifactPath(changedId)).thenReturn(Optional.of(changedPath));
+        when(lifecycle.artifactPath(missingPathId)).thenReturn(Optional.empty());
+        when(coordinator.lifecycleMutationEpoch()).thenReturn(0L);
+        when(installer.snapshotInstalledWithProvenance(512, 64L * 1024L * 1024L)).thenReturn(
+                new InstalledPluginInventorySnapshot(List.of(
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(changedDescriptor, changedPath),
+                                1L, "b".repeat(64),
+                                ProvenanceSnapshotState.PRESENT,
+                                oldBinding, 128L),
+                        new InstalledPluginSnapshot(
+                                new InstalledPlugin(missingPathDescriptor, missingPath),
+                                1L, "a".repeat(64),
+                                ProvenanceSnapshotState.PRESENT,
+                                oldBinding, 128L)), false));
+
+        PluginManagementService.PluginManagementReport report = new PluginManagementService(
+                status, lifecycle, RequiredPluginPolicy.empty(), recovery,
+                coordinator, installer, new PluginToggleProperties()).list();
+
+        assertThat(entry(report, changedId).verification().status())
+                .isEqualTo(PluginVerificationProjector.PROVENANCE_INVALID);
+        assertThat(entry(report, missingPathId).verification().status())
+                .isEqualTo(PluginVerificationProjector.PROVENANCE_INVALID);
+    }
+
+    @Test
     @DisplayName("必选外置插件 STARTED：给出 restart/reload，不给停用类（quiesce/stop/unload）也不给 start/load")
     void requiredExternalOffersOnlyRestoreActions() {
         PluginStatusService status = mock(PluginStatusService.class);
@@ -245,7 +822,7 @@ class PluginManagementServiceTest {
         when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
 
         PluginManagementService.PluginManagementEntry entry = entry(
-                new PluginManagementService(status, lifecycle, RequiredPluginPolicy.empty(), recovery, toggles).list(),
+                service(status, lifecycle, RequiredPluginPolicy.empty(), recovery, toggles).list(),
                 EXTERNAL_ID);
 
         assertThat(entry.lifecyclePolicy()).isEqualTo(PluginLifecyclePolicy.PROCESS_RESTART);

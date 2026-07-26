@@ -5,22 +5,27 @@ import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
-import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import top.sywyar.pixivdownload.plugin.lifecycle.ClassifiedPluginLifecycleException;
@@ -57,6 +62,9 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 @Service
 public class PluginManagementService {
 
+    private static final int MAX_MANAGEMENT_PROVENANCE_RECORDS = 512;
+    private static final long MAX_MANAGEMENT_PROVENANCE_BYTES = 64L * 1024L * 1024L;
+
     private final PluginStatusService pluginStatusService;
     private final PluginLifecycleService pluginLifecycleService;
     private final RequiredPluginPolicy requiredPluginPolicy;
@@ -64,7 +72,6 @@ public class PluginManagementService {
     private final PluginToggleProperties pluginToggles;
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final ExternalPluginInstaller installer;
-    private final PluginProvenanceStore provenanceStore;
 
     public PluginManagementService(PluginStatusService pluginStatusService,
                                    PluginLifecycleService pluginLifecycleService,
@@ -86,7 +93,6 @@ public class PluginManagementService {
         this.pluginToggles = pluginToggles;
         this.coordinator = null;
         this.installer = null;
-        this.provenanceStore = null;
     }
 
     @Autowired
@@ -104,7 +110,6 @@ public class PluginManagementService {
         this.pluginToggles = pluginToggles;
         this.coordinator = coordinator;
         this.installer = installer;
-        this.provenanceStore = new PluginProvenanceStore(installer.pluginsDirectory());
     }
 
     /**
@@ -112,28 +117,85 @@ public class PluginManagementService {
      * 可用动词 / 诊断说明。每次调用按当前状态报告与生命周期快照重新评估。
      */
     public PluginManagementReport list() {
-        Set<String> managedIds = pluginLifecycleService.managedPluginIds();
-        List<PluginManagementEntry> entries = new ArrayList<>();
-        for (PluginDiagnostic diagnostic : pluginStatusService.report().diagnostics()) {
-            entries.add(toEntry(diagnostic, managedIds));
+        for (int attempt = 0; attempt < 3; attempt++) {
+            long mutationBefore = lifecycleMutationEpoch();
+            if ((mutationBefore & 1L) != 0L) {
+                continue;
+            }
+            PluginRecoveryGateSnapshot gateBefore = pluginStatusService.recoveryGateSnapshot();
+            try {
+                PluginStatusReport status = pluginStatusService.report();
+                PluginRecoveryGateSnapshot gateAfterStatus = pluginStatusService.recoveryGateSnapshot();
+                if (!gateBefore.equals(gateAfterStatus)) {
+                    continue;
+                }
+                List<PluginManagementEntry> entries = buildEntries(
+                        status, gateBefore, gateBefore.safeToScan(), true);
+                boolean recoveryMode = recoveryModeService.isActive();
+                if (gateBefore.equals(pluginStatusService.recoveryGateSnapshot())
+                        && mutationBefore == lifecycleMutationEpoch()) {
+                    return new PluginManagementReport(recoveryMode,
+                            TransactionRecoveryView.from(gateBefore), entries);
+                }
+            } catch (RecoveryGateChangedException ignored) {
+                // gate 单调变化时丢弃混合快照，用新状态重建。
+            } catch (IllegalStateException readFailure) {
+                PluginRecoveryGateSnapshot gateAfterFailure = pluginStatusService.recoveryGateSnapshot();
+                if (gateBefore.equals(gateAfterFailure)) {
+                    throw readFailure;
+                }
+                // 安装器在 SAFE→BLOCKED 窗口内会拒绝继续读盘；丢弃本轮并按新 gate 重建。
+            }
         }
-        return new PluginManagementReport(recoveryModeService.isActive(), List.copyOf(entries));
+        // 连续并发变化时不再读取或发布任何跨组件状态，等待下一次请求取得稳定 seqlock 快照。
+        return new PluginManagementReport(false,
+                TransactionRecoveryView.unstableLifecycleSnapshot(), List.of());
     }
 
-    private PluginManagementEntry toEntry(PluginDiagnostic diagnostic, Set<String> managedIds) {
+    private List<PluginManagementEntry> buildEntries(
+            PluginStatusReport status,
+            PluginRecoveryGateSnapshot expectedGate,
+            boolean allowProvenanceReads,
+            boolean allowLifecycleReads) {
+        Set<String> managedIds = allowLifecycleReads
+                ? pluginLifecycleService.managedPluginIds() : Set.of();
+        Map<String, List<InstalledPluginSnapshot>> installedArtifacts =
+                allowProvenanceReads ? installedArtifactsById() : Map.of();
+        Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications =
+                allowProvenanceReads ? runtimeVerificationsById() : Map.of();
+        List<PluginManagementEntry> entries = new ArrayList<>();
+        for (PluginDiagnostic diagnostic : status.diagnostics()) {
+            if ("plugin-runtime".equals(diagnostic.id()) && diagnostic.descriptor() == null) {
+                continue;
+            }
+            entries.add(toEntry(diagnostic, managedIds, installedArtifacts, runtimeVerifications,
+                    expectedGate, allowProvenanceReads, allowLifecycleReads));
+        }
+        return List.copyOf(entries);
+    }
+
+    private PluginManagementEntry toEntry(
+            PluginDiagnostic diagnostic,
+            Set<String> managedIds,
+            Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
+            Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications,
+            PluginRecoveryGateSnapshot expectedGate,
+            boolean allowProvenanceReads,
+            boolean allowLifecycleReads) {
         String id = diagnostic.id();
         PluginDescriptor descriptor = diagnostic.descriptor();
-        PluginRuntimePhase phase = pluginLifecycleService.phase(id).orElse(null);
+        PluginRuntimePhase phase = allowLifecycleReads
+                ? pluginLifecycleService.phase(id).orElse(null) : null;
         boolean builtIn = BuiltInPlugins.isBuiltIn(id);
         PluginLifecyclePolicy lifecyclePolicy = descriptor != null ? descriptor.lifecyclePolicy() : null;
         boolean installedOnly = descriptor != null && !builtIn
                 && diagnostic.status() == PluginStatus.INSTALLED && phase == null;
-        boolean managed = lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
+        boolean managed = allowLifecycleReads && lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
                 && (managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED
                 || installedOnly);
         boolean allowDisable = !builtIn && allowDisable(id);
         boolean toggleable = descriptor != null && !builtIn && !requiredPluginPolicy.isRequired(id);
-        ExternalPluginOperationSnapshot operation = coordinator != null
+        ExternalPluginOperationSnapshot operation = allowLifecycleReads && coordinator != null
                 ? coordinator.operation(id).orElse(null) : null;
         return new PluginManagementEntry(
                 id,
@@ -154,8 +216,9 @@ public class PluginManagementService {
                 allowDisable,
                 availableActions(managed, phase, allowDisable, installedOnly),
                 List.copyOf(diagnostic.messages()),
-                verificationOf(id, descriptor),
-                pluginLifecycleService.generation(id).orElse(null),
+                verificationOf(id, descriptor, phase, installedArtifacts, runtimeVerifications,
+                        expectedGate, allowProvenanceReads, allowLifecycleReads),
+                allowLifecycleReads ? pluginLifecycleService.generation(id).orElse(null) : null,
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
                 operation != null ? operation.transactionId() : null,
                 operation != null ? operation.diagnostic() : null,
@@ -179,29 +242,123 @@ public class PluginManagementService {
         return BuiltInPlugins.isBuiltIn(id) ? "built-in" : "external";
     }
 
-    private PluginVerificationView verificationOf(String id, PluginDescriptor descriptor) {
+    private PluginVerificationView verificationOf(
+            String id,
+            PluginDescriptor descriptor,
+            PluginRuntimePhase phase,
+            Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
+            Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications,
+            PluginRecoveryGateSnapshot expectedGate,
+            boolean allowProvenanceReads,
+            boolean allowLifecycleReads) {
         if (descriptor == null) {
             return PluginVerificationProjector.notInstalled();
         }
         if (BuiltInPlugins.isBuiltIn(id)) {
             return PluginVerificationProjector.builtInOfficial();
         }
-        if (provenanceStore == null) {
+        if (!allowLifecycleReads) {
+            return PluginVerificationProjector.invalidProvenance();
+        }
+        Optional<Path> runtimePath = pluginLifecycleService.artifactPath(id)
+                .map(path -> path.toAbsolutePath().normalize());
+        if (runtimePath.isPresent() && pluginLifecycleService.isDevelopmentArtifact(id)) {
             return PluginVerificationProjector.unverifiedLocal();
         }
-        Optional<Path> artifact = pluginLifecycleService.artifactPath(id).or(() -> installedArtifact(id));
-        return artifact.flatMap(path -> provenanceStore.read(path).map(PluginVerificationProjector::fromProvenance))
-                .orElseGet(PluginVerificationProjector::unverifiedLocal);
+        if (installer == null || !allowProvenanceReads) {
+            return PluginVerificationProjector.invalidProvenance();
+        }
+        List<InstalledPluginSnapshot> installed =
+                installedArtifacts.getOrDefault(id, List.of());
+        if (installed.size() > 1) {
+            return PluginVerificationProjector.invalidProvenance();
+        }
+        if (installed.isEmpty()) {
+            return PluginVerificationProjector.invalidProvenance();
+        }
+        InstalledPluginSnapshot snapshot = installed.get(0);
+        Path snapshotPath = snapshot.plugin().path().toAbsolutePath().normalize();
+        boolean runtimeArtifactRequired = phase != null && phase != PluginRuntimePhase.UNLOADED;
+        if (runtimeArtifactRequired && runtimePath.isEmpty()
+                || runtimePath.isPresent() && !runtimePath.get().equals(snapshotPath)
+                || !descriptor.version().equals(snapshot.plugin().version())) {
+            return PluginVerificationProjector.invalidProvenance();
+        }
+        requireStableRecoveryGate(expectedGate);
+        List<PluginRuntimeVerificationSnapshot> currentRuntimeVerifications =
+                runtimeVerifications.getOrDefault(id, List.of()).stream()
+                        .filter(candidate -> candidate.binds(
+                                snapshotPath,
+                                id,
+                                snapshot.plugin().version(),
+                                snapshot.artifactSizeBytes(),
+                                snapshot.artifactSha256()))
+                        .toList();
+        if (currentRuntimeVerifications.size() > 1) {
+            return PluginVerificationProjector.invalidProvenance();
+        }
+        if (currentRuntimeVerifications.size() == 1) {
+            PluginRuntimeVerificationSnapshot runtimeVerification = currentRuntimeVerifications.get(0);
+            boolean currentProvenance = switch (snapshot.provenanceState()) {
+                case PRESENT -> runtimeVerification.matchesProvenance(snapshot.provenance());
+                case ABSENT -> false;
+                case INVALID, BUDGET_EXHAUSTED -> false;
+            };
+            if (!currentProvenance) {
+                return PluginVerificationProjector.invalidProvenance();
+            }
+            return PluginVerificationProjector.fromRuntimeVerification(runtimeVerification);
+        }
+        return switch (snapshot.provenanceState()) {
+            case PRESENT -> snapshot.provenance().artifactSizeBytes() == snapshot.artifactSizeBytes()
+                    && snapshot.provenance().artifactSha256().equals(snapshot.artifactSha256())
+                    ? PluginVerificationProjector.fromProvenance(snapshot.provenance())
+                    : PluginVerificationProjector.invalidProvenance();
+            case ABSENT -> PluginVerificationProjector.missingProvenance();
+            case INVALID, BUDGET_EXHAUSTED -> PluginVerificationProjector.invalidProvenance();
+        };
     }
 
-    private Optional<Path> installedArtifact(String id) {
+    private Map<String, List<InstalledPluginSnapshot>> installedArtifactsById() {
         if (installer == null) {
-            return Optional.empty();
+            return Map.of();
         }
-        return installer.listInstalled().stream()
-                .filter(plugin -> id.equals(plugin.id()))
-                .map(InstalledPlugin::path)
-                .findFirst();
+        InstalledPluginInventorySnapshot inventory =
+                installer.snapshotInstalledWithProvenance(
+                        MAX_MANAGEMENT_PROVENANCE_RECORDS, MAX_MANAGEMENT_PROVENANCE_BYTES);
+        Map<String, List<InstalledPluginSnapshot>> grouped = new LinkedHashMap<>();
+        for (InstalledPluginSnapshot entry : inventory.entries()) {
+            grouped.computeIfAbsent(entry.plugin().id(), ignored -> new ArrayList<>()).add(entry);
+        }
+        grouped.replaceAll((ignored, paths) -> List.copyOf(paths));
+        return Map.copyOf(grouped);
+    }
+
+    private Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerificationsById() {
+        Map<String, List<PluginRuntimeVerificationSnapshot>> grouped = new LinkedHashMap<>();
+        for (PluginRuntimeVerificationSnapshot snapshot : pluginStatusService.runtimeVerificationSnapshots()) {
+            grouped.computeIfAbsent(snapshot.pluginId(), ignored -> new ArrayList<>()).add(snapshot);
+        }
+        grouped.replaceAll((ignored, snapshots) -> List.copyOf(snapshots));
+        return Map.copyOf(grouped);
+    }
+
+    private void requireStableRecoveryGate(PluginRecoveryGateSnapshot expectedGate) {
+        if (!expectedGate.equals(pluginStatusService.recoveryGateSnapshot())) {
+            throw RecoveryGateChangedException.INSTANCE;
+        }
+    }
+
+    private long lifecycleMutationEpoch() {
+        return coordinator != null ? coordinator.lifecycleMutationEpoch() : 0L;
+    }
+
+    private static final class RecoveryGateChangedException extends RuntimeException {
+        private static final RecoveryGateChangedException INSTANCE = new RecoveryGateChangedException();
+
+        private RecoveryGateChangedException() {
+            super(null, null, false, false);
+        }
     }
 
     /**
@@ -439,9 +596,41 @@ public class PluginManagementService {
      * 插件管理视图（对外）。
      *
      * @param recoveryMode 核心壳当前是否处于恢复模式（存在未满足的必选插件）
+     * @param transactionRecovery 插件事务恢复准入状态与结构化失败；不触发磁盘扫描
      * @param plugins      各插件状态条目（按状态报告评估顺序）
      */
-    public record PluginManagementReport(boolean recoveryMode, List<PluginManagementEntry> plugins) {
+    public record PluginManagementReport(
+            boolean recoveryMode,
+            TransactionRecoveryView transactionRecovery,
+            List<PluginManagementEntry> plugins) {
+    }
+
+    public record TransactionRecoveryView(
+            String state,
+            boolean safeToScan,
+            List<TransactionRecoveryFailureView> failures) {
+
+        private static TransactionRecoveryView from(PluginRecoveryGateSnapshot snapshot) {
+            return new TransactionRecoveryView(snapshot.state().name(), snapshot.safeToScan(),
+                    snapshot.report().failures().stream()
+                            .map(failure -> new TransactionRecoveryFailureView(
+                                    failure.transactionId(),
+                                    failure.transactionDirectory().toString(),
+                                    failure.kind().name(),
+                                    failure.detail()))
+                            .toList());
+        }
+
+        private static TransactionRecoveryView unstableLifecycleSnapshot() {
+            return new TransactionRecoveryView("UNCHECKED", false, List.of());
+        }
+    }
+
+    public record TransactionRecoveryFailureView(
+            String transactionId,
+            String transactionDirectory,
+            String kind,
+            String detail) {
     }
 
     /**

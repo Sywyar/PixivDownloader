@@ -93,7 +93,10 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("GET /api/plugins/status 返回管理视图 JSON（recoveryMode + plugins + apiRequirement/dependencies 投影）")
     void statusReturnsReport() throws Exception {
-        when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(false, List.of(
+        when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(
+                false,
+                new PluginManagementService.TransactionRecoveryView("SAFE", true, List.of()),
+                List.of(
                 new PluginManagementService.PluginManagementEntry(
                         "demo-ext", "demo-ext", "nav.label", "nav.summary", "book", "amber", "1.0.0", PluginKind.FEATURE,
                         new PluginManagementService.PluginApiRequirementView(true, true, "1.0"),
@@ -104,6 +107,8 @@ class PluginManagementControllerTest {
         mockMvc.perform(get("/api/plugins/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recoveryMode").value(false))
+                .andExpect(jsonPath("$.transactionRecovery.state").value("SAFE"))
+                .andExpect(jsonPath("$.transactionRecovery.safeToScan").value(true))
                 .andExpect(jsonPath("$.plugins[0].id").value("demo-ext"))
                 .andExpect(jsonPath("$.plugins[0].descriptionKey").value("nav.summary"))
                 .andExpect(jsonPath("$.plugins[0].iconKey").value("book"))
@@ -233,13 +238,13 @@ class PluginManagementControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/plugins/install 即时激活后返回事务、包身份与运行阶段")
+    @DisplayName("POST /api/plugins/install 返回事务、包身份与运行阶段")
     void installAcceptedReturns200() throws Exception {
         when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, false, "ext-demo", "1.0.0", null,
-                List.of(), List.of(), List.of("INSTALLED ext-demo 1.0.0"),
+                List.of(), List.of(), List.of(), List.of("INSTALLED ext-demo 1.0.0"),
                 "tx-install", true, false, null,
-                ExternalPluginOperation.INSTALLING, PluginRuntimePhase.STARTED, false));
+                ExternalPluginOperation.INSTALLING, PluginRuntimePhase.STARTED, false, false));
 
         mockMvc.perform(multipart("/api/plugins/install")
                         .file(new MockMultipartFile("file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3})))
@@ -254,6 +259,7 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.targetVersion").value("1.0.0"))
                 .andExpect(jsonPath("$.operation").value("INSTALLING"))
                 .andExpect(jsonPath("$.runtimePhase").value("STARTED"))
+                .andExpect(jsonPath("$.recoveryBlocked").value(false))
                 .andExpect(jsonPath("$.transactionId").value("tx-install"))
                 .andExpect(jsonPath("$.activated").value(true))
                 .andExpect(jsonPath("$.updated").value(false))

@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginApiRequirementView;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementReport;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService.TransactionRecoveryView;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -76,10 +77,17 @@ class GuiPluginControllerTest {
                 source, status, phase, managed, required, !required, List.of(), List.of());
     }
 
+    private static PluginManagementReport report(boolean recoveryMode, List<PluginManagementEntry> plugins) {
+        return new PluginManagementReport(
+                recoveryMode,
+                new TransactionRecoveryView("SAFE", true, List.of()),
+                plugins);
+    }
+
     @Test
     @DisplayName("成功：把状态报告投影为 GUI 视图，服务端解析展示名称，字段稳定（外置 gallery + 外置 stats）")
     void statusProjectsReport() throws Exception {
-        when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+        when(managementService.list()).thenReturn(report(false, List.of(
                 entry("gallery", "gallery", "plugin.name", "external",
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "1.0.0"),
                 entry("stats", "stats", "plugin.name", "external",
@@ -116,7 +124,7 @@ class GuiPluginControllerTest {
     @Test
     @DisplayName("官方外置插件安装态：mail/ai/tts 使用 plugin.name 解析，GUI 不回退显示 id")
     void officialExternalInstalledNamesResolveFromCanonicalMetadata() throws Exception {
-        when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+        when(managementService.list()).thenReturn(report(false, List.of(
                 entry("mail", "mail", "plugin.name", "external",
                         PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"),
                 entry("ai", "ai", "plugin.name", "external",
@@ -162,7 +170,7 @@ class GuiPluginControllerTest {
             MockMvc mvc = MockMvcBuilders
                     .standaloneSetup(new GuiPluginController(managementService, realI18n, localeResolver))
                     .build();
-            when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+            when(managementService.list()).thenReturn(report(false, List.of(
                     entry("mail", "mail", "plugin.name", "external",
                             PluginStatus.INSTALLED, PluginRuntimePhase.UNLOADED, true, false, "1.0.0"))));
 
@@ -176,7 +184,7 @@ class GuiPluginControllerTest {
     @Test
     @DisplayName("展示名称回退：缺 namespace / key 的未安装项不查 i18n、name 回退到插件 id")
     void missingNamespaceFallsBackToId() throws Exception {
-        when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+        when(managementService.list()).thenReturn(report(false, List.of(
                 entry("download-workbench", null, null, "not-installed",
                         PluginStatus.MISSING_REQUIRED, null, false, true, null))));
 
@@ -193,7 +201,7 @@ class GuiPluginControllerTest {
     @Test
     @DisplayName("展示名称回退：i18n 解析抛错（不可解析 namespace）时 name 回退到插件 id，不影响整份列表")
     void unresolvableNamespaceFallsBackToId() throws Exception {
-        when(managementService.list()).thenReturn(new PluginManagementReport(false, List.of(
+        when(managementService.list()).thenReturn(report(false, List.of(
                 entry("probe", "missing-ns", "nav.label", "external",
                         PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, "9.9.9"))));
         when(webI18nService.loadBundle(eq("missing-ns"), any()))
@@ -208,7 +216,7 @@ class GuiPluginControllerTest {
     @Test
     @DisplayName("恢复模式：报告 recoveryMode=true 时响应 recoveryMode 为真")
     void recoveryModeReflected() throws Exception {
-        when(managementService.list()).thenReturn(new PluginManagementReport(true, List.of()));
+        when(managementService.list()).thenReturn(report(true, List.of()));
 
         mockMvc.perform(get("/api/gui/plugins/status"))
                 .andExpect(status().isOk())

@@ -542,6 +542,11 @@ public class PluginLifecycleService {
         return pluginRuntimeManager.artifactPath(packageId);
     }
 
+    /** 当前已加载 generation 是否来自显式插件开发模式。 */
+    public boolean isDevelopmentArtifact(String packageId) {
+        return pluginRuntimeManager.isDevelopmentArtifact(packageId);
+    }
+
     /** 当前已加载 generation 的纯值包描述符；STOPPED 时仍在，物理卸载后消失。 */
     public Optional<PluginDescriptor> descriptor(String packageId) {
         return pluginRuntimeManager.loadedDescriptor(packageId);

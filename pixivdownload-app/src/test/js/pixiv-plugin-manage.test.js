@@ -76,6 +76,18 @@ ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.renderInstallResultHtml === 'function'
     && typeof PM.hasNavigationForPlacement === 'function');
 
+(function () {
+    const invalid = PM.verificationMeta('PROVENANCE_INVALID');
+    eq('损坏来源证明使用独立文案键', invalid.key, 'verification.provenance-invalid');
+    eq('损坏来源证明使用失败色调', invalid.tone, 'bad');
+})();
+
+(function () {
+    const ioError = PM.verificationMeta('IO_ERROR');
+    eq('文件读取失败使用独立文案键', ioError.key, 'verification.io-error');
+    eq('文件读取失败使用失败色调', ioError.tone, 'bad');
+})();
+
 // 中性 placement 探测：只判断是否存在有效贡献、不识别插件 id；完整贡献列表仍由 PixivNav 渲染，缺席返回 false。
 (function () {
     const items = [

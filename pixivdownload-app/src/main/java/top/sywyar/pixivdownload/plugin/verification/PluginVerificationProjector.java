@@ -2,10 +2,12 @@ package top.sywyar.pixivdownload.plugin.verification;
 
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginRuntimeVerificationSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
 import java.time.Instant;
@@ -25,6 +27,8 @@ public final class PluginVerificationProjector {
     public static final String REVOKED_KEY = "REVOKED_KEY";
     public static final String INVALID_SIGNATURE = "INVALID_SIGNATURE";
     public static final String HASH_MISMATCH = "HASH_MISMATCH";
+    public static final String IO_ERROR = "IO_ERROR";
+    public static final String PROVENANCE_INVALID = "PROVENANCE_INVALID";
     public static final String NOT_INSTALLED = "NOT_INSTALLED";
 
     private PluginVerificationProjector() {
@@ -44,9 +48,22 @@ public final class PluginVerificationProjector {
                 "PROVENANCE_MISSING");
     }
 
+    public static PluginVerificationView missingProvenance() {
+        return new PluginVerificationView(PROVENANCE_INVALID, "unknown", null, null, null, null, false,
+                "PROVENANCE_MISSING");
+    }
+
+    public static PluginVerificationView invalidProvenance() {
+        return new PluginVerificationView(PROVENANCE_INVALID, "unknown", null, null, null, null, false,
+                PROVENANCE_INVALID);
+    }
+
     public static PluginVerificationView fromProvenance(PluginProvenanceRecord record) {
         if (record == null) {
-            return unverifiedLocal();
+            return missingProvenance();
+        }
+        if (!hasCompatibleStatusSemantics(record.source(), record.status(), record.offlineStatus())) {
+            return invalidProvenance();
         }
         VerificationStatus offline = record.offlineStatus();
         VerificationStatus effectiveStatus = offline != null ? offline : record.status();
@@ -56,6 +73,65 @@ public final class PluginVerificationProjector {
         return new PluginVerificationView(status, source(record), record.keyId(), record.publisher(),
                 record.trustLabel(), verifiedAt != null ? verifiedAt.toString() : null, offlineOk,
                 diagnosticCode(record, offline));
+    }
+
+    /** 投影本次启动对当前冻结字节得到的结构化结果，优先级高于安装时 / sidecar 历史结果。 */
+    public static PluginVerificationView fromRuntimeVerification(
+            PluginRuntimeVerificationSnapshot snapshot) {
+        if (snapshot == null) {
+            return invalidProvenance();
+        }
+        PluginProvenanceRecord provenance = snapshot.provenance();
+        VerificationResult result = snapshot.result();
+        if (provenance == null) {
+            return new PluginVerificationView(
+                    statusFrom(result.status(), false, null),
+                    "unknown",
+                    result.keyId(),
+                    result.publisher(),
+                    result.trustLabel(),
+                    result.verifiedAt() != null ? result.verifiedAt().toString() : null,
+                    result.accepted(),
+                    result.diagnosticCode() != null && !result.diagnosticCode().isBlank()
+                            ? result.diagnosticCode() : result.status().name());
+        }
+        PluginPackageSource source = provenance.source();
+        if (!hasCompatibleStatusSemantics(source, provenance.status(), result.status())) {
+            return invalidProvenance();
+        }
+        boolean official = provenance.officialRepository();
+        String keyId = result.keyId();
+        String publisher = result.publisher();
+        String trustLabel = result.trustLabel();
+        keyId = keyId != null ? keyId : provenance.keyId();
+        publisher = publisher != null ? publisher : provenance.publisher();
+        trustLabel = trustLabel != null ? trustLabel : provenance.trustLabel();
+        return new PluginVerificationView(
+                statusFrom(result.status(), official, source),
+                source(source, official),
+                keyId,
+                publisher,
+                trustLabel,
+                result.verifiedAt() != null ? result.verifiedAt().toString() : null,
+                result.accepted(),
+                result.diagnosticCode() != null && !result.diagnosticCode().isBlank()
+                        ? result.diagnosticCode() : result.status().name());
+    }
+
+    static boolean hasCompatibleStatusSemantics(PluginPackageSource source, VerificationStatus installed,
+                                                VerificationStatus offline) {
+        if (source == null || installed == null) {
+            return false;
+        }
+        if (source == PluginPackageSource.LOCAL_UPLOAD) {
+            return installed == VerificationStatus.UNSIGNED_ALLOWED
+                    && offline != VerificationStatus.VERIFIED;
+        }
+        if (source == PluginPackageSource.MARKET_CATALOG) {
+            return installed == VerificationStatus.VERIFIED
+                    && offline != VerificationStatus.UNSIGNED_ALLOWED;
+        }
+        return false;
     }
 
     public static PluginVerificationView forCatalogPackage(PluginRepository repository, PluginCatalogPackage pkg) {
@@ -115,6 +191,9 @@ public final class PluginVerificationProjector {
         if (status == VerificationStatus.HASH_MISMATCH) {
             return HASH_MISMATCH;
         }
+        if (status == VerificationStatus.IO_ERROR) {
+            return IO_ERROR;
+        }
         if (status == VerificationStatus.INVALID_SIGNATURE || status == VerificationStatus.MALFORMED_SIGNATURE
                 || status == VerificationStatus.UNSUPPORTED_ALGORITHM
                 || status == VerificationStatus.IDENTITY_MISMATCH) {
@@ -124,10 +203,14 @@ public final class PluginVerificationProjector {
     }
 
     private static String source(PluginProvenanceRecord record) {
-        if (record.source() == PluginPackageSource.LOCAL_UPLOAD) {
+        return source(record.source(), record.officialRepository());
+    }
+
+    private static String source(PluginPackageSource source, boolean official) {
+        if (source == PluginPackageSource.LOCAL_UPLOAD) {
             return "local";
         }
-        return record.officialRepository() ? "official" : "custom";
+        return official ? "official" : "custom";
     }
 
     private static String diagnosticCode(PluginProvenanceRecord record, VerificationStatus offline) {
