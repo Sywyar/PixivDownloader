@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -352,7 +353,9 @@ public class NovelDownloadService implements NovelDownloader {
             log.error("novel download failed: id={}", novelId, e);
             status.setCompleted(true);
             status.setFailed(true);
-            status.setErrorMessage(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            status.setErrorMessage(e instanceof DownloadPathRejectedException
+                    ? messages.get("download.path.segment.invalid", other.getUsername())
+                    : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
             if (statusMap.get(statusKey) == status) {
                 QueueStatusRetention.schedule(taskTracker, NovelQueueTaskOwners.download(userUuid), taskScheduler,

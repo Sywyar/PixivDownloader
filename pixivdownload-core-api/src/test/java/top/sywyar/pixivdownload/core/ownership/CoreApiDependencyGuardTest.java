@@ -53,11 +53,19 @@ import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.core.work.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
@@ -102,6 +110,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.ai..",
                         "top.sywyar.pixivdownload.config..",
                         "top.sywyar.pixivdownload.core.archive..",
+                        "top.sywyar.pixivdownload.core.artwork..",
                         "top.sywyar.pixivdownload.core.collection..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.gallery..",
@@ -230,11 +239,19 @@ class CoreApiDependencyGuardTest {
         assertThat(CLASSES.contain(WorkDeletionService.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkVisibilityService.class.getName())).isTrue();
         assertThat(CLASSES.contain(DownloadPathGuard.class.getName())).isTrue();
+        assertThat(CLASSES.contain(DownloadPathRejectedException.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkFileNameCatalog.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkTagCatalog.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkMetadata.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkRestriction.class.getName())).isTrue();
         assertThat(CLASSES.contain(WorkVisibilityScope.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkAuthorLookup.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadCompletion.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadHistory.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadLookup.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkDownloadStatistics.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkSeriesObservation.class.getName())).isTrue();
+        assertThat(CLASSES.contain(ArtworkSeriesObserver.class.getName())).isTrue();
     }
 
     @Test

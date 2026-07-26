@@ -10,13 +10,15 @@ import static org.mockito.Mockito.verify;
 class AuthorObservationServiceAdapterTest {
 
     @Test
-    @DisplayName("应原样委托作者观察语义")
+    @DisplayName("应原样委托作者观察与缺失补齐语义")
     void delegatesAuthorObservation() {
         AuthorService authorService = mock(AuthorService.class);
         AuthorObservationServiceAdapter adapter = new AuthorObservationServiceAdapter(authorService);
 
         adapter.observe(42L, " Writer ");
+        adapter.resolveMissing(84L, "credential");
 
         verify(authorService).observe(42L, " Writer ");
+        verify(authorService).asyncLookupMissing(84L, "credential");
     }
 }

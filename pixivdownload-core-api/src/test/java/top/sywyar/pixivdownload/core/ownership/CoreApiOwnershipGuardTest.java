@@ -8,6 +8,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.ai.AiClientSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
@@ -33,6 +40,7 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.core.work.service.AuthorObservationService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 import top.sywyar.pixivdownload.core.work.service.WorkFileNameCatalog;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
@@ -135,6 +143,10 @@ class CoreApiOwnershipGuardTest {
                             "GalleryCountResult", "GalleryRuntimeQuery", "GalleryRuntimeSnapshot",
                             "GalleryWorkResult"))),
             Map.entry("核心作品事实与共享纯语义", union(
+                    types("top.sywyar.pixivdownload.core.artwork.download",
+                            "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",
+                            "ArtworkDownloadLookup", "ArtworkDownloadStatistics",
+                            "ArtworkSeriesObservation", "ArtworkSeriesObserver"),
                     types("top.sywyar.pixivdownload.core.hash",
                             "ArtworkHashEntry", "ArtworkHashFingerprint", "ArtworkHashIndexMaintenance",
                             "ArtworkHashIndexQuery"),
@@ -153,7 +165,8 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.work.query",
                             "AuthorQuery", "AuthorSummary", "SeriesNeighbors", "TagOption", "TagQuery", "WorkQuery"),
                     types("top.sywyar.pixivdownload.core.work.service",
-                            "AuthorObservationService", "DownloadPathGuard", "WorkAssetService",
+                            "AuthorObservationService", "DownloadPathGuard", "DownloadPathRejectedException",
+                            "WorkAssetService",
                             "WorkDeletionException", "WorkDeletionService", "WorkFileNameCatalog",
                             "WorkMetadataCapture", "WorkMetadataRepository", "WorkQueryService", "WorkTagCatalog",
                             "WorkVisibilityDeniedException", "WorkVisibilityService"))),
@@ -346,6 +359,18 @@ class CoreApiOwnershipGuardTest {
     }
 
     @Test
+    @DisplayName("core.work 不得承载来源专属插画下载事实")
+    void coreWorkDoesNotOwnArtworkSpecificDownloadFacts() {
+        assertThat(CLASSES.stream()
+                .filter(javaClass -> javaClass.getPackageName()
+                        .startsWith("top.sywyar.pixivdownload.core.work"))
+                .map(javaClass -> javaClass.getSimpleName())
+                .filter(simpleName -> simpleName.startsWith("Artwork"))
+                .toList())
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("公开常量的名称、类型和值必须保持精确契约")
     void publicConstantsHaveExactNamesTypesAndValues() throws ReflectiveOperationException {
         Map<String, Object> actual = new LinkedHashMap<>();
@@ -456,6 +481,18 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(PixivProxyAccessDecision.class,
                 List.of("outcome", "errorMessage", "maxRequests", "windowHours"),
                 List.of(PixivProxyAccessOutcome.class, String.class, int.class, int.class));
+        assertRecordShape(ArtworkDownloadCompletion.class,
+                List.of("artworkId", "title", "folder", "imageCount", "extensions", "recordTime",
+                        "restriction", "aiGenerated", "authorId", "description", "fileNameTemplate",
+                        "normalizedAuthorName", "seriesId", "seriesOrder", "tags"),
+                List.of(long.class, String.class, Path.class, int.class, Set.class, long.class,
+                        int.class, boolean.class, Long.class, String.class, String.class,
+                        String.class, Long.class, Long.class, List.class));
+        assertRecordShape(ArtworkSeriesObservation.class,
+                List.of("artworkId", "lookupWhenMissing", "seriesId", "title", "authorId",
+                        "description", "coverUrl"),
+                List.of(long.class, boolean.class, Long.class, String.class, Long.class,
+                        String.class, String.class));
 
         assertThat(publicDeclaredMethodSignatures(AiClientSettings.class))
                 .containsExactlyInAnyOrder(
@@ -510,10 +547,23 @@ class CoreApiOwnershipGuardTest {
 
         assertThat(publicDeclaredMethodSignatures(AuthorObservationService.class))
                 .containsExactly("public abstract observe(long,java.lang.String):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkAuthorLookup.class))
+                .containsExactly("public abstract resolveMissing(long,java.lang.String):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkDownloadHistory.class))
+                .containsExactlyInAnyOrder(
+                        "public abstract allocateRecordTime(long):long",
+                        "public abstract record(top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkDownloadLookup.class))
+                .containsExactly("public abstract isDownloaded(long,boolean):boolean");
+        assertThat(publicDeclaredMethodSignatures(ArtworkDownloadStatistics.class))
+                .containsExactly("public abstract recordCompleted(int):void");
+        assertThat(publicDeclaredMethodSignatures(ArtworkSeriesObserver.class))
+                .containsExactly("public abstract observe(top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation,java.lang.String):void");
         assertThat(publicDeclaredMethodSignatures(DownloadPathGuard.class))
                 .containsExactlyInAnyOrder(
                         "public abstract requireSafeDirectoryName(java.lang.String):java.lang.String",
                         "public abstract requireWithinRoot(java.nio.file.Path,java.nio.file.Path):void");
+        assertThat(publicDeclaredMethodSignatures(DownloadPathRejectedException.class)).isEmpty();
         assertThat(publicDeclaredMethodSignatures(WorkFileNameCatalog.class))
                 .containsExactlyInAnyOrder(
                         "public abstract getOrCreateAuthorNameId(java.lang.String):long",

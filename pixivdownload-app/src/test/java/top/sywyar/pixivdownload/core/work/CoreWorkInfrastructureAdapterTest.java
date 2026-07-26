@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
 
 import java.nio.file.Path;
 
@@ -55,9 +55,7 @@ class CoreWorkInfrastructureAdapterTest {
 
         assertThat(adapter.requireSafeDirectoryName(" reader ")).isEqualTo("reader");
         assertThat(catchThrowable(() -> adapter.requireSafeDirectoryName("../reader")))
-                .isInstanceOf(LocalizedException.class)
-                .extracting(error -> ((LocalizedException) error).getMessageCode())
-                .isEqualTo("download.path.segment.invalid");
+                .isInstanceOf(DownloadPathRejectedException.class);
     }
 
     @Test
@@ -71,8 +69,6 @@ class CoreWorkInfrastructureAdapterTest {
         assertThatCode(() -> adapter.requireWithinRoot(root, inside)).doesNotThrowAnyException();
 
         Throwable thrown = catchThrowable(() -> adapter.requireWithinRoot(root, outside));
-        assertThat(thrown).isInstanceOf(LocalizedException.class);
-        assertThat(((LocalizedException) thrown).getMessageCode())
-                .isEqualTo("download.path.segment.invalid");
+        assertThat(thrown).isInstanceOf(DownloadPathRejectedException.class);
     }
 }
