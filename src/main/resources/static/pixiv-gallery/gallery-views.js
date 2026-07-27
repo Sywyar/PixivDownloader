@@ -1,5 +1,26 @@
 'use strict';
 
+    let galleryStatusModel = null;
+
+    function setGalleryStatus(code, values) {
+        galleryStatusModel = {code, values: values || {}};
+        renderGalleryStatus();
+    }
+
+    function renderGalleryStatus() {
+        if (!galleryStatusModel) return;
+        const status = document.getElementById('galleryStatus');
+        if (!status) return;
+        const values = galleryStatusModel.values;
+        if (galleryStatusModel.code === 'range') {
+            status.textContent = t('status.gallery-range', '共 {total} 条，第 {from}-{to} 条', values);
+        } else if (galleryStatusModel.code === 'failure') {
+            status.textContent = t('status.load-failed', '加载失败：{message}', values);
+        } else {
+            status.textContent = t('status.loading', '加载中...');
+        }
+    }
+
     // ---------- Gallery ----------
     async function loadGallery() {
         persistGalleryState();
@@ -32,7 +53,7 @@
         if (state.authorFilters.or.size) params.set('orAuthorIds', [...state.authorFilters.or].join(','));
         if (state.seriesFilter.id) params.set('seriesId', String(state.seriesFilter.id));
 
-        document.getElementById('galleryStatus').textContent = t('status.loading', '加载中...');
+        setGalleryStatus('loading');
         try {
             const result = await api('/api/gallery/artworks?' + params.toString());
             state.totalPages = result.totalPages || 0;
@@ -40,7 +61,7 @@
             // 先更新计数文案，确保即使列表为空也不会停留在「加载中…」
             const from = state.totalElements === 0 ? 0 : state.page * state.size + 1;
             const to = Math.min(state.totalElements, (state.page + 1) * state.size);
-            document.getElementById('galleryStatus').textContent = t('status.gallery-range', '共 {total} 条，第 {from}-{to} 条', {
+            setGalleryStatus('range', {
                 total: state.totalElements,
                 from,
                 to
@@ -51,7 +72,7 @@
             setSearchEmptyState(state.totalElements === 0 && hasActiveGalleryFilters());
         } catch (e) {
             state.totalElements = 0;
-            document.getElementById('galleryStatus').textContent = t('status.load-failed', '加载失败：{message}', {message: e.message});
+            setGalleryStatus('failure', {message: e.message});
             document.getElementById('galleryGrid').innerHTML = '';
             document.getElementById('pagination').innerHTML = '';
             setSearchEmptyState(false);
