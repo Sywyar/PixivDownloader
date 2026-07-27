@@ -42,7 +42,7 @@
                 pageI18n = nextClient;
                 applyStaticPageTranslations();
                 renderFromCache();
-                renderActiveDownloads();
+                refreshActiveDownloadsLangVue();
                 renderAuthorFilterPopupIfOpen();
                 renderPageGridIfOpen();
                 updateChart(allArtworksCache || []);
@@ -75,6 +75,13 @@
 
     let downloadStatsChart = null;
     let activeDownloads = [];
+    // 高频刷新防卡死：activeDownloads 纳管为 Vue 响应式，活跃下载列表按行细粒度更新
+    //（每个 SSE 事件只更新变动行，而非整块 innerHTML 重建）。window.Vue 由页面
+    // /vendor/vue/vue.global.prod.js 同步提供；缺失时保持普通数组、降级命令式渲染。
+    // 各 monitor-*.js 按名引用 activeDownloads（filter 改写为 in-place splice 以稳定身份）。
+    if (typeof window.Vue !== 'undefined') {
+        activeDownloads = Vue.reactive(activeDownloads);
+    }
     let sharedSse = null;        // 共享 EventSource 单例
     let sseSubscribed = new Set(); // 当前关注的 artworkId 集合（数字）
 

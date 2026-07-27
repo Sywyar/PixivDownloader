@@ -480,7 +480,81 @@
         el.innerHTML = formatCurrentCardHtml(item);
     }
 
+    // ----- 高频刷新防卡死：Vue 响应式接管下载队列 -----
+    // 命令式 renderQueue 每次都 innerHTML 全量重建整个队列；并发下载时每个进度 SSE 事件都触发它，
+    // 主线程被反复 DOM 拆建占满 → 整页卡死。改为：首次命令式渲染后挂一个 Vue 应用接管 #queue-list，
+    // state.queue 已是 reactive（见 batch-state.js），每条进度事件只让「变动那一行」的子组件重渲染
+    //（buildQueueItemHtml 复用，外观/i18n/交互零变化），不再全量重建。Vue 不可用 / 挂载失败时
+    // renderQueue 维持命令式（下次 renderQueue 重试挂载）。
+    let queueVueMounted = false;
+    let queueLangTick = null;
+
+    function mountQueueVue() {
+        if (queueVueMounted) return;
+        const el = document.getElementById('queue-list');
+        if (!el || !el.isConnected) return;
+        PixivVue.ensure().then(function (Vue) {
+            if (queueVueMounted || !el.isConnected) return;
+            const langTick = Vue.ref(0);
+            // 单行子组件：拥有自己的渲染 effect，只在该行 item 字段变化（或语言 tick 变化）时重渲染，
+            // 避免单一模板 effect 在任一变动时重算所有行。rowHtml 复用既有 buildQueueItemHtml（含 bt() i18n）。
+            // wrapper <div> 多套一层：CSS 全用后代选择器（.queue-item），无 #queue-list > .queue-item 直系选择器。
+            const QueueRow = {
+                props: {
+                    item: {type: Object, required: true},
+                    langTick: {type: Number, default: 0}
+                },
+                template: '<div v-html="rowHtml"></div>',
+                setup: function (props) {
+                    const rowHtml = Vue.computed(function () {
+                        void props.langTick;   // 依赖语言 tick：切换语言时强制重算（rowHtml 内 bt() 取新文案）
+                        return buildQueueItemHtml(props.item, {removable: true});
+                    });
+                    return {rowHtml: rowHtml};
+                }
+            };
+            PixivVue.mountOn(el, {
+                components: {QueueRow: QueueRow},
+                template:
+                    '<div v-if="queue.length">' +
+                        '<QueueRow v-for="q in queue" :key="q.id" :item="q" :lang-tick="langTick" />' +
+                    '</div>' +
+                    '<div v-else class="queue-empty">{{ emptyText }}</div>',
+                setup: function () {
+                    return {
+                        // computed 读 state.queue：state.queue 被 loadQueueForMode 整体替换时也能跟随。
+                        queue: Vue.computed(function () { return state.queue; }),
+                        langTick: langTick,
+                        emptyText: Vue.computed(function () {
+                            void langTick.value;
+                            return bt('status.queue-empty', '队列为空');
+                        })
+                    };
+                }
+            }).then(function (res) {
+                if (res) {
+                    queueVueMounted = true;
+                    queueLangTick = langTick;
+                }
+            });
+        });
+    }
+
+    // 语言切换时调用：Vue 已接管 → bump langTick 让所有行用新语言重渲染；未接管 → 退回命令式 renderQueue。
+    function refreshQueueLangVue() {
+        if (queueVueMounted && queueLangTick) {
+            queueLangTick.value++;
+        } else {
+            renderQueue();
+        }
+    }
+
     function renderQueue() {
+        if (queueVueMounted) {
+            // Vue 已接管：队列 DOM 由响应式驱动，命令式 innerHTML 重建会清空 Vue 挂载，故只更新按钮态。
+            updateAdminPackButton();
+            return;
+        }
         const el = document.getElementById('queue-list');
         if (!state.queue.length) {
             el.innerHTML = `<div class="queue-empty">${esc(bt('status.queue-empty', '队列为空'))}</div>`;
@@ -489,6 +563,8 @@
         }
         el.innerHTML = state.queue.map(q => buildQueueItemHtml(q, {removable: true})).join('');
         updateAdminPackButton();
+        // 首次命令式渲染后异步挂载 Vue 接管后续高频更新（挂载失败则保持命令式，下次 renderQueue 重试）。
+        mountQueueVue();
     }
 
     // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，

@@ -43,6 +43,13 @@
             searchKind: 'illust'    // 'illust' | 'novel' — Search 模式作品类型
         }
     };
+    // 高频刷新防卡死：把 state 整体纳管为 Vue 响应式，供下载队列等高频区按行细粒度更新
+    //（每个进度事件只更新变动行，而非整块 innerHTML 重建）。window.Vue 由页面底部
+    // /vendor/vue/vue.global.prod.js 同步提供；缺失时保持普通对象，队列渲染降级为命令式。
+    // 全部 batch-*.js 均按名引用 state（无 const 提前捕获），故此处置换 binding 安全。
+    if (typeof window.Vue !== 'undefined') {
+        state = Vue.reactive(state);
+    }
 
     /* ============================================================
        模式检测 & 存储抽象（solo=服务器，multi=localStorage）

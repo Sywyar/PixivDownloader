@@ -400,6 +400,7 @@
     let listTimer = null;
     let trackTimer = null;
     let lastTasks = [];
+    let lastTasksReactive = false;   // lastTasks 是否已 Vue.reactive 包裹（首次挂载时包裹一次，见 mountSideTasksVue）
     const tracked = new Map();
 
     function tasksActive() {
@@ -502,17 +503,70 @@
             + '</div>';
     }
 
+    // ----- 高频刷新防卡死：Vue 响应式接管任务列表（轮询 in-place splice 后按行更新）-----
+    // listEl / flyoutListEl 用 taskItemHtml，compactListEl 用 compactItemHtml；各容器幂等挂载一次。
+    // 下载按钮改容器级事件委托（v-html 内按钮无法 @click）。
+    // 语言切换：下一次轮询的 splice 会触发 Vue 重渲染、rowHtml 内 t() 取新文案（与原命令式 ≤3s 刷新一致）。
+    const sideTasksMounted = new WeakSet();
+
+    function ensureDelegatedDownload(container) {
+        if (!container || container.dataset.sideDelegated === '1') return;
+        container.dataset.sideDelegated = '1';
+        container.addEventListener('click', function (e) {
+            const btn = e.target.closest('.pixiv-side-task-download');
+            if (btn && container.contains(btn)) triggerDownload(btn.dataset.token);
+        });
+    }
+
+    // 首次挂载时把 lastTasks 包成 Vue.reactive（vue.global.prod.js 懒加载，script 载入时尚无 window.Vue）。
+    // fetchTasks 已改 in-place splice，数组身份稳定，包裹一次即可。
+    function mountSideTasksVue(container, itemHtmlFn, emptyHtmlFn) {
+        if (!container || sideTasksMounted.has(container)) return;
+        if (typeof window.PixivVue === 'undefined') return;
+        sideTasksMounted.add(container);   // 先标记，避免 ensure() 异步窗口重复挂载
+        PixivVue.ensure().then(function (Vue) {
+            if (!container.isConnected) { sideTasksMounted.delete(container); return; }
+            if (!lastTasksReactive) {
+                lastTasks = Vue.reactive(lastTasks);
+                lastTasksReactive = true;
+            }
+            PixivVue.mountOn(container, {
+                template:
+                    '<div v-if="items.length">' +
+                        '<div v-for="task in items" :key="task.token" v-html="rowHtml(task)"></div>' +
+                    '</div>' +
+                    '<div v-else v-html="emptyHtml()"></div>',
+                setup: function () {
+                    return {
+                        items: lastTasks,
+                        rowHtml: function (task) { return itemHtmlFn(task); },
+                        emptyHtml: emptyHtmlFn
+                    };
+                }
+            }).then(function (res) {
+                if (!res) sideTasksMounted.delete(container);   // 挂载失败：允许后续重试
+            });
+        });
+    }
+
+    function tasksEmptyHtml() {
+        return '<div class="pixiv-side-tasks-empty">' + escapeHtml(t('side-modules.tasks.empty')) + '</div>';
+    }
+
+    function compactEmptyHtml() {
+        return '<div class="pixiv-side-compact-task is-ready">'
+            + '<span class="pixiv-side-compact-dot"></span>'
+            + '<span class="pixiv-side-compact-text">0</span></div>';
+    }
+
     function renderTaskList(container) {
         if (!container) return;
-        if (!lastTasks.length) {
-            container.innerHTML = '<div class="pixiv-side-tasks-empty">'
-                + escapeHtml(t('side-modules.tasks.empty')) + '</div>';
-            return;
-        }
-        container.innerHTML = lastTasks.map(taskItemHtml).join('');
-        container.querySelectorAll('.pixiv-side-task-download').forEach(btn => {
-            btn.addEventListener('click', () => triggerDownload(btn.dataset.token));
-        });
+        ensureDelegatedDownload(container);
+        if (sideTasksMounted.has(container)) return;   // Vue 已接管：lastTasks reactive 自动按行更新
+        container.innerHTML = lastTasks.length
+            ? lastTasks.map(taskItemHtml).join('')
+            : tasksEmptyHtml();
+        mountSideTasksVue(container, taskItemHtml, tasksEmptyHtml);
     }
 
     function renderTasks() {
@@ -524,12 +578,11 @@
         }
         renderTaskList(listEl);
         renderTaskList(flyoutListEl);
-        if (compactListEl) {
+        if (compactListEl && !sideTasksMounted.has(compactListEl)) {
             compactListEl.innerHTML = lastTasks.length
                 ? lastTasks.map(compactItemHtml).join('')
-                : '<div class="pixiv-side-compact-task is-ready">'
-                    + '<span class="pixiv-side-compact-dot"></span>'
-                    + '<span class="pixiv-side-compact-text">0</span></div>';
+                : compactEmptyHtml();
+            mountSideTasksVue(compactListEl, compactItemHtml, compactEmptyHtml);
         }
     }
 
@@ -547,7 +600,9 @@
             }
             if (!res.ok) return;
             const data = await res.json();
-            lastTasks = (data && data.tasks) || [];
+            const incomingTasks = (data && data.tasks) || [];
+            // in-place splice 保持数组身份稳定（Vue 响应式按行更新所需）；不改成整体赋值。
+            lastTasks.splice(0, lastTasks.length, ...incomingTasks);
             renderTasks();
         } catch (_) { /* 网络异常时保留上一次渲染结果 */ }
     }

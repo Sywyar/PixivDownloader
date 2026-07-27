@@ -36,7 +36,9 @@
     function handleSseEvent(artworkId, data) {
         if (data.completed || data.failed || data.cancelled) {
             closeSSE(artworkId);
-            activeDownloads = activeDownloads.filter(d => d.artworkId !== artworkId);
+            for (let i = activeDownloads.length - 1; i >= 0; i--) {
+                if (activeDownloads[i].artworkId === artworkId) activeDownloads.splice(i, 1);
+            }
             lastCompletionTime = Date.now();
             scheduleActiveSync(); // 切换到快速轮询
             document.getElementById('activeCount').textContent     = activeDownloads.length;
@@ -88,7 +90,9 @@
             // 移除不再活跃的条目
             const prevCount = activeDownloads.length;
             activeDownloads.filter(d => !currentIds.has(d.artworkId)).forEach(d => closeSSE(d.artworkId));
-            activeDownloads = activeDownloads.filter(d => currentIds.has(d.artworkId));
+            for (let i = activeDownloads.length - 1; i >= 0; i--) {
+                if (!currentIds.has(activeDownloads[i].artworkId)) activeDownloads.splice(i, 1);
+            }
             // 清理掉已不在活跃列表里的订阅
             for (const id of Array.from(sseSubscribed)) {
                 if (!currentIds.has(id)) closeSSE(id);
@@ -120,41 +124,102 @@
         scheduleActiveSync();
     }
 
+    function activeDownloadItemHtml(d) {
+        const progress = d.progressPercentage || 0;
+        return `
+        <div class="active-download-item">
+            <div class="active-download-header">
+                <div>
+                    <div class="download-artwork-title" title="${escapeHtml(d.title)}">${escapeHtml(d.title || '—')}</div>
+                    <div class="download-artwork-id">#${d.artworkId}</div>
+                    <div class="active-download-source">pixiv.net</div>
+                </div>
+            </div>
+            <div>
+                <div class="progress-info">
+                    <span class="progress-count">${d.downloadedCount || 0} / ${d.totalImages || 0}</span>
+                    <span class="progress-percentage">${progress.toFixed(1)}%</span>
+                </div>
+                <div class="active-download-progress">
+                    <div class="active-download-progress-bar" style="width:${progress}%"></div>
+                </div>
+            </div>
+            <div class="download-status">
+                <div class="status-indicator"></div>
+                <span>${escapeHtml(t('status.downloading', 'DOWNLOADING...'))}</span>
+            </div>
+        </div>`;
+    }
+
+    // ----- 高频刷新防卡死：Vue 响应式接管活跃下载列表（与下载队列同手法）-----
+    let activeDownloadsVueMounted = false;
+    let activeDownloadsLangTick = null;
+
+    function mountActiveDownloadsVue() {
+        if (activeDownloadsVueMounted) return;
+        const el = document.getElementById('activeDownloadsList');
+        if (!el || !el.isConnected) return;
+        PixivVue.ensure().then(function (Vue) {
+            if (activeDownloadsVueMounted || !el.isConnected) return;
+            const langTick = Vue.ref(0);
+            // 单行子组件：自己的渲染 effect，只在该 item 字段变化（或语言 tick 变化）时重渲染。
+            const ActiveDownloadRow = {
+                props: {
+                    item: {type: Object, required: true},
+                    langTick: {type: Number, default: 0}
+                },
+                template: '<div v-html="rowHtml"></div>',
+                setup: function (props) {
+                    const rowHtml = Vue.computed(function () {
+                        void props.langTick;
+                        return activeDownloadItemHtml(props.item);
+                    });
+                    return {rowHtml: rowHtml};
+                }
+            };
+            PixivVue.mountOn(el, {
+                components: {ActiveDownloadRow: ActiveDownloadRow},
+                template: '<ActiveDownloadRow v-for="d in items" :key="d.artworkId" :item="d" :lang-tick="langTick" />',
+                setup: function () {
+                    return {
+                        items: activeDownloads,   // reactive，filter 已改 in-place splice 保持身份稳定
+                        langTick: langTick
+                    };
+                }
+            }).then(function (res) {
+                if (res) {
+                    activeDownloadsVueMounted = true;
+                    activeDownloadsLangTick = langTick;
+                }
+            });
+        });
+    }
+
+    // 语言切换时调用：Vue 已接管 → bump langTick 重渲染；未接管 → 退回命令式 renderActiveDownloads。
+    function refreshActiveDownloadsLangVue() {
+        if (activeDownloadsVueMounted && activeDownloadsLangTick) {
+            activeDownloadsLangTick.value++;
+        } else {
+            renderActiveDownloads();
+        }
+    }
+
     function renderActiveDownloads() {
         const container  = document.getElementById('activeDownloadsList');
         const emptyState = document.getElementById('emptyActiveState');
 
         if (!activeDownloads.length) {
-            container.innerHTML = '';
-            emptyState.classList.remove('d-none');
+            if (!activeDownloadsVueMounted && container) container.innerHTML = '';
+            if (emptyState) emptyState.classList.remove('d-none');
             return;
         }
 
-        emptyState.classList.add('d-none');
-        container.innerHTML = activeDownloads.map(d => {
-            const progress = d.progressPercentage || 0;
-            return `
-            <div class="active-download-item">
-                <div class="active-download-header">
-                    <div>
-                        <div class="download-artwork-title" title="${escapeHtml(d.title)}">${escapeHtml(d.title || '—')}</div>
-                        <div class="download-artwork-id">#${d.artworkId}</div>
-                        <div class="active-download-source">pixiv.net</div>
-                    </div>
-                </div>
-                <div>
-                    <div class="progress-info">
-                        <span class="progress-count">${d.downloadedCount || 0} / ${d.totalImages || 0}</span>
-                        <span class="progress-percentage">${progress.toFixed(1)}%</span>
-                    </div>
-                    <div class="active-download-progress">
-                        <div class="active-download-progress-bar" style="width:${progress}%"></div>
-                    </div>
-                </div>
-                <div class="download-status">
-                    <div class="status-indicator"></div>
-                    <span>${escapeHtml(t('status.downloading', 'DOWNLOADING...'))}</span>
-                </div>
-            </div>`;
-        }).join('');
+        if (emptyState) emptyState.classList.add('d-none');
+        if (activeDownloadsVueMounted) {
+            // Vue 已接管列表 DOM：响应式驱动按行更新，不重建 innerHTML。
+            return;
+        }
+        container.innerHTML = activeDownloads.map(d => activeDownloadItemHtml(d)).join('');
+        // 首次命令式渲染后异步挂载 Vue 接管后续高频更新（挂载失败则保持命令式，下次重试）。
+        mountActiveDownloadsVue();
     }

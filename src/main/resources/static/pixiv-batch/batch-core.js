@@ -109,7 +109,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
                 refreshNovelTranslateLangDefault();
                 renderQuotaBar();
                 updateStats();
-                renderQueue();
+                refreshQueueLangVue();
                 setCurrent(state.currentItemId ? state.queue.find(q => q.id === state.currentItemId) || null : null);
                 updateButtonsState();
                 renderSearchResults();
