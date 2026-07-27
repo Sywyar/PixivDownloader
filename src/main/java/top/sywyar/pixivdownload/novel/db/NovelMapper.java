@@ -570,8 +570,14 @@ public interface NovelMapper {
     @Delete("DELETE FROM novels_fts WHERE rowid = #{novelId}")
     void deleteNovelFts(@Param("novelId") long novelId);
 
-    /** 正文全文检索：{@code query} 为已转义的 FTS5 phrase，返回命中的 novel_id（= rowid）。 */
-    @Select("SELECT rowid FROM novels_fts WHERE novels_fts MATCH #{query}")
+    /** 清理已软删除小说的陈旧全文索引行；调用方必须按辅助数据 best-effort 处理失败。 */
+    @Delete("DELETE FROM novels_fts WHERE rowid IN (SELECT novel_id FROM novels WHERE deleted = 1)")
+    void deleteDeletedNovelFts();
+
+    /** 正文全文检索：{@code query} 为已转义的 FTS5 phrase，返回命中的 novel_id（= rowid）；联表过滤已软删除的小说。 */
+    @Select("SELECT novels_fts.rowid FROM novels_fts"
+            + " JOIN novels ON novels.novel_id = novels_fts.rowid"
+            + " WHERE novels.deleted = 0 AND novels_fts MATCH #{query}")
     List<Long> searchNovelFtsIds(@Param("query") String query);
 
     /** 短关键词（trigram 无法索引）回退：直接对 raw_content 做 LIKE 子串扫描。 */

@@ -58,7 +58,13 @@ public class NovelDatabase {
         novelMapper.createNovelNarrationCastsNovelIndex();
         novelMapper.createNovelNarrationVoicesTable();
         novelMapper.createNovelNarrationScriptsTable();
-        novelMapper.createNovelFtsTable();
+        // FTS 是可再生辅助数据，其 DDL、陈旧行回收或回填失败都不能阻断启动。
+        try { novelMapper.createNovelFtsTable(); } catch (Exception e) {
+            log.warn("Failed to initialize novel full-text index: {}", e.getMessage());
+        }
+        try { novelMapper.deleteDeletedNovelFts(); } catch (Exception e) {
+            log.warn("Failed to remove deleted novels from full-text index: {}", e.getMessage());
+        }
         // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
         try { novelMapper.backfillNovelFts(); } catch (Exception e) {
             log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
