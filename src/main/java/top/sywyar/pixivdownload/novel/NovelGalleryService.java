@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.download.StagedFileDeletion;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
@@ -48,6 +49,7 @@ public class NovelGalleryService {
     private final AuthorService authorService;
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
+    private final StagedFileDeletion stagedFileDeletion;
 
     private String logMessage(String code, Object... args) {
         return messages.getForLog(code, args);
@@ -222,15 +224,18 @@ public class NovelGalleryService {
 
     /**
      * 删除小说磁盘文件：每本小说独占 {@code {rootFolder}/novel-{novelId}/} 目录（小说无重定位语义），
-     * 因此目录名必须匹配 {@code novel-{novelId}} 才会被递归删除。
+     * 因此目录名必须匹配 {@code novel-{novelId}} 才会被删除。目录下全部常规文件（正文、封面、内嵌资源）
+     * 经共享 {@link StagedFileDeletion} <b>原子删除</b>（先暂存再删，任一失败回滚到删除前状态）——失败时
+     * 小说文件原样保留、不会半损坏。文件全删成功后再移除清空的目录壳（子目录 + {@code novel-{id}} 本身），
+     * 目录壳可再生，移除失败仅记日志、不影响删除成败。
      *
      * <p>磁盘边界守卫（避免污染的 folder 把递归删除范围扩大到 root 之外、共享目录或 OS 根）：
      * 解析后的目录必须非空、可解析、非 OS / 驱动盘根、且不等于配置的 {@code download.root-folder} 本身；
      * 同时目录名必须等于 {@code novel-{novelId}} 才视为本小说独占目录。任何一条不满足都不会触碰磁盘，
      * 仅记日志后视为"无需处理"（不算失败，DB 清理仍会继续——polluted folder 行可由管理员据此排查）。
      *
-     * @return 文件层清理结果：{@code true} 表示所有尝试的删除都成功（或没有可删的文件 / 被边界守卫跳过），
-     *         调用方可继续删 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败，
+     * @return 文件层清理结果：{@code true} 表示文件全部删除成功（或没有可删的文件 / 被边界守卫跳过），
+     *         调用方可继续删 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败、已回滚复原，
      *         调用方必须中止 DB 清理。
      */
     private boolean deleteNovelFiles(NovelRecord record) {
@@ -267,21 +272,33 @@ public class NovelGalleryService {
             log.warn(logMessage("novel.gallery.log.directory-not-exclusive", record.novelId(), dir, expectedName));
             return true;
         }
-        boolean[] allDeleted = {true};
+        List<Path> files;
+        try (var stream = Files.walk(dir)) {
+            files = stream.filter(Files::isRegularFile).toList();
+        } catch (IOException e) {
+            log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), folder));
+            return false;
+        }
+        if (!stagedFileDeletion.deleteAtomically(files)) {
+            return false;
+        }
+        removeEmptyDirectoryTree(dir, record);
+        return true;
+    }
+
+    /** 移除已清空的小说独占目录壳（子目录 + 目录本身）；可再生，删失败仅记日志、不影响删除成败。 */
+    private void removeEmptyDirectoryTree(Path dir, NovelRecord record) {
         try (var stream = Files.walk(dir)) {
             stream.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException e) {
-                    log.warn(logMessage("novel.gallery.log.delete-file-failed", p));
-                    allDeleted[0] = false;
+                    log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
                 }
             });
         } catch (IOException e) {
-            log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), folder));
-            return false;
+            log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
         }
-        return allDeleted[0];
     }
 
     public List<NovelView> bySeries(long seriesId, int limit) {
