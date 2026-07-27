@@ -119,13 +119,13 @@ class PixivMeProxyParseTest {
                 + "   \"url\":\"https://i.pximg.net/b.jpg\",\"pageCount\":1,\"userId\":\"8\",\"userName\":\"u8\",\"tags\":[]}"
                 + "]}}");
         List<SearchResponse.SearchItem> items = PixivProxyController.parseFollowLatestIllusts(b);
-        assertThat(items).extracting(SearchResponse.SearchItem::getId).containsExactly("222", "111");
+        assertThat(items).extracting(SearchResponse.SearchItem::id).containsExactly("222", "111");
         SearchResponse.SearchItem first = items.get(0);
-        assertThat(first.getTitle()).isEqualTo("b");
-        assertThat(first.getIllustType()).isEqualTo(2);
-        assertThat(first.getXRestrict()).isEqualTo(1);
-        assertThat(first.getThumbnailUrl()).isEqualTo("https://i.pximg.net/b.jpg");
-        assertThat(first.getUserName()).isEqualTo("u8");
+        assertThat(first.title()).isEqualTo("b");
+        assertThat(first.illustType()).isEqualTo(2);
+        assertThat(first.xRestrict()).isEqualTo(1);
+        assertThat(first.thumbnailUrl()).isEqualTo("https://i.pximg.net/b.jpg");
+        assertThat(first.userName()).isEqualTo("u8");
     }
 
     @Test
@@ -135,12 +135,12 @@ class PixivMeProxyParseTest {
                 + "\"page\":{\"ids\":[1,999]},"
                 + "\"thumbnails\":{\"illust\":[{\"id\":\"1\",\"title\":\"keep\"}]}}");
         assertThat(PixivProxyController.parseFollowLatestIllusts(withMissing))
-                .extracting(SearchResponse.SearchItem::getId).containsExactly("1");
+                .extracting(SearchResponse.SearchItem::id).containsExactly("1");
 
         JsonNode noIds = body("{"
                 + "\"thumbnails\":{\"illust\":[{\"id\":\"5\",\"title\":\"x\"},{\"id\":\"6\",\"title\":\"y\"}]}}");
         assertThat(PixivProxyController.parseFollowLatestIllusts(noIds))
-                .extracting(SearchResponse.SearchItem::getId).containsExactly("5", "6");
+                .extracting(SearchResponse.SearchItem::id).containsExactly("5", "6");
 
         assertThat(PixivProxyController.parseFollowLatestIllusts(null)).isEmpty();
     }

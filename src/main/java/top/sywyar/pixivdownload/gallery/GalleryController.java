@@ -227,7 +227,7 @@ public class GalleryController {
         List<DownloadedResponse> out = new ArrayList<>(items.size());
         for (DownloadedResponse item : items) {
             if (item == null) continue;
-            if (guestAccessGuard.isVisibleToGuest(item.getArtworkId(), session)) {
+            if (guestAccessGuard.isVisibleToGuest(item.artworkId(), session)) {
                 out.add(item);
             }
         }

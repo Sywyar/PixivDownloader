@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.download.request;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -33,7 +32,6 @@ public class DownloadRequest {
         private String username;
         private Long authorId;
         private String authorName;
-        @JsonProperty("xRestrict")
         private int xRestrict;
         private boolean isAi;
         private boolean isUgoira;
@@ -57,6 +55,16 @@ public class DownloadRequest {
         private String seriesCoverUrl;
         /** Pixiv illustType: 0=illust, 1=manga, 2=ugoira。用于决定是否值得异步回填系列信息。 */
         private Integer illustType;
+
+        @JsonGetter("xRestrict")
+        public int getXRestrict() {
+            return xRestrict;
+        }
+
+        @JsonSetter("xRestrict")
+        public void setXRestrict(int xRestrict) {
+            this.xRestrict = xRestrict;
+        }
 
         @JsonGetter("isAi")
         public boolean isAi() {
