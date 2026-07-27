@@ -475,9 +475,115 @@
     }
 
     function setCurrent(item) {
-        const el = document.getElementById('current-card');
+        // 当前下载卡现由队列派生（队首未完成项 + 剩余计数），不再跟踪单一 currentItemId 触发整卡重建；
+        // item 参数仅为兼容既有调用点（processArtworkItem / processNovelItem / SSE 进度事件）。
         state.currentItemId = item ? String(item.id) : null;
-        el.innerHTML = formatCurrentCardHtml(item);
+        refreshCurrentCard();
+    }
+
+    // ----- 高频刷新防卡死：当前下载卡改 Vue 响应式（与 #queue-list 同手法）-----
+    // 此前每个进度 SSE 事件、每个 worker 启停都 setCurrent → 整卡 innerHTML 重建；并发下载时 setCurrent
+    // 被不同作品反复调用，卡片在不同作品间闪烁、高度反复跳动（操作不一致）。改为：当前卡恒显示「队列最前面
+    // 的未完成项」状态（按队列顺序稳定，不再随事件到达顺序跳变），下方追加剩余计数行；队首作品切换时直接替换
+    //（不再回归「无」，仅在队列真正空闲时显示「无」）。Vue 不可用 / 挂载失败时退回命令式派生（refreshCurrentCard
+    // 每次重建单卡，但内容稳定、不再跨作品闪烁）。formatCurrentCardHtml 与计划任务卡片共用，故计数行另起，
+    // 不烘焙进 formatCurrentCardHtml。
+    let currentVueMounted = false;
+    let currentLangTick = null;
+
+    // 队首未完成项 = 第一个 status 属于 downloading/pending/paused 的队列项（completed/failed/skipped/idle 视为已结束）。
+    // 含 pending/paused 是为了避免并发=1 时「上一项完成 → 下一项被认领」的间隙短暂闪「无」：该间隙里没有
+    // downloading 项，但有 pending 项，直接显示它（直接替换，不回归「无」）。
+    function currentFrontItem() {
+        // 暂停时清除当前下载状态（回退 idle「无」）：暂停期间不展示队首；恢复后 isPaused 变化经响应式自动重新派生。
+        if (state.isPaused) return null;
+        for (let i = 0; i < state.queue.length; i++) {
+            const s = state.queue[i].status;
+            if (s === 'downloading' || s === 'pending' || s === 'paused') return state.queue[i];
+        }
+        return null;
+    }
+
+    // 剩余计数行：「还有 X 个正在下载、Y 个排队中…」。展示的队首不计入「还有」。两项都为 0 时不输出该行。
+    function buildCurrentRemainingLineHtml() {
+        let downloading = 0, queued = 0;
+        for (let i = 0; i < state.queue.length; i++) {
+            const s = state.queue[i].status;
+            if (s === 'downloading') downloading++;
+            else if (s === 'pending' || s === 'paused') queued++;
+        }
+        const front = currentFrontItem();
+        if (front) {
+            if (front.status === 'downloading') downloading--;
+            else queued--;
+        }
+        let text;
+        if (downloading > 0 && queued > 0) {
+            text = bt('status.current-remaining.both', '还有 {downloading} 个正在下载、{queued} 个排队中…',
+                {downloading: downloading, queued: queued});
+        } else if (downloading > 0) {
+            text = bt('status.current-remaining.downloading', '还有 {count} 个正在下载…', {count: downloading});
+        } else if (queued > 0) {
+            text = bt('status.current-remaining.queued', '还有 {count} 个排队中…', {count: queued});
+        } else {
+            return '';
+        }
+        return '<div class="current-remaining">' + esc(text) + '</div>';
+    }
+
+    // 当前卡完整 HTML：队首未完成项的进度卡 + 剩余计数行；无未完成项时回退 idle「无」。
+    // Vue 主路径与命令式回退共用，保证两条路径外观一致。
+    function computeCurrentCardHtml() {
+        const front = currentFrontItem();
+        if (!front) {
+            return '<strong>' + esc(bt('label.current', '当前下载:')) + '</strong> '
+                + esc(bt('status.current-idle', '无'));
+        }
+        return formatCurrentCardHtml(front) + buildCurrentRemainingLineHtml();
+    }
+
+    function refreshCurrentCard() {
+        if (currentVueMounted) return;   // Vue 已接管：响应式 mutation 自动驱动，不再命令式重建
+        const el = document.getElementById('current-card');
+        if (!el || !el.isConnected) return;
+        el.innerHTML = computeCurrentCardHtml();
+        mountCurrentVue();   // 首次命令式渲染后异步挂载 Vue 接管后续高频更新（失败则保持命令式，下次重试）
+    }
+
+    function mountCurrentVue() {
+        if (currentVueMounted) return;
+        const el = document.getElementById('current-card');
+        if (!el || !el.isConnected) return;
+        PixivVue.ensure().then(function (Vue) {
+            if (currentVueMounted || !el.isConnected) return;
+            const langTick = Vue.ref(0);
+            PixivVue.mountOn(el, {
+                template: '<div v-html="cardHtml"></div>',
+                setup: function () {
+                    // cardHtml 依赖 state.queue（reactive）：队首项的进度字段或任一项 status 变化时重算，
+                    // Vue 只 patch 这一张卡；语言切换经 langTick 强制重算（cardHtml 内 bt() 取新文案）。
+                    const cardHtml = Vue.computed(function () {
+                        void langTick.value;
+                        return computeCurrentCardHtml();
+                    });
+                    return {cardHtml: cardHtml};
+                }
+            }).then(function (res) {
+                if (res) {
+                    currentVueMounted = true;
+                    currentLangTick = langTick;
+                }
+            });
+        });
+    }
+
+    // 语言切换：Vue 已接管 → bump langTick 让卡片用新语言重渲染；未接管 → 命令式重建。
+    function refreshCurrentCardLangVue() {
+        if (currentVueMounted && currentLangTick) {
+            currentLangTick.value++;
+        } else {
+            refreshCurrentCard();
+        }
     }
 
     // ----- 高频刷新防卡死：Vue 响应式接管下载队列 -----
@@ -550,6 +656,8 @@
     }
 
     function renderQueue() {
+        // 当前下载卡由 state.queue 派生：随队列每次变化一并刷新（Vue 接管后为空操作，命令式回退时重建单卡）。
+        refreshCurrentCard();
         if (queueVueMounted) {
             // Vue 已接管：队列 DOM 由响应式驱动，命令式 innerHTML 重建会清空 Vue 挂载，故只更新按钮态。
             updateAdminPackButton();

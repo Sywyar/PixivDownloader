@@ -110,7 +110,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
                 renderQuotaBar();
                 updateStats();
                 refreshQueueLangVue();
-                setCurrent(state.currentItemId ? state.queue.find(q => q.id === state.currentItemId) || null : null);
+                refreshCurrentCardLangVue();
                 updateButtonsState();
                 renderSearchResults();
                 renderSearchPagination();
