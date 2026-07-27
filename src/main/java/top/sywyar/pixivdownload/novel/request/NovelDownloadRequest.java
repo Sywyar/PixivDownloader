@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.request;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import lombok.Data;
 import top.sywyar.pixivdownload.download.db.TagDto;
 
@@ -63,5 +65,15 @@ public class NovelDownloadRequest {
         private boolean autoTranslateMerge;
         /** 译文合订本格式（{@code epub}/{@code txt}/{@code html}）。 */
         private String autoTranslateMergeFormat;
+
+        @JsonGetter("xRestrict")
+        public int getXRestrict() {
+            return xRestrict;
+        }
+
+        @JsonSetter("xRestrict")
+        public void setXRestrict(int xRestrict) {
+            this.xRestrict = xRestrict;
+        }
     }
 }
