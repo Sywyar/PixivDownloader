@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.push.controller;
 
 import top.sywyar.pixivdownload.push.PushChannelSettings;
+import top.sywyar.pixivdownload.push.PushDispatcher;
 import top.sywyar.pixivdownload.push.channel.bark.BarkSettings;
 import top.sywyar.pixivdownload.push.channel.dingtalk.DingTalkSettings;
 import top.sywyar.pixivdownload.push.channel.feishu.FeishuSettings;
@@ -20,7 +21,7 @@ import java.util.List;
  * localhost 流转。
  * <p>
  * {@link #toEnabledSettings()} 只收集 {@code enabled=true} 的通道，转成各通道的不可变设置快照交给
- * {@link top.sywyar.pixivdownload.core.push.PushService#test} 用临时设置发送，无需先落盘。
+ * {@link PushDispatcher#test} 用临时设置发送，无需先落盘。
  */
 public record PushTestRequest(Bark bark, Dingtalk dingtalk, Telegram telegram, Feishu feishu,
                               Wecom wecom, Pushplus pushplus, Serverchan serverchan, Webhook webhook) {

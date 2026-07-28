@@ -10,10 +10,9 @@ import top.sywyar.pixivdownload.push.channel.bark.BarkConfig;
  * <p>
  * 各通道的配置由各自独立的 {@code @ConfigurationProperties}（前缀 {@code push.<id>}，如
  * {@link BarkConfig}）承载，与本类解耦——本类只决定"推送功能是否启用"。
- * {@code enabled=false} 时 {@link PushService} 直接跳过全部通道。
+ * {@code enabled=false} 时通知 sink 直接跳过派发。
  * <p>
- * 字段使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.config.OutboundProxySettings} /
- * {@link top.sywyar.pixivdownload.mail.MailConfig} 风格一致，便于热重载时安全地被多线程读取。
+ * 字段使用 {@code volatile}，便于热重载时安全地被多线程读取。
  */
 @Data
 @Component

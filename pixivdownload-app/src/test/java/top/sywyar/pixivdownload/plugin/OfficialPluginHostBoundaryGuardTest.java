@@ -39,6 +39,9 @@ class OfficialPluginHostBoundaryGuardTest {
     private static final String PRIVATE_HTTP_GROUP_PREFIX = "org.apache.httpcomponents";
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*package\\s+([A-Za-z0-9_$.]+)\\s*;");
+    private static final Pattern PROJECT_TYPE_REFERENCE = Pattern.compile(
+            "(?<![\\p{Alnum}_$])top\\.sywyar\\.pixivdownload"
+                    + "(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*import\\s+(?:static\\s+)?([A-Za-z0-9_$.*]+)\\s*;");
     private static final Pattern QUALIFIED_NAME_SEPARATOR = Pattern.compile("\\s*\\.\\s*");
@@ -195,6 +198,36 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     @Test
+    @DisplayName("官方插件源码注释只能引用共享契约或本插件类型")
+    void officialPluginCommentsReferenceOnlySharedOrLocalTypes() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        Set<String> sharedTypes = new LinkedHashSet<>(ownedTypes(
+                repositoryRoot,
+                repositoryRoot.resolve("pixivdownload-core-api/src/main/java"),
+                "core-api"));
+        sharedTypes.addAll(ownedTypes(
+                repositoryRoot,
+                repositoryRoot.resolve("pixivdownload-plugin-api/src/main/java"),
+                "plugin-api"));
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            Set<String> localTypes = ownedTypes(repositoryRoot, sourceRoot, module);
+            assertThat(localTypes)
+                    .as(module + " 必须暴露非空的本地生产类型集合")
+                    .isNotEmpty();
+            collectCommentOwnershipViolations(
+                    repositoryRoot, module, sharedTypes, localTypes, violations);
+        }
+
+        assertThat(violations)
+                .as("官方插件注释只能引用 core-api、plugin-api 或本插件类型；"
+                        + "app、其他插件及已失效项目类型都不得进入文档契约")
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("所有权扫描忽略注释并保留字符串类名")
     void appOwnedTypeScannerIgnoresCommentsAndPreservesStrings() {
         String appType = "example.host.AppOwnedType";
@@ -218,6 +251,17 @@ class OfficialPluginHostBoundaryGuardTest {
 
         assertThat(referencesFullyQualifiedType(referenceCode(commentsOnly), appType)).isFalse();
         assertThat(referencesFullyQualifiedType(referenceCode(reflectionString), appType)).isTrue();
+        assertThat(referencesFullyQualifiedType(commentText(commentsOnly), appType)).isTrue();
+        assertThat(referencesFullyQualifiedType(commentText(reflectionString), appType)).isFalse();
+        assertThat(projectTypeReferences(
+                commentText("// top.sywyar.pixivdownload.legacy.MissingType\n")))
+                .containsExactly("top.sywyar.pixivdownload.legacy.MissingType");
+        assertThat(isOwnedTypeReference(
+                "top.sywyar.pixivdownload.shared.StableType.Nested",
+                Set.of("top.sywyar.pixivdownload.shared.StableType"))).isTrue();
+        assertThat(isOwnedTypeReference(
+                "top.sywyar.pixivdownload.legacy.MissingType",
+                Set.of("top.sywyar.pixivdownload.shared.StableType"))).isFalse();
         assertThat(importsType(Set.of("example.host.*"), appType)).isTrue();
         assertThat(importsType(
                 importedNames(normalizedDeclarationCode(spacedImport)),
@@ -753,6 +797,48 @@ class OfficialPluginHostBoundaryGuardTest {
         }
     }
 
+    private static void collectCommentOwnershipViolations(Path repositoryRoot,
+                                                          String module,
+                                                          Set<String> sharedTypes,
+                                                          Set<String> localTypes,
+                                                          List<String> violations) throws IOException {
+        Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+        if (!Files.isDirectory(sourceRoot)) {
+            return;
+        }
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
+            for (Path source : sources
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .sorted()
+                    .toList()) {
+                String comments = commentText(read(source));
+                for (String projectType : projectTypeReferences(comments)) {
+                    if (!isOwnedTypeReference(projectType, sharedTypes)
+                            && !isOwnedTypeReference(projectType, localTypes)) {
+                        violations.add(module + ":" + repositoryRoot.relativize(source)
+                                + " -> " + projectType);
+                    }
+                }
+            }
+        }
+    }
+
+    private static Set<String> projectTypeReferences(String comments) {
+        Set<String> references = new LinkedHashSet<>();
+        Matcher matcher = PROJECT_TYPE_REFERENCE.matcher(comments);
+        while (matcher.find()) {
+            references.add(matcher.group());
+        }
+        return Set.copyOf(references);
+    }
+
+    private static boolean isOwnedTypeReference(String reference, Set<String> ownedTypes) {
+        return ownedTypes.stream().anyMatch(
+                ownedType -> reference.equals(ownedType)
+                        || reference.startsWith(ownedType + ".")
+                        || ownedType.startsWith(reference + "."));
+    }
+
     private static boolean referencesFullyQualifiedType(String code, String appType) {
         return identifierReference(appType).matcher(code).find();
     }
@@ -804,10 +890,30 @@ class OfficialPluginHostBoundaryGuardTest {
         return stripComments(source) + "\n" + normalizedDeclarationCode(source);
     }
 
+    private static String commentText(String source) {
+        String codeWithoutComments = stripComments(source);
+        StringBuilder comments = new StringBuilder(source.length());
+        for (int index = 0; index < source.length(); index++) {
+            char original = source.charAt(index);
+            if (original != codeWithoutComments.charAt(index)) {
+                comments.append(original);
+            } else {
+                appendMasked(comments, original);
+            }
+        }
+        return comments.toString();
+    }
+
     private static Set<String> appOwnedTypes(Path repositoryRoot) throws IOException {
         Path appSourceRoot = repositoryRoot.resolve("pixivdownload-app/src/main/java");
+        return ownedTypes(repositoryRoot, appSourceRoot, "app");
+    }
+
+    private static Set<String> ownedTypes(Path repositoryRoot,
+                                          Path sourceRoot,
+                                          String owner) throws IOException {
         Set<String> types = new LinkedHashSet<>();
-        try (Stream<Path> sources = Files.walk(appSourceRoot)) {
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
             for (Path source : sources
                     .filter(path -> path.toString().endsWith(".java"))
                     .filter(path -> !path.getFileName().toString().equals("package-info.java")
@@ -822,14 +928,14 @@ class OfficialPluginHostBoundaryGuardTest {
                         .replaceFirst("\\.java$", "");
                 if (packageName.isBlank() || !sourceTypes.contains(primaryType)) {
                     throw new IllegalStateException(
-                            "Cannot derive primary app type from "
+                            "Cannot derive primary " + owner + " type from "
                                     + repositoryRoot.relativize(source));
                 }
                 for (String sourceType : sourceTypes) {
-                    String appType = packageName + "." + sourceType;
-                    if (!types.add(appType)) {
+                    String ownedType = packageName + "." + sourceType;
+                    if (!types.add(ownedType)) {
                         throw new IllegalStateException(
-                                "Duplicate app production type " + appType);
+                                "Duplicate " + owner + " production type " + ownedType);
                     }
                 }
             }

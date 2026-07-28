@@ -11,9 +11,8 @@ import org.springframework.stereotype.Component;
  * {@code Authorization: Bearer <api-key>}）。各家厂商（OpenAI / DeepSeek / 通义 / 智谱 / Claude / Gemini …）
  * 都以各自的 OpenAI 兼容端点接入，由 {@link top.sywyar.pixivdownload.ai.preset.AiPresetRegistry} 提供预设。
  * <p>
- * 字段全部使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.mail.MailConfig} /
- * {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 风格一致，以便热重载时安全地被多线程读取。本类只承载
- * 配置数据，请求 / 解析逻辑见 {@link AiService}。
+ * 字段全部使用 {@code volatile}，以便热重载时安全地被多线程读取。本类只承载配置数据，
+ * 请求 / 解析逻辑见 {@link OpenAiCompatibleAiClient}。
  */
 @Data
 @Component
@@ -27,12 +26,12 @@ public class AiConfig {
     public static final String KEY_MODEL = "ai.model";
     public static final String KEY_USE_PROXY = "ai.use-proxy";
 
-    /** 是否启用 AI 调用总开关；关闭时 {@link AiService#chat} 直接拒绝。 */
+    /** 是否启用 AI 调用总开关；关闭时 {@link OpenAiCompatibleAiClient#chat} 直接拒绝。 */
     private volatile boolean enabled = false;
 
     /**
      * OpenAI 兼容端点的基础地址，如 {@code https://api.openai.com/v1}、{@code https://api.deepseek.com}。
-     * 请求时由 {@link AiService} 在其后拼接 {@code /chat/completions}（自动处理结尾斜杠）。
+     * 请求时由 {@link OpenAiCompatibleAiClient} 在其后拼接 {@code /chat/completions}（自动处理结尾斜杠）。
      */
     private volatile String baseUrl = "";
 

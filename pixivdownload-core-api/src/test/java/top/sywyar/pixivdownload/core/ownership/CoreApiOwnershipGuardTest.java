@@ -341,6 +341,13 @@ class CoreApiOwnershipGuardTest {
             "\\b(?:optional\\s+)?(?:AI|TTS|novel|stats|gallery|duplicate|push|mail|notification|douyin|"
                     + "download[- ]workbench|plugin[- ]market|recovery[- ]sentinel|gui[- ]theme)\\s+plugin\\b",
             Pattern.CASE_INSENSITIVE);
+    private static final List<Pattern> PLUGIN_PRIVATE_LAYOUT_PATTERNS = List.of(
+            Pattern.compile(
+                    "novel-(?:\\{(?:id|workId|novelId)\\}|<(?:id|workId|novelId)>|\\d+)",
+                    Pattern.CASE_INSENSITIVE),
+            Pattern.compile("_thumb\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\bdownload\\.root-folder\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("小说独占目录(?:守卫)?|独占目录守卫"));
     private static final Pattern STRING_DECLARATION = Pattern.compile(
             "\\bString\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*([^;]+);", Pattern.DOTALL);
     private static final Pattern STRING_LITERAL = Pattern.compile("\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"");
@@ -735,7 +742,8 @@ class CoreApiOwnershipGuardTest {
         List<String> privateTerms = List.of(
                 "wordCount", "word_count", "textLength", "text_length",
                 "readingTimeSeconds", "reading_time_seconds", "xLanguage", "x_language",
-                "rawContent", "raw_content", "novels_fts");
+                "rawContent", "raw_content", "novels_fts", "uploadTimestamp",
+                "NovelRecord", "NovelSeries", "NovelTagRow");
         for (Path source : productionSources()) {
             String content = Files.readString(source, StandardCharsets.UTF_8);
             for (String term : privateTerms) {
@@ -794,6 +802,8 @@ class CoreApiOwnershipGuardTest {
                  * Capability contributed by the GUI theme plugin.
                  * Capability contributed by the recovery-sentinel plugin.
                  * Capability contributed by the plugin-market plugin.
+                 * Layout examples: novel-{workId} / asset_thumb.jpg below download.root-folder.
+                 * 小说独占目录守卫属于具体 owner。
                  */
                 interface RejectedFixture {
                     String ID = "plugin-market";
@@ -814,7 +824,11 @@ class CoreApiOwnershipGuardTest {
                 .anyMatch(violation -> violation.contains("optional Douyin plugin"))
                 .anyMatch(violation -> violation.contains("GUI theme plugin"))
                 .anyMatch(violation -> violation.contains("recovery-sentinel plugin"))
-                .anyMatch(violation -> violation.contains("plugin-market plugin"));
+                .anyMatch(violation -> violation.contains("plugin-market plugin"))
+                .anyMatch(violation -> violation.contains("novel-{workId}"))
+                .anyMatch(violation -> violation.contains("_thumb"))
+                .anyMatch(violation -> violation.contains("download.root-folder"))
+                .anyMatch(violation -> violation.contains("小说独占目录守卫"));
 
         List<String> constants = concreteOwnerConstantViolations("RejectedFixture.java", rejected);
         assertThat(constants)
@@ -977,6 +991,14 @@ class CoreApiOwnershipGuardTest {
             while (pluginProse.find()) {
                 violations.add(documentationViolation(sourceName, content,
                         offset + pluginProse.start(), "concrete plugin prose", pluginProse.group()));
+            }
+
+            for (Pattern pattern : PLUGIN_PRIVATE_LAYOUT_PATTERNS) {
+                Matcher privateLayout = pattern.matcher(javadoc);
+                while (privateLayout.find()) {
+                    violations.add(documentationViolation(sourceName, content,
+                            offset + privateLayout.start(), "plugin-private layout", privateLayout.group()));
+                }
             }
         }
         return List.copyOf(violations);

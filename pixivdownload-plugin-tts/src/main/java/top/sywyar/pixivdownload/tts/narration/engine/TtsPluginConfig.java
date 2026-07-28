@@ -12,9 +12,8 @@ import org.springframework.stereotype.Component;
  * {@code use-proxy} 决定（per-config，仿 {@code ai.use-proxy} / {@code push.*.use-proxy}），独立于全局
  * {@code proxy.enabled}。
  * <p>
- * 字段全部 {@code volatile}，与 {@link top.sywyar.pixivdownload.ai.AiConfig} /
- * {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 风格一致，便于热重载时安全地被多线程读取。本类只承载
- * 配置数据，请求 / 解析逻辑见各 {@link NarrationVoiceEngine} 实现。
+ * 字段全部 {@code volatile}，便于热重载时安全地被多线程读取。本类只承载配置数据，
+ * 请求 / 解析逻辑见各 {@link NarrationVoiceEngine} 实现。
  */
 @Data
 @Component

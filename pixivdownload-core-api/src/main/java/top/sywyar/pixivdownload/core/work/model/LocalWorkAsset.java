@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.core.work.model;
 
-import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
-
 import java.nio.file.Path;
 import java.util.List;
 
@@ -13,10 +11,10 @@ import java.util.List;
  * @param workType  媒体类型
  * @param workId    作品 ID
  * @param directory 作品文件所在目录（已重定位的作品为重定位后的目录）；下载记录中目录为空、
- *                  或小说独占目录守卫不通过时为 {@code null}
- * @param pageCount 插画为下载记录声明的页数（至少为 1）；小说为枚举到的文件数（可为 0）
- * @param files     磁盘上实际存在的页文件，按页号升序；插画缺页不占位，小说页号为枚举序号
- *                  （见 {@link WorkAssetService} 的小说资产语义）
+ *                  或资产 owner 无法安全解析其私有布局时为 {@code null}
+ * @param pageCount 当前资产快照的文件计数，具体计算方式由资产 owner 定义
+ * @param files     磁盘上实际存在的页文件，按页号升序；拥有稳定页号时保留该页号，
+ *                  否则页号只是在当前快照内有效的临时索引
  */
 public record LocalWorkAsset(
         WorkType workType,
