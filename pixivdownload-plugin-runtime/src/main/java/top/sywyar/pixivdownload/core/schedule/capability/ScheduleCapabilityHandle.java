@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+
 import java.util.Objects;
 
 /**

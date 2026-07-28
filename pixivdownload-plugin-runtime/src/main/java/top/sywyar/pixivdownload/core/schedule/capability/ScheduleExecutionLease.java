@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
@@ -13,7 +14,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /** 一次调度执行的复合租约；所有 owner 由一个根状态和一个附加 owner 分支共同控制。 */
-public final class ScheduleExecutionLease implements AutoCloseable {
+public final class ScheduleExecutionLease
+        implements top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease {
 
     record OwnerState(
             ScheduleCapabilityOwner owner,

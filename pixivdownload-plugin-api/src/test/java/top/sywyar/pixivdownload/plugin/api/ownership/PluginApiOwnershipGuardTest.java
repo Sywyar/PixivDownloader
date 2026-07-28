@@ -125,6 +125,11 @@ class PluginApiOwnershipGuardTest {
                     "PluginRuntimeTask", "PluginRuntimeTaskDrain", "PluginRuntimeTaskRegistrar",
                     "PluginRuntimeTaskRejectedException")),
             Map.entry("计划任务协议", union(
+                    types(API_PREFIX + "schedule.capability",
+                            "ScheduleCapabilityAccess", "ScheduleCapabilityLease",
+                            "ScheduleCapabilityOwner", "ScheduleCapabilityOwnerSnapshot",
+                            "ScheduleCapabilitySnapshot", "ScheduleExecutionLease",
+                            "SchedulePlanningLease"),
                     types(API_PREFIX + "schedule.credential",
                             "ScheduledCredentialBindResult", "ScheduledCredentialContext",
                             "ScheduledCredentialHandle", "ScheduledCredentialPolicy",
@@ -165,7 +170,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("维护任务协议", 3),
             Map.entry("插件推流生命周期协议", 2),
             Map.entry("插件运行期后台任务协议", 4),
-            Map.entry("计划任务协议", 42),
+            Map.entry("计划任务协议", 49),
             Map.entry("队列生命周期协议", 5)
     );
 

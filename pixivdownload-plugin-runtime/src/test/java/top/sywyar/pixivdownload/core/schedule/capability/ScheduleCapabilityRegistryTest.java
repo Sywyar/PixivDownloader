@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptor;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptorProvider;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
@@ -55,6 +57,64 @@ class ScheduleCapabilityRegistryTest {
     private static final String COMPLETE_WORK = "work:complete";
     private static final String COMPLETE_POLICY = "credential:complete";
     private static final String COMPLETE_GUARD = "guard:complete";
+
+    @Test
+    @DisplayName("稳定访问端口保留单能力、planning、复合扩展与 currentness 语义")
+    void stableAccessPortPreservesLeaseAndCurrentnessSemantics() {
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityAccess access = registry;
+        ScheduleCapabilityOwner owner =
+                owner("stable-feature", "stable-package", 1L);
+        Fixture fixture = completeFixture(
+                owner,
+                "source:stable",
+                "SOURCE_STABLE",
+                "work:stable",
+                "credential:stable",
+                "guard:stable");
+        ScheduleCapabilityPublication publication = publish(registry, fixture.bundle());
+
+        assertThat(access.snapshot().owners())
+                .singleElement()
+                .satisfies(snapshot -> {
+                    assertThat(snapshot.owner()).isEqualTo(owner);
+                    assertThat(snapshot.sourceTypes()).containsExactly("source:stable");
+                    assertThat(snapshot.workTypes()).containsExactly("work:stable");
+                });
+        assertThat(access.credentialPolicyOwner("credential:stable"))
+                .contains(owner);
+
+        var ownerLease = access.prepareOwner("stable-feature").orElseThrow();
+        try (ownerLease) {
+            assertThat(access.activate(ownerLease)).isTrue();
+            assertThat(ownerLease.capability()).isEqualTo(owner);
+        }
+
+        var planning = access.prepareSource("SOURCE_STABLE").orElseThrow();
+        try (planning) {
+            assertThat(access.activate(planning)).isTrue();
+            assertThat(access.whileCurrentPublication(planning, () -> "current"))
+                    .contains("current");
+            var execution = access.prepareExpansion(
+                    planning,
+                    plan("work:stable", "credential:stable", "guard:stable"))
+                    .orElseThrow();
+            try (execution) {
+                assertThat(access.activate(execution)).isTrue();
+                assertThat(execution.workExecutor("work:stable"))
+                        .containsSame(fixture.workExecutor());
+                assertThat(execution.credentialPolicy())
+                        .containsSame(fixture.credentialPolicy());
+                assertThat(execution.guard("guard:stable"))
+                        .containsSame(fixture.guard());
+            }
+        }
+
+        ScheduleGenerationDrain drain = registry.withdraw(publication).orElseThrow();
+        assertThat(drain.isDrained()).isTrue();
+        assertThat(access.prepareSource("source:stable")).isEmpty();
+        assertThat(access.snapshot().owners()).isEmpty();
+    }
 
     @Test
     @DisplayName("单能力、planning 与复合扩展取得后的致命错误会补偿全部 owner 租约")

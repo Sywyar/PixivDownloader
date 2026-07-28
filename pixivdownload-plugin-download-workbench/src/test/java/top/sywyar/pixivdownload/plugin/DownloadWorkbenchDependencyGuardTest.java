@@ -88,6 +88,14 @@ class DownloadWorkbenchDependencyGuardTest {
                             appType("plugin.registry.DownloadExtension"));
                 }
             };
+    private static final DescribedPredicate<JavaClass> HOST_SCHEDULE_CAPABILITY_IMPLEMENTATION =
+            new DescribedPredicate<>("host schedule capability implementation") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    return javaClass.getFullName().startsWith(
+                            appType("core.schedule.capability."));
+                }
+            };
     private static final DescribedPredicate<JavaClass> HOST_USERSCRIPT_IMPLEMENTATION =
             new DescribedPredicate<>("host userscript implementation or visitor rate limiter") {
                 @Override
@@ -322,6 +330,34 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("计划任务宿主只通过 plugin-api 稳定端口访问能力")
+    void scheduleHostUsesStableCapabilityAccess() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
+                .should().dependOnClassesThat(HOST_SCHEDULE_CAPABILITY_IMPLEMENTATION)
+                .because("外置工作台不得依赖宿主 ScheduleCapabilityRegistry、publication、lease 或 owner 实现")
+                .check(CLASSES);
+
+        classes()
+                .that().haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.schedule.ScheduleHostPluginConfiguration")
+                .should().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess")
+                .because("child context 必须显式从父 context 注入稳定计划能力访问端口")
+                .check(CLASSES);
+
+        classes()
+                .that().haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine")
+                .should().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess")
+                .because("执行引擎必须通过稳定端口取得 planning 与 execution lease")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("下载工作台脚本入口只消费稳定目录且不自行重复限流")
     void workbenchUsesStableUserscriptCatalog() {
         noClasses()
@@ -441,7 +477,9 @@ class DownloadWorkbenchDependencyGuardTest {
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController",
                         "top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor",
                         "top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor",
-                        "top.sywyar.pixivdownload.schedule.ScheduleExecutor");
+                        "top.sywyar.pixivdownload.schedule.ScheduleExecutor",
+                        "top.sywyar.pixivdownload.schedule.ScheduleHostPluginConfiguration",
+                        "top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine");
     }
 
     private static JavaClasses importPluginClasses() {

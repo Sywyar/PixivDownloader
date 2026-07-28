@@ -10,10 +10,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
@@ -23,6 +19,8 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
@@ -507,8 +505,8 @@ class ScheduleExecutorRunTimingTest {
         ScheduleRunToken queued = new ScheduleRunToken(
                 "claim-host-lease-failure", 1L,
                 top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
-        ScheduleCapabilityRegistry failingRegistry = mock(ScheduleCapabilityRegistry.class);
-        when(failingRegistry.resolveOwner(DownloadWorkbenchPlugin.ID))
+        ScheduleCapabilityAccess failingRegistry = mock(ScheduleCapabilityAccess.class);
+        when(failingRegistry.prepareOwner(DownloadWorkbenchPlugin.ID))
                 .thenThrow(new IllegalStateException("registry unavailable"));
         when(store.releaseQueued(17L, queued, null))
                 .thenReturn(OptionalLong.of(2L));
@@ -591,8 +589,8 @@ class ScheduleExecutorRunTimingTest {
         }).when(store).completeRun(
                 eq(20L), any(ScheduleRunToken.class), any(ScheduleRunCompletion.class));
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishSource(registry);
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishSource(registry);
         ScheduleExecutor leasedExecutor = newExecutor(registry, defaultEngine);
         Thread run = new Thread(
                 () -> leasedExecutor.runTaskAndRecord(task),
@@ -600,7 +598,7 @@ class ScheduleExecutorRunTimingTest {
         run.start();
         try {
             assertThat(finalizationStarted.await(5, TimeUnit.SECONDS)).isTrue();
-            ScheduleGenerationDrain drain =
+            FakeScheduleCapabilityAccess.Drain drain =
                     ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
             assertThat(drain.activeLeaseCount()).isEqualTo(1);
             assertThat(drain.awaitDrained(
@@ -618,13 +616,13 @@ class ScheduleExecutorRunTimingTest {
     }
 
     private ScheduleExecutor genericExecutor(ScheduleExecutionEngine engine) {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         publishSource(registry);
         return newExecutor(registry, engine);
     }
 
     private ScheduleExecutor newExecutor(
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleExecutionEngine engine) {
         return new ScheduleExecutor(
                 store,
@@ -638,7 +636,8 @@ class ScheduleExecutorRunTimingTest {
                 engine);
     }
 
-    private ScheduleCapabilityPublication publishSource(ScheduleCapabilityRegistry registry) {
+    private FakeScheduleCapabilityAccess.Publication publishSource(
+            FakeScheduleCapabilityAccess registry) {
         ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
             @Override
             public String sourceType() {

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+
 /**
  * 精确标识一次 owner 全量发布；同 generation 的 context 重建也会获得不同 publicationId。
  *

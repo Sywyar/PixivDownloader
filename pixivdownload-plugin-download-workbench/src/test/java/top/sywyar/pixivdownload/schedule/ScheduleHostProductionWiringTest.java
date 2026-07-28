@@ -7,10 +7,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.test.util.ReflectionTestUtils;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
@@ -29,7 +29,7 @@ class ScheduleHostProductionWiringTest {
     @Test
     @DisplayName("Spring Bean 工厂只保留接收通用执行引擎的九依赖装配")
     void springFactoryWiresGenericExecutionEngine() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
 
         ScheduleExecutor executor = productionExecutor(registry, engine);
@@ -45,7 +45,7 @@ class ScheduleHostProductionWiringTest {
                     assertThat(method.getAnnotation(Bean.class)).isNotNull();
                     assertThat(method.getParameterTypes()).containsExactly(
                             ScheduledTaskStore.class,
-                            ScheduleCapabilityRegistry.class,
+                            ScheduleCapabilityAccess.class,
                             ScheduleRunState.class,
                             ObjectMapper.class,
                             NotificationDispatcher.class,
@@ -59,7 +59,7 @@ class ScheduleHostProductionWiringTest {
     @Test
     @DisplayName("来源可解析性只委派给通用执行引擎，不再读取旧来源桥")
     void productionExecutorDelegatesResolutionToGenericEngine() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        ScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
         ScheduleExecutor executor = productionExecutor(registry, engine);
         ScheduledTask task = mock(ScheduledTask.class);
@@ -70,7 +70,7 @@ class ScheduleHostProductionWiringTest {
     }
 
     private static ScheduleExecutor productionExecutor(
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleExecutionEngine engine) {
         ScheduleHostPluginConfiguration configuration = new ScheduleHostPluginConfiguration();
         ObjectMapper objectMapper = new ObjectMapper();

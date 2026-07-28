@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+
 /**
  * 一次尚未对读者可见的计划任务能力发布预留。
  *

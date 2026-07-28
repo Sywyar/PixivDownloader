@@ -9,10 +9,10 @@ import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
@@ -70,7 +70,7 @@ public final class ScheduleExecutionEngine {
     public static final int MAX_WORK_IN_FLIGHT = ScheduleExecutionPlanGate.MAX_IN_FLIGHT;
 
     private final ScheduledTaskStore store;
-    private final ScheduleCapabilityRegistry registry;
+    private final ScheduleCapabilityAccess registry;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
     private final ScheduleConfig config;
@@ -82,7 +82,7 @@ public final class ScheduleExecutionEngine {
 
     ScheduleExecutionEngine(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
             ScheduleConfig config,
@@ -96,7 +96,7 @@ public final class ScheduleExecutionEngine {
 
     public ScheduleExecutionEngine(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
             ScheduleConfig config,

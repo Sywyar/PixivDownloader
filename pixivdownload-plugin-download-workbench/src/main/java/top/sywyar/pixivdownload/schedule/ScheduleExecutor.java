@@ -8,11 +8,11 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
@@ -55,7 +55,7 @@ public class ScheduleExecutor {
 
     private final ScheduledTaskStore store;
     /** owner 原子来源与作品能力 registry；所有插件行为只在 generation lease 内调用。 */
-    private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
+    private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
     private final ScheduleRunState runState;
     private final ObjectMapper objectMapper;
     private final NotificationDispatcher notificationDispatcher;
@@ -66,7 +66,7 @@ public class ScheduleExecutor {
 
     public ScheduleExecutor(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+            ScheduleCapabilityAccess scheduleCapabilityRegistry,
             ScheduleRunState runState,
             ObjectMapper objectMapper,
             NotificationDispatcher notificationDispatcher,
@@ -119,7 +119,7 @@ public class ScheduleExecutor {
             long taskId,
             ScheduleRunState.Claim claim,
             ScheduleRunToken queuedToken,
-            ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease) {
+            ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease) {
         try (hostLease) {
             if (hostLease.cancellation().isCancellationRequested()) {
                 try {
@@ -168,7 +168,7 @@ public class ScheduleExecutor {
      * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
+        ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
         try (hostLease) {
             if (hostLease == null || !scheduleCapabilityRegistry.activate(hostLease)) {
                 log.debug("Scheduled task {} ({}) skipped: schedule host is quiesced", task.id(), task.name());
@@ -213,7 +213,7 @@ public class ScheduleExecutor {
             ScheduledTask task,
             ScheduleRunState.Claim claim,
             ScheduleRunToken queuedToken) {
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease;
+        ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease;
         try {
             hostLease = prepareHostLease();
         } catch (Throwable e) {
@@ -371,12 +371,8 @@ public class ScheduleExecutor {
         throw new IllegalStateException("active schedule claim could not be finalized");
     }
 
-    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
-        var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
-        if (handle == null) {
-            return null;
-        }
-        return scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
+    private ScheduleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
+        return scheduleCapabilityRegistry.prepareOwner(DownloadWorkbenchPlugin.ID).orElse(null);
     }
 
     /**

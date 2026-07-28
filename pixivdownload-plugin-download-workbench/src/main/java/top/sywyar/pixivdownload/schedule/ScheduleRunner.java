@@ -3,12 +3,12 @@ package top.sywyar.pixivdownload.schedule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -37,19 +37,15 @@ public class ScheduleRunner {
     private final ScheduleExecutor executor;
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
-    private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
+    private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
 
     /** 单飞：上一轮 tick 仍在跑（任务多 / 抓取慢）时直接跳过本轮，避免重入。 */
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Scheduled(fixedDelayString = "${schedule.tick-interval-ms:60000}")
     public void tick() {
-        var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
-        if (handle == null) {
-            return;
-        }
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease =
-                scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
+        ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease =
+                scheduleCapabilityRegistry.prepareOwner(DownloadWorkbenchPlugin.ID).orElse(null);
         try (hostLease) {
             if (hostLease == null || !scheduleCapabilityRegistry.activate(hostLease)) {
                 return;

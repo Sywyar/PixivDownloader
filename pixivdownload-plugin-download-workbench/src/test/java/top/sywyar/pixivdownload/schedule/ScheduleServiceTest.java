@@ -17,11 +17,6 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
@@ -29,6 +24,8 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
@@ -107,8 +104,8 @@ class ScheduleServiceTest {
             new TransactionTemplate(NO_OP_TRANSACTION_MANAGER);
 
     /** 默认空统一能力注册中心（多数用例不触发翻译状态叠加）。 */
-    private static ScheduleCapabilityRegistry emptyCapabilityRegistry() {
-        return new ScheduleCapabilityRegistry();
+    private static FakeScheduleCapabilityAccess emptyCapabilityRegistry() {
+        return new FakeScheduleCapabilityAccess();
     }
 
     private ScheduleService newService() {
@@ -116,7 +113,7 @@ class ScheduleServiceTest {
     }
 
     private ScheduleService newService(ScheduleRunState runState,
-                                       ScheduleCapabilityRegistry capabilityRegistry) {
+                                       FakeScheduleCapabilityAccess capabilityRegistry) {
         return new ScheduleService(
                 store, executor, new ScheduleConfig(), runState, runQueue,
                 objectMapper, persistenceCodec, scheduleExecutionEngine,
@@ -388,14 +385,14 @@ class ScheduleServiceTest {
         when(store.findById(taskId)).thenReturn(task(taskId));
         when(store.tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString()))
                 .thenReturn(Optional.of(runToken));
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = newService(runState, registry);
         AtomicReference<ScheduleRunState.Claim> transferredClaim = new AtomicReference<>();
         AtomicReference<ScheduleRunToken> transferredToken = new AtomicReference<>();
-        AtomicReference<ScheduleSingleCapabilityLease<ScheduleCapabilityOwner>> transferredLease =
+        AtomicReference<ScheduleCapabilityLease<ScheduleCapabilityOwner>> transferredLease =
                 new AtomicReference<>();
         doAnswer(invocation -> {
             transferredClaim.set(invocation.getArgument(1));
@@ -408,7 +405,7 @@ class ScheduleServiceTest {
 
         verify(store).tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString());
         assertThat(transferredToken.get()).isSameAs(runToken);
-        ScheduleGenerationDrain drain =
+        FakeScheduleCapabilityAccess.Drain drain =
                 ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(runState.get(taskId)).isEqualTo(ScheduleRunState.QUEUED);
         assertThat(drain.activeLeaseCount()).isEqualTo(1);
@@ -430,8 +427,8 @@ class ScheduleServiceTest {
         when(store.findById(taskId)).thenReturn(task(taskId));
         when(store.tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString()))
                 .thenReturn(Optional.of(runToken));
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
         doThrow(new IllegalStateException("rejected"))
@@ -454,8 +451,8 @@ class ScheduleServiceTest {
         when(store.findById(taskId)).thenReturn(task(taskId));
         when(store.tryQueueNow(eq(taskId), eq(STATE_VERSION), anyString()))
                 .thenReturn(Optional.empty());
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
 
@@ -479,8 +476,8 @@ class ScheduleServiceTest {
                     claimToken.set(invocation.getArgument(2));
                     throw new IllegalStateException("queue write failed");
                 });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
 
@@ -507,8 +504,8 @@ class ScheduleServiceTest {
                     claimToken.set(invocation.getArgument(2));
                     throw queueFailure;
                 });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication =
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication =
                 ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry, List.of());
         ScheduleRunState runState = new ScheduleRunState();
 
@@ -862,8 +859,8 @@ class ScheduleServiceTest {
                         "phase", "TRANSLATING",
                         "elapsedSeconds", "5",
                         "seriesPending", "0"));
-        ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
+        FakeScheduleCapabilityAccess capabilityRegistry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = ScheduleCapabilityTestFixture.publish(
                 capabilityRegistry,
                 new ScheduleCapabilityOwner("novel", "novel", 1L),
                 List.of(),
@@ -918,8 +915,8 @@ class ScheduleServiceTest {
                 return status.get();
             }
         };
-        ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
+        FakeScheduleCapabilityAccess capabilityRegistry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = ScheduleCapabilityTestFixture.publish(
                 capabilityRegistry,
                 new ScheduleCapabilityOwner("novel", "novel", 1L),
                 List.of(),
@@ -972,8 +969,8 @@ class ScheduleServiceTest {
         when(novelExecutor.status(new ScheduledWorkKey(
                 PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL, "444")))
                 .thenThrow(new IllegalStateException("plugin child failure"));
-        ScheduleCapabilityRegistry capabilityRegistry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = ScheduleCapabilityTestFixture.publish(
+        FakeScheduleCapabilityAccess capabilityRegistry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = ScheduleCapabilityTestFixture.publish(
                 capabilityRegistry,
                 new ScheduleCapabilityOwner("novel", "novel", 1L),
                 List.of(),

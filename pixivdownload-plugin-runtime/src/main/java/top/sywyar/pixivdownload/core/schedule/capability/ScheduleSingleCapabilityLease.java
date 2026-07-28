@@ -1,11 +1,13 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 
 import java.util.Objects;
 
 /** 短时读取单个行为能力的租约；由调用方先持有对象，再在 try/finally 内激活。 */
-public final class ScheduleSingleCapabilityLease<T> implements AutoCloseable {
+public final class ScheduleSingleCapabilityLease<T> implements ScheduleCapabilityLease<T> {
 
     private final ScheduleCapabilityHandle<T> handle;
     private final ScheduleLeaseState leaseState;

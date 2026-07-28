@@ -8,13 +8,8 @@ import org.springframework.core.task.SyncTaskExecutor;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
@@ -25,6 +20,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecut
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
+import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
@@ -47,7 +44,7 @@ class SchedulePluginExceptionBoundaryTest {
 
     private record ExceptionBoundaryHandles(
             ScheduledExecutionException normalized,
-            ScheduleGenerationDrain drain,
+            FakeScheduleCapabilityAccess.Drain drain,
             WeakReference<Object> pluginFailure,
             WeakReference<Object> pluginCause,
             WeakReference<ClassLoader> classLoader) {
@@ -80,9 +77,9 @@ class SchedulePluginExceptionBoundaryTest {
 
     /** 独立栈帧负责持有并释放临时 loader、插件异常类和来源 Bean 的全部强引用。 */
     private static ExceptionBoundaryHandles executeTemporaryPluginFailure() throws Exception {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        AtomicReference<ScheduleCapabilityPublication> publication = new AtomicReference<>();
-        AtomicReference<ScheduleGenerationDrain> drain = new AtomicReference<>();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        AtomicReference<FakeScheduleCapabilityAccess.Publication> publication = new AtomicReference<>();
+        AtomicReference<FakeScheduleCapabilityAccess.Drain> drain = new AtomicReference<>();
         AtomicReference<WeakReference<Object>> pluginFailure = new AtomicReference<>();
         AtomicReference<WeakReference<Object>> pluginCause = new AtomicReference<>();
         ProbeClassLoader probeClassLoader = new ProbeClassLoader(
@@ -102,8 +99,9 @@ class SchedulePluginExceptionBoundaryTest {
             @Override
             public ScheduledExecutionPlan plan(ScheduledTaskDefinition task)
                     throws ScheduledExecutionException {
-                ScheduleGenerationDrain withdrawn = ScheduleCapabilityRegistryTestAccess.withdraw(
-                        registry, publication.get()).orElseThrow();
+                FakeScheduleCapabilityAccess.Drain withdrawn =
+                        ScheduleCapabilityTestFixture.withdraw(
+                                registry, publication.get()).orElseThrow();
                 drain.set(withdrawn);
                 ScheduledExecutionException failure = newPluginFailure(
                         failureClass, () -> withdrawn.activeLeaseCount() > 0);
@@ -122,8 +120,8 @@ class SchedulePluginExceptionBoundaryTest {
                 new ScheduledSourcePresentation(
                         "fixture", "source.label", "source.summary", "schedule", "neutral"),
                 Set.of("fixture"), Set.of("fixture-work"), Set.of(), Set.of(), null);
-        publication.set(ScheduleCapabilityRegistryTestAccess.publish(
-                registry, ScheduleOwnerBundle.prepare(
+        publication.set(ScheduleCapabilityTestFixture.publish(
+                registry, ScheduleCapabilityTestFixture.bundle(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
                         List.of(descriptor), List.of(source),
                         List.of(), List.of(), List.of())));
@@ -161,7 +159,7 @@ class SchedulePluginExceptionBoundaryTest {
 
     private static ScheduleExecutionEngine engine(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry registry) {
+            FakeScheduleCapabilityAccess registry) {
         ScheduleConfig config = new ScheduleConfig();
         OutboundProxySettings direct = new OutboundProxySettings() {
             @Override

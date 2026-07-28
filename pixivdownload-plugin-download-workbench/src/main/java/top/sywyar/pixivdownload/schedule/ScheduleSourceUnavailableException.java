@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.schedule;
 
 /**
  * 来源能力不可用信号：任务的来源无法从
- * {@link top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry} 取得 generation lease，
+ * {@link top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess} 取得 generation lease，
  * 或持久化 owner 与当前 publication 不匹配。作品执行器缺席使用独立的
  * {@link ScheduleExecutorUnavailableException}，不得混淆两种恢复原因。
  *

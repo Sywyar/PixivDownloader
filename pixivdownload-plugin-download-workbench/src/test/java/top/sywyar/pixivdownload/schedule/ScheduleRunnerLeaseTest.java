@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.schedule;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
@@ -39,7 +38,7 @@ class ScheduleRunnerLeaseTest {
                 mock(ScheduleExecutor.class),
                 new ScheduleConfig(),
                 new ScheduleRunState(),
-                new ScheduleCapabilityRegistry());
+                new FakeScheduleCapabilityAccess());
 
         runner.tick();
 
@@ -57,7 +56,7 @@ class ScheduleRunnerLeaseTest {
             assertThat(allowLookup.await(5, TimeUnit.SECONDS)).isTrue();
             return List.of();
         });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store,
@@ -99,7 +98,7 @@ class ScheduleRunnerLeaseTest {
         when(store.tryQueueDue(eq(31L), eq(7L), anyString(), anyLong()))
                 .thenReturn(Optional.empty());
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store, executor, new ScheduleConfig(), runState, registry);
@@ -140,7 +139,7 @@ class ScheduleRunnerLeaseTest {
                     throw new IllegalStateException("claim write failed");
                 });
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store, executor, new ScheduleConfig(), runState, registry);
@@ -166,12 +165,12 @@ class ScheduleRunnerLeaseTest {
         when(task.nextRunTime()).thenReturn(8_000L);
         when(store.findDue(anyLong())).thenReturn(List.of(task));
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         var publication = ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunToken queuedToken = new ScheduleRunToken(
                 "claim-host-cancel", 13L,
                 top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
-        AtomicReference<top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain> drain =
+        AtomicReference<FakeScheduleCapabilityAccess.Drain> drain =
                 new AtomicReference<>();
         when(store.tryQueueDue(eq(41L), eq(12L), anyString(), anyLong()))
                 .thenAnswer(invocation -> {
@@ -234,7 +233,7 @@ class ScheduleRunnerLeaseTest {
                 anyLong(), eq("CLAIM_ABANDONED"), isNull(), eq(9_000L)))
                 .thenReturn(OptionalLong.of(23L));
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         AtomicBoolean previousFinished = new AtomicBoolean();
         when(store.startRun(52L, waitingToken)).thenAnswer(invocation -> {
@@ -289,7 +288,7 @@ class ScheduleRunnerLeaseTest {
         when(store.findAll()).thenReturn(List.of(orphan));
         when(store.findDue(anyLong())).thenReturn(List.of());
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
                 store, executor, new ScheduleConfig(), runState, registry);

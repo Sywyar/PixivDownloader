@@ -11,12 +11,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
@@ -40,7 +40,7 @@ import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
  * contribution 保证）。调度壳<b>不</b>直接拿 MyBatis {@code ScheduledTaskMapper} 做自由 SQL，而是经核心 owned、
  * 根包扫描的语义 Store {@code core.schedule.ScheduledTaskStore} 读写——由 Spring 注入这些 {@code @Bean}。
  * <p>
- * <b>依赖方向：</b>调度壳只经 plugin-api 计划契约与 {@link ScheduleCapabilityRegistry} generation lease
+ * <b>依赖方向：</b>调度壳只经 plugin-api 计划契约与 {@link ScheduleCapabilityAccess} generation lease
  * 调用来源、作品、凭证和 Guard 能力；具体 Pixiv / 小说执行实现由各 owner 的 child context 贡献。
  * 来源与作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
  */
@@ -108,7 +108,7 @@ public class ScheduleHostPluginConfiguration {
     @Bean
     public ScheduleExecutionEngine scheduleExecutionEngine(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+            ScheduleCapabilityAccess scheduleCapabilityRegistry,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
             ScheduleConfig scheduleConfig,
@@ -138,7 +138,7 @@ public class ScheduleHostPluginConfiguration {
 
     @Bean
     public ScheduleExecutor scheduleExecutor(ScheduledTaskStore store,
-                                             ScheduleCapabilityRegistry scheduleCapabilityRegistry,
+                                             ScheduleCapabilityAccess scheduleCapabilityRegistry,
                                              ScheduleRunState runState,
                                              ObjectMapper objectMapper,
                                              NotificationDispatcher notificationDispatcher,
@@ -162,7 +162,7 @@ public class ScheduleHostPluginConfiguration {
                                            PixivSchedulePersistenceCodec persistenceCodec,
                                            ScheduleExecutionEngine scheduleExecutionEngine,
                                            PlatformTransactionManager transactionManager,
-                                           ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
+                                           ScheduleCapabilityAccess scheduleCapabilityRegistry) {
         return new ScheduleService(store, executor, config, runState, runQueue,
                 objectMapper, persistenceCodec, scheduleExecutionEngine,
                 new TransactionTemplate(transactionManager), scheduleCapabilityRegistry);
@@ -173,7 +173,7 @@ public class ScheduleHostPluginConfiguration {
                                          ScheduleExecutor executor,
                                          ScheduleConfig config,
                                          ScheduleRunState runState,
-                                         ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
+                                         ScheduleCapabilityAccess scheduleCapabilityRegistry) {
         return new ScheduleRunner(store, executor, config, runState, scheduleCapabilityRegistry);
     }
 

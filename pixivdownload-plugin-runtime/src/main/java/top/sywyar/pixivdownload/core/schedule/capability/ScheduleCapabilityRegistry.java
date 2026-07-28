@@ -3,6 +3,11 @@ package top.sywyar.pixivdownload.core.schedule.capability;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationRoute;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwnerSnapshot;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilitySnapshot;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
@@ -30,7 +35,7 @@ import java.util.function.Predicate;
  * resolve 只返回纯值句柄，调用插件行为前必须取得代际租约。
  */
 @Component
-public class ScheduleCapabilityRegistry {
+public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
 
     /** 已验证 reservation 对应的迁移纯值快照；它本身不授予迁移权限。 */
     public record ReservedMigrationSnapshot(
@@ -276,6 +281,26 @@ public class ScheduleCapabilityRegistry {
 
     public SnapshotView snapshotView() {
         return snapshot.view();
+    }
+
+    @Override
+    public ScheduleCapabilitySnapshot snapshot() {
+        SnapshotView current = snapshotView();
+        return new ScheduleCapabilitySnapshot(
+                current.epoch(),
+                current.revision(),
+                current.owners().stream()
+                        .map(owner -> new ScheduleCapabilityOwnerSnapshot(
+                                owner.owner(),
+                                owner.publicationId(),
+                                owner.activationToken(),
+                                owner.sourceTypes(),
+                                owner.sourceAliases(),
+                                owner.workTypes(),
+                                owner.credentialPolicyIds(),
+                                owner.guardIds(),
+                                owner.sourceDescriptors()))
+                        .toList());
     }
 
     /**
@@ -536,6 +561,12 @@ public class ScheduleCapabilityRegistry {
         return Optional.empty();
     }
 
+    @Override
+    public Optional<ScheduleSingleCapabilityLease<ScheduleCapabilityOwner>> prepareOwner(
+            String featurePluginId) {
+        return resolveOwner(featurePluginId).flatMap(this::prepareAcquire);
+    }
+
     public Optional<ScheduleCapabilityHandle<ScheduledSourceDescriptor>> resolveSourceDescriptor(
             String sourceTypeOrAlias) {
         SourceRoute route = find(snapshot.sourcesByName(), sourceTypeOrAlias);
@@ -561,11 +592,22 @@ public class ScheduleCapabilityRegistry {
                 route.workType(), route.owner(), route.publicationId()));
     }
 
+    @Override
+    public Optional<ScheduleSingleCapabilityLease<ScheduledWorkExecutor>> prepareWorkExecutor(
+            String workType) {
+        return resolveWorkExecutor(workType).flatMap(this::prepareAcquire);
+    }
+
     public Optional<ScheduleCapabilityHandle<ScheduledCredentialPolicy>> resolveCredentialPolicy(String policyId) {
         CapabilityEntry<ScheduledCredentialPolicy> entry = find(snapshot.credentialPolicies(), policyId);
         return entry == null ? Optional.empty() : Optional.of(handle(
                 ScheduleCapabilityHandle.Kind.CREDENTIAL_POLICY, entry.capabilityId(), entry.owner(),
                 entry.publicationId()));
+    }
+
+    @Override
+    public Optional<ScheduleCapabilityOwner> credentialPolicyOwner(String policyId) {
+        return resolveCredentialPolicy(policyId).map(ScheduleCapabilityHandle::owner);
     }
 
     public Optional<ScheduleCapabilityHandle<ScheduledExecutionGuard>> resolveGuard(String guardId) {
@@ -621,6 +663,14 @@ public class ScheduleCapabilityRegistry {
             postLeaseAcquireProbe.run();
             return true;
         }
+    }
+
+    @Override
+    public boolean activate(ScheduleCapabilityLease<?> lease) {
+        if (!(lease instanceof ScheduleSingleCapabilityLease<?> concreteLease)) {
+            return false;
+        }
+        return activate(concreteLease);
     }
 
     /**
@@ -682,6 +732,15 @@ public class ScheduleCapabilityRegistry {
         }
     }
 
+    @Override
+    public boolean activate(
+            top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease lease) {
+        if (!(lease instanceof SchedulePlanningLease concreteLease)) {
+            return false;
+        }
+        return activate(concreteLease);
+    }
+
     /**
      * 仅当来源 planning 仍属于当前 publication 时执行一次短宿主持久化操作。
      *
@@ -715,6 +774,17 @@ public class ScheduleCapabilityRegistry {
         }
     }
 
+    @Override
+    public <T> Optional<T> whileCurrentPublication(
+            top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease planning,
+            Supplier<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        if (!(planning instanceof SchedulePlanningLease concretePlanning)) {
+            return Optional.empty();
+        }
+        return whileCurrentPublication(concretePlanning, operation);
+    }
+
     /**
      * 按新 execution plan 一次取得全部 work/policy/Guard owner；任一缺失或 owner 正在撤回时不取得部分租约。
      */
@@ -737,6 +807,18 @@ public class ScheduleCapabilityRegistry {
             policyId = normalizedId(policyId, "credential policy id");
         }
         return prepareExpansion(planning, workTypes, policyId, guardIds);
+    }
+
+    @Override
+    public Optional<? extends top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease>
+            prepareExpansion(
+                    top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease planning,
+                    ScheduledExecutionPlan plan) {
+        Objects.requireNonNull(plan, "plan");
+        if (!(planning instanceof SchedulePlanningLease concretePlanning)) {
+            return Optional.empty();
+        }
+        return prepareExpansion(concretePlanning, plan);
     }
 
     private Optional<ScheduleExecutionLease> prepareExpansion(
@@ -895,6 +977,15 @@ public class ScheduleCapabilityRegistry {
             postLeaseAcquireProbe.run();
             return true;
         }
+    }
+
+    @Override
+    public boolean activate(
+            top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease execution) {
+        if (!(execution instanceof ScheduleExecutionLease concreteExecution)) {
+            return false;
+        }
+        return activate(concreteExecution);
     }
 
     private boolean matchesOwnerState(ScheduleExecutionLease.OwnerState expected) {

@@ -9,13 +9,9 @@ import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
@@ -46,6 +42,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
+import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
 import top.sywyar.pixivdownload.schedule.ScheduleDefinitionException;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
@@ -514,21 +512,23 @@ class ScheduleExecutionEngineTest {
     @Test
     @DisplayName("旧 activation token 在新 publication 上于来源回调前拒绝且不探活凭证")
     void staleActivationTokenNeverReachesReplacementSourceOrPolicy() throws Exception {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduledWorkExecutor work = workExecutor(context -> ScheduledWorkResult.completed());
         ScheduledExecutionGuard guard = guard(context -> ScheduledGuardDecision.proceed());
         ScheduledSourceExecutor sourceA = sourceWithPlan(
                 plan(Set.of(WORK), List.of(new ScheduledGuardBinding(
                         GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0))),
                 context -> ScheduledDiscoveryResult.withoutCheckpoint());
-        ScheduleCapabilityPublication publicationA = ScheduleCapabilityRegistryTestAccess.publish(
-                registry,
-                bindingBundle(
-                        new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
-                        sourceA, work, bindingPolicy(new AtomicInteger()), guard));
+        FakeScheduleCapabilityAccess.Publication publicationA =
+                ScheduleCapabilityTestFixture.publish(
+                        registry,
+                        bindingBundle(
+                                new ScheduleCapabilityOwner(
+                                        "fixture", "fixture-package", 1L),
+                                sourceA, work, bindingPolicy(new AtomicInteger()), guard));
         String activationA = activationToken(registry);
-        ScheduleGenerationDrain drainA = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publicationA).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drainA =
+                ScheduleCapabilityTestFixture.withdraw(registry, publicationA).orElseThrow();
         assertThat(drainA.isDrained()).isTrue();
 
         AtomicInteger replacementPlans = new AtomicInteger();
@@ -552,7 +552,7 @@ class ScheduleExecutionEngineTest {
                 return ScheduledDiscoveryResult.withoutCheckpoint();
             }
         };
-        ScheduleCapabilityRegistryTestAccess.publish(
+        ScheduleCapabilityTestFixture.publish(
                 registry,
                 bindingBundle(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),
@@ -570,32 +570,34 @@ class ScheduleExecutionEngineTest {
     @Test
     @DisplayName("已取得旧 publication 复合租约后切换代际不会把凭证交给任一策略")
     void acquiredBindingLeaseIsCancelledAcrossPublicationSwitchBeforeProbe() throws Exception {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduledWorkExecutor work = workExecutor(context -> ScheduledWorkResult.completed());
         ScheduledExecutionGuard guard = guard(context -> ScheduledGuardDecision.proceed());
         ScheduledExecutionPlan executionPlan = plan(
                 Set.of(WORK), List.of(new ScheduledGuardBinding(
                         GUARD, Set.of(ScheduledGuardPoint.RUN_START), 0)));
         AtomicInteger oldProbes = new AtomicInteger();
-        ScheduleCapabilityPublication publicationA = ScheduleCapabilityRegistryTestAccess.publish(
-                registry,
-                bindingBundle(
-                        new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
-                        sourceWithPlan(
-                                executionPlan,
-                                context -> ScheduledDiscoveryResult.withoutCheckpoint()),
-                        work, bindingPolicy(oldProbes), guard));
+        FakeScheduleCapabilityAccess.Publication publicationA =
+                ScheduleCapabilityTestFixture.publish(
+                        registry,
+                        bindingBundle(
+                                new ScheduleCapabilityOwner(
+                                        "fixture", "fixture-package", 1L),
+                                sourceWithPlan(
+                                        executionPlan,
+                                        context -> ScheduledDiscoveryResult.withoutCheckpoint()),
+                                work, bindingPolicy(oldProbes), guard));
         String activationA = activationToken(registry);
         ScheduleExecutionEngine engine = engine(
                 mock(ScheduledTaskStore.class), registry,
                 new ScheduleRunState(), new SyncTaskExecutor());
 
-        ScheduleGenerationDrain drainA;
+        FakeScheduleCapabilityAccess.Drain drainA;
         AtomicInteger replacementPlans = new AtomicInteger();
         AtomicInteger replacementProbes = new AtomicInteger();
         try (ScheduleCredentialBindingLease binding = engine.prepareCredentialBinding(
                 task(), activationA)) {
-            drainA = ScheduleCapabilityRegistryTestAccess.withdraw(
+            drainA = ScheduleCapabilityTestFixture.withdraw(
                     registry, publicationA).orElseThrow();
             ScheduledSourceExecutor sourceB = new ScheduledSourceExecutor() {
                 @Override
@@ -614,7 +616,7 @@ class ScheduleExecutionEngineTest {
                     return ScheduledDiscoveryResult.withoutCheckpoint();
                 }
             };
-            ScheduleCapabilityRegistryTestAccess.publish(
+            ScheduleCapabilityTestFixture.publish(
                     registry,
                     bindingBundle(
                             new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),
@@ -1132,8 +1134,8 @@ class ScheduleExecutionEngineTest {
             }
             return ScheduledGuardDecision.proceed();
         });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishExecutionFixture(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry,
                 sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
                 List.of(workExecutor(context -> ScheduledWorkResult.completed())),
@@ -1142,8 +1144,8 @@ class ScheduleExecutionEngineTest {
                 Set.of(GUARD));
 
         // 用包含 fatal policy 的 owner 替换普通 fixture。
-        ScheduleCapabilityRegistryTestAccess.withdraw(registry, publication).orElseThrow();
-        publication = ScheduleCapabilityRegistryTestAccess.publish(
+        ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
+        publication = ScheduleCapabilityTestFixture.publish(
                 registry,
                 bindingBundle(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),
@@ -1163,8 +1165,8 @@ class ScheduleExecutionEngineTest {
 
         assertThat(observed).isSameAs(fatal);
         assertThat(failureGuards).hasValue(0);
-        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publication).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drain =
+                ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -1417,7 +1419,7 @@ class ScheduleExecutionEngineTest {
             workExecutions.incrementAndGet();
             return ScheduledWorkResult.completed();
         });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner(
                 "fixture", "fixture-package", 1L);
         ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
@@ -1425,12 +1427,13 @@ class ScheduleExecutionEngineTest {
                 new ScheduledSourcePresentation(
                         "fixture", "source.label", "source.summary", "schedule", "neutral"),
                 Set.of("fixture"), Set.of(WORK), Set.of(POLICY), Set.of(GUARD), null);
-        ScheduleCapabilityPublication publication = ScheduleCapabilityRegistryTestAccess.publish(
-                registry, ScheduleOwnerBundle.prepare(
-                        owner, List.of(descriptor), List.of(source),
-                        List.of(executor),
-                        List.of(credentialPolicy(new AtomicReference<>())),
-                        List.of(guard(context -> ScheduledGuardDecision.proceed()))));
+        FakeScheduleCapabilityAccess.Publication publication =
+                ScheduleCapabilityTestFixture.publish(
+                        registry, ScheduleCapabilityTestFixture.bundle(
+                                owner, List.of(descriptor), List.of(source),
+                                List.of(executor),
+                                List.of(credentialPolicy(new AtomicReference<>())),
+                                List.of(guard(context -> ScheduledGuardDecision.proceed()))));
         ScheduleExecutionEngine engine = engine(
                 store, registry, new ScheduleRunState(), queuedExecutor);
         ExecutorService caller = Executors.newSingleThreadExecutor();
@@ -1445,8 +1448,9 @@ class ScheduleExecutionEngineTest {
             });
 
             assertThat(dispatched.await(5, TimeUnit.SECONDS)).isTrue();
-            ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                    registry, publication).orElseThrow();
+            FakeScheduleCapabilityAccess.Drain drain =
+                    ScheduleCapabilityTestFixture.withdraw(
+                            registry, publication).orElseThrow();
             assertThat(drain.activeLeaseCount()).isEqualTo(1);
             assertThat(drain.isDrained()).isFalse();
 
@@ -1472,9 +1476,10 @@ class ScheduleExecutionEngineTest {
         String secondGuardId = "fixture-guard-second";
         AtomicInteger discoveryCalls = new AtomicInteger();
         AtomicInteger secondGuardCalls = new AtomicInteger();
-        AtomicReference<ScheduleCapabilityPublication> publication = new AtomicReference<>();
-        AtomicReference<ScheduleGenerationDrain> withdrawn = new AtomicReference<>();
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        AtomicReference<FakeScheduleCapabilityAccess.Publication> publication =
+                new AtomicReference<>();
+        AtomicReference<FakeScheduleCapabilityAccess.Drain> withdrawn = new AtomicReference<>();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
             @Override
             public String sourceType() {
@@ -1507,7 +1512,7 @@ class ScheduleExecutionEngineTest {
 
             @Override
             public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
-                withdrawn.set(ScheduleCapabilityRegistryTestAccess.withdraw(
+                withdrawn.set(ScheduleCapabilityTestFixture.withdraw(
                         registry, publication.get()).orElseThrow());
                 return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
@@ -1532,8 +1537,8 @@ class ScheduleExecutionEngineTest {
                         "fixture", "source.label", "source.summary", "schedule", "neutral"),
                 Set.of("fixture"), Set.of(WORK), Set.of(POLICY),
                 Set.of(firstGuardId, secondGuardId), null);
-        publication.set(ScheduleCapabilityRegistryTestAccess.publish(
-                registry, ScheduleOwnerBundle.prepare(
+        publication.set(ScheduleCapabilityTestFixture.publish(
+                registry, ScheduleCapabilityTestFixture.bundle(
                         owner, List.of(descriptor), List.of(source),
                         List.of(workExecutor(context -> ScheduledWorkResult.completed())),
                         List.of(credentialPolicy(new AtomicReference<>())),
@@ -1700,8 +1705,8 @@ class ScheduleExecutionEngineTest {
                         "fixture", "source.label", "source.summary", "schedule", "neutral"),
                 Set.of("fixture"), Set.of(WORK, secondWorkType),
                 Set.of(POLICY), Set.of(GUARD, secondGuardId), null);
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        publish(registry, ScheduleOwnerBundle.prepare(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        publish(registry, ScheduleCapabilityTestFixture.bundle(
                 new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
                 List.of(descriptor), List.of(source),
                 List.of(firstWork, secondWork),
@@ -1753,7 +1758,7 @@ class ScheduleExecutionEngineTest {
                     "fixture.second-fail",
                     0L);
         });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         publishExecutionFixture(
                 registry,
                 source,
@@ -1806,8 +1811,8 @@ class ScheduleExecutionEngineTest {
                 aborts.incrementAndGet();
             }
         };
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishExecutionFixture(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry, source, List.of(work), List.of(), Set.of(WORK), Set.of());
 
         ThreadDeath observed;
@@ -1821,8 +1826,8 @@ class ScheduleExecutionEngineTest {
 
         assertThat(observed).isSameAs(fatal);
         assertThat(aborts).hasValue(1);
-        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publication).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drain =
+                ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -1860,8 +1865,8 @@ class ScheduleExecutionEngineTest {
                     aborts.incrementAndGet();
                 }
             };
-            ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-            ScheduleCapabilityPublication publication = publishExecutionFixture(
+            FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+            FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                     registry, source, List.of(work), List.of(), Set.of(WORK), Set.of());
             ScheduledTaskStore store = storeWithCredential();
 
@@ -1872,8 +1877,8 @@ class ScheduleExecutionEngineTest {
             assertThat(observed).isSameAs(fatal);
             assertThat(aborts).hasValue(1);
             verify(store).upsertPendingWork(any());
-            ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                    registry, publication).orElseThrow();
+            FakeScheduleCapabilityAccess.Drain drain =
+                    ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
             assertThat(drain.isDrained()).isTrue();
         }
     }
@@ -1906,8 +1911,8 @@ class ScheduleExecutionEngineTest {
                 return ScheduledDiscoveryResult.withoutCheckpoint();
             }
         };
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishExecutionFixture(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry,
                 source,
                 List.of(workExecutor(context -> ScheduledWorkResult.completed())),
@@ -1925,8 +1930,8 @@ class ScheduleExecutionEngineTest {
         }
 
         assertThat(observed).isSameAs(fatal);
-        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publication).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drain =
+                ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -1970,7 +1975,7 @@ class ScheduleExecutionEngineTest {
                 return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         publishExecutionFixture(
                 registry,
                 source,
@@ -2028,8 +2033,8 @@ class ScheduleExecutionEngineTest {
                 return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
             }
         };
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishExecutionFixture(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry,
                 source,
                 List.of(workExecutor(context -> ScheduledWorkResult.completed())),
@@ -2048,8 +2053,8 @@ class ScheduleExecutionEngineTest {
 
         assertThat(observed).isSameAs(fatal);
         assertThat(secondGuardCalls).hasValue(1);
-        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publication).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drain =
+                ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -2080,8 +2085,8 @@ class ScheduleExecutionEngineTest {
         ScheduledExecutionGuard secondGuard = guard(secondGuardId, context -> {
             throw fatal;
         });
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishExecutionFixture(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry,
                 source,
                 List.of(workExecutor(context -> ScheduledWorkResult.completed())),
@@ -2100,8 +2105,8 @@ class ScheduleExecutionEngineTest {
 
         assertThat(observed).isSameAs(fatal);
         assertThat(firstGuardCalls).hasValue(1);
-        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publication).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drain =
+                ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -2121,8 +2126,8 @@ class ScheduleExecutionEngineTest {
                 });
         ScheduledWorkExecutor firstWork = abortingExecutor(WORK, firstFatal, aborts);
         ScheduledWorkExecutor secondWork = abortingExecutor(secondWorkType, secondFatal, aborts);
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishExecutionFixture(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry, source, List.of(firstWork, secondWork), List.of(),
                 Set.of(WORK, secondWorkType), Set.of());
 
@@ -2139,8 +2144,8 @@ class ScheduleExecutionEngineTest {
         assertThat(observed).isIn(firstFatal, secondFatal);
         assertThat(observed.getSuppressed()).contains(other);
         assertThat(aborts).containsExactlyInAnyOrder(WORK, secondWorkType);
-        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publication).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drain =
+                ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -2156,8 +2161,8 @@ class ScheduleExecutionEngineTest {
                 context -> ScheduledDiscoveryResult.withoutCheckpoint());
         ScheduledWorkExecutor firstWork = fatalFinalizingExecutor(WORK, firstFatal, events);
         ScheduledWorkExecutor secondWork = fatalFinalizingExecutor(secondWorkType, secondFatal, events);
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityPublication publication = publishExecutionFixture(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry, source, List.of(firstWork, secondWork), List.of(),
                 Set.of(WORK, secondWorkType), Set.of());
 
@@ -2178,8 +2183,8 @@ class ScheduleExecutionEngineTest {
                 "finish-" + secondWorkType,
                 "abort-" + WORK,
                 "abort-" + secondWorkType);
-        ScheduleGenerationDrain drain = ScheduleCapabilityRegistryTestAccess.withdraw(
-                registry, publication).orElseThrow();
+        FakeScheduleCapabilityAccess.Drain drain =
+                ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
         assertThat(drain.isDrained()).isTrue();
     }
 
@@ -2270,7 +2275,7 @@ class ScheduleExecutionEngineTest {
             ScheduledExecutionGuard guard,
             ScheduleRunState runState,
             TaskExecutor taskExecutor) throws Exception {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityOwner owner = new ScheduleCapabilityOwner("fixture", "fixture-package", 1L);
         publish(registry, bindingBundle(owner, source, work, policy, guard));
         return new CredentialEngineFixture(
@@ -2279,12 +2284,12 @@ class ScheduleExecutionEngineTest {
     }
 
     private static void publish(
-            ScheduleCapabilityRegistry registry,
-            ScheduleOwnerBundle bundle) {
-        ScheduleCapabilityRegistryTestAccess.publish(registry, bundle);
+            FakeScheduleCapabilityAccess registry,
+            ScheduleCapabilityTestFixture.CapabilityBundle bundle) {
+        ScheduleCapabilityTestFixture.publish(registry, bundle);
     }
 
-    private static ScheduleOwnerBundle bindingBundle(
+    private static ScheduleCapabilityTestFixture.CapabilityBundle bindingBundle(
             ScheduleCapabilityOwner owner,
             ScheduledSourceExecutor source,
             ScheduledWorkExecutor work,
@@ -2295,13 +2300,13 @@ class ScheduleExecutionEngineTest {
                 new ScheduledSourcePresentation(
                         "fixture", "source.label", "source.summary", "schedule", "neutral"),
                 Set.of("fixture"), Set.of(WORK), Set.of(POLICY), Set.of(GUARD), null);
-        return ScheduleOwnerBundle.prepare(
+        return ScheduleCapabilityTestFixture.bundle(
                 owner, List.of(descriptor), List.of(source),
                 List.of(work), List.of(policy), List.of(guard));
     }
 
-    private static String activationToken(ScheduleCapabilityRegistry registry) {
-        return registry.snapshotView().owners().stream()
+    private static String activationToken(ScheduleCapabilityAccess registry) {
+        return registry.snapshot().owners().stream()
                 .filter(owner -> owner.owner().featurePluginId().equals("fixture"))
                 .findFirst()
                 .orElseThrow()
@@ -2310,7 +2315,7 @@ class ScheduleExecutionEngineTest {
 
     private static ScheduleExecutionEngine engine(
             ScheduledTaskStore store,
-            ScheduleCapabilityRegistry registry,
+            ScheduleCapabilityAccess registry,
             ScheduleRunState runState,
             TaskExecutor taskExecutor) {
         ScheduleConfig config = new ScheduleConfig();
@@ -2413,8 +2418,8 @@ class ScheduleExecutionEngineTest {
         };
     }
 
-    private static ScheduleCapabilityPublication publishExecutionFixture(
-            ScheduleCapabilityRegistry registry,
+    private static FakeScheduleCapabilityAccess.Publication publishExecutionFixture(
+            FakeScheduleCapabilityAccess registry,
             ScheduledSourceExecutor source,
             List<ScheduledWorkExecutor> workExecutors,
             List<ScheduledExecutionGuard> guards,
@@ -2432,9 +2437,9 @@ class ScheduleExecutionEngineTest {
                 Set.of(POLICY),
                 guardIds,
                 null);
-        return ScheduleCapabilityRegistryTestAccess.publish(
+        return ScheduleCapabilityTestFixture.publish(
                 registry,
-                ScheduleOwnerBundle.prepare(
+                ScheduleCapabilityTestFixture.bundle(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
                         List.of(descriptor),
                         List.of(source),

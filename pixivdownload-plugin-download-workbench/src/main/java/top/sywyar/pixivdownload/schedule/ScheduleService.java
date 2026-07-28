@@ -12,16 +12,18 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleSingleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskCreate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwnerSnapshot;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilitySnapshot;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
@@ -88,10 +90,10 @@ public class ScheduleService {
      * {@code translateStatus} 能力。执行器缺席（小说插件被禁 / 卸载）时解析为空、不叠加翻译状态，队列视图照常返回。
      * ScheduleService 因此不再 import 任何 novel 包类型。
      */
-    private final ScheduleCapabilityRegistry scheduleCapabilityRegistry;
+    private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
 
     public ScheduleSourceManifestView sources() {
-        ScheduleCapabilityRegistry.SnapshotView snapshot = scheduleCapabilityRegistry.snapshotView();
+        ScheduleCapabilitySnapshot snapshot = scheduleCapabilityRegistry.snapshot();
         List<ScheduleSourceManifestView.Source> sources = snapshot.owners().stream()
                 .flatMap(owner -> owner.sourceDescriptors().stream()
                         .map(descriptor -> sourceView(owner, descriptor)))
@@ -102,7 +104,7 @@ public class ScheduleService {
 
     public List<ScheduleTaskView> list() {
         Map<SourceActivationKey, String> activations = sourceActivations(
-                scheduleCapabilityRegistry.snapshotView());
+                scheduleCapabilityRegistry.snapshot());
         return store.findAll().stream()
                 .map(t -> taskView(t, runState.get(t.id()), activations))
                 .toList();
@@ -114,7 +116,7 @@ public class ScheduleService {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
         return taskView(task, runState.get(id), sourceActivations(
-                scheduleCapabilityRegistry.snapshotView()));
+                scheduleCapabilityRegistry.snapshot()));
     }
 
     public ScheduleTaskView create(ScheduleTaskRequest req) {
@@ -235,20 +237,16 @@ public class ScheduleService {
         if (ScheduleRunQueue.KIND_NOVEL.equals(it.getKind()) && it.isAutoTranslateSubmitted()) {
             try {
                 TranslateStatus tv = null;
-                var executorHandle = scheduleCapabilityRegistry.resolveWorkExecutor(
-                                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL)
-                        .orElse(null);
-                if (executorHandle != null) {
-                    ScheduleSingleCapabilityLease<ScheduledWorkExecutor> lease =
-                            scheduleCapabilityRegistry.prepareAcquire(executorHandle).orElse(null);
-                    try (lease) {
-                        if (lease != null && scheduleCapabilityRegistry.activate(lease)) {
-                            Map<String, String> status = lease.capability().status(
-                                    new ScheduledWorkKey(
-                                            PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL,
-                                            it.getId()));
-                            tv = safeTranslateStatus(status);
-                        }
+                ScheduleCapabilityLease<ScheduledWorkExecutor> lease =
+                        scheduleCapabilityRegistry.prepareWorkExecutor(
+                                PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL).orElse(null);
+                try (lease) {
+                    if (lease != null && scheduleCapabilityRegistry.activate(lease)) {
+                        Map<String, String> status = lease.capability().status(
+                                new ScheduledWorkKey(
+                                        PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL,
+                                        it.getId()));
+                        tv = safeTranslateStatus(status);
                     }
                 }
                 if (tv != null) {
@@ -431,7 +429,7 @@ public class ScheduleService {
      * 已在运行 / 排队（有 Claim）时静默跳过，靠 next_run 兜底由 tick 接管。
      */
     public void runOnce(long id) {
-        ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
+        ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
         if (hostLease == null) {
             log.debug("Scheduled task {} manual run ignored: schedule host is quiesced", id);
             return;
@@ -542,12 +540,8 @@ public class ScheduleService {
         }
     }
 
-    private ScheduleSingleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
-        var handle = scheduleCapabilityRegistry.resolveOwner(DownloadWorkbenchPlugin.ID).orElse(null);
-        if (handle == null) {
-            return null;
-        }
-        return scheduleCapabilityRegistry.prepareAcquire(handle).orElse(null);
+    private ScheduleCapabilityLease<ScheduleCapabilityOwner> prepareHostLease() {
+        return scheduleCapabilityRegistry.prepareOwner(DownloadWorkbenchPlugin.ID).orElse(null);
     }
 
     // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────
@@ -876,8 +870,8 @@ public class ScheduleService {
             String credentialPolicyId = plan.credentialPolicyId();
             String credentialPolicyOwnerPluginId = credentialPolicyId == null
                     ? null
-                    : scheduleCapabilityRegistry.resolveCredentialPolicy(credentialPolicyId)
-                            .map(handle -> handle.owner().featurePluginId())
+                    : scheduleCapabilityRegistry.credentialPolicyOwner(credentialPolicyId)
+                            .map(ScheduleCapabilityOwner::featurePluginId)
                             .orElse(null);
             return new ResolvedDefinition(
                     definition,
@@ -928,7 +922,7 @@ public class ScheduleService {
     }
 
     private static ScheduleSourceManifestView.Source sourceView(
-            ScheduleCapabilityRegistry.OwnerView owner,
+            ScheduleCapabilityOwnerSnapshot owner,
             ScheduledSourceDescriptor descriptor) {
         ScheduleSourceManifestView.Presentation presentation =
                 new ScheduleSourceManifestView.Presentation(
@@ -974,9 +968,9 @@ public class ScheduleService {
     }
 
     private Map<SourceActivationKey, String> sourceActivations(
-            ScheduleCapabilityRegistry.SnapshotView snapshot) {
+            ScheduleCapabilitySnapshot snapshot) {
         Map<SourceActivationKey, String> activations = new LinkedHashMap<>();
-        for (ScheduleCapabilityRegistry.OwnerView owner : snapshot.owners()) {
+        for (ScheduleCapabilityOwnerSnapshot owner : snapshot.owners()) {
             for (ScheduledSourceDescriptor descriptor : owner.sourceDescriptors()) {
                 SourceActivationKey canonical = new SourceActivationKey(
                         owner.owner().featurePluginId(), descriptor.sourceType());

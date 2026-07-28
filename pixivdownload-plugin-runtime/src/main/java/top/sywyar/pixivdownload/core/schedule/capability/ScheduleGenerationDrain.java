@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+
 /** 已撤回 publication 的归零凭据；不持有 owner bundle 或插件行为对象。 */
 public final class ScheduleGenerationDrain {
 

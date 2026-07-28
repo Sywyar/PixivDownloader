@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
@@ -9,7 +10,8 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /** 来源 planning 的短租约；由调用方先持有对象，再在 try/finally 内激活。 */
-public final class SchedulePlanningLease implements AutoCloseable {
+public final class SchedulePlanningLease
+        implements top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease {
 
     record TransferredSource(
             ScheduledSourceDescriptor descriptor,

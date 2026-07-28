@@ -4,12 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleExecutionLease;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
@@ -20,6 +14,9 @@ import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduled
 import top.sywyar.pixivdownload.download.schedule.source.executor.PixivScheduledSourceSupport;
 import top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
@@ -29,6 +26,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
+import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
 import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.schedule.snapshot.ScheduleTaskSnapshot;
 
@@ -142,8 +141,8 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 configuration.pixivFollowLatestScheduledSourceExecutor(support),
                 configuration.pixivCollectionScheduledSourceExecutor(support));
 
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
-        ScheduleCapabilityRegistryTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
+        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
+        ScheduleCapabilityTestFixture.publish(registry, ScheduleCapabilityTestFixture.bundle(
                 WORKBENCH_OWNER,
                 plugin.scheduledSourceDescriptors(),
                 sourceExecutors,
@@ -153,7 +152,7 @@ class DownloadWorkbenchScheduleAssemblyTest {
 
         ScheduledWorkExecutor novelExecutor = mock(ScheduledWorkExecutor.class);
         when(novelExecutor.workType()).thenReturn("novel");
-        ScheduleCapabilityRegistryTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
+        ScheduleCapabilityTestFixture.publish(registry, ScheduleCapabilityTestFixture.bundle(
                 NOVEL_OWNER,
                 List.of(), List.of(), List.of(novelExecutor), List.of(), List.of()));
 
@@ -161,7 +160,7 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 .extracting(ScheduledSourceExecutor::sourceType)
                 .containsExactly("user-new", "user-request", "search", "series",
                         "my-bookmarks", "follow-latest", "collection");
-        assertThat(registry.snapshotView().owners())
+        assertThat(registry.snapshot().owners())
                 .filteredOn(view -> view.owner().equals(WORKBENCH_OWNER))
                 .singleElement()
                 .satisfies(view -> {
