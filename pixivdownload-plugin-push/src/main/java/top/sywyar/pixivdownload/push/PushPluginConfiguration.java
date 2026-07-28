@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -29,10 +30,12 @@ import top.sywyar.pixivdownload.push.channel.webhook.WebhookPushChannel;
 import top.sywyar.pixivdownload.push.channel.wecom.WecomConfig;
 import top.sywyar.pixivdownload.push.channel.wecom.WecomPushChannel;
 import top.sywyar.pixivdownload.push.controller.PushTestController;
+import top.sywyar.pixivdownload.push.http.PushHttpClientConfiguration;
 
 import java.util.function.Supplier;
 
 @Configuration
+@Import(PushHttpClientConfiguration.class)
 public class PushPluginConfiguration {
 
     @Bean

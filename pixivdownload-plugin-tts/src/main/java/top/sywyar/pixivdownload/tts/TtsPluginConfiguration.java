@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.tts.controller.TtsController;
+import top.sywyar.pixivdownload.tts.http.TtsHttpClientConfiguration;
 import top.sywyar.pixivdownload.tts.narration.engine.CosyVoiceNarrationEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.DoubaoNarrationEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.ElevenLabsNarrationEngine;
@@ -28,6 +30,7 @@ import top.sywyar.pixivdownload.tts.narration.engine.VoxCpmNarrationEngine;
 import java.util.function.Supplier;
 
 @Configuration
+@Import(TtsHttpClientConfiguration.class)
 public class TtsPluginConfiguration {
 
     @Bean
@@ -63,10 +66,11 @@ public class TtsPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
-    public EdgeTtsVersionService edgeTtsVersionService(@Qualifier("restTemplate") RestTemplate restTemplate,
-                                                       ObjectMapper objectMapper,
-                                                       @Qualifier("ttsPluginMessages") MessageResolver messages,
-                                                       TtsRuntimeFiles runtimeFiles) {
+    public EdgeTtsVersionService edgeTtsVersionService(
+            @Qualifier("ttsMetadataRestTemplate") RestTemplate restTemplate,
+            ObjectMapper objectMapper,
+            @Qualifier("ttsPluginMessages") MessageResolver messages,
+            TtsRuntimeFiles runtimeFiles) {
         return new EdgeTtsVersionService(restTemplate, objectMapper, messages, runtimeFiles);
     }
 
@@ -88,10 +92,11 @@ public class TtsPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
-    public EdgeTtsVoiceService edgeTtsVoiceService(@Qualifier("restTemplate") RestTemplate restTemplate,
-                                                   ObjectMapper objectMapper,
-                                                   EdgeTtsVersionService versionService,
-                                                   @Qualifier("ttsPluginMessages") MessageResolver messages) {
+    public EdgeTtsVoiceService edgeTtsVoiceService(
+            @Qualifier("ttsMetadataRestTemplate") RestTemplate restTemplate,
+            ObjectMapper objectMapper,
+            EdgeTtsVersionService versionService,
+            @Qualifier("ttsPluginMessages") MessageResolver messages) {
         return new EdgeTtsVoiceService(restTemplate, objectMapper, versionService, messages);
     }
 
