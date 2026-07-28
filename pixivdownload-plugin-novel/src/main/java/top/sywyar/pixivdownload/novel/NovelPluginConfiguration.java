@@ -11,7 +11,6 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.config.DebugSettings;
 import top.sywyar.pixivdownload.config.DownloadSettings;
@@ -86,7 +85,6 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
  * 均随 {@code plugins.novel.enabled} 装配或缺席。
  */
 @Configuration
-@EnableAsync(proxyTargetClass = true)
 @Import(NovelExecutionConfiguration.class)
 public class NovelPluginConfiguration {
 

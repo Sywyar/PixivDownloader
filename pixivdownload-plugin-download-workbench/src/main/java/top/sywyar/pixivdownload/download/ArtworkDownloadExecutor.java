@@ -1,9 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
@@ -19,6 +17,7 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
@@ -73,7 +72,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final PixivImageDownloader pixivImageDownloader;
     private final TaskScheduler taskScheduler;
-    private final TaskExecutor downloadTaskExecutor;
+    private final InteractiveDownloadExecutionLane interactiveDownloadExecutionLane;
     private final PixivBookmarkActions pixivBookmarkActions;
     private final UgoiraService ugoiraService;
     private final AuthorObservationService authorObservationService;
@@ -97,8 +96,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    ArtworkDownloadStatistics artworkDownloadStatistics,
                                    @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
                                    PixivImageDownloader pixivImageDownloader,
-                                   @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                                   @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
+                                   TaskScheduler taskScheduler,
+                                   InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                    PixivBookmarkActions pixivBookmarkActions,
                                    UgoiraService ugoiraService,
                                    AuthorObservationService authorObservationService,
@@ -118,7 +117,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         this.visitorDownloadQuotaService = visitorDownloadQuotaService;
         this.pixivImageDownloader = pixivImageDownloader;
         this.taskScheduler = taskScheduler;
-        this.downloadTaskExecutor = downloadTaskExecutor;
+        this.interactiveDownloadExecutionLane = interactiveDownloadExecutionLane;
         this.pixivBookmarkActions = pixivBookmarkActions;
         this.ugoiraService = ugoiraService;
         this.authorObservationService = authorObservationService;
@@ -140,7 +139,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
                 referer, other, cookie, userUuid));
         try {
-            downloadTaskExecutor.execute(task);
+            interactiveDownloadExecutionLane.execute(task);
         } catch (RuntimeException | Error failure) {
             task.rejectSubmission();
             throw failure;

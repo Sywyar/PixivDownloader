@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObservation;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkSeriesObserver;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
@@ -98,6 +99,7 @@ class CoreApiOwnershipGuardTest {
                             "OutboundProxyEndpoint", "OutboundProxyOverride", "OutboundProxySettings",
                             "RuntimePathProvider"),
                     types("top.sywyar.pixivdownload.core.db.pathprefix", "StoredPathCodec"),
+                    types("top.sywyar.pixivdownload.core.download", "InteractiveDownloadExecutionLane"),
                     types("top.sywyar.pixivdownload.core.ffmpeg",
                             "FfmpegCommandResolver", "ResolvedFfmpegCommand"),
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
@@ -571,6 +573,8 @@ class CoreApiOwnershipGuardTest {
 
         assertThat(publicDeclaredMethodSignatures(AuthorObservationService.class))
                 .containsExactly("public abstract observe(long,java.lang.String):void");
+        assertThat(publicDeclaredMethodSignatures(InteractiveDownloadExecutionLane.class))
+                .containsExactly("public abstract execute(java.lang.Runnable):void");
         assertThat(publicDeclaredMethodSignatures(ArtworkAuthorLookup.class))
                 .containsExactly("public abstract resolveMissing(long,java.lang.String):void");
         assertThat(publicDeclaredMethodSignatures(ArtworkDownloadHistory.class))

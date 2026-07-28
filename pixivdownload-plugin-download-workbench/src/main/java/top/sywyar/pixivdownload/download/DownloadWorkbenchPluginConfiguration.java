@@ -5,14 +5,13 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.annotation.EnableAsync;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
@@ -71,7 +70,6 @@ import top.sywyar.pixivdownload.schedule.persistence.PixivSchedulePersistenceCod
  * Pixiv 代理、队列控制器、SSE、userscript 入口与下载页状态控制器均在这里显式声明，随插件生命周期注册 / 注销。
  */
 @Configuration
-@EnableAsync(proxyTargetClass = true)
 public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
@@ -109,7 +107,7 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                            PixivImageDownloader pixivImageDownloader,
                                                            @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                                                           @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
+                                                           InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                                            PixivBookmarkActions pixivBookmarkActions,
                                                            UgoiraService ugoiraService,
                                                            AuthorObservationService authorObservationService,
@@ -124,7 +122,7 @@ public class DownloadWorkbenchPluginConfiguration {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
-                pixivImageDownloader, taskScheduler, downloadTaskExecutor,
+                pixivImageDownloader, taskScheduler, interactiveDownloadExecutionLane,
                 pixivBookmarkActions, ugoiraService, authorObservationService,
                 artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,

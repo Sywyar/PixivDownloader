@@ -13,12 +13,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.i18n.LocaleContextHolder;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
@@ -108,7 +108,7 @@ class ArtworkDownloadExecutorTest {
     @Mock
     private WorkMetadataCapture workMetadataCapture;
     private ArtworkDownloadExecutor artworkDownloadExecutor;
-    private final TaskExecutor downloadTaskExecutor = Runnable::run;
+    private final InteractiveDownloadExecutionLane downloadTaskExecutor = Runnable::run;
 
     @BeforeEach
     void setUp() {
@@ -120,7 +120,7 @@ class ArtworkDownloadExecutorTest {
         artworkDownloadExecutor = newExecutor(downloadTaskExecutor);
     }
 
-    private ArtworkDownloadExecutor newExecutor(TaskExecutor taskExecutor) {
+    private ArtworkDownloadExecutor newExecutor(InteractiveDownloadExecutionLane taskExecutor) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService, pixivImageDownloader, taskScheduler, taskExecutor,

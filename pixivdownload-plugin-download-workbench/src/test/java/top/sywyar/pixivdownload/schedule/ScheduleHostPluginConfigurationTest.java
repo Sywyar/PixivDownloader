@@ -3,10 +3,15 @@ package top.sywyar.pixivdownload.schedule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
@@ -40,6 +45,36 @@ class ScheduleHostPluginConfigurationTest {
         } finally {
             executor.shutdown();
         }
+    }
+
+    @Test
+    @DisplayName("异步代理由计划宿主拥有且编排与作品执行使用独立线程池")
+    void scheduleHostOwnsExplicitAsyncExecutionLane() throws NoSuchMethodException {
+        EnableAsync owner = ScheduleHostPluginConfiguration.class.getAnnotation(EnableAsync.class);
+        assertThat(owner).isNotNull();
+        assertThat(owner.proxyTargetClass()).isTrue();
+        assertThat(DownloadWorkbenchPluginConfiguration.class.getAnnotation(EnableAsync.class)).isNull();
+
+        Async async = ScheduleExecutor.class.getDeclaredMethod(
+                "runTaskAsync",
+                long.class,
+                ScheduleRunState.Claim.class,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken.class,
+                top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease.class)
+                .getAnnotation(Async.class);
+        assertThat(async).isNotNull();
+        assertThat(async.value()).isEqualTo("scheduleRunTaskExecutor");
+
+        Bean runPool = ScheduleHostPluginConfiguration.class.getDeclaredMethod(
+                        "scheduleRunTaskExecutor", ThreadPoolTaskExecutorBuilder.class)
+                .getAnnotation(Bean.class);
+        Bean workPool = ScheduleHostPluginConfiguration.class.getDeclaredMethod(
+                        "scheduleWorkTaskExecutor")
+                .getAnnotation(Bean.class);
+        assertThat(runPool.name()).containsExactly("scheduleRunTaskExecutor");
+        assertThat(workPool.name()).containsExactly("scheduleWorkTaskExecutor");
+        assertThat(runPool.destroyMethod()).isEqualTo("shutdown");
+        assertThat(workPool.destroyMethod()).isEqualTo("shutdown");
     }
 
     @Test

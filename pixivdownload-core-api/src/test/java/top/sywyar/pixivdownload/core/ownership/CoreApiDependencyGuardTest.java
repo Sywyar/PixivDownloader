@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
 import top.sywyar.pixivdownload.core.gallery.GalleryProjectionProvider;
@@ -119,6 +120,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.artwork..",
                         "top.sywyar.pixivdownload.core.collection..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
+                        "top.sywyar.pixivdownload.core.download..",
                         "top.sywyar.pixivdownload.core.ffmpeg..",
                         "top.sywyar.pixivdownload.core.gallery..",
                         "top.sywyar.pixivdownload.core.hash..",
@@ -279,9 +281,10 @@ class CoreApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("core-api 模块应包含宿主配置、路径、代理与请求解析契约")
+    @DisplayName("core-api 模块应包含宿主运行时稳定契约")
     void coreApiContainsHostRuntimeContracts() {
         assertThat(CLASSES.contain(DownloadSettings.class.getName())).isTrue();
+        assertThat(CLASSES.contain(InteractiveDownloadExecutionLane.class.getName())).isTrue();
         assertThat(CLASSES.contain(MultiModeSettings.class.getName())).isTrue();
         assertThat(CLASSES.contain(DebugSettings.class.getName())).isTrue();
         assertThat(CLASSES.contain(RuntimePathProvider.class.getName())).isTrue();

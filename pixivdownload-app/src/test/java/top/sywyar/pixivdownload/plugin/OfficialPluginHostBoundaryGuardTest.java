@@ -56,6 +56,31 @@ class OfficialPluginHostBoundaryGuardTest {
             "getNovelTranslateMaxConcurrent",
             "novelDownloadTaskExecutor",
             "novelTranslateTaskExecutor");
+    private static final List<String> PRIVATE_HOST_EXECUTOR_BEAN_NAMES = List.of(
+            "applicationTaskExecutor",
+            "downloadTaskExecutor");
+    private static final Pattern EXECUTOR_INJECTION_TYPE = Pattern.compile(
+            "(?<![\\p{Alnum}_$])(?:ThreadPoolTaskExecutor|TaskExecutor|Executor)"
+                    + "(?![\\p{Alnum}_$])");
+    private static final Pattern BEAN_METHOD = Pattern.compile(
+            "(?s)@Bean\\b\\s*(?:\\((.*?)\\))?\\s*"
+                    + "(?:@[A-Za-z_$][A-Za-z0-9_$.]*(?:\\s*\\(.*?\\))?\\s*)*"
+                    + "([^;{}()]*?)\\b[A-Za-z_$][A-Za-z0-9_$]*\\s*"
+                    + "\\((.*?)\\)\\s*\\{");
+    private static final Pattern EXECUTOR_PARAMETER = Pattern.compile(
+            "(?s)(?<![\\p{Alnum}_$])"
+                    + "(?:@Qualifier\\s*\\(\\s*\"([^\"\\\\\\r\\n]+)\"\\s*\\)\\s*)?"
+                    + "(?:[A-Za-z_$][A-Za-z0-9_$.]*\\.)?"
+                    + "(?:ThreadPoolTaskExecutor|TaskExecutor|Executor)"
+                    + "\\s+[A-Za-z_$][A-Za-z0-9_$]*");
+    private static final Pattern ASYNC_ANNOTATION = Pattern.compile(
+            "(?s)@Async\\b\\s*(?:\\((.*?)\\))?");
+    private static final Pattern SINGLE_ANNOTATION_LITERAL = Pattern.compile(
+            "(?s)^\\s*(?:value\\s*=\\s*)?\"([^\"\\\\\\r\\n]+)\"\\s*$");
+    private static final Pattern BEAN_POSITIONAL_NAME = Pattern.compile(
+            "(?s)^\\s*\"([^\"\\\\\\r\\n]+)\"(?:\\s*,|\\s*$)");
+    private static final Pattern BEAN_NAMED_NAME = Pattern.compile(
+            "(?s)(?:^|,)\\s*(?:name|value)\\s*=\\s*\"([^\"\\\\\\r\\n]+)\"");
 
     private static final List<String> CONCRETE_HOST_RUNTIME_TYPES = List.of(
             "top.sywyar.pixivdownload.common.NetworkUtils",
@@ -256,6 +281,145 @@ class OfficialPluginHostBoundaryGuardTest {
         assertThat(violations)
                 .as("官方插件只能经稳定 HTTP 契约消费宿主传输能力")
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("官方插件不得引用宿主私有执行器 Bean 名")
+    void officialPluginsDoNotReferencePrivateHostExecutorBeans() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            if (!Files.isDirectory(sourceRoot)) {
+                continue;
+            }
+            try (Stream<Path> sources = Files.walk(sourceRoot)) {
+                for (Path source : sources
+                        .filter(path -> path.toString().endsWith(".java"))
+                        .sorted()
+                        .toList()) {
+                    for (String beanName : privateHostExecutorBeanReferences(read(source))) {
+                        violations.add(module + ":" + repositoryRoot.relativize(source)
+                                + " -> " + beanName);
+                    }
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("官方插件必须经稳定执行契约使用共享下载并发，插件私有任务应由子上下文拥有")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("执行器 Bean 名扫描忽略注释并识别精确字符串字面量")
+    void privateHostExecutorBeanScannerIgnoresCommentsAndFindsLiterals() {
+        String source = "// \"applicationTaskExecutor\"\n"
+                + "/* \"downloadTaskExecutor\" */\n"
+                + "class Example {\n"
+                + "  String shared = \"downloadTaskExecutor\";\n"
+                + "  String local = \"downloadTaskExecutor-local\";\n"
+                + "}\n";
+
+        assertThat(privateHostExecutorBeanReferences(source))
+                .containsExactly("downloadTaskExecutor");
+    }
+
+    @Test
+    @DisplayName("官方插件执行器注入与异步方法必须绑定模块本地 Bean")
+    void officialPluginsBindExecutorUseToModuleLocalBeans() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            if (!Files.isDirectory(sourceRoot)) {
+                continue;
+            }
+            List<Path> moduleSources;
+            try (Stream<Path> sources = Files.walk(sourceRoot)) {
+                moduleSources = sources
+                        .filter(path -> path.toString().endsWith(".java"))
+                        .sorted()
+                        .toList();
+            }
+            Set<String> localExecutorBeans = new LinkedHashSet<>();
+            for (Path source : moduleSources) {
+                localExecutorBeans.addAll(explicitExecutorBeanNames(read(source)));
+            }
+            for (Path source : moduleSources) {
+                for (String violation :
+                        executorBoundaryViolations(read(source), localExecutorBeans)) {
+                    violations.add(module + ":" + repositoryRoot.relativize(source)
+                            + " -> " + violation);
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("执行器注入和 @Async 必须显式引用同一官方插件模块的本地 @Bean")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("执行器边界扫描覆盖本地、无限定、外部名称并忽略非代码")
+    void executorBoundaryScannerCoversPositiveAndNegativeExamples() {
+        String declarations = """
+                class Executors {
+                    // @Bean(name = "commentOnlyTaskExecutor")
+                    @Bean(value = "localTaskExecutor", destroyMethod = "shutdown")
+                    ThreadPoolTaskExecutor localTaskExecutor() { return null; }
+
+                    @Bean("aliasTaskExecutor")
+                    ThreadPoolTaskExecutor aliasTaskExecutor() { return null; }
+
+                    @Bean
+                    ThreadPoolTaskExecutor derivedTaskExecutor() { return null; }
+
+                    @Bean(name = "notAnExecutor")
+                    String notAnExecutor() { return ""; }
+                }
+                """;
+        Set<String> localBeans = explicitExecutorBeanNames(declarations);
+        String valid = """
+                class Valid {
+                    @Bean
+                    Object consumer(
+                            @Qualifier("localTaskExecutor") TaskExecutor executor) {
+                        return null;
+                    }
+                    @Async("aliasTaskExecutor")
+                    void run() {}
+                    String ignored = "@Async(\\"commentOnlyTaskExecutor\\")";
+                    // @Bean Object ignored(TaskExecutor executor) { return null; }
+                }
+                """;
+        String invalid = """
+                class Invalid {
+                    @Bean Object implicit(TaskExecutor executor) { return null; }
+                    @Bean Object derived(
+                            @Qualifier("derivedTaskExecutor") Executor executor) {
+                        return null;
+                    }
+                    @Async void unnamed() {}
+                    @Async("commentOnlyTaskExecutor") void foreign() {}
+                }
+                """;
+
+        assertThat(localBeans)
+                .containsExactlyInAnyOrder("localTaskExecutor", "aliasTaskExecutor");
+        assertThat(executorBoundaryViolations(valid, localBeans)).isEmpty();
+        assertThat(executorBoundaryViolations(invalid, localBeans))
+                .hasSize(4)
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("缺少 @Qualifier"))
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("derivedTaskExecutor"))
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("@Async 缺少执行器名"))
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("commentOnlyTaskExecutor"));
     }
 
     @Test
@@ -744,6 +908,86 @@ class OfficialPluginHostBoundaryGuardTest {
             }
         }
         return references;
+    }
+
+    private static Set<String> privateHostExecutorBeanReferences(String source) {
+        String code = referenceCode(source);
+        Set<String> references = new LinkedHashSet<>();
+        for (String beanName : PRIVATE_HOST_EXECUTOR_BEAN_NAMES) {
+            Pattern literal = Pattern.compile("\"" + Pattern.quote(beanName) + "\"");
+            if (literal.matcher(code).find()) {
+                references.add(beanName);
+            }
+        }
+        return references;
+    }
+
+    private static Set<String> explicitExecutorBeanNames(String source) {
+        String code = stripComments(source);
+        Matcher methods = BEAN_METHOD.matcher(maskCommentsAndLiterals(source));
+        Set<String> names = new LinkedHashSet<>();
+        while (methods.find()) {
+            if (!EXECUTOR_INJECTION_TYPE.matcher(methods.group(2)).find()
+                    || methods.start(1) < 0) {
+                continue;
+            }
+            String name = explicitBeanName(
+                    code.substring(methods.start(1), methods.end(1)));
+            if (name != null) {
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    private static List<String> executorBoundaryViolations(
+            String source,
+            Set<String> localExecutorBeans) {
+        String code = stripComments(source);
+        String structure = maskCommentsAndLiterals(source);
+        List<String> violations = new ArrayList<>();
+        Matcher methods = BEAN_METHOD.matcher(structure);
+        while (methods.find()) {
+            String parameters = code.substring(methods.start(3), methods.end(3));
+            Matcher executor = EXECUTOR_PARAMETER.matcher(parameters);
+            while (executor.find()) {
+                String qualifier = executor.group(1);
+                if (qualifier == null) {
+                    violations.add("@Bean 执行器参数缺少 @Qualifier: "
+                            + executor.group().replaceAll("\\s+", " ").trim());
+                } else if (!localExecutorBeans.contains(qualifier)) {
+                    violations.add("@Qualifier(\"" + qualifier
+                            + "\") 未引用同模块本地执行器 @Bean");
+                }
+            }
+        }
+
+        Matcher async = ASYNC_ANNOTATION.matcher(structure);
+        while (async.find()) {
+            String executorName = async.start(1) < 0 ? null : annotationLiteral(
+                    code.substring(async.start(1), async.end(1)));
+            if (executorName == null) {
+                violations.add("@Async 缺少执行器名");
+            } else if (!localExecutorBeans.contains(executorName)) {
+                violations.add("@Async(\"" + executorName
+                        + "\") 未引用同模块本地执行器 @Bean");
+            }
+        }
+        return List.copyOf(violations);
+    }
+
+    private static String explicitBeanName(String arguments) {
+        Matcher positional = BEAN_POSITIONAL_NAME.matcher(arguments);
+        if (positional.find()) {
+            return positional.group(1);
+        }
+        Matcher named = BEAN_NAMED_NAME.matcher(arguments);
+        return named.find() ? named.group(1) : null;
+    }
+
+    private static String annotationLiteral(String arguments) {
+        Matcher literal = SINGLE_ANNOTATION_LITERAL.matcher(arguments);
+        return literal.matches() ? literal.group(1) : null;
     }
 
     private static boolean startsWithTripleQuote(String source, int index) {

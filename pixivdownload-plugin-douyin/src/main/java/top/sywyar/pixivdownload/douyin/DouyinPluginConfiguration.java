@@ -5,7 +5,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.web.client.RestTemplate;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.mapper.MapperFactoryBean;
@@ -14,6 +13,7 @@ import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.douyin.client.DefaultDouyinShortLinkResolver;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
@@ -253,13 +253,13 @@ public class DouyinPluginConfiguration {
                                                        DouyinMediaDownloader customProxyMediaDownloader,
                                                        @Qualifier("douyinDirectMediaDownloader")
                                                        DouyinMediaDownloader directMediaDownloader,
-                                                       @Qualifier("downloadTaskExecutor") TaskExecutor executor,
+                                                       InteractiveDownloadExecutionLane executionLane,
                                                        DouyinPluginSettingsService settingsService,
                                                        DouyinHistoryService historyService) {
         return new DouyinDownloadService(parser,
                 client, proxyClient, customProxyClient, directClient,
                 mediaDownloader, proxyMediaDownloader, customProxyMediaDownloader, directMediaDownloader,
-                executor, settingsService, historyService);
+                executionLane, settingsService, historyService);
     }
 
     @Bean

@@ -114,7 +114,7 @@ public class ScheduleExecutor {
      * 后台异步运行一个已经抢占瞬时态的任务。owner lease 必须由同步提交点在入队前取得并转交，
      * 使线程池排队时间也计入 generation drain；异步任务无论是否真正开始执行都会负责关闭它。
      */
-    @Async
+    @Async("scheduleRunTaskExecutor")
     public void runTaskAsync(
             long taskId,
             ScheduleRunState.Claim claim,

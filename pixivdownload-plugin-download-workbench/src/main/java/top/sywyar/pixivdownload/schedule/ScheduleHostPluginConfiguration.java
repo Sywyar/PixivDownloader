@@ -2,14 +2,16 @@ package top.sywyar.pixivdownload.schedule;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.download.PixivFetchService;
@@ -45,6 +47,7 @@ import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
  * 来源与作品执行器随 owner bundle 一次发布，不会出现来源已可见而执行器尚不可见的半代。
  */
 @Configuration
+@EnableAsync(proxyTargetClass = true)
 @EnableScheduling
 public class ScheduleHostPluginConfiguration {
 
@@ -90,11 +93,21 @@ public class ScheduleHostPluginConfiguration {
     }
 
     /**
+     * 计划运行的编排池。它必须与作品执行池分离：编排线程会向作品池提交任务并同步等待结果，
+     * 若二者复用同一池，多条计划运行可能占满全部线程后互相等待尚未执行的作品任务。
+     */
+    @Bean(name = "scheduleRunTaskExecutor", destroyMethod = "shutdown")
+    public ThreadPoolTaskExecutor scheduleRunTaskExecutor(
+            ThreadPoolTaskExecutorBuilder builder) {
+        return builder.threadNamePrefix("schedule-run-").build();
+    }
+
+    /**
      * 调度宿主共享的作品执行池。真实并发由 execution plan、作品执行器与
      * 进程级作品类型限制器共同约束；执行池仅提供与单任务最大在途数一致的线程上限。
      * 跨任务的合法超额作品进入队列，不会因共享池瞬时满载被误记为派发失败。
      */
-    @Bean("scheduleWorkTaskExecutor")
+    @Bean(name = "scheduleWorkTaskExecutor", destroyMethod = "shutdown")
     public ThreadPoolTaskExecutor scheduleWorkTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(ScheduleExecutionEngine.MAX_WORK_IN_FLIGHT);
