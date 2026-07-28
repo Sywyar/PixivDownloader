@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -44,14 +43,7 @@ public class CollectionIconService {
         return Files.exists(p) ? p : null;
     }
 
-    public String saveIcon(long collectionId, String originalFilename, byte[] data) throws IOException {
-        String ext = detectExtension(originalFilename, data);
-        if (ext == null) {
-            throw LocalizedException.badRequest(
-                    "collection.icon.format.unsupported",
-                    "不支持的图标格式，仅接受 png/jpg/jpeg/webp"
-            );
-        }
+    public String saveIcon(long collectionId, byte[] data) throws IOException {
         if (data.length > MAX_ICON_BYTES) {
             throw LocalizedException.badRequest(
                     "collection.icon.size.exceeded.detail",
@@ -59,10 +51,18 @@ public class CollectionIconService {
                     MAX_ICON_BYTES / 1024
             );
         }
+        UploadedImageValidator.ValidatedImage image = UploadedImageValidator.validate(data);
+        if (image == null) {
+            throw LocalizedException.badRequest(
+                    "collection.icon.format.unsupported",
+                    "不支持的图标格式，仅接受 png/jpg/jpeg/webp"
+            );
+        }
         deleteAll(collectionId);
+        String ext = image.extension();
         Path target = resolveIconPath(collectionId, ext);
-        Files.write(target, data);
-        log.info(message("collection.log.icon.saved", collectionId, ext, data.length));
+        Files.write(target, image.storageBytes());
+        log.info(message("collection.log.icon.saved", collectionId, ext, image.storageBytes().length));
         return ext;
     }
 
@@ -75,36 +75,6 @@ public class CollectionIconService {
                 log.warn(message("collection.log.icon.delete-failed", p), e);
             }
         }
-    }
-
-    /**
-     * 优先从文件名判断扩展名，回退到 magic-number 识别。未命中返回 null。
-     */
-    private String detectExtension(String filename, byte[] data) {
-        String fromName = extensionFromFilename(filename);
-        if (fromName != null) return fromName;
-        return extensionFromMagic(data);
-    }
-
-    private String extensionFromFilename(String filename) {
-        if (filename == null) return null;
-        int dot = filename.lastIndexOf('.');
-        if (dot < 0 || dot == filename.length() - 1) return null;
-        String ext = filename.substring(dot + 1).toLowerCase(Locale.ROOT);
-        return ALLOWED_EXTENSIONS.contains(ext) ? normalize(ext) : null;
-    }
-
-    private String extensionFromMagic(byte[] data) {
-        if (data == null || data.length < 12) return null;
-        if ((data[0] & 0xFF) == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') return "png";
-        if ((data[0] & 0xFF) == 0xFF && (data[1] & 0xFF) == 0xD8) return "jpg";
-        if (data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F'
-                && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P') return "webp";
-        return null;
-    }
-
-    private String normalize(String ext) {
-        return "jpeg".equals(ext) ? "jpg" : ext;
     }
 
     /**
