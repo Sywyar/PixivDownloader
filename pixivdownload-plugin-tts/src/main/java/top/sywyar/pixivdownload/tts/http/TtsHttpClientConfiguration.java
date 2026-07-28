@@ -6,6 +6,9 @@ import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClient;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClientFactory;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClientProfile;
 import top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate;
 import top.sywyar.pixivdownload.plugin.runtime.http.PluginRestTemplateAdapter;
 import top.sywyar.pixivdownload.tts.TtsPlugin;
@@ -14,6 +17,16 @@ import java.time.Duration;
 
 @Configuration(proxyBeanMethods = false)
 public class TtsHttpClientConfiguration {
+
+    @Bean(name = "edgeTtsWebSocketClient", destroyMethod = "close")
+    @ConditionalOnPluginEnabled(TtsPlugin.ID)
+    public OutboundWebSocketClient edgeTtsWebSocketClient(
+            OutboundWebSocketClientFactory factory
+    ) {
+        return factory.open(new OutboundWebSocketClientProfile(
+                Duration.ofSeconds(15),
+                OutboundHttpRoute.inherit()));
+    }
 
     @Bean(name = "ttsMetadataRestTemplate", destroyMethod = "close")
     @ConditionalOnPluginEnabled(TtsPlugin.ID)

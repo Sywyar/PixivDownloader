@@ -9,11 +9,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.config.RuntimePathProvider;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClient;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.tts.controller.TtsController;
 import top.sywyar.pixivdownload.tts.http.TtsHttpClientConfiguration;
@@ -76,18 +76,19 @@ public class TtsPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
-    public EdgeTtsWebSocketConnector edgeTtsWebSocketConnector(OutboundProxySettings proxySettings,
-                                                               EdgeTtsVersionService versionService) {
-        return new JdkEdgeTtsWebSocketConnector(proxySettings, versionService);
+    public EdgeTtsWebSocketConnector edgeTtsWebSocketConnector(
+            @Qualifier("edgeTtsWebSocketClient") OutboundWebSocketClient client,
+            EdgeTtsVersionService versionService
+    ) {
+        return new DefaultEdgeTtsWebSocketConnector(client, versionService);
     }
 
     @Bean
     @ConditionalOnPluginEnabled(TtsPlugin.ID)
-    public EdgeTtsClient edgeTtsClient(OutboundProxySettings proxySettings,
-                                       EdgeTtsVersionService versionService,
+    public EdgeTtsClient edgeTtsClient(EdgeTtsVersionService versionService,
                                        EdgeTtsWebSocketConnector connector,
                                        @Qualifier("ttsPluginMessages") MessageResolver messages) {
-        return new EdgeTtsClient(proxySettings, versionService, connector, messages);
+        return new EdgeTtsClient(versionService, connector, messages);
     }
 
     @Bean

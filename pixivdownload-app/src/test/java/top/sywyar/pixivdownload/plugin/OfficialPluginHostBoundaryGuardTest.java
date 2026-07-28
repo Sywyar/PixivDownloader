@@ -82,7 +82,9 @@ class OfficialPluginHostBoundaryGuardTest {
     private static final List<String> PRIVATE_HTTP_TYPE_PREFIXES = List.of(
             "org.apache.hc.",
             "org.apache.http.",
-            "org.springframework.http.client.HttpComponentsClientHttpRequestFactory");
+            "org.springframework.http.client.HttpComponentsClientHttpRequestFactory",
+            "java.net.http.HttpClient",
+            "java.net.ProxySelector");
 
     private enum SourceState {
         CODE,
@@ -262,14 +264,18 @@ class OfficialPluginHostBoundaryGuardTest {
         String source = "// org.apache.hc.client5.http.impl.classic.CloseableHttpClient\n"
                 + "import org /* owner */ . apache . hc . client5 . http . impl . classic"
                 + " . CloseableHttpClient;\n"
+                + "import java.net /* transport */ . http . HttpClient;\n"
                 + "class Example {\n"
                 + "  String factory = \"org.springframework.http.client."
                 + "HttpComponentsClientHttpRequestFactory\";\n"
+                + "  String selector = \"java.net.ProxySelector\";\n"
                 + "}\n";
 
         assertThat(privateHttpReferences(source)).containsExactlyInAnyOrder(
                 "org.apache.hc.",
-                "org.springframework.http.client.HttpComponentsClientHttpRequestFactory");
+                "org.springframework.http.client.HttpComponentsClientHttpRequestFactory",
+                "java.net.http.HttpClient",
+                "java.net.ProxySelector");
         assertThat(privateHttpReferences(
                 "// org.apache.http.client.HttpClient\nclass Example {}\n")).isEmpty();
     }

@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.tts;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.io.IOException;
@@ -36,22 +35,6 @@ import static org.mockito.Mockito.when;
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
 class EdgeTtsClientTest {
 
-    private static final OutboundProxySettings NO_PROXY = new OutboundProxySettings() {
-        @Override
-        public boolean isEnabled() {
-            return false;
-        }
-
-        @Override
-        public String getHost() {
-            return "127.0.0.1";
-        }
-
-        @Override
-        public int getPort() {
-            return 7890;
-        }
-    };
     private static final MessageResolver MESSAGES = new MapMessageResolver(Map.of(
             "tts.edge.error.connect-failed", "无法连接 Edge TTS 服务",
             "tts.edge.error.synthesis-failed", "Edge TTS 合成失败",
@@ -306,7 +289,7 @@ class EdgeTtsClientTest {
         EdgeTtsVersionService versionService = mock(EdgeTtsVersionService.class);
         when(versionService.secMsGecVersion()).thenReturn("1-0.0.0.0");
         when(versionService.userAgent()).thenReturn("test-agent");
-        return new EdgeTtsClient(NO_PROXY, versionService, connector, MESSAGES);
+        return new EdgeTtsClient(versionService, connector, MESSAGES);
     }
 
     private static Invocation startSynthesis(EdgeTtsClient client) {

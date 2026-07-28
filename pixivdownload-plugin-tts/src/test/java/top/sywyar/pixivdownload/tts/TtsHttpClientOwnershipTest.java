@@ -11,17 +11,23 @@ import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoutePolicy;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClient;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClientFactory;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClientProfile;
+import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketRequest;
 import top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate;
 import top.sywyar.pixivdownload.tts.http.TtsHttpClientConfiguration;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.http.WebSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,7 +36,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.groups.Tuple.tuple;
 
-@DisplayName("TTS 插件自有 HTTP 客户端")
+@DisplayName("TTS 插件自有出站客户端")
 class TtsHttpClientOwnershipTest {
 
     private static final List<String> HOST_PRIVATE_CLASS_RESOURCES = List.of(
@@ -42,7 +48,9 @@ class TtsHttpClientOwnershipTest {
     private static final List<String> PRIVATE_HTTP_SOURCE_REFERENCES = List.of(
             "org.apache.hc.",
             "org.apache.http.",
-            "HttpComponentsClientHttpRequestFactory");
+            "HttpComponentsClientHttpRequestFactory",
+            "java.net.http.HttpClient",
+            "java.net.ProxySelector");
     private static final Pattern JAVA_TOKEN = Pattern.compile(
             "\"\"\"(?:\\\\.|(?!\"\"\")[\\s\\S])*\"\"\""
                     + "|\"(?:\\\\.|[^\"\\\\])*\""
@@ -76,37 +84,55 @@ class TtsHttpClientOwnershipTest {
     }
 
     @Test
-    @DisplayName("父容器只提供工厂且子容器关闭和重建各自管理全新客户端")
+    @DisplayName("父容器只提供工厂且子容器关闭和重建各自管理全新 HTTP 与 WebSocket 客户端")
     void childContextOwnsProfilesAndLifecycle() {
-        CountingFactory factory = new CountingFactory();
+        CountingFactory httpFactory = new CountingFactory();
+        CountingWebSocketFactory webSocketFactory = new CountingWebSocketFactory();
 
-        try (AnnotationConfigApplicationContext parent = parentContext(factory)) {
+        try (AnnotationConfigApplicationContext parent =
+                     parentContext(httpFactory, webSocketFactory)) {
             List<OutboundHttpClientProfile> firstProfiles;
             List<CountingClient> firstClients;
+            List<OutboundWebSocketClientProfile> firstWebSocketProfiles;
+            List<CountingWebSocketClient> firstWebSocketClients;
             try (AnnotationConfigApplicationContext firstChild = childContext(parent)) {
                 assertChildOnlyBeans(parent, firstChild);
-                firstProfiles = factory.profileSnapshot(0);
-                firstClients = factory.clientSnapshot(0);
-                assertProfiles(firstProfiles);
+                firstProfiles = httpFactory.profileSnapshot(0);
+                firstClients = httpFactory.clientSnapshot(0);
+                firstWebSocketProfiles = webSocketFactory.profileSnapshot(0);
+                firstWebSocketClients = webSocketFactory.clientSnapshot(0);
+                assertProfiles(firstProfiles, firstWebSocketProfiles);
 
                 firstChild.close();
                 firstChild.close();
                 assertClosedOnce(firstClients);
+                assertWebSocketsClosedOnce(firstWebSocketClients);
             }
 
             try (AnnotationConfigApplicationContext secondChild = childContext(parent)) {
                 assertChildOnlyBeans(parent, secondChild);
                 List<OutboundHttpClientProfile> secondProfiles =
-                        factory.profileSnapshot(firstProfiles.size());
-                List<CountingClient> secondClients = factory.clientSnapshot(firstClients.size());
+                        httpFactory.profileSnapshot(firstProfiles.size());
+                List<CountingClient> secondClients =
+                        httpFactory.clientSnapshot(firstClients.size());
+                List<OutboundWebSocketClientProfile> secondWebSocketProfiles =
+                        webSocketFactory.profileSnapshot(firstWebSocketProfiles.size());
+                List<CountingWebSocketClient> secondWebSocketClients =
+                        webSocketFactory.clientSnapshot(firstWebSocketClients.size());
 
                 assertThat(secondProfiles).containsExactlyElementsOf(firstProfiles);
                 assertThat(secondClients).doesNotContainAnyElementsOf(firstClients);
+                assertThat(secondWebSocketProfiles)
+                        .containsExactlyElementsOf(firstWebSocketProfiles);
+                assertThat(secondWebSocketClients)
+                        .doesNotContainAnyElementsOf(firstWebSocketClients);
                 assertClosedOnce(firstClients);
+                assertWebSocketsClosedOnce(firstWebSocketClients);
 
                 secondChild.close();
                 secondChild.close();
                 assertClosedOnce(secondClients);
+                assertWebSocketsClosedOnce(secondWebSocketClients);
             }
         }
     }
@@ -127,7 +153,7 @@ class TtsHttpClientOwnershipTest {
                 }
             }
         }
-        assertThat(violations).as("TTS 插件生产源码中的宿主私有 HTTP 引用").isEmpty();
+        assertThat(violations).as("TTS 插件生产源码中的宿主私有传输实现引用").isEmpty();
     }
 
     private static Path moduleRoot() {
@@ -150,9 +176,14 @@ class TtsHttpClientOwnershipTest {
                 .replaceAll(".");
     }
 
-    private static AnnotationConfigApplicationContext parentContext(CountingFactory factory) {
+    private static AnnotationConfigApplicationContext parentContext(
+            CountingFactory httpFactory,
+            CountingWebSocketFactory webSocketFactory
+    ) {
         AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext();
-        parent.getBeanFactory().registerSingleton("outboundHttpClientFactory", factory);
+        parent.getBeanFactory().registerSingleton("outboundHttpClientFactory", httpFactory);
+        parent.getBeanFactory().registerSingleton(
+                "outboundWebSocketClientFactory", webSocketFactory);
         parent.refresh();
         return parent;
     }
@@ -172,15 +203,24 @@ class TtsHttpClientOwnershipTest {
             AnnotationConfigApplicationContext child
     ) {
         assertThat(parent.getBeanFactory().getBeanNamesForType(RestTemplate.class)).isEmpty();
+        assertThat(parent.getBeanFactory().getBeanNamesForType(OutboundWebSocketClient.class))
+                .isEmpty();
         assertThat(child.getBeanFactory().getBeanNamesForType(ManagedPluginRestTemplate.class))
                 .containsExactlyInAnyOrderElementsOf(CLIENT_BEANS);
+        assertThat(child.getBeanFactory().getBeanNamesForType(OutboundWebSocketClient.class))
+                .containsExactly("edgeTtsWebSocketClient");
         assertThat(CLIENT_BEANS)
                 .allMatch(beanName -> !parent.containsLocalBean(beanName))
                 .allMatch(child::containsLocalBean);
+        assertThat(parent.containsLocalBean("edgeTtsWebSocketClient")).isFalse();
+        assertThat(child.containsLocalBean("edgeTtsWebSocketClient")).isTrue();
     }
 
-    private static void assertProfiles(List<OutboundHttpClientProfile> profiles) {
-        assertThat(profiles)
+    private static void assertProfiles(
+            List<OutboundHttpClientProfile> httpProfiles,
+            List<OutboundWebSocketClientProfile> webSocketProfiles
+    ) {
+        assertThat(httpProfiles)
                 .extracting(
                         OutboundHttpClientProfile::connectTimeout,
                         OutboundHttpClientProfile::readTimeout,
@@ -206,11 +246,24 @@ class TtsHttpClientOwnershipTest {
                                 Duration.ofSeconds(2),
                                 Duration.ofSeconds(4),
                                 OutboundHttpRoutePolicy.GLOBAL_IF_CONFIGURED));
+        assertThat(webSocketProfiles)
+                .extracting(
+                        OutboundWebSocketClientProfile::connectTimeout,
+                        profile -> profile.route().policy())
+                .containsExactly(tuple(
+                        Duration.ofSeconds(15),
+                        OutboundHttpRoutePolicy.SCOPED_OR_GLOBAL_IF_ENABLED));
     }
 
     private static void assertClosedOnce(List<CountingClient> clients) {
         assertThat(clients)
                 .extracting(CountingClient::closeCount)
+                .containsOnly(1);
+    }
+
+    private static void assertWebSocketsClosedOnce(List<CountingWebSocketClient> clients) {
+        assertThat(clients)
+                .extracting(CountingWebSocketClient::closeCount)
                 .containsOnly(1);
     }
 
@@ -247,6 +300,51 @@ class TtsHttpClientOwnershipTest {
                     "",
                     Map.of(),
                     InputStream.nullInputStream());
+        }
+
+        @Override
+        public void close() {
+            closeCount.incrementAndGet();
+        }
+
+        private int closeCount() {
+            return closeCount.get();
+        }
+    }
+
+    private static final class CountingWebSocketFactory
+            implements OutboundWebSocketClientFactory {
+
+        private final List<OutboundWebSocketClientProfile> profiles = new ArrayList<>();
+        private final List<CountingWebSocketClient> clients = new ArrayList<>();
+
+        @Override
+        public OutboundWebSocketClient open(OutboundWebSocketClientProfile profile) {
+            profiles.add(profile);
+            CountingWebSocketClient client = new CountingWebSocketClient();
+            clients.add(client);
+            return client;
+        }
+
+        private List<OutboundWebSocketClientProfile> profileSnapshot(int fromIndex) {
+            return List.copyOf(profiles.subList(fromIndex, profiles.size()));
+        }
+
+        private List<CountingWebSocketClient> clientSnapshot(int fromIndex) {
+            return List.copyOf(clients.subList(fromIndex, clients.size()));
+        }
+    }
+
+    private static final class CountingWebSocketClient implements OutboundWebSocketClient {
+
+        private final AtomicInteger closeCount = new AtomicInteger();
+
+        @Override
+        public CompletableFuture<WebSocket> connect(
+                OutboundWebSocketRequest request,
+                WebSocket.Listener listener
+        ) {
+            return new CompletableFuture<>();
         }
 
         @Override
