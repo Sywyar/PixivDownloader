@@ -605,8 +605,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("质量门禁以同一提交运行完整 Java 与零依赖 JavaScript 测试")
-    void qualityGateRunsJavaAndJavaScriptTestsForTheSameCommit() throws Exception {
+    @DisplayName("质量门禁以同一提交运行 Java、签名泄露守卫与 JavaScript 测试")
+    void qualityGateRunsJavaSignatureGuardAndJavaScriptTestsForTheSameCommit() throws Exception {
         String workflow = workflow("quality-gate.yml");
         JsonNode packageJson = new ObjectMapper().readTree(repoRoot().resolve("package.json").toFile());
 
@@ -619,11 +619,13 @@ class PluginReleaseScriptsTest {
                 "ref: ${{ github.sha }}",
                 "mvn -B -ntp -pl pixivdownload-official-plugins -am compile -Dexec.skip=true",
                 "mvn -B -ntp test -Dexec.skip=true",
+                "signature-guard:",
+                "run: bash scripts/hooks/pre-push-guard.sh",
                 "uses: actions/setup-node@v4",
                 "node-version: '24'",
                 "run: npm run test:js",
                 "run: npm run test:web-standards");
-        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(3);
+        assertThat(workflow.split(Pattern.quote("ref: ${{ github.sha }}"), -1)).hasSize(4);
         assertThat(workflow).doesNotContain("-DskipTests", "-Dmaven.test.skip");
         assertThat(workflow.indexOf("run: npm run test:web-standards"))
                 .isGreaterThan(workflow.indexOf("run: npm run test:js"));
