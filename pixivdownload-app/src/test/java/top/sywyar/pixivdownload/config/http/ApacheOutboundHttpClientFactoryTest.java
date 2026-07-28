@@ -24,8 +24,13 @@ import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
 import top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate;
 import top.sywyar.pixivdownload.plugin.runtime.http.PluginRestTemplateAdapter;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -33,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -284,6 +290,49 @@ class ApacheOutboundHttpClientFactoryTest {
         assertThat(new String(noCookie.body(), StandardCharsets.UTF_8)).isEqualTo("null");
     }
 
+    @Test
+    @DisplayName("Apache 适配器把中性代理端点转换为真实 HTTP 代理路由")
+    void convertsNeutralProxyEndpointIntoApacheRoute() throws Exception {
+        try (ServerSocket proxyServer = new ServerSocket(0)) {
+            ExecutorService proxyExecutor = Executors.newSingleThreadExecutor();
+            AtomicReference<String> requestLine = new AtomicReference<>();
+            Future<?> proxyTask = proxyExecutor.submit(() ->
+                    serveOneProxyRequest(proxyServer, requestLine));
+            ProxyConfig proxyConfig = new ProxyConfig();
+            proxyConfig.setEnabled(true);
+            proxyConfig.setHost("127.0.0.1");
+            proxyConfig.setPort(proxyServer.getLocalPort());
+            OutboundHttpClient client =
+                    new ApacheOutboundHttpClientFactory(proxyConfig)
+                            .open(profile(
+                                    OutboundHttpRoute.inherit(),
+                                    OutboundHttpRedirectPolicy.NEVER,
+                                    OutboundHttpCookiePolicy.DISABLED));
+
+            try {
+                OutboundHttpResponse response = client.exchange(
+                        new OutboundHttpRequest(
+                                URI.create("http://transport-target.invalid/proxied?x=1"),
+                                "GET",
+                                Map.of(),
+                                new byte[0]));
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body()).containsExactly(
+                        "ok".getBytes(StandardCharsets.UTF_8));
+                proxyTask.get(5, TimeUnit.SECONDS);
+                assertThat(requestLine).hasValue(
+                        "GET http://transport-target.invalid/proxied?x=1 HTTP/1.1");
+            } finally {
+                client.close();
+                proxyServer.close();
+                proxyExecutor.shutdownNow();
+                assertThat(proxyExecutor.awaitTermination(5, TimeUnit.SECONDS))
+                        .isTrue();
+            }
+        }
+    }
+
     private ApacheOutboundHttpClientFactory factory() {
         ProxyConfig proxyConfig = new ProxyConfig();
         proxyConfig.setEnabled(false);
@@ -294,10 +343,21 @@ class ApacheOutboundHttpClientFactoryTest {
             OutboundHttpRedirectPolicy redirectPolicy,
             OutboundHttpCookiePolicy cookiePolicy
     ) {
+        return profile(
+                OutboundHttpRoute.direct(),
+                redirectPolicy,
+                cookiePolicy);
+    }
+
+    private static OutboundHttpClientProfile profile(
+            OutboundHttpRoute route,
+            OutboundHttpRedirectPolicy redirectPolicy,
+            OutboundHttpCookiePolicy cookiePolicy
+    ) {
         return new OutboundHttpClientProfile(
                 Duration.ofSeconds(2),
                 Duration.ofSeconds(2),
-                OutboundHttpRoute.direct(),
+                route,
                 redirectPolicy,
                 cookiePolicy,
                 4,
@@ -331,5 +391,29 @@ class ApacheOutboundHttpClientFactoryTest {
     private static List<String> headerValues(HttpExchange exchange, String name) {
         List<String> values = exchange.getRequestHeaders().get(name);
         return values == null ? List.of() : List.copyOf(values);
+    }
+
+    private static void serveOneProxyRequest(
+            ServerSocket proxyServer,
+            AtomicReference<String> requestLine
+    ) {
+        try (Socket socket = proxyServer.accept();
+             BufferedReader reader = new BufferedReader(new InputStreamReader(
+                     socket.getInputStream(), StandardCharsets.ISO_8859_1));
+             OutputStream output = socket.getOutputStream()) {
+            requestLine.set(reader.readLine());
+            String line;
+            while ((line = reader.readLine()) != null && !line.isEmpty()) {
+                // Drain the request headers before replying.
+            }
+            output.write(("HTTP/1.1 200 OK\r\n"
+                    + "Content-Length: 2\r\n"
+                    + "Connection: close\r\n"
+                    + "\r\n"
+                    + "ok").getBytes(StandardCharsets.ISO_8859_1));
+            output.flush();
+        } catch (IOException e) {
+            throw new CompletionException(e);
+        }
     }
 }

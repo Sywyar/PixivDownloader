@@ -15,6 +15,7 @@ import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
 import org.apache.hc.core5.http.io.support.ClassicRequestBuilder;
 import org.apache.hc.core5.http.protocol.HttpContext;
 import org.apache.hc.core5.util.Timeout;
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientFactory;
@@ -92,7 +93,14 @@ final class ApacheOutboundHttpClientFactory implements OutboundHttpClientFactory
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
-            return proxyResolver.resolve(route);
+            try {
+                OutboundProxyEndpoint endpoint = proxyResolver.resolve(route);
+                return endpoint == null
+                        ? null
+                        : new HttpHost("http", endpoint.hostName(), endpoint.port());
+            } catch (OutboundHttpProxyResolver.OutboundProxyResolutionException e) {
+                throw new HttpException(e.getMessage(), e);
+            }
         }
     }
 

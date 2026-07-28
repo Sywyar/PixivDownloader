@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.config.http;
 
-import org.apache.hc.core5.http.HttpException;
-import org.apache.hc.core5.http.HttpHost;
 import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.ProxyConfig;
@@ -12,9 +10,7 @@ import java.net.URI;
 import java.util.Locale;
 import java.util.Objects;
 
-/**
- * App-owned conversion from stable route semantics to one Apache proxy target.
- */
+/** App-owned resolution from stable route semantics to one neutral proxy endpoint. */
 final class OutboundHttpProxyResolver {
 
     private final ProxyConfig proxyConfig;
@@ -23,7 +19,8 @@ final class OutboundHttpProxyResolver {
         this.proxyConfig = Objects.requireNonNull(proxyConfig, "proxyConfig");
     }
 
-    HttpHost resolve(OutboundHttpRoute route) throws HttpException {
+    OutboundProxyEndpoint resolve(OutboundHttpRoute route)
+            throws OutboundProxyResolutionException {
         Objects.requireNonNull(route, "route");
         return switch (route.policy()) {
             case DIRECT -> null;
@@ -43,28 +40,32 @@ final class OutboundHttpProxyResolver {
         };
     }
 
-    private HttpHost enabledGlobalProxy() {
+    private OutboundProxyEndpoint enabledGlobalProxy() {
         return proxyConfig.isEnabled() ? validGlobalProxy() : null;
     }
 
-    private HttpHost configuredGlobalProxy(boolean required) throws HttpException {
-        HttpHost proxy = validGlobalProxy();
+    private OutboundProxyEndpoint configuredGlobalProxy(boolean required)
+            throws OutboundProxyResolutionException {
+        OutboundProxyEndpoint proxy = validGlobalProxy();
         if (proxy == null && required) {
-            throw new HttpException("A valid configured outbound proxy is required");
+            throw new OutboundProxyResolutionException(
+                    "A valid configured outbound proxy is required");
         }
         return proxy;
     }
 
-    private HttpHost validGlobalProxy() {
-        return toHttpHost(proxyConfig.getHost(), proxyConfig.getPort());
+    private OutboundProxyEndpoint validGlobalProxy() {
+        return toEndpoint(proxyConfig.getHost(), proxyConfig.getPort());
     }
 
-    private static HttpHost explicitProxy(OutboundHttpProxyProvider provider) throws HttpException {
+    private static OutboundProxyEndpoint explicitProxy(OutboundHttpProxyProvider provider)
+            throws OutboundProxyResolutionException {
         URI uri;
         try {
             uri = provider == null ? null : provider.resolveProxyUri();
         } catch (RuntimeException e) {
-            throw new HttpException("Explicit outbound proxy resolution failed", e);
+            throw new OutboundProxyResolutionException(
+                    "Explicit outbound proxy resolution failed", e);
         }
         if (uri == null
                 || uri.getScheme() == null
@@ -79,26 +80,35 @@ final class OutboundHttpProxyResolver {
                 || (uri.getRawPath() != null
                 && !uri.getRawPath().isEmpty()
                 && !"/".equals(uri.getRawPath()))) {
-            throw new HttpException("A valid explicit outbound proxy is required");
+            throw new OutboundProxyResolutionException(
+                    "A valid explicit outbound proxy is required");
         }
-        return new HttpHost("http", uri.getHost(), uri.getPort());
+        return new OutboundProxyEndpoint(uri.getHost(), uri.getPort());
     }
 
     private static boolean scopedOverrideIsActive() {
         return OutboundProxyOverride.isActive();
     }
 
-    private static HttpHost scopedProxy() {
-        OutboundProxyEndpoint endpoint = OutboundProxyOverride.current();
-        return endpoint == null
-                ? null
-                : new HttpHost("http", endpoint.hostName(), endpoint.port());
+    private static OutboundProxyEndpoint scopedProxy() {
+        return OutboundProxyOverride.current();
     }
 
-    private static HttpHost toHttpHost(String host, int port) {
+    private static OutboundProxyEndpoint toEndpoint(String host, int port) {
         if (host == null || host.isBlank() || port < 1 || port > 65_535) {
             return null;
         }
-        return new HttpHost("http", host.trim(), port);
+        return new OutboundProxyEndpoint(host, port);
+    }
+
+    static final class OutboundProxyResolutionException extends Exception {
+
+        private OutboundProxyResolutionException(String message) {
+            super(message);
+        }
+
+        private OutboundProxyResolutionException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }

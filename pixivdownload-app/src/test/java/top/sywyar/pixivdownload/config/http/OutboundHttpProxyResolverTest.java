@@ -1,10 +1,9 @@
 package top.sywyar.pixivdownload.config.http;
 
-import org.apache.hc.core5.http.HttpException;
-import org.apache.hc.core5.http.HttpHost;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
@@ -91,7 +90,8 @@ class OutboundHttpProxyResolverTest {
         proxyConfig.setPort(0);
 
         assertThatThrownBy(() -> resolver.resolve(OutboundHttpRoute.requiredGlobalProxy()))
-                .isInstanceOf(HttpException.class)
+                .isInstanceOf(
+                        OutboundHttpProxyResolver.OutboundProxyResolutionException.class)
                 .hasMessageContaining("required");
 
         OutboundProxyOverride.setDirect();
@@ -119,7 +119,8 @@ class OutboundHttpProxyResolverTest {
         assertThatThrownBy(() -> resolver.resolve(
                 OutboundHttpRoute.requiredExplicitProxy(
                         () -> URI.create("https://127.0.0.7:7896/path"))))
-                .isInstanceOf(HttpException.class)
+                .isInstanceOf(
+                        OutboundHttpProxyResolver.OutboundProxyResolutionException.class)
                 .hasMessageContaining("valid explicit");
 
         IllegalStateException providerFailure =
@@ -128,7 +129,8 @@ class OutboundHttpProxyResolverTest {
                 OutboundHttpRoute.requiredExplicitProxy(() -> {
                     throw providerFailure;
                 })))
-                .isInstanceOf(HttpException.class)
+                .isInstanceOf(
+                        OutboundHttpProxyResolver.OutboundProxyResolutionException.class)
                 .hasMessageContaining("resolution failed")
                 .hasCause(providerFailure);
     }
@@ -136,15 +138,14 @@ class OutboundHttpProxyResolverTest {
     private void assertThatCodeDoesNotThrowAndReturnsDirect() {
         try {
             assertThat(resolver.resolve(OutboundHttpRoute.requiredGlobalProxy())).isNull();
-        } catch (HttpException e) {
+        } catch (OutboundHttpProxyResolver.OutboundProxyResolutionException e) {
             throw new AssertionError(e);
         }
     }
 
-    private static void assertProxy(HttpHost proxy, String host, int port) {
+    private static void assertProxy(OutboundProxyEndpoint proxy, String host, int port) {
         assertThat(proxy).isNotNull();
-        assertThat(proxy.getHostName()).isEqualTo(host);
-        assertThat(proxy.getPort()).isEqualTo(port);
-        assertThat(proxy.getSchemeName()).isEqualTo("http");
+        assertThat(proxy.hostName()).isEqualTo(host);
+        assertThat(proxy.port()).isEqualTo(port);
     }
 }
