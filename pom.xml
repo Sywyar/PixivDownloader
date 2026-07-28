@@ -53,7 +53,6 @@
              PF4J 插件 jar，放入 plugins/ 由运行时加载——不进 boot jar、app 不依赖。声明在 app 之前，使其 target/classes 在
              app 测试期已就绪，供恢复模式端到端集成测试组装临时插件 jar 做真实加载验证 -->
         <module>pixivdownload-plugin-recovery-sentinel</module>
-        <module>pixivdownload-app</module>
         <!-- 官方必需下载工作台外置插件。app 不依赖本模块；默认发行包把该 jar 放入 plugins/ 由 PF4J 加载。 -->
         <module>pixivdownload-plugin-download-workbench</module>
         <!-- 官方可选疑似重复检测外置插件。核心 Hash 写入与 schema 留 app，本模块只承载页面/API/扫描/回填入口。 -->
@@ -62,6 +61,8 @@
         <module>pixivdownload-plugin-gallery</module>
         <!-- 官方可选小说外置插件。核心 schema 留 app，本模块承载小说下载、翻译、合订、朗读协作与展示层。 -->
         <module>pixivdownload-plugin-novel</module>
+        <!-- 核心壳在全部官方外置插件之后构建，使完整 reactor 的 app 集成测试消费本轮已构建的插件 classes。 -->
+        <module>pixivdownload-app</module>
         <!-- 官方外置插件开发构建聚合入口。IDE 可用 -pl pixivdownload-official-plugins -am compile 一次性编译全部外置插件。 -->
         <module>pixivdownload-official-plugins</module>
     </modules>
