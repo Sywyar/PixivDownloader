@@ -1003,7 +1003,7 @@
         renderQueue();
         updateButtonsState();
         updateStats();
-        syncSearchResultsQueueState();
+        syncAllResultsQueueState();
         setStatus(bt('status.queue-cleared', '队列已清除'), 'info');
     }
 
