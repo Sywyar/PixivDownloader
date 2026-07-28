@@ -202,7 +202,7 @@ public class NovelPluginConfiguration {
             PixivBookmarkActions pixivBookmarkActions,
             @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
             PixivImageDownloader pixivImageDownloader,
-            @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+            @Qualifier("novelStatusTaskScheduler") TaskScheduler statusRetentionScheduler,
             NovelDownloadExecutionLane downloadExecutionLane,
             @Qualifier("novelPluginMessages") MessageResolver messages,
             NovelAutoTranslateService novelAutoTranslateService,
@@ -212,7 +212,7 @@ public class NovelPluginConfiguration {
                 novelDatabase, novelSeriesService,
                 authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
                 pixivBookmarkActions, visitorDownloadQuotaService, pixivImageDownloader,
-                taskScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
+                statusRetentionScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
                 workMetadataCapture, taskTracker);
     }
 

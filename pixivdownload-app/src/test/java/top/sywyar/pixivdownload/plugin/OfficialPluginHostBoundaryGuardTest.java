@@ -59,22 +59,51 @@ class OfficialPluginHostBoundaryGuardTest {
     private static final List<String> PRIVATE_HOST_EXECUTOR_BEAN_NAMES = List.of(
             "applicationTaskExecutor",
             "downloadTaskExecutor");
+    private static final List<String> PRIVATE_HOST_SCHEDULER_BEAN_NAMES = List.of(
+            "taskScheduler");
     private static final Pattern EXECUTOR_INJECTION_TYPE = Pattern.compile(
             "(?<![\\p{Alnum}_$])(?:ThreadPoolTaskExecutor|TaskExecutor|Executor)"
+                    + "(?![\\p{Alnum}_$])");
+    private static final Pattern TASK_SCHEDULER_TYPE = Pattern.compile(
+            "(?<![\\p{Alnum}_$])(?:ThreadPoolTaskScheduler|TaskScheduler)"
                     + "(?![\\p{Alnum}_$])");
     private static final Pattern BEAN_METHOD = Pattern.compile(
             "(?s)@Bean\\b\\s*(?:\\((.*?)\\))?\\s*"
                     + "(?:@[A-Za-z_$][A-Za-z0-9_$.]*(?:\\s*\\(.*?\\))?\\s*)*"
                     + "([^;{}()]*?)\\b[A-Za-z_$][A-Za-z0-9_$]*\\s*"
                     + "\\((.*?)\\)\\s*\\{");
+    private static final Pattern CALLABLE_DECLARATION = Pattern.compile(
+            "(?s)(?:^|[;{}])\\s*"
+                    + "(?:@[A-Za-z_$][A-Za-z0-9_$.]*"
+                    + "(?:\\s*\\([^{};]*?\\))?\\s*)*"
+                    + "(?:(?:public|protected|private|static|final|abstract|"
+                    + "synchronized|native|strictfp|default)\\s+)*"
+                    + "(?:<[^{};()]+>\\s+)?"
+                    + "(?:(?:[A-Za-z_$][A-Za-z0-9_$.<>?\\[\\],]*\\s+))?"
+                    + "[A-Za-z_$][A-Za-z0-9_$]*\\s*"
+                    + "\\(([^{};]*)\\)\\s*"
+                    + "(?:throws\\s+[^{};]+)?\\{");
+    private static final Pattern INJECTION_ANNOTATION = Pattern.compile(
+            "@(?:[A-Za-z_$][A-Za-z0-9_$.]*\\.)?"
+                    + "(?:Autowired|Inject|Resource)\\b");
     private static final Pattern EXECUTOR_PARAMETER = Pattern.compile(
             "(?s)(?<![\\p{Alnum}_$])"
                     + "(?:@Qualifier\\s*\\(\\s*\"([^\"\\\\\\r\\n]+)\"\\s*\\)\\s*)?"
                     + "(?:[A-Za-z_$][A-Za-z0-9_$.]*\\.)?"
                     + "(?:ThreadPoolTaskExecutor|TaskExecutor|Executor)"
                     + "\\s+[A-Za-z_$][A-Za-z0-9_$]*");
+    private static final Pattern TASK_SCHEDULER_PARAMETER = Pattern.compile(
+            "(?s)(?<![\\p{Alnum}_$])"
+                    + "(?:@Qualifier\\s*\\(\\s*\"([^\"\\\\\\r\\n]+)\"\\s*\\)\\s*)?"
+                    + "(?:[A-Za-z_$][A-Za-z0-9_$.]*\\.)?"
+                    + "(?:ThreadPoolTaskScheduler|TaskScheduler)"
+                    + "\\s+[A-Za-z_$][A-Za-z0-9_$]*");
     private static final Pattern ASYNC_ANNOTATION = Pattern.compile(
             "(?s)@Async\\b\\s*(?:\\((.*?)\\))?");
+    private static final Pattern SCHEDULED_ANNOTATION = Pattern.compile(
+            "(?s)@Scheduled\\b\\s*\\((.*?)\\)");
+    private static final Pattern SCHEDULED_SCHEDULER_NAME = Pattern.compile(
+            "(?s)(?:^|,)\\s*scheduler\\s*=\\s*\"([^\"\\\\\\r\\n]+)\"");
     private static final Pattern SINGLE_ANNOTATION_LITERAL = Pattern.compile(
             "(?s)^\\s*(?:value\\s*=\\s*)?\"([^\"\\\\\\r\\n]+)\"\\s*$");
     private static final Pattern BEAN_POSITIONAL_NAME = Pattern.compile(
@@ -327,6 +356,48 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     @Test
+    @DisplayName("官方插件不得引用宿主私有调度器 Bean 名")
+    void officialPluginsDoNotReferencePrivateHostSchedulerBeans() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            if (!Files.isDirectory(sourceRoot)) {
+                continue;
+            }
+            try (Stream<Path> sources = Files.walk(sourceRoot)) {
+                for (Path source : sources
+                        .filter(path -> path.toString().endsWith(".java"))
+                        .sorted()
+                        .toList()) {
+                    for (String beanName : privateHostSchedulerBeanReferences(read(source))) {
+                        violations.add(module + ":" + repositoryRoot.relativize(source)
+                                + " -> " + beanName);
+                    }
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("官方插件的调度任务必须由所属 child context 的本地调度器拥有")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("调度器 Bean 名扫描忽略注释并识别精确字符串字面量")
+    void privateHostSchedulerBeanScannerIgnoresCommentsAndFindsLiterals() {
+        String source = "// \"taskScheduler\"\n"
+                + "class Example {\n"
+                + "  String shared = \"taskScheduler\";\n"
+                + "  String local = \"downloadWorkbenchTaskScheduler\";\n"
+                + "}\n";
+
+        assertThat(privateHostSchedulerBeanReferences(source))
+                .containsExactly("taskScheduler");
+    }
+
+    @Test
     @DisplayName("官方插件执行器注入与异步方法必须绑定模块本地 Bean")
     void officialPluginsBindExecutorUseToModuleLocalBeans() throws IOException {
         Path repositoryRoot = repositoryRoot();
@@ -420,6 +491,118 @@ class OfficialPluginHostBoundaryGuardTest {
                         assertThat(violation).contains("@Async 缺少执行器名"))
                 .anySatisfy(violation ->
                         assertThat(violation).contains("commentOnlyTaskExecutor"));
+    }
+
+    @Test
+    @DisplayName("官方插件调度器注入与周期方法必须绑定模块本地 Bean")
+    void officialPluginsBindSchedulerUseToModuleLocalBeans() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path sourceRoot = repositoryRoot.resolve(module).resolve("src/main/java");
+            if (!Files.isDirectory(sourceRoot)) {
+                continue;
+            }
+            List<Path> moduleSources;
+            try (Stream<Path> sources = Files.walk(sourceRoot)) {
+                moduleSources = sources
+                        .filter(path -> path.toString().endsWith(".java"))
+                        .sorted()
+                        .toList();
+            }
+            Set<String> localSchedulerBeans = new LinkedHashSet<>();
+            for (Path source : moduleSources) {
+                localSchedulerBeans.addAll(explicitTaskSchedulerBeanNames(read(source)));
+            }
+            for (Path source : moduleSources) {
+                for (String violation :
+                        schedulerBoundaryViolations(read(source), localSchedulerBeans)) {
+                    violations.add(module + ":" + repositoryRoot.relativize(source)
+                            + " -> " + violation);
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("TaskScheduler 注入和 @Scheduled 必须显式引用同一官方插件模块的本地 @Bean")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("调度器边界扫描覆盖本地、无限定、外部名称并忽略非代码")
+    void schedulerBoundaryScannerCoversPositiveAndNegativeExamples() {
+        String declarations = """
+                class Schedulers {
+                    // @Bean("commentOnlyTaskScheduler")
+                    @Bean(name = "localTaskScheduler", destroyMethod = "shutdown")
+                    ThreadPoolTaskScheduler localTaskScheduler() { return null; }
+
+                    @Bean
+                    ThreadPoolTaskScheduler derivedTaskScheduler() { return null; }
+
+                    @Bean("notAScheduler")
+                    String notAScheduler() { return ""; }
+                }
+                """;
+        Set<String> localBeans = explicitTaskSchedulerBeanNames(declarations);
+        String valid = """
+                class Valid {
+                    @Bean
+                    Object consumer(
+                            @Qualifier("localTaskScheduler") TaskScheduler scheduler) {
+                        return null;
+                    }
+                    Valid(
+                            @Qualifier("localTaskScheduler") TaskScheduler scheduler) {}
+                    @Autowired
+                    void replace(
+                            @Qualifier("localTaskScheduler") TaskScheduler scheduler) {}
+                    @Autowired
+                    @Qualifier("localTaskScheduler")
+                    TaskScheduler injectedField;
+                    @Scheduled(
+                            fixedDelayString = "${fixture.delay:1000}",
+                            scheduler = "localTaskScheduler")
+                    void run() {}
+                    String ignored = "@Scheduled(scheduler = \\"commentOnlyTaskScheduler\\")";
+                }
+                """;
+        String invalid = """
+                class Invalid {
+                    @Bean Object implicit(TaskScheduler scheduler) { return null; }
+                    @Bean Object derived(
+                            @Qualifier("derivedTaskScheduler") TaskScheduler scheduler) {
+                        return null;
+                    }
+                    Invalid(TaskScheduler scheduler) {}
+                    @Autowired void replace(TaskScheduler scheduler) {}
+                    @Autowired TaskScheduler injectedField;
+                    @Autowired
+                    @Qualifier("foreignTaskScheduler")
+                    TaskScheduler foreignField;
+                    @Scheduled(fixedDelay = 1000) void unnamed() {}
+                    @Scheduled(
+                            fixedDelay = 1000,
+                            scheduler = "commentOnlyTaskScheduler")
+                    void foreign() {}
+                }
+                """;
+
+        assertThat(localBeans).containsExactly("localTaskScheduler");
+        assertThat(schedulerBoundaryViolations(valid, localBeans)).isEmpty();
+        assertThat(schedulerBoundaryViolations(invalid, localBeans))
+                .hasSize(8)
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("缺少 @Qualifier"))
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("derivedTaskScheduler"))
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("foreignTaskScheduler"))
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("@Scheduled 缺少 scheduler"))
+                .anySatisfy(violation ->
+                        assertThat(violation).contains("commentOnlyTaskScheduler"));
     }
 
     @Test
@@ -911,9 +1094,19 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     private static Set<String> privateHostExecutorBeanReferences(String source) {
+        return privateHostBeanReferences(source, PRIVATE_HOST_EXECUTOR_BEAN_NAMES);
+    }
+
+    private static Set<String> privateHostSchedulerBeanReferences(String source) {
+        return privateHostBeanReferences(source, PRIVATE_HOST_SCHEDULER_BEAN_NAMES);
+    }
+
+    private static Set<String> privateHostBeanReferences(
+            String source,
+            List<String> privateBeanNames) {
         String code = referenceCode(source);
         Set<String> references = new LinkedHashSet<>();
-        for (String beanName : PRIVATE_HOST_EXECUTOR_BEAN_NAMES) {
+        for (String beanName : privateBeanNames) {
             Pattern literal = Pattern.compile("\"" + Pattern.quote(beanName) + "\"");
             if (literal.matcher(code).find()) {
                 references.add(beanName);
@@ -928,6 +1121,24 @@ class OfficialPluginHostBoundaryGuardTest {
         Set<String> names = new LinkedHashSet<>();
         while (methods.find()) {
             if (!EXECUTOR_INJECTION_TYPE.matcher(methods.group(2)).find()
+                    || methods.start(1) < 0) {
+                continue;
+            }
+            String name = explicitBeanName(
+                    code.substring(methods.start(1), methods.end(1)));
+            if (name != null) {
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    private static Set<String> explicitTaskSchedulerBeanNames(String source) {
+        String code = stripComments(source);
+        Matcher methods = BEAN_METHOD.matcher(maskCommentsAndLiterals(source));
+        Set<String> names = new LinkedHashSet<>();
+        while (methods.find()) {
+            if (!TASK_SCHEDULER_TYPE.matcher(methods.group(2)).find()
                     || methods.start(1) < 0) {
                 continue;
             }
@@ -976,6 +1187,88 @@ class OfficialPluginHostBoundaryGuardTest {
         return List.copyOf(violations);
     }
 
+    private static List<String> schedulerBoundaryViolations(
+            String source,
+            Set<String> localSchedulerBeans) {
+        String code = stripComments(source);
+        String structure = maskCommentsAndLiterals(source);
+        List<String> violations = new ArrayList<>();
+        List<int[]> parameterRanges = new ArrayList<>();
+        Matcher callables = CALLABLE_DECLARATION.matcher(structure);
+        while (callables.find()) {
+            parameterRanges.add(new int[]{callables.start(1), callables.end(1)});
+            collectTaskSchedulerParameterViolations(
+                    code.substring(callables.start(1), callables.end(1)),
+                    localSchedulerBeans,
+                    violations);
+        }
+
+        Matcher schedulerDeclarations = TASK_SCHEDULER_PARAMETER.matcher(structure);
+        while (schedulerDeclarations.find()) {
+            if (insideAnyRange(schedulerDeclarations.start(), parameterRanges)) {
+                continue;
+            }
+            int statementStart = previousStatementBoundary(
+                    structure, schedulerDeclarations.start());
+            int statementEnd = structure.indexOf(';', schedulerDeclarations.end());
+            if (statementEnd < 0) {
+                continue;
+            }
+            String statementStructure =
+                    structure.substring(statementStart, statementEnd + 1);
+            if (!INJECTION_ANNOTATION.matcher(statementStructure).find()) {
+                continue;
+            }
+            collectTaskSchedulerParameterViolations(
+                    code.substring(statementStart, statementEnd + 1),
+                    localSchedulerBeans,
+                    violations);
+        }
+
+        Matcher scheduled = SCHEDULED_ANNOTATION.matcher(structure);
+        while (scheduled.find()) {
+            String schedulerName = scheduledSchedulerName(
+                    code.substring(scheduled.start(1), scheduled.end(1)));
+            if (schedulerName == null) {
+                violations.add("@Scheduled 缺少 scheduler 属性");
+            } else if (!localSchedulerBeans.contains(schedulerName)) {
+                violations.add("@Scheduled(scheduler = \"" + schedulerName
+                        + "\") 未引用同模块本地调度器 @Bean");
+            }
+        }
+        return List.copyOf(violations);
+    }
+
+    private static void collectTaskSchedulerParameterViolations(
+            String declaration,
+            Set<String> localSchedulerBeans,
+            List<String> violations) {
+        Matcher scheduler = TASK_SCHEDULER_PARAMETER.matcher(declaration);
+        while (scheduler.find()) {
+            String qualifier = scheduler.group(1);
+            if (qualifier == null) {
+                violations.add("调度器注入参数缺少 @Qualifier: "
+                        + scheduler.group().replaceAll("\\s+", " ").trim());
+            } else if (!localSchedulerBeans.contains(qualifier)) {
+                violations.add("@Qualifier(\"" + qualifier
+                        + "\") 未引用同模块本地调度器 @Bean");
+            }
+        }
+    }
+
+    private static boolean insideAnyRange(int position, List<int[]> ranges) {
+        return ranges.stream()
+                .anyMatch(range -> position >= range[0] && position < range[1]);
+    }
+
+    private static int previousStatementBoundary(String source, int position) {
+        int boundary = -1;
+        for (char marker : new char[]{';', '{', '}'}) {
+            boundary = Math.max(boundary, source.lastIndexOf(marker, position - 1));
+        }
+        return boundary + 1;
+    }
+
     private static String explicitBeanName(String arguments) {
         Matcher positional = BEAN_POSITIONAL_NAME.matcher(arguments);
         if (positional.find()) {
@@ -988,6 +1281,11 @@ class OfficialPluginHostBoundaryGuardTest {
     private static String annotationLiteral(String arguments) {
         Matcher literal = SINGLE_ANNOTATION_LITERAL.matcher(arguments);
         return literal.matches() ? literal.group(1) : null;
+    }
+
+    private static String scheduledSchedulerName(String arguments) {
+        Matcher schedulerName = SCHEDULED_SCHEDULER_NAME.matcher(arguments);
+        return schedulerName.find() ? schedulerName.group(1) : null;
     }
 
     private static boolean startsWithTripleQuote(String source, int index) {

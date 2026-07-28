@@ -8,6 +8,7 @@ import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -232,6 +233,14 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertThat(applicationContext.getBeansOfType(ScheduledSourceExecutor.class).values())
                 .noneMatch(executor -> SOURCE_TYPES.contains(executor.sourceType()));
 
+        ThreadPoolTaskScheduler scheduler = child.getBean(
+                "downloadWorkbenchTaskScheduler", ThreadPoolTaskScheduler.class);
+        assertThat(child.containsLocalBean("downloadWorkbenchTaskScheduler")).isTrue();
+        assertThat(scheduler).isNotSameAs(applicationContext.getBean("taskScheduler"));
+        assertThat(scheduler.getScheduledThreadPoolExecutor().getCorePoolSize()).isEqualTo(5);
+        assertThat(scheduler.getThreadNamePrefix())
+                .isEqualTo("download-workbench-scheduler-");
+
         assertThat(pluginControllerRegistrar.registeredPluginIds()).contains(PLUGIN_ID);
         assertThat(handlerBean("/api/download/queue/clear").getClass().getClassLoader())
                 .isSameAs(externalClassLoader);
@@ -375,8 +384,11 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         ClassLoader initialClassLoader = externalDownloadWorkbenchClassLoader();
         ConfigurableApplicationContext initialContext =
                 externalPluginContextManager.contextFor(PLUGIN_ID).orElseThrow();
+        ThreadPoolTaskScheduler initialScheduler = initialContext.getBean(
+                "downloadWorkbenchTaskScheduler", ThreadPoolTaskScheduler.class);
         long initialGeneration =
                 pluginLifecycleService.generation(PLUGIN_ID).orElseThrow();
+        assertThat(initialScheduler.getScheduledThreadPoolExecutor().isShutdown()).isFalse();
         assertServiceFootprintPresent(initialClassLoader);
 
         lifecycleCoordinator.stop(PLUGIN_ID);
@@ -385,6 +397,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                 .contains(PluginRuntimePhase.STOPPED);
         assertThat(externalPluginContextManager.contextFor(PLUGIN_ID)).isEmpty();
         assertThat(initialContext.isActive()).isFalse();
+        assertThat(initialScheduler.getScheduledThreadPoolExecutor().isShutdown()).isTrue();
         assertServiceFootprintAbsent(initialClassLoader);
 
         lifecycleCoordinator.start(PLUGIN_ID);
@@ -397,7 +410,11 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                 .isSameAs(initialClassLoader);
         ConfigurableApplicationContext restartedContext =
                 externalPluginContextManager.contextFor(PLUGIN_ID).orElseThrow();
+        ThreadPoolTaskScheduler restartedScheduler = restartedContext.getBean(
+                "downloadWorkbenchTaskScheduler", ThreadPoolTaskScheduler.class);
         assertThat(restartedContext).isNotSameAs(initialContext);
+        assertThat(restartedScheduler).isNotSameAs(initialScheduler);
+        assertThat(restartedScheduler.getScheduledThreadPoolExecutor().isShutdown()).isFalse();
         assertServiceFootprintPresent(initialClassLoader);
 
         lifecycleCoordinator.reload(PLUGIN_ID);
@@ -405,6 +422,8 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         ClassLoader reloadedClassLoader = externalDownloadWorkbenchClassLoader();
         ConfigurableApplicationContext reloadedContext =
                 externalPluginContextManager.contextFor(PLUGIN_ID).orElseThrow();
+        ThreadPoolTaskScheduler reloadedScheduler = reloadedContext.getBean(
+                "downloadWorkbenchTaskScheduler", ThreadPoolTaskScheduler.class);
         assertThat(pluginLifecycleService.phase(PLUGIN_ID))
                 .contains(PluginRuntimePhase.STARTED);
         assertThat(pluginLifecycleService.generation(PLUGIN_ID).orElseThrow())
@@ -412,6 +431,9 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertThat(reloadedClassLoader).isNotSameAs(initialClassLoader);
         assertThat(reloadedContext).isNotSameAs(restartedContext);
         assertThat(restartedContext.isActive()).isFalse();
+        assertThat(restartedScheduler.getScheduledThreadPoolExecutor().isShutdown()).isTrue();
+        assertThat(reloadedScheduler).isNotSameAs(restartedScheduler);
+        assertThat(reloadedScheduler.getScheduledThreadPoolExecutor().isShutdown()).isFalse();
         assertThat(anyHandlerLoadedBy(initialClassLoader)).isFalse();
         assertServiceFootprintPresent(reloadedClassLoader);
     }

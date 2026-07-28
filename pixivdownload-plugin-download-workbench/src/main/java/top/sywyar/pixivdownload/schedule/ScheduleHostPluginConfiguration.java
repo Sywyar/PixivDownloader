@@ -10,6 +10,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -90,6 +91,21 @@ public class ScheduleHostPluginConfiguration {
     @Bean
     public ScheduleWorkConcurrencyLimiter scheduleWorkConcurrencyLimiter() {
         return new ScheduleWorkConcurrencyLimiter();
+    }
+
+    /**
+     * 下载工作台 child context 自有的调度器，承载计划 tick、下载状态保留与 SSE 心跳。
+     * 插件停止或重载时由 child context 关闭，不能回退到宿主 {@code taskScheduler}。
+     */
+    @Bean(name = "downloadWorkbenchTaskScheduler", destroyMethod = "shutdown")
+    public ThreadPoolTaskScheduler downloadWorkbenchTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(5);
+        scheduler.setThreadNamePrefix("download-workbench-scheduler-");
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return scheduler;
     }
 
     /**

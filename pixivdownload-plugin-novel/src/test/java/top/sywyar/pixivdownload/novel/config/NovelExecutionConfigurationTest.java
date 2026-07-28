@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
@@ -32,7 +33,7 @@ class NovelExecutionConfigurationTest {
     }
 
     @Test
-    @DisplayName("子上下文绑定插件属性并在关闭时销毁两个线程池")
+    @DisplayName("子上下文绑定插件属性并在关闭时销毁线程池与状态调度器")
     void childContextOwnsAndDestroysConfiguredExecutors() {
         PluginApplicationContextFactory factory = new PluginApplicationContextFactory(owner -> Map.of(
                 NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY, "3",
@@ -47,6 +48,8 @@ class NovelExecutionConfigurationTest {
                     "novelDownloadTaskExecutor", ThreadPoolTaskExecutor.class);
             ThreadPoolTaskExecutor translate = child.getBean(
                     "novelTranslateTaskExecutor", ThreadPoolTaskExecutor.class);
+            ThreadPoolTaskScheduler statusScheduler = child.getBean(
+                    "novelStatusTaskScheduler", ThreadPoolTaskScheduler.class);
             try {
                 NovelExecutionSettings settings = child.getBean(NovelExecutionSettings.class);
                 assertThat(settings.getNovelMaxConcurrent()).isEqualTo(3);
@@ -57,15 +60,29 @@ class NovelExecutionConfigurationTest {
                 assertThat(translate.getCorePoolSize()).isEqualTo(4);
                 assertThat(translate.getMaxPoolSize()).isEqualTo(4);
                 assertThat(translate.getThreadNamePrefix()).isEqualTo("pixiv-novel-tr-");
+                assertThat(statusScheduler.getScheduledThreadPoolExecutor().getCorePoolSize())
+                        .isEqualTo(1);
+                assertThat(statusScheduler.getThreadNamePrefix())
+                        .isEqualTo("novel-status-scheduler-");
+                assertThat(statusScheduler.getScheduledThreadPoolExecutor()
+                        .getRemoveOnCancelPolicy()).isTrue();
+                assertThat(statusScheduler.getScheduledThreadPoolExecutor()
+                        .getContinueExistingPeriodicTasksAfterShutdownPolicy()).isFalse();
+                assertThat(statusScheduler.getScheduledThreadPoolExecutor()
+                        .getExecuteExistingDelayedTasksAfterShutdownPolicy()).isFalse();
                 assertThat(parent.containsBean("novelDownloadTaskExecutor")).isFalse();
                 assertThat(parent.containsBean("novelTranslateTaskExecutor")).isFalse();
+                assertThat(parent.containsBean("novelStatusTaskScheduler")).isFalse();
                 assertThat(download.getThreadPoolExecutor().isShutdown()).isFalse();
                 assertThat(translate.getThreadPoolExecutor().isShutdown()).isFalse();
+                assertThat(statusScheduler.getScheduledThreadPoolExecutor().isShutdown())
+                        .isFalse();
             } finally {
                 child.close();
             }
             assertThat(download.getThreadPoolExecutor().isShutdown()).isTrue();
             assertThat(translate.getThreadPoolExecutor().isShutdown()).isTrue();
+            assertThat(statusScheduler.getScheduledThreadPoolExecutor().isShutdown()).isTrue();
         }
     }
 
@@ -83,6 +100,7 @@ class NovelExecutionConfigurationTest {
                 assertThat(child.getBeansOfType(NovelExecutionSettings.class)).isEmpty();
                 assertThat(child.containsLocalBean("novelDownloadTaskExecutor")).isFalse();
                 assertThat(child.containsLocalBean("novelTranslateTaskExecutor")).isFalse();
+                assertThat(child.containsLocalBean("novelStatusTaskScheduler")).isFalse();
             }
         }
     }

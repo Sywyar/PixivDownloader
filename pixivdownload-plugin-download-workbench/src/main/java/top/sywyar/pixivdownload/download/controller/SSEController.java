@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.download.controller;
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.MediaType;
@@ -78,7 +79,8 @@ public class SSEController {
     private final Object progressFlushMonitor = new Object();
     private ProgressFlushHandle progressFlushHandle;
 
-    public SSEController(TaskScheduler taskScheduler,
+    public SSEController(
+                         @Qualifier("downloadWorkbenchTaskScheduler") TaskScheduler taskScheduler,
                          RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                          MessageResolver messages,
                          PluginStreamRegistrar pluginStreamRegistrar,

@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** 把短期状态保留任务也纳入队列 generation；quiesce 会取消父调度器句柄并清掉插件 cleanup delegate。 */
+/** 把短期状态保留任务也纳入队列 generation；quiesce 会取消所属插件调度器句柄并清掉 cleanup delegate。 */
 public final class QueueStatusRetention {
 
     private QueueStatusRetention() {

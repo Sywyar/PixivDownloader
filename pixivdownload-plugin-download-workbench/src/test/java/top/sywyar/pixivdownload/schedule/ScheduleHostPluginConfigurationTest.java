@@ -7,7 +7,9 @@ import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -75,6 +77,37 @@ class ScheduleHostPluginConfigurationTest {
         assertThat(workPool.name()).containsExactly("scheduleWorkTaskExecutor");
         assertThat(runPool.destroyMethod()).isEqualTo("shutdown");
         assertThat(workPool.destroyMethod()).isEqualTo("shutdown");
+    }
+
+    @Test
+    @DisplayName("计划 tick 与工作台延迟任务显式使用子上下文本地调度器")
+    void scheduleHostOwnsExplicitTaskScheduler() throws NoSuchMethodException {
+        ScheduleHostPluginConfiguration configuration = new ScheduleHostPluginConfiguration();
+        ThreadPoolTaskScheduler scheduler = configuration.downloadWorkbenchTaskScheduler();
+        scheduler.initialize();
+        try {
+            assertThat(scheduler.getScheduledThreadPoolExecutor().getCorePoolSize()).isEqualTo(5);
+            assertThat(scheduler.getThreadNamePrefix())
+                    .isEqualTo("download-workbench-scheduler-");
+            assertThat(scheduler.getScheduledThreadPoolExecutor().getRemoveOnCancelPolicy())
+                    .isTrue();
+            assertThat(scheduler.getScheduledThreadPoolExecutor()
+                    .getContinueExistingPeriodicTasksAfterShutdownPolicy()).isFalse();
+            assertThat(scheduler.getScheduledThreadPoolExecutor()
+                    .getExecuteExistingDelayedTasksAfterShutdownPolicy()).isFalse();
+        } finally {
+            scheduler.shutdown();
+        }
+
+        Bean schedulerBean = ScheduleHostPluginConfiguration.class.getDeclaredMethod(
+                        "downloadWorkbenchTaskScheduler")
+                .getAnnotation(Bean.class);
+        Scheduled scheduled = ScheduleRunner.class.getDeclaredMethod("tick")
+                .getAnnotation(Scheduled.class);
+        assertThat(schedulerBean.name()).containsExactly("downloadWorkbenchTaskScheduler");
+        assertThat(schedulerBean.destroyMethod()).isEqualTo("shutdown");
+        assertThat(scheduled).isNotNull();
+        assertThat(scheduled.scheduler()).isEqualTo("downloadWorkbenchTaskScheduler");
     }
 
     @Test

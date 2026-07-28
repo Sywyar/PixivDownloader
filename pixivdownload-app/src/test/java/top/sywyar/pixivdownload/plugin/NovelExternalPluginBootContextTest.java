@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -330,11 +331,21 @@ class NovelExternalPluginBootContextTest {
         assertThat(child.getBean("novelTranslateTaskExecutor"))
                 .isInstanceOfSatisfying(ThreadPoolTaskExecutor.class,
                         executor -> assertThat(executor.getMaxPoolSize()).isEqualTo(4));
+        assertThat(child.containsLocalBean("novelStatusTaskScheduler")).isTrue();
+        assertThat(child.getBean("novelStatusTaskScheduler"))
+                .isInstanceOfSatisfying(ThreadPoolTaskScheduler.class, scheduler -> {
+                    assertThat(scheduler).isNotSameAs(applicationContext.getBean("taskScheduler"));
+                    assertThat(scheduler.getScheduledThreadPoolExecutor().getCorePoolSize())
+                            .isEqualTo(1);
+                    assertThat(scheduler.getThreadNamePrefix())
+                            .isEqualTo("novel-status-scheduler-");
+                });
         assertThat(applicationContext.getBeanNamesForType(controllerClass)).isEmpty();
         assertThat(applicationContext.getBeanNamesForType(providerClass)).isEmpty();
         assertThat(applicationContext.getBeanNamesForType(frontendProviderClass)).isEmpty();
         assertThat(applicationContext.containsBean("novelDownloadTaskExecutor")).isFalse();
         assertThat(applicationContext.containsBean("novelTranslateTaskExecutor")).isFalse();
+        assertThat(applicationContext.containsBean("novelStatusTaskScheduler")).isFalse();
         assertThat(novelGalleryListHandlerBean()).isSameAs(child.getBean(controllerClass));
     }
 

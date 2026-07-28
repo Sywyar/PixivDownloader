@@ -106,7 +106,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            ArtworkDownloadStatistics artworkDownloadStatistics,
                                                            VisitorDownloadQuotaService visitorDownloadQuotaService,
                                                            PixivImageDownloader pixivImageDownloader,
-                                                           @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+                                                           @Qualifier("downloadWorkbenchTaskScheduler")
+                                                           TaskScheduler taskScheduler,
                                                            InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                                            PixivBookmarkActions pixivBookmarkActions,
                                                            UgoiraService ugoiraService,
@@ -296,7 +297,8 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public SSEController sseController(@Qualifier("taskScheduler") TaskScheduler taskScheduler,
+    public SSEController sseController(
+            @Qualifier("downloadWorkbenchTaskScheduler") TaskScheduler taskScheduler,
                                        RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                        PluginStreamRegistrar pluginStreamRegistrar,

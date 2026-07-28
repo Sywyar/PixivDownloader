@@ -92,7 +92,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final PixivBookmarkActions pixivBookmarkActions;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final PixivImageDownloader pixivImageDownloader;
-    private final TaskScheduler taskScheduler;
+    private final TaskScheduler statusRetentionScheduler;
     private final NovelDownloadExecutionLane downloadExecutionLane;
     private final MessageResolver messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
@@ -112,7 +112,8 @@ public class NovelDownloadService implements NovelDownloader {
                                 PixivBookmarkActions pixivBookmarkActions,
                                 @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
                                 PixivImageDownloader pixivImageDownloader,
-                                @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+                                @Qualifier("novelStatusTaskScheduler")
+                                TaskScheduler statusRetentionScheduler,
                                 NovelDownloadExecutionLane downloadExecutionLane,
                                 MessageResolver messages,
                                 NovelAutoTranslateService novelAutoTranslateService,
@@ -129,7 +130,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.pixivBookmarkActions = pixivBookmarkActions;
         this.visitorDownloadQuotaService = visitorDownloadQuotaService;
         this.pixivImageDownloader = pixivImageDownloader;
-        this.taskScheduler = taskScheduler;
+        this.statusRetentionScheduler = statusRetentionScheduler;
         this.downloadExecutionLane = downloadExecutionLane;
         this.messages = messages;
         this.novelAutoTranslateService = novelAutoTranslateService;
@@ -358,7 +359,10 @@ public class NovelDownloadService implements NovelDownloader {
                     : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
             if (statusMap.get(statusKey) == status) {
-                QueueStatusRetention.schedule(taskTracker, NovelQueueTaskOwners.download(userUuid), taskScheduler,
+                QueueStatusRetention.schedule(
+                        taskTracker,
+                        NovelQueueTaskOwners.download(userUuid),
+                        statusRetentionScheduler,
                         Instant.now().plusSeconds(300),
                         () -> statusMap.remove(statusKey, status));
             }

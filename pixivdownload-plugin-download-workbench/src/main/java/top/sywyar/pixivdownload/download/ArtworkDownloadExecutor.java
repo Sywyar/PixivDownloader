@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
@@ -96,6 +97,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    ArtworkDownloadStatistics artworkDownloadStatistics,
                                    @Nullable VisitorDownloadQuotaService visitorDownloadQuotaService,
                                    PixivImageDownloader pixivImageDownloader,
+                                   @Qualifier("downloadWorkbenchTaskScheduler")
                                    TaskScheduler taskScheduler,
                                    InteractiveDownloadExecutionLane interactiveDownloadExecutionLane,
                                    PixivBookmarkActions pixivBookmarkActions,

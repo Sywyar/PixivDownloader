@@ -27,7 +27,7 @@ public class AsyncConfig {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(5);
         scheduler.setThreadNamePrefix("app-scheduler-");
-        // 热停时取消的延迟状态清理任务必须立即从父调度队列移除，不能继续持有旧插件 generation 的 Runnable。
+        // 核心延迟任务取消后立即移除队列句柄，避免宿主调度队列继续持有已失效的 Runnable。
         scheduler.setRemoveOnCancelPolicy(true);
         return scheduler;
     }

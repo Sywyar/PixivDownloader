@@ -42,7 +42,9 @@ public class ScheduleRunner {
     /** 单飞：上一轮 tick 仍在跑（任务多 / 抓取慢）时直接跳过本轮，避免重入。 */
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    @Scheduled(fixedDelayString = "${schedule.tick-interval-ms:60000}")
+    @Scheduled(
+            fixedDelayString = "${schedule.tick-interval-ms:60000}",
+            scheduler = "downloadWorkbenchTaskScheduler")
     public void tick() {
         ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease =
                 scheduleCapabilityRegistry.prepareOwner(DownloadWorkbenchPlugin.ID).orElse(null);

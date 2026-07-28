@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AsyncConfigTest {
 
     @Test
-    @DisplayName("父调度器取消延迟任务时应立即移除队列句柄")
+    @DisplayName("宿主调度器取消延迟任务时应立即移除队列句柄")
     void schedulerRemovesCancelledTasks() {
         ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) new AsyncConfig().taskScheduler();
         scheduler.initialize();
