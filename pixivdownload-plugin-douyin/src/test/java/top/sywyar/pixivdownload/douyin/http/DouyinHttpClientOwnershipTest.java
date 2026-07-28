@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.douyin.http;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Import;
+import top.sywyar.pixivdownload.douyin.DouyinPluginConfiguration;
 import top.sywyar.pixivdownload.douyin.settings.DouyinPluginSettingsService;
 import top.sywyar.pixivdownload.douyin.settings.DouyinProxyMode;
 import top.sywyar.pixivdownload.douyin.settings.DouyinRuntimeSettings;
@@ -41,6 +43,15 @@ class DouyinHttpClientOwnershipTest {
             "douyinDirectRedirectRestTemplate",
             "douyinProxyRedirectRestTemplate",
             "douyinCustomProxyRedirectRestTemplate");
+
+    @Test
+    @DisplayName("主插件配置显式导入 HTTP 子配置")
+    void pluginConfigurationImportsHttpClientConfiguration() {
+        Import imports = DouyinPluginConfiguration.class.getDeclaredAnnotation(Import.class);
+
+        assertThat(imports).isNotNull();
+        assertThat(imports.value()).contains(DouyinHttpClientConfiguration.class);
+    }
 
     @Test
     @DisplayName("八个子上下文客户端使用精确资源配置与代理路由")

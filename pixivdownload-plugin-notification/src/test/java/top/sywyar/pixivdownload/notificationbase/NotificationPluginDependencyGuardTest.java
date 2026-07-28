@@ -1,8 +1,5 @@
-package top.sywyar.pixivdownload.guitheme;
+package top.sywyar.pixivdownload.notificationbase;
 
-import com.tngtech.archunit.core.domain.JavaClasses;
-import com.tngtech.archunit.core.importer.ClassFileImporter;
-import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -15,11 +12,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("GUI 主题插件依赖边界")
-class GuiThemePluginDependencyGuardTest {
+@DisplayName("Notification 外置插件依赖边界")
+class NotificationPluginDependencyGuardTest {
 
     private static final List<String> HOST_PRIVATE_CLASS_RESOURCES = List.of(
             "top/sywyar/pixivdownload/PixivDownloadApplication.class",
@@ -37,39 +33,6 @@ class GuiThemePluginDependencyGuardTest {
                     + "|'(?:\\\\.|[^'\\\\])*'"
                     + "|(?<comment>//[^\\r\\n]*|/\\*[\\s\\S]*?\\*/)");
     private static final Pattern QUALIFIED_NAME_SEPARATOR = Pattern.compile("\\s*\\.\\s*");
-    private static final JavaClasses CLASSES = new ClassFileImporter()
-            .withImportOption(new ImportOption.DoNotIncludeTests())
-            .importPackages("top.sywyar.pixivdownload.guitheme");
-
-    @Test
-    @DisplayName("生产代码不得依赖 app 实现包")
-    void guiThemePluginDoesNotDependOnAppImplementationPackages() {
-        noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.guitheme..")
-                .should().dependOnClassesThat()
-                .resideInAnyPackage(
-                        "top.sywyar.pixivdownload.gui..",
-                        "top.sywyar.pixivdownload.config..",
-                        "top.sywyar.pixivdownload.i18n..",
-                        "top.sywyar.pixivdownload.plugin.runtime..")
-                .because("the theme plugin crosses the host boundary only through plugin-api and PF4J")
-                .check(CLASSES);
-    }
-
-    @Test
-    @DisplayName("生产代码不得依赖宿主私有 HTTP 类型")
-    void productionCodeDoesNotDependOnPrivateHttpTypes() {
-        noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.guitheme..")
-                .should().dependOnClassesThat()
-                .resideInAnyPackage("org.apache.hc..", "org.apache.http..")
-                .orShould().dependOnClassesThat()
-                .haveFullyQualifiedName(
-                        "org.springframework.http.client."
-                                + "HttpComponentsClientHttpRequestFactory")
-                .because("主题插件只能通过稳定契约消费宿主传输能力")
-                .check(CLASSES);
-    }
 
     @Test
     @DisplayName("测试类路径与生产源码不得包含宿主私有 HTTP 实现")
@@ -97,11 +60,11 @@ class GuiThemePluginDependencyGuardTest {
                 }
             }
         }
-        assertThat(violations).as("GUI 主题插件生产源码中的宿主私有 HTTP 引用").isEmpty();
+        assertThat(violations).as("Notification 插件生产源码中的宿主私有 HTTP 引用").isEmpty();
     }
 
     private static Path moduleRoot() {
-        Path reactorModule = Path.of("pixivdownload-plugin-gui-theme");
+        Path reactorModule = Path.of("pixivdownload-plugin-notification");
         return Files.isDirectory(reactorModule) ? reactorModule : Path.of(".");
     }
 

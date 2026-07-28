@@ -26,6 +26,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("gallery 模块边界守卫")
 class GalleryPluginModuleDependencyGuardTest {
 
+    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
+            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
+            "org/apache/hc/core5/http/HttpRequest.class",
+            "org/apache/http/client/HttpClient.class",
+            "org/apache/http/nio/client/HttpAsyncClient.class"
+    };
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*package[\\t ]+([A-Za-z0-9_$.]+)[\\t ]*;");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
@@ -75,6 +82,30 @@ class GalleryPluginModuleDependencyGuardTest {
                 .because("gallery 读取核心作品事实只能经 core owned repository/service 与 plugin.api 契约，"
                         + "不得自建 JDBC/MyBatis 访问核心表")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("gallery 不得依赖宿主私有 HTTP 类型")
+    void galleryDoesNotDependOnPrivateHttpTypes() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "org.apache.http..")
+                .orShould().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "org.springframework.http.client."
+                                + "HttpComponentsClientHttpRequestFactory")
+                .because("插件只能经稳定 HTTP 契约消费宿主传输能力")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("gallery 测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void galleryClasspathExcludesHostApplicationAndPrivateHttpStack() {
+        ClassLoader classLoader = getClass().getClassLoader();
+        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
+            assertThat(classLoader.getResource(resource)).as(resource).isNull();
+        }
     }
 
     @Test

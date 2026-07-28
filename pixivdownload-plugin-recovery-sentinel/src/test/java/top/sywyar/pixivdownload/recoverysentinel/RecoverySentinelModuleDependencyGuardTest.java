@@ -20,6 +20,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class RecoverySentinelModuleDependencyGuardTest {
 
+    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
+            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
+            "org/apache/hc/core5/http/HttpRequest.class",
+            "org/apache/http/client/HttpClient.class",
+            "org/apache/http/nio/client/HttpAsyncClient.class"
+    };
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
@@ -39,6 +46,15 @@ class RecoverySentinelModuleDependencyGuardTest {
                         + "与 PF4J（外置插件主类 RecoverySentinelPf4jPlugin 继承 org.pf4j.Plugin）；它不贡献任何功能、"
                         + "没有托管 Bean、不读核心数据，故不依赖主程序 pixivdownload-app、核心、Spring、core-api 或 plugin-runtime")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("recovery-sentinel 测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void recoverySentinelClasspathExcludesHostApplicationAndPrivateHttpStack() {
+        ClassLoader classLoader = getClass().getClassLoader();
+        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
+            assertThat(classLoader.getResource(resource)).as(resource).isNull();
+        }
     }
 
     @Test

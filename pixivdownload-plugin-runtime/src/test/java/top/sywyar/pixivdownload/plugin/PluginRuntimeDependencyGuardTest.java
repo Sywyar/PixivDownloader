@@ -5,6 +5,11 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -21,7 +26,19 @@ import top.sywyar.pixivdownload.plugin.runtime.http.PluginRestTemplateAdapter;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 
 /**
  * plugin-runtime 边界守卫：证明本模块是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接——
@@ -45,6 +62,23 @@ import java.lang.reflect.Modifier;
  */
 class PluginRuntimeDependencyGuardTest {
 
+    private static final Pattern PRIVATE_HTTP_ARTIFACT = Pattern.compile(
+            "(?i)(?:httpclient|httpcore|httpasyncclient).*");
+    private static final Set<DependencyCoordinate> EXPECTED_POM_DEPENDENCIES = Set.of(
+            dependency("top.sywyar.lovepopup", "pixivdownload-plugin-api", "compile"),
+            dependency("top.sywyar.lovepopup", "pixivdownload-plugin-signature", "compile"),
+            dependency("org.springframework", "spring-context", "compile"),
+            dependency("org.springframework", "spring-web", "compile"),
+            dependency("org.springframework", "spring-tx", "compile"),
+            dependency("org.springframework.boot", "spring-boot", "compile"),
+            dependency("org.pf4j", "pf4j", "compile"),
+            dependency("org.slf4j", "slf4j-api", "compile"),
+            dependency("org.junit.jupiter", "junit-jupiter", "test"),
+            dependency("org.assertj", "assertj-core", "test"),
+            dependency("org.springframework.boot", "spring-boot-test", "test"),
+            dependency("org.mockito", "mockito-core", "test"),
+            dependency("org.junit.platform", "junit-platform-launcher", "test"),
+            dependency("com.tngtech.archunit", "archunit", "test"));
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
@@ -167,6 +201,25 @@ class PluginRuntimeDependencyGuardTest {
 
         assertThat(CLASSES.contain(ManagedPluginRestTemplate.class.getName())).isTrue();
         assertThat(CLASSES.contain(PluginRestTemplateAdapter.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime POM 依赖面固定且 HTTP bridge 只使用 Spring-Web")
+    void pluginRuntimePomMatchesAllowlistWithoutPrivateHttpImplementation()
+            throws IOException {
+        List<DependencyCoordinate> dependencies = dependencyCoordinates(modulePom());
+
+        assertThat(dependencies)
+                .containsExactlyInAnyOrderElementsOf(EXPECTED_POM_DEPENDENCIES);
+        assertThat(dependencies)
+                .as("dependency 坐标必须为不可隐藏实现的字面量")
+                .noneMatch(DependencyCoordinate::hasPlaceholder);
+        assertThat(dependencies)
+                .as("Apache 等具体 HTTP 栈只属于 app 适配层")
+                .noneMatch(dependency ->
+                        dependency.groupId().startsWith("org.apache.httpcomponents")
+                                || PRIVATE_HTTP_ARTIFACT.matcher(
+                                        dependency.artifactId()).matches());
     }
 
     @Test
@@ -300,5 +353,102 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission.class.getName()))
                 .isTrue();
+    }
+
+    private static Path modulePom() {
+        Path reactorPom = Path.of("pixivdownload-plugin-runtime", "pom.xml");
+        return Files.isRegularFile(reactorPom) ? reactorPom : Path.of("pom.xml");
+    }
+
+    private static List<DependencyCoordinate> dependencyCoordinates(Path pom)
+            throws IOException {
+        Document document = parsePom(pom);
+        List<DependencyCoordinate> dependencies = new ArrayList<>();
+        NodeList dependencyGroups = document.getElementsByTagNameNS("*", "dependencies");
+        for (int groupIndex = 0; groupIndex < dependencyGroups.getLength(); groupIndex++) {
+            Node dependencyGroup = dependencyGroups.item(groupIndex);
+            String parentName = localName(dependencyGroup.getParentNode());
+            if (!"project".equals(parentName) && !"profile".equals(parentName)) {
+                continue;
+            }
+            NodeList children = dependencyGroup.getChildNodes();
+            for (int childIndex = 0; childIndex < children.getLength(); childIndex++) {
+                Node child = children.item(childIndex);
+                if (!(child instanceof Element dependency)
+                        || !"dependency".equals(localName(dependency))) {
+                    continue;
+                }
+                String artifactId = directChildText(dependency, "artifactId");
+                if (artifactId != null && !artifactId.isBlank()) {
+                    String groupId = directChildText(dependency, "groupId");
+                    String scope = directChildText(dependency, "scope");
+                    dependencies.add(dependency(
+                            groupId == null ? "" : groupId.trim(),
+                            artifactId.trim(),
+                            scope == null || scope.isBlank() ? "compile" : scope.trim()));
+                }
+            }
+        }
+        return List.copyOf(dependencies);
+    }
+
+    private static Document parsePom(Path pom) throws IOException {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        try {
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            try (InputStream input = Files.newInputStream(pom)) {
+                return factory.newDocumentBuilder().parse(input);
+            }
+        } catch (ParserConfigurationException | SAXException | IllegalArgumentException failure) {
+            throw new IllegalStateException("Failed to parse Maven POM safely: " + pom, failure);
+        }
+    }
+
+    private static String directChildText(Element parent, String childName) {
+        NodeList children = parent.getChildNodes();
+        for (int index = 0; index < children.getLength(); index++) {
+            Node child = children.item(index);
+            if (child instanceof Element && childName.equals(localName(child))) {
+                return child.getTextContent();
+            }
+        }
+        return null;
+    }
+
+    private static String localName(Node node) {
+        if (node == null) {
+            return null;
+        }
+        return node.getLocalName() == null ? node.getNodeName() : node.getLocalName();
+    }
+
+    private static DependencyCoordinate dependency(
+            String groupId,
+            String artifactId,
+            String scope
+    ) {
+        return new DependencyCoordinate(groupId, artifactId, scope);
+    }
+
+    private record DependencyCoordinate(
+            String groupId,
+            String artifactId,
+            String scope
+    ) {
+        private boolean hasPlaceholder() {
+            return groupId.contains("${")
+                    || artifactId.contains("${")
+                    || scope.contains("${");
+        }
     }
 }

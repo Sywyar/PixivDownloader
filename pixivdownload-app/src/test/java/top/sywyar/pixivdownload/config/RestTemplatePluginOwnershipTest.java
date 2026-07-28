@@ -5,9 +5,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,41 +28,73 @@ class RestTemplatePluginOwnershipTest {
             "downloadRestTemplate",
             "pixivImageRestTemplate");
 
-    private static final Set<String> PLUGIN_PRIVATE_REST_TEMPLATE_BEANS = Set.of(
-            "aiRestTemplate",
-            "aiProxyRestTemplate",
-            "pushRestTemplate",
-            "pushProxyRestTemplate",
-            "ttsMetadataRestTemplate",
-            "narrationTtsRestTemplate",
-            "narrationTtsProxyRestTemplate",
-            "narrationTtsProbeRestTemplate",
-            "narrationTtsProbeProxyRestTemplate");
-
     @Test
-    @DisplayName("父配置声明核心客户端且不声明 AI、Push、TTS 私有客户端")
-    void parentConfigurationDoesNotDeclarePluginPrivateRestTemplates() {
-        Set<String> beanNames = declaredRestTemplateBeanNames();
+    @DisplayName("父应用全部生产配置只声明核心 HTTP 客户端")
+    void parentConfigurationDoesNotDeclarePluginPrivateRestTemplates()
+            throws IOException, URISyntaxException {
+        List<RestTemplateBeanDeclaration> declarations =
+                declaredRestTemplateBeanDeclarations();
 
-        assertThat(beanNames).isNotEmpty();
-        assertThat(beanNames).containsAll(CORE_REST_TEMPLATE_BEANS);
-        assertThat(beanNames).doesNotContainAnyElementsOf(PLUGIN_PRIVATE_REST_TEMPLATE_BEANS);
+        assertThat(declarations)
+                .extracting(RestTemplateBeanDeclaration::beanName)
+                .containsExactlyInAnyOrderElementsOf(CORE_REST_TEMPLATE_BEANS);
+        assertThat(declarations)
+                .extracting(RestTemplateBeanDeclaration::owner)
+                .containsOnly(RestTemplateConfig.class.getName());
     }
 
-    private static Set<String> declaredRestTemplateBeanNames() {
-        Set<String> beanNames = new LinkedHashSet<>();
-        for (Method method : RestTemplateConfig.class.getDeclaredMethods()) {
-            Bean bean = method.getDeclaredAnnotation(Bean.class);
-            if (bean == null || !RestTemplate.class.isAssignableFrom(method.getReturnType())) {
-                continue;
-            }
-            boolean hasName = addExplicitNames(beanNames, bean.name());
-            hasName = addExplicitNames(beanNames, bean.value()) || hasName;
-            if (!hasName) {
-                beanNames.add(method.getName());
+    private static List<RestTemplateBeanDeclaration> declaredRestTemplateBeanDeclarations()
+            throws IOException, URISyntaxException {
+        List<RestTemplateBeanDeclaration> declarations = new ArrayList<>();
+        Path classesRoot = Path.of(RestTemplateConfig.class.getProtectionDomain()
+                .getCodeSource()
+                .getLocation()
+                .toURI());
+        Path appPackageRoot = classesRoot.resolve("top/sywyar/pixivdownload");
+        if (!Files.isDirectory(appPackageRoot)) {
+            throw new IllegalStateException(
+                    "Cannot locate compiled app production classes under " + classesRoot);
+        }
+        List<Path> classFiles;
+        try (Stream<Path> files = Files.walk(appPackageRoot)) {
+            classFiles = files
+                    .filter(path -> path.toString().endsWith(".class"))
+                    .sorted()
+                    .toList();
+        }
+        for (Path classFile : classFiles) {
+            Class<?> type = loadWithoutInitialization(classesRoot, classFile);
+            for (Method method : type.getDeclaredMethods()) {
+                Bean bean = method.getDeclaredAnnotation(Bean.class);
+                if (bean == null
+                        || !RestTemplate.class.isAssignableFrom(method.getReturnType())) {
+                    continue;
+                }
+                Set<String> beanNames = new LinkedHashSet<>();
+                boolean hasName = addExplicitNames(beanNames, bean.name());
+                hasName = addExplicitNames(beanNames, bean.value()) || hasName;
+                if (!hasName) {
+                    beanNames.add(method.getName());
+                }
+                beanNames.forEach(beanName -> declarations.add(
+                        new RestTemplateBeanDeclaration(
+                                beanName, type.getName(), method.getName())));
             }
         }
-        return Set.copyOf(beanNames);
+        return List.copyOf(declarations);
+    }
+
+    private static Class<?> loadWithoutInitialization(Path classesRoot, Path classFile) {
+        String className = classesRoot.relativize(classFile)
+                .toString()
+                .replace(File.separatorChar, '.')
+                .replaceFirst("\\.class$", "");
+        try {
+            return Class.forName(className, false, RestTemplateConfig.class.getClassLoader());
+        } catch (ClassNotFoundException | LinkageError failure) {
+            throw new IllegalStateException(
+                    "Cannot inspect app production class " + className, failure);
+        }
     }
 
     private static boolean addExplicitNames(Set<String> beanNames, String[] candidates) {
@@ -66,5 +106,12 @@ class RestTemplatePluginOwnershipTest {
             }
         }
         return found;
+    }
+
+    private record RestTemplateBeanDeclaration(
+            String beanName,
+            String owner,
+            String method
+    ) {
     }
 }

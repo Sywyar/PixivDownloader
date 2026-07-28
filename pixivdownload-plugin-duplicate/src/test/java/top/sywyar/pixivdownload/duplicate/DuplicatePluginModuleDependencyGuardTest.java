@@ -27,6 +27,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("duplicate 模块边界守卫")
 class DuplicatePluginModuleDependencyGuardTest {
 
+    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
+            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
+            "org/apache/hc/core5/http/HttpRequest.class",
+            "org/apache/http/client/HttpClient.class",
+            "org/apache/http/nio/client/HttpAsyncClient.class"
+    };
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*package[\\t ]+([A-Za-z0-9_$.]+)[\\t ]*;");
     private static final Pattern APP_ARTIFACT = Pattern.compile(
@@ -52,6 +59,30 @@ class DuplicatePluginModuleDependencyGuardTest {
                 .because("疑似重复插件只经 core-api 哈希索引语义端口读取和重建核心事实，"
                         + "不得自建 JDBC/MyBatis 访问核心表或注入宿主实现")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("duplicate 不得依赖宿主私有 HTTP 类型")
+    void duplicateDoesNotDependOnPrivateHttpTypes() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.duplicate..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "org.apache.http..")
+                .orShould().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "org.springframework.http.client."
+                                + "HttpComponentsClientHttpRequestFactory")
+                .because("插件只能经稳定 HTTP 契约消费宿主传输能力")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("duplicate 测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void duplicateClasspathExcludesHostApplicationAndPrivateHttpStack() {
+        ClassLoader classLoader = getClass().getClassLoader();
+        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
+            assertThat(classLoader.getResource(resource)).as(resource).isNull();
+        }
     }
 
     @Test

@@ -32,6 +32,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DownloadWorkbenchDependencyGuardTest {
 
+    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
+            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
+            "org/apache/hc/core5/http/HttpRequest.class",
+            "org/apache/http/client/HttpClient.class",
+            "org/apache/http/nio/client/HttpAsyncClient.class"
+    };
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*package\\s+([A-Za-z0-9_$.]+)\\s*;");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
@@ -150,6 +157,34 @@ class DownloadWorkbenchDependencyGuardTest {
                 "pixivdownload-plugin-download-workbench/pom.xml"));
 
         assertThat(APP_ARTIFACT.matcher(pom).find()).isFalse();
+    }
+
+    @Test
+    @DisplayName("下载工作台不得依赖宿主私有 HTTP 类型")
+    void workbenchDoesNotDependOnPrivateHttpTypes() {
+        noClasses()
+                .that().resideInAnyPackage(
+                        "top.sywyar.pixivdownload.download..",
+                        "top.sywyar.pixivdownload.schedule..",
+                        "top.sywyar.pixivdownload.scripts..",
+                        "top.sywyar.pixivdownload.plugin")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "org.apache.http..")
+                .orShould().dependOnClassesThat()
+                .haveFullyQualifiedName(
+                        "org.springframework.http.client."
+                                + "HttpComponentsClientHttpRequestFactory")
+                .because("插件只能经稳定 HTTP 契约消费宿主传输能力")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载工作台测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void workbenchClasspathExcludesHostApplicationAndPrivateHttpStack() {
+        ClassLoader classLoader = getClass().getClassLoader();
+        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
+            assertThat(classLoader.getResource(resource)).as(resource).isNull();
+        }
     }
 
     @Test

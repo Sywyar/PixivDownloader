@@ -34,6 +34,9 @@ class OfficialPluginHostBoundaryGuardTest {
 
     private static final Pattern OFFICIAL_PLUGIN_ARTIFACT = Pattern.compile(
             "pixivdownload-plugin-[a-z0-9-]+");
+    private static final Pattern PRIVATE_HTTP_ARTIFACT = Pattern.compile(
+            "(?i)(?:httpclient|httpcore|httpasyncclient).*");
+    private static final String PRIVATE_HTTP_GROUP_PREFIX = "org.apache.httpcomponents";
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*package\\s+([A-Za-z0-9_$.]+)\\s*;");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
@@ -76,6 +79,10 @@ class OfficialPluginHostBoundaryGuardTest {
             "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory",
             "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService",
             "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityWebConfiguration");
+    private static final List<String> PRIVATE_HTTP_TYPE_PREFIXES = List.of(
+            "org.apache.hc.",
+            "org.apache.http.",
+            "org.springframework.http.client.HttpComponentsClientHttpRequestFactory");
 
     private enum SourceState {
         CODE,
@@ -207,6 +214,64 @@ class OfficialPluginHostBoundaryGuardTest {
         }
 
         assertThat(appConsumers).isEmpty();
+    }
+
+    @Test
+    @DisplayName("官方插件不得声明或引用宿主私有 HTTP 栈")
+    void officialPluginsDoNotOwnPrivateHttpStacks() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path moduleRoot = repositoryRoot.resolve(module);
+            for (DependencyCoordinate dependency :
+                    dependencyCoordinates(moduleRoot.resolve("pom.xml"))) {
+                if (dependency.hasPlaceholder()) {
+                    violations.add(module + ": dependency coordinate must be literal: "
+                            + dependency);
+                } else if (dependency.groupId().startsWith(PRIVATE_HTTP_GROUP_PREFIX)
+                        || PRIVATE_HTTP_ARTIFACT.matcher(dependency.artifactId()).matches()) {
+                    violations.add(module + ":pom.xml -> " + dependency);
+                }
+            }
+            Path sourceRoot = moduleRoot.resolve("src/main/java");
+            if (!Files.isDirectory(sourceRoot)) {
+                continue;
+            }
+            try (Stream<Path> sources = Files.walk(sourceRoot)) {
+                for (Path source : sources
+                        .filter(path -> path.toString().endsWith(".java"))
+                        .sorted()
+                        .toList()) {
+                    for (String privateType : privateHttpReferences(read(source))) {
+                        violations.add(module + ":" + repositoryRoot.relativize(source)
+                                + " -> " + privateType);
+                    }
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("官方插件只能经稳定 HTTP 契约消费宿主传输能力")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("HTTP 所有权扫描忽略注释并识别导入与反射类名")
+    void privateHttpScannerIgnoresCommentsAndFindsRuntimeReferences() {
+        String source = "// org.apache.hc.client5.http.impl.classic.CloseableHttpClient\n"
+                + "import org /* owner */ . apache . hc . client5 . http . impl . classic"
+                + " . CloseableHttpClient;\n"
+                + "class Example {\n"
+                + "  String factory = \"org.springframework.http.client."
+                + "HttpComponentsClientHttpRequestFactory\";\n"
+                + "}\n";
+
+        assertThat(privateHttpReferences(source)).containsExactlyInAnyOrder(
+                "org.apache.hc.",
+                "org.springframework.http.client.HttpComponentsClientHttpRequestFactory");
+        assertThat(privateHttpReferences(
+                "// org.apache.http.client.HttpClient\nclass Example {}\n")).isEmpty();
     }
 
     @Test
@@ -662,6 +727,19 @@ class OfficialPluginHostBoundaryGuardTest {
         return references;
     }
 
+    private static Set<String> privateHttpReferences(String source) {
+        String code = referenceCode(source);
+        Set<String> references = new LinkedHashSet<>();
+        for (String privateType : PRIVATE_HTTP_TYPE_PREFIXES) {
+            Pattern reference = Pattern.compile(
+                    "(?<![\\p{Alnum}_$])" + Pattern.quote(privateType));
+            if (reference.matcher(code).find()) {
+                references.add(privateType);
+            }
+        }
+        return references;
+    }
+
     private static boolean startsWithTripleQuote(String source, int index) {
         return index + 2 < source.length()
                 && source.charAt(index) == '"'
@@ -674,16 +752,25 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     private static Set<String> dependencyArtifactIds(Path pom) throws IOException {
-        Document document = parsePom(pom);
         Set<String> artifactIds = new LinkedHashSet<>();
+        for (DependencyCoordinate dependency : dependencyCoordinates(pom)) {
+            artifactIds.add(dependency.artifactId());
+        }
+        return Set.copyOf(artifactIds);
+    }
+
+    private static List<DependencyCoordinate> dependencyCoordinates(Path pom)
+            throws IOException {
+        Document document = parsePom(pom);
+        List<DependencyCoordinate> dependencies = new ArrayList<>();
         NodeList dependencyGroups = document.getElementsByTagNameNS("*", "dependencies");
         for (int groupIndex = 0; groupIndex < dependencyGroups.getLength(); groupIndex++) {
-            Node dependencies = dependencyGroups.item(groupIndex);
-            String parentName = localName(dependencies.getParentNode());
+            Node dependencyGroup = dependencyGroups.item(groupIndex);
+            String parentName = localName(dependencyGroup.getParentNode());
             if (!"project".equals(parentName) && !"profile".equals(parentName)) {
                 continue;
             }
-            NodeList children = dependencies.getChildNodes();
+            NodeList children = dependencyGroup.getChildNodes();
             for (int childIndex = 0; childIndex < children.getLength(); childIndex++) {
                 Node child = children.item(childIndex);
                 if (!(child instanceof Element dependency)
@@ -692,11 +779,16 @@ class OfficialPluginHostBoundaryGuardTest {
                 }
                 String artifactId = directChildText(dependency, "artifactId");
                 if (artifactId != null && !artifactId.isBlank()) {
-                    artifactIds.add(artifactId.trim());
+                    String groupId = directChildText(dependency, "groupId");
+                    String scope = directChildText(dependency, "scope");
+                    dependencies.add(new DependencyCoordinate(
+                            groupId == null ? "" : groupId.trim(),
+                            artifactId.trim(),
+                            scope == null || scope.isBlank() ? "compile" : scope.trim()));
                 }
             }
         }
-        return artifactIds;
+        return List.copyOf(dependencies);
     }
 
     private static Document parsePom(Path pom) throws IOException {
@@ -753,6 +845,18 @@ class OfficialPluginHostBoundaryGuardTest {
             return Files.readString(path, StandardCharsets.UTF_8);
         } catch (IOException failure) {
             throw new IllegalStateException("Failed to read " + path, failure);
+        }
+    }
+
+    private record DependencyCoordinate(
+            String groupId,
+            String artifactId,
+            String scope
+    ) {
+        private boolean hasPlaceholder() {
+            return groupId.contains("${")
+                    || artifactId.contains("${")
+                    || scope.contains("${");
         }
     }
 }
