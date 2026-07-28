@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
-## [Unreleased]
+## [v1.13.1] - 2026.7.28
 
 ### Bug Fixes
 - 修复高并发下载时批量下载页整页卡死：此前下载队列、监控活跃下载列表、归档任务侧栏等高频刷新区域在每个进度 / 轮询事件都整块 `innerHTML` 重建 DOM，主线程被反复拆建占满；现改为 Vue 响应式按行更新（每条事件只更新变动行，而非全量重建），并回带 Vue 运行时与共享挂载 helper（懒加载，挂载失败自动回退命令式渲染，外观与行为不变）。
