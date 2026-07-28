@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Douyin 外置插件模块依赖边界")
 class DouyinPluginDependencyGuardTest {
 
+    private static final String APP_PREFIX = "top.sywyar.pixivdownload.";
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload.douyin");
@@ -45,7 +46,9 @@ class DouyinPluginDependencyGuardTest {
     void moduleDoesNotRestoreAppArtifactOrConcreteHostImports() throws IOException {
         Path moduleRoot = moduleRoot();
         String pom = Files.readString(moduleRoot.resolve("pom.xml"));
-        assertThat(pom).doesNotContain("<artifactId>PixivDownload</artifactId>");
+        assertThat(pom).doesNotContain(
+                "<artifactId>PixivDownload</artifactId>",
+                "<artifactId>httpclient5</artifactId>");
 
         String productionSource;
         try (Stream<Path> files = Files.walk(moduleRoot.resolve("src/main/java"))) {
@@ -56,15 +59,22 @@ class DouyinPluginDependencyGuardTest {
                     .reduce("", (left, right) -> left + '\n' + right);
         }
         assertThat(productionSource).doesNotContain(
-                "top.sywyar.pixivdownload.config.ProxyConfig",
-                "top.sywyar.pixivdownload.config.RuntimeFiles",
-                "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
-                "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
-                "top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec",
-                "top.sywyar.pixivdownload.core.download.queue.",
-                "top.sywyar.pixivdownload.common.NetworkUtils",
-                "top.sywyar.pixivdownload.common.UuidUtils",
-                "top.sywyar.pixivdownload.setup.SetupService");
+                "org.apache.hc.",
+                "HttpComponentsClientHttpRequestFactory",
+                "DouyinRestTemplateFactory",
+                appType("config.ProxyConfig"),
+                appType("config.RuntimeFiles"),
+                appType("core.appconfig.DownloadConfig"),
+                appType("core.appconfig.MultiModeConfig"),
+                appType("core.db.pathprefix.PathPrefixCodec"),
+                appType("core.download.queue."),
+                appType("common.NetworkUtils"),
+                appType("common.UuidUtils"),
+                appType("setup.SetupService"));
+        assertThat(productionSource).contains(
+                "OutboundHttpClientFactory",
+                "ManagedPluginRestTemplate",
+                "PluginRestTemplateAdapter");
     }
 
     @Test
@@ -90,5 +100,9 @@ class DouyinPluginDependencyGuardTest {
         } catch (IOException failure) {
             throw new IllegalStateException("Failed to read " + path, failure);
         }
+    }
+
+    private static String appType(String relativeName) {
+        return APP_PREFIX + relativeName;
     }
 }

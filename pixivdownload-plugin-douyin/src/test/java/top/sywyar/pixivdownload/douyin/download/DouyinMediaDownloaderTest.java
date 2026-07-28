@@ -6,10 +6,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientErrorCode;
 import top.sywyar.pixivdownload.douyin.client.DouyinClientException;
-import top.sywyar.pixivdownload.douyin.client.DouyinRestTemplateFactory;
 import top.sywyar.pixivdownload.douyin.model.DouyinMedia;
 import top.sywyar.pixivdownload.douyin.model.DouyinMediaType;
 
@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -333,7 +334,11 @@ class DouyinMediaDownloaderTest {
     }
 
     private DouyinMediaDownloader downloader(java.util.function.Predicate<URI> credentialOriginAllowed) {
-        return new DouyinMediaDownloader(DouyinRestTemplateFactory.directDownloadTemplate(),
+        HttpClient httpClient = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        RestTemplate restTemplate = new RestTemplate(new JdkClientHttpRequestFactory(httpClient));
+        return new DouyinMediaDownloader(restTemplate,
                 host -> "127.0.0.1".equals(host), credentialOriginAllowed);
     }
 

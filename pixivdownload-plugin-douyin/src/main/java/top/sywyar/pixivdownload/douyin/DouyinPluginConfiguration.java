@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.web.client.RestTemplate;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -19,7 +20,6 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.douyin.client.DefaultDouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinClient;
 import top.sywyar.pixivdownload.douyin.client.DouyinRedirectClient;
-import top.sywyar.pixivdownload.douyin.client.DouyinRestTemplateFactory;
 import top.sywyar.pixivdownload.douyin.client.DouyinShortLinkResolver;
 import top.sywyar.pixivdownload.douyin.client.RestTemplateDouyinRedirectClient;
 import top.sywyar.pixivdownload.douyin.controller.DouyinController;
@@ -34,6 +34,7 @@ import top.sywyar.pixivdownload.douyin.download.DouyinQueueOperations;
 import top.sywyar.pixivdownload.douyin.download.work.DouyinWorkDownloadExecutor;
 import top.sywyar.pixivdownload.douyin.gallery.DouyinGalleryDataProvider;
 import top.sywyar.pixivdownload.douyin.gallery.frontend.DouyinGalleryFrontendProvider;
+import top.sywyar.pixivdownload.douyin.http.DouyinHttpClientConfiguration;
 import top.sywyar.pixivdownload.douyin.parse.DouyinUrlParser;
 import top.sywyar.pixivdownload.douyin.schedule.codec.DouyinScheduleCodec;
 import top.sywyar.pixivdownload.douyin.schedule.credential.DouyinScheduledCredentialPolicy;
@@ -49,6 +50,7 @@ import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import java.nio.file.Path;
 
 @Configuration
+@Import(DouyinHttpClientConfiguration.class)
 public class DouyinPluginConfiguration {
 
     @Bean
@@ -106,26 +108,30 @@ public class DouyinPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinRedirectClient douyinRedirectClient(OutboundProxySettings proxySettings) {
-        return new RestTemplateDouyinRedirectClient(proxySettings);
+    public DouyinRedirectClient douyinRedirectClient(
+            @Qualifier("douyinRedirectRestTemplate") RestTemplate restTemplate) {
+        return new RestTemplateDouyinRedirectClient(restTemplate);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinRedirectClient douyinDirectRedirectClient() {
-        return new RestTemplateDouyinRedirectClient((OutboundProxySettings) null);
+    public DouyinRedirectClient douyinDirectRedirectClient(
+            @Qualifier("douyinDirectRedirectRestTemplate") RestTemplate restTemplate) {
+        return new RestTemplateDouyinRedirectClient(restTemplate);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinRedirectClient douyinProxyRedirectClient(OutboundProxySettings proxySettings) {
-        return new RestTemplateDouyinRedirectClient(proxySettings, true);
+    public DouyinRedirectClient douyinProxyRedirectClient(
+            @Qualifier("douyinProxyRedirectRestTemplate") RestTemplate restTemplate) {
+        return new RestTemplateDouyinRedirectClient(restTemplate);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("douyin")
-    public DouyinRedirectClient douyinCustomProxyRedirectClient(DouyinPluginSettingsService settingsService) {
-        return new RestTemplateDouyinRedirectClient(settingsService);
+    public DouyinRedirectClient douyinCustomProxyRedirectClient(
+            @Qualifier("douyinCustomProxyRedirectRestTemplate") RestTemplate restTemplate) {
+        return new RestTemplateDouyinRedirectClient(restTemplate);
     }
 
     @Bean
@@ -158,30 +164,6 @@ public class DouyinPluginConfiguration {
                                                                       @Qualifier("douyinCustomProxyRedirectClient")
                                                                       DouyinRedirectClient redirectClient) {
         return new DefaultDouyinShortLinkResolver(parser, redirectClient);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("douyin")
-    public RestTemplate douyinRestTemplate(OutboundProxySettings proxySettings) {
-        return DouyinRestTemplateFactory.inheritedDownloadTemplate(proxySettings);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("douyin")
-    public RestTemplate douyinDirectRestTemplate() {
-        return DouyinRestTemplateFactory.directDownloadTemplate();
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("douyin")
-    public RestTemplate douyinProxyRestTemplate(OutboundProxySettings proxySettings) {
-        return DouyinRestTemplateFactory.forcedProxyDownloadTemplate(proxySettings);
-    }
-
-    @Bean
-    @ConditionalOnPluginEnabled("douyin")
-    public RestTemplate douyinCustomProxyRestTemplate(DouyinPluginSettingsService settingsService) {
-        return DouyinRestTemplateFactory.customProxyDownloadTemplate(settingsService);
     }
 
     @Bean
