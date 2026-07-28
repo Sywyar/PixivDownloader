@@ -2,33 +2,20 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.registry.PluginSource;
-import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
-import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
-import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
-import top.sywyar.pixivdownload.plugin.web.PluginOwnedWebAssetValidator;
 
 import java.io.InputStream;
 import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * 下载工作台作为宿主策略 required 的外置 PF4J 插件时的 contribution 契约。这里不加载 app 的
@@ -61,38 +48,25 @@ class DownloadWorkbenchRequiredContextTest {
     @Test
     @DisplayName("下载页、下载 API、userscript、Pixiv 插画入口和 schedule API 均由插件声明")
     void workbenchRoutesDeclared() {
-        RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of(plugin)));
-
-        assertThat(registry.routes())
-                .extracting(RouteAccessRegistry.RegisteredRoute::pluginId)
-                .containsOnly(DownloadWorkbenchPlugin.ID);
-        assertThat(registry.isDeclared("/pixiv-batch.html")).isTrue();
-        assertThat(registry.isDeclared("/pixiv-batch/batch-core.js")).isTrue();
-        assertThat(registry.isDeclared("/api/download/pixiv")).isTrue();
-        assertThat(registry.isDeclared("/api/download/cancel/123")).isTrue();
-        assertThat(registry.isDeclared("/api/download/queue/clear")).isTrue();
-        assertThat(registry.isDeclared("/api/batch/state")).isTrue();
-        assertThat(registry.isDeclared("/api/download/extensions")).isTrue();
-        assertThat(registry.isDeclared("/api/scripts")).isTrue();
-        assertThat(registry.isDeclared("/api/scripts/pixiv-batch.user.js")).isTrue();
         for (String path : List.of(
+                "/pixiv-batch.html",
+                "/pixiv-batch/batch-core.js",
+                "/api/download/pixiv",
+                "/api/download/cancel/123",
+                "/api/download/queue/clear",
+                "/api/batch/state",
+                "/api/download/extensions",
                 "/api/scripts",
-                "/api/scripts/pixiv-batch.user.js")) {
-            RouteAccessRegistry.RegisteredRoute resolved =
-                    registry.resolve(path, HttpMethod.GET).orElseThrow();
-            assertThat(resolved.pluginId()).isEqualTo(DownloadWorkbenchPlugin.ID);
-            assertThat(resolved.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR);
+                "/api/scripts/pixiv-batch.user.js",
+                "/api/sse/close/123",
+                "/api/pixiv/thumbnail-proxy",
+                "/api/pixiv/user/100/artworks",
+                "/api/pixiv/user/100/illust-cards",
+                "/api/pixiv/me/illust-bookmarks",
+                "/api/pixiv/me/collection/42/works")) {
+            assertRoute(path, HttpMethod.GET, AccessPolicy.VISITOR);
         }
-        assertThat(registry.isDeclared("/api/schedule/tasks")).isTrue();
-        assertThat(registry.isDeclared("/api/sse/close/123")).isTrue();
-        RouteAccessRegistry.RegisteredRoute thumbnailRoute =
-                registry.resolve("/api/pixiv/thumbnail-proxy", HttpMethod.GET).orElseThrow();
-        assertThat(thumbnailRoute.pluginId()).isEqualTo(DownloadWorkbenchPlugin.ID);
-        assertThat(thumbnailRoute.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR);
-        assertThat(registry.isDeclared("/api/pixiv/user/100/artworks")).isTrue();
-        assertThat(registry.isDeclared("/api/pixiv/user/100/illust-cards")).isTrue();
-        assertThat(registry.isDeclared("/api/pixiv/me/illust-bookmarks")).isTrue();
-        assertThat(registry.isDeclared("/api/pixiv/me/collection/42/works")).isTrue();
+        assertRoute("/api/schedule/tasks", HttpMethod.GET, AccessPolicy.ADMIN);
     }
 
     @Test
@@ -130,102 +104,68 @@ class DownloadWorkbenchRequiredContextTest {
     @Test
     @DisplayName("七类计划来源前端模块均由下载工作台自己的静态资源提供")
     void scheduledSourceFrontendModulesBelongToPluginAssets() {
-        PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
-                plugin,
-                PluginSource.EXTERNAL,
-                plugin.getClass().getClassLoader(),
-                DownloadWorkbenchPlugin.ID,
-                1L);
-        PluginRegistry pluginRegistry = new PluginRegistry(List.of());
-        StaticResourceRegistry staticResources = new StaticResourceRegistry(pluginRegistry);
-        pluginRegistry.register(registered);
-        try {
-            staticResources.register(registered, List.copyOf(plugin.staticResources()));
-            PluginOwnedWebAssetValidator validator = new PluginOwnedWebAssetValidator(staticResources);
-
-            assertThat(plugin.scheduledSourceDescriptors()).hasSize(7).allSatisfy(descriptor -> {
-                assertThat(descriptor.frontend()).isNotNull();
-                assertThat(descriptor.frontend().moduleUrl())
-                        .isEqualTo(PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL);
-                validator.validateOwnedJavaScript(
-                        registered,
-                        descriptor.frontend().moduleUrl(),
-                        "Pixiv scheduled source frontend");
-            });
-        } finally {
-            staticResources.unregister(registered.id());
-            pluginRegistry.unregister(registered);
-        }
+        assertThat(plugin.staticResources()).anySatisfy(resource -> {
+            assertThat(resource.classpathLocation()).isEqualTo("classpath:/static/pixiv-batch/");
+            assertThat(resource.publicPathPrefix()).isEqualTo("/pixiv-batch/");
+            assertThat(resource.exactFile()).isFalse();
+        });
+        assertThat(plugin.scheduledSourceDescriptors()).hasSize(7).allSatisfy(descriptor -> {
+            assertThat(descriptor.frontend()).isNotNull();
+            assertThat(descriptor.frontend().moduleUrl())
+                    .isEqualTo(PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL)
+                    .startsWith("/pixiv-batch/");
+            assertThat(getClass().getResource("/static" + descriptor.frontend().moduleUrl()))
+                    .as("计划来源模块必须由下载工作台插件资源提供")
+                    .isNotNull();
+        });
     }
 
     @Test
     @DisplayName("导航、默认落点和插画下载类型由插件声明")
     void navigationStartupAndDownloadTypeDeclared() {
-        PluginRegistry pluginRegistry = new PluginRegistry(List.of(plugin));
-        StartupRouteRegistry startupRouteRegistry = new StartupRouteRegistry(pluginRegistry);
-
         assertThat(plugin.navigation()).singleElement()
                 .satisfies(nav -> {
                     assertThat(nav.id()).isEqualTo("download-workbench");
                     assertThat(nav.href()).isEqualTo("/pixiv-batch.html");
                 });
-        assertThat(startupRouteRegistry.resolvePath(StartupRouteContext.MULTI))
-                .contains("/pixiv-batch.html");
+        assertThat(plugin.startupRoutes()).singleElement().satisfies(route -> {
+            assertThat(route.path()).isEqualTo("/pixiv-batch.html");
+            assertThat(route.order()).isEqualTo(10);
+            assertThat(route.preferredContexts()).containsExactly(StartupRouteContext.MULTI);
+        });
         assertThat(plugin.downloadTypes()).singleElement().satisfies(descriptor -> {
             assertThat(descriptor.type()).isEqualTo("illust");
             assertThat(descriptor.displayNamespace()).isEqualTo("batch");
             assertThat(descriptor.i18nNamespace()).isEqualTo("batch");
             assertThat(descriptor.cancelSupported()).isTrue();
         });
-
-        startupRouteRegistry.unregister("download-workbench");
-        assertThat(startupRouteRegistry.resolvePath(StartupRouteContext.MULTI)).isEmpty();
     }
 
     @Test
-    @DisplayName("七类来源描述符与 child-context 执行器按同一 owner 原子发布")
+    @DisplayName("七类计划来源、旧别名和前端模块由稳定描述符声明")
     void scheduledSourcesDeclared() {
-        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         List<ScheduledSourceDescriptor> descriptors = plugin.scheduledSourceDescriptors();
-        List<ScheduledSourceExecutor> sourceExecutors = descriptors.stream()
-                .map(descriptor -> {
-                    ScheduledSourceExecutor executor = mock(ScheduledSourceExecutor.class);
-                    when(executor.sourceType()).thenReturn(descriptor.sourceType());
-                    return executor;
-                })
-                .toList();
-        ScheduleCapabilityTestFixture.publish(
-                registry,
-                new ScheduleCapabilityOwner("download-workbench", "download-workbench", 1L),
-                descriptors,
-                sourceExecutors,
-                List.of());
-
-        assertThat(registry.snapshotView().owners()).singleElement()
-                .satisfies(owner -> {
-                    assertThat(owner.owner().featurePluginId()).isEqualTo("download-workbench");
-                    assertThat(owner.owner().packageId()).isEqualTo("download-workbench");
-                    assertThat(owner.owner().pluginGeneration()).isEqualTo(1L);
-                });
-        assertThat(registry.snapshotView().owners().get(0).sourceTypes())
-                .containsExactlyInAnyOrder("user-new", "user-request", "search", "series",
+        assertThat(descriptors)
+                .extracting(ScheduledSourceDescriptor::sourceType)
+                .containsExactly("user-new", "user-request", "search", "series",
                         "my-bookmarks", "follow-latest", "collection");
-        assertThat(registry.snapshotView().owners().get(0).sourceAliases())
+        assertThat(descriptors.stream()
+                .flatMap(descriptor -> descriptor.legacyAliases().stream())
+                .toList())
                 .containsExactlyInAnyOrder("USER_NEW", "USER_REQUEST", "SEARCH", "SERIES",
                         "MY_BOOKMARKS", "FOLLOW_LATEST", "COLLECTION");
-        SchedulePlanningLease userNew = registry.prepareSource("USER_NEW").orElseThrow();
-        SchedulePlanningLease collection = registry.prepareSource("COLLECTION").orElseThrow();
-        try (userNew; collection) {
-            assertThat(registry.activate(userNew)).isTrue();
-            assertThat(registry.activate(collection)).isTrue();
-            assertThat(userNew.descriptor()).map(ScheduledSourceDescriptor::sourceType)
-                    .contains("user-new");
-            assertThat(userNew.sourceExecutor()).map(ScheduledSourceExecutor::sourceType)
-                    .contains("user-new");
-            assertThat(collection.descriptor()).map(ScheduledSourceDescriptor::sourceType)
-                    .contains("collection");
-            assertThat(collection.sourceExecutor()).map(ScheduledSourceExecutor::sourceType)
-                    .contains("collection");
-        }
+        assertThat(descriptors).allSatisfy(descriptor -> {
+            assertThat(descriptor.frontend()).isNotNull();
+            assertThat(descriptor.frontend().moduleUrl())
+                    .isEqualTo(PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL);
+        });
+    }
+
+    private void assertRoute(String path, HttpMethod method, AccessPolicy expectedPolicy) {
+        assertThat(plugin.routes())
+                .filteredOn(route -> route.matches(path) && route.acceptsMethod(method))
+                .as("下载工作台应通过稳定路由 contribution 声明 %s %s", method, path)
+                .anySatisfy(route ->
+                        assertThat(route.accessPolicy()).isEqualTo(expectedPolicy));
     }
 }

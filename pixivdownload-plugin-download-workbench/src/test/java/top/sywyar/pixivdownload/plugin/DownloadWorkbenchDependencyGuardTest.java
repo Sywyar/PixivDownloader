@@ -8,9 +8,17 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -24,6 +32,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DownloadWorkbenchDependencyGuardTest {
 
+    private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
+            "(?m)^[\\t ]*package\\s+([A-Za-z0-9_$.]+)\\s*;");
+    private static final Pattern IMPORT_DECLARATION = Pattern.compile(
+            "(?m)^[\\t ]*import\\s+(?:static\\s+)?([A-Za-z0-9_$.*]+)\\s*;");
+    private static final Pattern QUALIFIED_NAME_SEPARATOR = Pattern.compile("\\s*\\.\\s*");
+    private static final Pattern TOP_LEVEL_TYPE_DECLARATION = Pattern.compile(
+            "(?<![\\p{Alnum}_$])(?:class|interface|enum|record)\\s+"
+                    + "([A-Za-z_$][A-Za-z0-9_$]*)");
+    private static final Pattern APP_ARTIFACT = Pattern.compile(
+            "<artifactId>\\s*PixivDownload\\s*</artifactId>");
+    private static final String APP_PACKAGE_PREFIX = "top.sywyar.pixivdownload.";
     private static final JavaClasses CLASSES = importPluginClasses();
     private static final DescribedPredicate<JavaClass> CONCRETE_DOWNLOAD_SERVICE =
             new DescribedPredicate<>("concrete download service") {
@@ -36,19 +55,19 @@ class DownloadWorkbenchDependencyGuardTest {
                 }
             };
     private static final Set<String> HOST_BOUNDARY_IMPLEMENTATIONS = Set.of(
-            "top.sywyar.pixivdownload.common.UuidUtils",
-            "top.sywyar.pixivdownload.config.RuntimeFiles",
-            "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
-            "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
-            "top.sywyar.pixivdownload.core.notification.NotificationService",
-            "top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessGuard",
-            "top.sywyar.pixivdownload.core.pixiv.PixivThumbnailFetchService",
-            "top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation",
-            "top.sywyar.pixivdownload.ffmpeg.FfmpegLocator",
-            "top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry",
-            "top.sywyar.pixivdownload.quota.UserQuotaService",
-            "top.sywyar.pixivdownload.setup.SetupService",
-            "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard");
+            appType("common.UuidUtils"),
+            appType("config.RuntimeFiles"),
+            appType("core.appconfig.DownloadConfig"),
+            appType("core.appconfig.MultiModeConfig"),
+            appType("core.notification.NotificationService"),
+            appType("core.pixiv.PixivProxyAccessGuard"),
+            appType("core.pixiv.PixivThumbnailFetchService"),
+            appType("ffmpeg.FfmpegInstallation"),
+            appType("ffmpeg.FfmpegLocator"),
+            appType("i18n.WebI18nBundleRegistry"),
+            appType("quota.UserQuotaService"),
+            appType("setup.SetupService"),
+            appType("setup.guest.GuestAccessGuard"));
     private static final DescribedPredicate<JavaClass> HOST_BOUNDARY_IMPLEMENTATION =
             new DescribedPredicate<>("host runtime/config/setup implementation") {
                 @Override
@@ -62,11 +81,11 @@ class DownloadWorkbenchDependencyGuardTest {
                 public boolean test(JavaClass javaClass) {
                     String className = javaClass.getFullName();
                     return className.startsWith(
-                            "top.sywyar.pixivdownload.core.download.control.")
+                            appType("core.download.control."))
                             || className.startsWith(
-                            "top.sywyar.pixivdownload.core.download.queue.")
+                            appType("core.download.queue."))
                             || className.startsWith(
-                            "top.sywyar.pixivdownload.plugin.registry.DownloadExtension");
+                            appType("plugin.registry.DownloadExtension"));
                 }
             };
     private static final DescribedPredicate<JavaClass> HOST_USERSCRIPT_IMPLEMENTATION =
@@ -74,16 +93,16 @@ class DownloadWorkbenchDependencyGuardTest {
                 @Override
                 public boolean test(JavaClass javaClass) {
                     String className = javaClass.getFullName();
-                    return className.equals("top.sywyar.pixivdownload.quota.RateLimitService")
-                            || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptRegistry")
-                            || className.startsWith("top.sywyar.pixivdownload.scripts.ScriptResource")
-                            || className.startsWith("top.sywyar.pixivdownload.scripts.UserscriptRegistry");
+                    return className.equals(appType("quota.RateLimitService"))
+                            || className.startsWith(appType("scripts.ScriptRegistry"))
+                            || className.startsWith(appType("scripts.ScriptResource"))
+                            || className.startsWith(appType("scripts.UserscriptRegistry"));
                 }
             };
     private static final Set<String> DIRECT_PIXIV_TRANSPORT_IMPLEMENTATIONS = Set.of(
             "org.springframework.http.client.ClientHttpResponse",
             "org.springframework.web.client.RestTemplate",
-            "top.sywyar.pixivdownload.common.PixivRequestHeaders");
+            appType("common.PixivRequestHeaders"));
     private static final DescribedPredicate<JavaClass> DIRECT_PIXIV_TRANSPORT_IMPLEMENTATION =
             new DescribedPredicate<>("direct Pixiv transport implementation") {
                 @Override
@@ -97,15 +116,126 @@ class DownloadWorkbenchDependencyGuardTest {
                 public boolean test(JavaClass javaClass) {
                     String className = javaClass.getFullName();
                     return className.equals(
-                            "top.sywyar.pixivdownload.plugin.lifecycle.PluginStream")
+                            appType("plugin.lifecycle.PluginStream"))
                             || className.equals(
-                            "top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry")
+                            appType("plugin.lifecycle.PluginStreamRegistry"))
                             || className.startsWith(
                             "top.sywyar.pixivdownload.plugin.runtime.stream.")
                             || className.startsWith(
                             "top.sywyar.pixivdownload.plugin.runtime.task.");
                 }
             };
+
+    private enum SourceState {
+        CODE,
+        LINE_COMMENT,
+        BLOCK_COMMENT,
+        STRING,
+        TEXT_BLOCK,
+        CHARACTER
+    }
+
+    @Test
+    @DisplayName("下载工作台 POM 不得依赖 PixivDownload app artifact")
+    void workbenchPomDoesNotDependOnAppArtifact() {
+        String pom = read(repositoryRoot().resolve(
+                "pixivdownload-plugin-download-workbench/pom.xml"));
+
+        assertThat(APP_ARTIFACT.matcher(pom).find()).isFalse();
+    }
+
+    @Test
+    @DisplayName("下载工作台生产与测试源码不得引用 app owned 类型")
+    void workbenchSourcesDoNotReferenceAppOwnedTypes() throws IOException {
+        Path root = repositoryRoot();
+        Set<String> appTypes = appOwnedTypes(root);
+        List<String> violations = new ArrayList<>();
+
+        assertThat(appTypes)
+                .as("app owned production FQN set must be non-vacuous")
+                .hasSizeGreaterThan(400);
+        assertThat(appTypes)
+                .as("同一源码文件中的 package-private 顶层类型也必须纳入 app owned 集合")
+                .contains(appType("gui.panel.StatusPanelThemeOption"));
+        collectAppTypeReferences(root, "src/main/java", appTypes, violations);
+        collectAppTypeReferences(root, "src/test/java", appTypes, violations);
+
+        assertThat(violations)
+                .as("download-workbench must compile and test only against stable shared contracts")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("app FQN 扫描忽略注释并保留普通字符串与文本块字符串")
+    void appTypeReferenceScannerIgnoresCommentsAndPreservesStringLiterals() {
+        String appType = "example.host.AppOwnedType";
+        String commentsOnly = "// example.host.AppOwnedType\n"
+                + "/* example.host.AppOwnedType */\n";
+        String ordinaryString = "String name = \"// example.host.AppOwnedType\";";
+        String nestedClassString = "Class.forName(\"example.host.AppOwnedType$Nested\");";
+        String textBlockString = "String name = \"\"\"\n"
+                + "/* example.host.AppOwnedType */\n"
+                + "\"\"\";";
+        String spacedImport = "import\n example /* owner */ . host . AppOwnedType\n;";
+        String staticImport = "import static example.\n host . AppOwnedType . member;";
+        String staticWildcardImport = "import static example . host . AppOwnedType . *;";
+        String wildcardImport = "import example . host . *;";
+        String inlineReference = "Object type = example /* owner */ . host . AppOwnedType.class;";
+        String spacedString = "String label = \"example . host . AppOwnedType\";";
+        String samePackageReference = "package\n example /* owner */ . host;\n"
+                + "class Probe { AppOwnedType value; }";
+        String otherPackageReference = "package example.other;\n"
+                + "class Probe { AppOwnedType value; }";
+        String topLevelTypes = "package example.host;\n"
+                + "class Primary { class Nested {} }\n"
+                + "record Secondary(int value) {}\n"
+                + "@interface Marker {}";
+
+        assertThat(referencesFullyQualifiedType(referenceCode(commentsOnly), appType))
+                .isFalse();
+        assertThat(referencesFullyQualifiedType(referenceCode(ordinaryString), appType))
+                .isTrue();
+        assertThat(referencesFullyQualifiedType(referenceCode(nestedClassString), appType))
+                .isTrue();
+        assertThat(referencesFullyQualifiedType(referenceCode(textBlockString), appType))
+                .isTrue();
+        assertThat(importsType(Set.of("example.host.*"), appType)).isTrue();
+        assertThat(importsType(Set.of("example.other.*"), appType)).isFalse();
+        assertThat(importsType(
+                importedNames(normalizedDeclarationCode(spacedImport)),
+                appType)).isTrue();
+        assertThat(importsType(
+                importedNames(normalizedDeclarationCode(staticImport)),
+                appType)).isTrue();
+        assertThat(importsType(
+                importedNames(normalizedDeclarationCode(staticWildcardImport)),
+                appType)).isTrue();
+        assertThat(importsType(
+                importedNames(normalizedDeclarationCode(wildcardImport)),
+                appType)).isTrue();
+        assertThat(referencesFullyQualifiedType(
+                referenceCode(inlineReference),
+                appType)).isTrue();
+        assertThat(referencesFullyQualifiedType(referenceCode(spacedString), appType)).isFalse();
+        String samePackageCode = referenceCode(samePackageReference);
+        assertThat(samePackageSimpleReference(
+                samePackageCode,
+                packageName(normalizedDeclarationCode(samePackageReference)),
+                appType)).isTrue();
+        String otherPackageCode = referenceCode(otherPackageReference);
+        assertThat(samePackageSimpleReference(
+                otherPackageCode,
+                packageName(normalizedDeclarationCode(otherPackageReference)),
+                appType)).isFalse();
+        assertThat(referencesFullyQualifiedType(
+                "prefixexample.host.AppOwnedType",
+                appType)).isFalse();
+        assertThat(referencesFullyQualifiedType(
+                "example.host.AppOwnedTypeSuffix",
+                appType)).isFalse();
+        assertThat(topLevelTypeNames(topLevelTypes))
+                .containsExactly("Primary", "Secondary", "Marker");
+    }
 
     @Test
     @DisplayName("download 包不得依赖 novel 包")
@@ -327,4 +457,307 @@ class DownloadWorkbenchDependencyGuardTest {
                 .importPath(classesDir);
     }
 
+    private static void collectAppTypeReferences(Path root,
+                                                 String sourcePath,
+                                                 Set<String> appTypes,
+                                                 List<String> violations) throws IOException {
+        Path sourceRoot = root.resolve("pixivdownload-plugin-download-workbench")
+                .resolve(sourcePath);
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
+            for (Path source : sources
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .sorted()
+                    .toList()) {
+                String sourceCode = read(source);
+                String references = referenceCode(sourceCode);
+                String declarations = normalizedDeclarationCode(sourceCode);
+                String packageName = packageName(declarations);
+                Set<String> imports = importedNames(declarations);
+                for (String appType : appTypes) {
+                    if (referencesFullyQualifiedType(references, appType)
+                            || importsType(imports, appType)
+                            || samePackageSimpleReference(
+                            references, packageName, appType)) {
+                        violations.add(root.relativize(source) + " -> " + appType);
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean referencesFullyQualifiedType(String code, String appType) {
+        return identifierReference(appType).matcher(code).find();
+    }
+
+    private static boolean samePackageSimpleReference(String code,
+                                                      String packageName,
+                                                      String appType) {
+        int separator = appType.lastIndexOf('.');
+        if (separator < 0 || !appType.substring(0, separator).equals(packageName)) {
+            return false;
+        }
+        String simpleName = appType.substring(separator + 1);
+        return identifierReference(simpleName).matcher(code).find();
+    }
+
+    private static Set<String> importedNames(String code) {
+        Set<String> imports = new LinkedHashSet<>();
+        Matcher matcher = IMPORT_DECLARATION.matcher(code);
+        while (matcher.find()) {
+            imports.add(matcher.group(1));
+        }
+        return imports;
+    }
+
+    private static boolean importsType(Set<String> imports, String appType) {
+        int separator = appType.lastIndexOf('.');
+        if (separator < 0) {
+            return false;
+        }
+        String wildcardImport = appType.substring(0, separator) + ".*";
+        return imports.stream().anyMatch(importName -> importName.equals(appType)
+                || importName.equals(wildcardImport)
+                || importName.startsWith(appType + "."));
+    }
+
+    private static Pattern identifierReference(String identifier) {
+        return Pattern.compile("(?<![\\p{Alnum}_$])" + Pattern.quote(identifier)
+                + "(?![\\p{Alnum}_])");
+    }
+
+    private static String packageName(String code) {
+        Matcher matcher = PACKAGE_DECLARATION.matcher(code);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static String normalizedDeclarationCode(String source) {
+        return QUALIFIED_NAME_SEPARATOR.matcher(maskCommentsAndLiterals(source))
+                .replaceAll(".");
+    }
+
+    private static String referenceCode(String source) {
+        return stripComments(source) + "\n" + normalizedDeclarationCode(source);
+    }
+
+    private static Set<String> appOwnedTypes(Path root) throws IOException {
+        Path appSourceRoot = root.resolve("pixivdownload-app/src/main/java");
+        Set<String> types = new LinkedHashSet<>();
+        try (Stream<Path> sources = Files.walk(appSourceRoot)) {
+            for (Path source : sources
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> !path.getFileName().toString().equals("package-info.java")
+                            && !path.getFileName().toString().equals("module-info.java"))
+                    .sorted()
+                    .toList()) {
+                String sourceCode = read(source);
+                String declarationCode = normalizedDeclarationCode(sourceCode);
+                String packageName = packageName(declarationCode);
+                Set<String> sourceTypes = topLevelTypeNames(sourceCode);
+                String primaryType = source.getFileName().toString()
+                        .replaceFirst("\\.java$", "");
+                if (packageName.isBlank() || !sourceTypes.contains(primaryType)) {
+                    throw new IllegalStateException(
+                            "Cannot derive primary app type from " + root.relativize(source));
+                }
+                for (String sourceType : sourceTypes) {
+                    String appType = packageName + "." + sourceType;
+                    if (!types.add(appType)) {
+                        throw new IllegalStateException(
+                                "Duplicate app production type " + appType);
+                    }
+                }
+            }
+        }
+        return Set.copyOf(types);
+    }
+
+    private static Set<String> topLevelTypeNames(String source) {
+        String code = maskCommentsAndLiterals(source);
+        Set<String> types = new LinkedHashSet<>();
+        Matcher matcher = TOP_LEVEL_TYPE_DECLARATION.matcher(code);
+        int cursor = 0;
+        int braceDepth = 0;
+        while (matcher.find()) {
+            braceDepth = updateBraceDepth(code, cursor, matcher.start(), braceDepth);
+            if (braceDepth == 0) {
+                types.add(matcher.group(1));
+            }
+            cursor = matcher.end();
+        }
+        return types;
+    }
+
+    private static int updateBraceDepth(String code,
+                                        int start,
+                                        int end,
+                                        int initialDepth) {
+        int depth = initialDepth;
+        for (int index = start; index < end; index++) {
+            char value = code.charAt(index);
+            if (value == '{') {
+                depth++;
+            } else if (value == '}') {
+                depth--;
+                if (depth < 0) {
+                    throw new IllegalStateException("Unbalanced app source braces");
+                }
+            }
+        }
+        return depth;
+    }
+
+    private static String stripComments(String source) {
+        return sanitizeSource(source, true);
+    }
+
+    private static String maskCommentsAndLiterals(String source) {
+        return sanitizeSource(source, false);
+    }
+
+    private static String sanitizeSource(String source, boolean preserveLiterals) {
+        StringBuilder sanitized = new StringBuilder(source.length());
+        SourceState state = SourceState.CODE;
+        int index = 0;
+        while (index < source.length()) {
+            char current = source.charAt(index);
+            switch (state) {
+                case CODE -> {
+                    if (current == '/' && index + 1 < source.length()) {
+                        char next = source.charAt(index + 1);
+                        if (next == '/' || next == '*') {
+                            appendMasked(sanitized, current);
+                            appendMasked(sanitized, next);
+                            index += 2;
+                            state = next == '/'
+                                    ? SourceState.LINE_COMMENT
+                                    : SourceState.BLOCK_COMMENT;
+                            continue;
+                        }
+                    }
+                    if (startsWithTripleQuote(source, index)) {
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        index += 3;
+                        state = SourceState.TEXT_BLOCK;
+                        continue;
+                    }
+                    if (current == '"' || current == '\'') {
+                        appendLiteral(sanitized, current, preserveLiterals);
+                    } else {
+                        sanitized.append(current);
+                    }
+                    index++;
+                    if (current == '"') {
+                        state = SourceState.STRING;
+                    } else if (current == '\'') {
+                        state = SourceState.CHARACTER;
+                    }
+                }
+                case LINE_COMMENT -> {
+                    appendMasked(sanitized, current);
+                    index++;
+                    if (current == '\n' || current == '\r') {
+                        state = SourceState.CODE;
+                    }
+                }
+                case BLOCK_COMMENT -> {
+                    if (current == '*' && index + 1 < source.length()
+                            && source.charAt(index + 1) == '/') {
+                        appendMasked(sanitized, current);
+                        appendMasked(sanitized, '/');
+                        index += 2;
+                        state = SourceState.CODE;
+                    } else {
+                        appendMasked(sanitized, current);
+                        index++;
+                    }
+                }
+                case STRING -> {
+                    appendLiteral(sanitized, current, preserveLiterals);
+                    index++;
+                    if (current == '\\' && index < source.length()) {
+                        appendLiteral(
+                                sanitized, source.charAt(index++), preserveLiterals);
+                    } else if (current == '"') {
+                        state = SourceState.CODE;
+                    }
+                }
+                case TEXT_BLOCK -> {
+                    if (startsWithTripleQuote(source, index)) {
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        index += 3;
+                        state = SourceState.CODE;
+                    } else {
+                        appendLiteral(sanitized, current, preserveLiterals);
+                        index++;
+                        if (current == '\\' && index < source.length()) {
+                            appendLiteral(
+                                    sanitized,
+                                    source.charAt(index++),
+                                    preserveLiterals);
+                        }
+                    }
+                }
+                case CHARACTER -> {
+                    appendLiteral(sanitized, current, preserveLiterals);
+                    index++;
+                    if (current == '\\' && index < source.length()) {
+                        appendLiteral(
+                                sanitized, source.charAt(index++), preserveLiterals);
+                    } else if (current == '\'') {
+                        state = SourceState.CODE;
+                    }
+                }
+            }
+        }
+        return sanitized.toString();
+    }
+
+    private static void appendLiteral(StringBuilder output,
+                                      char value,
+                                      boolean preserveLiterals) {
+        if (preserveLiterals) {
+            output.append(value);
+        } else {
+            appendMasked(output, value);
+        }
+    }
+
+    private static boolean startsWithTripleQuote(String source, int index) {
+        return index + 2 < source.length()
+                && source.charAt(index) == '"'
+                && source.charAt(index + 1) == '"'
+                && source.charAt(index + 2) == '"';
+    }
+
+    private static void appendMasked(StringBuilder output, char value) {
+        output.append(value == '\n' || value == '\r' ? value : ' ');
+    }
+
+    private static String appType(String relativeName) {
+        return APP_PACKAGE_PREFIX + relativeName;
+    }
+
+    private static Path repositoryRoot() {
+        Path current = Path.of("").toAbsolutePath().normalize();
+        while (current != null) {
+            if (Files.isRegularFile(current.resolve(
+                    "pixivdownload-official-plugins/pom.xml"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("Cannot locate repository root");
+    }
+
+    private static String read(Path path) {
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (IOException failure) {
+            throw new IllegalStateException("Failed to read " + path, failure);
+        }
+    }
 }

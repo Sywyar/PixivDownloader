@@ -16,14 +16,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 每个已开出的 {@code <template data-qt-slot>} 都映射到模板原位的稳定 {@code [data-vue-slot]} 宿主。纯字符串
  * descriptor.slots 贡献正常经 Vue 挂载；Vue 不可用、挂载失败或贡献含命令式对象时，才在同一宿主内走 fallback。
  * 模板锚点保留供 manifest 刷新后的卸载 / 恢复复用。纯静态资源 / 装配断言（不启 Spring 上下文），与
- * {@link NovelSearchVueRenderingContractTest} 同一形态。运行态行为另由 {@code src/test/js/pixiv-vue.test.js}、
+ * {@link NovelSearchVueRenderingContractTest} 同一形态。运行态行为另由
+ * {@code pixivdownload-app/src/test/js/pixiv-vue.test.js}、
  * {@code batch-queue-types.test.js} 验证。
  * <p>具体守住：
  * <ul>
- *   <li>共享 helper {@code pixiv-vue.js} 暴露幂等的 {@code prepareSlotHosts} + {@code anchorFor}，宿主插在模板
- *       **原开槽位置**（{@code insertBefore} 到模板之前），target **只经 {@code getAttribute} 精确比较、绝不拼进选择器**；</li>
- *   <li>{@code mountInto} 在挂载抛错时**还原宿主既有命令式 fallback**（先快照子节点、失败时还原再上抛）——
- *       一次失败的 Vue 升级绝不让槽位 / slot 变空白；</li>
  *   <li>{@code batch-queue-types.js} 的 {@code renderSlots} 为 async，并由 {@code bootstrap -> refresh -> install}
  *       的 await 链保证 init 时序；纯字符串贡献主路径经 {@code PixivVue.mountOn(anchor.host, component)} 逐锚点挂载，
  *       fallback 在同一宿主内追加字符串或挂载命令式对象，且不把 target 拼进选择器；</li>
@@ -40,7 +37,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WebUiSlotVueHostContractTest {
 
     private static final String STATIC_ROOT = "static/";
-    private static final String VUE_HELPER = "js/pixiv-vue.js";
     private static final String QUEUE_TYPES = "pixiv-batch/batch-queue-types.js";
     private static final String BATCH_HTML = "pixiv-batch.html";
     private static final String BATCH_CSS = "pixiv-batch/pixiv-batch.css";
@@ -62,50 +58,6 @@ class WebUiSlotVueHostContractTest {
         int end = source.indexOf(endMarker, start + startMarker.length());
         assertThat(end).as("源码缺少结束标记: " + endMarker).isGreaterThan(start);
         return source.substring(start, end);
-    }
-
-    @Test
-    @DisplayName("pixiv-vue.js 暴露 prepareSlotHosts/anchorFor，宿主插在模板原开槽位置(insertBefore)而非父容器末尾")
-    void helperExposesIdempotentHostPreparation() throws IOException {
-        String js = read(VUE_HELPER);
-        assertThat(js).as("应有幂等的槽位宿主准备入口 prepareSlotHosts").contains("function prepareSlotHosts(");
-        assertThat(js).as("PixivVue 命名空间应导出 prepareSlotHosts").contains("prepareSlotHosts: prepareSlotHosts");
-        assertThat(js).as("应有 anchorFor 定位宿主").contains("function anchorFor(");
-        assertThat(js).as("应有共享的「确保模板宿主」内部函数").contains("function ensureHostForTemplate(");
-        assertThat(js)
-                .as("宿主应插在模板**原位**(insertBefore 到模板之前)，使非空 Vue 内容出现在该 slot 的真实位置")
-                .contains("parent.insertBefore(host, tpl)");
-        assertThat(js)
-                .as("不应再把宿主统一 append 到模板父容器末尾（会把 settings-card 等挪到容器末尾、偏离原槽位）")
-                .doesNotContain("parent.appendChild(host)");
-    }
-
-    @Test
-    @DisplayName("target 安全：宿主定位只经 getAttribute 精确比较，绝不把 target 拼进选择器(无 CSS SyntaxError 风险)")
-    void targetNeverInterpolatedIntoSelector() throws IOException {
-        String js = read(VUE_HELPER);
-        assertThat(js)
-                .as("应经固定字面存在式选择器 + getAttribute 精确比较定位（queryByAttrValue）")
-                .contains("function queryByAttrValue(")
-                .contains("getAttribute(attr) === value");
-        assertThat(js).as("不得把 target 拼进 data-qt-slot 选择器").doesNotContain("data-qt-slot=\"' +");
-        assertThat(js).as("不得把 target 拼进 data-vue-slot 选择器").doesNotContain("data-vue-slot=\"' +");
-        assertThat(js).as("不得用 querySelector 拼 target 值").doesNotContain("querySelector('[data-vue-slot=\"");
-    }
-
-    @Test
-    @DisplayName("mountInto 失败前不吞 fallback：挂载前快照宿主子节点、挂载抛错时还原再上抛(由 mount/mountOn 收敛为 null)")
-    void mountIntoPreservesFallbackOnFailure() throws IOException {
-        String js = read(VUE_HELPER);
-        assertThat(js).as("应有快照 / 还原宿主子节点的内部函数")
-                .contains("function snapshotChildNodes(")
-                .contains("function restoreChildNodes(");
-        String mountInto = sliceBetween(js, "function mountInto(", "function mount(");
-        assertThat(mountInto).as("挂载前快照宿主既有命令式 fallback").contains("snapshotChildNodes(el)");
-        assertThat(mountInto)
-                .as("挂载抛错时还原 fallback 并上抛（交由 mount / mountOn 收敛为 null，调用方保留 fallback）")
-                .contains("restoreChildNodes(el, fallback)")
-                .contains("throw e");
     }
 
     @Test
