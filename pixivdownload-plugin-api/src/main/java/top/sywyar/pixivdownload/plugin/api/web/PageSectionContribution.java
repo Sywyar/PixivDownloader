@@ -17,10 +17,10 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 插件自有 ClassLoader 提供、经声明的静态资源路由 serving，通用渲染器以 {@code <script src=moduleUrl>} 加载，
  * 因此与宿主页同源、共享同一执行上下文。它<b>不是</b>不可信第三方插件的沙箱：本契约不隔离脚本能力，仅约束
  * URL 形态。{@code actionHref} / {@code moduleUrl} 非空时必须是同源绝对路径（以单个 {@code /} 开头；禁止
- * {@code javascript:} 伪协议、{@code http(s)://} 外部 URL 与 {@code //host} 协议相对 URL），由
- * {@code PageSectionRegistry} 在注册期校验、违反即启动失败。<b>前端可见性（按身份过滤、禁用即消失）只是渲染体验，
- * 不是权限边界</b>——区块内任何 href / moduleUrl / 其调用的 API，其访问权限仍由后端 {@code AuthFilter} 依据
- * {@code RouteAccessRegistry} 的路由访问策略鉴权；某区块对当前身份隐藏，不代表其 URL 在后端开放。
+ * {@code javascript:} 伪协议、{@code http(s)://} 外部 URL 与 {@code //host} 协议相对 URL），由宿主在贡献注册期
+ * 校验、违反即启动失败。<b>前端可见性（按身份过滤、禁用即消失）只是渲染体验，不是权限边界</b>——区块内任何
+ * href / moduleUrl / 其调用的 API，仍由宿主依据对应路由的访问策略统一鉴权；某区块对当前身份隐藏，
+ * 不代表其 URL 在后端开放。
  *
  * @param id                 区块全局唯一 id（用于诊断 / 去重 / 前端模块定位自身容器）
  * @param placement          宿主页面 slot id（如 {@code stats.sidebar.sections}）
@@ -35,7 +35,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * @param actionTitleI18nKey 可选：操作入口 title / aria-label 的 i18n key（<b>纯 key</b>），{@code null} 表示无
  * @param moduleUrl          可选：渲染区块复杂内容的前端模块脚本 URL（已安装可信插件的同源脚本钩子，由贡献方自有 ClassLoader 提供并 serving），{@code null} 表示无；非空时必须是同源绝对路径（以 {@code /} 开头）
  * @param visibleTo          可见所需的访问策略；必须满足 {@link AccessPolicy#supportsUiVisibility()}，注册期拒绝流程专用策略
- * @param priority           placement 内排序权重，越小越靠前（不跨越来源层级：第三方区块不会因 priority 小而越过内置区块）
+ * @param priority           placement 内排序权重，越小越靠前（不跨越来源层级：外置区块不会因 priority 小而越过内置区块）
  */
 public record PageSectionContribution(
         String id,

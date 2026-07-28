@@ -63,12 +63,12 @@ public record WebRouteContribution(
         return new WebRouteContribution(pathPattern, AccessPolicy.LOCAL, Set.of(), false);
     }
 
-    /** {@code /api/gui/**} 双重校验（{@link AccessPolicy#GUI}）：本机可信请求 + 有效 GUI token，由 AuthFilter 内联分支执行。 */
+    /** {@code /api/gui/**} 双重校验（{@link AccessPolicy#GUI}）：由宿主同时校验本机可信请求与有效 GUI token。 */
     public static WebRouteContribution gui(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.GUI, Set.of(), false);
     }
 
-    /** actuator 公开探针（{@link AccessPolicy#ACTUATOR_PUBLIC}）：health / info，由 AuthFilter 内联 fast-path 放行。 */
+    /** actuator 公开探针（{@link AccessPolicy#ACTUATOR_PUBLIC}）：health / info，由宿主公开探针路径直接放行。 */
     public static WebRouteContribution actuatorPublic(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.ACTUATOR_PUBLIC, Set.of(), false);
     }

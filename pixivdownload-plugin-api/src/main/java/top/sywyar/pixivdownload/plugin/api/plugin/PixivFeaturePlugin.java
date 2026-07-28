@@ -135,7 +135,7 @@ public interface PixivFeaturePlugin {
      * 插件声明的默认落点 / 入口（landing entrypoint）：供业务流程按<b>身份</b>解析默认跳转目标，
      * 例如受邀访客兑换邀请码成功后的落地页。与导航排序解耦：落点选择只消费
      * {@link LandingContribution#priority()}（landing/entrypoint 优先级），<b>不</b>复用
-     * {@link NavigationContribution#priority()}（导航展示顺序）——两者是各自独立的契约，第三方插件即便注册一个
+     * {@link NavigationContribution#priority()}（导航展示顺序）——两者是各自独立的契约，外置插件即便注册一个
      * 导航 priority 极小的项也无法间接改变业务落点，必须显式声明 {@link LandingContribution} 才参与落点竞争。
      */
     default List<LandingContribution> landings() {
@@ -153,8 +153,8 @@ public interface PixivFeaturePlugin {
 
     /**
      * 插件声明的 Web UI 槽位贡献（mount point）：让宿主页面只声明稳定的槽位锚点，锚点内渲染什么、由哪个插件
-     * 渲染、是否渲染，全部由活动插件声明——宿主不需要知道是哪个插件、是否启用。经核心 {@code WebUiSlotRegistry}
-     * 合并、随插件生命周期动态注册 / 注销；禁用 / 停用插件后其槽位自然从快照消失、宿主入口缺席。复杂内容仍由
+     * 渲染、是否渲染，全部由活动插件声明——宿主不需要知道是哪个插件、是否启用。经宿主聚合流程
+     * 合并并随插件生命周期动态注册 / 注销；禁用 / 停用插件后其槽位自然从快照消失、宿主入口缺席。复杂内容仍由
      * {@link WebUiSlotContribution#moduleUrl()} 指向的前端模块渲染。
      */
     default List<WebUiSlotContribution> uiSlots() {

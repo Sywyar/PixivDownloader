@@ -12,7 +12,7 @@ import java.util.Set;
  * 调用方应在注册 / 聚合期用 {@link #supportsUiVisibility()} 拒绝这类错误声明；当前页面身份的显隐统一通过
  * {@link #isVisibleTo(Audience)} 判定。
  * <p>
- * {@code AuthFilter} 按策略分四类处置（保持历史可观察行为逐字不变）：
+ * 宿主统一访问控制按策略分四类处置（保持历史可观察行为逐字不变）：
  * <ul>
  *   <li><b>公开</b>（{@link #PUBLIC}）：任何人放行。</li>
  *   <li><b>monitor 受控</b>（{@link #ADMIN}、{@link #INVITED_GUEST}）：阻挡匿名访客；{@code INVITED_GUEST}
@@ -32,7 +32,7 @@ public enum AccessPolicy {
 
     /**
      * 「管理员或 multi 访客」：<b>multi 匿名访客可访问</b>（黑名单放行、按配额限流）、solo 需管理员会话、
-     * <b>受邀访客一律 403</b>（不在访客白名单）、<b>不入 monitor</b>。{@code AuthFilter} 不为该策略派生任何
+     * <b>受邀访客一律 403</b>（不在访客白名单）、<b>不入 monitor</b>。宿主访问控制不为该策略派生任何
      * 访问清单，命中后落默认会话 / 访客分支——访问行为与历史「未声明 API」逐字等价。用于「访客本就应能为自己
      * 使用、但受邀访客不应触达」的端点：下载工作台提交 / 装配端点、核心导航装配端点、其余随页面消费的访客可用 API。
      * <p>

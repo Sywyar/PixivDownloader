@@ -11,8 +11,8 @@ package top.sywyar.pixivdownload.plugin.api.web;
  *   <li>精确文件贡献（{@code exactFile=true}）：{@code classpathLocation} 为 classpath 目录，{@code publicPathPrefix}
  *       为精确对外文件路径，注册为精确 URL pattern。资源为该目录下的同名文件。</li>
  * </ul>
- * 「谁能访问该路径」不在此表达：逐路径访问级别由 {@link WebRouteContribution} 经
- * {@code routes()} / {@code RouteAccessRegistry} 声明（同一目录前缀下不同文件可有不同访问级别，
+ * 「谁能访问该路径」不在此表达：逐路径访问级别必须另由 {@link WebRouteContribution} 声明并交宿主聚合
+ * （同一目录前缀下不同文件可有不同访问级别，
  * 故访问必须按路径声明，无法挂在目录级的本记录上）。
  *
  * @param classpathLocation classpath 位置，如 {@code classpath:/static/pixiv-gallery/}

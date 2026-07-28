@@ -24,8 +24,10 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -33,8 +35,12 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -51,6 +57,47 @@ class PluginApiOwnershipGuardTest {
     private static final String API_PREFIX = "top.sywyar.pixivdownload.plugin.api.";
     private static final String REQUEST_OWNER_RESOLVER = API_PREFIX + "web.RequestOwnerIdentityResolver";
     private static final String HTTP_SERVLET_REQUEST = HttpServletRequest.class.getName();
+    private static final Pattern JAVADOC_BLOCK = Pattern.compile("/\\*\\*(.*?)\\*/", Pattern.DOTALL);
+    private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
+            "(?m)^\\s*package\\s+([\\w.]+);");
+    private static final Pattern IMPORT_DECLARATION = Pattern.compile(
+            "(?m)^\\s*import\\s+([\\w.$]+);");
+    private static final Pattern JAVADOC_TYPE_REFERENCE = Pattern.compile(
+            "\\{@(?:link|linkplain|value)\\s+([^\\s}]+)");
+    private static final Pattern JAVADOC_SEE_REFERENCE = Pattern.compile(
+            "@see\\s+([^\\s*]+)");
+    private static final Pattern JAVADOC_CODE_CONTEXT = Pattern.compile(
+            "\\{@code\\s+([^}]*)}");
+    private static final Pattern EXPLICIT_TYPE_TOKEN = Pattern.compile(
+            "(?<![\\p{Alnum}_$.])"
+                    + "((?:[a-z_$][\\w$]*\\.)*[A-Z][\\w$]*(?:\\.[A-Z][\\w$]*)*)"
+                    + "(?![\\p{Alnum}_$])");
+    private static final Pattern PROJECT_TYPE_REFERENCE = Pattern.compile(
+            "\\btop\\.sywyar\\.pixivdownload(?:\\.[A-Za-z_$][\\w$]*)+\\b");
+    private static final Pattern SIMPLE_TYPE_REFERENCE = Pattern.compile(
+            "(?<![\\p{Alnum}_$.])([A-Z][A-Za-z0-9_$]*)(?![\\p{Alnum}_$.])");
+    private static final Pattern TEST_TYPE_REFERENCE = Pattern.compile(
+            "(?<![\\p{Alnum}_$])([A-Z][A-Za-z0-9_$]*Test)(?![\\p{Alnum}_$])");
+    private static final Pattern HOST_IMPLEMENTATION_REFERENCE = Pattern.compile(
+            "(?<![\\p{Alnum}_$@])"
+                    + "([A-Z][A-Za-z0-9_$]*(?:Registry|Controller|Filter|Service|Manager|Bridge|"
+                    + "Plugin|Config|Policy))"
+                    + "(?![\\p{Alnum}_$])");
+    private static final Pattern SOURCE_TYPE_DECLARATION = Pattern.compile(
+            "\\b(?:class|interface|record|enum)\\s+([A-Za-z_$][A-Za-z0-9_$]*)");
+    private static final Set<String> FORBIDDEN_DOCUMENTATION_REFERENCES = Set.of(
+            "AuthFilter",
+            "BUILT_IN",
+            "DrilldownRegistry",
+            "LandingRegistryTest",
+            "NavigationController",
+            "PageSectionRegistry",
+            "PluginRegistry",
+            "PluginSource",
+            "RequiredPluginPolicy",
+            "RouteAccessRegistry",
+            "WebUiSlotRegistry"
+    );
     private static final Set<String> PRIMITIVE_TYPE_NAMES = Set.of(
             "boolean", "byte", "char", "short", "int", "long", "float", "double", "void"
     );
@@ -194,6 +241,15 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "schedule.network.ScheduledNetworkRoute$Mode",
             API_PREFIX + "schedule.work.ScheduledWorkResult$Outcome"
     );
+
+    private enum SourceState {
+        CODE,
+        LINE_COMMENT,
+        BLOCK_COMMENT,
+        STRING,
+        TEXT_BLOCK,
+        CHARACTER
+    }
 
     @Test
     @DisplayName("每个生产类型都必须有稳定协议 owner")
@@ -360,6 +416,186 @@ class PluginApiOwnershipGuardTest {
                 .containsExactlyInAnyOrderEntriesOf(APPROVED_GUI_CONFIG_GROUPS);
     }
 
+    @Test
+    @DisplayName("生产 Javadoc 只引用本模块稳定契约")
+    void productionDocumentationReferencesOnlyPluginApiContracts() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        Path sourceRoot = repositoryRoot.resolve("pixivdownload-plugin-api/src/main/java");
+        Set<String> localTypes = pluginApiSimpleTypeNames();
+        Set<String> localQualifiedTypes = pluginApiQualifiedTypeNames();
+        Set<String> localPackages = pluginApiPackageNames();
+        Set<String> privateLocalTypes = pluginApiPrivateTypeNames();
+        Set<String> externalTypes = externalProjectTypeNames(repositoryRoot);
+        List<String> violations = new ArrayList<>();
+
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
+            for (Path source : sources
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .sorted()
+                    .toList()) {
+                violations.addAll(documentationOwnershipViolations(
+                        repositoryRoot.relativize(source).toString(),
+                        Files.readString(source, StandardCharsets.UTF_8),
+                        localTypes,
+                        localQualifiedTypes,
+                        localPackages,
+                        privateLocalTypes,
+                        externalTypes));
+            }
+        }
+
+        assertThat(violations)
+                .as("plugin-api 文档不得引用宿主实现、其它模块类型、失效项目类型或测试类")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("文档所有权扫描精确识别宿主、外模块与测试类型")
+    void documentationOwnershipScannerHasExactBoundary() {
+        Set<String> localTypes = Set.of("AccessPolicy");
+        Set<String> localQualifiedTypes = Set.of(
+                "top.sywyar.pixivdownload.plugin.api.web.AccessPolicy");
+        Set<String> localPackages = Set.of(
+                "top.sywyar.pixivdownload.plugin.api",
+                "top.sywyar.pixivdownload.plugin.api.web");
+        Set<String> privateLocalTypes = Set.of("State");
+        Set<String> externalTypes = Set.of("Entry", "MailConfig", "RegisteredPlugin");
+        String rejected = """
+                package fixture;
+
+                import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+                import java.util.List;
+
+                /**
+                 * AuthFilter / @see MailConfig / RegisteredPlugin
+                 * {@code new PluginRegistry()}
+                 * {@link top.sywyar.pixivdownload.app.plugin.PluginRegistry}
+                 * {@link MissingContract}
+                 * {@link top.sywyar.pixivdownload.plugin.api.web.MissingContract}
+                 * {@link top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.MissingNested}
+                 * {@link AccessPolicy.MissingNested}
+                 * {@code AccessPolicy.MissingNested}
+                 * {@code new AccessPolicy.MissingNested()}
+                 * {@link Entry}
+                 * {@code new Entry()}
+                 * {@code List<Entry>}
+                 * {@link java.util.List<Entry>}
+                 * {@link java.util.List<MissingNestedContract>}
+                 * {@code BUILT_IN}
+                 * {@code State}
+                 * 由 LandingRegistryTest 覆盖。
+                 */
+                final class RejectedFixture {
+                }
+                """;
+
+        assertThat(documentationOwnershipViolations(
+                "RejectedFixture.java",
+                rejected,
+                localTypes,
+                localQualifiedTypes,
+                localPackages,
+                privateLocalTypes,
+                externalTypes))
+                .anyMatch(violation -> violation.contains("AuthFilter"))
+                .anyMatch(violation -> violation.contains("MailConfig"))
+                .anyMatch(violation -> violation.contains("RegisteredPlugin"))
+                .anyMatch(violation -> violation.contains(
+                        "top.sywyar.pixivdownload.app.plugin.PluginRegistry"))
+                .anyMatch(violation -> violation.endsWith("unapproved type MissingContract"))
+                .anyMatch(violation -> violation.contains(
+                        "top.sywyar.pixivdownload.plugin.api.web.MissingContract"))
+                .anyMatch(violation -> violation.contains(
+                        "top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.MissingNested"))
+                .anyMatch(violation -> violation.endsWith(
+                        "unapproved type AccessPolicy.MissingNested"))
+                .anyMatch(violation -> violation.endsWith(
+                        "unapproved code type AccessPolicy.MissingNested"))
+                .anyMatch(violation -> violation.endsWith("unapproved type Entry"))
+                .anyMatch(violation -> violation.endsWith("unapproved code type Entry"))
+                .anyMatch(violation -> violation.endsWith("unapproved explicit type Entry"))
+                .anyMatch(violation -> violation.endsWith(
+                        "unapproved explicit type MissingNestedContract"))
+                .anyMatch(violation -> violation.contains("BUILT_IN"))
+                .anyMatch(violation -> violation.contains("State"))
+                .anyMatch(violation -> violation.contains("LandingRegistryTest"));
+
+        String allowed = """
+                package fixture;
+
+                import java.util.Map.Entry;
+                import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+
+                /**
+                 * {@link AccessPolicy}
+                 * {@link top.sywyar.pixivdownload.plugin.api.web.AccessPolicy}
+                 * {@link Entry}
+                 * {@link Thread.State}
+                 * {@code Entry} / {@code new Entry()} / {@code Thread.State}
+                 * {@code java.util.List} / {@code @Service}
+                 */
+                final class AllowedFixture {
+                    String text = "top.sywyar.pixivdownload.app.AuthFilter LandingRegistryTest";
+                }
+                """;
+        assertThat(documentationOwnershipViolations(
+                "AllowedFixture.java",
+                allowed,
+                localTypes,
+                localQualifiedTypes,
+                localPackages,
+                privateLocalTypes,
+                externalTypes)).isEmpty();
+
+        String poisonedImport = String.join("\n",
+                "package fixture;",
+                "final class PoisonedImportFixture {",
+                "    String text = \"\"\"",
+                "import java.util.Map.Entry;",
+                "\"\"\";",
+                "    /** {@link Entry} */",
+                "    static final class Nested {",
+                "    }",
+                "}");
+        assertThat(documentationOwnershipViolations(
+                "PoisonedImportFixture.java",
+                poisonedImport,
+                localTypes,
+                localQualifiedTypes,
+                localPackages,
+                privateLocalTypes,
+                externalTypes))
+                .anyMatch(violation -> violation.endsWith("unapproved type Entry"));
+
+        String fakeJavadoc = String.join("\n",
+                "package fixture;",
+                "final class FakeJavadocFixture {",
+                "    String text = \"\"\"",
+                "/** {@link Entry} */",
+                "\"\"\";",
+                "}");
+        assertThat(documentationOwnershipViolations(
+                "FakeJavadocFixture.java",
+                fakeJavadoc,
+                localTypes,
+                localQualifiedTypes,
+                localPackages,
+                privateLocalTypes,
+                externalTypes)).isEmpty();
+
+        String declarations = """
+                package example;
+                // record CommentOnly() {}
+                final class Container {
+                    interface RegisteredPlugin {
+                    }
+                    String ignored = "enum StringOnly { VALUE }";
+                }
+                """;
+        assertThat(declaredTypeNames(declarations))
+                .containsExactlyInAnyOrder("Container", "RegisteredPlugin");
+    }
+
     private static boolean isJdkOrPluginApi(String typeName) {
         if (typeName.startsWith("java.sql.") || typeName.startsWith("javax.sql.")) {
             return false;
@@ -370,23 +606,27 @@ class PluginApiOwnershipGuardTest {
                 || PRIMITIVE_TYPE_NAMES.contains(typeName);
     }
 
-    private static Path modulePom() {
+    private static Path repositoryRoot() {
         Path current = Path.of("").toAbsolutePath().normalize();
         while (current != null) {
             Path nested = current.resolve("pixivdownload-plugin-api").resolve("pom.xml");
-            if (Files.isRegularFile(nested)) {
-                return nested;
+            if (Files.isRegularFile(nested) && Files.isRegularFile(current.resolve("pom.xml"))) {
+                return current;
             }
             if (current.getFileName() != null
                     && current.getFileName().toString().equals("pixivdownload-plugin-api")) {
                 Path direct = current.resolve("pom.xml");
-                if (Files.isRegularFile(direct)) {
-                    return direct;
+                if (Files.isRegularFile(direct) && current.getParent() != null) {
+                    return current.getParent();
                 }
             }
             current = current.getParent();
         }
-        throw new IllegalStateException("cannot locate pixivdownload-plugin-api/pom.xml");
+        throw new IllegalStateException("cannot locate repository root");
+    }
+
+    private static Path modulePom() {
+        return repositoryRoot().resolve("pixivdownload-plugin-api/pom.xml");
     }
 
     private static String directChildText(Element parent, String childName) {
@@ -418,6 +658,598 @@ class PluginApiOwnershipGuardTest {
             }
         }
         return Map.copyOf(constants);
+    }
+
+    private static List<String> documentationOwnershipViolations(String sourceName,
+                                                                 String source,
+                                                                 Set<String> localTypes,
+                                                                 Set<String> localQualifiedTypes,
+                                                                 Set<String> localPackages,
+                                                                 Set<String> privateLocalTypes,
+                                                                 Set<String> externalTypes) {
+        String packageName = requiredPackageName(source);
+        Map<String, String> imports = importedTypes(source);
+        Set<String> violations = new LinkedHashSet<>();
+
+        Matcher blocks = JAVADOC_BLOCK.matcher(commentOnlyText(source));
+        while (blocks.find()) {
+            String javadoc = blocks.group(1);
+            int offset = blocks.start(1);
+
+            Matcher typeReference = JAVADOC_TYPE_REFERENCE.matcher(javadoc);
+            while (typeReference.find()) {
+                String reference = typeReference.group(1);
+                if (!isAllowedTypeReference(
+                        reference, packageName, imports, localQualifiedTypes)) {
+                    violations.add(documentationViolation(
+                            sourceName,
+                            source,
+                            offset + typeReference.start(1),
+                            "unapproved type",
+                            reference));
+                }
+                collectKnownTypeTokenViolations(
+                        sourceName,
+                        source,
+                        reference,
+                        offset + typeReference.start(1),
+                        packageName,
+                        imports,
+                        localTypes,
+                        localQualifiedTypes,
+                        privateLocalTypes,
+                        externalTypes,
+                        false,
+                        "unapproved explicit type",
+                        violations);
+            }
+
+            Matcher seeReference = JAVADOC_SEE_REFERENCE.matcher(javadoc);
+            while (seeReference.find()) {
+                String reference = seeReference.group(1);
+                if (!isAllowedTypeReference(
+                        reference, packageName, imports, localQualifiedTypes)) {
+                    violations.add(documentationViolation(
+                            sourceName,
+                            source,
+                            offset + seeReference.start(1),
+                            "unapproved @see type",
+                            reference));
+                }
+                collectKnownTypeTokenViolations(
+                        sourceName,
+                        source,
+                        reference,
+                        offset + seeReference.start(1),
+                        packageName,
+                        imports,
+                        localTypes,
+                        localQualifiedTypes,
+                        privateLocalTypes,
+                        externalTypes,
+                        false,
+                        "unapproved explicit type",
+                        violations);
+            }
+
+            Matcher codeContext = JAVADOC_CODE_CONTEXT.matcher(javadoc);
+            while (codeContext.find()) {
+                collectKnownTypeTokenViolations(
+                        sourceName,
+                        source,
+                        codeContext.group(1),
+                        offset + codeContext.start(1),
+                        packageName,
+                        imports,
+                        localTypes,
+                        localQualifiedTypes,
+                        privateLocalTypes,
+                        externalTypes,
+                        true,
+                        "unapproved code type",
+                        violations);
+            }
+
+            Matcher projectType = PROJECT_TYPE_REFERENCE.matcher(javadoc);
+            while (projectType.find()) {
+                String reference = projectType.group();
+                if (!isApprovedProjectReference(reference, localQualifiedTypes, localPackages)) {
+                    violations.add(documentationViolation(
+                            sourceName,
+                            source,
+                            offset + projectType.start(),
+                            "unapproved project reference",
+                            reference));
+                }
+            }
+
+            Matcher testType = TEST_TYPE_REFERENCE.matcher(javadoc);
+            while (testType.find()) {
+                violations.add(documentationViolation(
+                        sourceName,
+                        source,
+                        offset + testType.start(1),
+                        "test type",
+                        testType.group(1)));
+            }
+
+            Matcher hostImplementation = HOST_IMPLEMENTATION_REFERENCE.matcher(javadoc);
+            while (hostImplementation.find()) {
+                String reference = hostImplementation.group(1);
+                if (!isAllowedTypeReference(
+                        reference, packageName, imports, localQualifiedTypes)) {
+                    violations.add(documentationViolation(
+                            sourceName,
+                            source,
+                            offset + hostImplementation.start(1),
+                            "host implementation name",
+                            reference));
+                }
+            }
+
+            Matcher simpleType = SIMPLE_TYPE_REFERENCE.matcher(javadoc);
+            while (simpleType.find()) {
+                String reference = simpleType.group(1);
+                if (FORBIDDEN_DOCUMENTATION_REFERENCES.contains(reference)) {
+                    violations.add(documentationViolation(
+                            sourceName,
+                            source,
+                            offset + simpleType.start(1),
+                            "forbidden host reference",
+                            reference));
+                } else if (isAllowedTypeReference(
+                        reference, packageName, imports, localQualifiedTypes)) {
+                    continue;
+                } else if (privateLocalTypes.contains(reference)) {
+                    violations.add(documentationViolation(
+                            sourceName,
+                            source,
+                            offset + simpleType.start(1),
+                            "private plugin-api type",
+                            reference));
+                } else if (!localTypes.contains(reference)
+                        && externalTypes.contains(reference)
+                        && isMultiwordTypeName(reference)) {
+                    violations.add(documentationViolation(
+                            sourceName,
+                            source,
+                            offset + simpleType.start(1),
+                            "external project type",
+                            reference));
+                }
+            }
+        }
+
+        return List.copyOf(violations);
+    }
+
+    private static void collectKnownTypeTokenViolations(String sourceName,
+                                                        String source,
+                                                        String context,
+                                                        int contextOffset,
+                                                        String packageName,
+                                                        Map<String, String> imports,
+                                                        Set<String> localTypes,
+                                                        Set<String> localQualifiedTypes,
+                                                        Set<String> privateLocalTypes,
+                                                        Set<String> externalTypes,
+                                                        boolean requireKnownType,
+                                                        String category,
+                                                        Set<String> violations) {
+        Matcher typeToken = EXPLICIT_TYPE_TOKEN.matcher(context);
+        while (typeToken.find()) {
+            String reference = typeToken.group(1);
+            if (looksLikeTypeReference(reference)
+                    && (!requireKnownType || isKnownCodeTypeReference(
+                            reference, imports, localTypes, privateLocalTypes, externalTypes))
+                    && !isAllowedTypeReference(
+                            reference, packageName, imports, localQualifiedTypes)) {
+                violations.add(documentationViolation(
+                        sourceName,
+                        source,
+                        contextOffset + typeToken.start(1),
+                        category,
+                        reference));
+            }
+        }
+    }
+
+    private static boolean isAllowedTypeReference(String rawReference,
+                                                  String packageName,
+                                                  Map<String, String> imports,
+                                                  Set<String> localQualifiedTypes) {
+        if (rawReference.startsWith("#")) {
+            return true;
+        }
+        String reference = rawReference.trim();
+        int memberSeparator = reference.indexOf('#');
+        if (memberSeparator >= 0) {
+            reference = reference.substring(0, memberSeparator);
+        }
+        int genericSeparator = reference.indexOf('<');
+        if (genericSeparator >= 0) {
+            reference = reference.substring(0, genericSeparator);
+        }
+        while (reference.endsWith("[]")) {
+            reference = reference.substring(0, reference.length() - 2);
+        }
+        if (reference.isBlank()) {
+            return false;
+        }
+        if (reference.startsWith("java.")) {
+            return isLoadableJdkType(reference);
+        }
+        if (reference.startsWith("jakarta.")) {
+            return reference.equals(HTTP_SERVLET_REQUEST);
+        }
+        if (reference.startsWith("top.sywyar.pixivdownload.")) {
+            return isApprovedTypeReference(reference, localQualifiedTypes);
+        }
+
+        String rootSimpleName = reference.contains(".")
+                ? reference.substring(0, reference.indexOf('.'))
+                : reference;
+        String imported = imports.get(rootSimpleName);
+        if (imported != null) {
+            String resolved = imported + reference.substring(rootSimpleName.length());
+            if (resolved.startsWith("java.")) {
+                return isLoadableJdkType(resolved);
+            }
+            if (resolved.equals(HTTP_SERVLET_REQUEST)) {
+                return true;
+            }
+            return isApprovedTypeReference(resolved, localQualifiedTypes);
+        }
+
+        if (isApprovedTypeReference(packageName + "." + reference, localQualifiedTypes)) {
+            return true;
+        }
+        if (approvedSimpleTypeReferences(localQualifiedTypes).contains(reference)) {
+            return true;
+        }
+        return isLoadableJdkType("java.lang." + reference);
+    }
+
+    private static boolean isKnownCodeTypeReference(String reference,
+                                                    Map<String, String> imports,
+                                                    Set<String> localTypes,
+                                                    Set<String> privateLocalTypes,
+                                                    Set<String> externalTypes) {
+        if (reference.startsWith("java.")
+                || reference.startsWith("jakarta.")
+                || reference.startsWith("top.sywyar.pixivdownload.")) {
+            return true;
+        }
+        String rootSimpleName = reference.contains(".")
+                ? reference.substring(0, reference.indexOf('.'))
+                : reference;
+        return imports.containsKey(rootSimpleName)
+                || localTypes.contains(rootSimpleName)
+                || privateLocalTypes.contains(rootSimpleName)
+                || externalTypes.contains(rootSimpleName)
+                || FORBIDDEN_DOCUMENTATION_REFERENCES.contains(rootSimpleName);
+    }
+
+    private static Set<String> approvedSimpleTypeReferences(Set<String> localQualifiedTypes) {
+        Set<String> references = new LinkedHashSet<>();
+        for (String qualifiedType : localQualifiedTypes) {
+            String sourceName = qualifiedType.replace('$', '.');
+            String[] segments = sourceName.split("\\.");
+            for (int index = 0; index < segments.length; index++) {
+                if (!segments[index].isBlank()
+                        && Character.isUpperCase(segments[index].charAt(0))) {
+                    references.add(String.join(".", Arrays.copyOfRange(
+                            segments, index, segments.length)));
+                    references.add(segments[segments.length - 1]);
+                    break;
+                }
+            }
+        }
+        return Set.copyOf(references);
+    }
+
+    private static boolean isApprovedProjectReference(String reference,
+                                                      Set<String> localQualifiedTypes,
+                                                      Set<String> localPackages) {
+        return isApprovedTypeReference(reference, localQualifiedTypes)
+                || localPackages.contains(reference);
+    }
+
+    private static boolean isApprovedTypeReference(String reference,
+                                                   Set<String> localQualifiedTypes) {
+        return localQualifiedTypes.contains(reference)
+                || localQualifiedTypes.contains(reference.replace('$', '.'));
+    }
+
+    private static boolean isLoadableJdkType(String reference) {
+        if (!reference.startsWith("java.")) {
+            return false;
+        }
+        String candidate = reference;
+        while (true) {
+            try {
+                Class.forName(candidate, false, PluginApiOwnershipGuardTest.class.getClassLoader());
+                return true;
+            } catch (ClassNotFoundException ignored) {
+                int separator = candidate.lastIndexOf('.');
+                if (separator < "java.".length()) {
+                    return false;
+                }
+                candidate = candidate.substring(0, separator)
+                        + '$'
+                        + candidate.substring(separator + 1);
+            }
+        }
+    }
+
+    private static boolean looksLikeTypeReference(String reference) {
+        String leaf = reference.substring(reference.lastIndexOf('.') + 1);
+        return !leaf.equals(leaf.toUpperCase(Locale.ROOT));
+    }
+
+    private static String requiredPackageName(String source) {
+        Matcher matcher = PACKAGE_DECLARATION.matcher(source);
+        if (!matcher.find()) {
+            throw new IllegalArgumentException("source fixture has no package declaration");
+        }
+        return matcher.group(1);
+    }
+
+    private static Map<String, String> importedTypes(String source) {
+        Map<String, String> imports = new LinkedHashMap<>();
+        Matcher matcher = IMPORT_DECLARATION.matcher(maskCommentsAndLiterals(source));
+        while (matcher.find()) {
+            String imported = matcher.group(1);
+            imports.put(simpleTypeName(imported), imported);
+        }
+        return Map.copyOf(imports);
+    }
+
+    private static String documentationViolation(String sourceName,
+                                                 String source,
+                                                 int offset,
+                                                 String category,
+                                                 String reference) {
+        long line = source.substring(0, offset).chars().filter(value -> value == '\n').count() + 1;
+        return sourceName + ":" + line + " -> " + category + " " + reference;
+    }
+
+    private static Set<String> pluginApiSimpleTypeNames() {
+        Set<String> names = new LinkedHashSet<>();
+        approvedTypes().stream().map(PluginApiOwnershipGuardTest::simpleTypeName).forEach(names::add);
+        APPROVED_PUBLIC_NESTED_TYPES.stream()
+                .map(PluginApiOwnershipGuardTest::simpleTypeName)
+                .forEach(names::add);
+        return Set.copyOf(names);
+    }
+
+    private static Set<String> pluginApiQualifiedTypeNames() {
+        Set<String> names = new LinkedHashSet<>();
+        names.addAll(approvedTypes());
+        APPROVED_PUBLIC_NESTED_TYPES.forEach(name -> {
+            names.add(name);
+            names.add(name.replace('$', '.'));
+        });
+        return Set.copyOf(names);
+    }
+
+    private static Set<String> pluginApiPrivateTypeNames() {
+        Set<String> stableTypes = pluginApiSimpleTypeNames();
+        Set<String> privateTypes = new LinkedHashSet<>();
+        CLASSES.stream()
+                .map(javaClass -> simpleTypeName(javaClass.getName()))
+                .filter(name -> !name.isBlank() && Character.isUpperCase(name.charAt(0)))
+                .filter(name -> !stableTypes.contains(name))
+                .forEach(privateTypes::add);
+        return Set.copyOf(privateTypes);
+    }
+
+    private static Set<String> pluginApiPackageNames() {
+        Set<String> packages = new LinkedHashSet<>();
+        for (String typeName : approvedTypes()) {
+            String packageName = typeName.substring(0, typeName.lastIndexOf('.'));
+            while (packageName.startsWith("top.sywyar.pixivdownload.plugin.api")) {
+                packages.add(packageName);
+                int separator = packageName.lastIndexOf('.');
+                if (separator < 0) {
+                    break;
+                }
+                packageName = packageName.substring(0, separator);
+            }
+        }
+        return Set.copyOf(packages);
+    }
+
+    private static Set<String> externalProjectTypeNames(Path repositoryRoot) throws IOException {
+        Set<String> names = new LinkedHashSet<>();
+        try (Stream<Path> modules = Files.list(repositoryRoot)) {
+            for (Path module : modules
+                    .filter(Files::isDirectory)
+                    .filter(path -> path.getFileName().toString().startsWith("pixivdownload-"))
+                    .filter(path -> !path.getFileName().toString().equals("pixivdownload-plugin-api"))
+                    .sorted()
+                    .toList()) {
+                collectJavaFileTypeNames(module.resolve("src/main/java"), names);
+                collectJavaFileTypeNames(module.resolve("src/test/java"), names);
+            }
+        }
+        return Set.copyOf(names);
+    }
+
+    private static void collectJavaFileTypeNames(Path sourceRoot, Set<String> names) throws IOException {
+        if (!Files.isDirectory(sourceRoot)) {
+            return;
+        }
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
+            for (Path source : sources
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> !path.getFileName().toString().equals("package-info.java")
+                            && !path.getFileName().toString().equals("module-info.java"))
+                    .sorted()
+                    .toList()) {
+                Set<String> declaredTypes = declaredTypeNames(
+                        Files.readString(source, StandardCharsets.UTF_8));
+                String primaryType = source.getFileName().toString()
+                        .substring(0, source.getFileName().toString().length() - ".java".length());
+                if (!declaredTypes.contains(primaryType)) {
+                    throw new IllegalStateException("cannot derive project type from " + source);
+                }
+                names.addAll(declaredTypes);
+            }
+        }
+    }
+
+    private static Set<String> declaredTypeNames(String source) {
+        Matcher declarations = SOURCE_TYPE_DECLARATION.matcher(maskCommentsAndLiterals(source));
+        Set<String> names = new LinkedHashSet<>();
+        while (declarations.find()) {
+            names.add(declarations.group(1));
+        }
+        return Set.copyOf(names);
+    }
+
+    private static String simpleTypeName(String reference) {
+        int packageSeparator = reference.lastIndexOf('.');
+        int nestedSeparator = reference.lastIndexOf('$');
+        return reference.substring(Math.max(packageSeparator, nestedSeparator) + 1);
+    }
+
+    private static boolean isMultiwordTypeName(String reference) {
+        return reference.chars().filter(Character::isUpperCase).count() >= 2;
+    }
+
+    private static String commentOnlyText(String source) {
+        String sourceWithoutComments = sanitizeSource(source, true);
+        StringBuilder comments = new StringBuilder(source.length());
+        for (int index = 0; index < source.length(); index++) {
+            char original = source.charAt(index);
+            if (original != sourceWithoutComments.charAt(index)) {
+                comments.append(original);
+            } else {
+                appendMasked(comments, original);
+            }
+        }
+        return comments.toString();
+    }
+
+    private static String maskCommentsAndLiterals(String source) {
+        return sanitizeSource(source, false);
+    }
+
+    private static String sanitizeSource(String source, boolean preserveLiterals) {
+        StringBuilder sanitized = new StringBuilder(source.length());
+        SourceState state = SourceState.CODE;
+        int index = 0;
+        while (index < source.length()) {
+            char current = source.charAt(index);
+            switch (state) {
+                case CODE -> {
+                    if (current == '/' && index + 1 < source.length()) {
+                        char next = source.charAt(index + 1);
+                        if (next == '/' || next == '*') {
+                            appendMasked(sanitized, current);
+                            appendMasked(sanitized, next);
+                            index += 2;
+                            state = next == '/' ? SourceState.LINE_COMMENT : SourceState.BLOCK_COMMENT;
+                            continue;
+                        }
+                    }
+                    if (startsWithTripleQuote(source, index)) {
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        index += 3;
+                        state = SourceState.TEXT_BLOCK;
+                        continue;
+                    }
+                    if (current == '"' || current == '\'') {
+                        appendLiteral(sanitized, current, preserveLiterals);
+                    } else {
+                        sanitized.append(current);
+                    }
+                    index++;
+                    if (current == '"') {
+                        state = SourceState.STRING;
+                    } else if (current == '\'') {
+                        state = SourceState.CHARACTER;
+                    }
+                }
+                case LINE_COMMENT -> {
+                    appendMasked(sanitized, current);
+                    index++;
+                    if (current == '\n' || current == '\r') {
+                        state = SourceState.CODE;
+                    }
+                }
+                case BLOCK_COMMENT -> {
+                    if (current == '*' && index + 1 < source.length()
+                            && source.charAt(index + 1) == '/') {
+                        appendMasked(sanitized, current);
+                        appendMasked(sanitized, '/');
+                        index += 2;
+                        state = SourceState.CODE;
+                    } else {
+                        appendMasked(sanitized, current);
+                        index++;
+                    }
+                }
+                case STRING -> {
+                    appendLiteral(sanitized, current, preserveLiterals);
+                    index++;
+                    if (current == '\\' && index < source.length()) {
+                        appendLiteral(sanitized, source.charAt(index++), preserveLiterals);
+                    } else if (current == '"') {
+                        state = SourceState.CODE;
+                    }
+                }
+                case TEXT_BLOCK -> {
+                    if (startsWithTripleQuote(source, index)) {
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        appendLiteral(sanitized, '"', preserveLiterals);
+                        index += 3;
+                        state = SourceState.CODE;
+                    } else {
+                        appendLiteral(sanitized, current, preserveLiterals);
+                        index++;
+                        if (current == '\\' && index < source.length()) {
+                            appendLiteral(sanitized, source.charAt(index++), preserveLiterals);
+                        }
+                    }
+                }
+                case CHARACTER -> {
+                    appendLiteral(sanitized, current, preserveLiterals);
+                    index++;
+                    if (current == '\\' && index < source.length()) {
+                        appendLiteral(sanitized, source.charAt(index++), preserveLiterals);
+                    } else if (current == '\'') {
+                        state = SourceState.CODE;
+                    }
+                }
+            }
+        }
+        return sanitized.toString();
+    }
+
+    private static void appendLiteral(StringBuilder output,
+                                      char value,
+                                      boolean preserveLiterals) {
+        if (preserveLiterals) {
+            output.append(value);
+        } else {
+            appendMasked(output, value);
+        }
+    }
+
+    private static boolean startsWithTripleQuote(String source, int index) {
+        return index + 2 < source.length()
+                && source.charAt(index) == '"'
+                && source.charAt(index + 1) == '"'
+                && source.charAt(index + 2) == '"';
+    }
+
+    private static void appendMasked(StringBuilder output, char value) {
+        output.append(value == '\n' || value == '\r' ? value : ' ');
     }
 
     private static Set<String> approvedTypes() {

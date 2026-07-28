@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 外置插件向核心暴露其 {@link PixivFeaturePlugin} 的入口契约。外置插件 jar 的主类
  * （PF4J {@code Plugin-Class}，运行期同时继承插件框架的插件基类）实现本接口，返回它贡献的唯一
- * {@link PixivFeaturePlugin}；核心壳的发现桥接据此把外置插件接入 {@code PluginRegistry}。
+ * {@link PixivFeaturePlugin}；宿主发现流程据此发布外置插件的稳定 contribution。
  *
  * <p><b>跨 classloader 边界契约。</b>本接口与 {@link PixivFeaturePlugin} 是外置插件发现和 contribution
  * 发布的入口类型，必须由父 classloader 加载的共享契约包 {@code pixivdownload-plugin-api} 提供——否则会出现

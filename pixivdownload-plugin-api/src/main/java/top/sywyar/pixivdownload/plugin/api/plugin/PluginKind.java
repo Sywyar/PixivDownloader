@@ -6,8 +6,8 @@ package top.sywyar.pixivdownload.plugin.api.plugin;
 public enum PluginKind {
 
     /**
-     * 核心类别：承载应用基础能力的声明。只有宿主以 {@code BUILT_IN} 来源注册的 CORE 才结构性不可禁用；
-     * 外置插件声明本类别不会获得必选性，外置必选事实仍只能由宿主 {@code RequiredPluginPolicy} 提出。
+     * 核心类别：承载应用基础能力的声明。只有由宿主作为内置来源注册的 CORE 才结构性不可禁用；
+     * 外置插件声明本类别不会获得必选性，外置必选事实仍只能由宿主自身的必选策略提出。
      */
     CORE,
 

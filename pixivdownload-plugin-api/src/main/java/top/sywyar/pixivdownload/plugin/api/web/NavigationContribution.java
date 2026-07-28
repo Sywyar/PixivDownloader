@@ -11,8 +11,8 @@ import java.util.Set;
  * 同一逻辑入口可属于多个 placement（如下载工作台同时进入顶部栏与各侧栏），由 {@link #placements()} 表达，
  * 故无需为同一入口重复声明多条。
  * <p>
- * 排序由消费端（{@code NavigationController}）按「来源层级 → placement 内 priority → id」三级稳定排序：
- * 来源层级保证<b>内置插件恒先于第三方插件</b>（第三方即便填很小的 priority 也排在内置项之后），
+ * 排序由宿主消费端按「来源层级 → placement 内 priority → id」三级稳定排序：
+ * 来源层级保证<b>宿主内置来源恒先于外置来源</b>（外置插件即便填很小的 priority 也排在内置项之后），
  * placement 内由 {@link #priority()} 决定先后（内置基础页面取较小值、功能页面其次、管理入口最大）。
  *
  * @param id           导航项全局唯一 id（用于诊断 / 去重 / 前端 {@code PixivNav.isAvailable}）
@@ -25,7 +25,7 @@ import java.util.Set;
  * @param href         目标链接（同一 placement 内不可重复）
  * @param icon         图标标识（label-only 的 slot（如类型切换 tab）会忽略它）
  * @param visibleTo    可见所需的访问策略；必须满足 {@link AccessPolicy#supportsUiVisibility()}，Web 注册与 GUI 聚合时拒绝流程专用策略
- * @param priority     placement 内排序权重，越小越靠前（<b>不</b>跨越来源层级：第三方项不会因 priority 小而越过内置项）
+ * @param priority     placement 内排序权重，越小越靠前（<b>不</b>跨越来源层级：外置项不会因 priority 小而越过内置项）
  * @param markers      中性语义标记，供前端导览等消费者定位「某类入口」；不参与渲染槽位匹配与排序
  */
 public record NavigationContribution(

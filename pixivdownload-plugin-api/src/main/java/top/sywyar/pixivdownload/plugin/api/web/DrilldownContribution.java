@@ -13,21 +13,21 @@ import java.util.Set;
  * 宿主拿不到 href、自然回到纯展示。
  * <p>
  * 可见性与排序口径同 {@link NavigationContribution} / {@link PageSectionContribution}：经 {@link #visibleTo()} 按当前
- * 身份过滤、按「来源层级（内置先于第三方）→ placement 内 {@link #priority()} → id」排序。同一 placement 命中多条时，
+ * 身份过滤、按「来源层级（宿主内置来源先于外置来源）→ placement 内 {@link #priority()} → id」排序。同一 placement 命中多条时，
  * 渲染器取排序后的首条（胜者）。
  * <p>
  * <b>信任模型与安全边界</b>：{@link #hrefTemplate()} 是<b>已安装、可信插件</b>声明的<b>同源</b>链接模板，必须是同源
  * 绝对路径（以单个 {@code /} 开头；禁止 {@code javascript:} 伪协议、{@code http(s)://} 外部 URL 与 {@code //host} /
- * {@code /\host} 协议相对变体），由 {@code DrilldownRegistry} 在注册期校验、违反即启动失败；变量经
+ * {@code /\host} 协议相对变体），由宿主在贡献注册期校验、违反即启动失败；变量经
  * {@code encodeURIComponent} 编码后替换，故无法越权改写 origin 或注入查询参数。<b>前端可见性（按身份过滤、禁用即
- * 消失）只是渲染体验，不是权限边界</b>——下钻链接指向的目标 URL（如画廊页）其访问权限仍由后端 {@code AuthFilter}
- * 依据 {@code RouteAccessRegistry} 鉴权；某下钻对当前身份隐藏，不代表其目标 URL 在后端开放，反之亦然。
+ * 消失）只是渲染体验，不是权限边界</b>——下钻链接指向的目标 URL（如画廊页）仍由宿主依据对应路由的访问策略
+ * 统一鉴权；某下钻对当前身份隐藏，不代表其目标 URL 在后端开放，反之亦然。
  *
  * @param id           下钻贡献全局唯一 id（用于诊断 / 去重）
  * @param placements   该下钻要进入的语义 placement（slot id）集合，非空；同一模板可服务多个 placement
  * @param hrefTemplate 带 {@code {变量名}} 占位的目标链接模板；必须是同源绝对路径（以单个 {@code /} 开头）
  * @param visibleTo    可见所需的访问策略；必须满足 {@link AccessPolicy#supportsUiVisibility()}，注册期拒绝流程专用策略
- * @param priority     placement 内排序权重，越小越靠前（不跨越来源层级：第三方贡献不会因 priority 小而越过内置贡献）
+ * @param priority     placement 内排序权重，越小越靠前（不跨越来源层级：外置贡献不会因 priority 小而越过内置贡献）
  */
 public record DrilldownContribution(
         String id,
