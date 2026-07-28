@@ -124,6 +124,12 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件运行期后台任务协议", types(API_PREFIX + "task",
                     "PluginRuntimeTask", "PluginRuntimeTaskDrain", "PluginRuntimeTaskRegistrar",
                     "PluginRuntimeTaskRejectedException")),
+            Map.entry("出站 HTTP 传输协议", types(API_PREFIX + "http",
+                    "OutboundHttpClient", "OutboundHttpClientFactory", "OutboundHttpClientProfile",
+                    "OutboundHttpCookiePolicy", "OutboundHttpProxyProvider", "OutboundHttpRedirectPolicy",
+                    "OutboundHttpRequest", "OutboundHttpResponse", "OutboundHttpRoute",
+                    "OutboundHttpStreamResponse",
+                    "OutboundHttpRoutePolicy", "OutboundHttpTransportException")),
             Map.entry("计划任务协议", union(
                     types(API_PREFIX + "schedule.capability",
                             "ScheduleCapabilityAccess", "ScheduleCapabilityLease",
@@ -170,6 +176,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("维护任务协议", 3),
             Map.entry("插件推流生命周期协议", 2),
             Map.entry("插件运行期后台任务协议", 4),
+            Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("计划任务协议", 49),
             Map.entry("队列生命周期协议", 5)
     );

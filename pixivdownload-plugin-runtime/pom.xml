@@ -43,6 +43,11 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
         </dependency>
+        <!-- 官方 Spring 插件的机械 HTTP bridge；代理和 Apache 客户端实现仍只属于 app。 -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
         <!-- 子插件 ApplicationContext 的 @Transactional 注解处理基础设施 -->
         <dependency>
             <groupId>org.springframework</groupId>

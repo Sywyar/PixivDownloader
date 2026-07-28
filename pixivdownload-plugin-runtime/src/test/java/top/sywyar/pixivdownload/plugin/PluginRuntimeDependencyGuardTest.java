@@ -16,6 +16,8 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate;
+import top.sywyar.pixivdownload.plugin.runtime.http.PluginRestTemplateAdapter;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
@@ -138,6 +140,33 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(PluginRuntimeTaskRegistry.class.getDeclaredAnnotations())
                 .as("注册中心由 app 组合根显式装配，runtime 不得自行组件扫描")
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime HTTP bridge 只做稳定传输契约与 Spring-Web 的机械映射")
+    void pluginRuntimeHttpBridgeStaysMechanical() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.http..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin.runtime.http..",
+                        "top.sywyar.pixivdownload.plugin.api.http..",
+                        "java..",
+                        "org.springframework.http..",
+                        "org.springframework.web.client..")
+                .because("HTTP bridge 只转换 URI、方法、头、请求原始字节、live 响应流与 RestTemplate "
+                        + "错误 / 关闭语义；代理选择、Apache 客户端、插件配置和业务策略不得进入 plugin-runtime")
+                .check(CLASSES);
+
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.http..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.apache.hc..", "top.sywyar.pixivdownload.config..")
+                .because("具体 HTTP 客户端与代理解析只属于 app，runtime bridge 不得复制宿主实现")
+                .check(CLASSES);
+
+        assertThat(CLASSES.contain(ManagedPluginRestTemplate.class.getName())).isTrue();
+        assertThat(CLASSES.contain(PluginRestTemplateAdapter.class.getName())).isTrue();
     }
 
     @Test
