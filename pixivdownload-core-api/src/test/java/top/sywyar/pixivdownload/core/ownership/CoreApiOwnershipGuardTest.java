@@ -20,6 +20,9 @@ import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand;
+import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryMediaKey;
+import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaAsset;
+import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
@@ -449,6 +452,10 @@ class CoreApiOwnershipGuardTest {
     @Test
     @DisplayName("敏感 record 与工厂方法必须保持精确契约面")
     void sensitiveContractsHaveExactShapes() {
+        assertRecordShape(GalleryMediaAsset.class,
+                List.of("key", "kind", "url", "thumbnailUrl", "mimeType", "attributes"),
+                List.of(GalleryMediaKey.class, GalleryMediaKind.class, String.class,
+                        String.class, String.class, Map.class));
         assertRecordShape(AiClientSettings.class,
                 List.of("baseUrl", "apiKey", "model", "useProxy"),
                 List.of(String.class, String.class, String.class, boolean.class));

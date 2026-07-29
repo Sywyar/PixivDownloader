@@ -18,8 +18,6 @@ import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterMode;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.core.work.model.PagedResult;
@@ -58,8 +56,6 @@ class PixivNovelGalleryCapabilityProviderTest {
     @Mock
     private WorkMetadataRepository metadataRepository;
     @Mock
-    private NovelDatabase novelDatabase;
-    @Mock
     private NovelWorkDetailsRepository novelWorkDetailsRepository;
 
     private PixivNovelGalleryCapabilityProvider provider;
@@ -67,7 +63,7 @@ class PixivNovelGalleryCapabilityProviderTest {
     @BeforeEach
     void setUp() {
         provider = new PixivNovelGalleryCapabilityProvider(
-                workQueryService, metadataRepository, novelDatabase, novelWorkDetailsRepository);
+                workQueryService, metadataRepository, novelWorkDetailsRepository);
     }
 
     @Test
@@ -106,12 +102,9 @@ class PixivNovelGalleryCapabilityProviderTest {
                     .isEqualTo(new GalleryWorkKey("pixiv", "novel", "123"));
             assertThat(projection.containedMediaKinds())
                     .containsExactlyInAnyOrder(GalleryMediaKind.TEXT, GalleryMediaKind.COVER);
-            assertThat(projection.attributes()).containsEntry("authorId", "88")
-                    .containsEntry("contentRating", "r18")
-                    .containsEntry("wordCount", "1200")
-                    .containsEntry("pageCount", "8")
-                    .containsEntry("language", "ja")
-                    .containsEntry("tagIds", "5");
+            assertThat(projection.attributes())
+                    .as("小说私有详情不得经中性画廊 attributes 外泄")
+                    .isEmpty();
         });
 
         ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
@@ -157,8 +150,7 @@ class PixivNovelGalleryCapabilityProviderTest {
 
         assertThat(provider.page(foreign).projections()).isEmpty();
         assertThat(provider.page(nonText).projections()).isEmpty();
-        verifyNoInteractions(workQueryService, metadataRepository, novelDatabase,
-                novelWorkDetailsRepository);
+        verifyNoInteractions(workQueryService, metadataRepository, novelWorkDetailsRepository);
     }
 
     @Test
@@ -204,11 +196,8 @@ class PixivNovelGalleryCapabilityProviderTest {
     }
 
     @Test
-    @DisplayName("小说详情返回正文封面和内嵌图片的完整媒体集合")
-    void returnsTextCoverAndEmbeddedImages() {
-        NovelRecord record = org.mockito.Mockito.mock(NovelRecord.class);
-        when(record.rawContent()).thenReturn("[chapter:正文]");
-        when(novelDatabase.getNovel(123L)).thenReturn(record);
+    @DisplayName("小说详情只返回插件资源定位而不内联正文或私有媒体属性")
+    void returnsOwnedResourceLocatorsWithoutInlineBodyOrPrivateAttributes() {
         when(metadataRepository.find(WorkType.NOVEL, 123L)).thenReturn(Optional.of(
                 meta(123L, 88L, "作者", 0, false, true, List.of())));
         when(novelWorkDetailsRepository.find(123L)).thenReturn(Optional.of(
@@ -218,7 +207,15 @@ class PixivNovelGalleryCapabilityProviderTest {
 
         assertThat(work.media()).extracting(asset -> asset.kind()).containsExactly(
                 GalleryMediaKind.TEXT, GalleryMediaKind.COVER, GalleryMediaKind.IMAGE);
-        assertThat(work.media().get(0).content()).isEqualTo("[chapter:正文]");
+        assertThat(work.media().get(0).url())
+                .isEqualTo("/api/gallery/novel/123/content");
+        assertThat(work.media().get(0).mimeType()).isEqualTo("application/json");
+        assertThat(work.attributes())
+                .as("小说私有详情不得经中性画廊作品 attributes 外泄")
+                .isEmpty();
+        assertThat(work.media()).allSatisfy(asset -> assertThat(asset.attributes()).isEmpty());
+        assertThat(work.media().get(2).url())
+                .isEqualTo("/api/gallery/novel/123/embed/img-a");
         assertThat(work.media()).extracting(asset -> asset.key().mediaId())
                 .containsExactly("text", "cover", "embedded-img-a");
     }

@@ -56,6 +56,22 @@ class NovelGalleryPluginSourceBoundaryTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("中性画廊能力提供者不得读取小说持久化行或正文")
+    void neutralGalleryProviderMustNotReadNovelPersistenceRowsOrBodies() {
+        Path provider = SOURCE_ROOT.resolve("PixivNovelGalleryCapabilityProvider.java");
+        String source;
+        try {
+            source = Files.readString(provider, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException("读取小说画廊能力提供者失败：" + provider, e);
+        }
+
+        assertThat(source)
+                .as("中性 GalleryWork 只携插件资源定位；正文和持久化行必须留在小说自有端点")
+                .doesNotContain("NovelDatabase", "NovelRecord", "rawContent()");
+    }
+
     private static List<Path> collectJavaFiles(Path dir) {
         if (!Files.isDirectory(dir)) {
             return List.of();

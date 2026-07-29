@@ -13,7 +13,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** Lightweight list projection. It is not the unique type or complete detail of a work. */
+/**
+ * Lightweight list projection. It is not the unique type or complete detail of a work.
+ *
+ * <p>Attributes are limited to display-safe projection hints and must not carry source
+ * persistence rows, bodies, translations or private details.</p>
+ */
 public record GalleryProjection(
         GalleryProjectionKey key,
         String title,

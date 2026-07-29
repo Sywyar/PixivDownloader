@@ -27,8 +27,6 @@ import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterCapability;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterField;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryFilterMode;
 import top.sywyar.pixivdownload.core.gallery.query.GalleryProjectionQuery;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
@@ -47,13 +45,11 @@ import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @PluginManagedBean
 public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionProvider, GalleryWorkProvider {
@@ -67,16 +63,13 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
 
     private final WorkQueryService workQueryService;
     private final WorkMetadataRepository metadataRepository;
-    private final NovelDatabase novelDatabase;
     private final NovelWorkDetailsRepository novelWorkDetailsRepository;
 
     public PixivNovelGalleryCapabilityProvider(WorkQueryService workQueryService,
                                                WorkMetadataRepository metadataRepository,
-                                               NovelDatabase novelDatabase,
                                                NovelWorkDetailsRepository novelWorkDetailsRepository) {
         this.workQueryService = workQueryService;
         this.metadataRepository = metadataRepository;
-        this.novelDatabase = novelDatabase;
         this.novelWorkDetailsRepository = novelWorkDetailsRepository;
     }
 
@@ -163,7 +156,7 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
         Optional<NovelWorkDetails> details = novelWorkDetailsRepository.find(id);
         return details.isEmpty()
                 ? Optional.empty()
-                : Optional.of(work(key, metadata.get(), details.get(), novelDatabase.getNovel(id)));
+                : Optional.of(work(key, metadata.get(), details.get()));
     }
 
     private PageSlice loadPage(QuerySpec spec) {
@@ -242,78 +235,27 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
         return new GalleryProjection(new GalleryProjectionKey(key, GalleryKind.NOVEL), meta.title(),
                 meta.description(), coverUrl, actor(meta), tags(meta), instant(meta.uploadTime()),
                 instant(meta.downloadTime()), null, kinds, rating(meta.xRestrict()), ai(meta.isAi()),
-                "text", attributes(meta, details));
+                "text", Map.of());
     }
 
-    private static GalleryWork work(GalleryWorkKey key, WorkMetadata meta, NovelWorkDetails details,
-                                    NovelRecord record) {
+    private static GalleryWork work(GalleryWorkKey key, WorkMetadata meta, NovelWorkDetails details) {
         List<GalleryMediaAsset> media = new ArrayList<>();
+        String contentUrl = "/api/gallery/novel/" + meta.workId() + "/content";
         media.add(new GalleryMediaAsset(new GalleryMediaKey(key, "text"), GalleryMediaKind.TEXT,
-                null, null, "text/plain", record == null ? null : record.rawContent(), Map.of()));
+                contentUrl, null, "application/json", Map.of()));
         if (details.coverExt() != null) {
             String url = "/api/gallery/novel/" + meta.workId() + "/cover";
             media.add(new GalleryMediaAsset(new GalleryMediaKey(key, "cover"), GalleryMediaKind.COVER,
-                    url, url, null, null, Map.of()));
+                    url, url, null, Map.of()));
         }
         for (String imageId : details.embeddedImageIds()) {
             media.add(new GalleryMediaAsset(new GalleryMediaKey(key, "embedded-" + imageId),
-                    GalleryMediaKind.IMAGE, "/api/gallery/novel/" + meta.workId() + "/image/" + imageId,
-                    null, null, null, Map.of("sourceImageId", imageId)));
+                    GalleryMediaKind.IMAGE, "/api/gallery/novel/" + meta.workId() + "/embed/" + imageId,
+                    null, null, Map.of()));
         }
         return new GalleryWork(key, meta.title(), meta.description(), actor(meta), tags(meta),
                 instant(meta.uploadTime()), instant(meta.downloadTime()), null,
                 rating(meta.xRestrict()), ai(meta.isAi()), media, Map.of());
-    }
-
-    private static Map<String, String> attributes(WorkMetadata meta, NovelWorkDetails details) {
-        Map<String, String> out = new LinkedHashMap<>();
-        put(out, "authorId", meta.authorId());
-        put(out, "authorName", meta.authorName());
-        put(out, "description", meta.description());
-        put(out, "downloadedAt", meta.downloadTime());
-        put(out, "uploadTime", meta.uploadTime());
-        put(out, "fileCount", meta.pageCount());
-        put(out, "extensions", meta.extensions());
-        put(out, "seriesId", positive(meta.seriesId()));
-        put(out, "seriesOrder", meta.seriesOrder());
-        put(out, "seriesTitle", meta.seriesTitle());
-        put(out, "xRestrict", meta.xRestrict());
-        put(out, "contentRating", contentRating(meta.xRestrict()));
-        put(out, "aiStatus", aiStatus(meta.isAi()));
-        if (meta.isAi() != null) {
-            put(out, "isAi", meta.isAi());
-        }
-        put(out, "wordCount", details.wordCount());
-        put(out, "textLength", details.textLength());
-        put(out, "readingTimeSeconds", details.readingTimeSeconds());
-        put(out, "pageCount", details.pageCount());
-        put(out, "isOriginal", meta.isOriginal());
-        put(out, "language", details.xLanguage());
-        put(out, "xLanguage", details.xLanguage());
-        put(out, "coverExt", details.coverExt());
-        if (!details.embeddedImageIds().isEmpty()) {
-            put(out, "embeddedImageCount", details.embeddedImageIds().size());
-            put(out, "embeddedImageIds", String.join(",", details.embeddedImageIds()));
-        }
-        if (!details.translatedLanguages().isEmpty()) {
-            put(out, "translatedLanguages", String.join(",", details.translatedLanguages()));
-        }
-        if (!meta.tags().isEmpty()) {
-            put(out, "tagIds", meta.tags().stream()
-                    .map(WorkTag::tagId)
-                    .filter(id -> id != null)
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(",")));
-            put(out, "tagNames", meta.tags().stream()
-                    .map(WorkTag::name)
-                    .filter(name -> name != null && !name.isBlank())
-                    .collect(Collectors.joining("\n")));
-            put(out, "tagTranslatedNames", meta.tags().stream()
-                    .map(WorkTag::translatedName)
-                    .filter(name -> name != null && !name.isBlank())
-                    .collect(Collectors.joining("\n")));
-        }
-        return out;
     }
 
     private static GalleryAuthorFacet toAuthorFacet(AuthorSummary summary) {
@@ -347,24 +289,6 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
         return value == null ? GalleryAiStatus.UNKNOWN : value ? GalleryAiStatus.AI : GalleryAiStatus.NON_AI;
     }
 
-    private static String contentRating(Integer xRestrict) {
-        if (xRestrict == null) {
-            return "unknown";
-        }
-        return switch (xRestrict) {
-            case 1 -> "r18";
-            case 2 -> "r18g";
-            default -> "sfw";
-        };
-    }
-
-    private static String aiStatus(Boolean ai) {
-        if (ai == null) {
-            return "unknown";
-        }
-        return ai ? "true" : "false";
-    }
-
     private static void appendPageIds(List<Long> ids, List<WorkSummary> summaries, int skip, int limit) {
         for (int index = Math.max(0, skip); index < summaries.size() && ids.size() < limit; index++) {
             ids.add(summaries.get(index).workId());
@@ -373,20 +297,6 @@ public class PixivNovelGalleryCapabilityProvider implements GalleryProjectionPro
 
     private static int metadataFilterBatchSize(int limit) {
         return Math.min(Math.max(limit, METADATA_FILTER_MIN_BATCH_SIZE), METADATA_FILTER_MAX_BATCH_SIZE);
-    }
-
-    private static void put(Map<String, String> map, String key, Object value) {
-        if (value == null) {
-            return;
-        }
-        String stringValue = String.valueOf(value);
-        if (!stringValue.isBlank()) {
-            map.put(key, stringValue);
-        }
-    }
-
-    private static Long positive(Long value) {
-        return value == null || value <= 0 ? null : value;
     }
 
     private static Instant instant(long value) {

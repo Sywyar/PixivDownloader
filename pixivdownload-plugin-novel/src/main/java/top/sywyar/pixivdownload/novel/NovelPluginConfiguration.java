@@ -403,10 +403,9 @@ public class NovelPluginConfiguration {
     public PixivNovelGalleryCapabilityProvider pixivNovelGalleryCapabilityProvider(
             WorkQueryService workQueryService,
             WorkMetadataRepository workMetadataRepository,
-            NovelDatabase novelDatabase,
             NovelWorkDetailsRepository novelWorkDetailsRepository) {
         return new PixivNovelGalleryCapabilityProvider(
-                workQueryService, workMetadataRepository, novelDatabase, novelWorkDetailsRepository);
+                workQueryService, workMetadataRepository, novelWorkDetailsRepository);
     }
 
     @Bean

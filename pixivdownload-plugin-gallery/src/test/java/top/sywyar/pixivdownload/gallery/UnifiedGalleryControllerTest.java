@@ -11,10 +11,14 @@ import top.sywyar.pixivdownload.core.gallery.frontend.GalleryFrontendScope;
 import top.sywyar.pixivdownload.core.gallery.facet.GalleryFacetPage;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryDiagnostic;
 import top.sywyar.pixivdownload.core.gallery.model.GalleryKind;
+import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryMediaKey;
+import top.sywyar.pixivdownload.core.gallery.model.identity.GalleryWorkKey;
+import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaAsset;
 import top.sywyar.pixivdownload.core.gallery.model.media.GalleryMediaKind;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryDataAccess;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionDescriptor;
 import top.sywyar.pixivdownload.core.gallery.model.projection.GalleryProjectionPage;
+import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWork;
 import top.sywyar.pixivdownload.core.gallery.model.work.GalleryWorkDescriptor;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortDirection;
 import top.sywyar.pixivdownload.core.gallery.query.GallerySortField;
@@ -192,6 +196,36 @@ class UnifiedGalleryControllerTest {
             assertThat(diagnostic.code()).isEqualTo("gallery-provider-page-failed");
             assertThat(diagnostic.message()).isNull();
         });
+    }
+
+    @Test
+    @DisplayName("文本作品响应只序列化资源定位而不包含内联正文")
+    void textWorkResponseCarriesResourceLocatorWithoutInlineBody() throws Exception {
+        GalleryRuntimeQuery runtimeQuery = mock(GalleryRuntimeQuery.class);
+        GalleryWorkKey workKey = new GalleryWorkKey("text-source", "work", "123");
+        GalleryMediaAsset text = new GalleryMediaAsset(
+                new GalleryMediaKey(workKey, "text"),
+                GalleryMediaKind.TEXT,
+                "/api/source/text/123",
+                null,
+                "application/json",
+                Map.of());
+        GalleryWork work = new GalleryWork(
+                workKey, "文本作品", null, null, List.of(),
+                null, null, null, null, null, List.of(text), Map.of());
+        when(runtimeQuery.findWork(eq(workKey), eq(Set.of(GalleryDataAccess.SHARED))))
+                .thenReturn(new GalleryWorkResult(Optional.of(work), List.of()));
+        MockMvc mockMvc = standaloneSetup(new UnifiedGalleryController(
+                runtimeQuery, ownerIdentityResolver(false))).build();
+
+        String body = mockMvc.perform(get("/api/gallery/unified/works/text-source/work/123"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body)
+                .contains("\"url\":\"/api/source/text/123\"")
+                .doesNotContain("\"content\"");
     }
 
     private static GalleryRuntimeSnapshot snapshot(boolean admin) {
