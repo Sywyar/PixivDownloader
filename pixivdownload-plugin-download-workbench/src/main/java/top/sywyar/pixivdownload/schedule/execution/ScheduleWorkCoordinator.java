@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -57,6 +58,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     private final ScheduleCredentialMaterial credential;
     private final ScheduledTaskStore store;
     private final ScheduleWorkPersistenceCodec persistenceCodec;
+    private final ObjectMapper objectMapper;
     private final Map<String, ScheduledWorkExecutor> executors;
     private final ScheduleRunQueue.Run runQueue;
     private final TaskExecutor taskExecutor;
@@ -92,6 +94,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             ScheduleCredentialMaterial credential,
             ScheduledTaskStore store,
             ScheduleWorkPersistenceCodec persistenceCodec,
+            ObjectMapper objectMapper,
             Map<String, ScheduledWorkExecutor> executors,
             ScheduleRunQueue.Run runQueue,
             TaskExecutor taskExecutor,
@@ -110,6 +113,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         this.credential = credential;
         this.store = store;
         this.persistenceCodec = persistenceCodec;
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.executors = Map.copyOf(executors);
         this.runQueue = runQueue;
         this.taskExecutor = Objects.requireNonNull(taskExecutor, "taskExecutor");
@@ -145,7 +149,9 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         for (ScheduledPendingWork row : rows) {
             ScheduledWork work;
             try {
+                validatePendingRow(row);
                 work = persistenceCodec.fromPendingWork(row);
+                validateSubmittedWork(work);
             } catch (IllegalArgumentException failure) {
                 throw new ScheduledExecutionException(
                         ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
@@ -198,6 +204,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         ScheduledWork work = pendingRow == null
                 ? submitted
                 : persistenceCodec.fromPendingWork(pendingRow);
+        validateSubmittedWork(work);
         discover(work);
         if (pendingRow != null && pendingRow.attempts() >= pendingMaxAttempts) {
             seen.add(work.key());
@@ -330,7 +337,13 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                         return cancellation;
                     }
                 };
-                ScheduledWorkResult result = executor.execute(work, context);
+                ScheduledWorkResult result;
+                try {
+                    result = executor.execute(work, context);
+                } catch (ScheduledExecutionException failure) {
+                    return Completion.failure(
+                            work, retry, sanitizeFailure(failure.toFailure()));
+                }
                 if (result == null) {
                     return Completion.failure(work, retry, new ScheduledFailure(
                             ScheduledFailure.Category.INTERNAL,
@@ -663,6 +676,9 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     private void validateSubmittedWork(ScheduledWork work) throws ScheduledExecutionException {
         try {
             persistenceCodec.validateWork(work);
+            if (containsCredentialEcho(work)) {
+                throw new IllegalArgumentException("work contains active credential material");
+            }
         } catch (IllegalArgumentException failure) {
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
@@ -670,9 +686,63 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         }
     }
 
-    private static ScheduledWorkResult validateResult(ScheduledWorkResult result)
+    private void validatePendingRow(ScheduledPendingWork row) {
+        if (credential.containsEcho(row.workType())
+                || credential.containsEcho(row.workId())
+                || credential.containsEcho(row.payloadSchema())
+                || credential.containsEchoInJson(objectMapper, row.payloadJson())
+                || credential.containsEchoInJson(objectMapper, row.relationsJson())
+                || credential.containsEchoInJson(objectMapper, row.presentationJson())
+                || credential.containsEcho(row.reasonCode())
+                || credential.containsEchoInJson(objectMapper, row.reasonDetailJson())) {
+            throw new IllegalArgumentException("pending work contains active credential material");
+        }
+        if (row.reasonCode() != null && !isSafeMachineCode(row.reasonCode())) {
+            throw new IllegalArgumentException("pending work reason code is invalid");
+        }
+    }
+
+    private boolean containsCredentialEcho(ScheduledWork work) {
+        if (credential.containsEcho(work.key().workType())
+                || credential.containsEcho(work.key().id())
+                || credential.containsEcho(work.payloadSchema())
+                || credential.containsEchoInJson(objectMapper, work.payloadJson())
+                || containsCredentialEcho(work.presentation())) {
+            return true;
+        }
+        for (var relation : work.relations()) {
+            if (credential.containsEcho(relation.relationType())
+                    || credential.containsEcho(relation.relationId())
+                    || credential.containsEcho(relation.payloadSchema())
+                    || credential.containsEchoInJson(
+                            objectMapper, relation.payloadJson())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsCredentialEcho(
+            top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation
+                    presentation) {
+        if (credential.containsEcho(presentation.title())
+                || credential.containsEcho(presentation.author())
+                || credential.containsEcho(presentation.thumbnailReference())) {
+            return true;
+        }
+        for (Map.Entry<String, String> entry : presentation.attributes().entrySet()) {
+            if (credential.containsEcho(entry.getKey())
+                    || credential.containsEcho(entry.getValue())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ScheduledWorkResult validateResult(ScheduledWorkResult result)
             throws ScheduledExecutionException {
         if (result == null || !isSafeMachineCode(result.resultCode())
+                || credential.containsEcho(result.resultCode())
                 || result.attributes().size() > 16) {
             throw invalidWorkResult();
         }
@@ -682,6 +752,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             String value = entry.getValue();
             if (key == null || value == null
                     || !key.matches("[A-Za-z][A-Za-z0-9._-]{0,63}")
+                    || credential.containsEcho(key)
+                    || credential.containsEcho(value)
                     || ScheduleCredentialRedactor.isSensitiveFieldName(key)
                     || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(key)
                     && !ScheduleCredentialRedactor.isSafeMetadataValue(key, value))
@@ -695,7 +767,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                 throw invalidWorkResult();
             }
         }
-        return result;
+        return new ScheduledWorkResult(
+                result.outcome(), result.resultCode(), result.attributes());
     }
 
     private static ScheduledExecutionException invalidWorkResult() {
@@ -704,10 +777,11 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                 "schedule.work.invalid-result");
     }
 
-    private static ScheduledFailure sanitizeFailure(ScheduledFailure failure) {
+    private ScheduledFailure sanitizeFailure(ScheduledFailure failure) {
         String code = failure.code();
-        if (isSafeMachineCode(code)) {
-            return failure;
+        if (isSafeMachineCode(code) && !credential.containsEcho(code)) {
+            return new ScheduledFailure(
+                    failure.category(), code, failure.retryAfterMillis());
         }
         return new ScheduledFailure(
                 ScheduledFailure.Category.INTERNAL,

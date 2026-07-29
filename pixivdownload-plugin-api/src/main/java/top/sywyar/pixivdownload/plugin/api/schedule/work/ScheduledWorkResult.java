@@ -5,7 +5,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** 单作品同步执行的安全结果；部分失败或关系未写入必须抛执行异常，不能返回已完成。 */
+/**
+ * 单作品同步执行的安全结果；部分失败或关系未写入必须抛执行异常，不能返回已完成。机器码与属性不得包含
+ * 原始凭据或可逆派生材料。
+ */
 public record ScheduledWorkResult(
         Outcome outcome,
         String resultCode,

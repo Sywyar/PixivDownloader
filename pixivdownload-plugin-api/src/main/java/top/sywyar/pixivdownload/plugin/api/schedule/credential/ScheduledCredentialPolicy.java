@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
 
 /**
  * 插件贡献的凭证格式校验、主动探活和非敏感账号识别策略。策略只返回结果，不直接写宿主任务状态或凭证表。
+ * 探活结果、绑定结果及任何抛出异常均不得包含原始凭据或可逆派生材料。
  */
 public interface ScheduledCredentialPolicy {
 

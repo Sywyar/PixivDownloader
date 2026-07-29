@@ -7,7 +7,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * 凭证绑定探活的一次性安全结果：凭证有效性、首次策略状态，以及绑定成功后宿主应执行的任务级策略决定。
- * 插件只返回纯数据，不直接写宿主任务或凭证存储。
+ * 插件只返回纯数据，不直接写宿主任务或凭证存储；全部返回字段均不得包含原始凭据或可逆派生材料。
  */
 public record ScheduledCredentialBindResult(
         ScheduledCredentialProbeResult probeResult,

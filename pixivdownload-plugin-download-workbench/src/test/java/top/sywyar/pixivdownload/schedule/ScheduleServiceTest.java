@@ -891,7 +891,9 @@ class ScheduleServiceTest {
     @Test
     @DisplayName("queue：新作品执行器状态仅接受受控机器码且不泄露凭证形态")
     void queueSanitizesNewExecutorStatus() {
-        when(store.findById(4L)).thenReturn(task(4L));
+        when(store.findById(4L)).thenReturn(task(
+                4L, true, null, null, null, null,
+                "account-1", EMPTY_POLICY_STATE, true));
         ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_NOVEL);
         run.discovered("555", ScheduleRunQueue.KIND_NOVEL);
         run.mark("555", ScheduleRunQueue.STATUS_DOWNLOADED, null);
@@ -930,6 +932,8 @@ class ScheduleServiceTest {
         assertThat(service.queue(4L).items().get(0).translatePhase()).isNull();
         status.set(Map.of("phase", "X".repeat(300)));
         assertThat(service.queue(4L).items().get(0).translatePhase()).isNull();
+        verify(store, never()).findCredentialSecret(
+                anyLong(), anyString(), anyString());
 
         assertThat(ScheduleCapabilityTestFixture.withdraw(capabilityRegistry, publication)
                 .orElseThrow().isDrained()).isTrue();

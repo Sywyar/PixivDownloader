@@ -5,7 +5,10 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
 
 import java.util.Map;
 
-/** 插件 child context 中的同步作品执行器。手动队列与计划任务应复用其底层 blocking 执行接缝。 */
+/**
+ * 插件 child context 中的同步作品执行器。手动队列与计划任务应复用其底层 blocking 执行接缝。作品结果、
+ * 实时状态及任何抛出异常均不得包含原始凭据或可逆派生材料。
+ */
 public interface ScheduledWorkExecutor {
 
     String workType();

@@ -358,6 +358,81 @@ class ScheduleWorkCoordinatorTest {
     }
 
     @Test
+    @DisplayName("作品结果与失败码中的原始凭证回显只留下固定安全机器码")
+    void workCallbackExactCredentialEchoIsNormalized() throws Exception {
+        ScheduledTaskStore resultStore = store();
+        ScheduleWorkCoordinator resultCoordinator = coordinator(
+                resultStore,
+                Map.of(ILLUST, executor(
+                        ILLUST,
+                        (work, context) -> new ScheduledWorkResult(
+                                ScheduledWorkResult.Outcome.COMPLETED,
+                                "fixture-secret",
+                                Map.of()))),
+                new SyncTaskExecutor(),
+                5);
+
+        resultCoordinator.submit(work(ILLUST, "result-echo"));
+        assertThatThrownBy(resultCoordinator::drain)
+                .isInstanceOfSatisfying(
+                        ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.work.invalid-result"));
+        verify(resultStore).upsertPendingWork(argThatPending(
+                ILLUST, "result-echo", "schedule.work.invalid-result"));
+
+        ScheduledTaskStore failureStore = store();
+        ScheduleWorkCoordinator failureCoordinator = coordinator(
+                failureStore,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    throw new ScheduledExecutionException(
+                            ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "fixture-secret");
+                })),
+                new SyncTaskExecutor(),
+                5);
+
+        failureCoordinator.submit(work(ILLUST, "failure-echo"));
+        assertThatCode(failureCoordinator::drain).doesNotThrowAnyException();
+        verify(failureStore).upsertPendingWork(argThatPending(
+                ILLUST, "failure-echo", "schedule.work.invalid-failure-code"));
+    }
+
+    @Test
+    @DisplayName("旧 pending 中的原始凭证回显在重放前被拒绝")
+    void legacyPendingCredentialEchoIsRejectedBeforeReplay() {
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store(),
+                Map.of(ILLUST, executor(
+                        ILLUST, (work, context) -> ScheduledWorkResult.completed())),
+                new SyncTaskExecutor(),
+                5,
+                new ScheduleWorkConcurrencyLimiter(),
+                8,
+                "sid=12345");
+        ScheduledPendingWork polluted = new ScheduledPendingWork(
+                1L,
+                ILLUST,
+                "legacy-echo",
+                "fixture.work",
+                1,
+                "{\"wrapper\":\"{\\\"cursor\\\":12345}\"}",
+                "[]",
+                "{}",
+                "fixture.retry",
+                "{}",
+                0,
+                1L,
+                null);
+
+        assertThatThrownBy(() -> coordinator.loadPending(List.of(polluted)))
+                .isInstanceOfSatisfying(
+                        ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("schedule.pending.payload-invalid"));
+    }
+
+    @Test
     @DisplayName("不同作品类型的凭证失败不会合并触发熔断")
     void credentialFailuresDoNotAccumulateAcrossWorkTypes() throws Exception {
         ScheduledTaskStore store = store();
@@ -491,19 +566,35 @@ class ScheduleWorkCoordinatorTest {
             int credentialFailureLimit,
             ScheduleWorkConcurrencyLimiter concurrencyLimiter,
             int workConcurrencyLimit) {
+        return coordinator(
+                store, executors, taskExecutor, credentialFailureLimit,
+                concurrencyLimiter, workConcurrencyLimit, "fixture-secret");
+    }
+
+    private static ScheduleWorkCoordinator coordinator(
+            ScheduledTaskStore store,
+            Map<String, ScheduledWorkExecutor> executors,
+            TaskExecutor taskExecutor,
+            int credentialFailureLimit,
+            ScheduleWorkConcurrencyLimiter concurrencyLimiter,
+            int workConcurrencyLimit,
+            String credentialSecret) {
         Map<String, Integer> limits = new LinkedHashMap<>();
         executors.keySet().forEach(workType -> limits.put(workType, workConcurrencyLimit));
         ScheduledTaskDefinition task = new ScheduledTaskDefinition(
                 1L, "fixture-source", "fixture.definition", 1, "{}",
                 ScheduledTaskPresentation.empty());
+        ObjectMapper objectMapper = new ObjectMapper();
         return new ScheduleWorkCoordinator(
                 1L,
                 task,
                 ScheduledNetworkRoute.direct(),
                 () -> false,
-                new ScheduleCredentialMaterial("fixture-secret", "fixture-reference", "account-1"),
+                new ScheduleCredentialMaterial(
+                        credentialSecret, "fixture-reference", "account-1"),
                 store,
-                new ScheduleWorkPersistenceCodec(new ObjectMapper()),
+                new ScheduleWorkPersistenceCodec(objectMapper),
+                objectMapper,
                 executors,
                 new ScheduleRunQueue().begin(1L, ILLUST),
                 taskExecutor,
