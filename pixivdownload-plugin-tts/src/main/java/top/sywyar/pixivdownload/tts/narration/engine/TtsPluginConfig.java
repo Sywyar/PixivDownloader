@@ -5,7 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 多角色朗读（AI 听小说）TTS 引擎配置。映射 {@code config.yaml} 中的 {@code narration-tts.*} 前缀。
+ * 多角色朗读（AI 听小说）TTS 引擎配置。绑定插件子上下文中的 {@code narration-tts.*} 属性；普通字段以
+ * {@code config/plugins/tts.properties} 为权威，密码 / 密钥字段由
+ * {@code config/credentials/tts.properties} 专属属性源提供。
  * <p>
  * {@link #engine} 选定当前使用的引擎（自动发现的 {@code List<NarrationVoiceEngine>} 按 id 匹配）；各引擎的连接
  * 参数放在以引擎 id 命名的子前缀下（如 {@code narration-tts.voxcpm.*}）。是否走 HTTP 代理由各引擎自身的
@@ -20,7 +22,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "narration-tts")
 public class TtsPluginConfig {
 
-    /** config.yaml 中的 key 常量，供首次安装 / 模板生成 / 测试代码复用。 */
+    /** 插件配置属性键常量，供 contribution、绑定与测试代码复用。 */
     public static final String KEY_ENGINE = "narration-tts.engine";
     public static final String KEY_VOXCPM_BASE_URL = "narration-tts.voxcpm.base-url";
     public static final String KEY_VOXCPM_API_KEY = "narration-tts.voxcpm.api-key";

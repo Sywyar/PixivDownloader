@@ -37,6 +37,25 @@ class OfficialPluginHostBoundaryGuardTest {
     private static final Pattern PRIVATE_HTTP_ARTIFACT = Pattern.compile(
             "(?i)(?:httpclient|httpcore|httpasyncclient).*");
     private static final String PRIVATE_HTTP_GROUP_PREFIX = "org.apache.httpcomponents";
+    private static final Pattern CONFIG_YAML_REFERENCE = Pattern.compile("(?i)config\\.yaml");
+    private static final Pattern APPROVED_NOVEL_CONFIG_MIGRATION = Pattern.compile(
+            "旧\\s+\\{@code\\s+config\\.yaml\\}\\s+值迁入\\s+(?:\\*\\s*)?"
+                    + "\\{@code\\s+config/plugins/novel\\.properties\\}");
+    private static final String NOVEL_CONFIG_MIGRATION_SOURCE =
+            "pixivdownload-plugin-novel/src/main/java/top/sywyar/pixivdownload/novel/config/"
+                    + "NovelExecutionSettings.java";
+    private static final List<String> PRODUCTION_TEXT_SUFFIXES = List.of(
+            ".java",
+            ".properties",
+            ".yml",
+            ".yaml",
+            ".xml",
+            ".json",
+            ".html",
+            ".js",
+            ".css",
+            ".md",
+            ".txt");
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*package\\s+([A-Za-z0-9_$.]+)\\s*;");
     private static final Pattern PROJECT_TYPE_REFERENCE = Pattern.compile(
@@ -224,6 +243,37 @@ class OfficialPluginHostBoundaryGuardTest {
         assertThat(violations)
                 .as("官方插件注释只能引用 core-api、plugin-api 或本插件类型；"
                         + "app、其他插件及已失效项目类型都不得进入文档契约")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("官方插件生产文档不得把业务配置归属到宿主 config.yaml")
+    void officialPluginProductionTextUsesOwnerScopedConfiguration() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        List<String> violations = new ArrayList<>();
+
+        for (String module : officialPluginModules(repositoryRoot)) {
+            Path mainRoot = repositoryRoot.resolve(module).resolve("src/main");
+            if (!Files.isDirectory(mainRoot)) {
+                continue;
+            }
+            try (Stream<Path> paths = Files.walk(mainRoot)) {
+                for (Path path : paths
+                        .filter(Files::isRegularFile)
+                        .filter(OfficialPluginHostBoundaryGuardTest::isProductionText)
+                        .sorted()
+                        .toList()) {
+                    String content = withoutApprovedNovelConfigMigration(repositoryRoot, path, read(path));
+                    if (CONFIG_YAML_REFERENCE.matcher(content).find()) {
+                        violations.add(repositoryRoot.relativize(path).toString());
+                    }
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("官方插件业务配置与凭证必须由 owner-scoped properties 持有；"
+                        + "只允许 novel 插件记录旧 config.yaml 的迁移来源")
                 .isEmpty();
     }
 
@@ -1118,6 +1168,21 @@ class OfficialPluginHostBoundaryGuardTest {
         assertThat(modules).allSatisfy(module ->
                 assertThat(repositoryRoot.resolve(module).resolve("pom.xml")).isRegularFile());
         return List.copyOf(modules);
+    }
+
+    private static boolean isProductionText(Path path) {
+        String name = path.getFileName().toString();
+        return PRODUCTION_TEXT_SUFFIXES.stream().anyMatch(name::endsWith);
+    }
+
+    private static String withoutApprovedNovelConfigMigration(Path repositoryRoot,
+                                                              Path path,
+                                                              String content) {
+        String relativePath = repositoryRoot.relativize(path).toString().replace('\\', '/');
+        if (!NOVEL_CONFIG_MIGRATION_SOURCE.equals(relativePath)) {
+            return content;
+        }
+        return APPROVED_NOVEL_CONFIG_MIGRATION.matcher(content).replaceFirst("");
     }
 
     @Test

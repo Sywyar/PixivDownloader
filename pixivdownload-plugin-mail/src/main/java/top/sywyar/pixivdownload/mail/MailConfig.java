@@ -5,7 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * SMTP 邮件发送配置。映射 {@code config.yaml} 中的 {@code mail.*} 前缀。
+ * SMTP 邮件发送配置。绑定插件子上下文中的 {@code mail.*} 属性；普通字段以
+ * {@code config/plugins/mail.properties} 为权威，密码 / 密钥字段由
+ * {@code config/credentials/mail.properties} 专属属性源提供。
  * <p>
  * 字段全部使用 {@code volatile}，与 {@link top.sywyar.pixivdownload.config.OutboundProxySettings} 风格一致，
  * 以便热重载时安全地被多线程读取。本类只承载配置数据，发信逻辑见 {@link MailService}。
@@ -15,7 +17,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "mail")
 public class MailConfig {
 
-    /** config.yaml 中的 key 常量，供首次安装 / 模板生成 / 测试代码复用。 */
+    /** 插件配置属性键常量，供 contribution、绑定与测试代码复用。 */
     public static final String KEY_ENABLED = "mail.enabled";
     public static final String KEY_HOST = "mail.host";
     public static final String KEY_PORT = "mail.port";

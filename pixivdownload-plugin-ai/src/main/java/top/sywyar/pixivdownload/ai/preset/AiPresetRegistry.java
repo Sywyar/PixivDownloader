@@ -15,8 +15,8 @@ import java.util.Optional;
  * 所有预设都以 <b>OpenAI Chat Completions 兼容协议</b> 接入（Claude / Gemini 用各自的 OpenAI 兼容端点）。
  * <p>
  * GUI 选中某预设时锁定 base-url（并以预设的默认模型 / 代理开关回填，但不锁定模型与代理开关）；选中
- * {@link AiPreset#CUSTOM_ID} 解锁。预设本身不进 {@code config.yaml}（配置语义仍是 base-url / model），
- * 加载时按已存 base-url 反查推断。
+ * {@link AiPreset#CUSTOM_ID} 解锁。预设 id 不单独持久化；加载时从
+ * {@code config/plugins/ai.properties} 已保存的 base-url 反查推断。
  */
 @Component
 public class AiPresetRegistry {
@@ -101,7 +101,8 @@ public class AiPresetRegistry {
     /**
      * 按 base-url 反查预设（忽略大小写与结尾斜杠）。
      * <p>
-     * GUI 加载已有 config.yaml 时用此方法推断当前是哪一个预设；未命中时 GUI 应落到 {@code custom}。
+     * GUI 从 {@code config/plugins/ai.properties} 加载 base-url 后用此方法推断当前预设；
+     * 未命中时 GUI 应落到 {@code custom}。
      */
     public Optional<AiPreset> findByBaseUrl(String baseUrl) {
         String normalized = normalize(baseUrl);

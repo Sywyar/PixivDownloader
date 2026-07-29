@@ -5,7 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Bark 通道配置，映射 {@code config.yaml} 中的 {@code push.bark.*}。与其它通道配置相互独立。
+ * Bark 通道配置，绑定插件子上下文中的 {@code push.bark.*}；字段由
+ * {@code config/plugins/push.properties} 与 {@code config/credentials/push.properties}
+ * 对应属性源提供。与其它通道配置相互独立。
  */
 @Data
 @Component

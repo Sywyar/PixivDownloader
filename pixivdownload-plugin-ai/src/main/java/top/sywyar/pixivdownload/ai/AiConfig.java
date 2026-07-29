@@ -5,7 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 大语言模型（LLM）接入配置。映射 {@code config.yaml} 中的 {@code ai.*} 前缀。
+ * 大语言模型（LLM）接入配置。绑定插件子上下文中的 {@code ai.*} 属性；普通字段以
+ * {@code config/plugins/ai.properties} 为权威，密码 / 密钥字段由
+ * {@code config/credentials/ai.properties} 专属属性源提供。
  * <p>
  * 框架统一走 <b>OpenAI Chat Completions 兼容协议</b>（{@code POST {base-url}/chat/completions} +
  * {@code Authorization: Bearer <api-key>}）。各家厂商（OpenAI / DeepSeek / 通义 / 智谱 / Claude / Gemini …）
@@ -19,7 +21,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "ai")
 public class AiConfig {
 
-    /** config.yaml 中的 key 常量，供首次安装 / 模板生成 / 测试代码复用。 */
+    /** 插件配置属性键常量，供 contribution、绑定与测试代码复用。 */
     public static final String KEY_ENABLED = "ai.enabled";
     public static final String KEY_BASE_URL = "ai.base-url";
     public static final String KEY_API_KEY = "ai.api-key";

@@ -86,6 +86,24 @@ class GuiConfigContributionTest {
     }
 
     @Test
+    @DisplayName("PASSWORD 类型始终归一为敏感字段")
+    void passwordTypeIsAlwaysNormalizedToSensitive() {
+        GuiConfigFieldContribution field = new GuiConfigFieldContribution(
+                "demo.secret",
+                GuiConfigGroups.PLUGINS,
+                "field.secret.label",
+                "field.secret.help",
+                GuiConfigFieldType.PASSWORD,
+                "",
+                40,
+                false,
+                false);
+
+        assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD);
+        assertThat(field.sensitive()).isTrue();
+    }
+
+    @Test
     @DisplayName("条件工厂只产生 key/operator/value 三元组")
     void conditionFactoriesCreatePureTriples() {
         assertThat(GuiConfigCondition.isFalse("a"))

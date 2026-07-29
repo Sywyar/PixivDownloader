@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
@@ -49,6 +50,20 @@ class MailPluginGuiConfigContributionTest {
             assertThat(field.i18nNamespace()).isEqualTo(MailPlugin.ID);
             assertThat(field.contributesGroupVisibility()).isTrue();
         });
+    }
+
+    @Test
+    @DisplayName("邮件密码是唯一敏感密码字段")
+    void passwordIsTheOnlySensitivePasswordField() {
+        List<GuiConfigFieldContribution> sensitiveFields = contributions().stream()
+                .flatMap(contribution -> contribution.fields().stream())
+                .filter(GuiConfigFieldContribution::sensitive)
+                .toList();
+
+        assertThat(sensitiveFields).extracting(GuiConfigFieldContribution::key)
+                .containsExactly("mail.password");
+        assertThat(sensitiveFields).allSatisfy(field ->
+                assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD));
     }
 
     @Test

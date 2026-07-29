@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetMatchMode;
@@ -45,6 +46,19 @@ class AiPluginGuiConfigContributionTest {
             assertThat(field.i18nNamespace()).isEqualTo(AiPlugin.ID);
             assertThat(field.contributesGroupVisibility()).isTrue();
         });
+    }
+
+    @Test
+    @DisplayName("AI API Key 是唯一敏感密码字段")
+    void apiKeyIsTheOnlySensitivePasswordField() {
+        List<GuiConfigFieldContribution> sensitiveFields = fields().stream()
+                .filter(GuiConfigFieldContribution::sensitive)
+                .toList();
+
+        assertThat(sensitiveFields).extracting(GuiConfigFieldContribution::key)
+                .containsExactly("ai.api-key");
+        assertThat(sensitiveFields).allSatisfy(field ->
+                assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD));
     }
 
     @Test

@@ -5,7 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Telegram Bot 通道配置，映射 {@code config.yaml} 中的 {@code push.telegram.*}。
+ * Telegram Bot 通道配置，绑定插件子上下文中的 {@code push.telegram.*}；字段由
+ * {@code config/plugins/push.properties} 与 {@code config/credentials/push.properties}
+ * 对应属性源提供。
  */
 @Data
 @Component
