@@ -23,8 +23,8 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
  * 本控制器不直接依赖宿主 registry 或任一具体作品类型下载服务
  *（插画 {@code ArtworkDownloadExecutor} / 小说 {@code NovelDownloadService} 等），消除队列控制器对下载实现的反向耦合。
  * <p>
- * 取消单项必须同时携带 queueType 与不透明 workKey，并由控制面定向派发给单个队列。旧插画数字 URL
- * 仅作为兼容入口解析 {@code illust}，不会再广播到其它类型。
+ * 取消单项必须同时携带 queueType、不透明 workKey 与宿主下发的精确 descriptor publication，
+ * 并由控制面定向派发给单个队列。
  * 清空队列对全部在场作品类型成立——某作品类型插件被禁 /
  * 卸载时其操作缺席，清空只作用于在场类型。solo / multi / admin / 访客的归属语义保持不变。
  */
@@ -33,7 +33,6 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 @RequiredArgsConstructor
 public class DownloadQueueController {
 
-    private static final String LEGACY_ILLUST_QUEUE_TYPE = "illust";
     private static final int MAX_WORK_KEY_LENGTH = 4096;
     private static final int MAX_OWNER_ID_LENGTH = 512;
 
@@ -47,18 +46,21 @@ public class DownloadQueueController {
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final MessageResolver messages;
 
-    /** 旧插画数字 URL 兼容入口：仅定向 illust 队列。 */
+    /**
+     * 无 publication 身份的旧插画 URL 只保留为插件私有兼容墓碑。
+     *
+     * <p>请求无法证明它指向页面曾展示的 descriptor 与队列命令，因此固定返回冲突，不解析当前 operation，
+     * 避免迟到请求误取消 replacement。
+    */
     @PostMapping({"/cancel/{artworkId}", "/download/cancel/{artworkId}"})
-    public ResponseEntity<?> cancelDownload(@PathVariable Long artworkId,
-                                            HttpServletRequest httpRequest) {
-        DownloadQueueCancelResult result = downloadControlPlane.cancelCurrent(
-                LEGACY_ILLUST_QUEUE_TYPE,
-                Long.toString(artworkId),
-                () -> requestOwnerIdentityResolver.resolve(httpRequest));
-        return cancelResponse(result);
+    public ResponseEntity<QueueCancelFailure> rejectLegacyCancel() {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new QueueCancelFailure(
+                false,
+                CODE_DESCRIPTOR_STALE,
+                messages.get("download.cancel.request-stale")));
     }
 
-    /** 新稳定入口：按 queueType 定向取消不透明 workKey。 */
+    /** 稳定入口：按精确 descriptor publication 定向取消不透明 workKey。 */
     @PostMapping("/download/queue/{queueType}/cancel")
     public ResponseEntity<?> cancelDownload(
             @PathVariable String queueType,

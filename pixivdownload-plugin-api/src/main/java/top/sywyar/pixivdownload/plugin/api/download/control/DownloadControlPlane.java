@@ -16,22 +16,11 @@ public interface DownloadControlPlane {
     DownloadExtensionSnapshot extensions();
 
     /**
-     * 针对调用时的当前 descriptor publication 取消单项。
-     *
-     * <p>只用于不携带 publication 身份的兼容入口。请求 owner supplier 仅在 descriptor 预检、初次 operation
-     * 解析和调用前 descriptor 复核通过后调用一次；命令对象的最终 currentness 仍由宿主在调用时校验。
-     * 调用方必须从宿主的请求身份解析器取得该值。
-     */
-    DownloadQueueCancelResult cancelCurrent(
-            String queueType,
-            String workKey,
-            Supplier<RequestOwnerIdentity> requestOwner);
-
-    /**
      * 针对请求明确携带的 descriptor publication 取消单项。
      *
-     * <p>宿主在捕获命令后、调用命令前再次复核精确 publication，并拒绝把旧请求改投 replacement。请求 owner supplier 的
-     * 惰性调用语义与 {@link #cancelCurrent(String, String, Supplier)} 相同。
+     * <p>宿主在捕获命令后、调用命令前再次复核精确 publication，并按捕获的命令对象身份拒绝把旧请求改投
+     * replacement。请求 owner supplier 只在 descriptor、operation 与 publication 预检全部通过后调用一次；
+     * 调用方必须从宿主的请求身份解析器取得该值。
      */
     DownloadQueueCancelResult cancelExact(
             DownloadQueueCancelCommand command,

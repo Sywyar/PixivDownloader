@@ -71,8 +71,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
-        // 下载提交（/api/download/pixiv）、取消（/api/cancel/**、/api/download/cancel/**）、队列清理
-        //（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配（/api/download/extensions）一律
+        // 下载提交（/api/download/pixiv）、历史取消墓碑（/api/cancel/**、/api/download/cancel/**）、
+        // 精确取消与队列清理（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配
+        //（/api/download/extensions）一律
         // VISITOR——复刻现状「未受管页面 / 未声明 API」的涌现行为：multi 访客可达（走配额） / solo 需会话 /
         // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
         // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫。

@@ -54,36 +54,6 @@ public final class DownloadControlPlaneAdapter implements DownloadControlPlane {
     }
 
     @Override
-    public DownloadQueueCancelResult cancelCurrent(
-            String queueType,
-            String workKey,
-            Supplier<RequestOwnerIdentity> requestOwner) {
-        requireTarget(queueType, workKey);
-        Objects.requireNonNull(requestOwner, "request owner supplier");
-
-        RegisteredDownloadType descriptor =
-                downloadExtensionRegistry.resolveDownloadType(queueType).orElse(null);
-        if (descriptor == null) {
-            return DownloadQueueCancelResult.DESCRIPTOR_NOT_FOUND;
-        }
-        if (!descriptor.descriptor().cancelSupported()) {
-            return DownloadQueueCancelResult.UNSUPPORTED;
-        }
-        DownloadExtensionIdentity expected = identity(descriptor.owner(), descriptor.publicationId());
-        Optional<QueueOperationCommands> operation = resolveOperation(queueType, expected);
-        if (operation.isEmpty()) {
-            return DownloadQueueCancelResult.OPERATION_UNAVAILABLE;
-        }
-        RegisteredDownloadType confirmed =
-                downloadExtensionRegistry.resolveDownloadType(queueType).orElse(null);
-        if (!matches(confirmed, expected)
-                || !confirmed.descriptor().cancelSupported()) {
-            return DownloadQueueCancelResult.DESCRIPTOR_STALE;
-        }
-        return invokeCancel(queueType, workKey, operation.get(), requestOwner);
-    }
-
-    @Override
     public DownloadQueueCancelResult cancelExact(
             DownloadQueueCancelCommand command,
             Supplier<RequestOwnerIdentity> requestOwner) {
@@ -112,7 +82,16 @@ public final class DownloadControlPlaneAdapter implements DownloadControlPlane {
                 || !confirmed.descriptor().cancelSupported()) {
             return DownloadQueueCancelResult.DESCRIPTOR_STALE;
         }
-        return invokeCancel(command.queueType(), command.workKey(), operation.get(), requestOwner);
+        RequestOwnerIdentity identity = Objects.requireNonNull(
+                requestOwner.get(), "resolved request owner");
+        // Request identity resolution may cross a plugin lifecycle boundary.
+        RegisteredDownloadType finalDescriptor =
+                downloadExtensionRegistry.resolveDownloadType(command.queueType()).orElse(null);
+        if (!matches(finalDescriptor, expected)
+                || !finalDescriptor.descriptor().cancelSupported()) {
+            return DownloadQueueCancelResult.DESCRIPTOR_STALE;
+        }
+        return invokeCancel(command.queueType(), command.workKey(), operation.get(), identity);
     }
 
     @Override
@@ -144,9 +123,7 @@ public final class DownloadControlPlaneAdapter implements DownloadControlPlane {
             String queueType,
             String workKey,
             QueueOperationCommands operation,
-            Supplier<RequestOwnerIdentity> requestOwner) {
-        RequestOwnerIdentity identity = Objects.requireNonNull(
-                requestOwner.get(), "resolved request owner");
+            RequestOwnerIdentity identity) {
         try {
             queueOperationRegistry.cancel(
                     queueType, operation, workKey, identity.ownerUuid(), identity.admin());
@@ -176,12 +153,4 @@ public final class DownloadControlPlaneAdapter implements DownloadControlPlane {
                 && descriptor.publicationId() == expected.publicationId();
     }
 
-    private static void requireTarget(String queueType, String workKey) {
-        if (queueType == null || queueType.isBlank()) {
-            throw new IllegalArgumentException("queueType must not be blank");
-        }
-        if (workKey == null || workKey.isBlank()) {
-            throw new IllegalArgumentException("workKey must not be blank");
-        }
-    }
 }

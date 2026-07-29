@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.plugin.registry.DownloadExtensionRegistry.Regist
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -115,38 +116,6 @@ class DownloadControlPlaneAdapterTest {
 
         DownloadQueueCancelResult result = adapter.cancelExact(
                 command(workKey, descriptor),
-                () -> {
-                    ownerReads.incrementAndGet();
-                    return RequestOwnerIdentity.owner(ownerUuid);
-                });
-
-        assertThat(result).isEqualTo(DownloadQueueCancelResult.CANCELLED);
-        assertThat(ownerReads).hasValue(1);
-        verify(operations).cancel(workKey, ownerUuid, false);
-    }
-
-    @Test
-    @DisplayName("兼容入口取消当前外置 operation 并保留不透明作品键")
-    void currentCancelInvokesCurrentExternalOperation() {
-        QueueOperationRegistry queues = new QueueOperationRegistry(List.of());
-        QueueOperations operations = mock(QueueOperations.class);
-        queues.registerPrepared(
-                new QueueOperationOwner("external", "external-package", 6L, 13L),
-                List.of(prepared("external-work", operations)));
-        DownloadExtensionRegistry extensions = mock(DownloadExtensionRegistry.class);
-        RegisteredDownloadType descriptor = descriptor(
-                new DownloadExtensionOwner("external", "external-package", 6L),
-                23L, "external-work", true);
-        when(extensions.resolveDownloadType("external-work"))
-                .thenReturn(Optional.of(descriptor));
-        DownloadControlPlaneAdapter adapter = new DownloadControlPlaneAdapter(queues, extensions);
-        AtomicInteger ownerReads = new AtomicInteger();
-        String ownerUuid = "11111111-1111-1111-1111-111111111111";
-        String workKey = " opaque/legacy:key ? # 中文 ";
-
-        DownloadQueueCancelResult result = adapter.cancelCurrent(
-                "external-work",
-                workKey,
                 () -> {
                     ownerReads.incrementAndGet();
                     return RequestOwnerIdentity.owner(ownerUuid);
@@ -260,38 +229,57 @@ class DownloadControlPlaneAdapterTest {
     }
 
     @Test
-    @DisplayName("当前 descriptor 兼容入口跨 replacement 时保持 fail-closed")
-    void currentCancelFailsClosedAcrossSameGenerationReplacement() {
+    @DisplayName("owner 解析期间 descriptor replacement 返回过期且不调用队列命令")
+    void descriptorReplacementDuringOwnerResolutionFailsClosed() {
+        QueueOperations operations = mock(QueueOperations.class);
+        when(operations.queueType()).thenReturn("novel");
+        QueueOperationRegistry queues = new QueueOperationRegistry(List.of(operations));
+        RegisteredDownloadType oldDescriptor = descriptor(
+                new DownloadExtensionOwner("host-novel", "host-novel", 0L),
+                40L, "novel", true);
+        RegisteredDownloadType newDescriptor = descriptor(
+                new DownloadExtensionOwner("host-novel", "host-novel", 0L),
+                41L, "novel", true);
+        AtomicReference<RegisteredDownloadType> current =
+                new AtomicReference<>(oldDescriptor);
+        DownloadExtensionRegistry extensions = mock(DownloadExtensionRegistry.class);
+        when(extensions.resolveDownloadType("novel"))
+                .thenAnswer(invocation -> Optional.of(current.get()));
+        DownloadControlPlaneAdapter adapter = new DownloadControlPlaneAdapter(queues, extensions);
+
+        DownloadQueueCancelResult result = adapter.cancelExact(
+                command("novel/42", oldDescriptor),
+                () -> {
+                    current.set(newDescriptor);
+                    return RequestOwnerIdentity.adminScope();
+                });
+
+        assertThat(result).isEqualTo(DownloadQueueCancelResult.DESCRIPTOR_STALE);
+        verify(operations, never()).cancel(anyString(), any(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("迟到的同 generation 精确请求不得改投 replacement")
+    void lateExactCancelCannotReachSameGenerationReplacement() {
         QueueOperationRegistry queues = new QueueOperationRegistry(List.of());
-        QueueOperationOwner oldOwner =
-                new QueueOperationOwner("download-workbench", "download-workbench", 9L, 80L);
         QueueOperationOwner newOwner =
                 new QueueOperationOwner("download-workbench", "download-workbench", 9L, 81L);
-        QueueOperations oldRaw = mock(QueueOperations.class);
         QueueOperations newRaw = mock(QueueOperations.class);
-        queues.registerPrepared(oldOwner, List.of(prepared("illust", oldRaw)));
-        RegisteredDownloadType oldDescriptor = descriptor(
-                new DownloadExtensionOwner("download-workbench", "download-workbench", 9L),
-                90L, "illust", true);
+        queues.registerPrepared(newOwner, List.of(prepared("illust", newRaw)));
         RegisteredDownloadType newDescriptor = descriptor(
                 new DownloadExtensionOwner("download-workbench", "download-workbench", 9L),
                 91L, "illust", true);
         DownloadExtensionRegistry extensions = mock(DownloadExtensionRegistry.class);
-        AtomicInteger reads = new AtomicInteger();
-        when(extensions.resolveDownloadType("illust")).thenAnswer(invocation -> {
-            if (reads.incrementAndGet() == 1) {
-                return Optional.of(oldDescriptor);
-            }
-            queues.unregisterPrepared(oldOwner);
-            queues.registerPrepared(newOwner, List.of(prepared("illust", newRaw)));
-            return Optional.of(newDescriptor);
-        });
+        when(extensions.resolveDownloadType("illust")).thenReturn(Optional.of(newDescriptor));
         DownloadControlPlaneAdapter adapter = new DownloadControlPlaneAdapter(queues, extensions);
         AtomicInteger ownerReads = new AtomicInteger();
 
-        DownloadQueueCancelResult result = adapter.cancelCurrent(
-                "illust",
-                "12345",
+        DownloadQueueCancelResult result = adapter.cancelExact(
+                new DownloadQueueCancelCommand(
+                        "illust",
+                        "12345",
+                        new DownloadExtensionIdentity(
+                                "download-workbench", "download-workbench", 9L, 90L)),
                 () -> {
                     ownerReads.incrementAndGet();
                     return RequestOwnerIdentity.adminScope();
@@ -299,7 +287,6 @@ class DownloadControlPlaneAdapterTest {
 
         assertThat(result).isEqualTo(DownloadQueueCancelResult.DESCRIPTOR_STALE);
         assertThat(ownerReads).hasValue(0);
-        verify(oldRaw, never()).cancel(anyString(), any(), anyBoolean());
         verify(newRaw, never()).cancel(anyString(), any(), anyBoolean());
     }
 
@@ -316,7 +303,12 @@ class DownloadControlPlaneAdapterTest {
         };
 
         when(extensions.resolveDownloadType("missing")).thenReturn(Optional.empty());
-        assertThat(adapter.cancelCurrent("missing", "1", ownerSupplier))
+        assertThat(adapter.cancelExact(
+                new DownloadQueueCancelCommand(
+                        "missing",
+                        "1",
+                        new DownloadExtensionIdentity("missing", "missing", 1L, 1L)),
+                ownerSupplier))
                 .isEqualTo(DownloadQueueCancelResult.DESCRIPTOR_NOT_FOUND);
 
         RegisteredDownloadType unsupported = descriptor(

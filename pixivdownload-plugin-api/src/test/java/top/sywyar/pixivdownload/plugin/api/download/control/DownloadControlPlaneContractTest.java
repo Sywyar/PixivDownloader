@@ -70,20 +70,14 @@ class DownloadControlPlaneContractTest {
     }
 
     @Test
-    @DisplayName("控制面只暴露快照、当前取消、精确取消与清空四类操作")
+    @DisplayName("控制面只暴露快照、精确取消与清空三类操作")
     void controlPlaneHasExactOperationSurface() throws NoSuchMethodException {
         assertThat(Arrays.stream(DownloadControlPlane.class.getDeclaredMethods())
                 .map(method -> method.getName()))
-                .containsExactlyInAnyOrder("extensions", "cancelCurrent", "cancelExact", "clearQueues");
+                .containsExactlyInAnyOrder("extensions", "cancelExact", "clearQueues");
         assertMethod(
                 "extensions",
                 DownloadExtensionSnapshot.class);
-        assertMethod(
-                "cancelCurrent",
-                DownloadQueueCancelResult.class,
-                String.class,
-                String.class,
-                Supplier.class);
         assertMethod(
                 "cancelExact",
                 DownloadQueueCancelResult.class,

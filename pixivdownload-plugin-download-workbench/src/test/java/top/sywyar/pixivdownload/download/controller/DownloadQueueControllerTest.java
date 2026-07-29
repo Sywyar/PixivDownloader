@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
@@ -27,7 +28,6 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -62,41 +62,22 @@ class DownloadQueueControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
-    @Test
-    @DisplayName("旧插画数字入口只请求当前 illust publication 并使用管理员作用域")
-    void legacyCancelUsesCurrentIllustPublication() throws Exception {
-        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
-        when(downloadControlPlane.cancelCurrent(eq("illust"), eq("12345"), any()))
-                .thenAnswer(invocation -> {
-                    Supplier<RequestOwnerIdentity> owner = invocation.getArgument(2);
-                    assertThat(owner.get()).isEqualTo(RequestOwnerIdentity.adminScope());
-                    return DownloadQueueCancelResult.CANCELLED;
-                });
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/api/cancel/12345",
+            "/api/download/cancel/12345",
+            "/api/cancel/not-a-number",
+            "/api/download/cancel/not-a-number"
+    })
+    @DisplayName("无 publication 的旧请求固定返回冲突且不解析当前队列")
+    void identityLessLegacyRequestAlwaysReturnsStableConflict(String path) throws Exception {
+        mockMvc.perform(post(path).locale(Locale.SIMPLIFIED_CHINESE))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("QUEUE_CANCEL_DESCRIPTOR_STALE"))
+                .andExpect(jsonPath("$.message").value("此取消请求已过期，请刷新下载页面后重试"));
 
-        mockMvc.perform(post("/api/cancel/12345").locale(Locale.SIMPLIFIED_CHINESE))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.message").value("下载任务已取消"));
-
-        verify(downloadControlPlane).cancelCurrent(eq("illust"), eq("12345"), any());
-    }
-
-    @Test
-    @DisplayName("旧下载取消别名保持与主入口相同的控制面调用")
-    void legacyDownloadCancelAliasRemainsAvailable() throws Exception {
-        when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
-        when(downloadControlPlane.cancelCurrent(eq("illust"), eq("88"), any()))
-                .thenAnswer(invocation -> {
-                    Supplier<RequestOwnerIdentity> owner = invocation.getArgument(2);
-                    owner.get();
-                    return DownloadQueueCancelResult.CANCELLED;
-                });
-
-        mockMvc.perform(post("/api/download/cancel/88"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
-
-        verify(downloadControlPlane).cancelCurrent(eq("illust"), eq("88"), any());
+        verifyNoInteractions(downloadControlPlane, requestOwnerIdentityResolver);
     }
 
     @Test
