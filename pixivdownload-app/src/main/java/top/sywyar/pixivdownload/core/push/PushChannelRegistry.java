@@ -3,29 +3,28 @@ package top.sywyar.pixivdownload.core.push;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.push.PushChannel;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelId;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Host registry for push channel proxies and their captured channel types. */
+/** Host registry for push channel proxies and their captured channel ids. */
 @Component
 public class PushChannelRegistry {
 
     /** Metadata captured before the raw channel is hidden behind its parent-loader proxy. */
     public record PreparedChannel(
-            PushChannelType type,
+            PushChannelId channelId,
             PushChannel channel,
             String implementationType
     ) {
         public PreparedChannel {
-            if (type == null) {
-                throw new IllegalArgumentException("push channel type must not be null");
+            if (channelId == null) {
+                throw new IllegalArgumentException("push channel id must not be null");
             }
             if (channel == null) {
                 throw new IllegalArgumentException("push channel proxy must not be null");
@@ -41,13 +40,13 @@ public class PushChannelRegistry {
     private record Snapshot(
             List<PreparedChannel> preparedChannels,
             List<PushChannel> channels,
-            Map<PushChannelType, PushChannel> byType,
-            Map<PushChannelType, PreparedChannel> preparedByType) {
+            Map<PushChannelId, PushChannel> byId,
+            Map<PushChannelId, PreparedChannel> preparedById) {
         private Snapshot {
             preparedChannels = List.copyOf(preparedChannels);
             channels = List.copyOf(channels);
-            byType = Map.copyOf(byType);
-            preparedByType = Map.copyOf(preparedByType);
+            byId = Map.copyOf(byId);
+            preparedById = Map.copyOf(preparedById);
         }
 
         private static Snapshot empty() {
@@ -92,9 +91,9 @@ public class PushChannelRegistry {
                 if (channel == null) {
                     continue;
                 }
-                PushChannelType type = channel.type();
-                if (type != null) {
-                    prepared.add(new PreparedChannel(type, channel, channel.getClass().getName()));
+                PushChannelId channelId = channel.type();
+                if (channelId != null) {
+                    prepared.add(new PreparedChannel(channelId, channel, channel.getClass().getName()));
                 }
             }
         }
@@ -144,16 +143,16 @@ public class PushChannelRegistry {
         return state.snapshot().channels();
     }
 
-    public Optional<PushChannel> byType(PushChannelType type) {
-        return Optional.ofNullable(state.snapshot().byType().get(type));
+    public Optional<PushChannel> byId(PushChannelId channelId) {
+        return Optional.ofNullable(state.snapshot().byId().get(channelId));
     }
 
     List<PreparedChannel> preparedChannels() {
         return state.snapshot().preparedChannels();
     }
 
-    Optional<PreparedChannel> preparedByType(PushChannelType type) {
-        return Optional.ofNullable(state.snapshot().preparedByType().get(type));
+    Optional<PreparedChannel> preparedById(PushChannelId channelId) {
+        return Optional.ofNullable(state.snapshot().preparedById().get(channelId));
     }
 
     private void publishState(State next) {
@@ -164,21 +163,21 @@ public class PushChannelRegistry {
     private static Snapshot rebuild(Map<OwnerKey, List<PreparedChannel>> owners) {
         List<PreparedChannel> preparedChannels = new ArrayList<>();
         List<PushChannel> channels = new ArrayList<>();
-        Map<PushChannelType, PushChannel> byType = new EnumMap<>(PushChannelType.class);
-        Map<PushChannelType, PreparedChannel> metadataByType = new EnumMap<>(PushChannelType.class);
+        Map<PushChannelId, PushChannel> byId = new LinkedHashMap<>();
+        Map<PushChannelId, PreparedChannel> metadataById = new LinkedHashMap<>();
         for (List<PreparedChannel> list : owners.values()) {
             for (PreparedChannel prepared : list) {
-                PreparedChannel previous = metadataByType.putIfAbsent(prepared.type(), prepared);
+                PreparedChannel previous = metadataById.putIfAbsent(prepared.channelId(), prepared);
                 if (previous != null) {
-                    throw new IllegalStateException("duplicate push channel type '" + prepared.type().id()
+                    throw new IllegalStateException("duplicate push channel id '" + prepared.channelId().id()
                             + "': " + previous.implementationType() + " vs " + prepared.implementationType());
                 }
                 preparedChannels.add(prepared);
                 channels.add(prepared.channel());
-                byType.put(prepared.type(), prepared.channel());
+                byId.put(prepared.channelId(), prepared.channel());
             }
         }
-        return new Snapshot(preparedChannels, channels, byType, metadataByType);
+        return new Snapshot(preparedChannels, channels, byId, metadataById);
     }
 
     private static OwnerKey owner(String pluginId, long publicationId) {

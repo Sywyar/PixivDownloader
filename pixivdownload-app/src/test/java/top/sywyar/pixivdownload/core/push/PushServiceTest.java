@@ -4,8 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityUnavailableException;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushFormatConverter;
 import top.sywyar.pixivdownload.push.PushMessage;
@@ -24,36 +24,39 @@ class PushServiceTest {
 
     /** 无状态，全测试共用一个实例。 */
     private static final PushFormatConverter CONVERTER = new PushFormatConverter();
+    private static final PushChannelId CHANNEL_A = new PushChannelId("channel-a");
+    private static final PushChannelId CHANNEL_B = new PushChannelId("channel-b");
+    private static final PushChannelId CHANNEL_C = new PushChannelId("channel-c");
 
     @Test
     @DisplayName("状态发布失败时推送 owner 与可见快照保持原子一致")
     void registryStatePublicationFailureKeepsOwnerAndSnapshotAtomic() {
         AtomicReference<Throwable> nextFailure = new AtomicReference<>();
         PushChannelRegistry registry = new PushChannelRegistry(List.of(), () -> throwPending(nextFailure));
-        FakeChannel first = new FakeChannel(PushChannelType.BARK, true);
-        FakeChannel second = new FakeChannel(PushChannelType.TELEGRAM, true);
+        FakeChannel first = new FakeChannel(CHANNEL_A, true);
+        FakeChannel second = new FakeChannel(CHANNEL_B, true);
         registry.registerPrepared("owner-a", 1L, List.of(
-                new PushChannelRegistry.PreparedChannel(PushChannelType.BARK, first, "first.Type")));
+                new PushChannelRegistry.PreparedChannel(CHANNEL_A, first, "first.Type")));
         List<PushChannel> beforePublish = registry.channels();
 
         for (Throwable expected : failures("publish")) {
             nextFailure.set(expected);
             assertThat(catchThrowable(() -> registry.registerPrepared("owner-b", 2L, List.of(
                     new PushChannelRegistry.PreparedChannel(
-                            PushChannelType.TELEGRAM, second, "second.Type")))))
+                            CHANNEL_B, second, "second.Type")))))
                     .isSameAs(expected);
             assertThat(registry.channels()).isSameAs(beforePublish);
-            assertThat(registry.byType(PushChannelType.TELEGRAM)).isEmpty();
+            assertThat(registry.byId(new PushChannelId("channel-b"))).isEmpty();
         }
 
         registry.registerPrepared("owner-b", 2L, List.of(
-                new PushChannelRegistry.PreparedChannel(PushChannelType.TELEGRAM, second, "second.Type")));
+                new PushChannelRegistry.PreparedChannel(CHANNEL_B, second, "second.Type")));
         List<PushChannel> beforeWithdraw = registry.channels();
         for (Throwable expected : failures("withdraw")) {
             nextFailure.set(expected);
             assertThat(catchThrowable(() -> registry.unregisterPrepared("owner-b", 2L))).isSameAs(expected);
             assertThat(registry.channels()).isSameAs(beforeWithdraw);
-            assertThat(registry.byType(PushChannelType.TELEGRAM)).containsSame(second);
+            assertThat(registry.byId(new PushChannelId("channel-b"))).containsSame(second);
         }
         registry.unregisterPrepared("owner-b", 2L);
         assertThat(registry.channels()).containsExactly(first);
@@ -67,25 +70,58 @@ class PushServiceTest {
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
         assertThat(results).isEmpty();
-        assertThat(service.push(PushChannelType.BARK, PushMessage.of("t", "c")).status())
+        assertThat(service.push(CHANNEL_A, PushMessage.of("t", "c")).status())
                 .isEqualTo(PushResult.Status.SKIPPED);
-        assertThat(service.test(List.of(new FakeSettings(PushChannelType.BARK, true)), PushMessage.of("t", "c")))
+        assertThat(service.test(List.of(new FakeSettings(CHANNEL_A, true)), PushMessage.of("t", "c")))
                 .singleElement()
                 .extracting(PushResult::status)
                 .isEqualTo(PushResult.Status.SKIPPED);
     }
 
     @Test
+    @DisplayName("核心无需预声明即可按开放通道 id 的值路由")
+    void routesUnknownValidChannelIdByValue() {
+        FakeChannel channel = new FakeChannel(new PushChannelId("custom-channel"), true);
+        PushService service = service(channel);
+
+        PushResult result = service.push(
+                new PushChannelId("custom-channel"),
+                PushMessage.of("标题", "正文"));
+
+        assertThat(result.isOk()).isTrue();
+        assertThat(result.channel()).isEqualTo(new PushChannelId("custom-channel"));
+        assertThat(channel.received).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("不同实例但值相同的通道 id 视为重复并拒绝发布")
+    void duplicateChannelIdsConflictByValue() {
+        PushChannelRegistry registry = new PushChannelRegistry(List.of());
+        FakeChannel first = new FakeChannel(new PushChannelId("custom-channel"), true);
+        FakeChannel second = new FakeChannel(new PushChannelId("custom-channel"), true);
+        registry.registerPrepared("owner-a", 1L, List.of(
+                new PushChannelRegistry.PreparedChannel(
+                        first.type(), first, first.getClass().getName())));
+
+        assertThat(catchThrowable(() -> registry.registerPrepared("owner-b", 2L, List.of(
+                new PushChannelRegistry.PreparedChannel(
+                        second.type(), second, second.getClass().getName())))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("duplicate push channel id 'custom-channel'");
+        assertThat(registry.byId(new PushChannelId("custom-channel"))).containsSame(first);
+    }
+
+    @Test
     @DisplayName("仅向已配置的通道广播，未配置的通道被跳过")
     void broadcastsOnlyToConfiguredChannels() {
-        FakeChannel configured = new FakeChannel(PushChannelType.BARK, true);
-        FakeChannel notConfigured = new FakeChannel(PushChannelType.TELEGRAM, false);
+        FakeChannel configured = new FakeChannel(CHANNEL_A, true);
+        FakeChannel notConfigured = new FakeChannel(CHANNEL_B, false);
         PushService service = service(configured, notConfigured);
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
         assertThat(results).hasSize(1);
-        assertThat(results.get(0).channel()).isEqualTo(PushChannelType.BARK);
+        assertThat(results.get(0).channel()).isEqualTo(CHANNEL_A);
         assertThat(results.get(0).isOk()).isTrue();
         assertThat(configured.received).hasSize(1);
         assertThat(notConfigured.received).isEmpty();
@@ -96,24 +132,24 @@ class PushServiceTest {
     @Test
     @DisplayName("单个通道抛异常被隔离，不影响其它通道")
     void oneChannelThrowingDoesNotBreakOthers() {
-        FakeChannel exploding = new FakeChannel(PushChannelType.DINGTALK, true);
+        FakeChannel exploding = new FakeChannel(CHANNEL_C, true);
         exploding.toThrow = new RuntimeException("boom");
-        FakeChannel healthy = new FakeChannel(PushChannelType.BARK, true);
+        FakeChannel healthy = new FakeChannel(CHANNEL_A, true);
         PushService service = service(exploding, healthy);
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
         assertThat(results).hasSize(2);
-        assertThat(results).anyMatch(r -> r.channel() == PushChannelType.DINGTALK
+        assertThat(results).anyMatch(r -> CHANNEL_C.equals(r.channel())
                 && r.status() == PushResult.Status.FAILED);
-        assertThat(results).anyMatch(r -> r.channel() == PushChannelType.BARK && r.isOk());
+        assertThat(results).anyMatch(r -> CHANNEL_A.equals(r.channel()) && r.isOk());
         assertThat(healthy.received).hasSize(1);
     }
 
     @Test
     @DisplayName("通道在配置探测前被撤回时使用注册快照诊断且不让异常逃逸")
     void withdrawnChannelDuringConfigurationProbeFailsSoft() {
-        FakeChannel withdrawn = new FakeChannel(PushChannelType.BARK, true);
+        FakeChannel withdrawn = new FakeChannel(CHANNEL_A, true);
         PushService service = service(withdrawn);
         withdrawn.configuredFailure = new ExternalCapabilityUnavailableException("withdrawn");
         withdrawn.failTypeLookup = true;
@@ -121,7 +157,7 @@ class PushServiceTest {
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
         assertThat(results).singleElement().satisfies(result -> {
-            assertThat(result.channel()).isEqualTo(PushChannelType.BARK);
+            assertThat(result.channel()).isEqualTo(CHANNEL_A);
             assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
         });
     }
@@ -129,12 +165,12 @@ class PushServiceTest {
     @Test
     @DisplayName("定向发送：通道不存在 / 未配置时返回 SKIPPED")
     void targetedSendSkipsWhenAbsentOrUnconfigured() {
-        FakeChannel unconfigured = new FakeChannel(PushChannelType.BARK, false);
+        FakeChannel unconfigured = new FakeChannel(CHANNEL_A, false);
         PushService service = service(unconfigured);
 
-        assertThat(service.push(PushChannelType.BARK, PushMessage.of("t", "c")).status())
+        assertThat(service.push(CHANNEL_A, PushMessage.of("t", "c")).status())
                 .isEqualTo(PushResult.Status.SKIPPED);
-        assertThat(service.push(PushChannelType.TELEGRAM, PushMessage.of("t", "c")).status())
+        assertThat(service.push(CHANNEL_B, PushMessage.of("t", "c")).status())
                 .isEqualTo(PushResult.Status.SKIPPED);
     }
 
@@ -151,44 +187,44 @@ class PushServiceTest {
     @Test
     @DisplayName("测试路径仅向传入设置对应的通道发送")
     void testPathRoutesBySettingsType() {
-        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        FakeChannel telegram = new FakeChannel(PushChannelType.TELEGRAM, true);
-        PushService service = service(bark, telegram);
+        FakeChannel first = new FakeChannel(CHANNEL_A, true);
+        FakeChannel second = new FakeChannel(CHANNEL_B, true);
+        PushService service = service(first, second);
 
         List<PushResult> results = service.test(
-                List.of(new FakeSettings(PushChannelType.BARK, true)),
+                List.of(new FakeSettings(new PushChannelId("channel-a"), true)),
                 PushMessage.of("标题", "正文"));
 
         assertThat(results).hasSize(1);
-        assertThat(results.get(0).channel()).isEqualTo(PushChannelType.BARK);
+        assertThat(results.get(0).channel()).isEqualTo(CHANNEL_A);
         assertThat(results.get(0).isOk()).isTrue();
-        assertThat(bark.testReceived).hasSize(1);
-        assertThat(telegram.testReceived).isEmpty();
+        assertThat(first.testReceived).hasSize(1);
+        assertThat(second.testReceived).isEmpty();
     }
 
     @Test
     @DisplayName("测试路径：设置不完整时返回 SKIPPED，不调用通道")
     void testPathSkipsIncompleteSettings() {
-        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = service(bark);
+        FakeChannel channel = new FakeChannel(CHANNEL_A, true);
+        PushService service = service(channel);
 
         List<PushResult> results = service.test(
-                List.of(new FakeSettings(PushChannelType.BARK, false)),
+                List.of(new FakeSettings(CHANNEL_A, false)),
                 PushMessage.of("t", "c"));
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).status()).isEqualTo(PushResult.Status.SKIPPED);
-        assertThat(bark.testReceived).isEmpty();
+        assertThat(channel.testReceived).isEmpty();
     }
 
     @Test
     @DisplayName("测试设置回调异常按单项收敛且不影响后续通道")
     void testSettingsCallbackFailureIsContained() {
-        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = service(bark);
+        FakeChannel channel = new FakeChannel(CHANNEL_A, true);
+        PushService service = service(channel);
         PushChannelSettings throwing = new PushChannelSettings() {
             @Override
-            public PushChannelType type() {
+            public PushChannelId type() {
                 throw new IllegalStateException("broken settings");
             }
 
@@ -199,7 +235,7 @@ class PushServiceTest {
         };
 
         List<PushResult> results = service.test(
-                List.of(throwing, new FakeSettings(PushChannelType.BARK, true)),
+                List.of(throwing, new FakeSettings(CHANNEL_A, true)),
                 PushMessage.of("标题", "正文"));
 
         assertThat(results).hasSize(2);
@@ -211,11 +247,11 @@ class PushServiceTest {
     @Test
     @DisplayName("测试设置含空元素时保持结果与输入一一对应")
     void nullTestSettingsPreserveResultCardinality() {
-        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = service(bark);
+        FakeChannel channel = new FakeChannel(CHANNEL_A, true);
+        PushService service = service(channel);
         List<PushChannelSettings> settings = new ArrayList<>();
         settings.add(null);
-        settings.add(new FakeSettings(PushChannelType.BARK, true));
+        settings.add(new FakeSettings(CHANNEL_A, true));
 
         List<PushResult> results = service.test(settings, PushMessage.of("标题", "正文"));
 
@@ -229,19 +265,19 @@ class PushServiceTest {
     @Test
     @DisplayName("通道返回空值或非法结果时使用注册快照归一为受控失败")
     void malformedChannelResultsAreNormalized() {
-        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = service(bark);
+        FakeChannel channel = new FakeChannel(CHANNEL_A, true);
+        PushService service = service(channel);
 
-        bark.sendResult = null;
+        channel.sendResult = null;
         PushResult broadcast = service.push(PushMessage.of("标题", "正文")).get(0);
-        PushResult targeted = service.push(PushChannelType.BARK, PushMessage.of("标题", "正文"));
-        bark.testResult = new PushResult(null, null, null);
+        PushResult targeted = service.push(new PushChannelId("channel-a"), PushMessage.of("标题", "正文"));
+        channel.testResult = new PushResult(null, null, null);
         PushResult tested = service.test(
-                List.of(new FakeSettings(PushChannelType.BARK, true)),
+                List.of(new FakeSettings(CHANNEL_A, true)),
                 PushMessage.of("标题", "正文")).get(0);
 
         assertThat(List.of(broadcast, targeted, tested)).allSatisfy(result -> {
-            assertThat(result.channel()).isEqualTo(PushChannelType.BARK);
+            assertThat(result.channel()).isEqualTo(CHANNEL_A);
             assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
             assertThat(result.detail()).isEqualTo(PushResult.DETAIL_UNEXPECTED_ERROR);
         });
@@ -268,8 +304,8 @@ class PushServiceTest {
         }
     }
 
-    /** 测试用设置快照：可配置 type 与是否完整。 */
-    private record FakeSettings(PushChannelType type, boolean complete) implements PushChannelSettings {
+    /** 测试用设置快照：可配置通道标识与是否完整。 */
+    private record FakeSettings(PushChannelId type, boolean complete) implements PushChannelSettings {
         @Override
         public boolean isComplete() {
             return complete;
@@ -278,7 +314,7 @@ class PushServiceTest {
 
     /** 测试替身：记录收到的已渲染消息，可配置是否"已配置"以及是否抛异常。声明仅支持纯文本。 */
     private static final class FakeChannel implements PushChannel {
-        private final PushChannelType type;
+        private final PushChannelId type;
         private final boolean configured;
         private RuntimeException toThrow;
         private RuntimeException configuredFailure;
@@ -288,7 +324,7 @@ class PushServiceTest {
         private final List<RenderedMessage> received = new ArrayList<>();
         private final List<RenderedMessage> testReceived = new ArrayList<>();
 
-        FakeChannel(PushChannelType type, boolean configured) {
+        FakeChannel(PushChannelId type, boolean configured) {
             this.type = type;
             this.configured = configured;
             this.sendResult = PushResult.ok(type);
@@ -296,9 +332,9 @@ class PushServiceTest {
         }
 
         @Override
-        public PushChannelType type() {
+        public PushChannelId type() {
             if (failTypeLookup) {
-                throw new AssertionError("service must use captured push channel type");
+                throw new AssertionError("service must use captured push channel id");
             }
             return type;
         }

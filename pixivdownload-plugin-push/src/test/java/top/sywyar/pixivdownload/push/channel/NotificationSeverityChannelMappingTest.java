@@ -4,11 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.push.OutboundRequest;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
 import top.sywyar.pixivdownload.push.TestMessageResolver;
@@ -27,7 +27,7 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("推送通道级别映射")
-class PushLevelChannelMappingTest {
+class NotificationSeverityChannelMappingTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -39,7 +39,8 @@ class PushLevelChannelMappingTest {
 
         channel.sendTest(
                 new BarkSettings("https://api.day.app", "device-key", "", false),
-                new RenderedMessage("标题", "正文", PushFormat.PLAIN_TEXT, PushLevel.ERROR));
+                new RenderedMessage(
+                        "标题", "正文", PushFormat.PLAIN_TEXT, NotificationSeverity.ERROR));
 
         JsonNode root = JSON.readTree(sender.body());
         assertThat(root.path("level").asText()).isEqualTo("timeSensitive");
@@ -53,7 +54,8 @@ class PushLevelChannelMappingTest {
 
         channel.sendTest(
                 new FeishuSettings("webhook-key", "", false),
-                new RenderedMessage("标题", "正文", PushFormat.CARD, PushLevel.WARNING));
+                new RenderedMessage(
+                        "标题", "正文", PushFormat.CARD, NotificationSeverity.WARNING));
 
         JsonNode root = JSON.readTree(sender.body());
         assertThat(root.path("card").path("header").path("template").asText()).isEqualTo("orange");
@@ -67,7 +69,8 @@ class PushLevelChannelMappingTest {
 
         channel.sendTest(
                 new WecomSettings("wecom-key", false),
-                new RenderedMessage("标题", "正文", PushFormat.MARKDOWN, PushLevel.ERROR));
+                new RenderedMessage(
+                        "标题", "正文", PushFormat.MARKDOWN, NotificationSeverity.ERROR));
 
         JsonNode root = JSON.readTree(sender.body());
         assertThat(root.path("markdown").path("content").asText())
@@ -82,9 +85,9 @@ class PushLevelChannelMappingTest {
         }
 
         @Override
-        public PushResult send(PushChannelType type, OutboundRequest request) {
+        public PushResult send(PushChannelId channelId, OutboundRequest request) {
             this.request = request;
-            return PushResult.ok(type);
+            return PushResult.ok(channelId);
         }
 
         private String body() {

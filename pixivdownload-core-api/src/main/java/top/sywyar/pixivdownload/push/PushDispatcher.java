@@ -9,7 +9,7 @@ public interface PushDispatcher {
 
     List<PushResult> push(PushMessage message);
 
-    PushResult push(PushChannelType type, PushMessage message);
+    PushResult push(PushChannelId channelId, PushMessage message);
 
     List<PushResult> test(List<PushChannelSettings> settings, PushMessage message);
 }

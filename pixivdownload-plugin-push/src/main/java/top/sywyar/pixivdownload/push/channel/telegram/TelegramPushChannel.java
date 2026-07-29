@@ -6,8 +6,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
 import top.sywyar.pixivdownload.push.PushResult;
@@ -38,8 +39,8 @@ public class TelegramPushChannel implements PushChannel {
     }
 
     @Override
-    public PushChannelType type() {
-        return PushChannelType.TELEGRAM;
+    public PushChannelId type() {
+        return PushChannelIds.TELEGRAM;
     }
 
     @Override

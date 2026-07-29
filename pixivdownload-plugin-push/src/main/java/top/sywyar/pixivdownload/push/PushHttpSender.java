@@ -48,29 +48,31 @@ public class PushHttpSender {
     /**
      * 发送一次调用。HTTP 2xx 且业务响应未报错记为成功；非 2xx / 业务失败 / 网络异常归为失败并返回脱敏详情。<b>不抛异常。</b>
      */
-    public PushResult send(PushChannelType type, OutboundRequest request) {
+    public PushResult send(PushChannelId channelId, OutboundRequest request) {
         long startedAtNs = System.nanoTime();
         try {
-            return sendInternal(type, request, startedAtNs);
+            return sendInternal(channelId, request, startedAtNs);
         } catch (RuntimeException e) {
-            PushResult result = PushResult.failed(type, PushResult.DETAIL_UNEXPECTED_ERROR);
+            PushResult result = PushResult.failed(channelId, PushResult.DETAIL_UNEXPECTED_ERROR);
             log.warn(PushPluginMessages.forLog(messages, "push.log.send.failed",
-                    channelId(type), elapsedMs(startedAtNs),
+                    channelId(channelId), elapsedMs(startedAtNs),
                     PushPluginMessages.detailForLog(messages, result)));
             return result;
         }
     }
 
-    private PushResult sendInternal(PushChannelType type, OutboundRequest request, long startedAtNs) {
+    private PushResult sendInternal(PushChannelId channelId, OutboundRequest request, long startedAtNs) {
+        java.util.Objects.requireNonNull(channelId, "push channel id");
+        java.util.Objects.requireNonNull(request, "outbound request");
         // 以 URI 直发，绝不让 RestTemplate 把 URL 当作模板再编码一次——通道（如钉钉「加签」）可能已经把
         // 签名等参数做过唯一一次 URL 编码（%2B / %2F / %3D），再编码会把 % 变成 %25 而破坏请求。
         URI uri;
         try {
             uri = URI.create(request.url());
         } catch (IllegalArgumentException e) {
-            PushResult result = PushResult.failed(type, PushResult.DETAIL_INVALID_URL);
+            PushResult result = PushResult.failed(channelId, PushResult.DETAIL_INVALID_URL);
             log.warn(PushPluginMessages.forLog(messages, "push.log.send.failed",
-                    channelId(type), elapsedMs(startedAtNs),
+                    channelId(channelId), elapsedMs(startedAtNs),
                     PushPluginMessages.detailForLog(messages, result)));
             return result;
         }
@@ -84,16 +86,16 @@ public class PushHttpSender {
                     restTemplate.exchange(uri, HttpMethod.POST, entity, byte[].class);
             long elapsedMs = elapsedMs(startedAtNs);
             BusinessStatus businessStatus =
-                    inspectBusinessStatus(type, response.getBody(), request.secrets());
+                    inspectBusinessStatus(channelId, response.getBody(), request.secrets());
             if (!businessStatus.ok()) {
                 String detail = businessStatus.detail();
                 log.warn(PushPluginMessages.forLog(
-                        messages, "push.log.send.failed", channelId(type), elapsedMs, detail));
-                return PushResult.failed(type, detail);
+                        messages, "push.log.send.failed", channelId(channelId), elapsedMs, detail));
+                return PushResult.failed(channelId, detail);
             }
-            log.info(PushPluginMessages.forLog(messages, "push.log.send.success", channelId(type),
+            log.info(PushPluginMessages.forLog(messages, "push.log.send.success", channelId(channelId),
                     response.getStatusCode().value(), elapsedMs));
-            return PushResult.ok(type);
+            return PushResult.ok(channelId);
         } catch (RestClientResponseException e) {
             // 已连通但返回非 2xx：附状态码 + 脱敏 / 截断后的响应正文摘要。
             long elapsedMs = elapsedMs(startedAtNs);
@@ -101,25 +103,28 @@ public class PushHttpSender {
             String detail = truncate("HTTP " + e.getRawStatusCode()
                     + (body == null || body.isBlank() ? "" : ": " + redact(body, request.secrets())));
             log.warn(PushPluginMessages.forLog(
-                    messages, "push.log.send.failed", channelId(type), elapsedMs, detail));
-            return PushResult.failed(type, detail);
+                    messages, "push.log.send.failed", channelId(channelId), elapsedMs, detail));
+            return PushResult.failed(channelId, detail);
         } catch (RestClientException e) {
             long elapsedMs = elapsedMs(startedAtNs);
             String detail = truncate(redact(safeMessage(e), request.secrets()));
             log.warn(PushPluginMessages.forLog(
-                    messages, "push.log.send.failed", channelId(type), elapsedMs, detail));
-            return PushResult.failed(type, detail);
+                    messages, "push.log.send.failed", channelId(channelId), elapsedMs, detail));
+            return PushResult.failed(channelId, detail);
         }
     }
 
-    private String channelId(PushChannelType type) {
-        return type == null
+    private String channelId(PushChannelId channelId) {
+        return channelId == null
                 ? PushPluginMessages.forLog(messages, "push.log.value.unknown")
-                : type.id();
+                : channelId.id();
     }
 
-    private static BusinessStatus inspectBusinessStatus(PushChannelType type, byte[] body, List<String> secrets) {
-        if (type == PushChannelType.WEBHOOK || body == null || body.length == 0) {
+    private static BusinessStatus inspectBusinessStatus(
+            PushChannelId channelId,
+            byte[] body,
+            List<String> secrets) {
+        if (PushChannelIds.WEBHOOK.equals(channelId) || body == null || body.length == 0) {
             return BusinessStatus.success();
         }
 
@@ -138,18 +143,28 @@ public class PushHttpSender {
             return BusinessStatus.success();
         }
 
-        return switch (type) {
-            case DINGTALK, WECOM -> errcodeStatus(root, secrets);
-            case TELEGRAM -> telegramStatus(root, secrets);
-            case FEISHU -> feishuStatus(root, secrets);
-            case PUSHPLUS -> codeStatus(root, "code", List.of("200"),
+        if (PushChannelIds.DINGTALK.equals(channelId) || PushChannelIds.WECOM.equals(channelId)) {
+            return errcodeStatus(root, secrets);
+        }
+        if (PushChannelIds.TELEGRAM.equals(channelId)) {
+            return telegramStatus(root, secrets);
+        }
+        if (PushChannelIds.FEISHU.equals(channelId)) {
+            return feishuStatus(root, secrets);
+        }
+        if (PushChannelIds.PUSHPLUS.equals(channelId)) {
+            return codeStatus(root, "code", List.of("200"),
                     List.of("msg", "message"), secrets);
-            case SERVERCHAN -> codeStatus(root, "code", List.of("0", "200"),
+        }
+        if (PushChannelIds.SERVERCHAN.equals(channelId)) {
+            return codeStatus(root, "code", List.of("0", "200"),
                     List.of("message", "msg"), secrets);
-            case BARK -> codeStatus(root, "code", List.of("200"),
+        }
+        if (PushChannelIds.BARK.equals(channelId)) {
+            return codeStatus(root, "code", List.of("200"),
                     List.of("message", "msg"), secrets);
-            case WEBHOOK -> BusinessStatus.success();
-        };
+        }
+        return BusinessStatus.success();
     }
 
     private static BusinessStatus errcodeStatus(JsonNode root, List<String> secrets) {

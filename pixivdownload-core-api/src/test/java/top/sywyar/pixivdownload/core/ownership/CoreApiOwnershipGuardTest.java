@@ -56,6 +56,7 @@ import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
@@ -197,8 +198,8 @@ class CoreApiOwnershipGuardTest {
                     "NotificationConfigKeys", "NotificationDispatcher", "NotificationScenario",
                     "NotificationSeverity", "NotificationSink")),
             Map.entry("推送共享协议与纯转换", types("top.sywyar.pixivdownload.push",
-                    "PushChannel", "PushChannelSettings", "PushChannelType", "PushDispatcher", "PushFormat",
-                    "PushFormatConverter", "PushLevel", "PushMessage", "PushResult", "RenderedMessage")),
+                    "PushChannel", "PushChannelId", "PushChannelSettings", "PushDispatcher", "PushFormat",
+                    "PushFormatConverter", "PushMessage", "PushResult", "RenderedMessage")),
             Map.entry("朗读引擎稳定契约", types("top.sywyar.pixivdownload.tts.narration.engine",
                     "NarrationAudio", "NarrationReferenceVoice", "NarrationSpeechText", "NarrationVoiceEngine",
                     "NarrationVoiceException", "NarrationVoiceMode", "NarrationVoiceRequest",
@@ -311,12 +312,8 @@ class CoreApiOwnershipGuardTest {
                             "DEGRADED_ANONYMOUS", "RUN_FAILED", "RUN_SUMMARY")),
             Map.entry("top.sywyar.pixivdownload.notification.NotificationSeverity",
                     List.of("INFO", "WARNING", "ERROR")),
-            Map.entry("top.sywyar.pixivdownload.push.PushChannelType",
-                    List.of("BARK", "DINGTALK", "TELEGRAM", "FEISHU", "WECOM", "PUSHPLUS", "SERVERCHAN", "WEBHOOK")),
             Map.entry("top.sywyar.pixivdownload.push.PushFormat",
                     List.of("PLAIN_TEXT", "MARKDOWN", "HTML", "CARD")),
-            Map.entry("top.sywyar.pixivdownload.push.PushLevel",
-                    List.of("INFO", "WARNING", "ERROR")),
             Map.entry("top.sywyar.pixivdownload.push.PushResult$Status",
                     List.of("OK", "FAILED", "SKIPPED")),
             Map.entry("top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceMode",
@@ -343,6 +340,10 @@ class CoreApiOwnershipGuardTest {
     private static final Pattern CONCRETE_PLUGIN_PROSE = Pattern.compile(
             "\\b(?:optional\\s+)?(?:AI|TTS|novel|stats|gallery|duplicate|push|mail|notification|douyin|"
                     + "download[- ]workbench|plugin[- ]market|recovery[- ]sentinel|gui[- ]theme)\\s+plugin\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONCRETE_PUSH_CHANNEL_PROSE = Pattern.compile(
+            "\\b(?:Bark|DingTalk|Telegram|Feishu|WeCom|PushPlus|ServerChan)\\b"
+                    + "|钉钉|飞书|企业微信|Server\\s*酱",
             Pattern.CASE_INSENSITIVE);
     private static final List<Pattern> PLUGIN_PRIVATE_LAYOUT_PATTERNS = List.of(
             Pattern.compile(
@@ -456,6 +457,9 @@ class CoreApiOwnershipGuardTest {
                 List.of("key", "kind", "url", "thumbnailUrl", "mimeType", "attributes"),
                 List.of(GalleryMediaKey.class, GalleryMediaKind.class, String.class,
                         String.class, String.class, Map.class));
+        assertRecordShape(PushChannelId.class,
+                List.of("id"),
+                List.of(String.class));
         assertRecordShape(AiClientSettings.class,
                 List.of("baseUrl", "apiKey", "model", "useProxy"),
                 List.of(String.class, String.class, String.class, boolean.class));
@@ -543,6 +547,12 @@ class CoreApiOwnershipGuardTest {
                         "public model():java.lang.String",
                         "public toString():java.lang.String",
                         "public useProxy():boolean");
+        assertThat(publicDeclaredMethodSignatures(PushChannelId.class))
+                .containsExactlyInAnyOrder(
+                        "public final equals(java.lang.Object):boolean",
+                        "public final hashCode():int",
+                        "public id():java.lang.String",
+                        "public final toString():java.lang.String");
         assertThat(publicDeclaredMethodSignatures(NarrationAudio.class))
                 .containsExactlyInAnyOrder(
                         "public contentType():java.lang.String",
@@ -998,6 +1008,12 @@ class CoreApiOwnershipGuardTest {
             while (pluginProse.find()) {
                 violations.add(documentationViolation(sourceName, content,
                         offset + pluginProse.start(), "concrete plugin prose", pluginProse.group()));
+            }
+            Matcher pushChannelProse = CONCRETE_PUSH_CHANNEL_PROSE.matcher(javadoc);
+            while (pushChannelProse.find()) {
+                violations.add(documentationViolation(sourceName, content,
+                        offset + pushChannelProse.start(),
+                        "concrete push channel prose", pushChannelProse.group()));
             }
 
             for (Pattern pattern : PLUGIN_PRIVATE_LAYOUT_PATTERNS) {

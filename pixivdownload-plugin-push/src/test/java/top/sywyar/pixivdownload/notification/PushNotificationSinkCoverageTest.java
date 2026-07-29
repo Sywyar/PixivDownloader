@@ -2,11 +2,11 @@ package top.sywyar.pixivdownload.notification;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.push.PushChannelId;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushConfig;
 import top.sywyar.pixivdownload.push.PushDispatcher;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
 import top.sywyar.pixivdownload.push.PushResult;
@@ -40,8 +40,8 @@ class PushNotificationSinkCoverageTest {
     }
 
     @Test
-    @DisplayName("通知严重程度在 push 边界映射为 PushLevel，供通道继续映射颜色 / 优先级")
-    void notificationSeverityMapsToPushLevelOnDelivery() {
+    @DisplayName("通知严重程度直接透传给推送通道映射颜色与优先级")
+    void notificationSeverityPassesThroughOnDelivery() {
         PushConfig config = new PushConfig();
         config.setEnabled(true);
         CapturingPushDispatcher dispatcher = new CapturingPushDispatcher();
@@ -54,7 +54,7 @@ class PushNotificationSinkCoverageTest {
         enabledSink.deliver(NotificationScenario.CIRCUIT_BREAKER, Locale.SIMPLIFIED_CHINESE, Map.of());
 
         assertThat(dispatcher.message).isNotNull();
-        assertThat(dispatcher.message.level()).isEqualTo(PushLevel.ERROR);
+        assertThat(dispatcher.message.level()).isEqualTo(NotificationSeverity.ERROR);
     }
 
     @Test
@@ -124,8 +124,8 @@ class PushNotificationSinkCoverageTest {
         }
 
         @Override
-        public PushResult push(PushChannelType type, PushMessage message) {
-            return PushResult.skipped(type, "test noop");
+        public PushResult push(PushChannelId channelId, PushMessage message) {
+            return PushResult.skipped(channelId, "test noop");
         }
 
         @Override
@@ -140,26 +140,26 @@ class PushNotificationSinkCoverageTest {
         @Override
         public List<PushResult> push(PushMessage message) {
             this.message = message;
-            return List.of(PushResult.ok(PushChannelType.BARK));
+            return List.of(PushResult.ok(PushChannelIds.BARK));
         }
 
         @Override
-        public PushResult push(PushChannelType type, PushMessage message) {
+        public PushResult push(PushChannelId channelId, PushMessage message) {
             this.message = message;
-            return PushResult.ok(type);
+            return PushResult.ok(channelId);
         }
 
         @Override
         public List<PushResult> test(List<PushChannelSettings> settings, PushMessage message) {
             this.message = message;
-            return List.of(PushResult.ok(PushChannelType.BARK));
+            return List.of(PushResult.ok(PushChannelIds.BARK));
         }
     }
 
     private static final class FailedPushDispatcher extends NoopPushDispatcher {
         @Override
         public List<PushResult> push(PushMessage message) {
-            return List.of(PushResult.failed(PushChannelType.BARK, "test failure"));
+            return List.of(PushResult.failed(PushChannelIds.BARK, "test failure"));
         }
     }
 

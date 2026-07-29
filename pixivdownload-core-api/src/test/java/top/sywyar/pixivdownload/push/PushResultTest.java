@@ -10,6 +10,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("推送结果受控诊断契约")
 class PushResultTest {
 
+    private static final PushChannelId CHANNEL = new PushChannelId("test-channel");
+
     @Test
     @DisplayName("已声明的受控原因键均可被精确识别")
     void controlledDetailKeysAreRecognized() {
@@ -23,7 +25,7 @@ class PushResultTest {
                 PushResult.DETAIL_SIGNING_FAILED,
                 PushResult.DETAIL_INVALID_CONTENT_TYPE,
                 PushResult.DETAIL_INVALID_URL)) {
-            assertThat(PushResult.failed(PushChannelType.BARK, key).detailIsMessageKey())
+            assertThat(PushResult.failed(CHANNEL, key).detailIsMessageKey())
                     .as("受控原因键 %s", key)
                     .isTrue();
         }
@@ -33,10 +35,10 @@ class PushResultTest {
     @DisplayName("同前缀未知文本与外部诊断不被误判为文案键")
     void unknownPrefixAndRawDetailAreNotMessageKeys() {
         assertThat(PushResult.failed(
-                PushChannelType.BARK,
+                CHANNEL,
                 PushResult.DETAIL_MESSAGE_PREFIX + "vendor-error").detailIsMessageKey()).isFalse();
         assertThat(PushResult.failed(
-                PushChannelType.BARK, "HTTP 503: unavailable").detailIsMessageKey()).isFalse();
-        assertThat(PushResult.ok(PushChannelType.BARK).detailIsMessageKey()).isFalse();
+                CHANNEL, "HTTP 503: unavailable").detailIsMessageKey()).isFalse();
+        assertThat(PushResult.ok(CHANNEL).detailIsMessageKey()).isFalse();
     }
 }

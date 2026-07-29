@@ -12,9 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
 import top.sywyar.pixivdownload.push.TestMessageResolver;
@@ -38,7 +38,7 @@ class PushChannelSecretRedactionTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final RenderedMessage MESSAGE = new RenderedMessage(
-            "标题", "正文", PushFormat.PLAIN_TEXT, PushLevel.INFO);
+            "标题", "正文", PushFormat.PLAIN_TEXT, NotificationSeverity.INFO);
 
     @Test
     @DisplayName("钉钉网络异常不会回显访问令牌或派生签名")

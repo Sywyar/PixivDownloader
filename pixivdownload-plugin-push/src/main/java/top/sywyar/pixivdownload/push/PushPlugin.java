@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.push.PushChannelId;
 
 import java.util.List;
 
@@ -31,33 +32,33 @@ public class PushPlugin implements PixivFeaturePlugin {
     private static final String NOTIFICATION_SERVICE_NOTICE = "notification.service.concurrent";
     private static final String NOTIFICATION_SERVICES_SECTION = "notification.services";
     private static final List<PushChannelLayout> CHANNELS = List.of(
-            new PushChannelLayout("bark", 110, List.of(
+            new PushChannelLayout(PushChannelIds.BARK, 110, List.of(
                     mapping("push.bark.server", "server"),
                     mapping("push.bark.device-key", "deviceKey"),
                     mapping("push.bark.sound", "sound"),
                     mapping("push.bark.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
-            new PushChannelLayout("dingtalk", 120, List.of(
+            new PushChannelLayout(PushChannelIds.DINGTALK, 120, List.of(
                     mapping("push.dingtalk.access-token", "accessToken"),
                     mapping("push.dingtalk.secret", "secret"),
                     mapping("push.dingtalk.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
-            new PushChannelLayout("telegram", 130, List.of(
+            new PushChannelLayout(PushChannelIds.TELEGRAM, 130, List.of(
                     mapping("push.telegram.bot-token", "botToken"),
                     mapping("push.telegram.chat-id", "chatId"),
                     mapping("push.telegram.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
-            new PushChannelLayout("feishu", 140, List.of(
+            new PushChannelLayout(PushChannelIds.FEISHU, 140, List.of(
                     mapping("push.feishu.webhook-key", "webhookKey"),
                     mapping("push.feishu.secret", "secret"),
                     mapping("push.feishu.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
-            new PushChannelLayout("wecom", 150, List.of(
+            new PushChannelLayout(PushChannelIds.WECOM, 150, List.of(
                     mapping("push.wecom.key", "key"),
                     mapping("push.wecom.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
-            new PushChannelLayout("pushplus", 160, List.of(
+            new PushChannelLayout(PushChannelIds.PUSHPLUS, 160, List.of(
                     mapping("push.pushplus.token", "token"),
                     mapping("push.pushplus.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
-            new PushChannelLayout("serverchan", 170, List.of(
+            new PushChannelLayout(PushChannelIds.SERVERCHAN, 170, List.of(
                     mapping("push.serverchan.send-key", "sendKey"),
                     mapping("push.serverchan.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
-            new PushChannelLayout("webhook", 180, List.of(
+            new PushChannelLayout(PushChannelIds.WEBHOOK, 180, List.of(
                     mapping("push.webhook.url", "url"),
                     mapping("push.webhook.content-type", "contentType"),
                     mapping("push.webhook.body-template", "bodyTemplate"),
@@ -376,16 +377,20 @@ public class PushPlugin implements PixivFeaturePlugin {
         return "gui.config.field." + key;
     }
 
-    private record PushChannelLayout(String id, int order, List<PayloadMapping> mappings) {
+    private record PushChannelLayout(PushChannelId channelId, int order, List<PayloadMapping> mappings) {
+        private String id() {
+            return channelId.id();
+        }
+
         private List<String> configKeys() {
             List<String> keys = new java.util.ArrayList<>();
-            keys.add("push." + id + ".enabled");
+            keys.add("push." + id() + ".enabled");
             mappings.stream().map(PayloadMapping::configKey).forEach(keys::add);
             return List.copyOf(keys);
         }
 
         private int orderOf(String key) {
-            if (key.equals("push." + id + ".enabled")) {
+            if (key.equals("push." + id() + ".enabled")) {
                 return order;
             }
             for (int i = 0; i < mappings.size(); i++) {

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.push;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 
 import java.util.Locale;
 import java.util.Map;
@@ -17,8 +18,7 @@ import java.util.regex.Pattern;
  *   <li>正文 / 标题中的 {@code {{key}}} 运行期占位符由传入的 {@code placeholders} 替换；缺失的 key 替换为空串，
  *       <b>绝不</b>外发裸 {@code {{key}}}（与 {@code MailTemplateRegistry} 的取值占位符语义一致，便于两侧复用同一套键）。</li>
  * </ul>
- * 本类<b>刻意只接收原始 {@code id} / {@link PushLevel}</b>，<b>不</b>依赖上层的通知场景枚举，避免 {@code push}
- * 包反向依赖 {@code notification} 包。
+ * 本类只接收原始 {@code id} / 中性 {@link NotificationSeverity}，不依赖上层通知场景枚举。
  */
 @Service
 @RequiredArgsConstructor
@@ -33,11 +33,16 @@ public class PushMessageFactory {
      * 渲染一条推送消息。
      *
      * @param id           canonical id（与邮件模板 id 一致），用于拼 {@code push.message.{id}.title/.body}
-     * @param level        推送级别（{@code null} 由 {@link PushMessage} 归一为 {@link PushLevel#INFO}）
+     * @param level        中性严重程度（{@code null} 由 {@link PushMessage} 归一为
+     *                     {@link NotificationSeverity#INFO}）
      * @param locale       目标语言
      * @param placeholders {@code {{key}}} 运行期占位符的替换值；缺失的 key 替换为空串
      */
-    public PushMessage render(String id, PushLevel level, Locale locale, Map<String, String> placeholders) {
+    public PushMessage render(
+            String id,
+            NotificationSeverity level,
+            Locale locale,
+            Map<String, String> placeholders) {
         Map<String, String> values = placeholders == null ? Map.of() : placeholders;
         // 标题不做 Markdown 转义：标题在各通道的渲染并不统一为 Markdown（钉钉 / 企微按 Markdown 标题、
         // Telegram 以 HTML 加粗、飞书以 plain_text、Bark 纯文本），转义会在非 Markdown 渲染处留下可见反斜杠。

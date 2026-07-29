@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.PushChannelCapabilit
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.RenderedMessage;
@@ -29,6 +29,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @DisplayName("外置插件 runtime capability 注册器")
 class PluginCapabilityContributionRegistrarTest {
+
+    private static final PushChannelId PUSH_CHANNEL_ID = new PushChannelId("test-channel");
 
     @Test
     @DisplayName("adapter 按稳定能力名排序，并只发现子 context 中匹配类型的 Bean")
@@ -130,13 +132,15 @@ class PluginCapabilityContributionRegistrarTest {
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
             child.registerBean("alpha", AlphaCapability.class, AlphaBean::new);
-            child.registerBean("push-a", PushChannel.class, () -> new FakePushChannel(PushChannelType.BARK));
-            child.registerBean("push-b", PushChannel.class, () -> new FakePushChannel(PushChannelType.BARK));
+            child.registerBean("push-a", PushChannel.class,
+                    () -> new FakePushChannel(new PushChannelId("test-channel")));
+            child.registerBean("push-b", PushChannel.class,
+                    () -> new FakePushChannel(new PushChannelId("test-channel")));
             child.refresh();
 
             assertThatThrownBy(() -> registrar.register("ext-demo", child))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("duplicate push channel type");
+                    .hasMessageContaining("duplicate push channel id");
         }
 
         assertThat(events).containsExactly(
@@ -146,7 +150,7 @@ class PluginCapabilityContributionRegistrarTest {
         assertThat(pushRegistry.channels()).isEmpty();
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
-            child.registerBean("push-ok", PushChannel.class, () -> new FakePushChannel(PushChannelType.BARK));
+            child.registerBean("push-ok", PushChannel.class, () -> new FakePushChannel(PUSH_CHANNEL_ID));
             child.refresh();
 
             registrar.register("ext-demo", child);
@@ -333,7 +337,7 @@ class PluginCapabilityContributionRegistrarTest {
         }
     }
 
-    private record FakePushChannel(PushChannelType type) implements PushChannel {
+    private record FakePushChannel(PushChannelId type) implements PushChannel {
         @Override
         public boolean isConfigured() {
             return true;

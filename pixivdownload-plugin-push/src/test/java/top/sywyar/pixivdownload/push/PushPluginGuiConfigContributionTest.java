@@ -24,14 +24,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PushPluginGuiConfigContributionTest {
 
     private static final Set<String> CHANNELS = Set.of(
-            "bark",
-            "dingtalk",
-            "telegram",
-            "feishu",
-            "wecom",
-            "pushplus",
-            "serverchan",
-            "webhook");
+            PushChannelIds.BARK.id(),
+            PushChannelIds.DINGTALK.id(),
+            PushChannelIds.TELEGRAM.id(),
+            PushChannelIds.FEISHU.id(),
+            PushChannelIds.WECOM.id(),
+            PushChannelIds.PUSHPLUS.id(),
+            PushChannelIds.SERVERCHAN.id(),
+            PushChannelIds.WEBHOOK.id());
     private static final Set<String> SECRET_FIELDS = Set.of(
             "push.bark.device-key",
             "push.dingtalk.access-token",

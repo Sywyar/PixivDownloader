@@ -2,8 +2,8 @@ package top.sywyar.pixivdownload.core.push;
 
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
-import top.sywyar.pixivdownload.push.PushChannelType;
 import top.sywyar.pixivdownload.push.PushDispatcher;
 import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushFormatConverter;
@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.push.RenderedMessage;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 推送派发器——框架的<b>唯一入口</b>。业务侧只需构造一个 {@link PushMessage} 调 {@link #push}，
@@ -61,18 +62,18 @@ public class PushService implements PushDispatcher {
      * 向指定类型的单个通道发送（定向通知 / 后续测试入口）。无此通道或该通道未配置时返回
      * {@link PushResult.Status#SKIPPED}。绝不抛异常。
      */
-    public PushResult push(PushChannelType type, PushMessage message) {
-        if (type == null) {
+    public PushResult push(PushChannelId channelId, PushMessage message) {
+        if (channelId == null) {
             return PushResult.skipped(null, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
         }
         PushChannelRegistry.PreparedChannel channel;
         try {
-            channel = channelRegistry.preparedByType(type).orElse(null);
+            channel = channelRegistry.preparedById(channelId).orElse(null);
         } catch (RuntimeException ignored) {
-            return PushResult.skipped(type, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
+            return PushResult.skipped(channelId, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
         }
         if (channel == null) {
-            return PushResult.skipped(type, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
+            return PushResult.skipped(channelId, PushResult.DETAIL_CHANNEL_UNAVAILABLE);
         }
         return dispatchTargeted(channel, message == null ? PushMessage.of("", "") : message);
     }
@@ -99,22 +100,22 @@ public class PushService implements PushDispatcher {
                 results.add(PushResult.failed(null, PushResult.DETAIL_UNEXPECTED_ERROR));
                 continue;
             }
-            PushChannelType type = null;
+            PushChannelId channelId = null;
             try {
-                type = settings.type();
+                channelId = settings.type();
                 PushChannelRegistry.PreparedChannel channel =
-                        channelRegistry.preparedByType(type).orElse(null);
+                        channelRegistry.preparedById(channelId).orElse(null);
                 if (channel == null) {
-                    results.add(PushResult.skipped(type, PushResult.DETAIL_CHANNEL_UNAVAILABLE));
+                    results.add(PushResult.skipped(channelId, PushResult.DETAIL_CHANNEL_UNAVAILABLE));
                     continue;
                 }
                 if (!settings.isComplete()) {
-                    results.add(PushResult.skipped(type, PushResult.DETAIL_SETTINGS_INCOMPLETE));
+                    results.add(PushResult.skipped(channelId, PushResult.DETAIL_SETTINGS_INCOMPLETE));
                     continue;
                 }
                 results.add(dispatchTest(channel, settings, payload));
             } catch (RuntimeException ignored) {
-                results.add(PushResult.failed(type, PushResult.DETAIL_UNEXPECTED_ERROR));
+                results.add(PushResult.failed(channelId, PushResult.DETAIL_UNEXPECTED_ERROR));
             }
         }
         return results;
@@ -134,7 +135,7 @@ public class PushService implements PushDispatcher {
             }
             return normalizeResult(prepared, channel.send(renderFor(channel, message)));
         } catch (RuntimeException ignored) {
-            return PushResult.failed(prepared.type(), PushResult.DETAIL_UNEXPECTED_ERROR);
+            return PushResult.failed(prepared.channelId(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
     }
 
@@ -144,11 +145,11 @@ public class PushService implements PushDispatcher {
         PushChannel channel = prepared.channel();
         try {
             if (!channel.isConfigured()) {
-                return PushResult.skipped(prepared.type(), PushResult.DETAIL_CHANNEL_NOT_CONFIGURED);
+                return PushResult.skipped(prepared.channelId(), PushResult.DETAIL_CHANNEL_NOT_CONFIGURED);
             }
             return normalizeResult(prepared, channel.send(renderFor(channel, message)));
         } catch (RuntimeException ignored) {
-            return PushResult.failed(prepared.type(), PushResult.DETAIL_UNEXPECTED_ERROR);
+            return PushResult.failed(prepared.channelId(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
     }
 
@@ -160,7 +161,7 @@ public class PushService implements PushDispatcher {
         try {
             return normalizeResult(prepared, channel.sendTest(settings, renderFor(channel, message)));
         } catch (RuntimeException ignored) {
-            return PushResult.failed(prepared.type(), PushResult.DETAIL_UNEXPECTED_ERROR);
+            return PushResult.failed(prepared.channelId(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
     }
 
@@ -174,11 +175,11 @@ public class PushService implements PushDispatcher {
             PushChannelRegistry.PreparedChannel prepared,
             PushResult result) {
         if (result == null || result.status() == null) {
-            return PushResult.failed(prepared.type(), PushResult.DETAIL_UNEXPECTED_ERROR);
+            return PushResult.failed(prepared.channelId(), PushResult.DETAIL_UNEXPECTED_ERROR);
         }
-        if (result.channel() == prepared.type()) {
+        if (Objects.equals(result.channel(), prepared.channelId())) {
             return result;
         }
-        return new PushResult(prepared.type(), result.status(), result.detail());
+        return new PushResult(prepared.channelId(), result.status(), result.detail());
     }
 }

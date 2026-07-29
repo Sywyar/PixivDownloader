@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.push;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,7 +50,8 @@ class PushFormatConverterTest {
     @DisplayName("转换：Markdown → 纯文本，剥离粗体与链接标记")
     void renderMarkdownToPlainText() {
         RenderedMessage rm = converter.render(
-                PushMessage.markdown("", "**粗** [链接](http://x)", PushLevel.INFO), PushFormat.PLAIN_TEXT);
+                PushMessage.markdown("", "**粗** [链接](http://x)", NotificationSeverity.INFO),
+                PushFormat.PLAIN_TEXT);
         assertThat(rm.format()).isEqualTo(PushFormat.PLAIN_TEXT);
         assertThat(rm.body()).isEqualTo("粗 链接");
     }
@@ -58,7 +60,7 @@ class PushFormatConverterTest {
     @DisplayName("转换：Markdown → HTML，粗体转 <b>")
     void renderMarkdownToHtml() {
         RenderedMessage rm = converter.render(
-                PushMessage.markdown("", "**粗**", PushLevel.INFO), PushFormat.HTML);
+                PushMessage.markdown("", "**粗**", NotificationSeverity.INFO), PushFormat.HTML);
         assertThat(rm.format()).isEqualTo(PushFormat.HTML);
         assertThat(rm.body()).isEqualTo("<b>粗</b>");
     }
@@ -67,7 +69,7 @@ class PushFormatConverterTest {
     @DisplayName("转换：Markdown → HTML，链接 URL 中的下划线不会被二次解析为斜体")
     void renderMarkdownLinkToHtmlKeepsHrefIntact() {
         RenderedMessage rm = converter.render(
-                PushMessage.markdown("", "[作品](https://example.com/foo_bar_baz)", PushLevel.INFO),
+                PushMessage.markdown("", "[作品](https://example.com/foo_bar_baz)", NotificationSeverity.INFO),
                 PushFormat.HTML);
         assertThat(rm.body()).isEqualTo("<a href=\"https://example.com/foo_bar_baz\">作品</a>");
     }
@@ -76,12 +78,15 @@ class PushFormatConverterTest {
     @DisplayName("转换：Cron 表达式里空格分隔的裸星号不被当作强调吞掉（→纯文本 / HTML / 透传 Markdown）")
     void renderCronAsterisksSurviveAcrossFormats() {
         String body = "触发方式：Cron：0 0 * * *";
-        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.PLAIN_TEXT).body())
+        assertThat(converter.render(
+                PushMessage.markdown("", body, NotificationSeverity.INFO), PushFormat.PLAIN_TEXT).body())
                 .isEqualTo("触发方式：Cron：0 0 * * *");
-        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.HTML).body())
+        assertThat(converter.render(
+                PushMessage.markdown("", body, NotificationSeverity.INFO), PushFormat.HTML).body())
                 .isEqualTo("触发方式：Cron：0 0 * * *");
         // MARKDOWN identity 透传：原样交给厂商渲染器（钉钉 / 企微等），不被本框架改写。
-        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.MARKDOWN).body())
+        assertThat(converter.render(
+                PushMessage.markdown("", body, NotificationSeverity.INFO), PushFormat.MARKDOWN).body())
                 .isEqualTo("触发方式：Cron：0 0 * * *");
     }
 
@@ -89,11 +94,14 @@ class PushFormatConverterTest {
     @DisplayName("转换：反斜杠转义的字面元字符在转纯文本 / HTML 时脱去反斜杠按字面输出，透传 Markdown 时保留供厂商解析")
     void renderBackslashEscapedLiteralsAreUnescaped() {
         String body = "Cron：0 0 \\* \\* \\* 路径 a\\_b\\_c";
-        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.PLAIN_TEXT).body())
+        assertThat(converter.render(
+                PushMessage.markdown("", body, NotificationSeverity.INFO), PushFormat.PLAIN_TEXT).body())
                 .isEqualTo("Cron：0 0 * * * 路径 a_b_c");
-        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.HTML).body())
+        assertThat(converter.render(
+                PushMessage.markdown("", body, NotificationSeverity.INFO), PushFormat.HTML).body())
                 .isEqualTo("Cron：0 0 * * * 路径 a_b_c");
-        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.MARKDOWN).body())
+        assertThat(converter.render(
+                PushMessage.markdown("", body, NotificationSeverity.INFO), PushFormat.MARKDOWN).body())
                 .isEqualTo(body);
     }
 
@@ -102,12 +110,12 @@ class PushFormatConverterTest {
     void renderEscapedLiteralNestedInCodeOrLinkRestoresCleanly() {
         // `a\*b`：行内代码内的星号按字面输出，<code> 标签保留，且不残留 PUSHHTML 哨兵。
         RenderedMessage code = converter.render(
-                PushMessage.markdown("", "`a\\*b`", PushLevel.INFO), PushFormat.HTML);
+                PushMessage.markdown("", "`a\\*b`", NotificationSeverity.INFO), PushFormat.HTML);
         assertThat(code.body()).isEqualTo("<code>a*b</code>");
         assertThat(code.body()).doesNotContain("PUSHHTML");
         // [a\_b](https://x)：链接文字内的下划线按字面输出，<a href> 保留，且不残留哨兵。
         RenderedMessage link = converter.render(
-                PushMessage.markdown("", "[a\\_b](https://x)", PushLevel.INFO), PushFormat.HTML);
+                PushMessage.markdown("", "[a\\_b](https://x)", NotificationSeverity.INFO), PushFormat.HTML);
         assertThat(link.body()).isEqualTo("<a href=\"https://x\">a_b</a>");
         assertThat(link.body()).doesNotContain("PUSHHTML");
     }
@@ -115,9 +123,9 @@ class PushFormatConverterTest {
     @Test
     @DisplayName("转换：转义不误伤真实的 **粗** / *斜*，仍正确剥离 / 转标签")
     void renderRealEmphasisStillConverts() {
-        assertThat(converter.render(PushMessage.markdown("", "**粗** 与 *斜*", PushLevel.INFO),
+        assertThat(converter.render(PushMessage.markdown("", "**粗** 与 *斜*", NotificationSeverity.INFO),
                 PushFormat.PLAIN_TEXT).body()).isEqualTo("粗 与 斜");
-        assertThat(converter.render(PushMessage.markdown("", "**粗** 与 *斜*", PushLevel.INFO),
+        assertThat(converter.render(PushMessage.markdown("", "**粗** 与 *斜*", NotificationSeverity.INFO),
                 PushFormat.HTML).body()).isEqualTo("<b>粗</b> 与 <i>斜</i>");
     }
 
@@ -125,7 +133,7 @@ class PushFormatConverterTest {
     @DisplayName("转换：纯文本 → HTML，转义特殊字符并保留换行")
     void renderPlainTextToHtml() {
         RenderedMessage rm = converter.render(
-                PushMessage.text("", "a<b>\nc", PushLevel.INFO), PushFormat.HTML);
+                PushMessage.text("", "a<b>\nc", NotificationSeverity.INFO), PushFormat.HTML);
         assertThat(rm.body()).isEqualTo("a&lt;b&gt;\nc");
     }
 
@@ -133,7 +141,8 @@ class PushFormatConverterTest {
     @DisplayName("转换：HTML → 纯文本，去标签、<br> 转换行、反转义实体")
     void renderHtmlToPlainText() {
         RenderedMessage rm = converter.render(
-                PushMessage.html("", "<b>x</b><br>y&amp;z", PushLevel.INFO), PushFormat.PLAIN_TEXT);
+                PushMessage.html("", "<b>x</b><br>y&amp;z", NotificationSeverity.INFO),
+                PushFormat.PLAIN_TEXT);
         assertThat(rm.body()).isEqualTo("x\ny&z");
     }
 
@@ -141,18 +150,18 @@ class PushFormatConverterTest {
     @DisplayName("转换：目标 CARD 时正文以 Markdown 内联承载（Markdown 源原样）")
     void renderCardCarriesMarkdownBody() {
         RenderedMessage rm = converter.render(
-                PushMessage.markdown("标题", "**粗**", PushLevel.WARNING), PushFormat.CARD);
+                PushMessage.markdown("标题", "**粗**", NotificationSeverity.WARNING), PushFormat.CARD);
         assertThat(rm.format()).isEqualTo(PushFormat.CARD);
         assertThat(rm.title()).isEqualTo("标题");
         assertThat(rm.body()).isEqualTo("**粗**");
-        assertThat(rm.level()).isEqualTo(PushLevel.WARNING);
+        assertThat(rm.level()).isEqualTo(NotificationSeverity.WARNING);
     }
 
     @Test
     @DisplayName("转换：HTML 源 → CARD 不可达 Markdown，卡片正文降级为纯文本")
     void renderCardFromHtmlDegradesBody() {
         RenderedMessage rm = converter.render(
-                PushMessage.html("", "<b>x</b>", PushLevel.INFO), PushFormat.CARD);
+                PushMessage.html("", "<b>x</b>", NotificationSeverity.INFO), PushFormat.CARD);
         assertThat(rm.format()).isEqualTo(PushFormat.CARD);
         assertThat(rm.body()).isEqualTo("x");
     }
@@ -161,7 +170,7 @@ class PushFormatConverterTest {
     @DisplayName("降级：目标不可达（HTML 源 → MARKDOWN）时尽力降级为纯文本仍产出")
     void renderUnreachableTargetDegradesToPlainText() {
         RenderedMessage rm = converter.render(
-                PushMessage.html("", "<b>x</b>", PushLevel.INFO), PushFormat.MARKDOWN);
+                PushMessage.html("", "<b>x</b>", NotificationSeverity.INFO), PushFormat.MARKDOWN);
         assertThat(rm.format()).isEqualTo(PushFormat.PLAIN_TEXT);
         assertThat(rm.body()).isEqualTo("x");
     }

@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  *   <li>{@code MARKDOWN → PLAIN_TEXT}：剥离标记</li>
  *   <li>{@code PLAIN_TEXT → MARKDOWN}：原样透传（纯文本即合法 Markdown）</li>
  *   <li>{@code HTML → PLAIN_TEXT}：去标签 + 反转义实体</li>
- *   <li>{@code PLAIN_TEXT → HTML}：转义特殊字符，保留原始换行（Telegram HTML 不支持 {@code <br>}）</li>
+ *   <li>{@code PLAIN_TEXT → HTML}：转义特殊字符并保留原始换行</li>
  *   <li>{@code MARKDOWN → HTML}：受限子集（粗体 / 斜体 / 行内代码 / 链接，标题降级为去标记）</li>
  *   <li>{@code HTML → MARKDOWN}：<b>不支持</b> → 调用方降级为 {@link PushFormat#PLAIN_TEXT}</li>
  *   <li>{@code * → CARD}：CARD 正文以 Markdown 内联承载，故 {@code CARD} 可达 ⟺ {@code MARKDOWN} 可达</li>

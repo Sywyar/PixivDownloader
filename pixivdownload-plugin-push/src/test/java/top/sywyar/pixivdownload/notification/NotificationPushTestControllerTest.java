@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
-import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushChannelIds;
 import top.sywyar.pixivdownload.push.PushDispatcher;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushMessageFactory;
@@ -69,7 +69,7 @@ class NotificationPushTestControllerTest {
     @DisplayName("testAll 遍历全部通知场景各发一条，全部成功时 success=true、succeeded==total")
     void testAllSendsEveryScenarioOnSuccess() {
         when(pushService.test(anyList(), any(PushMessage.class)))
-                .thenReturn(List.of(PushResult.ok(PushChannelType.BARK)));
+                .thenReturn(List.of(PushResult.ok(PushChannelIds.BARK)));
 
         ResponseEntity<PushTestResponse> response = controller.testAll(barkEnabledRequest(), localRequest());
 
@@ -88,7 +88,7 @@ class NotificationPushTestControllerTest {
         List<PushMessage> sent = new ArrayList<>();
         doAnswer(invocation -> {
             sent.add(invocation.getArgument(1));
-            return List.of(PushResult.ok(PushChannelType.BARK));
+            return List.of(PushResult.ok(PushChannelIds.BARK));
         }).when(pushService).test(anyList(), any(PushMessage.class));
 
         controller.testAll(barkEnabledRequest(), localRequest());
