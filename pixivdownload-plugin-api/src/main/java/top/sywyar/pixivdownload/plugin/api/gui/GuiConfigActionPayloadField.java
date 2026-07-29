@@ -4,7 +4,8 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  * One field-to-payload mapping for a GUI configuration action.
  *
  * @param payloadPath dot-separated JSON path written into the request body
- * @param fieldKey optional config field key whose current GUI value is copied
+ * @param fieldKey optional config field key whose current GUI value is copied; the host accepts only fields owned
+ *                 by the same plugin as the action
  * @param literalValue optional literal value used when {@code fieldKey} is blank
  * @param valueType value coercion to apply before writing the payload
  */

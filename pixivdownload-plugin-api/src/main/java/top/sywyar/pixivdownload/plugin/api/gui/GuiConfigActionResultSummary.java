@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
 /**
- * Generic response-array summary declaration for GUI config action results.
+ * Generic response-array summary declaration for GUI config action results. Every selected path must address an
+ * admitted non-sensitive structured scalar; the host bounds item count and rendered plain-text length.
  *
  * @param arrayPath dot-separated path to the JSON array
  * @param labelPath path inside each array item used as the leading label

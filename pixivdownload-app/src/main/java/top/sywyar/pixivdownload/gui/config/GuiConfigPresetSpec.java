@@ -20,7 +20,8 @@ public record GuiConfigPresetSpec(
         String matchValue,
         Map<String, String> values,
         List<String> lockedFieldKeys,
-        GuiConfigPresetMatchMode matchMode
+        GuiConfigPresetMatchMode matchMode,
+        String ownerPluginId
 ) {
 
     public GuiConfigPresetSpec {
@@ -39,5 +40,13 @@ public record GuiConfigPresetSpec(
                                int order, String matchFieldKey, String matchValue,
                                Map<String, String> values, List<String> lockedFieldKeys) {
         this(presetId, label, help, cardId, order, matchFieldKey, matchValue, values, lockedFieldKeys, null);
+    }
+
+    public GuiConfigPresetSpec(String presetId, String label, String help, String cardId,
+                               int order, String matchFieldKey, String matchValue,
+                               Map<String, String> values, List<String> lockedFieldKeys,
+                               GuiConfigPresetMatchMode matchMode) {
+        this(presetId, label, help, cardId, order, matchFieldKey, matchValue, values,
+                lockedFieldKeys, matchMode, null);
     }
 }

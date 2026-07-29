@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.config.FieldType;
 import top.sywyar.pixivdownload.gui.config.GuiConfigActionSpec;
+import top.sywyar.pixivdownload.gui.config.GuiConfigActionResultSafety;
 import top.sywyar.pixivdownload.gui.config.GuiConfigActionResultRuleSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigPresetSpec;
@@ -118,7 +119,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
     @Override
     public void onValuesLoaded() {
         for (PresetState state : presetStates) {
-            GuiConfigPresetSpec selected = resolvePreset(state.presets());
+            GuiConfigPresetSpec selected = resolvePreset(state);
             if (selected == null) {
                 continue;
             }
@@ -136,18 +137,23 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         for (PresetState state : presetStates) {
             Object selected = state.combo().getSelectedItem();
             if (selected instanceof GuiConfigPresetSpec preset) {
-                preset.lockedFieldKeys().forEach(ctx::lockField);
+                preset.lockedFieldKeys().stream()
+                        .filter(key -> trustedPresetField(state.section(), preset, key) != null)
+                        .forEach(ctx::lockField);
             }
         }
     }
 
-    private GuiConfigPresetSpec resolvePreset(List<GuiConfigPresetSpec> presets) {
+    private GuiConfigPresetSpec resolvePreset(PresetState state) {
         GuiConfigPresetSpec fallback = null;
-        for (GuiConfigPresetSpec preset : presets) {
+        for (GuiConfigPresetSpec preset : state.presets()) {
             if (preset.values().isEmpty() && fallback == null) {
                 fallback = preset;
             }
             if (preset.matchFieldKey() == null) {
+                continue;
+            }
+            if (trustedPresetField(state.section(), preset, preset.matchFieldKey()) == null) {
                 continue;
             }
             if (matchesPresetValue(ctx.currentFieldValue(preset.matchFieldKey()), preset)) {
@@ -221,7 +227,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         }
         JComboBox<GuiConfigPresetSpec> combo =
                 new JComboBox<>(presets.toArray(new GuiConfigPresetSpec[0]));
-        PresetState state = new PresetState(combo, presets);
+        PresetState state = new PresetState(combo, presets, section);
         presetStates.add(state);
         combo.setRenderer(new DefaultListCellRenderer() {
             @Override
@@ -240,7 +246,11 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 return;
             }
             if (combo.getSelectedItem() instanceof GuiConfigPresetSpec preset) {
-                preset.values().forEach(ctx::setFieldValue);
+                preset.values().forEach((key, value) -> {
+                    if (trustedPresetField(section, preset, key) != null) {
+                        ctx.setFieldValue(key, value);
+                    }
+                });
                 ctx.updateEnabledStates();
             }
         });
@@ -296,7 +306,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                                 List<GuiConfigFieldLayoutSpec> layouts,
                                 String cardId, Set<String> rendered) {
         addPresetCombo(content, section, cardId);
-        List<ConfigFieldSpec> fields = fieldsByLayout(layouts, rendered);
+        List<ConfigFieldSpec> fields = fieldsByLayout(section, layouts, rendered);
         if (!addNestedEnumSwitcher(content, fields)) {
             addFields(content, fields);
         }
@@ -402,13 +412,14 @@ final class DeclaredGuiConfigSection implements ConfigSection {
 
     private List<ConfigFieldSpec> fieldsFor(GuiConfigSectionSpec section, Set<String> rendered) {
         if (!section.fieldLayouts().isEmpty()) {
-            return fieldsByLayout(section.fieldLayouts(), rendered);
+            return fieldsByLayout(section, section.fieldLayouts(), rendered);
         }
         if (!section.contributesGroupVisibility()) {
             return List.of();
         }
         return ctx.allFields().stream()
                 .filter(field -> matchesGroup(field, section))
+                .filter(field -> section.ownerPluginIds().contains(field.ownerPluginId()))
                 .filter(field -> rendered.add(field.key()))
                 .toList();
     }
@@ -426,11 +437,18 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         return groupId == null || groupId.isBlank() ? null : groupId.trim();
     }
 
-    private List<ConfigFieldSpec> fieldsByLayout(List<GuiConfigFieldLayoutSpec> layouts, Set<String> rendered) {
+    private List<ConfigFieldSpec> fieldsByLayout(GuiConfigSectionSpec section,
+                                                 List<GuiConfigFieldLayoutSpec> layouts,
+                                                 Set<String> rendered) {
         List<ConfigFieldSpec> fields = new ArrayList<>();
         for (GuiConfigFieldLayoutSpec layout : layouts) {
             ConfigFieldSpec spec = ctx.findSpec(layout.fieldKey());
-            if (spec != null && rendered.add(spec.key())) {
+            String owner = effectiveOwner(layout.ownerPluginId(), section);
+            if (spec != null
+                    && owner != null
+                    && owner.equals(spec.ownerPluginId())
+                    && section.ownerPluginIds().contains(owner)
+                    && rendered.add(spec.key())) {
                 fields.add(spec);
             }
         }
@@ -495,7 +513,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 .filter(action -> Objects.equals(cardId, action.cardId()))
                 .toList()) {
             JButton button = new JButton(action.label());
-            button.addActionListener(e -> runAction(action, button));
+            button.addActionListener(e -> runAction(section, action, button));
             JPanel panel = FieldRenderer.fieldPanel(
                     action.label() + message("gui.punctuation.colon"),
                     button,
@@ -505,14 +523,14 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         }
     }
 
-    private void runAction(GuiConfigActionSpec action, JButton button) {
+    private void runAction(GuiConfigSectionSpec section, GuiConfigActionSpec action, JButton button) {
         button.setEnabled(false);
         ctx.showNotice(action.sendingNotice().isBlank()
                 ? message("gui.config.action.notice.sending", action.label())
                 : action.sendingNotice());
         byte[] body;
         try {
-            ObjectNode payload = buildPayload(action.payloadFields());
+            ObjectNode payload = buildPayload(section, action);
             body = MAPPER.writeValueAsBytes(payload);
         } catch (Exception e) {
             log.warn(logMessage("gui.config.log.action.payload-failed", action.actionId(), safeMessage(e)), e);
@@ -524,7 +542,8 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         SwingWorker<GuiConfigTestClient.Response, Void> worker = new SwingWorker<>() {
             @Override
             protected GuiConfigTestClient.Response doInBackground() {
-                return ctx.testClient().postJson(action.endpoint(), body, action.readTimeoutMillis());
+                String owner = effectiveOwner(action.ownerPluginId(), section);
+                return ctx.testClient().postJson(action.endpoint(), body, action.readTimeoutMillis(), owner);
             }
 
             @Override
@@ -584,12 +603,22 @@ final class DeclaredGuiConfigSection implements ConfigSection {
 
     private String argumentValue(ActionResult result, GuiConfigActionResultArgument argument) {
         String value = result.value(argument.source(), argument.path());
-        return value.isBlank() ? argument.defaultValue() : value;
+        return value.isBlank()
+                ? GuiConfigActionResultSafety.sanitizeDisplayText(argument.defaultValue())
+                : value;
     }
 
-    private ObjectNode buildPayload(List<GuiConfigActionPayloadField> fields) {
+    private ObjectNode buildPayload(GuiConfigSectionSpec section, GuiConfigActionSpec action) {
         ObjectNode root = MAPPER.createObjectNode();
-        for (GuiConfigActionPayloadField field : fields) {
+        String owner = effectiveOwner(action.ownerPluginId(), section);
+        if (owner == null || !section.ownerPluginIds().contains(owner)) {
+            throw new IllegalStateException("GUI action owner is unavailable");
+        }
+        for (GuiConfigActionPayloadField field : action.payloadFields()) {
+            ConfigFieldSpec source = field.fieldKey() == null ? null : ctx.findSpec(field.fieldKey());
+            if (field.fieldKey() != null && (source == null || !owner.equals(source.ownerPluginId()))) {
+                throw new IllegalStateException("GUI action payload field owner mismatch");
+            }
             String value = field.fieldKey() == null
                     ? field.literalValue()
                     : ctx.currentFieldValue(field.fieldKey());
@@ -649,7 +678,31 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         }
     }
 
-    private record PresetState(JComboBox<GuiConfigPresetSpec> combo, List<GuiConfigPresetSpec> presets) {
+    private ConfigFieldSpec trustedPresetField(GuiConfigSectionSpec section,
+                                               GuiConfigPresetSpec preset,
+                                               String fieldKey) {
+        String owner = effectiveOwner(preset.ownerPluginId(), section);
+        ConfigFieldSpec field = ctx.findSpec(fieldKey);
+        if (owner == null
+                || !section.ownerPluginIds().contains(owner)
+                || field == null
+                || !owner.equals(field.ownerPluginId())
+                || field.type() == FieldType.PASSWORD) {
+            return null;
+        }
+        return field;
+    }
+
+    private static String effectiveOwner(String itemOwner, GuiConfigSectionSpec section) {
+        if (itemOwner != null && !itemOwner.isBlank()) {
+            return itemOwner.trim();
+        }
+        return section.pluginId() == null || section.pluginId().isBlank() ? null : section.pluginId().trim();
+    }
+
+    private record PresetState(JComboBox<GuiConfigPresetSpec> combo,
+                               List<GuiConfigPresetSpec> presets,
+                               GuiConfigSectionSpec section) {
         private static final String UPDATING_KEY = "pixivdownloader.updatingPreset";
 
         private boolean updating() {
@@ -671,7 +724,6 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             boolean reachable,
             boolean http2xx,
             int status,
-            String rawBody,
             JsonNode body,
             String summary
     ) {
@@ -679,14 +731,14 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                                          GuiConfigActionResultSummary summarySpec) {
             JsonNode parsed = null;
             String body = response.body();
-            if (body != null && !body.isBlank()) {
+            if (!response.bodyLimitExceeded() && body != null && !body.isBlank()) {
                 try {
                     parsed = MAPPER.readTree(body);
                 } catch (Exception ignored) {
                     parsed = null;
                 }
             }
-            return new ActionResult(response.reachable(), response.is2xx(), response.status(), body, parsed,
+            return new ActionResult(response.reachable(), response.is2xx(), response.status(), parsed,
                     buildSummary(parsed, summarySpec));
         }
 
@@ -697,12 +749,14 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 case HTTP_STATUS -> Integer.toString(status);
                 case HTTP_STATUS_TEXT -> status <= 0 ? "" : "HTTP " + status;
                 case JSON -> jsonText(path);
-                case RAW_BODY -> rawBody == null ? "" : rawBody;
                 case SUMMARY -> summary == null ? "" : summary;
             };
         }
 
         private String jsonText(String path) {
+            if (!GuiConfigActionResultSafety.isSafeJsonPath(path, false)) {
+                return "";
+            }
             JsonNode node = nodeAt(body, path);
             if (node == null || node.isMissingNode() || node.isNull()) {
                 return "";
@@ -711,13 +765,20 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 return Boolean.toString(node.asBoolean());
             }
             if (node.isNumber()) {
-                return node.asText();
+                return GuiConfigActionResultSafety.sanitizeDisplayText(node.asText());
             }
-            return node.asText("");
+            if (!node.isTextual()) {
+                return "";
+            }
+            return GuiConfigActionResultSafety.sanitizeDisplayText(node.asText(""));
         }
 
         private static String buildSummary(JsonNode body, GuiConfigActionResultSummary spec) {
-            if (body == null || spec == null || spec.arrayPath().isBlank()) {
+            if (body == null || spec == null
+                    || !GuiConfigActionResultSafety.isSafeJsonPath(spec.arrayPath(), false)
+                    || !GuiConfigActionResultSafety.isSafeJsonPath(spec.labelPath(), false)
+                    || !GuiConfigActionResultSafety.isSafeJsonPath(spec.statusPath(), true)
+                    || !GuiConfigActionResultSafety.isSafeJsonPath(spec.detailPath(), true)) {
                 return "";
             }
             JsonNode array = nodeAt(body, spec.arrayPath());
@@ -725,7 +786,11 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 return "";
             }
             StringBuilder sb = new StringBuilder();
+            int itemCount = 0;
             for (JsonNode item : array) {
+                if (itemCount >= GuiConfigActionResultSafety.MAX_SUMMARY_ITEMS) {
+                    break;
+                }
                 String status = textAt(item, spec.statusPath());
                 if (!spec.statusPath().isBlank() && status.equals(spec.successStatus())) {
                     continue;
@@ -739,22 +804,32 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                     sb.append("; ");
                 }
                 sb.append(label.isBlank() ? "-" : label);
-                sb.append(": ");
-                if (spec.statusPath().isBlank()) {
-                    sb.append(detail);
-                } else {
+                if (!spec.statusPath().isBlank()) {
+                    sb.append(": ");
                     sb.append(status);
                     if (!detail.isBlank()) {
                         sb.append(" (").append(detail).append(')');
                     }
+                } else if (!detail.isBlank()) {
+                    sb.append(": ").append(detail);
+                }
+                itemCount++;
+                if (sb.codePointCount(0, sb.length()) >= GuiConfigActionResultSafety.MAX_SUMMARY_CODE_POINTS) {
+                    break;
                 }
             }
-            return sb.toString();
+            return GuiConfigActionResultSafety.sanitizeSummary(sb.toString());
         }
 
         private static String textAt(JsonNode node, String path) {
+            if (!GuiConfigActionResultSafety.isSafeJsonPath(path, true)) {
+                return "";
+            }
             JsonNode found = nodeAt(node, path);
-            return found == null || found.isMissingNode() || found.isNull() ? "" : found.asText("");
+            if (found == null || found.isMissingNode() || found.isNull() || !found.isValueNode()) {
+                return "";
+            }
+            return GuiConfigActionResultSafety.sanitizeDisplayText(found.asText(""));
         }
 
         private static JsonNode nodeAt(JsonNode root, String path) {

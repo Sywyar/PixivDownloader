@@ -22,10 +22,13 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
+import top.sywyar.pixivdownload.common.web.GuiActionInvocationHeaders;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.TestGalleryPlugin;
 import top.sywyar.pixivdownload.plugin.TestNovelGalleryPlugin;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -103,6 +106,22 @@ class AuthFilterTest {
                 new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         routes.register("download-workbench",
                 List.of(WebRouteContribution.visitor("/api/scripts**")));
+        return new AuthFilter(
+                setupService,
+                staticResourceRateLimitService,
+                rateLimitService,
+                localeResolver,
+                appMessages,
+                maintenanceProvider,
+                guestInviteService,
+                guiTokenProvider,
+                routes);
+    }
+
+    private AuthFilter authFilterWithGuiActionRoute(String owner, WebRouteContribution route) {
+        RouteAccessRegistry routes =
+                new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        routes.register(owner, List.of(route));
         return new AuthFilter(
                 setupService,
                 staticResourceRateLimitService,
@@ -1235,6 +1254,171 @@ class AuthFilterTest {
 
             assertThat(response.getStatus()).isEqualTo(403);
             verifyNoInteractions(filterChain);
+        }
+
+        @Test
+        @DisplayName("声明式 GUI 动作仅可调用当前同 owner 的精确 GUI POST 路由")
+        void declaredGuiActionUsesCurrentExactSameOwnerRoute() throws Exception {
+            AuthFilter filter = authFilterWithGuiActionRoute(
+                    "mail",
+                    new WebRouteContribution(
+                            "/api/gui/mail/test",
+                            AccessPolicy.GUI,
+                            Set.of(HttpMethod.POST),
+                            false));
+            when(guiTokenProvider.getToken()).thenReturn("gui-token");
+
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/mail/test");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "mail");
+
+            filter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("声明式 GUI 动作不得调用其它 owner 的已发布端点")
+        void declaredGuiActionRejectsAnotherOwnersRoute() throws Exception {
+            AuthFilter filter = authFilterWithGuiActionRoute(
+                    "mail",
+                    new WebRouteContribution(
+                            "/api/gui/mail/test",
+                            AccessPolicy.GUI,
+                            Set.of(HttpMethod.POST),
+                            false));
+            when(guiTokenProvider.getToken()).thenReturn("gui-token");
+
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/mail/test");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "push");
+
+            filter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verifyNoInteractions(filterChain);
+        }
+
+        @Test
+        @DisplayName("声明式 GUI 动作不得借宽前缀声明调用未精确发布端点")
+        void declaredGuiActionRejectsWildcardOnlyRoute() throws Exception {
+            AuthFilter filter = authFilterWithGuiActionRoute(
+                    "mail",
+                    new WebRouteContribution(
+                            "/api/gui/mail/**",
+                            AccessPolicy.GUI,
+                            Set.of(HttpMethod.POST),
+                            false));
+            when(guiTokenProvider.getToken()).thenReturn("gui-token");
+
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/mail/test");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "mail");
+
+            filter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verifyNoInteractions(filterChain);
+        }
+
+        @Test
+        @DisplayName("声明式 GUI 动作不得使用非 POST 或非 GUI 的精确路由")
+        void declaredGuiActionRejectsWrongMethodOrPolicy() throws Exception {
+            AuthFilter getOnlyFilter = authFilterWithGuiActionRoute(
+                    "mail",
+                    new WebRouteContribution(
+                            "/api/gui/mail/read-only",
+                            AccessPolicy.GUI,
+                            Set.of(HttpMethod.GET),
+                            false));
+            when(guiTokenProvider.getToken()).thenReturn("gui-token");
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/mail/read-only");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "mail");
+
+            getOnlyFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verifyNoInteractions(filterChain);
+
+            reset(filterChain);
+            response = new MockHttpServletResponse();
+            AuthFilter localFilter = authFilterWithGuiActionRoute(
+                    "mail-local",
+                    new WebRouteContribution(
+                            "/api/gui/mail/local",
+                            AccessPolicy.LOCAL,
+                            Set.of(HttpMethod.POST),
+                            false));
+            request = new MockHttpServletRequest();
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/mail/local");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "mail-local");
+
+            localFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verifyNoInteractions(filterChain);
+        }
+
+        @Test
+        @DisplayName("活动路由换代后旧 owner 动作立即失效且新 owner 可用")
+        void declaredGuiActionTracksCurrentRouteOwnerAfterReplacement() throws Exception {
+            RouteAccessRegistry routes =
+                    new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+            WebRouteContribution route = new WebRouteContribution(
+                    "/api/gui/shared/test",
+                    AccessPolicy.GUI,
+                    Set.of(HttpMethod.POST),
+                    false);
+            routes.register("old-owner", List.of(route));
+            AuthFilter filter = new AuthFilter(
+                    setupService,
+                    staticResourceRateLimitService,
+                    rateLimitService,
+                    localeResolver,
+                    appMessages,
+                    maintenanceProvider,
+                    guestInviteService,
+                    guiTokenProvider,
+                    routes);
+            when(guiTokenProvider.getToken()).thenReturn("gui-token");
+
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/shared/test");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "old-owner");
+            filter.doFilterInternal(request, response, filterChain);
+            verify(filterChain).doFilter(request, response);
+
+            routes.unregister("old-owner");
+            routes.register("new-owner", List.of(route));
+            reset(filterChain);
+            request = new MockHttpServletRequest();
+            response = new MockHttpServletResponse();
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/shared/test");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "old-owner");
+            filter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verifyNoInteractions(filterChain);
+
+            request = new MockHttpServletRequest();
+            response = new MockHttpServletResponse();
+            request.setMethod("POST");
+            request.setRequestURI("/api/gui/shared/test");
+            request.addHeader(GuiTokenProvider.HEADER_NAME, "gui-token");
+            request.addHeader(GuiActionInvocationHeaders.PLUGIN_OWNER, "new-owner");
+            filter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
         }
     }
 

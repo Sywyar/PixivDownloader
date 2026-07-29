@@ -17,7 +17,10 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.util.ArrayList;
@@ -77,6 +80,7 @@ public final class GuiConfigContributionAggregator {
                 continue;
             }
             PluginTextResolver textResolver = PluginTextResolver.create(registered, diagnostics);
+            List<WebRouteContribution> routes = captureRoutes(registered, diagnostics);
             List<GuiConfigContribution> valid = new ArrayList<>();
             for (GuiConfigContribution contribution : pluginContributions) {
                 if (contribution == null) {
@@ -88,12 +92,16 @@ public final class GuiConfigContributionAggregator {
                 registerGroups(registered, textResolver, contribution.groups(), customGroups, diagnostics);
             }
             if (!valid.isEmpty()) {
-                contributions.add(new PluginContributions(registered, textResolver, List.copyOf(valid)));
+                contributions.add(new PluginContributions(
+                        registered, textResolver, List.copyOf(valid), routes));
             }
         }
 
-        List<AcceptedField> accepted = collectFields(contributions, customGroups, diagnostics);
-        List<GuiConfigSectionSpec> sections = collectSections(contributions, customGroups, diagnostics);
+        List<AcceptedField> accepted = enforceFieldReferenceOwnership(
+                collectFields(contributions, customGroups, diagnostics), diagnostics);
+        Map<String, TrustedField> trustedFields = trustedFields(accepted);
+        List<GuiConfigSectionSpec> sections =
+                collectSections(contributions, customGroups, trustedFields, diagnostics);
         List<ConfigFieldSpec> fields = accepted.stream()
                 .sorted(Comparator
                         .comparingInt(AcceptedField::groupOrder)
@@ -150,6 +158,33 @@ public final class GuiConfigContributionAggregator {
         }
     }
 
+    private static List<WebRouteContribution> captureRoutes(
+            PluginRegistry.RegisteredPlugin registered,
+            List<GuiConfigContributionDiagnostic> diagnostics) {
+        try {
+            List<WebRouteContribution> routes = registered.plugin().routes();
+            if (routes == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), null,
+                        "GUI config plugin route contribution list is null; actions are disabled"));
+                return List.of();
+            }
+            List<WebRouteContribution> accepted = new ArrayList<>();
+            for (WebRouteContribution route : routes) {
+                if (route == null) {
+                    diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), null,
+                            "null route contribution while binding GUI config actions"));
+                    continue;
+                }
+                accepted.add(route);
+            }
+            return List.copyOf(accepted);
+        } catch (RuntimeException e) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), null,
+                    "GUI config plugin routes threw; actions are disabled: " + safeMessage(e)));
+            return List.of();
+        }
+    }
+
     private static List<AcceptedField> collectFields(List<PluginContributions> contributions,
                                                      Map<String, GroupEntry> customGroups,
                                                      List<GuiConfigContributionDiagnostic> diagnostics) {
@@ -186,6 +221,64 @@ public final class GuiConfigContributionAggregator {
             }
         }
         return accepted;
+    }
+
+    private static List<AcceptedField> enforceFieldReferenceOwnership(
+            List<AcceptedField> candidates,
+            List<GuiConfigContributionDiagnostic> diagnostics) {
+        List<AcceptedField> accepted = new ArrayList<>(candidates);
+        Set<String> diagnosed = new HashSet<>();
+        boolean changed;
+        do {
+            changed = false;
+            Map<String, TrustedField> trusted = trustedFields(accepted);
+            List<AcceptedField> rejected = new ArrayList<>();
+            for (AcceptedField field : accepted) {
+                String invalidReference = invalidConditionReference(field, trusted);
+                if (invalidReference == null) {
+                    continue;
+                }
+                rejected.add(field);
+                if (diagnosed.add(field.pluginId() + "\u0000" + field.key())) {
+                    TrustedField target = trusted.get(invalidReference);
+                    String reason = target == null
+                            ? "unavailable field"
+                            : "field owned by '" + target.ownerPluginId() + "'";
+                    diagnostics.add(new GuiConfigContributionDiagnostic(field.pluginId(), field.key(),
+                            "GUI config field condition references " + reason + " '" + invalidReference
+                                    + "'; only fields owned by the same plugin may be referenced"));
+                }
+            }
+            if (!rejected.isEmpty()) {
+                accepted.removeAll(rejected);
+                changed = true;
+            }
+        } while (changed);
+        return List.copyOf(accepted);
+    }
+
+    private static String invalidConditionReference(AcceptedField field, Map<String, TrustedField> trustedFields) {
+        List<GuiConfigCondition> conditions = new ArrayList<>();
+        conditions.addAll(field.enabledWhenConditions());
+        conditions.addAll(field.visibleWhenConditions());
+        for (GuiConfigCondition condition : conditions) {
+            TrustedField target = trustedFields.get(condition.key());
+            if (target == null || !field.pluginId().equals(target.ownerPluginId())) {
+                return condition.key();
+            }
+        }
+        return null;
+    }
+
+    private static Map<String, TrustedField> trustedFields(List<AcceptedField> accepted) {
+        Map<String, TrustedField> trusted = new LinkedHashMap<>();
+        for (ConfigFieldSpec coreField : ConfigFieldRegistry.allFields()) {
+            trusted.put(coreField.key(), new TrustedField(coreField.ownerPluginId(), coreField.type()));
+        }
+        for (AcceptedField field : accepted) {
+            trusted.put(field.key(), new TrustedField(field.pluginId(), field.spec().type()));
+        }
+        return Map.copyOf(trusted);
     }
 
     private static AcceptedField toField(PluginRegistry.RegisteredPlugin registered,
@@ -281,7 +374,8 @@ public final class GuiConfigContributionAggregator {
         }
         int groupOrder = ConfigFieldRegistry.groupOrder(groupId)
                 .orElseGet(() -> customGroups.get(groupId).spec().order());
-        return new AcceptedField(registered.id(), key, builder.build(), groupOrder, field.order());
+        return new AcceptedField(registered.id(), key, builder.build(), groupOrder, field.order(),
+                field.enabledWhen(), field.visibleWhen());
     }
 
     private static Map<String, String> enumValueLabels(PluginRegistry.RegisteredPlugin registered,
@@ -319,6 +413,7 @@ public final class GuiConfigContributionAggregator {
 
     private static List<GuiConfigSectionSpec> collectSections(List<PluginContributions> contributions,
                                                               Map<String, GroupEntry> customGroups,
+                                                              Map<String, TrustedField> trustedFields,
                                                               List<GuiConfigContributionDiagnostic> diagnostics) {
         Map<String, String> ownerBySectionId = new LinkedHashMap<>();
         Map<String, GuiConfigSectionSpec> mergedBySectionId = new LinkedHashMap<>();
@@ -328,7 +423,9 @@ public final class GuiConfigContributionAggregator {
             PluginTextResolver textResolver = pluginContributions.textResolver();
             for (GuiConfigContribution contribution : pluginContributions.contributions()) {
                 for (GuiConfigSectionContribution section : contribution.sections()) {
-                    GuiConfigSectionSpec spec = toSection(registered, textResolver, section, customGroups, diagnostics);
+                    GuiConfigSectionSpec spec = toSection(
+                            registered, textResolver, section, customGroups, trustedFields,
+                            pluginContributions.routes(), diagnostics);
                     if (spec == null) {
                         continue;
                     }
@@ -387,6 +484,8 @@ public final class GuiConfigContributionAggregator {
         List<GuiConfigSectionNoticeSpec> notices = new ArrayList<>();
         notices.addAll(existing.notices());
         notices.addAll(incoming.notices());
+        Set<String> owners = new java.util.LinkedHashSet<>(existing.ownerPluginIds());
+        owners.addAll(incoming.ownerPluginIds());
         return new GuiConfigSectionSpec(
                 existing.pluginId(),
                 existing.sectionId(),
@@ -406,7 +505,8 @@ public final class GuiConfigContributionAggregator {
                 sortActions(actions),
                 sortPresets(presets),
                 true,
-                existing.contributesGroupVisibility() || incoming.contributesGroupVisibility());
+                existing.contributesGroupVisibility() || incoming.contributesGroupVisibility(),
+                owners);
     }
 
     private static List<GuiConfigSectionNoticeSpec> mergeNotices(List<GuiConfigSectionNoticeSpec> notices) {
@@ -452,6 +552,8 @@ public final class GuiConfigContributionAggregator {
                                                   PluginTextResolver textResolver,
                                                   GuiConfigSectionContribution section,
                                                   Map<String, GroupEntry> customGroups,
+                                                  Map<String, TrustedField> trustedFields,
+                                                  List<WebRouteContribution> routes,
                                                   List<GuiConfigContributionDiagnostic> diagnostics) {
         if (section == null) {
             diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), null,
@@ -512,11 +614,11 @@ public final class GuiConfigContributionAggregator {
             return null;
         }
         List<GuiConfigFieldLayoutSpec> fieldLayouts = fieldLayoutSpecs(
-                registered, textResolver, sectionId, section.fieldLayouts(), diagnostics);
+                registered, textResolver, sectionId, section.fieldLayouts(), trustedFields, diagnostics);
         List<GuiConfigActionSpec> actions = actionSpecs(
-                registered, textResolver, sectionId, section.actions(), diagnostics);
+                registered, textResolver, sectionId, section.actions(), trustedFields, routes, diagnostics);
         List<GuiConfigPresetSpec> presets = presetSpecs(
-                registered, textResolver, sectionId, section.presets(), diagnostics);
+                registered, textResolver, sectionId, section.presets(), trustedFields, diagnostics);
         List<GuiConfigSectionNoticeSpec> notices = noticeSpecs(
                 registered, textResolver, sectionId, section.notices(), diagnostics);
 
@@ -579,6 +681,7 @@ public final class GuiConfigContributionAggregator {
                                                                    PluginTextResolver textResolver,
                                                                    String sectionId,
                                                                    List<GuiConfigFieldLayoutContribution> layouts,
+                                                                   Map<String, TrustedField> trustedFields,
                                                                    List<GuiConfigContributionDiagnostic> diagnostics) {
         List<GuiConfigFieldLayoutSpec> accepted = new ArrayList<>();
         for (GuiConfigFieldLayoutContribution layout : layouts) {
@@ -593,12 +696,18 @@ public final class GuiConfigContributionAggregator {
                         "GUI config field layout field key is blank"));
                 continue;
             }
+            if (!sameOwnerField(registered.id(), fieldKey, trustedFields)) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        fieldReferenceMessage("field layout", fieldKey, registered.id(), trustedFields)));
+                continue;
+            }
             String cardLabel = optionalText(registered, textResolver, sectionId, "field layout",
                     "card label", layout.i18nNamespace(), layout.cardLabelKey(), diagnostics);
             if (cardLabel == null) {
                 continue;
             }
-            accepted.add(new GuiConfigFieldLayoutSpec(fieldKey, normalize(layout.cardId()), cardLabel, layout.order()));
+            accepted.add(new GuiConfigFieldLayoutSpec(
+                    fieldKey, normalize(layout.cardId()), cardLabel, layout.order(), registered.id()));
         }
         return accepted.stream()
                 .sorted(Comparator
@@ -611,6 +720,8 @@ public final class GuiConfigContributionAggregator {
                                                          PluginTextResolver textResolver,
                                                          String sectionId,
                                                          List<GuiConfigActionContribution> actions,
+                                                         Map<String, TrustedField> trustedFields,
+                                                         List<WebRouteContribution> routes,
                                                          List<GuiConfigContributionDiagnostic> diagnostics) {
         Map<String, String> ownerByActionId = new LinkedHashMap<>();
         List<GuiConfigActionSpec> accepted = new ArrayList<>();
@@ -643,6 +754,13 @@ public final class GuiConfigContributionAggregator {
                         "GUI config action endpoint must be a relative /api/gui/ path segment: " + actionId));
                 continue;
             }
+            if (!hasExactGuiPostRoute(routes, endpoint)) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action endpoint '" + endpoint
+                                + "' is not bound to an exact GUI POST route published by plugin '"
+                                + registered.id() + "': " + actionId));
+                continue;
+            }
             String label = textResolver.actionText(sectionId, action.i18nNamespace(), labelKey,
                     "label", diagnostics);
             if (label == null) {
@@ -658,8 +776,22 @@ public final class GuiConfigContributionAggregator {
             if (sendingNotice == null) {
                 continue;
             }
+            List<GuiConfigActionPayloadField> payloadFields = validPayloadFields(
+                    registered, sectionId, action.payloadFields(), trustedFields, diagnostics);
+            if (payloadFields == null) {
+                continue;
+            }
+            if (!validResultSummary(action.resultSummary())) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action result summary contains an unsafe or invalid JSON path: " + actionId));
+                continue;
+            }
             List<GuiConfigActionResultRuleSpec> resultRules =
-                    actionResultRules(registered, textResolver, sectionId, action.resultRules(), diagnostics);
+                    actionResultRules(registered, textResolver, sectionId, action.resultRules(),
+                            action.resultSummary() != null, diagnostics);
+            if (resultRules == null) {
+                continue;
+            }
             if (ownerByActionId.putIfAbsent(actionId, registered.id()) != null) {
                 diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
                         "duplicate GUI config action id '" + actionId + "' in section '" + sectionId + "'"));
@@ -668,8 +800,8 @@ public final class GuiConfigContributionAggregator {
             }
             accepted.add(new GuiConfigActionSpec(actionId, label, help, normalize(action.cardId()), endpoint,
                     action.readTimeoutMillis() <= 0 ? 30_000 : action.readTimeoutMillis(),
-                    action.order(), validPayloadFields(registered, sectionId, action.payloadFields(), diagnostics),
-                    sendingNotice, resultRules, action.resultSummary()));
+                    action.order(), payloadFields, sendingNotice, resultRules, action.resultSummary(),
+                    registered.id()));
         }
         return accepted.stream()
                 .sorted(Comparator
@@ -683,6 +815,7 @@ public final class GuiConfigContributionAggregator {
             PluginTextResolver textResolver,
             String sectionId,
             List<GuiConfigActionResultRule> rules,
+            boolean hasSummary,
             List<GuiConfigContributionDiagnostic> diagnostics) {
         List<GuiConfigActionResultRuleSpec> accepted = new ArrayList<>();
         for (GuiConfigActionResultRule rule : rules) {
@@ -697,10 +830,11 @@ public final class GuiConfigContributionAggregator {
                         "GUI config action result rule notice key is blank"));
                 continue;
             }
-            if (!validActionResultConditions(rule.conditions()) || !validActionResultArguments(rule.arguments())) {
+            if (!validActionResultConditions(rule.conditions(), hasSummary)
+                    || !validActionResultArguments(rule.arguments(), hasSummary)) {
                 diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
-                        "GUI config action result rule contains an invalid condition or argument"));
-                continue;
+                        "GUI config action result rule contains an unsafe or invalid condition or argument"));
+                return null;
             }
             String notice = textResolver.actionText(sectionId, rule.i18nNamespace(), noticeKey,
                     "result notice", diagnostics);
@@ -715,27 +849,33 @@ public final class GuiConfigContributionAggregator {
                 .toList();
     }
 
-    private static boolean validActionResultConditions(List<GuiConfigActionResultCondition> conditions) {
+    private static boolean validActionResultConditions(List<GuiConfigActionResultCondition> conditions,
+                                                       boolean hasSummary) {
         if (conditions == null) {
             return true;
         }
         return conditions.stream()
                 .allMatch(condition -> condition != null
                         && condition.source() != null
-                        && condition.operator() != null);
+                        && condition.operator() != null
+                        && validActionResultReference(condition.source(), condition.path(), hasSummary));
     }
 
-    private static boolean validActionResultArguments(List<GuiConfigActionResultArgument> arguments) {
+    private static boolean validActionResultArguments(List<GuiConfigActionResultArgument> arguments,
+                                                      boolean hasSummary) {
         if (arguments == null) {
             return true;
         }
         return arguments.stream()
-                .allMatch(argument -> argument != null && argument.source() != null);
+                .allMatch(argument -> argument != null
+                        && argument.source() != null
+                        && validActionResultReference(argument.source(), argument.path(), hasSummary));
     }
 
     private static List<GuiConfigActionPayloadField> validPayloadFields(PluginRegistry.RegisteredPlugin registered,
                                                                         String sectionId,
                                                                         List<GuiConfigActionPayloadField> payloadFields,
+                                                                        Map<String, TrustedField> trustedFields,
                                                                         List<GuiConfigContributionDiagnostic> diagnostics) {
         List<GuiConfigActionPayloadField> accepted = new ArrayList<>();
         for (GuiConfigActionPayloadField field : payloadFields) {
@@ -744,7 +884,13 @@ public final class GuiConfigContributionAggregator {
                     || (normalize(field.fieldKey()) == null && field.literalValue().isBlank())) {
                 diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
                         "GUI config action payload field contains blank path and no field key or literal value"));
-                continue;
+                return null;
+            }
+            String fieldKey = normalize(field.fieldKey());
+            if (fieldKey != null && !sameOwnerField(registered.id(), fieldKey, trustedFields)) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        fieldReferenceMessage("action payload", fieldKey, registered.id(), trustedFields)));
+                return null;
             }
             accepted.add(field);
         }
@@ -763,10 +909,37 @@ public final class GuiConfigContributionAggregator {
                 .allMatch(part -> !part.isBlank() && !".".equals(part) && !"..".equals(part));
     }
 
+    private static boolean hasExactGuiPostRoute(List<WebRouteContribution> routes, String endpoint) {
+        String fullPath = "/api/gui/" + endpoint;
+        return routes.stream().anyMatch(route -> fullPath.equals(route.pathPattern())
+                && route.accessPolicy() == AccessPolicy.GUI
+                && route.acceptsMethod(HttpMethod.POST));
+    }
+
+    private static boolean validResultSummary(top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary summary) {
+        return summary == null
+                || (GuiConfigActionResultSafety.isSafeJsonPath(summary.arrayPath(), false)
+                && GuiConfigActionResultSafety.isSafeJsonPath(summary.labelPath(), false)
+                && GuiConfigActionResultSafety.isSafeJsonPath(summary.statusPath(), true)
+                && GuiConfigActionResultSafety.isSafeJsonPath(summary.detailPath(), true));
+    }
+
+    private static boolean validActionResultReference(
+            top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource source,
+            String path,
+            boolean hasSummary) {
+        return switch (source) {
+            case JSON -> GuiConfigActionResultSafety.isSafeJsonPath(path, false);
+            case SUMMARY -> hasSummary && normalize(path) == null;
+            case REACHABLE, HTTP_2XX, HTTP_STATUS, HTTP_STATUS_TEXT -> normalize(path) == null;
+        };
+    }
+
     private static List<GuiConfigPresetSpec> presetSpecs(PluginRegistry.RegisteredPlugin registered,
                                                          PluginTextResolver textResolver,
                                                          String sectionId,
                                                          List<GuiConfigPresetContribution> presets,
+                                                         Map<String, TrustedField> trustedFields,
                                                          List<GuiConfigContributionDiagnostic> diagnostics) {
         Map<String, String> ownerByPresetId = new LinkedHashMap<>();
         List<GuiConfigPresetSpec> accepted = new ArrayList<>();
@@ -798,6 +971,9 @@ public final class GuiConfigContributionAggregator {
             if (help == null) {
                 continue;
             }
+            if (!validPresetReferences(registered.id(), sectionId, preset, trustedFields, diagnostics)) {
+                continue;
+            }
             if (ownerByPresetId.putIfAbsent(presetId, registered.id()) != null) {
                 diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
                         "duplicate GUI config preset id '" + presetId + "' in section '" + sectionId + "'"));
@@ -806,13 +982,81 @@ public final class GuiConfigContributionAggregator {
             }
             accepted.add(new GuiConfigPresetSpec(presetId, label, help, normalize(preset.cardId()), preset.order(),
                     normalize(preset.matchFieldKey()), preset.matchValue(), preset.values(), preset.lockedFieldKeys(),
-                    preset.matchMode()));
+                    preset.matchMode(), registered.id()));
         }
         return accepted.stream()
                 .sorted(Comparator
                         .comparingInt(GuiConfigPresetSpec::order)
                         .thenComparing(GuiConfigPresetSpec::presetId))
                 .toList();
+    }
+
+    private static boolean validPresetReferences(
+            String pluginId,
+            String sectionId,
+            GuiConfigPresetContribution preset,
+            Map<String, TrustedField> trustedFields,
+            List<GuiConfigContributionDiagnostic> diagnostics) {
+        String matchFieldKey = normalize(preset.matchFieldKey());
+        if (matchFieldKey != null
+                && !validPresetField(pluginId, sectionId, "match", matchFieldKey, trustedFields, diagnostics)) {
+            return false;
+        }
+        for (String fieldKey : preset.values().keySet()) {
+            if (!validPresetField(pluginId, sectionId, "value", fieldKey, trustedFields, diagnostics)) {
+                return false;
+            }
+        }
+        for (String fieldKey : preset.lockedFieldKeys()) {
+            if (!validPresetField(pluginId, sectionId, "lock", fieldKey, trustedFields, diagnostics)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean validPresetField(
+            String pluginId,
+            String sectionId,
+            String role,
+            String fieldKey,
+            Map<String, TrustedField> trustedFields,
+            List<GuiConfigContributionDiagnostic> diagnostics) {
+        String normalized = normalize(fieldKey);
+        if (normalized == null || !sameOwnerField(pluginId, normalized, trustedFields)) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(pluginId, sectionId,
+                    fieldReferenceMessage("preset " + role, normalized, pluginId, trustedFields)));
+            return false;
+        }
+        TrustedField field = trustedFields.get(normalized);
+        if (field.type() == FieldType.PASSWORD) {
+            diagnostics.add(new GuiConfigContributionDiagnostic(pluginId, sectionId,
+                    "GUI config preset " + role + " must not reference sensitive/PASSWORD field '"
+                            + normalized + "'"));
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean sameOwnerField(
+            String ownerPluginId,
+            String fieldKey,
+            Map<String, TrustedField> trustedFields) {
+        TrustedField field = trustedFields.get(fieldKey);
+        return field != null && ownerPluginId.equals(field.ownerPluginId());
+    }
+
+    private static String fieldReferenceMessage(
+            String role,
+            String fieldKey,
+            String expectedOwner,
+            Map<String, TrustedField> trustedFields) {
+        TrustedField actual = fieldKey == null ? null : trustedFields.get(fieldKey);
+        if (actual == null) {
+            return "GUI config " + role + " references unavailable field '" + fieldKey + "'";
+        }
+        return "GUI config " + role + " references field '" + fieldKey + "' owned by '"
+                + actual.ownerPluginId() + "'; expected owner '" + expectedOwner + "'";
     }
 
     private static String optionalText(PluginRegistry.RegisteredPlugin registered,
@@ -942,11 +1186,25 @@ public final class GuiConfigContributionAggregator {
 
     private record PluginContributions(PluginRegistry.RegisteredPlugin registered,
                                        PluginTextResolver textResolver,
-                                       List<GuiConfigContribution> contributions) {
+                                       List<GuiConfigContribution> contributions,
+                                       List<WebRouteContribution> routes) {
     }
 
     private record AcceptedField(String pluginId, String key, ConfigFieldSpec spec,
-                                 int groupOrder, int fieldOrder) {
+                                 int groupOrder, int fieldOrder,
+                                 List<GuiConfigCondition> enabledWhenConditions,
+                                 List<GuiConfigCondition> visibleWhenConditions) {
+        private AcceptedField {
+            enabledWhenConditions = enabledWhenConditions == null
+                    ? List.of()
+                    : List.copyOf(enabledWhenConditions);
+            visibleWhenConditions = visibleWhenConditions == null
+                    ? List.of()
+                    : List.copyOf(visibleWhenConditions);
+        }
+    }
+
+    private record TrustedField(String ownerPluginId, FieldType type) {
     }
 
     private static final class PluginTextResolver {

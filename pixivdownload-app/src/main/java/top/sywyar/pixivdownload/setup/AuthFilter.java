@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.common.ErrorResponse;
+import top.sywyar.pixivdownload.common.web.GuiActionInvocationHeaders;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -330,6 +331,10 @@ public class AuthFilter extends OncePerRequestFilter {
                 sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
                 return;
             }
+            if (!isValidDeclaredGuiActionOwner(req, path)) {
+                sendJsonError(req, res, 403, "auth.local-only", "Forbidden: GUI action owner mismatch");
+                return;
+            }
             chain.doFilter(req, res);
             return;
         }
@@ -587,6 +592,33 @@ public class AuthFilter extends OncePerRequestFilter {
             return false;
         }
         return token.equals(req.getHeader(GuiTokenProvider.HEADER_NAME));
+    }
+
+    /**
+     * 声明式 GUI 配置动作额外携带聚合时绑定的插件 owner；仅这类请求需要把 owner 与当前路由快照再次比对。
+     * 普通 GUI 调用没有该请求头，保持原有本机 + GUI token 边界。
+     *
+     * <p>这里要求当前有效路由本身就是精确路径、接受 POST、策略为 GUI 且 owner 相同。这样即使插件的
+     * contribution getter 有状态、在 GUI 聚合与后端实际发布之间返回了不同路由，也不能借宽前缀或其它
+     * 插件已发布的端点发送聚合出的敏感配置 payload。
+     */
+    private boolean isValidDeclaredGuiActionOwner(HttpServletRequest req, String path) {
+        String claimedOwner = req.getHeader(GuiActionInvocationHeaders.PLUGIN_OWNER);
+        if (claimedOwner == null) {
+            return true;
+        }
+        if (claimedOwner.isBlank()
+                || !claimedOwner.equals(claimedOwner.trim())
+                || !"POST".equalsIgnoreCase(req.getMethod())) {
+            return false;
+        }
+        return routeAccessRegistry.resolve(path, HttpMethod.POST)
+                .filter(registered -> claimedOwner.equals(registered.pluginId()))
+                .map(registered -> registered.route())
+                .filter(route -> route.accessPolicy() == AccessPolicy.GUI)
+                .filter(route -> path.equals(route.pathPattern()))
+                .filter(route -> route.acceptsMethod(HttpMethod.POST))
+                .isPresent();
     }
 
     private boolean isDefaultPublicPath(String path) {

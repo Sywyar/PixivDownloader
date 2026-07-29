@@ -7,7 +7,6 @@ import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
-import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
@@ -94,12 +93,11 @@ class AiPluginGuiConfigContributionTest {
         assertThat(action.payloadFields()).extracting(GuiConfigActionPayloadField::fieldKey)
                 .containsExactly("ai.base-url", "ai.api-key", "ai.model", "ai.use-proxy");
         assertThat(action.payloadFields().get(3).valueType()).isEqualTo(GuiConfigActionPayloadType.BOOLEAN);
-        assertThat(action.resultRules()).hasSize(5);
+        assertThat(action.resultRules()).hasSize(4);
         assertThat(action.resultRules()).allSatisfy(rule ->
                 assertThat(rule.i18nNamespace()).isEqualTo(AiPlugin.ID));
         assertThat(action.resultRules()).flatExtracting(rule -> rule.arguments())
-                .anySatisfy(argument ->
-                        assertThat(argument.source()).isEqualTo(GuiConfigActionResultSource.RAW_BODY));
+                .allSatisfy(argument -> assertThat(argument.path()).isEqualTo("reply"));
 
         assertThat(section.presets()).hasSize(new AiPresetRegistry().all().size());
         assertThat(section.presets()).extracting(GuiConfigPresetContribution::cardId)

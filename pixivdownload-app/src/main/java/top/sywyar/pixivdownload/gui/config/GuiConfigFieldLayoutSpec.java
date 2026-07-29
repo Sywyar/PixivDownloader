@@ -7,6 +7,11 @@ public record GuiConfigFieldLayoutSpec(
         String fieldKey,
         String cardId,
         String cardLabel,
-        int order
+        int order,
+        String ownerPluginId
 ) {
+
+    public GuiConfigFieldLayoutSpec(String fieldKey, String cardId, String cardLabel, int order) {
+        this(fieldKey, cardId, cardLabel, order, null);
+    }
 }

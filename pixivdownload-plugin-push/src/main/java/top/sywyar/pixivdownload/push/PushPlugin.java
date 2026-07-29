@@ -328,7 +328,7 @@ public class PushPlugin implements PixivFeaturePlugin {
     }
 
     private static GuiConfigActionResultSummary pushSummary() {
-        return GuiConfigActionResultSummary.nonSuccessItems("results", "channel", "status", "OK", "detail");
+        return GuiConfigActionResultSummary.nonSuccessItems("results", "channel", "status", "OK", "");
     }
 
     private static PayloadMapping mapping(String configKey, String payloadName) {

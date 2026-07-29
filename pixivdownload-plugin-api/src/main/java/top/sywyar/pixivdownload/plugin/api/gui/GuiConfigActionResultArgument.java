@@ -4,8 +4,9 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  * One argument inserted into a GUI config action result notice.
  *
  * @param source where to read the value from
- * @param path optional dot-separated JSON path for {@link GuiConfigActionResultSource#JSON}
- * @param defaultValue value used when the source is blank or missing
+ * @param path optional dot-separated JSON path for {@link GuiConfigActionResultSource#JSON}; credential-like,
+ *             raw-error and HTML paths are rejected by the host
+ * @param defaultValue value used when the source is blank or missing; the host renders it as bounded plain text
  */
 public record GuiConfigActionResultArgument(
         GuiConfigActionResultSource source,

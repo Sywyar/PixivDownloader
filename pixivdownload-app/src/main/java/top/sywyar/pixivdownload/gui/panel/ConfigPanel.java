@@ -68,6 +68,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
+    private final Map<String, ConfigFieldSpec> fieldsByKey;
     private final List<GuiConfigSectionSpec> sectionContributions;
     private final List<ConfigGroupSpec> groupSpecs;
     private final String serverGroup;
@@ -137,6 +138,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         this.currentMode = resolveCurrentMode();
         ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
         this.allFields = snapshot.fields();
+        this.fieldsByKey = snapshot.fieldsByKey();
         this.sectionContributions = snapshot.sections();
         this.groupSpecs = snapshot.groupSpecs();
         this.serverGroup = message("gui.config.group.server");
@@ -2125,7 +2127,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     @Override
     public ConfigFieldSpec findSpec(String key) {
-        return allFields.stream().filter(f -> key.equals(f.key())).findFirst().orElse(null);
+        return key == null ? null : fieldsByKey.get(key);
     }
 
     @Override

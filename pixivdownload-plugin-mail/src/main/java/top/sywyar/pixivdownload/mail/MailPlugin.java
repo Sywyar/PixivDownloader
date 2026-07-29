@@ -174,7 +174,7 @@ public class MailPlugin implements PixivFeaturePlugin {
                                 "gui.config.mail.test.notice.failed",
                                 30,
                                 List.of(GuiConfigActionResultCondition.reachable(true)),
-                                List.of(GuiConfigActionResultArgument.json("error")))),
+                                List.of())),
                 null);
     }
 
@@ -220,7 +220,7 @@ public class MailPlugin implements PixivFeaturePlugin {
                                 40,
                                 List.of(GuiConfigActionResultCondition.reachable(true)),
                                 List.of(GuiConfigActionResultArgument.summary()))),
-                GuiConfigActionResultSummary.allItems("failures", "templateId", "error"));
+                GuiConfigActionResultSummary.allItems("failures", "templateId", ""));
     }
 
     private static List<GuiConfigActionPayloadField> mailPayload() {

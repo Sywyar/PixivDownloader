@@ -220,4 +220,19 @@ class GuiConfigContributionTest {
         assertThat(summary.statusPath()).isEqualTo("status");
         assertThat(summary.successStatus()).isEqualTo("OK");
     }
+
+    @Test
+    @DisplayName("action 结果源不提供原始响应正文")
+    void actionResultSourcesExcludeRawResponseBodies() {
+        assertThat(GuiConfigActionResultSource.values())
+                .extracting(Enum::name)
+                .containsExactly(
+                        "REACHABLE",
+                        "HTTP_2XX",
+                        "HTTP_STATUS",
+                        "HTTP_STATUS_TEXT",
+                        "JSON",
+                        "SUMMARY")
+                .doesNotContain("RAW_BODY");
+    }
 }
