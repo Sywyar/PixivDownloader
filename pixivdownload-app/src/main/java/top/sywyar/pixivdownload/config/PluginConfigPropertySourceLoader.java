@@ -107,12 +107,13 @@ public final class PluginConfigPropertySourceLoader {
         }
     }
 
-    static boolean isCredentialLikeKey(String key) {
+    public static boolean isCredentialLikeKey(String key) {
         if (key == null) {
             return false;
         }
         String normalized = key.trim().toLowerCase(java.util.Locale.ROOT);
         return normalized.endsWith(".password")
+                || normalized.endsWith("-password")
                 || normalized.endsWith(".passwd")
                 || normalized.endsWith(".api-key")
                 || normalized.endsWith(".apikey")
@@ -122,6 +123,7 @@ public final class PluginConfigPropertySourceLoader {
                 || normalized.endsWith(".cookie")
                 || normalized.endsWith(".device-key")
                 || normalized.endsWith(".webhook-key")
+                || normalized.endsWith(".webhook.url")
                 || normalized.endsWith(".send-key")
                 || normalized.endsWith(".key");
     }

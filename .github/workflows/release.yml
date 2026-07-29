@@ -22,7 +22,10 @@ jobs:
   publish-plugins:
     if: github.event_name == 'push'
     uses: ./.github/workflows/publish-plugins.yml
-    secrets: inherit
+    secrets:
+      PLUGINS_REPO_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
+      PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
+      PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
 
   build-jar:
     needs: publish-plugins
@@ -47,6 +50,18 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Prepare production plugin credential key filter
+        shell: pwsh
+        env:
+          PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64: ${{ secrets.PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64 }}
+        run: |
+          $filterPath = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-credential-key-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.properties"
+          [System.IO.File]::AppendAllText(
+            $env:GITHUB_ENV,
+            "PLUGIN_CREDENTIAL_FILTER=$filterPath`n",
+            (New-Object System.Text.UTF8Encoding($false)))
+          ./scripts/write-plugin-credential-key-filter.ps1 -OutputPath $filterPath
+
       - name: Resolve version
         id: vars
         shell: bash
@@ -58,14 +73,22 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build JAR
-        run: mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
+        run: mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }} "-Dplugin.credential.filter=$PLUGIN_CREDENTIAL_FILTER"
 
       - name: Verify packaged distribution boundaries
         run: |
-          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Dexec.skip=true
+          mvn -B -ntp -pl pixivdownload-app -am test -Dtest=DistributionPackagingBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false -Ddistribution.packaging.require-artifacts=true -Ddistribution.packaging.require-production-credential-key=true -Dexec.skip=true
           REPORT=$(find pixivdownload-app/target/surefire-reports -name '*DistributionPackagingBoundaryTest.txt' -print -quit)
           test -n "$REPORT"
           grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$REPORT"
+
+      - name: Remove production plugin credential key filter
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_CREDENTIAL_FILTER)) {
+            Remove-Item -LiteralPath $env:PLUGIN_CREDENTIAL_FILTER -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Stage executable JAR
         run: |

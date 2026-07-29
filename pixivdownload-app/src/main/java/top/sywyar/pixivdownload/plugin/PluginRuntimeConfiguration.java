@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.config.PluginCredentialStore;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -210,18 +210,12 @@ public class PluginRuntimeConfiguration {
      */
     @Bean
     public PluginApplicationContextFactory pluginApplicationContextFactory(
-            PluginCredentialStore credentialStore,
+            PluginCredentialPropertySourceService propertySourceService,
             PluginStreamRegistry pluginStreamRegistry,
             PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
-        return new PluginApplicationContextFactory(ownerPluginId -> {
-            try {
-                Map<String, Object> scoped = new java.util.LinkedHashMap<>();
-                scoped.putAll(credentialStore.readAll(ownerPluginId));
-                return scoped;
-            } catch (java.io.IOException e) {
-                throw new IllegalStateException(
-                        "Failed to load plugin credentials for owner: " + ownerPluginId, e);
-            }
-        }, pluginStreamRegistry, pluginRuntimeTaskRegistry);
+        return new PluginApplicationContextFactory(
+                propertySourceService::snapshotFor,
+                pluginStreamRegistry,
+                pluginRuntimeTaskRegistry);
     }
 }

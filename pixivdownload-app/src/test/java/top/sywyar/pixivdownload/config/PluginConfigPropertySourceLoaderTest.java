@@ -57,6 +57,7 @@ class PluginConfigPropertySourceLoaderTest {
                 NotificationConfigKeys.scenarioEnabledKey("run-summary") + "=false",
                 NotificationConfigKeys.scenarioEnabledKey("run-failed") + "=false",
                 "notification.api-key=" + FAKE_CREDENTIAL,
+                "push.webhook.url=https://example.test/hook?token=" + FAKE_CREDENTIAL,
                 "server.port=1234",
                 ""), StandardCharsets.UTF_8);
 
@@ -65,6 +66,7 @@ class PluginConfigPropertySourceLoaderTest {
                 .isEqualTo("false");
         assertThat(pluginSource.getProperty("server.port")).isNull();
         assertThat(pluginSource.getProperty("notification.api-key")).isNull();
+        assertThat(pluginSource.getProperty("push.webhook.url")).isNull();
 
         MutablePropertySources sources = new MutablePropertySources();
         sources.addLast(pluginSource);

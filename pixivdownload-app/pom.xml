@@ -12,6 +12,10 @@
     <name>PixivDownloader App</name>
     <description>PixivDownloader</description>
 
+    <properties>
+        <plugin.credential.filter>${project.basedir}/src/main/filters/plugin-credential-key-open-source.properties</plugin.credential.filter>
+    </properties>
+
     <dependencies>
         <!-- 跨插件契约模块：主程序与各功能插件共享的稳定契约（零业务依赖，编译期强制） -->
         <dependency>
@@ -140,12 +144,16 @@
     </dependencies>
 
     <build>
+        <filters>
+            <filter>${plugin.credential.filter}</filter>
+        </filters>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
                 <includes>
                     <include>app-version.properties</include>
+                    <include>plugin-credential-key.properties</include>
                 </includes>
             </resource>
             <resource>
@@ -153,6 +161,7 @@
                 <filtering>false</filtering>
                 <excludes>
                     <exclude>app-version.properties</exclude>
+                    <exclude>plugin-credential-key.properties</exclude>
                 </excludes>
             </resource>
         </resources>

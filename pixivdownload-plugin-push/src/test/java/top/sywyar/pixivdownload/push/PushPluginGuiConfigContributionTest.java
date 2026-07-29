@@ -69,8 +69,10 @@ class PushPluginGuiConfigContributionTest {
     @Test
     @DisplayName("推送凭证字段统一声明为敏感密码字段")
     void credentialFieldsAreSensitivePasswords() {
-        List<GuiConfigFieldContribution> fields = contributions().stream()
+        List<GuiConfigFieldContribution> allFields = contributions().stream()
                 .flatMap(contribution -> contribution.fields().stream())
+                .toList();
+        List<GuiConfigFieldContribution> fields = allFields.stream()
                 .filter(field -> SECRET_FIELDS.contains(field.key()))
                 .toList();
 
@@ -81,6 +83,9 @@ class PushPluginGuiConfigContributionTest {
             assertThat(field.type()).isEqualTo(GuiConfigFieldType.PASSWORD);
             assertThat(field.sensitive()).isTrue();
         });
+        assertThat(allFields).filteredOn(GuiConfigFieldContribution::sensitive)
+                .extracting(GuiConfigFieldContribution::key)
+                .containsExactlyInAnyOrderElementsOf(SECRET_FIELDS);
     }
 
     @Test

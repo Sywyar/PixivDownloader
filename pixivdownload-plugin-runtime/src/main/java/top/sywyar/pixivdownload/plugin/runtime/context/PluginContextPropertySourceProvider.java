@@ -1,12 +1,10 @@
 package top.sywyar.pixivdownload.plugin.runtime.context;
 
-import java.util.Map;
-
-/** Supplies owner-scoped properties that must only be visible inside one plugin child context. */
+/** Supplies the owner-scoped property snapshot for one plugin child context. */
 @FunctionalInterface
 public interface PluginContextPropertySourceProvider {
 
-    PluginContextPropertySourceProvider EMPTY = ownerPluginId -> Map.of();
+    PluginContextPropertySourceProvider EMPTY = ownerPluginId -> PluginContextPropertySnapshot.empty();
 
-    Map<String, Object> propertiesFor(String ownerPluginId);
+    PluginContextPropertySnapshot snapshotFor(String ownerPluginId);
 }

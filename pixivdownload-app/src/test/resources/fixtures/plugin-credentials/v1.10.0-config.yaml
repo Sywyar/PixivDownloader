@@ -1,0 +1,3 @@
+# v1.10.0 had no plugin-owned credential fields.
+server.ssl.key-store-password: host-ssl-password
+download.root-folder: historical-v1.10.0-downloads

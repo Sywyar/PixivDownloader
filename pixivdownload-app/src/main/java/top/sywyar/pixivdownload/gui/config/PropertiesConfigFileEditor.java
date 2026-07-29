@@ -150,10 +150,7 @@ public class PropertiesConfigFileEditor {
             return null;
         }
         int separator = separatorIndex(trimmed);
-        if (separator < 0) {
-            return null;
-        }
-        String key = trimmed.substring(0, separator).trim();
+        String key = separator < 0 ? trimmed : trimmed.substring(0, separator).trim();
         return key.isEmpty() ? null : key;
     }
 
@@ -169,7 +166,7 @@ public class PropertiesConfigFileEditor {
                 escaped = true;
                 continue;
             }
-            if (ch == '=' || ch == ':') {
+            if (ch == '=' || ch == ':' || Character.isWhitespace(ch)) {
                 return i;
             }
         }

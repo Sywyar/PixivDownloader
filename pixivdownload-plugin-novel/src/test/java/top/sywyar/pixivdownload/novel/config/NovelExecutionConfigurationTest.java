@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
@@ -35,12 +36,14 @@ class NovelExecutionConfigurationTest {
     @Test
     @DisplayName("子上下文绑定插件属性并在关闭时销毁线程池与状态调度器")
     void childContextOwnsAndDestroysConfiguredExecutors() {
-        PluginApplicationContextFactory factory = new PluginApplicationContextFactory(owner -> Map.of(
-                NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY, "3",
-                NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY, "4"),
-                new PluginStreamRegistry(),
-                new PluginRuntimeTaskRegistry());
+        PluginApplicationContextFactory factory = new PluginApplicationContextFactory(
+                new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
+                    "novel-test-config",
+                    Map.of(
+                            NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY, "3",
+                            NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY, "4")));
             parent.refresh();
             ConfigurableApplicationContext child = factory.create(parent, new PluginContextModule(
                     "novel", getClass().getClassLoader(), List.of(NovelExecutionConfiguration.class)));
@@ -89,11 +92,11 @@ class NovelExecutionConfigurationTest {
     @Test
     @DisplayName("禁用 novel 时子上下文不创建执行设置和线程池")
     void disabledPluginHasNoExecutionBeans() {
-        PluginApplicationContextFactory factory = new PluginApplicationContextFactory(owner -> Map.of(
-                "plugins.novel.enabled", "false"),
-                new PluginStreamRegistry(),
-                new PluginRuntimeTaskRegistry());
+        PluginApplicationContextFactory factory = new PluginApplicationContextFactory(
+                new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
+                    "novel-test-config", Map.of("plugins.novel.enabled", "false")));
             parent.refresh();
             try (ConfigurableApplicationContext child = factory.create(parent, new PluginContextModule(
                     "novel", getClass().getClassLoader(), List.of(NovelExecutionConfiguration.class)))) {

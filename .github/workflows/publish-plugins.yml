@@ -6,6 +6,13 @@ name: Publish plugins
 # 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
 on:
   workflow_call:
+    secrets:
+      PLUGINS_REPO_TOKEN:
+        required: true
+      PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64:
+        required: false
+      PLUGIN_SIGNING_PRIVATE_KEY_PEM:
+        required: false
   workflow_dispatch:
 
 # 本仓库只需读（checkout）；对分发仓库的写全部经 PAT，不靠默认 GITHUB_TOKEN。

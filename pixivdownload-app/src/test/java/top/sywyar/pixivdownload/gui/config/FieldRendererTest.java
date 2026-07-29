@@ -2,7 +2,9 @@ package top.sywyar.pixivdownload.gui.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
+import javax.swing.JPasswordField;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 
@@ -47,9 +49,81 @@ class FieldRendererTest {
         });
     }
 
+    @Test
+    @DisplayName("PASSWORD 字段以非明文状态提示区分已保存、替换与清除")
+    void passwordFieldShowsCredentialStateWithoutEchoingStoredValue() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            FieldRenderer.RenderedField renderedField = FieldRenderer.render(
+                    pluginCredentialSpec("fixture.api-key"));
+
+            assertThat(renderedField.control()).isInstanceOf(JPasswordField.class);
+            assertThat(renderedField.getValue().get()).isEmpty();
+            assertThat(renderedField.credentialStored()).isFalse();
+            assertThat(renderedField.credentialStatusText())
+                    .isEqualTo(GuiMessages.get("gui.credential.status.not-saved"));
+
+            renderedField.setValue().accept("first-value");
+
+            assertThat(renderedField.credentialStatusText())
+                    .isEqualTo(GuiMessages.get("gui.credential.status.save-pending"));
+
+            renderedField.requestCredentialClear();
+
+            assertThat(renderedField.getValue().get()).isEmpty();
+            assertThat(renderedField.credentialClearRequested()).isFalse();
+            assertThat(renderedField.credentialStatusText())
+                    .isEqualTo(GuiMessages.get("gui.credential.status.not-saved"));
+
+            renderedField.setCredentialStored(true);
+
+            assertThat(renderedField.getValue().get()).isEmpty();
+            assertThat(renderedField.credentialStatusText())
+                    .isEqualTo(GuiMessages.get("gui.credential.status.saved"));
+
+            renderedField.setValue().accept("replacement");
+
+            assertThat(renderedField.credentialClearRequested()).isFalse();
+            assertThat(renderedField.credentialStatusText())
+                    .isEqualTo(GuiMessages.get("gui.credential.status.replace-pending"));
+
+            renderedField.requestCredentialClear();
+
+            assertThat(renderedField.getValue().get()).isEmpty();
+            assertThat(renderedField.credentialClearRequested()).isTrue();
+            assertThat(renderedField.credentialStatusText())
+                    .isEqualTo(GuiMessages.get("gui.credential.status.clear-pending"));
+
+            renderedField.setValue().accept("");
+
+            assertThat(renderedField.credentialClearRequested()).isFalse();
+            assertThat(renderedField.credentialStatusText())
+                    .isEqualTo(GuiMessages.get("gui.credential.status.saved"));
+        });
+    }
+
+    @Test
+    @DisplayName("核心 PASSWORD 字段不显示插件凭证存储状态")
+    void corePasswordFieldDoesNotShowPluginCredentialState() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            FieldRenderer.RenderedField renderedField = FieldRenderer.render(
+                    spec("server.ssl.key-store-password", FieldType.PASSWORD, ""));
+
+            renderedField.setValue().accept("core-password");
+
+            assertThat(renderedField.getValue().get()).isEqualTo("core-password");
+            assertThat(renderedField.credentialStatusText()).isEmpty();
+        });
+    }
+
     private static ConfigFieldSpec spec(String key, FieldType type, String defaultValue) {
         return ConfigFieldSpec.builder(key, key, type, "test")
                 .defaultValue(defaultValue)
+                .build();
+    }
+
+    private static ConfigFieldSpec pluginCredentialSpec(String key) {
+        return ConfigFieldSpec.builder(key, key, FieldType.PASSWORD, "test")
+                .ownerPluginId("fixture")
                 .build();
     }
 }

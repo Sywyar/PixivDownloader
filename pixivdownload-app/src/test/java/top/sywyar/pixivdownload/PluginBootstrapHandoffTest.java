@@ -8,7 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.config.PluginCredentialStore;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.PluginRuntimeConfiguration;
@@ -26,6 +26,7 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /**
  * Spring handoff 装配测试：用真实 {@link PixivDownloadApplication.PluginBootstrapHandoffInitializer}（经
@@ -214,7 +215,9 @@ class PluginBootstrapHandoffTest {
     /** 注册聚焦 handoff 测试所需的最小运行时配置 Bean。 */
     private static void registerRuntimeConfig(AnnotationConfigApplicationContext ctx) {
         ctx.register(PluginRuntimeConfiguration.class, PluginToggleProperties.class,
-                PluginCatalogProperties.class, PluginRepositoryRegistry.class,
-                PluginCredentialStore.class);
+                PluginCatalogProperties.class, PluginRepositoryRegistry.class);
+        ctx.registerBean(
+                PluginCredentialPropertySourceService.class,
+                () -> mock(PluginCredentialPropertySourceService.class));
     }
 }
