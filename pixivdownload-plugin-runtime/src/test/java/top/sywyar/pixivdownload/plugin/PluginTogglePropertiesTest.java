@@ -22,17 +22,17 @@ class PluginTogglePropertiesTest {
     @DisplayName("plugins.<id>.enabled 绑定到以插件 id 为键的开关表（含短横线 id）")
     void bindsToggleByPluginId() {
         runner.withPropertyValues(
-                        "plugins.gallery.enabled=false",
-                        "plugins.download-workbench.enabled=false",
-                        "plugins.novel.enabled=true")
+                        "plugins.demo.enabled=false",
+                        "plugins.demo-plugin.enabled=false",
+                        "plugins.explicit.enabled=true")
                 .run(context -> {
                     PluginToggleProperties props = context.getBean(PluginToggleProperties.class);
-                    assertThat(props.isEnabled("gallery")).isFalse();
-                    assertThat(props.isEnabled("download-workbench")).isFalse();
-                    assertThat(props.isEnabled("novel")).isTrue();
+                    assertThat(props.isEnabled("demo")).isFalse();
+                    assertThat(props.isEnabled("demo-plugin")).isFalse();
+                    assertThat(props.isEnabled("explicit")).isTrue();
                     // 未配置的插件默认启用
-                    assertThat(props.isEnabled("stats")).isTrue();
-                    assertThat(props.isEnabled("duplicate")).isTrue();
+                    assertThat(props.isEnabled("unconfigured")).isTrue();
+                    assertThat(props.isEnabled("another-plugin")).isTrue();
                 });
     }
 
@@ -41,7 +41,7 @@ class PluginTogglePropertiesTest {
     void defaultsToAllEnabled() {
         runner.run(context -> {
             PluginToggleProperties props = context.getBean(PluginToggleProperties.class);
-            assertThat(props.isEnabled("gallery")).isTrue();
+            assertThat(props.isEnabled("demo")).isTrue();
             assertThat(props.isEnabled("anything")).isTrue();
         });
     }
@@ -50,8 +50,8 @@ class PluginTogglePropertiesTest {
     @DisplayName("空实例（Spring 上下文外）代表全部启用")
     void emptyInstanceMeansAllEnabled() {
         PluginToggleProperties props = new PluginToggleProperties();
-        assertThat(props.isEnabled("gallery")).isTrue();
-        assertThat(props.isEnabled("download-workbench")).isTrue();
+        assertThat(props.isEnabled("demo")).isTrue();
+        assertThat(props.isEnabled("demo-plugin")).isTrue();
     }
 
     @Test
@@ -71,13 +71,13 @@ class PluginTogglePropertiesTest {
     void staticEnvironmentReadMirrorsInstanceSemantics() {
         MockEnvironment env = new MockEnvironment();
         // 缺项默认启用
-        assertThat(PluginToggleProperties.isEnabled(env, "novel")).isTrue();
+        assertThat(PluginToggleProperties.isEnabled(env, "unconfigured")).isTrue();
         assertThat(PluginToggleProperties.isEnabled(env, null)).isTrue();
         // 短横线 id 正常绑定 + enabled=false 生效
-        env.setProperty("plugins.download-workbench.enabled", "false");
-        assertThat(PluginToggleProperties.isEnabled(env, "download-workbench")).isFalse();
+        env.setProperty("plugins.demo-plugin.enabled", "false");
+        assertThat(PluginToggleProperties.isEnabled(env, "demo-plugin")).isFalse();
         // 显式 true
-        env.setProperty("plugins.gallery.enabled", "true");
-        assertThat(PluginToggleProperties.isEnabled(env, "gallery")).isTrue();
+        env.setProperty("plugins.explicit.enabled", "true");
+        assertThat(PluginToggleProperties.isEnabled(env, "explicit")).isTrue();
     }
 }

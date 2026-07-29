@@ -15,7 +15,7 @@ public record PushChannelId(String id) {
     public PushChannelId {
         if (id == null || !VALID_ID.matcher(id).matches()) {
             throw new IllegalArgumentException(
-                    "push channel id must match [a-z][a-z0-9-]{0,63}");
+                    "channel id must match [a-z][a-z0-9-]{0,63}");
         }
     }
 }

@@ -55,6 +55,24 @@ class PluginEnabledConfigurationServiceTest {
     }
 
     @Test
+    @DisplayName("配置缺少启停键时显式操作会追加插件开关")
+    void appendsToggleWhenMissing() throws Exception {
+        Path config = tempDir.resolve("config.yaml");
+        Files.writeString(config, "server.port: 6999\n", StandardCharsets.UTF_8);
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        PluginEnabledConfigurationService service = new PluginEnabledConfigurationService(
+                statusWith(descriptor(PluginLifecyclePolicy.HOT_RELOAD)),
+                RequiredPluginPolicy.empty(), toggles, config);
+
+        service.update(PLUGIN_ID, false);
+
+        assertThat(Files.readString(config, StandardCharsets.UTF_8))
+                .contains("server.port: 6999")
+                .contains("plugins.demo-ext.enabled: false");
+        assertThat(toggles.isEnabled(PLUGIN_ID)).isFalse();
+    }
+
+    @Test
     @DisplayName("必选插件不允许写入期望启用态")
     void refusesRequiredPlugin() {
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(

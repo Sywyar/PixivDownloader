@@ -4,6 +4,20 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.sun.source.tree.BinaryTree;
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.ExpressionTree;
+import com.sun.source.tree.LiteralTree;
+import com.sun.source.tree.ParenthesizedTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
+import com.sun.source.util.JavacTask;
+import com.sun.source.util.SourcePositions;
+import com.sun.source.util.TreePath;
+import com.sun.source.util.TreePathScanner;
+import com.sun.source.util.TreeScanner;
+import com.sun.source.util.Trees;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.ai.AiClientSettings;
@@ -64,14 +78,25 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelection;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceSelector;
 
+import javax.tools.Diagnostic;
+import javax.tools.DiagnosticCollector;
+import javax.tools.JavaCompiler;
+import javax.tools.JavaFileObject;
+import javax.tools.SimpleJavaFileObject;
+import javax.tools.ToolProvider;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -352,14 +377,22 @@ class CoreApiOwnershipGuardTest {
             Pattern.compile("_thumb\\b", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\bdownload\\.root-folder\\b", Pattern.CASE_INSENSITIVE),
             Pattern.compile("小说独占目录(?:守卫)?|独占目录守卫"));
-    private static final Pattern STRING_DECLARATION = Pattern.compile(
-            "\\bString\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*([^;]+);", Pattern.DOTALL);
-    private static final Pattern STRING_LITERAL = Pattern.compile("\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"");
     private static final Set<String> CONCRETE_PLUGIN_IDS = Set.of(
             "download-workbench", "plugin-market", "recovery-sentinel", "novel", "notification", "tts", "ai",
             "push", "mail", "gallery", "duplicate", "stats", "douyin", "gui-theme");
     private static final Set<String> CONCRETE_ENGINE_IDS = Set.of(
             "voxcpm", "mimo", "cosyvoice", "fish", "minimax", "elevenlabs", "qwen", "doubao");
+    private static final Map<String, Set<String>> APPROVED_OWNER_LITERALS_BY_TYPE = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.gallery.model.work.GalleryWork",
+                    Set.of("media work key must match gallery work key")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver",
+                    Set.of("^/c/[^/]+/(novel-cover-(?:master|original)/.+)$")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter",
+                    Set.of(
+                            "\\{(artwork_id|artwork_title|author_id|author_name|timestamp|page|count|ai\\+?|R18\\+?)}",
+                            "ai",
+                            "ai+"))
+    );
 
     @Test
     @DisplayName("每个生产类型都必须出现在显式 owner 白名单中")
@@ -390,6 +423,28 @@ class CoreApiOwnershipGuardTest {
         assertThat(actualPublicNestedTypes)
                 .as("公开嵌套类型同样属于 core-api 契约面，必须逐个确认长期核心 owner")
                 .containsExactlyInAnyOrderElementsOf(APPROVED_PUBLIC_NESTED_TYPES);
+    }
+
+    @Test
+    @DisplayName("owner 白名单中的顶层契约必须可加载且保持 public")
+    void approvedTopLevelContractsAreLoadableAndPublic() {
+        assertThat(topLevelContractVisibilityViolations(approvedTypes()))
+                .as("白名单不能掩盖缺失或非 public 契约；反射加载失败必须 fail-closed")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("顶层契约反射守卫对缺类与非 public 类型 fail-closed")
+    void topLevelContractReflectionGuardHasFailClosedFixtures() {
+        String missingType = "top.sywyar.pixivdownload.missing.MissingCoreContract";
+
+        assertThat(topLevelContractVisibilityViolations(Set.of(
+                missingType,
+                CoreApiOwnershipGuardTest.class.getName())))
+                .anyMatch(violation -> violation.contains(missingType)
+                        && violation.contains("cannot be loaded"))
+                .anyMatch(violation -> violation.contains(CoreApiOwnershipGuardTest.class.getName())
+                        && violation.contains("is not public"));
     }
 
     @Test
@@ -776,16 +831,17 @@ class CoreApiOwnershipGuardTest {
     }
 
     @Test
-    @DisplayName("生产源码不得声明具体插件或引擎 owner 常量")
-    void productionSourcesDoNotDeclareConcreteOwnerConstants() throws IOException {
-        List<String> violations = new ArrayList<>();
+    @DisplayName("生产源码的任意字符串字面量不得声明具体插件或引擎 owner")
+    void productionStringLiteralsDoNotDeclareConcreteOwners() throws IOException {
+        List<JavaSourceInput> sources = new ArrayList<>();
         for (Path source : productionSources()) {
-            String content = Files.readString(source, StandardCharsets.UTF_8);
-            violations.addAll(concreteOwnerConstantViolations(relativeSource(source), content));
+            sources.add(new JavaSourceInput(
+                    relativeSource(source),
+                    Files.readString(source, StandardCharsets.UTF_8)));
         }
 
-        assertThat(violations)
-                .as("具体插件 id 与引擎 id 必须留在 owner 模块，不能成为 core-api 常量")
+        assertThat(concreteOwnerLiteralViolations(sources))
+                .as("具体插件 id 与引擎 id 必须留在 owner 模块；所有源码必须由单次 javac AST 批量解析")
                 .isEmpty();
     }
 
@@ -847,8 +903,9 @@ class CoreApiOwnershipGuardTest {
                 .anyMatch(violation -> violation.contains("download.root-folder"))
                 .anyMatch(violation -> violation.contains("小说独占目录守卫"));
 
-        List<String> constants = concreteOwnerConstantViolations("RejectedFixture.java", rejected);
-        assertThat(constants)
+        List<String> literals = concreteOwnerLiteralViolations(List.of(
+                new JavaSourceInput("RejectedFixture.java", rejected)));
+        assertThat(literals)
                 .anyMatch(violation -> violation.contains("plugin-market"))
                 .anyMatch(violation -> violation.contains("recovery-sentinel"))
                 .anyMatch(violation -> violation.contains("novel"))
@@ -862,10 +919,134 @@ class CoreApiOwnershipGuardTest {
                     public static final String SCENARIO_PREFIX = "notification.scenario." + "novel";
                 }
                 """;
-        assertThat(concreteOwnerConstantViolations(
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
                 "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java",
-                rejectedApprovedConstantMutation))
+                rejectedApprovedConstantMutation))))
                 .anyMatch(violation -> violation.contains("novel"));
+    }
+
+    @Test
+    @DisplayName("AST owner 守卫覆盖所有字符串上下文与纯字面量折叠")
+    void ownerLiteralAstGuardCoversAllStringContextsAndLiteralFolding() {
+        String rejected = """
+                package fixture;
+                import java.util.List;
+                import java.util.regex.Pattern;
+
+                @interface OwnerMarker {
+                    String value();
+                }
+
+                @OwnerMarker("recovery-sentinel")
+                final class RejectedLiteralContexts {
+                    static final String FOLDED = "plugin-" + "market";
+                    static final Object OBJECT_VALUE = "push";
+                    static final List<String> IDS = List.of("notification");
+                    static final Pattern OWNER_PATTERN = Pattern.compile("tts");
+                    static final Object ENGINE = "mimo";
+                    static final String TEXT_BLOCK = \"\"\"
+                            gallery
+                            \"\"\";
+
+                    String choose(String id) {
+                        if (id.isEmpty()) {
+                            return "mail";
+                        }
+                        return switch (id) {
+                            case "stats" -> "douyin";
+                            default -> "novel";
+                        };
+                    }
+                }
+                """;
+
+        assertThat(concreteOwnerLiteralViolations(List.of(
+                new JavaSourceInput("fixture/RejectedLiteralContexts.java", rejected))))
+                .anyMatch(violation -> violation.contains("recovery-sentinel"))
+                .anyMatch(violation -> violation.contains("plugin-market"))
+                .anyMatch(violation -> violation.contains("push"))
+                .anyMatch(violation -> violation.contains("notification"))
+                .anyMatch(violation -> violation.contains("tts"))
+                .anyMatch(violation -> violation.contains("mimo"))
+                .anyMatch(violation -> violation.contains("gallery"))
+                .anyMatch(violation -> violation.contains("mail"))
+                .anyMatch(violation -> violation.contains("stats"))
+                .anyMatch(violation -> violation.contains("douyin"))
+                .anyMatch(violation -> violation.contains("novel"));
+    }
+
+    @Test
+    @DisplayName("approved public 常量只能按精确字段身份、修饰符和值豁免")
+    void approvedPublicConstantExemptionIsExactAndFailClosed() {
+        String exact = """
+                package top.sywyar.pixivdownload.notification;
+                public final class NotificationConfigKeys {
+                    public static final String SCENARIO_PREFIX = "notification.scenario.";
+                }
+                """;
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", exact))))
+                .isEmpty();
+
+        String wrongField = exact.replace("SCENARIO_PREFIX", "OTHER_PREFIX");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", wrongField))))
+                .anyMatch(violation -> violation.contains("notification"));
+
+        String wrongModifiers = exact.replace("public static final String", "private static final String");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", wrongModifiers))))
+                .anyMatch(violation -> violation.contains("notification"));
+
+        String wrongValue = exact.replace("\"notification.scenario.\"",
+                "\"notification.scenario.\" + \"novel\"");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/notification/NotificationConfigKeys.java", wrongValue))))
+                .anyMatch(violation -> violation.contains("novel"));
+    }
+
+    @Test
+    @DisplayName("合法 owner 同名业务字面量只能按类型与精确值最窄豁免")
+    void legitimateOwnerWordBaselineRequiresExactTypeAndValue() {
+        String exactType = """
+                package top.sywyar.pixivdownload.core.pixiv.filename;
+                final class PixivWorkFileNameFormatter {
+                    Object placeholder() {
+                        return "ai";
+                    }
+                }
+                """;
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/core/pixiv/filename/PixivWorkFileNameFormatter.java",
+                exactType))))
+                .isEmpty();
+
+        String wrongType = exactType
+                .replace("PixivWorkFileNameFormatter", "OtherFormatter");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/core/pixiv/filename/OtherFormatter.java",
+                wrongType))))
+                .anyMatch(violation -> violation.contains("concrete plugin id ai"));
+
+        String wrongValue = exactType.replace("\"ai\"", "\"ai-owner\"");
+        assertThat(concreteOwnerLiteralViolations(List.of(new JavaSourceInput(
+                "top/sywyar/pixivdownload/core/pixiv/filename/PixivWorkFileNameFormatter.java",
+                wrongValue))))
+                .anyMatch(violation -> violation.contains("concrete plugin id ai"));
+    }
+
+    @Test
+    @DisplayName("javac AST 解析出现 ERROR 时 owner 守卫必须 fail-closed")
+    void ownerLiteralAstGuardFailsClosedOnParseErrors() {
+        String malformed = """
+                package fixture;
+                final class MalformedFixture {
+                    String owner = "novel"
+                """;
+
+        assertThat(concreteOwnerLiteralViolations(List.of(
+                new JavaSourceInput("fixture/MalformedFixture.java", malformed))))
+                .anyMatch(violation -> violation.contains("parse ERROR"));
     }
 
     private static Set<String> approvedTypes() {
@@ -879,6 +1060,26 @@ class CoreApiOwnershipGuardTest {
             throw new IllegalStateException("core-api owner whitelist contains duplicate types");
         }
         return Set.copyOf(approved);
+    }
+
+    private static List<String> topLevelContractVisibilityViolations(Set<String> typeNames) {
+        Set<String> violations = new LinkedHashSet<>();
+        for (String typeName : typeNames.stream().sorted().toList()) {
+            Class<?> type;
+            try {
+                type = Class.forName(typeName, false, CoreApiOwnershipGuardTest.class.getClassLoader());
+            } catch (ClassNotFoundException | LinkageError failure) {
+                violations.add(typeName + " cannot be loaded: " + failure.getClass().getSimpleName());
+                continue;
+            }
+            if (type.getEnclosingClass() != null) {
+                violations.add(typeName + " is not a top-level contract");
+            }
+            if (!Modifier.isPublic(type.getModifiers())) {
+                violations.add(typeName + " is not public");
+            }
+        }
+        return List.copyOf(violations);
     }
 
     private static void assertRecordShape(Class<?> type, List<String> componentNames, List<Class<?>> componentTypes) {
@@ -1027,53 +1228,235 @@ class CoreApiOwnershipGuardTest {
         return List.copyOf(violations);
     }
 
-    private static List<String> concreteOwnerConstantViolations(String sourceName, String content) {
-        List<String> violations = new ArrayList<>();
-        Matcher matcher = STRING_DECLARATION.matcher(content);
-        while (matcher.find()) {
-            String field = matcher.group(1);
-            List<String> literalCandidates = stringLiteralCandidates(matcher.group(2));
-            if (isApprovedPublicStringConstant(sourceName, content, field, literalCandidates)) {
-                continue;
-            }
-            CONCRETE_PLUGIN_IDS.stream().sorted()
-                    .filter(id -> literalCandidates.stream().anyMatch(value -> containsOwnerToken(value, id)))
-                    .forEach(id -> violations.add(
-                            sourceName + " declares concrete plugin id " + id + " in " + field
-                                    + " initializer " + literalCandidates));
-            CONCRETE_ENGINE_IDS.stream().sorted()
-                    .filter(id -> literalCandidates.stream().anyMatch(value -> containsOwnerToken(value, id)))
-                    .forEach(id -> violations.add(
-                            sourceName + " declares concrete engine id " + id + " in " + field
-                                    + " initializer " + literalCandidates));
+    private static List<String> concreteOwnerLiteralViolations(List<JavaSourceInput> sources) {
+        Set<String> violations = new LinkedHashSet<>();
+        if (sources.isEmpty()) {
+            return List.of("javac source batch is empty");
+        }
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+            return List.of("system javac compiler is unavailable");
+        }
+
+        DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+        List<JavaFileObject> sourceFiles = sources.stream()
+                .map(InMemoryJavaSource::new)
+                .map(JavaFileObject.class::cast)
+                .toList();
+        JavacTask task = (JavacTask) compiler.getTask(
+                null,
+                null,
+                diagnostics,
+                List.of("-proc:none", "--release", "17"),
+                null,
+                sourceFiles);
+        List<CompilationUnitTree> units = new ArrayList<>();
+        try {
+            task.parse().forEach(units::add);
+        } catch (IOException failure) {
+            violations.add("javac batch parse failed: " + failure.getClass().getSimpleName());
+        }
+        diagnostics.getDiagnostics().stream()
+                .filter(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR)
+                .map(CoreApiOwnershipGuardTest::parseError)
+                .forEach(violations::add);
+        if (units.size() != sources.size()) {
+            violations.add("javac batch parsed " + units.size() + " of " + sources.size() + " source units");
+        }
+
+        SourcePositions positions;
+        try {
+            positions = Trees.instance(task).getSourcePositions();
+        } catch (RuntimeException failure) {
+            violations.add("javac source positions unavailable: " + failure.getClass().getSimpleName());
+            return List.copyOf(violations);
+        }
+        for (CompilationUnitTree unit : units) {
+            Set<Tree> approvedConstantTrees = approvedPublicStringConstantTrees(unit);
+            new ConcreteOwnerLiteralScanner(unit, positions, approvedConstantTrees, violations)
+                    .scan(unit, null);
         }
         return List.copyOf(violations);
     }
 
-    private static List<String> stringLiteralCandidates(String initializer) {
-        List<String> literals = new ArrayList<>();
-        Matcher matcher = STRING_LITERAL.matcher(initializer);
-        while (matcher.find()) {
-            literals.add(matcher.group(1));
-        }
-        if (literals.size() > 1) {
-            literals.add(String.join("", literals));
-        }
-        return List.copyOf(literals);
+    private static String parseError(Diagnostic<? extends JavaFileObject> diagnostic) {
+        String source = diagnostic.getSource() == null ? "<unknown>"
+                : diagnostic.getSource().getName();
+        return source + ":" + diagnostic.getLineNumber()
+                + " parse ERROR " + diagnostic.getMessage(Locale.ROOT);
     }
 
-    private static boolean isApprovedPublicStringConstant(String sourceName,
-                                                           String content,
-                                                           String field,
-                                                           List<String> literalCandidates) {
-        String fileName = sourceName.substring(Math.max(sourceName.lastIndexOf('/'), sourceName.lastIndexOf('\\')) + 1);
-        String simpleTypeName = fileName.endsWith(".java")
-                ? fileName.substring(0, fileName.length() - ".java".length()) : fileName;
-        String key = requiredPackageName(content) + "." + simpleTypeName + "#" + field + ":java.lang.String";
-        Object approvedValue = APPROVED_PUBLIC_CONSTANTS.get(key);
-        return approvedValue instanceof String value
-                && literalCandidates.size() == 1
-                && literalCandidates.get(0).equals(value);
+    private static Set<Tree> approvedPublicStringConstantTrees(CompilationUnitTree unit) {
+        Set<Tree> approved = Collections.newSetFromMap(new IdentityHashMap<>());
+        new TreePathScanner<Void, Void>() {
+            private final Deque<String> enclosingTypes = new ArrayDeque<>();
+
+            @Override
+            public Void visitClass(ClassTree node, Void unused) {
+                String simpleName = node.getSimpleName().toString();
+                enclosingTypes.addLast(simpleName.isEmpty() ? "<anonymous>" : simpleName);
+                try {
+                    return super.visitClass(node, unused);
+                } finally {
+                    enclosingTypes.removeLast();
+                }
+            }
+
+            @Override
+            public Void visitVariable(VariableTree node, Void unused) {
+                TreePath parent = getCurrentPath().getParentPath();
+                if (parent != null
+                        && parent.getLeaf() instanceof ClassTree
+                        && isExplicitPublicStaticFinalString(node)) {
+                    String key = currentTypeName(unit, enclosingTypes)
+                            + "#" + node.getName() + ":java.lang.String";
+                    Object expected = APPROVED_PUBLIC_CONSTANTS.get(key);
+                    String actual = foldStringLiteral(node.getInitializer());
+                    if (expected instanceof String value && value.equals(actual)) {
+                        new TreeScanner<Void, Void>() {
+                            @Override
+                            public Void scan(Tree tree, Void ignored) {
+                                if (tree != null) {
+                                    approved.add(tree);
+                                }
+                                return super.scan(tree, ignored);
+                            }
+                        }.scan(node.getInitializer(), null);
+                    }
+                }
+                return super.visitVariable(node, unused);
+            }
+        }.scan(unit, null);
+        return approved;
+    }
+
+    private static boolean isExplicitPublicStaticFinalString(VariableTree variable) {
+        Set<javax.lang.model.element.Modifier> modifiers = variable.getModifiers().getFlags();
+        return modifiers.contains(javax.lang.model.element.Modifier.PUBLIC)
+                && modifiers.contains(javax.lang.model.element.Modifier.STATIC)
+                && modifiers.contains(javax.lang.model.element.Modifier.FINAL)
+                && variable.getType() != null
+                && Set.of("String", "java.lang.String").contains(variable.getType().toString());
+    }
+
+    private static String foldStringLiteral(ExpressionTree expression) {
+        if (expression instanceof LiteralTree literal && literal.getValue() instanceof String value) {
+            return value;
+        }
+        if (expression instanceof ParenthesizedTree parenthesized) {
+            return foldStringLiteral(parenthesized.getExpression());
+        }
+        if (expression instanceof BinaryTree binary && binary.getKind() == Tree.Kind.PLUS) {
+            String left = foldStringLiteral(binary.getLeftOperand());
+            String right = foldStringLiteral(binary.getRightOperand());
+            return left == null || right == null ? null : left + right;
+        }
+        return null;
+    }
+
+    private static String currentTypeName(CompilationUnitTree unit, Deque<String> enclosingTypes) {
+        String packageName = unit.getPackageName() == null ? "" : unit.getPackageName().toString();
+        String nestedName = String.join("$", enclosingTypes);
+        return packageName.isEmpty() ? nestedName : packageName + "." + nestedName;
+    }
+
+    private static boolean isMaximalFoldableString(TreePath path) {
+        TreePath parent = path.getParentPath();
+        while (parent != null && parent.getLeaf() instanceof ParenthesizedTree) {
+            parent = parent.getParentPath();
+        }
+        return parent == null
+                || !(parent.getLeaf() instanceof BinaryTree binary)
+                || binary.getKind() != Tree.Kind.PLUS
+                || foldStringLiteral(binary) == null;
+    }
+
+    private static final class ConcreteOwnerLiteralScanner extends TreePathScanner<Void, Void> {
+
+        private final CompilationUnitTree unit;
+        private final SourcePositions positions;
+        private final Set<Tree> approvedConstantTrees;
+        private final Set<String> violations;
+        private final Deque<String> enclosingTypes = new ArrayDeque<>();
+
+        private ConcreteOwnerLiteralScanner(CompilationUnitTree unit,
+                                            SourcePositions positions,
+                                            Set<Tree> approvedConstantTrees,
+                                            Set<String> violations) {
+            this.unit = unit;
+            this.positions = positions;
+            this.approvedConstantTrees = approvedConstantTrees;
+            this.violations = violations;
+        }
+
+        @Override
+        public Void visitClass(ClassTree node, Void unused) {
+            String simpleName = node.getSimpleName().toString();
+            enclosingTypes.addLast(simpleName.isEmpty() ? "<anonymous>" : simpleName);
+            try {
+                return super.visitClass(node, unused);
+            } finally {
+                enclosingTypes.removeLast();
+            }
+        }
+
+        @Override
+        public Void visitLiteral(LiteralTree node, Void unused) {
+            if (!approvedConstantTrees.contains(node) && node.getValue() instanceof String value) {
+                inspect(value, node, "string literal");
+            }
+            return super.visitLiteral(node, unused);
+        }
+
+        @Override
+        public Void visitBinary(BinaryTree node, Void unused) {
+            if (node.getKind() == Tree.Kind.PLUS
+                    && !approvedConstantTrees.contains(node)
+                    && isMaximalFoldableString(getCurrentPath())) {
+                String folded = foldStringLiteral(node);
+                if (folded != null) {
+                    inspect(folded, node, "folded string literal");
+                }
+            }
+            return super.visitBinary(node, unused);
+        }
+
+        private void inspect(String value, Tree tree, String kind) {
+            String typeName = currentTypeName(unit, enclosingTypes);
+            if (APPROVED_OWNER_LITERALS_BY_TYPE.getOrDefault(typeName, Set.of()).contains(value)) {
+                return;
+            }
+            CONCRETE_PLUGIN_IDS.stream().sorted()
+                    .filter(id -> containsOwnerToken(value, id))
+                    .forEach(id -> violations.add(violation(tree, kind, "plugin", id, value, typeName)));
+            CONCRETE_ENGINE_IDS.stream().sorted()
+                    .filter(id -> containsOwnerToken(value, id))
+                    .forEach(id -> violations.add(violation(tree, kind, "engine", id, value, typeName)));
+        }
+
+        private String violation(Tree tree,
+                                 String kind,
+                                 String ownerKind,
+                                 String ownerId,
+                                 String value,
+                                 String typeName) {
+            long offset = positions.getStartPosition(unit, tree);
+            long line = offset < 0 || unit.getLineMap() == null
+                    ? -1 : unit.getLineMap().getLineNumber(offset);
+            return unit.getSourceFile().getName() + ":" + line
+                    + " concrete " + ownerKind + " id " + ownerId
+                    + " in " + kind + " " + displayLiteral(value)
+                    + " of " + typeName;
+        }
+    }
+
+    private static String displayLiteral(String value) {
+        String visible = value
+                .replace("\\", "\\\\")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
+        return "\"" + (visible.length() <= 160 ? visible : visible.substring(0, 160) + "…") + "\"";
     }
 
     private static boolean containsOwnerToken(String value, String ownerId) {
@@ -1218,5 +1601,44 @@ class CoreApiOwnershipGuardTest {
 
     private static String relativeSource(Path source) {
         return productionSourceRoot().relativize(source.toAbsolutePath().normalize()).toString().replace('\\', '/');
+    }
+
+    private record JavaSourceInput(String name, String content) {
+
+        private JavaSourceInput {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("source name must not be blank");
+            }
+            if (content == null) {
+                throw new IllegalArgumentException("source content must not be null");
+            }
+        }
+    }
+
+    private static final class InMemoryJavaSource extends SimpleJavaFileObject {
+
+        private final JavaSourceInput source;
+
+        private InMemoryJavaSource(JavaSourceInput source) {
+            super(sourceUri(source.name()), Kind.SOURCE);
+            this.source = source;
+        }
+
+        @Override
+        public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+            return source.content();
+        }
+
+        @Override
+        public String getName() {
+            return source.name();
+        }
+
+        private static URI sourceUri(String sourceName) {
+            String normalized = sourceName.replace('\\', '/')
+                    .replace(" ", "%20")
+                    .replace("#", "%23");
+            return URI.create("mem:///" + normalized);
+        }
     }
 }

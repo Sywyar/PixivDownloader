@@ -96,7 +96,7 @@ public final class PluginConfigPropertySourceLoader {
                 log.warn(message("runtime.log.plugin-config.duplicate-key", file, key));
                 continue;
             }
-            if (hostKeys.contains(key)) {
+            if (isHostOwnedKey(key, hostKeys)) {
                 log.warn(message("runtime.log.plugin-config.host-key-skipped", file, key));
                 continue;
             }
@@ -141,6 +141,18 @@ public final class PluginConfigPropertySourceLoader {
             }
         }
         return keys;
+    }
+
+    private static boolean isHostOwnedKey(String key, Set<String> hostKeys) {
+        return hostKeys.contains(key) || isPluginToggleKey(key);
+    }
+
+    private static boolean isPluginToggleKey(String key) {
+        String prefix = "plugins.";
+        String suffix = ".enabled";
+        return key.startsWith(prefix)
+                && key.endsWith(suffix)
+                && key.length() > prefix.length() + suffix.length();
     }
 
     private static String requireSafeKey(String key) throws IOException {

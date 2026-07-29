@@ -81,6 +81,23 @@ class PluginConfigPropertySourceLoaderTest {
     }
 
     @Test
+    @DisplayName("插件 properties 无法注入宿主拥有的任意插件启停键")
+    void pluginPropertiesCannotInjectPluginToggleKeys() throws IOException {
+        Path configDir = useTempConfigDir();
+        Path pluginDir = configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR);
+        Files.createDirectories(pluginDir);
+        Files.writeString(pluginDir.resolve("fixture.properties"), String.join("\n",
+                "plugins.demo-ext.enabled=false",
+                "fixture.mode=plugin",
+                ""), StandardCharsets.UTF_8);
+
+        MapPropertySource pluginSource = PluginConfigPropertySourceLoader.load().orElseThrow();
+
+        assertThat(pluginSource.getProperty("plugins.demo-ext.enabled")).isNull();
+        assertThat(pluginSource.getProperty("fixture.mode")).isEqualTo("plugin");
+    }
+
+    @Test
     @DisplayName("缺少插件配置目录时不创建属性源")
     void missingPluginConfigDirectoryReturnsEmpty() {
         useTempConfigDir();
