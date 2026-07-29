@@ -85,6 +85,12 @@ class PluginApiOwnershipGuardTest {
                     + "(?![\\p{Alnum}_$])");
     private static final Pattern SOURCE_TYPE_DECLARATION = Pattern.compile(
             "\\b(?:class|interface|record|enum)\\s+([A-Za-z_$][A-Za-z0-9_$]*)");
+    private static final Pattern CONCRETE_CREDENTIAL_NAME = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9])(?:"
+                    + "php[_-]?sessid|wordpress[_-]?logged[_-]?in|rtfa|cf[_-]?clearance|"
+                    + "ttwid|odin[_-]?tt|uid[_-]?tt|s[_-]?v[_-]?web[_-]?id|"
+                    + "sessionid[_-]?ss|sessid[_-]?ss|sid[_-]?(?:guard|tt)"
+                    + ")(?![A-Za-z0-9])");
     private static final Set<String> FORBIDDEN_DOCUMENTATION_REFERENCES = Set.of(
             "AuthFilter",
             "BUILT_IN",
@@ -447,6 +453,59 @@ class PluginApiOwnershipGuardTest {
         assertThat(violations)
                 .as("plugin-api 文档不得引用宿主实现、其它模块类型、失效项目类型或测试类")
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("生产契约不得固化具体来源或框架的凭据字段名")
+    void productionContractsDoNotOwnConcreteCredentialNames() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        Path sourceRoot = repositoryRoot.resolve("pixivdownload-plugin-api/src/main/java");
+        List<String> violations = new ArrayList<>();
+
+        try (Stream<Path> sources = Files.walk(sourceRoot)) {
+            for (Path source : sources
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .sorted()
+                    .toList()) {
+                Matcher matcher = CONCRETE_CREDENTIAL_NAME.matcher(
+                        Files.readString(source, StandardCharsets.UTF_8));
+                while (matcher.find()) {
+                    violations.add(repositoryRoot.relativize(source)
+                            + " -> " + matcher.group());
+                }
+            }
+        }
+
+        assertThat(violations)
+                .as("具体凭据字段名必须留在所属插件，plugin-api 只表达通用敏感语义")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("具体凭据名守卫不误伤跨页面 placement 与普通工程文本")
+    void concreteCredentialNameScannerHasExactBoundary() {
+        assertThat(List.of(
+                "PHPSESSID",
+                "wordpress_logged_in",
+                "rtFa",
+                "cf_clearance",
+                "ttwid",
+                "odin_tt",
+                "uid_tt",
+                "s_v_web_id",
+                "sessionid_ss",
+                "sid_guard",
+                "sid_tt"))
+                .allMatch(value -> CONCRETE_CREDENTIAL_NAME.matcher(value).find());
+        assertThat(List.of(
+                "gallery.sidebar",
+                "novel.sidebar",
+                "stats.top-authors",
+                "duplicates.header-icons",
+                "notification",
+                "ai",
+                "transport failure"))
+                .noneMatch(value -> CONCRETE_CREDENTIAL_NAME.matcher(value).find());
     }
 
     @Test

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.schedule.security;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveFieldNames;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredentialText;
 
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -21,14 +22,15 @@ public final class ScheduleCredentialRedactor {
             Pattern.compile("(?i)\\b(bearer\\s+)[A-Za-z0-9._~+/=-]+");
     private static final Pattern PHPSESSID =
             Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s&]+");
-    private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
-            "(?i)\\b((?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|"
-                    + "x-amz-security-token|api[_-]?key|client[_-]?secret|secret|password|passwd|"
-                    + "credential|x-amz-credential|sig|signature|x-amz-signature)"
-                    + "\\s*[:=]\\s*)[^\\s;&,]+");
+    private static final Pattern FIELD_ASSIGNMENT = Pattern.compile(
+            "(?i)(?=((?<![A-Za-z0-9_])"
+                    + "(?:['\"]([^'\"\\r\\n]{1,128})['\"]|"
+                    + "([A-Za-z][^\\s:='\"{}\\[\\],;&]{0,127}))"
+                    + "\\s*[:=]\\s*"
+                    + "(?:['\"]([^'\"\\r\\n]*)['\"]|([^\\s;&,}\\]]+))))");
     // 兼容既有 Pixiv Cookie 串与 URL 查询串：在专用凭证 pattern 后清理剩余 key=value 对。
     private static final Pattern KEY_VALUE_PAIR =
-            Pattern.compile("(?i)(^|[;\\s?&])([A-Za-z0-9_-]+\\s*=\\s*)[^;\\s&]+");
+            Pattern.compile("(?i)(^|[;\\s?&])([A-Za-z0-9_-]+)\\s*=\\s*([^;\\s&]+)");
 
     private ScheduleCredentialRedactor() {
     }
@@ -42,8 +44,53 @@ public final class ScheduleCredentialRedactor {
         redacted = AUTHORIZATION_HEADER.matcher(redacted).replaceAll("[redacted]");
         redacted = BEARER_VALUE.matcher(redacted).replaceAll("[redacted]");
         redacted = PHPSESSID.matcher(redacted).replaceAll("[redacted]");
-        redacted = SENSITIVE_ASSIGNMENT.matcher(redacted).replaceAll("[redacted]");
-        return KEY_VALUE_PAIR.matcher(redacted).replaceAll("$1[redacted]");
+        redacted = redactAssignments(redacted);
+        return KEY_VALUE_PAIR.matcher(redacted).replaceAll(result -> {
+            String fieldName = result.group(2);
+            String value = unquote(result.group(3));
+            if (ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(fieldName)
+                    && ScheduledSensitiveFieldNames.isSafeMetadataValue(fieldName, value)) {
+                return Matcher.quoteReplacement(result.group());
+            }
+            return Matcher.quoteReplacement(result.group(1) + "[redacted]");
+        });
+    }
+
+    private static String redactAssignments(String text) {
+        Matcher matcher = FIELD_ASSIGNMENT.matcher(text);
+        StringBuilder redacted = null;
+        int copiedUntil = 0;
+        while (matcher.find()) {
+            String fieldName = matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
+            String value = matcher.group(4) != null ? matcher.group(4) : matcher.group(5);
+            boolean sensitive = ScheduledSensitiveFieldNames.isSensitiveFieldName(fieldName)
+                    || (ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(fieldName)
+                    && !ScheduledSensitiveFieldNames.isSafeMetadataValue(fieldName, value));
+            int assignmentStart = matcher.start(1);
+            int assignmentEnd = matcher.end(1);
+            if (!sensitive || assignmentStart < copiedUntil) {
+                continue;
+            }
+            if (redacted == null) {
+                redacted = new StringBuilder(text.length());
+            }
+            redacted.append(text, copiedUntil, assignmentStart).append("[redacted]");
+            copiedUntil = assignmentEnd;
+        }
+        return redacted == null
+                ? text
+                : redacted.append(text, copiedUntil, text.length()).toString();
+    }
+
+    private static String unquote(String value) {
+        if (value.length() >= 2) {
+            char first = value.charAt(0);
+            char last = value.charAt(value.length() - 1);
+            if ((first == '\'' || first == '"') && first == last) {
+                return value.substring(1, value.length() - 1);
+            }
+        }
+        return value;
     }
 
     /** 判断一个不透明文本值是否带有凭证头、token、签名或 Cookie 的可识别形态。 */
@@ -54,5 +101,15 @@ public final class ScheduleCredentialRedactor {
     /** 判断 JSON 字段名是否声明了凭证、secret、token、签名或会话身份。 */
     public static boolean isSensitiveFieldName(String fieldName) {
         return ScheduledSensitiveFieldNames.isSensitiveFieldName(fieldName);
+    }
+
+    /** 判断字段名是否是必须结合值形态校验的凭证元数据。 */
+    public static boolean isSensitiveMetadataFieldName(String fieldName) {
+        return ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(fieldName);
+    }
+
+    /** 判断凭证元数据值是否为严格的非敏感计数或布尔状态。 */
+    public static boolean isSafeMetadataValue(String fieldName, String value) {
+        return ScheduledSensitiveFieldNames.isSafeMetadataValue(fieldName, value);
     }
 }

@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredentialText;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveFieldNames;
 
 /**
@@ -32,6 +33,11 @@ public record ScheduledGuardEvidence(Map<String, String> attributes) {
             for (Map.Entry<String, String> entry : attributes.entrySet()) {
                 String key = validateKey(entry.getKey());
                 String value = validateValue(entry.getValue());
+                if (ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(key)
+                        && !ScheduledSensitiveFieldNames.isSafeMetadataValue(key, value)) {
+                    throw new IllegalArgumentException(
+                            "guard evidence credential metadata value is invalid");
+                }
                 totalBytes = addBytes(totalBytes, key, value);
                 if (copy.putIfAbsent(key, value) != null) {
                     throw new IllegalArgumentException("guard evidence has duplicate normalized keys");
@@ -68,6 +74,10 @@ public record ScheduledGuardEvidence(Map<String, String> attributes) {
         }
         if (value.indexOf('\0') >= 0) {
             throw new IllegalArgumentException("guard evidence value must not contain NUL");
+        }
+        if (ScheduledCredentialText.containsCredentialMaterial(value)) {
+            throw new IllegalArgumentException(
+                    "guard evidence value must not contain credential material");
         }
         if (value.getBytes(StandardCharsets.UTF_8).length > MAX_VALUE_BYTES) {
             throw new IllegalArgumentException("guard evidence value exceeds size limit");

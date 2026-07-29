@@ -162,6 +162,23 @@ class RouteAccessRegistryTest {
     }
 
     @Test
+    @DisplayName("ACTUATOR_PUBLIC 只允许核心宿主 owner 注册")
+    void actuatorPublicPolicyIsReservedForCoreOwner() {
+        RouteAccessRegistry registry = emptyRegistry();
+        WebRouteContribution probe = route("/actuator/health", AccessPolicy.ACTUATOR_PUBLIC);
+
+        assertThatThrownBy(() -> registry.register("third-party", List.of(probe)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ACTUATOR_PUBLIC")
+                .hasMessageContaining("third-party");
+
+        registry.register("core", List.of(probe));
+        assertThat(registry.routes()).singleElement()
+                .extracting(RouteAccessRegistry.RegisteredRoute::pluginId)
+                .isEqualTo("core");
+    }
+
+    @Test
     @DisplayName("routes() 返回不可变快照，外部不可修改")
     void snapshotIsImmutable() {
         RouteAccessRegistry registry = emptyRegistry();

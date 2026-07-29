@@ -760,7 +760,12 @@ public final class ScheduleExecutionEngine {
                 var fields = node.fields();
                 while (fields.hasNext()) {
                     var field = fields.next();
-                    if (ScheduleCredentialRedactor.isSensitiveFieldName(field.getKey())) {
+                    if (ScheduleCredentialRedactor.isSensitiveFieldName(field.getKey())
+                            || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(field.getKey())
+                            && (!field.getValue().isValueNode()
+                            || field.getValue().isNull()
+                            || !ScheduleCredentialRedactor.isSafeMetadataValue(
+                            field.getKey(), field.getValue().asText())))) {
                         throw pluginFailure("schedule.credential.invalid-policy-state");
                     }
                     pending.addLast(field.getValue());
@@ -769,12 +774,11 @@ public final class ScheduleExecutionEngine {
                 node.forEach(pending::addLast);
             } else if (node.isTextual()) {
                 String text = node.textValue();
-                if (ScheduleCredentialRedactor.containsCredentialMaterial(text)) {
-                    throw pluginFailure("schedule.credential.invalid-policy-state");
-                }
                 JsonNode embedded = readEmbeddedPolicyJson(strictReader, text);
                 if (embedded != null) {
                     pending.addLast(embedded);
+                } else if (ScheduleCredentialRedactor.containsCredentialMaterial(text)) {
+                    throw pluginFailure("schedule.credential.invalid-policy-state");
                 }
             }
         }

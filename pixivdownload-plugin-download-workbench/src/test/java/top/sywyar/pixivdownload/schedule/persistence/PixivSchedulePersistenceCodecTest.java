@@ -61,6 +61,17 @@ class PixivSchedulePersistenceCodecTest {
                 "{\"kind\":\"illust\",\"source\":{\"note\":\"Authorization: Bearer definition-secret\"}}",
                 "{\"kind\":\"illust\",\"source\":{\"note\":\"Proxy-Authorization: Basic definition-secret\"}}",
                 "{\"kind\":\"illust\",\"source\":{\"access_token\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"tokenCount\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"cookiePresent\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"tokenCount!\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"token-co-unt\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"tokenCountValue\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"cookiePresentValue\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"sidCountHeader\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"tokenPresentCount\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"cookieEnabledVersion\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"sidCountPresent\":\"definition-secret\"}}",
+                "{\"kind\":\"illust\",\"source\":{\"note\":\"tokenCount=definition-secret\"}}",
                 "{\"kind\":\"illust\",\"source\":{\"url\":\"https://example.test/a?X-Amz-Signature=definition-secret\"}}",
                 "{\"kind\":\"illust\",\"source\":{\"url\":\"https://example.test/a?X-Amz-Credential=definition-secret\"}}");
 
@@ -166,6 +177,27 @@ class PixivSchedulePersistenceCodecTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("schedule work payload contains forbidden credential material")
                 .hasMessageNotContaining("pending-secret");
+        for (String fieldName : List.of(
+                "tokenCount",
+                "cookiePresent",
+                "tokenCount!",
+                "token-co-unt",
+                "tokenCountValue",
+                "cookiePresentValue",
+                "sidCountHeader",
+                "tokenPresentCount",
+                "cookieEnabledVersion",
+                "sidCountPresent")) {
+            ScheduledWork disguisedPayload = new ScheduledWork(
+                    base.key(), base.payloadSchema(), base.payloadVersion(),
+                    "{\"workId\":\"7\",\"" + fieldName + "\":\"pending-secret\"}",
+                    base.presentation(), base.relations());
+            assertThatThrownBy(() -> codec.toPendingWork(
+                    1, disguisedPayload, "NETWORK", "{}", 0, 1L, 1L))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("schedule work payload contains forbidden credential material")
+                    .hasMessageNotContaining("pending-secret");
+        }
 
         assertThatThrownBy(() -> new ScheduledWorkPresentation(
                 "Authorization: Bearer pending-secret", null, null, Map.of()))

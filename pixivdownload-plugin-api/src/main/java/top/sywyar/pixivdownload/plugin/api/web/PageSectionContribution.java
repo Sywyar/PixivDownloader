@@ -23,7 +23,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 不代表其 URL 在后端开放。
  *
  * @param id                 区块全局唯一 id（用于诊断 / 去重 / 前端模块定位自身容器）
- * @param placement          宿主页面 slot id（如 {@code stats.sidebar.sections}）
+ * @param placement          宿主页面 slot id（如 {@code dashboard.sidebar.sections}）
  * @param titleNamespace     区块标题所在的 i18n namespace（在该 namespace 内解析 {@code titleI18nKey}）；<b>必填</b>，
  *                           注册期对 {@code null}/空白 fail-fast（纯 key 需确定 namespace 才能解析）
  * @param titleI18nKey       区块标题的 i18n key（<b>纯 key</b>，不带 namespace）

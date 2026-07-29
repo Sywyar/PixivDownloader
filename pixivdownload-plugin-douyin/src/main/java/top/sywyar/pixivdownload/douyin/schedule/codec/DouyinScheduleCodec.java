@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import top.sywyar.pixivdownload.douyin.schedule.security.DouyinScheduledCredentialText;
 import top.sywyar.pixivdownload.douyin.source.DouyinSourceTypes;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
@@ -13,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredential
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
@@ -98,6 +100,7 @@ public final class DouyinScheduleCodec {
                 || task.definitionVersion() != DEFINITION_VERSION) {
             throw invalidDefinition("douyin.schedule.definition-envelope-invalid");
         }
+        requireSafeTaskPresentation(task.presentation());
         JsonNode root = parseObject(
                 task.definitionJson(), ScheduledFailure.Category.INVALID_DEFINITION,
                 "douyin.schedule.definition-json-invalid");
@@ -181,6 +184,7 @@ public final class DouyinScheduleCodec {
                 || work.payloadVersion() != WORK_VERSION) {
             throw payloadUnsupported("douyin.schedule.work-envelope-invalid");
         }
+        requireSafeWorkPresentation(work.presentation());
         JsonNode root = parseObject(work.payloadJson(), ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                 "douyin.schedule.work-json-invalid");
         requireExactFields(root, WORK_FIELDS, ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
@@ -409,7 +413,7 @@ public final class DouyinScheduleCodec {
     private static boolean isOpaqueId(String value) {
         if (value == null || value.isBlank() || value.length() > 256
                 || value.contains("://") || value.indexOf('\0') >= 0
-                || ScheduledCredentialText.containsCredentialMaterial(value)) {
+                || containsCredentialMaterial(value)) {
             return false;
         }
         return value.codePoints().noneMatch(Character::isISOControl);
@@ -429,7 +433,7 @@ public final class DouyinScheduleCodec {
         String normalized = value == null ? null : value.trim();
         if (normalized == null || normalized.isEmpty() || normalized.length() > maxLength
                 || normalized.indexOf('\0') >= 0
-                || ScheduledCredentialText.containsCredentialMaterial(normalized)
+                || containsCredentialMaterial(normalized)
                 || normalized.codePoints().anyMatch(Character::isISOControl)) {
             throw new ScheduledExecutionException(category, code);
         }
@@ -464,7 +468,7 @@ public final class DouyinScheduleCodec {
         String normalized = value.textValue().trim();
         if (normalized.isEmpty() || normalized.length() > maxLength
                 || normalized.indexOf('\0') >= 0
-                || ScheduledCredentialText.containsCredentialMaterial(normalized)
+                || containsCredentialMaterial(normalized)
                 || normalized.codePoints().anyMatch(Character::isISOControl)) {
             throw new ScheduledExecutionException(category, code);
         }
@@ -495,11 +499,46 @@ public final class DouyinScheduleCodec {
             return null;
         }
         String normalized = value.trim().replace("\0", "");
-        if (ScheduledCredentialText.containsCredentialMaterial(normalized)) {
+        if (containsCredentialMaterial(normalized)) {
             return null;
         }
         return normalized.length() <= maximumLength
                 ? normalized : normalized.substring(0, maximumLength);
+    }
+
+    private static void requireSafeTaskPresentation(ScheduledTaskPresentation presentation)
+            throws ScheduledExecutionException {
+        if (presentation != null
+                && (containsCredentialMaterial(presentation.title())
+                || containsCredentialMaterial(presentation.summary())
+                || containsCredentialAttributes(presentation.attributes()))) {
+            throw invalidDefinition("douyin.schedule.definition-presentation-invalid");
+        }
+    }
+
+    private static void requireSafeWorkPresentation(ScheduledWorkPresentation presentation)
+            throws ScheduledExecutionException {
+        if (presentation != null
+                && (containsCredentialMaterial(presentation.title())
+                || containsCredentialMaterial(presentation.author())
+                || containsCredentialMaterial(presentation.thumbnailReference())
+                || containsCredentialAttributes(presentation.attributes()))) {
+            throw payloadUnsupported("douyin.schedule.work-presentation-invalid");
+        }
+    }
+
+    private static boolean containsCredentialAttributes(Map<String, String> attributes) {
+        if (attributes == null || attributes.isEmpty()) {
+            return false;
+        }
+        return attributes.entrySet().stream().anyMatch(entry ->
+                DouyinScheduledCredentialText.isSensitiveFieldName(entry.getKey())
+                        || containsCredentialMaterial(entry.getValue()));
+    }
+
+    private static boolean containsCredentialMaterial(String value) {
+        return ScheduledCredentialText.containsCredentialMaterial(value)
+                || DouyinScheduledCredentialText.containsCredentialMaterial(value);
     }
 
     private static ScheduledExecutionException invalidDefinition(String code) {
@@ -524,8 +563,15 @@ public final class DouyinScheduleCodec {
             if (frontier.size() > MAX_FRONTIER_IDENTITIES) {
                 frontier = List.copyOf(frontier.subList(0, MAX_FRONTIER_IDENTITIES));
             }
+            if (frontier.stream().anyMatch(identity ->
+                    identity == null || !HASH.matcher(identity).matches())) {
+                throw new IllegalArgumentException("checkpoint frontier must contain identity hashes");
+            }
             resumeAfter = resumeAfter == null || resumeAfter.isBlank()
                     ? null : resumeAfter.trim();
+            if (resumeAfter != null && !HASH.matcher(resumeAfter).matches()) {
+                throw new IllegalArgumentException("checkpoint resume anchor must be an identity hash");
+            }
         }
 
         public static CheckpointState empty() {

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.api.http.websocket;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpProxyProvider;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
 
 import java.lang.reflect.Method;
@@ -14,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -133,6 +135,44 @@ class OutboundWebSocketContractTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(new OutboundWebSocketRequest(
                 URI.create("ws://example.test/socket"), null).headers()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("请求与连接 profile 的字符串表示不泄露握手材料")
+    void requestAndProfileHaveRedactedStringRepresentations() {
+        String uriSecret = "uri-secret-canary";
+        String headerSecret = "header-secret-canary";
+        OutboundWebSocketRequest request = new OutboundWebSocketRequest(
+                URI.create("wss://example.test/socket?TrustedClientToken=" + uriSecret),
+                Map.of(
+                        "Authorization", List.of("Bearer " + headerSecret),
+                        "Cookie", List.of("session=" + headerSecret)));
+
+        assertThat(request.toString())
+                .contains("headerCount=2")
+                .doesNotContain(
+                        "example.test", uriSecret, headerSecret,
+                        "TrustedClientToken", "Authorization", "Cookie");
+
+        AtomicInteger providerToStringCalls = new AtomicInteger();
+        OutboundHttpProxyProvider provider = new OutboundHttpProxyProvider() {
+            @Override
+            public URI resolveProxyUri() {
+                return URI.create("http://127.0.0.1:7890");
+            }
+
+            @Override
+            public String toString() {
+                providerToStringCalls.incrementAndGet();
+                return "provider-secret-canary";
+            }
+        };
+        OutboundWebSocketClientProfile profile = new OutboundWebSocketClientProfile(
+                Duration.ofSeconds(5),
+                OutboundHttpRoute.requiredExplicitProxy(provider));
+
+        assertThat(profile.toString()).doesNotContain("provider-secret-canary");
+        assertThat(providerToStringCalls).hasValue(0);
     }
 
     @Test

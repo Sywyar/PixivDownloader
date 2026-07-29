@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 
 import java.util.Arrays;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -108,15 +109,23 @@ class DouyinScheduledCredentialPolicyTest {
     @Test
     @DisplayName("远端账号键若疑似包含凭据材料则不得进入宿主状态")
     void unsafeAccountKeyIsRejected() throws Exception {
-        DouyinClient client = mock(DouyinClient.class);
-        when(client.resolveAccount(COOKIE)).thenReturn(
-                new DouyinAccount("sessionid=leaked-value", "sec-user", "作者", "author"));
+        for (String accountKey : List.of(
+                "sessionid=leaked-value",
+                "ttwid=leaked-value",
+                "odin_tt=leaked-value")) {
+            DouyinClient client = mock(DouyinClient.class);
+            when(client.resolveAccount(COOKIE)).thenReturn(
+                    new DouyinAccount(accountKey, "sec-user", "作者", "author"));
 
-        ScheduledCredentialProbeResult result = new DouyinScheduledCredentialPolicy(client)
-                .probe(context(ScheduledNetworkRoute.direct(), COOKIE.toCharArray(), () -> false));
+            ScheduledCredentialProbeResult result = new DouyinScheduledCredentialPolicy(client)
+                    .probe(context(
+                            ScheduledNetworkRoute.direct(),
+                            COOKIE.toCharArray(),
+                            () -> false));
 
-        assertThat(result.status()).isEqualTo(ScheduledCredentialProbeResult.Status.INVALID);
-        assertThat(result.accountKey()).isNull();
+            assertThat(result.status()).isEqualTo(ScheduledCredentialProbeResult.Status.INVALID);
+            assertThat(result.accountKey()).isNull();
+        }
     }
 
     @Test

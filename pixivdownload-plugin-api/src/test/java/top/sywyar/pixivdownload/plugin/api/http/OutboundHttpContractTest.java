@@ -68,6 +68,65 @@ class OutboundHttpContractTest {
     }
 
     @Test
+    @DisplayName("请求响应与代理路由的字符串表示不泄露传输材料")
+    void transportValuesHaveRedactedStringRepresentations() {
+        String uriSecret = "uri-secret-canary";
+        String headerSecret = "header-secret-canary";
+        String bodySecret = "body-secret-canary";
+        OutboundHttpRequest request = new OutboundHttpRequest(
+                URI.create("https://example.test/path?token=" + uriSecret),
+                "POST",
+                Map.of(
+                        "Authorization", List.of("Bearer " + headerSecret),
+                        "Cookie", List.of("session=" + headerSecret)),
+                bodySecret.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        assertThat(request.toString())
+                .contains("method=POST", "headerCount=2",
+                        "bodyLength=" + bodySecret.length())
+                .doesNotContain(
+                        "example.test", uriSecret, headerSecret, bodySecret,
+                        "Authorization", "Cookie");
+
+        String statusSecret = "status-secret-canary";
+        String responseBodySecret = "response-body-secret-canary";
+        OutboundHttpResponse response = new OutboundHttpResponse(
+                401,
+                statusSecret,
+                Map.of("Set-Cookie", List.of("session=" + headerSecret)),
+                responseBodySecret.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        assertThat(response.toString())
+                .contains("statusCode=401", "headerCount=1",
+                        "bodyLength=" + responseBodySecret.length())
+                .doesNotContain(
+                        statusSecret, headerSecret, responseBodySecret, "Set-Cookie");
+
+        AtomicInteger providerToStringCalls = new AtomicInteger();
+        OutboundHttpProxyProvider provider = new OutboundHttpProxyProvider() {
+            @Override
+            public URI resolveProxyUri() {
+                return URI.create("http://127.0.0.1:7890");
+            }
+
+            @Override
+            public String toString() {
+                providerToStringCalls.incrementAndGet();
+                return "provider-secret-canary";
+            }
+        };
+        OutboundHttpRoute route = OutboundHttpRoute.requiredExplicitProxy(provider);
+        OutboundHttpClientProfile profile = OutboundHttpClientProfile.standard(
+                Duration.ofSeconds(1), Duration.ofSeconds(2), route);
+
+        assertThat(route.toString())
+                .contains("SCOPED_OR_EXPLICIT_REQUIRED", "explicitProxyProviderPresent=true")
+                .doesNotContain("provider-secret-canary");
+        assertThat(profile.toString()).doesNotContain("provider-secret-canary");
+        assertThat(providerToStringCalls).hasValue(0);
+    }
+
+    @Test
     @DisplayName("请求与两类响应按大小写不敏感语义合并同名头并保留全部值")
     void requestAndResponsesMergeHeaderCasingsWithoutLosingValues() {
         Map<String, List<String>> requestHeaders = headerCasings();

@@ -34,7 +34,7 @@ public enum AccessPolicy {
      * 「管理员或 multi 访客」：<b>multi 匿名访客可访问</b>（黑名单放行、按配额限流）、solo 需管理员会话、
      * <b>受邀访客一律 403</b>（不在访客白名单）、<b>不入 monitor</b>。宿主访问控制不为该策略派生任何
      * 访问清单，命中后落默认会话 / 访客分支——访问行为与历史「未声明 API」逐字等价。用于「访客本就应能为自己
-     * 使用、但受邀访客不应触达」的端点：下载工作台提交 / 装配端点、核心导航装配端点、其余随页面消费的访客可用 API。
+     * 使用、但受邀访客不应触达」的提交 / 装配端点与其余随页面消费的访客可用 API。
      * <p>
      * <b>防误用</b>：multi 下对匿名访客开放；管理员专属端点用 {@link #ADMIN}，需对受邀访客开放的只读跨页依赖用
      * {@link #VISITOR_AND_INVITED_GUEST}。
@@ -51,7 +51,7 @@ public enum AccessPolicy {
     /**
      * 受邀访客可读（通常为 GET/HEAD；POST 端点必须显式声明方法并有测试覆盖）+ 管理员；
      * <b>同时受 monitor 管控</b>（既在 monitor 清单又在访客白名单），故 multi 匿名访客被挡。
-     * 用于受邀访客可读的画廊 / 小说页面与其 API。
+     * 用于受邀访客可读的业务页面与其 API。
      */
     INVITED_GUEST(true, Set.of(Audience.INVITED_GUEST, Audience.ADMIN)),
 
@@ -67,7 +67,10 @@ public enum AccessPolicy {
     /** 本机可信请求 + 有效 GUI token（{@code /api/gui/**} 双重校验，由内联分支执行）。 */
     GUI(false, Set.of()),
 
-    /** actuator 探针公开端点（health / info，由内联分支放行）。 */
+    /**
+     * actuator 探针公开端点（health / info，由内联分支放行）。
+     * 仅核心宿主 owner 可注册，第三方 contribution 会在注册期被拒绝。
+     */
     ACTUATOR_PUBLIC(false, Set.of());
 
     private final boolean uiVisibility;

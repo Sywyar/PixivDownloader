@@ -32,6 +32,13 @@ public record OutboundHttpRequest(
         return body.clone();
     }
 
+    @Override
+    public String toString() {
+        return "OutboundHttpRequest[uri=<redacted>, method=" + method
+                + ", headerCount=" + headers.size()
+                + ", bodyLength=" + body.length + "]";
+    }
+
     private static URI validatedUri(URI value) {
         Objects.requireNonNull(value, "uri");
         String scheme = value.getScheme();

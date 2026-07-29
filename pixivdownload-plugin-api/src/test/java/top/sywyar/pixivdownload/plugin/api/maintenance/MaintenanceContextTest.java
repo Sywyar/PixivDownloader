@@ -23,7 +23,7 @@ class MaintenanceContextTest {
     }
 
     @Test
-    @DisplayName("二参数兼容构造使用空进度回调")
+    @DisplayName("二参数便利构造使用空进度回调")
     void twoArgumentConstructorUsesNoOpReporter() {
         MaintenanceContext context = new MaintenanceContext("schedule", 456L);
 

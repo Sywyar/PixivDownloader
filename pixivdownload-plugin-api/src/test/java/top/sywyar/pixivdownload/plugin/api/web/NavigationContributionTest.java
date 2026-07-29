@@ -13,12 +13,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class NavigationContributionTest {
 
     @Test
-    @DisplayName("旧构造器默认无 marker")
-    void legacyConstructorsDefaultToNoMarkers() {
-        NavigationContribution contribution = new NavigationContribution(
+    @DisplayName("便利构造默认使用空 marker 集合")
+    void convenienceConstructorsDefaultToNoMarkers() {
+        NavigationContribution singlePlacement = new NavigationContribution(
                 "demo", "app.top", "demo", "nav.demo", "/demo.html", "grid", AccessPolicy.PUBLIC, 10);
+        NavigationContribution multiplePlacements = new NavigationContribution(
+                "demo", Set.of("app.top", "app.sidebar"), "demo", "nav.demo",
+                "/demo.html", "grid", AccessPolicy.PUBLIC, 10);
 
-        assertThat(contribution.markers()).isEmpty();
+        assertThat(singlePlacement.markers()).isEmpty();
+        assertThat(multiplePlacements.markers()).isEmpty();
     }
 
     @Test

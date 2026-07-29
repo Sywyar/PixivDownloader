@@ -683,6 +683,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             if (key == null || value == null
                     || !key.matches("[A-Za-z][A-Za-z0-9._-]{0,63}")
                     || ScheduleCredentialRedactor.isSensitiveFieldName(key)
+                    || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(key)
+                    && !ScheduleCredentialRedactor.isSafeMetadataValue(key, value))
                     || ScheduleCredentialRedactor.containsCredentialMaterial(value)) {
                 throw invalidWorkResult();
             }

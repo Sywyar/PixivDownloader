@@ -144,6 +144,32 @@ class ScheduleWorkPersistenceCodecTest {
                 "example.work", "id-phpsessid", "{\"PHPSESSID\":\"12345_opaque-session-value\"}");
         ScheduledWork connectSidPayload = work(
                 "example.work", "id-connect-sid", "{\"connect.sid\":\"opaque-value\"}");
+        List<ScheduledWork> metadataDisguisedPayloads = List.of(
+                work("example.work", "id-token-count",
+                        "{\"tokenCount\":\"opaque-token-value\"}"),
+                work("example.work", "id-cookie-present",
+                        "{\"cookiePresent\":\"opaque-cookie-value\"}"),
+                work("example.work", "id-token-count-punctuation",
+                        "{\"tokenCount!\":\"opaque-token-value\"}"),
+                work("example.work", "id-token-count-split",
+                        "{\"token-co-unt\":\"opaque-token-value\"}"),
+                work("example.work", "id-token-count-value",
+                        "{\"tokenCountValue\":\"opaque-token-value\"}"),
+                work("example.work", "id-cookie-present-value",
+                        "{\"cookiePresentValue\":\"opaque-cookie-value\"}"),
+                work("example.work", "id-sid-count-header",
+                        "{\"sidCountHeader\":\"opaque-session-value\"}"),
+                work("example.work", "id-token-present-count",
+                        "{\"tokenPresentCount\":\"opaque-token-value\"}"),
+                work("example.work", "id-cookie-enabled-version",
+                        "{\"cookieEnabledVersion\":\"opaque-cookie-value\"}"),
+                work("example.work", "id-sid-count-present",
+                        "{\"sidCountPresent\":\"opaque-session-value\"}"),
+                work("example.work", "id-metadata-text",
+                        "{\"note\":\"tokenCount=opaque-token-value\"}"));
+        ScheduledCheckpoint metadataDisguisedCheckpoint = new ScheduledCheckpoint(
+                "example.checkpoint", 1,
+                "{\"tokenCountValue\":\"opaque-token-value\"}");
         ScheduledWork secretSchema = new ScheduledWork(
                 new ScheduledWorkKey("example.work", "id-schema"),
                 "token=top-secret", 1, "{}", ScheduledWorkPresentation.empty(), List.of());
@@ -164,6 +190,15 @@ class ScheduleWorkPersistenceCodecTest {
                 .hasMessageContaining("credential material");
         assertThatThrownBy(() -> codec.toPendingWork(
                 1L, connectSidPayload, "RETRYABLE", null, 0, 1L, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("credential material");
+        for (ScheduledWork metadataDisguisedPayload : metadataDisguisedPayloads) {
+            assertThatThrownBy(() -> codec.toPendingWork(
+                    1L, metadataDisguisedPayload, "RETRYABLE", null, 0, 1L, null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("credential material");
+        }
+        assertThatThrownBy(() -> codec.validateCheckpoint(metadataDisguisedCheckpoint))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("credential material");
         assertThatThrownBy(() -> codec.toPendingWork(

@@ -44,4 +44,10 @@ public record OutboundHttpRoute(
                 OutboundHttpRoutePolicy.SCOPED_OR_EXPLICIT_REQUIRED,
                 Objects.requireNonNull(provider, "provider"));
     }
+
+    @Override
+    public String toString() {
+        return "OutboundHttpRoute[policy=" + policy
+                + ", explicitProxyProviderPresent=" + (explicitProxyProvider != null) + "]";
+    }
 }

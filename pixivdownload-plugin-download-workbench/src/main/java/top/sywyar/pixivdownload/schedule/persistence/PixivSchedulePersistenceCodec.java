@@ -330,7 +330,12 @@ public final class PixivSchedulePersistenceCodec {
     private void rejectCredentialMaterial(JsonNode node, String label) {
         if (node.isObject()) {
             node.fields().forEachRemaining(entry -> {
-                if (ScheduleCredentialRedactor.isSensitiveFieldName(entry.getKey())) {
+                if (ScheduleCredentialRedactor.isSensitiveFieldName(entry.getKey())
+                        || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(entry.getKey())
+                        && (!entry.getValue().isValueNode()
+                        || entry.getValue().isNull()
+                        || !ScheduleCredentialRedactor.isSafeMetadataValue(
+                        entry.getKey(), entry.getValue().asText())))) {
                     throw new IllegalArgumentException(label + " contains forbidden credential material");
                 }
                 rejectCredentialMaterial(entry.getValue(), label);
@@ -341,18 +346,17 @@ public final class PixivSchedulePersistenceCodec {
             node.forEach(item -> rejectCredentialMaterial(item, label));
             return;
         }
-        if (node.isTextual()
-                && ScheduleCredentialRedactor.containsCredentialMaterial(node.textValue())) {
-            throw new IllegalArgumentException(label + " contains forbidden credential material");
-        }
         if (node.isTextual()) {
-            String nestedJson = node.textValue().trim();
+            String text = node.textValue();
+            String nestedJson = text.trim();
             if (nestedJson.startsWith("{") || nestedJson.startsWith("[")) {
                 JsonNode nested = readEmbeddedJson(nestedJson, label);
                 if (nested != null) {
                     rejectCredentialMaterial(nested, label);
+                    return;
                 }
             }
+            rejectCredentialText(text, label);
         }
     }
 

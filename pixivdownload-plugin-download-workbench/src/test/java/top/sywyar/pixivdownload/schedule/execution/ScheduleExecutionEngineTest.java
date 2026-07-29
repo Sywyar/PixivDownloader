@@ -484,6 +484,17 @@ class ScheduleExecutionEngineTest {
 
         for (String unsafeState : List.of(
                 "{\"refresh_token\":\"opaque\"}",
+                "{\"tokenCount\":\"opaque-token-value\"}",
+                "{\"cookiePresent\":\"opaque-cookie-value\"}",
+                "{\"tokenCount!\":\"opaque-token-value\"}",
+                "{\"token-co-unt\":\"opaque-token-value\"}",
+                "{\"tokenCountValue\":\"opaque-token-value\"}",
+                "{\"cookiePresentValue\":\"opaque-cookie-value\"}",
+                "{\"sidCountHeader\":\"opaque-session-value\"}",
+                "{\"tokenPresentCount\":\"opaque-token-value\"}",
+                "{\"cookieEnabledVersion\":\"opaque-cookie-value\"}",
+                "{\"sidCountPresent\":\"opaque-session-value\"}",
+                "{\"note\":\"tokenCount=opaque-token-value\"}",
                 "{\"details\":[{\"note\":\"PHPSESSID=secret\"}]}",
                 "{\"note\":\"PHPSESSID=secret\",\"note\":\"safe\"}",
                 "{\"note\":\"safe\"} {\"note\":\"PHPSESSID=secret\"}",
@@ -500,7 +511,8 @@ class ScheduleExecutionEngineTest {
             }
         }
 
-        String safeState = "{\"details\":\"{\\\"kind\\\":\\\"safe\\\"}\"}";
+        String safeState = "{\"details\":\"{\\\"kind\\\":\\\"safe\\\"}\","
+                + "\"tokenCount\":2,\"cookiePresent\":false}";
         policyState.set(safeState);
         try (ScheduleCredentialBindingLease binding = fixture.engine().prepareCredentialBinding(
                 task(), fixture.activationToken())) {
@@ -2215,25 +2227,36 @@ class ScheduleExecutionEngineTest {
     @Test
     @DisplayName("作品结果属性含凭证形态时转安全终止失败且不进入队列投影")
     void unsafeWorkResultIsRejected() throws Exception {
-        ScheduledTaskStore store = storeWithCredential();
-        when(store.upsertPendingWork(any())).thenReturn(1);
-        ScheduledSourceExecutor source = sourceExecutor(1, context -> {
-            context.workSink().submit(work("unsafe-result"));
-            return ScheduledDiscoveryResult.withoutCheckpoint();
-        });
-        ScheduledWorkExecutor executor = workExecutor(context -> new ScheduledWorkResult(
-                ScheduledWorkResult.Outcome.COMPLETED,
-                "fixture.completed",
-                Map.of("title", "Cookie: PHPSESSID=secret")));
+        for (Map<String, String> unsafeAttributes : List.of(
+                Map.of("title", "Cookie: PHPSESSID=secret"),
+                Map.of("tokenCount", "opaque-token-value"),
+                Map.of("cookiePresent", "opaque-cookie-value"),
+                Map.of("tokenCountValue", "opaque-token-value"),
+                Map.of("cookiePresentValue", "opaque-cookie-value"),
+                Map.of("sidCountHeader", "opaque-session-value"),
+                Map.of("tokenPresentCount", "opaque-token-value"),
+                Map.of("cookieEnabledVersion", "opaque-cookie-value"),
+                Map.of("sidCountPresent", "opaque-session-value"))) {
+            ScheduledTaskStore store = storeWithCredential();
+            when(store.upsertPendingWork(any())).thenReturn(1);
+            ScheduledSourceExecutor source = sourceExecutor(1, context -> {
+                context.workSink().submit(work("unsafe-result"));
+                return ScheduledDiscoveryResult.withoutCheckpoint();
+            });
+            ScheduledWorkExecutor executor = workExecutor(context -> new ScheduledWorkResult(
+                    ScheduledWorkResult.Outcome.COMPLETED,
+                    "fixture.completed",
+                    unsafeAttributes));
 
-        assertThatThrownBy(() -> engine(
-                store, source, executor,
-                credentialPolicy(new AtomicReference<>()),
-                guard(context -> ScheduledGuardDecision.proceed())).execute(task()))
-                .isInstanceOfSatisfying(ScheduledExecutionException.class,
-                        failure -> assertThat(failure.code())
-                                .isEqualTo("schedule.work.invalid-result"));
-        verify(store).upsertPendingWork(any());
+            assertThatThrownBy(() -> engine(
+                    store, source, executor,
+                    credentialPolicy(new AtomicReference<>()),
+                    guard(context -> ScheduledGuardDecision.proceed())).execute(task()))
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                            failure -> assertThat(failure.code())
+                                    .isEqualTo("schedule.work.invalid-result"));
+            verify(store).upsertPendingWork(any());
+        }
     }
 
     private static ScheduleExecutionEngine engine(

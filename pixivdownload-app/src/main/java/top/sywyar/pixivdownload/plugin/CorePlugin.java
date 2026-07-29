@@ -221,15 +221,20 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.gui("/api/gui/**"),
                 // ── actuator 公开探针：容器健康 / 信息端点（由 AuthFilter 内联 fast-path 放行；声明为纳入
                 //    路由镜像守卫与全 URL 声明模型，不改其内联放行行为）。仅以下四条对外暴露。──────────────
-                WebRouteContribution.actuatorPublic("/actuator/health"),
-                WebRouteContribution.actuatorPublic("/actuator/health/liveness"),
-                WebRouteContribution.actuatorPublic("/actuator/health/readiness"),
-                WebRouteContribution.actuatorPublic("/actuator/info"),
+                actuatorPublicProbe("/actuator/health"),
+                actuatorPublicProbe("/actuator/health/liveness"),
+                actuatorPublicProbe("/actuator/health/readiness"),
+                actuatorPublicProbe("/actuator/info"),
                 // ── 本地放行：PAC、setup 页面 / 静态、已下载本地资产 ────────────────────────────────
                 WebRouteContribution.local("/proxy.pac"),
                 WebRouteContribution.local("/setup.html"),
                 WebRouteContribution.local("/setup/**"),
                 WebRouteContribution.local("/api/downloaded/**"));
+    }
+
+    /** 宿主私有的 actuator 探针声明入口；第三方 Plugin API 不暴露对应命名工厂。 */
+    private static WebRouteContribution actuatorPublicProbe(String pathPattern) {
+        return new WebRouteContribution(pathPattern, AccessPolicy.ACTUATOR_PUBLIC, Set.of(), false);
     }
 
     @Override

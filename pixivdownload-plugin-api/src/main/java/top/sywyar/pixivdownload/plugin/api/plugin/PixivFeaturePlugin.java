@@ -30,7 +30,7 @@ import java.util.List;
  */
 public interface PixivFeaturePlugin {
 
-    /** 插件唯一 id，小写短横线风格，例如 {@code download-workbench}。 */
+    /** 插件唯一 id，小写短横线风格，例如 {@code example-feature}。 */
     String id();
 
     /**
@@ -95,8 +95,10 @@ public interface PixivFeaturePlugin {
     }
 
     /**
-     * 生命周期：停止。必须幂等，并负责释放该插件的全部注册与在途工作；
-     * 除应用关闭外，运行期卸载插件时也会调用。
+     * 生命周期：停止。必须幂等，只清理插件直接拥有、且没有交给宿主管理的本地资源；
+     * 路由、controller、contribution、租约与经稳定 registrar 登记的任务由宿主按可信 publication /
+     * 注册句柄撤回并等待归零，插件不得自行操作宿主 registry 或代替宿主编排 teardown。
+     * 除应用关闭外，运行期停止或卸载插件时也会调用。
      */
     default void stop() {
     }
@@ -198,7 +200,7 @@ public interface PixivFeaturePlugin {
         return List.of();
     }
 
-    /** 插件贡献的下载工作台作品类型；可信 owner 与 publication 身份由宿主注册时盖章。 */
+    /** 插件贡献的下载作品类型；可信 owner 与 publication 身份由宿主注册时盖章。 */
     default List<DownloadTypeDescriptor> downloadTypes() {
         return List.of();
     }

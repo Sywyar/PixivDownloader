@@ -26,6 +26,12 @@ public record OutboundWebSocketRequest(
         headers = immutableHeaders(headers);
     }
 
+    @Override
+    public String toString() {
+        return "OutboundWebSocketRequest[uri=<redacted>, headerCount="
+                + headers.size() + "]";
+    }
+
     private static URI validatedUri(URI value) {
         Objects.requireNonNull(value, "uri");
         String scheme = value.getScheme();

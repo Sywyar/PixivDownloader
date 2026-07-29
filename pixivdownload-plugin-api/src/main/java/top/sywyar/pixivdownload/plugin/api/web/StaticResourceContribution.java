@@ -15,8 +15,8 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * （同一目录前缀下不同文件可有不同访问级别，
  * 故访问必须按路径声明，无法挂在目录级的本记录上）。
  *
- * @param classpathLocation classpath 位置，如 {@code classpath:/static/pixiv-gallery/}
- * @param publicPathPrefix  对外公开路径（目录前缀或精确文件路径），如 {@code /pixiv-gallery/} 或 {@code /pixiv-stats.html}
+ * @param classpathLocation classpath 位置，如 {@code classpath:/static/example-feature/}
+ * @param publicPathPrefix  对外公开路径（目录前缀或精确文件路径），如 {@code /example-feature/} 或 {@code /feature.html}
  * @param exactFile         {@code true} 为精确文件映射，{@code false} 为目录前缀映射（默认）
  */
 public record StaticResourceContribution(

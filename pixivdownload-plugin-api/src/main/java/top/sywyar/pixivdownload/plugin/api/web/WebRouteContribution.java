@@ -5,7 +5,7 @@ import java.util.Set;
 /**
  * 插件声明的路由与访问策略。
  *
- * @param pathPattern              路径模式（Ant 风格，如 {@code /api/gallery/**}）
+ * @param pathPattern              路径模式（Ant 风格，如 {@code /api/content/**}）
  * @param accessPolicy             访问策略（允许的身份组合，见 {@link AccessPolicy}）
  * @param methods                  允许的 HTTP 方法；空集合表示全部方法
  * @param visibleDuringMaintenance 维护窗口（503）期间是否仍可访问
@@ -21,8 +21,8 @@ public record WebRouteContribution(
     }
 
     // ── 命名静态工厂（对标 List.of / Optional.of）：声明「指定访问策略 + 全部 HTTP 方法 + 维护窗口不可见」
-    //    这一常见档，各对应一个 AccessPolicy，全插件统一复用。需要限定 HTTP 方法集或维护期可见的少数特例，
-    //    继续用标准构造器 new WebRouteContribution(pattern, policy, methods, visibleDuringMaintenance) 兜底。
+    //    这一常见档，全插件统一复用。宿主流程专用策略不进入第三方便利工厂；需要限定 HTTP 方法集或
+    //    维护期可见的少数特例，继续用标准构造器兜底，宿主仍会按可信 owner 校验策略适用范围。
 
     /** 公开路由（{@link AccessPolicy#PUBLIC}）：任何人无需鉴权即可访问，solo / multi 一致。 */
     public static WebRouteContribution publicRoute(String pathPattern) {
@@ -47,7 +47,7 @@ public record WebRouteContribution(
 
     /**
      * 受邀访客可读 + 登录用户 / 管理员、同时受 monitor 管控（{@link AccessPolicy#INVITED_GUEST}）：
-     * 画廊 / 小说页面与其 API。
+     * 受保护业务页面与其 API。
      */
     public static WebRouteContribution invitedGuest(String pathPattern) {
         return new WebRouteContribution(pathPattern, AccessPolicy.INVITED_GUEST, Set.of(), false);
@@ -68,15 +68,10 @@ public record WebRouteContribution(
         return new WebRouteContribution(pathPattern, AccessPolicy.GUI, Set.of(), false);
     }
 
-    /** actuator 公开探针（{@link AccessPolicy#ACTUATOR_PUBLIC}）：health / info，由宿主公开探针路径直接放行。 */
-    public static WebRouteContribution actuatorPublic(String pathPattern) {
-        return new WebRouteContribution(pathPattern, AccessPolicy.ACTUATOR_PUBLIC, Set.of(), false);
-    }
-
     /**
      * 路径是否命中本路由的模式。以 {@code **} 结尾的模式按去掉末尾 {@code **} 后的前缀做 {@code startsWith}
      * 匹配（含 {@code /api/authors**} 这类无尾斜杠前缀）；其它模式允许整段 {@code *} 通配一个路径段
-     * （例如用户小说列表这类 user-id 动态段）；无通配符时按精确相等匹配。
+     * （例如带 user-id 的动态段）；无通配符时按精确相等匹配。
      */
     public boolean matches(String path) {
         if (path == null) {

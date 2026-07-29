@@ -34,6 +34,14 @@ public record OutboundHttpResponse(
         return body.clone();
     }
 
+    @Override
+    public String toString() {
+        return "OutboundHttpResponse[statusCode=" + statusCode
+                + ", statusText=<redacted>"
+                + ", headerCount=" + headers.size()
+                + ", bodyLength=" + body.length + "]";
+    }
+
     static Map<String, List<String>> immutableHeaders(Map<String, List<String>> source) {
         if (source == null || source.isEmpty()) {
             return Map.of();

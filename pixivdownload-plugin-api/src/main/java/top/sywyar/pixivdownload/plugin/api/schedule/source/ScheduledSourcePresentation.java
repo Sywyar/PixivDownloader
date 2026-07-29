@@ -1,6 +1,11 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.source;
 
-/** 来源类型的声明式展示元数据；只保存 i18n key 与受控展示 token。 */
+import java.util.regex.Pattern;
+
+/**
+ * 来源类型的声明式展示元数据；namespace、i18n key 与图标 / 颜色均为有界受控 token，
+ * 不接受路径、样式片段或其它自由文本。
+ */
 public record ScheduledSourcePresentation(
         String displayNamespace,
         String displayNameKey,
@@ -9,24 +14,37 @@ public record ScheduledSourcePresentation(
         String colorToken
 ) {
 
+    private static final Pattern NAMESPACE =
+            Pattern.compile("[a-z][a-z0-9._-]{0,63}");
+    private static final Pattern I18N_KEY =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,191}");
+    private static final Pattern PRESENTATION_TOKEN =
+            Pattern.compile("[a-z][a-z0-9-]{0,39}");
+
     public ScheduledSourcePresentation {
-        if (displayNamespace == null || displayNamespace.isBlank()) {
-            throw new IllegalArgumentException("display namespace must not be blank");
-        }
-        if (displayNameKey == null || displayNameKey.isBlank()) {
-            throw new IllegalArgumentException("display name key must not be blank");
-        }
-        if (descriptionKey == null || descriptionKey.isBlank()) {
-            throw new IllegalArgumentException("description key must not be blank");
-        }
-        displayNamespace = displayNamespace.trim();
-        displayNameKey = displayNameKey.trim();
-        descriptionKey = descriptionKey.trim();
+        displayNamespace = requireToken(
+                displayNamespace, NAMESPACE, "display namespace");
+        displayNameKey = requireToken(displayNameKey, I18N_KEY, "display name key");
+        descriptionKey = requireToken(descriptionKey, I18N_KEY, "description key");
         iconKey = normalizeToken(iconKey, "schedule");
         colorToken = normalizeToken(colorToken, "neutral");
     }
 
+    private static String requireToken(String value, Pattern pattern, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+        String normalized = value.trim();
+        if (!pattern.matcher(normalized).matches()) {
+            throw new IllegalArgumentException(field + " is not a valid presentation token");
+        }
+        return normalized;
+    }
+
     private static String normalizeToken(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
+        return requireToken(
+                value == null || value.isBlank() ? fallback : value,
+                PRESENTATION_TOKEN,
+                "presentation token");
     }
 }

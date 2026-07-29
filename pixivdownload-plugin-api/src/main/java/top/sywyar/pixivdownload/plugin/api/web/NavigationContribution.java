@@ -6,7 +6,7 @@ import java.util.Set;
  * 插件声明的导航项。{@code /api/navigation} 按当前用户可见性过滤后返回。
  * <p>
  * 每条导航项显式声明它要进入的一个或多个 <b>placement</b>（slot id，如 {@code app.top} /
- * {@code gallery.sidebar} / {@code gallery.type-switch}）。页面只声明空 slot（{@code data-nav-slot="<placement>"}），
+ * {@code content.sidebar} / {@code content.type-switch}）。页面只声明空 slot（{@code data-nav-slot="<placement>"}），
  * slot 的内容完全来自匹配该 placement 的导航贡献——页面不再用 include/exclude 过滤 id 来模拟 slot。
  * 同一逻辑入口可属于多个 placement（如下载工作台同时进入顶部栏与各侧栏），由 {@link #placements()} 表达，
  * 故无需为同一入口重复声明多条。
@@ -15,7 +15,7 @@ import java.util.Set;
  * 来源层级保证<b>宿主内置来源恒先于外置来源</b>（外置插件即便填很小的 priority 也排在内置项之后），
  * placement 内由 {@link #priority()} 决定先后（内置基础页面取较小值、功能页面其次、管理入口最大）。
  *
- * @param id           导航项全局唯一 id（用于诊断 / 去重 / 前端 {@code PixivNav.isAvailable}）
+ * @param id           导航项全局唯一 id（用于诊断 / 去重 / 前端可用性判断）
  * @param placements   该入口要进入的 placement（slot id）集合，非空；同一入口可进入多个 slot
  * @param labelNamespace 标签所在的 i18n namespace（在该 namespace 内解析 {@code labelI18nKey}）；{@code null}/空白是<b>有意的回退
  *                       语义</b>、注册期<b>不</b>fail-fast——表示该入口未绑定确定 namespace，由消费端回退（前端 {@code tns} 退化为
@@ -44,13 +44,13 @@ public record NavigationContribution(
         markers = markers == null ? Set.of() : Set.copyOf(markers);
     }
 
-    /** 兼容构造：不声明语义标记。 */
+    /** 便利构造：声明多个 placement，并使用空语义标记集合。 */
     public NavigationContribution(String id, Set<String> placements, String labelNamespace, String labelI18nKey,
                                   String href, String icon, AccessPolicy visibleTo, int priority) {
         this(id, placements, labelNamespace, labelI18nKey, href, icon, visibleTo, priority, Set.of());
     }
 
-    /** 便捷构造：单一 placement 的导航项。 */
+    /** 便利构造：声明单一 placement，并使用空语义标记集合。 */
     public NavigationContribution(String id, String placement, String labelNamespace, String labelI18nKey,
                                   String href, String icon, AccessPolicy visibleTo, int priority) {
         this(id, placement == null ? Set.of() : Set.of(placement), labelNamespace, labelI18nKey,

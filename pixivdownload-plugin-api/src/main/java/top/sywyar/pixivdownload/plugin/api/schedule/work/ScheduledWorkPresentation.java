@@ -75,6 +75,11 @@ public record ScheduledWorkPresentation(
             if (value == null || value.indexOf('\0') >= 0) {
                 throw new IllegalArgumentException("presentation attribute value is invalid");
             }
+            if (ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(key)
+                    && !ScheduledSensitiveFieldNames.isSafeMetadataValue(key, value)) {
+                throw new IllegalArgumentException(
+                        "presentation credential metadata value is invalid");
+            }
             if (ScheduledCredentialText.containsCredentialMaterial(value)) {
                 throw new IllegalArgumentException(
                         "presentation attribute value contains credential material");
